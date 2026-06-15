@@ -13,6 +13,7 @@ import type {
   GitState,
   Session,
   SessionActivity,
+  SubagentEntry,
 } from "./types";
 
 const GIT: GitState = {
@@ -413,6 +414,40 @@ test("session:critic-activity routes to the reviews store", async () => {
   const s = new HerdStore();
   s.apply({ event: "session:critic-activity", data: { id: "s1", summary: "$ git diff" } });
   expect(reviews.activityFor("s1")).toBe("$ git diff");
+});
+
+// ── session:subagents ──────────────────────────────────────────────────────
+
+const SUBAGENTS: SubagentEntry[] = [{ agentId: "a1", agentType: "Explore", startedAt: 1000 }];
+
+test("setSubagents seeds the roster map for bootstrap", () => {
+  const s = new HerdStore();
+  s.setSubagents({ s1: SUBAGENTS });
+  expect(s.subagents["s1"]?.[0]?.agentId).toBe("a1");
+  expect(s.subagents["s2"]).toBeUndefined();
+});
+
+test("session:subagents upserts a session's roster (latest wins)", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:subagents", data: { id: "s1", subagents: SUBAGENTS } });
+  expect(s.subagents["s1"]).toHaveLength(1);
+  expect(s.subagents["s1"]?.[0]?.agentType).toBe("Explore");
+  const updated: SubagentEntry[] = [
+    { agentId: "a1", agentType: "Explore", startedAt: 1000, endedAt: 2000 },
+    { agentId: "a2", agentType: "Plan", startedAt: 2500 },
+  ];
+  s.apply({ event: "session:subagents", data: { id: "s1", subagents: updated } });
+  expect(s.subagents["s1"]).toHaveLength(2);
+  expect(s.subagents["s1"]?.[0]?.endedAt).toBe(2000);
+  expect(s.subagents["s1"]?.[1]?.agentId).toBe("a2");
+});
+
+test("session:archived drops the subagents entry for that session", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  s.apply({ event: "session:subagents", data: { id: "s1", subagents: SUBAGENTS } });
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.subagents["s1"]).toBeUndefined();
 });
 
 // ── session:claude-alive ───────────────────────────────────────────────────

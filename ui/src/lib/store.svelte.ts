@@ -10,6 +10,7 @@ import type {
   StarPromptStatus,
   GitState,
   SessionActivity,
+  SubagentEntry,
   BacklogPayload,
   BlockReason,
   DrainStatus,
@@ -52,6 +53,10 @@ export class HerdStore {
   git = $state<Record<string, GitState>>({});
   /** Live per-session activity signal (heartbeat + current tool), pushed by the server's `session:activity` event. */
   activity = $state<Record<string, SessionActivity>>({});
+  /** Live per-session sub-agent roster (sessionId → SubagentEntry[]), pushed by the
+   *  server's `session:subagents` event; bootstrapped via GET /api/subagents. An
+   *  entry with no `endedAt` is still live. */
+  subagents = $state<Record<string, SubagentEntry[]>>({});
   /** Live per-session claude-process liveness (sessionId → alive), pushed by the
    *  server's `session:claude-alive` event. `false` = claude exited and left a
    *  husk shell → the Resume affordance applies; `true` = claude still runs.
@@ -109,6 +114,10 @@ export class HerdStore {
   }
   setActivity(map: Record<string, SessionActivity>) {
     this.activity = map;
+  }
+  /** Seed (or replace) the sub-agent roster map after a bootstrap GET. */
+  setSubagents(map: Record<string, SubagentEntry[]>) {
+    this.subagents = map;
   }
   /** Seed (or replace) the claude-liveness map after a bootstrap GET. */
   setClaudeAlive(map: Record<string, boolean>) {
@@ -268,6 +277,7 @@ export class HerdStore {
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
+        this.subagents = dropKey(this.subagents, ev.data.id);
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
@@ -288,6 +298,9 @@ export class HerdStore {
         break;
       case "session:activity":
         this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
+        break;
+      case "session:subagents":
+        this.subagents = { ...this.subagents, [ev.data.id]: ev.data.subagents };
         break;
       case "session:claude-alive":
         this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };

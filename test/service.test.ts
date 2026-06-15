@@ -378,7 +378,7 @@ test("spawnSettingsOverlay: hooksIngest off (default) => no hooks key, byte-iden
   }
 });
 
-test("spawnSettingsOverlay: hooksIngest on + token => six http hooks with $SHEPHERD_TOKEN auth", () => {
+test("spawnSettingsOverlay: hooksIngest on + token => all 8 lifecycle events (incl. SubagentStart/Stop) get http hooks with $SHEPHERD_TOKEN auth", () => {
   const prevFlag = config.hooksIngest;
   const prevToken = config.token;
   try {
@@ -396,6 +396,8 @@ test("spawnSettingsOverlay: hooksIngest on + token => six http hooks with $SHEPH
       "SessionEnd",
       "SessionStart",
       "Stop",
+      "SubagentStart",
+      "SubagentStop",
     ]);
     for (const event of [
       "PostToolUse",
@@ -404,6 +406,8 @@ test("spawnSettingsOverlay: hooksIngest on + token => six http hooks with $SHEPH
       "SessionStart",
       "Stop",
       "SessionEnd",
+      "SubagentStart",
+      "SubagentStop",
     ]) {
       const httpHook = parsed.hooks[event][0].hooks[0];
       expect(parsed.hooks[event][0].matcher).toBe("*");
@@ -454,6 +458,8 @@ test("buildHooksFragment: null token omits headers/allowedEnvVars on every event
     "SessionStart",
     "Stop",
     "SessionEnd",
+    "SubagentStart",
+    "SubagentStop",
   ]) {
     const httpHook = frag[event]?.[0]?.hooks[0];
     expect(httpHook).not.toHaveProperty("headers");

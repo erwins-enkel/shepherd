@@ -8,17 +8,43 @@ export type ReapableHerdr = Pick<HerdrDriver, "list" | "tabs" | "closeTab">;
  *  labels but no live agent is an orphaned husk (the probe/critic ended without its tab
  *  being closed — e.g. a shepherd restart cleared the in-memory tracking).
  *
- *  All markers are collision-proof against user sessions, whose labels are prompt-derived
- *  `[a-z0-9-]` slugs: {@link PROBE_NAME} and {@link DISTILL_LABEL} contain underscores, and the
- *  "review " / "name " prefixes contain a space — none is producible by a slug. (Reaping by a
- *  bare slug like "usage-probe" or "distill" would be unsafe — a user prompt can slug to exactly
- *  that.) The "name " prefix is the background LLM namer's transient tab (`name TASK-NN`). */
-function isShepherdHelperLabel(label: string): boolean {
+ *  **Scope filter, not a safety gate.** This function is a first-pass scope filter; the
+ *  caller's process-liveness check (a live agent in `herdr list`) is the actual safety gate.
+ *  This matters for the one exact match with no space — `"rundown"` — which IS a producible
+ *  user slug. It is safe only because `reapOrphanTabs` never reaps a tab that has a live
+ *  backing agent; a running user "rundown" session is therefore never touched.
+ *
+ *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME} and
+ *  {@link DISTILL_LABEL} contain underscores; every other helper uses a space-prefixed
+ *  label (`"review "`, `"name "`, `"plan-review "`, `"pr-critic "`, `"recap "`,
+ *  `"autopilot "`) or a multi-word exact phrase (`"verify api key"`). User sessions use
+ *  prompt-derived `[a-z0-9-]` slugs — no spaces, no underscores — so none of these labels
+ *  is reachable by a slug. Exception: `"rundown"` (exact, no space) relies on the
+ *  liveness gate instead.
+ *
+ *  Helpers covered:
+ *  - `__usage_probe__`   — usage probe (PROBE_NAME)
+ *  - `__distill__`       — distiller (DISTILL_LABEL)
+ *  - `review <desig>`    — critic / code-review spawns
+ *  - `name <desig>`      — background LLM namer
+ *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
+ *  - `pr-critic <repo>#<n>` — standalone PR critic (standalone-critic.ts)
+ *  - `recap <desig>`     — recap generator (recap.ts)
+ *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
+ *  - `autopilot <id>`    — autopilot LLM (autopilot-llm.ts)
+ *  - `verify api key`    — API-key verifier (verify-key.ts) */
+export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
     label === DISTILL_LABEL ||
+    label === "rundown" ||
+    label === "verify api key" ||
     label.startsWith("review ") ||
-    label.startsWith("name ")
+    label.startsWith("name ") ||
+    label.startsWith("plan-review ") ||
+    label.startsWith("pr-critic ") ||
+    label.startsWith("recap ") ||
+    label.startsWith("autopilot ")
   );
 }
 

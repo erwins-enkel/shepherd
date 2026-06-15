@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { reapOrphanTabs, type ReapableHerdr } from "../src/tab-reaper";
+import { test, expect, describe } from "bun:test";
+import { reapOrphanTabs, isShepherdHelperLabel, type ReapableHerdr } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
 import { DISTILL_LABEL } from "../src/distiller";
 import type { HerdrAgent } from "../src/herdr";
@@ -100,4 +100,44 @@ test("reaps 0.7 stable-id husks (w1:tN) and never touches a live tab", () => {
   expect(new Set(got)).toEqual(new Set(["w1:t1", "w1:t2"]));
   expect(new Set(closed)).toEqual(new Set(["w1:t1", "w1:t2"]));
   expect(closed).not.toContain("w1:t3");
+});
+
+describe("isShepherdHelperLabel", () => {
+  const trueLabels: [string, string][] = [
+    // pre-existing helpers
+    [PROBE_NAME, "usage probe (underscore marker)"],
+    [DISTILL_LABEL, "distiller (underscore marker)"],
+    ["review TASK-09", "critic/code-review"],
+    ["name TASK-09", "background namer"],
+    // new helpers (#721)
+    ["plan-review TASK-09", "plan-gate reviewer"],
+    ["pr-critic /home/x/repo#42", "standalone PR critic"],
+    ["recap TASK-09", "recap generator"],
+    ["rundown", "herd-digest rundown (exact, liveness-gated)"],
+    ["autopilot 643cfec7-1234-5678-abcd-ef0123456789", "autopilot LLM"],
+    ["verify api key", "API-key verifier (multi-word exact)"],
+  ];
+
+  for (const [label, desc] of trueLabels) {
+    test(`true: ${desc} — ${JSON.stringify(label)}`, () => {
+      expect(isShepherdHelperLabel(label)).toBe(true);
+    });
+  }
+
+  const falseLabels: [string, string][] = [
+    // bare slugs that look similar but are producible user slugs
+    ["plan-review-thing", "hyphen, no space — not a plan-review helper"],
+    ["my-feature", "ordinary user session slug"],
+    ["usage-probe", "slug form of PROBE_NAME — must NOT be reaped"],
+    ["distill", "slug form of DISTILL_LABEL — must NOT be reaped"],
+    ["reviewing-pr", "starts with 'review' but no trailing space"],
+    ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],
+    ["name-my-thing", "hyphen instead of space — not a namer helper"],
+  ];
+
+  for (const [label, desc] of falseLabels) {
+    test(`false: ${desc} — ${JSON.stringify(label)}`, () => {
+      expect(isShepherdHelperLabel(label)).toBe(false);
+    });
+  }
 });

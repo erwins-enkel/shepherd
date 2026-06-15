@@ -1,18 +1,31 @@
-// Phase 0 ingest path for Claude Code push hooks (issue #704).
+// Hook ingest path for Claude Code push hooks (issues #704 / #709).
 //
-// Observe-only: the spawned agent's PostToolUse / PostToolUseFailure / Notification
-// hooks POST here; we validate the untrusted body, normalize it, drop it into a
-// bounded per-session ring buffer, and log a structured line. NOTHING here feeds the
-// signal pipeline yet — `onSignal` is wired by Task 3 (Phase 1) when `hooksSignals`
-// is on. The whole point of the spike is to MEASURE (latency, correlation, the exact
-// upstream strings) before trusting the channel, so anything unrecognized is recorded
-// and flagged loudly rather than silently dropped.
+// The spawned agent's PostToolUse / PostToolUseFailure / Notification / SessionStart /
+// Stop / SessionEnd hooks POST here; we validate the untrusted body, normalize it, drop
+// it into a bounded per-session ring buffer, and log a structured line.
+//
+// Phase 1 (#704): when `hooksSignals` is on, matched events are forwarded to the poller
+// signal pipeline via `onSignal` (wired post-construction by setSink). PostToolUse feeds
+// activity signals; Notification(permission_prompt) feeds block detection.
+//
+// Phase 2 (#709): SessionStart is consumed to flip claude-liveness to true (fast-path
+// before the poller's liveness sweep). Stop / SessionEnd are recorded + logged only —
+// observe-only, no signal consumption this phase (deferred to #713).
+//
+// Anything unrecognized is recorded and flagged loudly rather than silently dropped.
 
 /** A normalized hook event after validation — the spike's observable unit. */
 export type HookEvent = {
   /** Recognized lifecycle event; an unrecognized `hook_event_name` is still kept,
    *  passed through verbatim, and flagged via `unknown`. */
-  event: "PostToolUse" | "PostToolUseFailure" | "Notification" | string;
+  event:
+    | "PostToolUse"
+    | "PostToolUseFailure"
+    | "Notification"
+    | "SessionStart"
+    | "Stop"
+    | "SessionEnd"
+    | string;
   /** The hook payload's `session_id` (== `claude --session-id` == `claudeSessionId`). */
   sessionId: string;
   /** PostToolUse(/Failure): the tool that ran. */
@@ -25,6 +38,12 @@ export type HookEvent = {
   notificationType?: string;
   /** Notification: the human-readable message string. */
   message?: string;
+  /** SessionStart: the `source` (startup/resume/clear/compact). */
+  source?: string;
+  /** Stop: the `stop_hook_active` boolean (whether a Stop hook is already active). */
+  stopHookActive?: boolean;
+  /** SessionEnd: the termination `reason` (clear/logout/prompt_input_exit/other). */
+  reason?: string;
   /** True when `hook_event_name` or `notification_type` was unrecognized — recorded,
    *  flagged, and `console.warn`-ed so a wrong upstream string surfaces in the spike. */
   unknown?: boolean;
@@ -46,6 +65,7 @@ const RING_CAP = 50;
 // Defensive readers — the body is untrusted JSON; never assume a shape.
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 
@@ -83,6 +103,18 @@ export function validateHookEvent(body: unknown): RawHookEvent | null {
     // The `notification_type` strings are spike-validated, not assumed: flag an
     // absent/unknown type so it's logged + recorded but never silently disables a signal.
     return { event: eventName, sessionId, notificationType, message, unknown: !notificationType };
+  }
+
+  if (eventName === "SessionStart") {
+    return { event: eventName, sessionId, source: str(b.source) };
+  }
+
+  if (eventName === "Stop") {
+    return { event: eventName, sessionId, stopHookActive: bool(b.stop_hook_active) };
+  }
+
+  if (eventName === "SessionEnd") {
+    return { event: eventName, sessionId, reason: str(b.reason) };
   }
 
   // Unrecognized hook_event_name — keep it, pass it through verbatim, flag it.
@@ -128,7 +160,8 @@ export class HookIngest {
       console.log(
         `[hooks] ${ev.event} session=${sessionId} match=${ev.match === false ? "mismatch" : "ok"} ` +
           `latencyMs=${latencyMs} tool=${ev.toolName ?? "-"} status=${ev.status ?? "-"} ` +
-          `ntype=${ev.notificationType ?? "-"} exit=${ev.exitCode ?? "-"}`,
+          `ntype=${ev.notificationType ?? "-"} exit=${ev.exitCode ?? "-"}` +
+          ` src=${ev.source ?? "-"} reason=${ev.reason ?? "-"} stopActive=${ev.stopHookActive ?? "-"}`,
       );
       if (ev.unknown) {
         console.warn(

@@ -126,6 +126,42 @@ test("POST matched session_id forwards to signals", async () => {
   expect(seen).toEqual([session.id]);
 });
 
+test("POST SessionEnd (observe-only) → 202 and snapshot records reason field", async () => {
+  const { app, session } = harness();
+  const res = await post(app, session.id, {
+    session_id: CLAUDE_SID,
+    hook_event_name: "SessionEnd",
+    reason: "logout",
+  });
+  expect(res.status).toBe(202);
+
+  const snap = await (
+    await app.fetch(new Request(`http://x/api/sessions/${session.id}/hooks`))
+  ).json();
+  expect(snap).toHaveLength(1);
+  expect(snap[0].event).toBe("SessionEnd");
+  expect(snap[0].reason).toBe("logout");
+  expect(snap[0].match).toBe(true);
+});
+
+test("POST Stop (observe-only) → 202 and snapshot records stopHookActive field", async () => {
+  const { app, session } = harness();
+  const res = await post(app, session.id, {
+    session_id: CLAUDE_SID,
+    hook_event_name: "Stop",
+    stop_hook_active: false,
+  });
+  expect(res.status).toBe(202);
+
+  const snap = await (
+    await app.fetch(new Request(`http://x/api/sessions/${session.id}/hooks`))
+  ).json();
+  expect(snap).toHaveLength(1);
+  expect(snap[0].event).toBe("Stop");
+  expect(snap[0].stopHookActive).toBe(false);
+  expect(snap[0].match).toBe(true);
+});
+
 test("auth: 401 when token set and Authorization missing/wrong", async () => {
   config.token = "secret-token";
   const { app, session } = harness();

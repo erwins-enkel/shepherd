@@ -378,7 +378,7 @@ test("spawnSettingsOverlay: hooksIngest off (default) => no hooks key, byte-iden
   }
 });
 
-test("spawnSettingsOverlay: hooksIngest on + token => three http hooks with $SHEPHERD_TOKEN auth", () => {
+test("spawnSettingsOverlay: hooksIngest on + token => six http hooks with $SHEPHERD_TOKEN auth", () => {
   const prevFlag = config.hooksIngest;
   const prevToken = config.token;
   try {
@@ -393,8 +393,18 @@ test("spawnSettingsOverlay: hooksIngest on + token => three http hooks with $SHE
       "Notification",
       "PostToolUse",
       "PostToolUseFailure",
+      "SessionEnd",
+      "SessionStart",
+      "Stop",
     ]);
-    for (const event of ["PostToolUse", "PostToolUseFailure", "Notification"]) {
+    for (const event of [
+      "PostToolUse",
+      "PostToolUseFailure",
+      "Notification",
+      "SessionStart",
+      "Stop",
+      "SessionEnd",
+    ]) {
       const httpHook = parsed.hooks[event][0].hooks[0];
       expect(parsed.hooks[event][0].matcher).toBe("*");
       expect(httpHook.type).toBe("http");
@@ -437,7 +447,14 @@ test("buildHooksFragment: null token omits headers/allowedEnvVars on every event
     baseUrl: "http://127.0.0.1:7330",
     token: null,
   }) as Record<string, Array<{ hooks: Array<Record<string, unknown>> }>>;
-  for (const event of ["PostToolUse", "PostToolUseFailure", "Notification"]) {
+  for (const event of [
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Notification",
+    "SessionStart",
+    "Stop",
+    "SessionEnd",
+  ]) {
     const httpHook = frag[event]?.[0]?.hooks[0];
     expect(httpHook).not.toHaveProperty("headers");
     expect(httpHook).not.toHaveProperty("allowedEnvVars");

@@ -92,6 +92,42 @@ test("validateHookEvent: Notification with unknown/absent type → flagged unkno
   expect(ev?.unknown).toBe(true);
 });
 
+test("validateHookEvent: SessionStart with source → recognized, not unknown", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "SessionStart",
+    source: "startup",
+  });
+  expect(ev).toEqual({ event: "SessionStart", sessionId: "s1", source: "startup" });
+  expect(ev?.unknown).toBeUndefined();
+});
+
+test("validateHookEvent: SessionStart without source → source undefined, not unknown", () => {
+  const ev = validateHookEvent({ session_id: "s1", hook_event_name: "SessionStart" });
+  expect(ev).toEqual({ event: "SessionStart", sessionId: "s1", source: undefined });
+  expect(ev?.unknown).toBeUndefined();
+});
+
+test("validateHookEvent: Stop with stop_hook_active:false → recognized, stopHookActive false", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "Stop",
+    stop_hook_active: false,
+  });
+  expect(ev).toEqual({ event: "Stop", sessionId: "s1", stopHookActive: false });
+  expect(ev?.unknown).toBeUndefined();
+});
+
+test("validateHookEvent: SessionEnd with reason → recognized, not unknown", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "SessionEnd",
+    reason: "logout",
+  });
+  expect(ev).toEqual({ event: "SessionEnd", sessionId: "s1", reason: "logout" });
+  expect(ev?.unknown).toBeUndefined();
+});
+
 // ── HookIngest ring buffer ─────────────────────────────────────────────────────
 
 function ev(over: Partial<HookEvent> = {}): HookEvent {

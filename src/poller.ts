@@ -145,9 +145,9 @@ export class StatusPoller {
    *  herdr-blocked, `clearBlock`, reap, prune). */
   private lastSuppressVisible = new Map<string, string>();
 
-  /** Phase-1 push-hook state (issue #704), all gated by `config.hooksSignals`.
-   *  Fed via HookIngest.onSignal → ingestActivity / ingestNotification; the poller
-   *  stays the single owner of per-session signal dedup + the working-while-blocked
+  /** Phase-1/2 push-hook state (issue #704), all gated by `config.hooksSignals`.
+   *  Fed via HookIngest.onSignal → ingestActivity / ingestNotification / ingestSessionStart;
+   *  the poller stays the single owner of per-session signal dedup + the working-while-blocked
    *  state machine, so push events funnel through `emitActivity`/`maybeClassify`
    *  rather than emitting directly (which would bypass dedup + oscillate with poll).
    *  Every map is pruned in `pruneInactive` and inert when the flag is off. */
@@ -526,6 +526,23 @@ export class StatusPoller {
     if (BLOCK_NOTIFICATION_TYPES.has(type)) this.hookAwaitingInput.add(id);
     else if (type === "idle_prompt") this.hookAwaitingInput.delete(id);
     // else: unknown/other type → no-op (dormant; fallback detection unchanged).
+  }
+
+  /**
+   * Phase-2 push lifecycle (issue #709): a SessionStart hook confirms the agent booted.
+   * Flips claude-liveness → true immediately (ahead of the throttled liveness sweep),
+   * reusing the sweep's own map + flip-dedup so push + poll never double-emit. Boot
+   * liveness is monotonic (true until exit), so this cannot oscillate with the sweep,
+   * which will agree (the process is alive — the hook fired from inside it). No-op when
+   * `config.hooksSignals` is off.
+   * (Stop/SessionEnd consumption is deferred to #713 — observe-only this phase.)
+   */
+  ingestSessionStart(id: string): void {
+    if (!config.hooksSignals) return;
+    if (this.lastClaudeAlive.get(id) !== true) {
+      this.lastClaudeAlive.set(id, true);
+      this.livenessWiring.onChange(id, true);
+    }
   }
 
   /**

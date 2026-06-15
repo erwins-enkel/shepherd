@@ -201,8 +201,9 @@ export function resetPluginIdsCacheForTests(): void {
  * untrimmed spawns keep today's exact overlay.
  *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
- * Notification HTTP hooks pointing at this session's ingest route (see buildHooksFragment).
- * Flag off → key omitted entirely, so the overlay JSON stays byte-for-byte identical to today.
+ * Notification/SessionStart/Stop/SessionEnd HTTP hooks pointing at this session's ingest route
+ * (see buildHooksFragment). Flag off → key omitted entirely, so the overlay JSON stays
+ * byte-for-byte identical to today.
  */
 export function spawnSettingsOverlay(
   opts: {
@@ -228,8 +229,8 @@ export function spawnSettingsOverlay(
 
 /**
  * Build the `hooks` overlay fragment (issue #704): one synchronous `http` hook per event
- * (PostToolUse, PostToolUseFailure, Notification), matcher `"*"`, short fail-open timeout,
- * pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
+ * (PostToolUse, PostToolUseFailure, Notification, SessionStart, Stop, SessionEnd), matcher
+ * `"*"`, short fail-open timeout, pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
  *
  * Auth (Finding 2): the `--settings` JSON rides the spawn process argv (ps-visible), NOT the
  * transcript — so we NEVER bake the literal token. When a token is configured we emit a
@@ -260,6 +261,9 @@ export function buildHooksFragment(input: {
     PostToolUse: eventEntry,
     PostToolUseFailure: eventEntry,
     Notification: eventEntry,
+    SessionStart: eventEntry,
+    Stop: eventEntry,
+    SessionEnd: eventEntry,
   };
 }
 

@@ -370,7 +370,11 @@ if (config.hooksSignals && !config.hooksIngest) {
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
     } else if (ev.event === "Notification") {
       poller.ingestNotification(id, ev.notificationType ?? "");
+    } else if (ev.event === "SessionStart") {
+      poller.ingestSessionStart(id);
     }
+    // Stop + SessionEnd are observe-only this phase (deferred to #713):
+    // record() ring-buffers + logs them regardless of the sink, so they're measurable.
   });
 }
 // Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's

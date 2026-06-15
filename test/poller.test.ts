@@ -2177,6 +2177,7 @@ function hookHarness(opts?: {
   visible?: () => string;
   probe?: () => { snapshot: any; activity: any };
   stallCfg?: { stallMs: number; pendingStallMs: number };
+  onLivenessChange?: (id: string, alive: boolean) => void;
 }) {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
@@ -2202,6 +2203,7 @@ function hookHarness(opts?: {
     read: () => visible(),
     readAsync: () => Promise.resolve(visible()),
   };
+  const livenessWiring = opts?.onLivenessChange ? { onChange: opts.onLivenessChange } : undefined;
   const poller = new StatusPoller(
     store,
     herdr as any,
@@ -2217,7 +2219,7 @@ function hookHarness(opts?: {
     () => {},
     (id, activity) => activities.push({ id, activity }),
     undefined, // preview
-    undefined, // liveness
+    livenessWiring, // liveness
     () => {}, // onWorkingBlocked
     (ids) => pruned.push(new Set(ids)), // pruneHooks
   );
@@ -2490,6 +2492,54 @@ test("hooks: ingest* are inert when config.hooksSignals is off", () => {
     h.poller.ingestNotification(h.id, "permission_prompt");
     h.poller.tick();
     expect(h.blocks).toHaveLength(0); // no block trigger
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+// ── Phase-2 push lifecycle: ingestSessionStart (issue #709) ──────────────────
+
+test("hooks: ingestSessionStart flips claude-liveness to true on first call", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const livenessChanges: Array<{ id: string; alive: boolean }> = [];
+    const h = hookHarness({
+      onLivenessChange: (id, alive) => livenessChanges.push({ id, alive }),
+    });
+    h.poller.ingestSessionStart(h.id);
+    expect(livenessChanges).toEqual([{ id: h.id, alive: true }]);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: ingestSessionStart is a no-op on repeated calls (flip-dedup)", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const livenessChanges: Array<{ id: string; alive: boolean }> = [];
+    const h = hookHarness({
+      onLivenessChange: (id, alive) => livenessChanges.push({ id, alive }),
+    });
+    h.poller.ingestSessionStart(h.id);
+    h.poller.ingestSessionStart(h.id); // second call → already true, no re-emit
+    expect(livenessChanges).toHaveLength(1); // only one flip
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: ingestSessionStart is inert when config.hooksSignals is off", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = false;
+  try {
+    const livenessChanges: Array<{ id: string; alive: boolean }> = [];
+    const h = hookHarness({
+      onLivenessChange: (id, alive) => livenessChanges.push({ id, alive }),
+    });
+    h.poller.ingestSessionStart(h.id);
+    expect(livenessChanges).toHaveLength(0); // flag off → no emit
   } finally {
     config.hooksSignals = orig;
   }

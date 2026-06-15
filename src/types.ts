@@ -305,6 +305,50 @@ export interface Recap {
   updatedAt: number;
 }
 
+// ── herd rundown (cross-session attention digest, keyed by calendar day) ──────
+export type HerdDigestState = "generating" | "ready" | "failed";
+
+/** One actionable line in a rundown section. `sessionId`/`pr` let the UI deep-link. */
+export interface RundownItem {
+  label: string;
+  sessionId?: string;
+  pr?: number;
+}
+
+/** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */
+export interface RundownVerdict {
+  overnight: string;
+  decisions: RundownItem[];
+  ciRework: RundownItem[];
+  train: string;
+  focusNext: RundownItem[];
+}
+
+/** A synthesized cross-session attention digest for one calendar day (the stored +
+ *  wire shape). Mirrors the recap lifecycle (generating → ready/failed). The verdict
+ *  fields (overnight/decisions/ciRework/train/focusNext) are empty until `ready`.
+ *  `attentionFingerprint` snapshots the per-session signal set at generation time so a
+ *  later task can decide whether the herd has drifted enough to regenerate. */
+export interface HerdDigest {
+  dayKey: string; // "YYYY-MM-DD" of the operator's local day this digest covers
+  state: HerdDigestState;
+  overnight: string;
+  decisions: RundownItem[];
+  ciRework: RundownItem[];
+  train: string;
+  focusNext: RundownItem[];
+  attentionFingerprint: Record<string, string[]>; // sessionId → sorted signal codes
+  spawnSessionId: string; // claude --session-id of the rundown spawn (usage + pane resolve)
+  cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null; // set when finalized (ready/failed)
+  updatedAt: number;
+  /** Route-computed at GET time (count of attention-bearing sessions whose signal set
+   *  changed since this digest was generated); NOT stored. */
+  staleCount?: number;
+}
+
 /** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
  *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
  *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —
@@ -312,7 +356,7 @@ export interface Recap {
 export interface ReviewerSpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
-  kind: "review" | "plan_gate" | "recap";
+  kind: "review" | "plan_gate" | "recap" | "rundown";
   worktreePath: string;
   model: string | null;
   spawnedAt: number;

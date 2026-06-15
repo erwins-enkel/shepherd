@@ -22,6 +22,7 @@ import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
+import { herdDigest } from "./herd-digest.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -347,29 +348,17 @@ export class HerdStore {
     }
   }
 
-  /** Handle the app-global (non per-session-row) WS events: usage limits, the
-   *  self/herdr update channels, project icons, learnings, backlog + drain.
-   *  Split out of apply() so its dispatch switch stays under the complexity gate. */
-  private applyGlobalEvent(ev: WsEvent) {
+  /** Handle the three herdr self-update channel events (status / log / done). Returns true
+   *  when it handled `ev`, false otherwise — split out of applyGlobalEvent so that dispatch
+   *  switch stays under the complexity gate. */
+  private applyHerdrUpdateEvent(ev: WsEvent): boolean {
     switch (ev.event) {
-      case "usage:limits":
-        this.usageLimits = ev.data;
-        break;
-      case "update:status":
-        this.setUpdate(ev.data);
-        break;
       case "herdr-update:status":
         this.herdrUpdate = ev.data;
-        break;
-      case "diagnostics:status":
-        this.diagnostics = ev.data;
-        break;
-      case "star-prompt:status":
-        this.starPrompt = ev.data;
-        break;
+        return true;
       case "herdr-update:log":
         this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
-        break;
+        return true;
       case "herdr-update:done":
         this.herdrUpdateDone = ev.data as {
           ok: boolean;
@@ -377,12 +366,38 @@ export class HerdStore {
           to: string | null;
           error?: string;
         };
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** Handle the app-global (non per-session-row) WS events: usage limits, the
+   *  self/herdr update channels, project icons, learnings, backlog + drain.
+   *  Split out of apply() so its dispatch switch stays under the complexity gate. */
+  private applyGlobalEvent(ev: WsEvent) {
+    if (this.applyHerdrUpdateEvent(ev)) return;
+    switch (ev.event) {
+      case "usage:limits":
+        this.usageLimits = ev.data;
+        break;
+      case "update:status":
+        this.setUpdate(ev.data);
+        break;
+      case "diagnostics:status":
+        this.diagnostics = ev.data;
+        break;
+      case "star-prompt:status":
+        this.starPrompt = ev.data;
         break;
       case "project-icons:update":
         projectIcons.apply(ev.data);
         break;
       case "learnings:update":
         learnings.apply(ev.data);
+        break;
+      case "herd:digest":
+        herdDigest.apply(ev.data);
         break;
       case "backlog:update":
         this.backlog = ev.data;

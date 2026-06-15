@@ -57,6 +57,7 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
+  import { herdDigest } from "$lib/herd-digest.svelte";
   import { doneSessions } from "$lib/done.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -656,6 +657,23 @@
     if (mobile.current) mobileScreen = "detail";
   }
 
+  // ☰ RUNDOWN: switch the herd rail to the Rundown lens and ensure a digest is loaded
+  // (best-effort; live herd:digest pushes also keep it fresh). Clearing the status
+  // filter mirrors the lens tabs, which are mutually exclusive with it.
+  function openRundown() {
+    statusFilter = null;
+    herdFilter = "rundown";
+    void herdDigest.load();
+  }
+
+  // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens
+  // (back to the full list so the session row is visible) and select it via the same
+  // selectUnit a rail click uses.
+  function selectRundownItem(id: string) {
+    herdFilter = "all";
+    selectUnit(id);
+  }
+
   // true when focus sits in something that consumes typing — a form field or the
   // PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
   // covers it). Single-key shortcuts must stay silent there so they never eat a
@@ -949,6 +967,7 @@
     reviews.load();
     planGates.load();
     recaps.load();
+    herdDigest.load();
     learnings.load();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().
@@ -1403,6 +1422,7 @@
         onhalt={haltHerd}
         needsYou={blockedEntries.length}
         ontriage={() => (showTriage = true)}
+        onrundown={openRundown}
         update={store.update}
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}
@@ -1477,9 +1497,10 @@
               doneSelectedId = id;
               mobileScreen = "detail";
             }}
+            onrundownitem={selectRundownItem}
             onackmigrationsepic={onAckEpicMigrations}
           />
-          {#if store.sessions.length === 0 && herdFilter !== "done"}
+          {#if store.sessions.length === 0 && herdFilter !== "done" && herdFilter !== "rundown"}
             <BacklogView
               payload={backlog}
               mobile={true}
@@ -1622,10 +1643,15 @@
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}
+            onrundownitem={selectRundownItem}
             onackmigrationsepic={onAckEpicMigrations}
           />
         {/if}
-        {#if herdFilter === "done"}
+        {#if herdFilter === "rundown"}
+          <!-- Rundown lens: the digest renders inside the rail panel (left); the main
+               area shows a neutral pointer so the right pane never reads as empty. -->
+          <div class="empty">{m.rundown_main_hint()}</div>
+        {:else if herdFilter === "done"}
           <!-- Done lens: read-only recap for the picked archived session -->
           {#if doneSelected}
             <DoneRecapPanel session={doneSelected} />

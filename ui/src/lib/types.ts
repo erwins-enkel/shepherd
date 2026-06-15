@@ -249,6 +249,32 @@ export interface Recap {
   updatedAt: number;
 }
 
+// mirrors server HerdDigest / RundownItem / HerdDigestState
+export type HerdDigestState = "generating" | "ready" | "failed";
+export interface RundownItem {
+  label: string;
+  sessionId?: string;
+  pr?: number;
+}
+export interface HerdDigest {
+  dayKey: string;
+  state: HerdDigestState;
+  overnight: string;
+  decisions: RundownItem[];
+  ciRework: RundownItem[];
+  train: string;
+  focusNext: RundownItem[];
+  attentionFingerprint: Record<string, string[]>;
+  spawnSessionId: string;
+  cwd: string;
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null;
+  updatedAt: number;
+  /** Route-computed at GET time; NOT stored. */
+  staleCount?: number;
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 export interface ReviewVerdict {
   sessionId: string;
@@ -710,6 +736,7 @@ export type WsEvent =
     }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
+  | { event: "herd:digest"; data: { digest: HerdDigest } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "session:critic-activity"; data: { id: string; summary: string } }

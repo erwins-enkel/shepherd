@@ -48,6 +48,18 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_critic_term",
     bodyKey: "gloss_critic_def",
   },
+  {
+    id: "merge-train",
+    kind: "internal",
+    termKey: "gloss_merge_train_term",
+    bodyKey: "gloss_merge_train_def",
+  },
+  {
+    id: "rework",
+    kind: "internal",
+    termKey: "gloss_rework_term",
+    bodyKey: "gloss_rework_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

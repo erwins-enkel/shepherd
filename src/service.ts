@@ -1868,6 +1868,16 @@ export class SessionService {
     }
   }
 
+  /** The PR numbers currently scoped by any live merge train (the union of every live
+   *  train's `prNumbers`), deduped + sorted. Empty when no train is live. Cheap + sync —
+   *  reads only the in-memory `#liveTrains` map, no forge round-trip. The Herd Rundown
+   *  folds this in as the train's queued set. */
+  liveTrainPrs(): number[] {
+    const prs = new Set<number>();
+    for (const t of this.#liveTrains.values()) for (const n of t.prNumbers) prs.add(n);
+    return [...prs].sort((a, b) => a - b);
+  }
+
   /** The live trains a reconcile targets: the one `trainId` (if live), or all live. */
   #resolveReconcileTargets(trainId?: string): string[] {
     if (trainId === undefined) return [...this.#liveTrains.keys()];

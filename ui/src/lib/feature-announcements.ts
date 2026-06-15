@@ -920,4 +920,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_diagnose_fix_title",
     bodyKey: "feat_diagnose_fix_body",
   },
+  {
+    // targetId "herd-rundown" anchors the coachmark on the ☰ RUNDOWN control in the
+    // TopBar, which is always mounted. 1.31.0 is the latest released tag, so this
+    // ships in 1.32.0.
+    id: "herd-rundown",
+    sinceVersion: "1.32.0",
+    titleKey: "feat_herd_rundown_title",
+    bodyKey: "feat_herd_rundown_body",
+    targetId: "herd-rundown",
+  },
 ];

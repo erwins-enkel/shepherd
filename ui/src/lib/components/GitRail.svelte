@@ -428,6 +428,14 @@
   {#if showReview && verdict}
     <div class="review-scrim" aria-hidden="true"></div>
   {/if}
+  <!-- touch-only dim+blur behind the automation sheet. Like .review-scrim it sits
+       OUTSIDE wrapEl so a backdrop tap trips the existing click-outside dismiss.
+       Desktop keeps the lightweight anchored popover (non-modal, no scrim); only the
+       coarse-pointer layout — where the panel becomes a centered fixed sheet — shows
+       it (CSS-gated). Reuses the canonical .scrim primitive. Purely visual → aria-hidden. -->
+  {#if showAutomation}
+    <div class="auto-scrim scrim" aria-hidden="true"></div>
+  {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile use:edgeFades={mobile}>
       {#if git.state === "none"}
@@ -982,6 +990,21 @@
     background: var(--color-scrim);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
+  }
+
+  /* backdrop behind the automation sheet — only on touch, where the panel becomes a
+     centered fixed sheet (see AutomationPanel's pointer:coarse block). The canonical
+     .scrim class supplies fixed/inset/dim/blur (and the reduced-transparency drop);
+     this rule only contributes the z-index and the coarse-pointer gate. Desktop keeps
+     the anchored non-modal popover, so it stays display:none there. */
+  .auto-scrim {
+    display: none;
+    z-index: 50;
+  }
+  @media (pointer: coarse) {
+    .auto-scrim {
+      display: block;
+    }
   }
 
   /* findings popover: same anchoring as .pr-pop, wider + scrollable body.

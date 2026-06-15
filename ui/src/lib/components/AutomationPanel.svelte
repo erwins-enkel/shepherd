@@ -149,6 +149,15 @@
     const el = popEl;
     if (!el) return;
     const clamp = () => {
+      // Touch layouts render the panel as a centered fixed modal sheet (see the
+      // pointer:coarse block in the stylesheet), where the anchor-relative height math
+      // below is meaningless and the inline max-height would override the CSS.
+      // Hand max-height back to the stylesheet and never flip on touch.
+      if (window.matchMedia("(pointer: coarse)").matches) {
+        el.style.maxHeight = "";
+        flipUp = false;
+        return;
+      }
       // Measure the anchor (the positioning wrapper), not the popover itself —
       // the popover's own rect moves when we flip it, the anchor's doesn't.
       const anchor = el.offsetParent;
@@ -671,6 +680,27 @@
     bottom: 100%;
     margin-top: 0;
     margin-bottom: 4px;
+  }
+  /* Touch layouts (phones + unfolded folds): the strip goes position:static, so
+     this absolute popover hangs below the 44px strip and — anchored right:8px and
+     narrower than the page — could be panned partly off-screen. Override into a
+     centered fixed modal sheet over the .auto-scrim backdrop (rendered by GitRail),
+     wider than the desktop popover and impossible to pan. Mirrors .review-pop.
+     The JS height-clamp bails on coarse pointers, leaving max-height to this rule. */
+  @media (pointer: coarse) {
+    .auto-pop {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      right: auto;
+      bottom: auto;
+      transform: translate(-50%, -50%);
+      margin: 0;
+      width: min(480px, 92vw);
+      max-width: none;
+      max-height: 85vh;
+      z-index: 51;
+    }
   }
   .auto-head {
     font-size: var(--fs-micro);

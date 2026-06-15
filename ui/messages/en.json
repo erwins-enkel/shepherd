@@ -1343,5 +1343,7 @@
   "diagnostics_fix_confirm_run": "Run",
   "diagnostics_fix_running": "Running…",
   "diagnostics_fix_failed": "Fix failed — the command did not complete. Try running it manually.",
-  "diagnostics_fix_success": "Fixed — re-checked."
+  "diagnostics_fix_success": "Fixed — re-checked.",
+  "feat_diagnose_fix_title": "One-click Fix in Diagnostics",
+  "feat_diagnose_fix_body": "When Settings → Diagnostics flags a missing prerequisite with a known install command — bun, node, herdr, or claude — you can now fix it in place: a Fix button runs the exact command (shown first for your confirmation) on the server and re-checks. Steps that need a login, like gh and tailscale, still link out to guidance."
 }

@@ -21,7 +21,10 @@ function buildTarball(): string {
   return tar;
 }
 
-async function runScenario(
+/** Local repo path to the installer the install-e2e scenario stages + runs. */
+const INSTALL_SCRIPT = join(import.meta.dir, "..", "..", "deploy", "install.sh");
+
+export async function runScenario(
   driver: IncusDriver,
   scenario: Scenario,
   tarball: string,
@@ -35,6 +38,37 @@ async function runScenario(
   };
   let detection: DetectionResult | undefined;
   try {
+    if (scenario.installE2E) {
+      // Inverse flow: bare host → real deploy/install.sh → assert it reaches green.
+      // No seeded defect, no baseline; `expect` is the target-ok set. The install
+      // is a deterministic, LLM-free apply, so it reuses the "verbatim" appliedVia.
+      await seedInstance(driver, scenario, tarball, INSTALL_SCRIPT);
+      const install = await driver.exec(scenario.id, [
+        "sh",
+        "-c",
+        // SHEPHERD_DIR=/opt/shepherd so probe.ts's hardcoded `cd /opt/shepherd`
+        // finds it; NO_SERVICE skips systemd (no PID 1 in a fresh exec session).
+        // install.sh is `#!/usr/bin/env bash` + `set -o pipefail`; run it with bash,
+        // not sh — on Ubuntu /bin/sh is dash, which aborts at `set -o pipefail`.
+        "SHEPHERD_SRC=/root/shepherd.tar SHEPHERD_NO_SERVICE=1 SHEPHERD_DIR=/opt/shepherd bash /root/install.sh",
+      ]);
+      if (install.code !== 0) {
+        throw new Error(
+          `install.sh failed in ${scenario.id}:\n${install.stderr || install.stdout}`,
+        );
+      }
+      await bootShepherd(driver, scenario.id);
+      const after = await probeDiagnostics(driver, scenario.id);
+      detection = assertDetection(after, scenario.id, scenario.expect);
+      return {
+        ...base,
+        detection,
+        appliedVia: "verbatim",
+        reachedGreen: detection.detected,
+        installE2E: true,
+      };
+    }
+
     await seedInstance(driver, scenario, tarball);
     await bootShepherd(driver, scenario.id);
     const before = await probeDiagnostics(driver, scenario.id);
@@ -207,4 +241,6 @@ async function main() {
   process.exit(gateOk ? 0 : 1);
 }
 
-void main();
+// Only run when executed directly (`bun run …/run.ts`), not when a test imports
+// `runScenario` from this module — importing must not acquire the host lock + exit.
+if (import.meta.main) void main();

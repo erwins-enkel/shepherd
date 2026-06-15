@@ -156,6 +156,7 @@ function buildSvc(opts: {
   snapshots?: () => HerdSnapshots;
   stalledSessionIds?: () => Set<string>;
   mergeTrainState?: () => MergeTrainState;
+  backlogPriority?: () => Record<string, number>;
   verdict?: string | null;
   timeoutMs?: number;
   readUsage?: () => Promise<any>;
@@ -171,6 +172,7 @@ function buildSvc(opts: {
     snapshots: opts.snapshots ?? (() => EMPTY_SNAPSHOTS),
     stalledSessionIds: opts.stalledSessionIds,
     mergeTrainState: opts.mergeTrainState,
+    backlogPriority: opts.backlogPriority,
     model: "sonnet",
     now: opts.nowFn,
     timeoutMs: opts.timeoutMs ?? 300_000,
@@ -565,4 +567,19 @@ test("currentAttentionFingerprint: drift vs a stored digest is measurable via fi
   expect(fingerprintDiffCount(stored, current)).toBeGreaterThan(0);
   // Identical → 0.
   expect(fingerprintDiffCount(current, current)).toBe(0);
+});
+
+test("generate: backlogPriority is threaded into the assembled prompt as backlogRank", async () => {
+  const store = makeStore([makeSession({ id: "s1", repoPath: "/r", status: "running" })]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    backlogPriority: () => ({ "/r": 0 }),
+  });
+  expect(await svc.generate()).toBe("started");
+  const prompt = herdr.started[0]!.argv.at(-1)!;
+  // The emitted session for /r must carry its rank-0 priority in the herd-state JSON.
+  expect(prompt).toContain('"backlogRank": 0');
 });

@@ -258,6 +258,89 @@ test("buildRundownPrompt: not-all-clear guard fires when truncatedTier2>0 with t
   expect(prompt).toContain("Tier-2 (HIGH)");
 });
 
+// ── assembleHerdState — backlog-priority weighting ────────────────────────────
+
+test("assembleHerdState: within a tier, higher-priority repo (lower backlogRank) sorts first", () => {
+  // Same tier (both Tier-3, in-flight), same age — only backlogRank should break the tie.
+  const sessions: Session[] = [
+    session({ id: "lo", desig: "LO", repoPath: "/repo-low", status: "running" }),
+    session({ id: "hi", desig: "HI", repoPath: "/repo-high", status: "running" }),
+  ];
+  const out = assembleHerdState({
+    sessions,
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+    backlogRank: { "/repo-high": 0, "/repo-low": 1 },
+  });
+  expect(out.sessions.map((s) => s.sessionId)).toEqual(["hi", "lo"]);
+});
+
+test("assembleHerdState: backlogRank does NOT promote a Tier-3 above a Tier-1", () => {
+  const sessions: Session[] = [
+    // Tier-3 in a top-priority repo (rank 0)
+    session({ id: "t3", desig: "T3", repoPath: "/repo-high", status: "running" }),
+    // Tier-1 in a no-priority repo
+    session({ id: "t1", desig: "T1", repoPath: "/repo-none", status: "blocked" }),
+  ];
+  const out = assembleHerdState({
+    sessions,
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+    backlogRank: { "/repo-high": 0 },
+  });
+  // Tier-1 must lead despite the Tier-3 living in the higher-priority repo.
+  expect(out.sessions[0]!.sessionId).toBe("t1");
+  expect(out.sessions[0]!.tier).toBe(1);
+});
+
+test("assembleHerdState: emitted sessions carry backlogRank (ranked + sentinel for unranked)", () => {
+  const sessions: Session[] = [
+    session({ id: "ranked", desig: "R", repoPath: "/repo-high", status: "running" }),
+    session({ id: "unranked", desig: "U", repoPath: "/repo-other", status: "running" }),
+  ];
+  const out = assembleHerdState({
+    sessions,
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+    backlogRank: { "/repo-high": 3 },
+  });
+  const byId = Object.fromEntries(out.sessions.map((s) => [s.sessionId, s.backlogRank]));
+  expect(byId.ranked).toBe(3);
+  expect(byId.unranked).toBe(Number.MAX_SAFE_INTEGER);
+});
+
+test("assembleHerdState: backlogRank absent → all sessions get the sentinel, age tiebreaks", () => {
+  const sessions: Session[] = [
+    session({ id: "young", desig: "Y", status: "running", createdAt: NOW - 100 }),
+    session({ id: "old", desig: "O", status: "running", createdAt: NOW - 5000 }),
+  ];
+  const out = assembleHerdState({
+    sessions,
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(out.sessions.every((s) => s.backlogRank === Number.MAX_SAFE_INTEGER)).toBe(true);
+  // Equal sentinel rank → oldest first.
+  expect(out.sessions.map((s) => s.sessionId)).toEqual(["old", "young"]);
+});
+
+test("buildRundownPrompt: states backlog-priority preference for focusNext", () => {
+  const out = assembleHerdState({
+    sessions: [session({ id: "s", desig: "S", status: "running" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("backlogRank");
+  expect(prompt).toContain("focusNext");
+  expect(prompt).toContain("higher-priority repos");
+});
+
 // ── fingerprint diff ─────────────────────────────────────────────────────────
 
 test("attentionFingerprint: only attention-bearing sessions, sorted signals", () => {

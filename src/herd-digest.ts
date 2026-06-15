@@ -150,6 +150,9 @@ export interface HerdDigestServiceDeps {
   stalledSessionIds?: () => Set<string>;
   /** Merge-train state (queued PRs + per-session errors); supplied by Task 3. */
   mergeTrainState?: () => MergeTrainState;
+  /** Backlog-priority rank per repoPath (lower = higher priority) from the warm /api/backlog
+   *  cache; weights focusNext within a tier. Optional — absent → no backlog weighting. */
+  backlogPriority?: () => Record<string, number>;
   model?: string | null;
   now?: () => number;
   timeoutMs?: number;
@@ -310,6 +313,7 @@ export class HerdDigestService {
         recaps: snap.recaps,
         stalled,
         trains: train?.bySession,
+        backlogRank: this.deps.backlogPriority?.(),
         overnightDelta,
         generatedFor: dayKey,
         now,

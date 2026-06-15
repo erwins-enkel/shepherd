@@ -854,6 +854,20 @@ const herdDigestService = new HerdDigestService({
     queuedPrs: service.liveTrainPrs(),
     bySession: Object.fromEntries([...mergeErrorSessions].map((id) => [id, { error: true }])),
   }),
+  // Backlog-priority rank per repoPath: rank the configured repos by their WARM cached
+  // open-issue count (descending — the same criterion the backlog overview ranks by),
+  // assigning 0,1,2,…. Reads `backlog.counts()` off the kept-warm cache only (no async
+  // forge round-trip); a repo with no cached counts sorts last. Called inside generate()
+  // (≤ once/day) + the staleCount route, so cheap-by-construction. `backlog` is declared
+  // later in this module but the closure only runs well after init, so the ref is safe.
+  backlogPriority: () => {
+    const ranked = listRepos(config.repoRoot)
+      .map((r) => ({ path: r.path, openIssues: backlog.peek(r.path)?.openIssues ?? -1 }))
+      .sort((a, b) => b.openIssues - a.openIssues);
+    const rank: Record<string, number> = {};
+    ranked.forEach((r, i) => (rank[r.path] = i));
+    return rank;
+  },
 });
 
 const draftReconcile = new DraftReconcileService({

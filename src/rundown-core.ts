@@ -153,6 +153,9 @@ export interface AssembledSession {
   tier: AttentionTier;
   signals: SignalCode[];
   ageMs: number;
+  /** Backlog-priority rank of this session's repo (lower = higher priority; 0 = top). A large
+   *  sentinel when the repo has no backlog rank, so it sorts last within its tier. */
+  backlogRank: number;
   prNumber?: number;
   prUrl?: string;
   findings?: string[];
@@ -183,7 +186,14 @@ export interface AssembleInput {
   generatedFor: string;
   now?: number;
   topN?: number;
+  /** Backlog-priority rank per repoPath (lower = higher priority; 0 = top-priority repo). A
+   *  session whose repoPath is absent here is treated as lowest priority. From /api/backlog's
+   *  open-issue ranking; weights focusNext within a tier. */
+  backlogRank?: Record<string, number>;
 }
+
+/** Sentinel rank for a repo with no backlog priority — sorts after any ranked repo within a tier. */
+const NO_BACKLOG_RANK = Number.MAX_SAFE_INTEGER;
 
 /** Pure builder: classify every session, order by tier then age (older first within a
  *  tier), and trim to `topN` — but with a HARD GUARANTEE that every Tier-1 session is
@@ -214,6 +224,7 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
       tier,
       signals,
       ageMs: Math.max(0, now - s.createdAt),
+      backlogRank: input.backlogRank?.[s.repoPath] ?? NO_BACKLOG_RANK,
     };
     if (git?.number != null) item.prNumber = git.number;
     if (git?.url) item.prUrl = git.url;
@@ -222,8 +233,12 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
     ranked.push(item);
   }
 
-  // Order: tier asc, then oldest first within a tier.
-  ranked.sort((a, b) => a.tier - b.tier || b.ageMs - a.ageMs);
+  // Order WITHIN equal tier: higher-priority repo (lower backlogRank) first, then oldest first.
+  // Tier is always primary, so a higher-priority repo never jumps ahead of a more-urgent tier —
+  // bottlenecks (Tier 1) still outrank routine work regardless of backlog priority.
+  const byTierRankAge = (a: AssembledSession, b: AssembledSession) =>
+    a.tier - b.tier || a.backlogRank - b.backlogRank || b.ageMs - a.ageMs;
+  ranked.sort(byTierRankAge);
 
   // Tier-1 always survives; fill the rest of the budget with tier 2 then 3 in order.
   const tier1 = ranked.filter((s) => s.tier === 1);
@@ -233,8 +248,8 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
   const dropped = rest.slice(budget);
   const truncatedTier2 = dropped.filter((s) => s.tier === 2).length;
   const truncatedTier3 = dropped.filter((s) => s.tier === 3).length;
-  // Re-sort the kept set so output is uniformly tier/age ordered.
-  kept.sort((a, b) => a.tier - b.tier || b.ageMs - a.ageMs);
+  // Re-sort the kept set so output is uniformly tier/backlog-rank/age ordered.
+  kept.sort(byTierRankAge);
 
   return {
     generatedFor: input.generatedFor,
@@ -265,6 +280,10 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     "The `sessions` array below is ALREADY significance-ranked: Tier-1 (CRITICAL, blocked on",
     "the operator) come first, then Tier-2 (HIGH), then Tier-3 (NORMAL). Respect that order —",
     "lead with the most urgent.",
+    "Each session carries a `backlogRank` (lower = higher-priority repo per the backlog;",
+    "a large value means the repo has no ranking). When choosing `focusNext`, prefer items from",
+    "higher-priority repos (lower backlogRank) — but bottlenecks ALWAYS outrank routine work:",
+    "never let backlog priority promote a lower-tier item above a genuine Tier-1 blocker.",
   ];
 
   if (assembled.truncatedTier2 > 0 || assembled.truncatedTier3 > 0) {

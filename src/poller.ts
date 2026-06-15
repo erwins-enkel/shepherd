@@ -12,6 +12,22 @@ import { config } from "./config";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 
+/**
+ * Notification `notification_type`s that assert an awaiting-input edge (Phase 1,
+ * issue #704). Deliberately a small, named constant because under
+ * `--dangerously-skip-permissions` (how Shepherd spawns every agent) tool-permission
+ * prompts are suppressed, so it was unclear whether the real pausing cases emit a
+ * usable edge. CONFIRMED by the Phase-0 live spike (2026-06-15): BOTH interactive-pause
+ * cases — an `AskUserQuestion` pause AND an `ExitPlanMode`/plan-approval prompt — fire
+ * `Notification(permission_prompt)` even under skip-permissions, so this single type
+ * covers them. If some future pausing case emitted a different type, the block trigger
+ * would simply stay dormant for it and detection would cleanly degrade to the
+ * existing `herdr-blocked → classifyBlocked` fallback — the intended no-regression
+ * path. `idle_prompt` is deliberately NOT here (idle is handled
+ * by herdr mapping).
+ */
+const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
+
 /** Both transcript-derived signals from a single read; the unified probe's result. */
 type TranscriptSignals = { snapshot: ActivitySnapshot | null; activity: SessionActivity | null };
 
@@ -129,6 +145,24 @@ export class StatusPoller {
    *  herdr-blocked, `clearBlock`, reap, prune). */
   private lastSuppressVisible = new Map<string, string>();
 
+  /** Phase-1 push-hook state (issue #704), all gated by `config.hooksSignals`.
+   *  Fed via HookIngest.onSignal → ingestActivity / ingestNotification; the poller
+   *  stays the single owner of per-session signal dedup + the working-while-blocked
+   *  state machine, so push events funnel through `emitActivity`/`maybeClassify`
+   *  rather than emitting directly (which would bypass dedup + oscillate with poll).
+   *  Every map is pruned in `pruneInactive` and inert when the flag is off. */
+  /** Per-session ms of the last PostToolUse(/Failure) push activity — the freshness
+   *  baseline that lets `maybeProbe` suppress its now-redundant transcript activity
+   *  emit while the (fresher, real-summary) push path is carrying the session. */
+  private lastHookActivityAt = new Map<string, number>();
+  /** Per-session windowed heat-strip ticks accrued from push activity (mirrors
+   *  `interimTicks`, windowed to STRIP_WINDOW_MS). */
+  private hookTicks = new Map<string, number[]>();
+  /** Sessions for which a Notification reported an awaiting-input edge; consumed by
+   *  `reconcileAgent` to trigger a classify THIS tick (≤ ~1 tick), independent of
+   *  herdr's latchy `blocked` status. */
+  private hookAwaitingInput = new Set<string>();
+
   /** Timestamp of the last claude-liveness sweep (0 = never). */
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
@@ -180,6 +214,13 @@ export class StatusPoller {
      * (and before) any re-armed block emission.
      */
     private onWorkingBlocked: (id: string, working: boolean) => void = () => {},
+    /**
+     * Phase-1 (issue #704): prune the HookIngest ring buffers for sessions no longer
+     * active, called from `pruneInactive` so dead sessions' buffers don't grow
+     * unbounded by session count (Task-2 reviewer flag). Undefined ⇒ no-op (the
+     * ingest module isn't wired, e.g. in tests / flag off).
+     */
+    private pruneHooks?: (activeIds: Set<string>) => void,
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -309,12 +350,7 @@ export class StatusPoller {
       this.onChange(s.id, status); // nudge clients to re-attach the PTY to the fresh terminal
     }
     if (idChanged) s = { ...s, herdrAgentId: agent.terminalId };
-    // There's a next action again → drop the manual "ready to merge" parking so
-    // the row rejoins the active group. Sticky otherwise (idle/done keep it).
-    if ((status === "running" || status === "blocked") && s.readyToMerge) {
-      this.store.update(s.id, { readyToMerge: false });
-      this.onReady(s.id, false);
-    }
+    this.dropReadyToMergeIfActionable(s, status);
     // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
     // display flag must drop in the SAME tick, not via the throttled probe paths.
     // The suppression-episode baseline goes with it (flag or not — a frozen
@@ -323,9 +359,56 @@ export class StatusPoller {
       this.lastSuppressVisible.delete(s.id);
       if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     }
+    // Phase-1 push block-trigger (issue #704): a Notification awaiting-input edge
+    // can classify THIS tick even before herdr latches "blocked". When it handles the
+    // session (announced a block), short-circuit so the normal routing below doesn't
+    // immediately wipe the just-emitted block. See tryHookAwaitingBlock.
+    if (status !== "blocked" && this.tryHookAwaitingBlock(s)) return;
+
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.clearBlock(s.id);
+  }
+
+  /**
+   * There's a next action again → drop the manual "ready to merge" parking so the row
+   * rejoins the active group. Sticky otherwise (idle/done keep it).
+   */
+  private dropReadyToMergeIfActionable(s: Session, status: Session["status"]): void {
+    if ((status === "running" || status === "blocked") && s.readyToMerge) {
+      this.store.update(s.id, { readyToMerge: false });
+      this.onReady(s.id, false);
+    }
+  }
+
+  /**
+   * Phase-1 push block-trigger (issue #704): a Notification reported an awaiting-input
+   * edge. Classify THIS tick even if herdr hasn't latched "blocked" yet, so the block
+   * surfaces ≤ ~1 tick after the agent asks — independent of herdr's latchy status +
+   * the PTY-regex *detection* heuristics. classifyBlocked still supplies the menu/yes-no
+   * options + tail (the Notification payload has none). The PTY read stays on the TICK
+   * (maybeClassify), never in the route (single-loop-no-sync-exec). Callers skip this
+   * when status==="blocked" already (the normal branch classifies), to avoid a double
+   * read. The marker is consumed only once a classify ACTUALLY runs (maybeClassify
+   * returns true): if its reclassifyMs throttle skips this tick, we KEEP the marker and
+   * retry next tick — still faster/more reliable than waiting on herdr's latchy
+   * "blocked" fallback. When the type never arrives (the common skip-permissions case),
+   * this is dormant and detection stays on the herdr-blocked fallback — no regression.
+   *
+   * Returns true when it announced an awaiting-input/menu/yes-no block (lastSig set to a
+   * non-stall reason) → the caller must short-circuit: running the normal running/idle
+   * routing this tick (`maybeProbe`→`evaluateStall`→`clearBlock`, or the idle-branch
+   * `clearBlock`) would immediately wipe the just-emitted block. The next tick (no
+   * marker) routes normally, so a resolved prompt clears via the usual path. A non-block
+   * classify (e.g. a working spinner suppressed it) returns false → normal routing runs.
+   */
+  private tryHookAwaitingBlock(s: Session): boolean {
+    if (!config.hooksSignals || !this.hookAwaitingInput.has(s.id)) return false;
+    // Consume the marker only when the classify actually ran (throttle didn't skip);
+    // a throttled tick keeps the marker so the next tick retries the surface.
+    if (this.maybeClassify(s.id, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
+    const sig = this.lastSig.get(s.id);
+    return sig !== undefined && sig !== STALL_SIG;
   }
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
@@ -345,6 +428,9 @@ export class StatusPoller {
       ...this.previewStopState.keys(),
       ...this.workingWhileBlocked,
       ...this.lastSuppressVisible.keys(),
+      ...this.lastHookActivityAt.keys(),
+      ...this.hookTicks.keys(),
+      ...this.hookAwaitingInput,
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -363,13 +449,83 @@ export class StatusPoller {
         // archived/removed → no client cares anymore; drop without an emit
         this.workingWhileBlocked.delete(id);
         this.lastSuppressVisible.delete(id);
+        // Phase-1 push-hook tracking (issue #704)
+        this.lastHookActivityAt.delete(id);
+        this.hookTicks.delete(id);
+        this.hookAwaitingInput.delete(id);
       }
     }
+    // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too
+    // (so they don't grow unbounded by session count). No-op when unwired.
+    this.pruneHooks?.(activeIds);
   }
 
   /** Last-emitted activity signal per running session, for client bootstrap. */
   activitySnapshot(): Record<string, SessionActivity> {
     return Object.fromEntries(this.lastActivity);
+  }
+
+  /**
+   * Phase-1 push activity (issue #704), fed by HookIngest.onSignal for both
+   * `PostToolUse` (`status:"ok"`) and `PostToolUseFailure` (`status:"error"`). Builds
+   * a `SessionActivity` from the tool name + a windowed heat-strip tick and routes it
+   * through the existing dedup `emitActivity` — the SAME sink the poll path uses, so
+   * push + poll never bypass the dedup or oscillate. A `PostToolUse` push carries a
+   * REAL tool summary (vs. the interim heartbeat's `summary:null`), so it beats the
+   * interim emit on the freshness guard below.
+   *
+   * No-op when `config.hooksSignals` is off (the sink is never wired in that case, so
+   * this is belt-and-suspenders for direct callers/tests). Records `lastHookActivityAt`
+   * so `maybeProbe` knows the push path is fresh.
+   */
+  ingestActivity(
+    id: string,
+    ev: { toolName?: string; status?: "ok" | "error"; ts?: number },
+  ): void {
+    if (!config.hooksSignals) return;
+    const t = ev.ts ?? this.now();
+    // heat-strip: append this tick, window to STRIP_WINDOW_MS (mirror probeTerminalInterim).
+    // Skip a duplicate same-ms tick so two events stamped identically dedupe through
+    // `emitActivity` (the strip would otherwise differ → spurious re-emit).
+    const ticks = this.hookTicks.get(id) ?? [];
+    if (ticks[ticks.length - 1] !== t) ticks.push(t);
+    const cutoff = t - STRIP_WINDOW_MS;
+    const windowed = ticks.filter((ts) => ts >= cutoff);
+    this.hookTicks.set(id, windowed);
+    // recentErrTs: only the error ticks within the window (a failure feeds error heat
+    // via the push path so the freshness guard below can safely suppress the probe's
+    // redundant emit without dropping error signal — Finding 3). We don't retain a
+    // separate error-tick list across calls (the strip is coarse + windowed), so a
+    // single push contributes its own `t` to recentErrTs when it's an error.
+    const recentErrTs = ev.status === "error" ? [t] : [];
+    this.emitActivity(id, {
+      lastActivityTs: t,
+      // A real tool name — non-null so it beats the interim `summary:null` heartbeat.
+      // We don't have rich tool_input here; the bare tool name is the available summary.
+      summary: ev.toolName ?? null,
+      recentTs: windowed,
+      recentErrTs,
+    });
+    this.lastHookActivityAt.set(id, t);
+  }
+
+  /**
+   * Phase-1 push notification (issue #704), fed by HookIngest.onSignal for
+   * `Notification` events. An awaiting-input type (see BLOCK_NOTIFICATION_TYPES) sets a
+   * marker consumed by `reconcileAgent` to classify THIS tick — surfacing the block
+   * ≤ ~1 tick after the agent asks, independent of herdr's latchy `blocked` status.
+   * `idle_prompt` clears the marker (idle is handled by herdr mapping; never force a
+   * block). Any other type is a no-op here — unknown types are already logged upstream,
+   * and an awaiting-input edge we haven't confirmed simply stays on the existing
+   * `herdr-blocked → classifyBlocked` fallback (no regression).
+   *
+   * No-op when `config.hooksSignals` is off.
+   */
+  ingestNotification(id: string, type: string): void {
+    if (!config.hooksSignals) return;
+    if (BLOCK_NOTIFICATION_TYPES.has(type)) this.hookAwaitingInput.add(id);
+    else if (type === "idle_prompt") this.hookAwaitingInput.delete(id);
+    // else: unknown/other type → no-op (dormant; fallback detection unchanged).
   }
 
   /**
@@ -465,8 +621,20 @@ export class StatusPoller {
     this.resetInterim(s.id);
 
     // ── activity emit (deduped by signal content) ──
+    // Phase-1 freshness guard (issue #704, Finding 3): when push activity is fresh, the
+    // push path already carries this session with a REAL tool summary (vs. the
+    // transcript probe's), so skip the probe's redundant *non-error* activity emit.
+    // Stall evaluation below still runs UNCHANGED — hooks only tighten the active path;
+    // the pure-generation stall cross-check is untouched. Error heat is NEVER dropped:
+    // `PostToolUseFailure` feeds `recentErrTs` via the push path, so suppression is
+    // safe — and as a belt-and-suspenders guard, if the probe carries error heat the
+    // push hasn't emitted, we still emit it.
     if (signals.activity) {
-      this.emitActivity(s.id, signals.activity);
+      if (this.hookActivityFresh(s.id, t) && signals.activity.recentErrTs.length === 0) {
+        // fresh push + no probe-side error heat → push path owns the activity emit
+      } else {
+        this.emitActivity(s.id, signals.activity);
+      }
     }
 
     // ── stall decision: transcript candidate + live-terminal liveness gate ──
@@ -539,7 +707,13 @@ export class StatusPoller {
       const changed = prev !== undefined && visible !== prev;
 
       // 1. heartbeat: a changed buffer is one live "tick"; window the list.
-      if (changed) {
+      // Phase-1 freshness guard (issue #704, Finding 3): when push activity is fresh,
+      // the push path carries this session with a REAL tool summary, so skip the
+      // interim's redundant `summary:null` heartbeat emit. The interim heartbeat
+      // carries no error heat (recentErrTs is always empty here), so suppression can
+      // never drop error signal. The stall logic below STILL runs — the interim
+      // terminal-freeze stall cross-check is untouched.
+      if (changed && !this.hookActivityFresh(id, t)) {
         const ticks = this.interimTicks.get(id) ?? [];
         ticks.push(t);
         const cutoff = t - STRIP_WINDOW_MS;
@@ -571,6 +745,20 @@ export class StatusPoller {
     } finally {
       this.interimInFlight.delete(id);
     }
+  }
+
+  /**
+   * Phase-1 (issue #704): is the push (PostToolUse) activity for this session fresh
+   * enough that the transcript/interim probe should defer its redundant activity emit?
+   * Fresh = a push landed within `2 × probeCheckMs` (two probe cadences — long enough
+   * to bridge the gap between two pushes, short enough that a gone-quiet push hands the
+   * active path back to the probe). Always false when `hooksSignals` is off (the map
+   * stays empty), so the probe emits exactly as today — the fallback.
+   */
+  private hookActivityFresh(id: string, now: number): boolean {
+    if (!config.hooksSignals) return false;
+    const at = this.lastHookActivityAt.get(id);
+    return at !== undefined && now - at < 2 * this.probeCheckMs;
   }
 
   /** Emit an activity signal, deduped by content so clients see only real changes. */
@@ -661,9 +849,10 @@ export class StatusPoller {
    * false)` fires first, then `onBlock`, in the same tick — clients see the flag drop
    * and the block land together.
    */
-  private maybeClassify(id: string, term: string): void {
+  private maybeClassify(id: string, term: string): boolean {
     const t = this.now();
-    if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return;
+    // Throttled this tick → did NOT look (caller may keep an awaiting marker to retry).
+    if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return false;
     this.lastReadAt.set(id, t);
     let visible: string;
     let reason: BlockReason;
@@ -672,14 +861,14 @@ export class StatusPoller {
       reason = this.classify(visible);
     } catch (err) {
       console.warn(`[poller] classify failed for ${id}:`, err);
-      return; // best-effort; retry next cadence
+      return false; // best-effort; retry next cadence (didn't classify → didn't look)
     }
     if (reason.shape === "awaiting-input" && hasActiveSpinner(visible)) {
       // herdr can latch "blocked" after an answered dialog; a live spinner means the
       // agent resumed working — clear any announced block instead of emitting the
       // no-evidence fallback. (suppression scoped to awaiting-input only: a genuine
       // menu/y-n dialog must always surface, spinner or not)
-      if (this.trySuppressSpinner(id, visible)) return;
+      if (this.trySuppressSpinner(id, visible)) return true; // looked this tick (suppressed emit)
       // Freshness gate tripped: the buffer did NOT advance since the last classify
       // read — a wedged turn or a static buffer quoting a spinner-like line, not a
       // live spinner. Fall through to the normal emit so the block re-arms (flag-off
@@ -693,12 +882,13 @@ export class StatusPoller {
       this.lastSuppressVisible.delete(id);
     }
     const sig = JSON.stringify(reason);
-    if (sig === this.lastSig.get(id)) return;
+    if (sig === this.lastSig.get(id)) return true; // looked this tick (dedup short-circuit)
     // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
     // the flag-off and the block reach clients in the same tick, in that order.
     if (this.workingWhileBlocked.delete(id)) this.onWorkingBlocked(id, false);
     this.lastSig.set(id, sig);
     this.onBlock(id, reason);
+    return true; // looked + classified this tick
   }
 
   /**

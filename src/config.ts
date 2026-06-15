@@ -329,6 +329,16 @@ export const config = {
   // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
   // works in the terminal to turn it on per-session. UI-configurable + persisted.
   remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
+  // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
+  // of polling, staged behind two default-off flags so each phase is independently reversible.
+  // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned
+  // agents + ingest + observe (no signal wiring) — to verify reachability, latency, and
+  // session correlation (incl. under the sandboxed/egress profile) before trusting the path.
+  hooksIngest: process.env.SHEPHERD_HOOKS_INGEST === "1",
+  // Phase 1: feed received hook events into the poller (the single owner of signal state).
+  // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
+  // Staged after Phase 0 has confirmed the live payload shape (see issue #704).
+  hooksSignals: process.env.SHEPHERD_HOOKS_SIGNALS === "1",
   // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
   // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
   // overlay disabling every operator-enabled plugin (drops plugin hook injections,

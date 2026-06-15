@@ -199,8 +199,17 @@ export function resetPluginIdsCacheForTests(): void {
  * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin
  * skills, and plugin MCP for this process only. Absent/empty → key omitted entirely, so
  * untrimmed spawns keep today's exact overlay.
+ *
+ * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
+ * Notification HTTP hooks pointing at this session's ingest route (see buildHooksFragment).
+ * Flag off → key omitted entirely, so the overlay JSON stays byte-for-byte identical to today.
  */
-export function spawnSettingsOverlay(opts: { disablePlugins?: string[] } = {}): string {
+export function spawnSettingsOverlay(
+  opts: {
+    disablePlugins?: string[];
+    hooks?: { sessionId: string; baseUrl: string; token: string | null };
+  } = {},
+): string {
   const settings: Record<string, unknown> = {
     remoteControlAtStartup: config.remoteControlAtStartup,
     env: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
@@ -208,10 +217,50 @@ export function spawnSettingsOverlay(opts: { disablePlugins?: string[] } = {}): 
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
   }
+  if (config.hooksIngest && opts.hooks) {
+    settings.hooks = buildHooksFragment(opts.hooks);
+  }
   // api-key mode folds in `apiKeyHelper` LAST so key order is stable; subscription
   // returns {} so the JSON is byte-for-byte identical to before (see spawn-auth).
   Object.assign(settings, apiKeySettingsFragment());
   return JSON.stringify(settings);
+}
+
+/**
+ * Build the `hooks` overlay fragment (issue #704): one synchronous `http` hook per event
+ * (PostToolUse, PostToolUseFailure, Notification), matcher `"*"`, short fail-open timeout,
+ * pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
+ *
+ * Auth (Finding 2): the `--settings` JSON rides the spawn process argv (ps-visible), NOT the
+ * transcript — so we NEVER bake the literal token. When a token is configured we emit a
+ * `$SHEPHERD_TOKEN` placeholder + `allowedEnvVars`; Claude Code resolves it from the hook
+ * process env (only listed vars are interpolated). With no token (open loopback) we omit the
+ * `headers` + `allowedEnvVars` keys entirely, matching the queue route's no-auth path.
+ */
+export function buildHooksFragment(input: {
+  sessionId: string;
+  baseUrl: string;
+  token: string | null;
+}): Record<string, unknown> {
+  const authFields: Record<string, unknown> =
+    input.token !== null
+      ? {
+          headers: { Authorization: "Bearer $SHEPHERD_TOKEN" },
+          allowedEnvVars: ["SHEPHERD_TOKEN"],
+        }
+      : {};
+  const httpHook = {
+    type: "http",
+    url: `${input.baseUrl}/api/sessions/${input.sessionId}/hooks`,
+    timeout: 5,
+    ...authFields,
+  };
+  const eventEntry = [{ matcher: "*", hooks: [httpHook] }];
+  return {
+    PostToolUse: eventEntry,
+    PostToolUseFailure: eventEntry,
+    Notification: eventEntry,
+  };
 }
 
 /**
@@ -995,7 +1044,13 @@ export class SessionService {
       claudeSessionId,
       ...trim.extraFlags,
     ];
-    argv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
+    argv.push(
+      "--settings",
+      spawnSettingsOverlay({
+        ...trim.overlayOpts,
+        hooks: { sessionId, baseUrl: agentBaseUrl(), token: config.token },
+      }),
+    );
     argv.push(
       "--append-system-prompt",
       composeSystemPrompt(houseRules, autopilotActive, {
@@ -1455,7 +1510,13 @@ export class SessionService {
       s.claudeSessionId,
       ...trim.extraFlags,
     ];
-    innerArgv.push("--settings", spawnSettingsOverlay(trim.overlayOpts));
+    innerArgv.push(
+      "--settings",
+      spawnSettingsOverlay({
+        ...trim.overlayOpts,
+        hooks: { sessionId: s.id, baseUrl: agentBaseUrl(), token: config.token },
+      }),
+    );
     if (s.model) innerArgv.push("--model", s.model);
     const outcome = this.prepareSpawn(innerArgv, {
       sessionId: s.id,

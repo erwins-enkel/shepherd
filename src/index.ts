@@ -68,6 +68,7 @@ import { DistillerService, defaultScratch } from "./distiller";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
+import { HookIngest } from "./hooks-ingest";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -312,6 +313,11 @@ const tailscaleServe = new TailscaleServeService({
     events.emit("session:preview-serve", { id, serve } satisfies SessionPreviewServeEvent),
 });
 
+// Phase-0 push-hook ingest (issue #704), constructed BEFORE the poller so the poller's
+// `pruneHooks` callback can drop dead sessions' ring buffers. Observe-only until the
+// Phase-1 sink is wired below (only when `config.hooksSignals` is on).
+const hookIngest = new HookIngest();
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -340,7 +346,30 @@ const poller = new StatusPoller(
   // working-while-blocked display flag: herdr latched "blocked" but the TUI shows a
   // live turn spinner — the UI keeps working chrome instead of a false "needs you".
   (id, working) => events.emit("session:working-blocked", { id, working }),
+  // Phase-1 (issue #704): prune dead sessions' hook ring buffers from the poller's
+  // pruneInactive (so they don't grow unbounded by session count).
+  (ids) => hookIngest.prune(ids),
 );
+
+// Phase-1 push-hook signal wiring (issue #704): feed received hook events into the
+// poller (the single owner of per-session signal dedup + state). Only when
+// `config.hooksSignals` is on AND ingest is too — with ingest off no events ever
+// arrive, so signals-without-ingest is meaningless (warn once, behave as off). When
+// off, the sink stays unset → pure observe-only (Phase-0 behaviour), poller untouched.
+if (config.hooksSignals && !config.hooksIngest) {
+  console.warn(
+    "[hooks] SHEPHERD_HOOKS_SIGNALS is set but SHEPHERD_HOOKS_INGEST is off — no events " +
+      "will arrive to feed the poller; treating signals as off. Enable ingest first.",
+  );
+} else if (config.hooksSignals) {
+  hookIngest.setSink((id, ev) => {
+    if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
+      poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
+    } else if (ev.event === "Notification") {
+      poller.ingestNotification(id, ev.notificationType ?? "");
+    }
+  });
+}
 // Clear stale mappings left by a crashed prior run. Fire void, NOT await: the service's
 // single FIFO queue already guarantees this op completes before any register/unregister
 // enqueued after poller.start(), so awaiting only risks stalling boot up to count×5s
@@ -984,6 +1013,7 @@ const server = serve(
     push,
     presence,
     poller,
+    hooks: hookIngest,
     reviewCache: {
       snapshot: () => reviewService.snapshot(),
       reviewing: () => reviewService.reviewingIds(),

@@ -105,6 +105,7 @@ import {
   isSandboxProfile,
   SandboxAutoRefused,
 } from "./sandbox";
+import { validateHookEvent, type HookEvent } from "./hooks-ingest";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -186,8 +187,15 @@ export interface AppDeps {
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
   presence?: Pick<Presence, "set" | "drop">;
-  /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
-  poller?: Pick<StatusPoller, "acknowledgeStall">;
+  /** Status poller; used to manually dismiss a stall flag (`acknowledgeStall`) and, when
+   *  `hooksSignals` is on, as the Phase-1 signal sink the index.ts onSignal closure feeds
+   *  push events to (`ingestActivity` / `ingestNotification` — issue #704). The route
+   *  itself never calls the ingest methods; the onSignal closure in index.ts does. */
+  poller?: Pick<StatusPoller, "acknowledgeStall" | "ingestActivity" | "ingestNotification">;
+  /** Phase-0 hook ingest ring buffer (issue #704); absent in tests/envs that skip it.
+   *  `record` is observe-only here — it forwards to signals only when Task 3 wires
+   *  `onSignal` (the `hooksSignals` flag). */
+  hooks?: { record(id: string, ev: HookEvent): void; snapshot(id: string): HookEvent[] };
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
@@ -1607,6 +1615,39 @@ function approveBuildQueue(deps: AppDeps, id: string): Response {
   deps.events?.emit("queue:update", q);
   deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
   return json(q);
+}
+
+// /api/sessions/:id/hooks — Phase-0 push-hook ingest (issue #704).
+// Returns null for any path it doesn't own so other session sub-routes fall through
+// (registered before handleSessions, mirroring handleBuildQueue's ordering rationale).
+//
+// Deliberately NO requireJsonContentType gate (Finding 1): the POST body is authored by
+// Claude Code's own http-hook client, not a Shepherd curl with an explicit
+// `Content-Type: application/json`, so its Content-Type is unverified — a hard 415 could
+// silently record ZERO events for the whole spike. Parse defensively instead. The handler
+// does validate + record only — no file parse, no synchronous PTY/herdr read on the Bun
+// loop (memory: single-loop-no-sync-exec).
+async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "hooks")) return null;
+  const id = parts[2];
+  if (!id || parts[4]) return null;
+
+  if (req.method === "GET") return json(deps.hooks?.snapshot(id) ?? []);
+  if (req.method !== "POST") return null;
+
+  const session = deps.store.get(id);
+  if (!session) return json({ error: "session not found" }, 404);
+
+  const body = await req.json().catch(() => null);
+  const raw = validateHookEvent(body);
+  if (!raw) return json({ error: "invalid hook event" }, 400);
+
+  // Cross-check the untrusted body's session_id against the resolved session's
+  // claudeSessionId. On mismatch we still record (for the spike's visibility) but flag
+  // `match: false` so HookIngest treats it as observe-only and never forwards to signals.
+  const match = raw.sessionId === session.claudeSessionId;
+  deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
+  return json({ ok: true }, 202);
 }
 
 // /api/sessions/:id/queue[/steps/:stepId | /approve]
@@ -3456,6 +3497,7 @@ const ROUTE_HANDLERS = [
   handleRepoCollaborators,
   handleLearnings,
   handlePush,
+  handleSessionHooks,
   handleBuildQueue,
   handleSessions,
   handleSessionGit,

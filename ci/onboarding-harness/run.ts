@@ -135,6 +135,10 @@ export async function runScenario(
       detection: detection ?? { scenarioId: scenario.id, detected: false, misses: [] },
       appliedVia: "skipped",
       reachedGreen: false,
+      // Carry the flag through the throw path: an install-e2e that fails (install.sh
+      // non-zero, boot/probe crash) is an INSTALL regression that MUST gate — without
+      // this it'd be mislabeled a HARNESS ERROR and silently dropped from the tally.
+      installE2E: scenario.installE2E,
       error: err instanceof Error ? err.message : String(err),
     };
   } finally {

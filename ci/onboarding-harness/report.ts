@@ -9,6 +9,11 @@ import type { ScenarioResult } from "./types";
  *  ran keeps its real detection result (non-empty misses or detected=true) and is
  *  classified as a normal gap instead. */
 function isHarnessError(r: ScenarioResult): boolean {
+  // install-e2e is never infra: it EXISTS to test the installer end-to-end, so a throw
+  // (install.sh non-zero, boot/probe failure) is an INSTALL regression that must gate —
+  // fail closed, never excluded as infra. (A genuinely down Incus host is handled by
+  // onboarding-gate.sh's host-unavailable bypass, not by silently dropping this scenario.)
+  if (r.installE2E) return false;
   return !!r.error && !r.detection.detected && r.detection.misses.length === 0;
 }
 
@@ -30,10 +35,11 @@ type Classification =
  *  only apply-able scenarios so detection-only AND harness-errored ones don't drag
  *  the denominator. */
 function classify(r: ScenarioResult): Classification {
-  if (isHarnessError(r)) return "HARNESS ERROR";
-  // install-e2e has no seeded defect, so a miss is an installer regression — never
-  // label it a DETECTION GAP (which reads as "a defect was missed").
+  // install-e2e takes precedence over the infra check: it has no seeded defect, so a
+  // miss — including a thrown install.sh/boot/probe failure — is an installer regression
+  // (INSTALL GAP), never a HARNESS ERROR or a DETECTION GAP ("a defect was missed").
   if (r.installE2E) return r.reachedGreen ? "PASS" : "INSTALL GAP";
+  if (isHarnessError(r)) return "HARNESS ERROR";
   if (r.detectionOnly) return r.detection.detected ? "DETECTION-ONLY" : "DETECTION GAP";
   if (r.reachedGreen) return "PASS";
   return r.detection.detected ? "ADVICE GAP" : "DETECTION GAP";

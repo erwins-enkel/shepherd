@@ -99,6 +99,32 @@ describe("install-e2e runScenario", () => {
     expect(calls.some((c) => c[0] === "delete")).toBe(true);
   });
 
+  it("carries installE2E through the catch when install.sh exits non-zero (so it gates as INSTALL GAP, not infra)", async () => {
+    const calls: string[][] = [];
+    // install.sh exec fails; everything else (launch/push/dns) succeeds.
+    const run = async (args: string[]): Promise<IncusExec> => {
+      calls.push(args);
+      // Fail only the install.sh EXEC (not its file-push during seed).
+      if (args[0] === "exec" && args.join(" ").includes("bash /root/install.sh")) {
+        return { stdout: "", stderr: "fnm install --lts: network unreachable", code: 1 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    };
+    const d = new IncusDriver(run, "shep-onb-");
+    const result = await runScenario(d, installE2E, "/tmp/shepherd.tar");
+
+    // The throw path must keep the flag so report.ts classifies it INSTALL GAP, not
+    // HARNESS ERROR (which would silently drop it from the gate).
+    expect(result.installE2E).toBe(true);
+    expect(result.reachedGreen).toBe(false);
+    expect(result.gateEligible).toBe(true);
+    expect(result.error).toContain("install.sh failed");
+    // never reached boot/probe
+    expect(calls.some((c) => c.join(" ").includes("src/index.ts"))).toBe(false);
+    // still torn down
+    expect(calls.some((c) => c[0] === "delete")).toBe(true);
+  });
+
   it("reports red when an expected check stays non-ok after install", async () => {
     const snap = greenSnapshot();
     snap.checks.find((c) => c.id === "herdr")!.state = "error";

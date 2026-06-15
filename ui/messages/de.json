@@ -1369,5 +1369,6 @@
   "gloss_rework_term": "REWORK",
   "gloss_rework_def": "Eine Sitzung, die zur Überarbeitung zurückgeschickt wird, nachdem das Plan-Gate oder der PR-Critic Änderungen verlangt hat, anstatt sie freizugeben.",
   "feat_herd_rundown_title": "Herd-Rundown",
-  "feat_herd_rundown_body": "Eine neue ☰-Rundown-Ansicht (und Schaltfläche in der Kopfzeile) zeigt einen täglichen Überblick über deinen Herd: was über Nacht eingespielt wurde, was eine Entscheidung braucht, welche Sitzungen CI-rot oder REWORK wurden, den Merge-Train-Status und worauf du dich als Nächstes konzentrieren solltest. Jeder Eintrag verlinkt direkt zu seiner Sitzung."
+  "feat_herd_rundown_body": "Eine neue ☰-Rundown-Ansicht (und Schaltfläche in der Kopfzeile) zeigt einen täglichen Überblick über deinen Herd: was über Nacht eingespielt wurde, was eine Entscheidung braucht, welche Sitzungen CI-rot oder REWORK wurden, den Merge-Train-Status und worauf du dich als Nächstes konzentrieren solltest. Jeder Eintrag verlinkt direkt zu seiner Sitzung.",
+  "rundown_all_quiet": "Alles ruhig — derzeit ist nichts zu tun."
 }

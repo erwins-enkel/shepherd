@@ -1369,5 +1369,6 @@
   "gloss_rework_term": "REWORK",
   "gloss_rework_def": "A session sent back to revise its work after the plan gate or PR critic requested changes, instead of approving it.",
   "feat_herd_rundown_title": "Herd Rundown",
-  "feat_herd_rundown_body": "A new ☰ Rundown lens (and top-bar button) shows a daily digest of your herd: what landed overnight, what needs a decision, which sessions went CI-red or REWORK, the merge-train status, and what to focus on next. Each item deep-links to its session."
+  "feat_herd_rundown_body": "A new ☰ Rundown lens (and top-bar button) shows a daily digest of your herd: what landed overnight, what needs a decision, which sessions went CI-red or REWORK, the merge-train status, and what to focus on next. Each item deep-links to its session.",
+  "rundown_all_quiet": "All quiet — nothing needs you right now."
 }

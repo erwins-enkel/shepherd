@@ -25,6 +25,17 @@
   // Derived from the payload — never hardcoded; absent/0 → no hint.
   const staleCount = $derived(digest?.staleCount ?? 0);
 
+  // Ready, yet every section empty: a legitimate all-clear, not a failure. Without an
+  // explicit affordance the body renders blank and reads as broken.
+  const allQuiet = $derived(
+    digestState === "ready" &&
+      !digest?.overnight &&
+      !digest?.train &&
+      (digest?.decisions.length ?? 0) === 0 &&
+      (digest?.ciRework.length ?? 0) === 0 &&
+      (digest?.focusNext.length ?? 0) === 0,
+  );
+
   // Fail-closed refresh: a rejected regenerate sets an error flag so it never reads
   // as success. The server's herd:digest WS push self-updates the panel.
   let refreshing = $state(false);
@@ -77,14 +88,23 @@
       <p class="rd-muted rd-failed">{m.rundown_failed()}</p>
     {:else if digest == null}
       <div class="rd-empty">
+        {#if refreshError}
+          <p class="rd-error" role="alert">{m.common_retry()}</p>
+        {/if}
         <p class="rd-muted">{m.rundown_empty()}</p>
-        <button type="button" class="rd-generate" disabled={refreshing} onclick={refresh}
-          >{m.rundown_generate()}</button
+        <button
+          type="button"
+          class="rd-generate"
+          disabled={refreshing || generating}
+          onclick={refresh}>{m.rundown_generate()}</button
         >
       </div>
     {:else}
       {#if refreshError}
         <p class="rd-error" role="alert">{m.common_retry()}</p>
+      {/if}
+      {#if allQuiet}
+        <p class="rd-muted">{m.rundown_all_quiet()}</p>
       {/if}
       {#if digest.focusNext.length > 0}
         <div class="rd-section rd-focus">

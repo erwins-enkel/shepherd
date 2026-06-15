@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Issue, RepoConfig } from "$lib/types";
+import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getTodo, listBranches, getRepoConfig } from "$lib/api";
+import { listIssues, getEpics, getTodo, listBranches, getRepoConfig, listRepos } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -16,6 +16,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     getTodo: vi.fn(),
     listBranches: vi.fn(),
     getRepoConfig: vi.fn(),
+    listRepos: vi.fn(),
   };
 });
 
@@ -26,6 +27,7 @@ const mockGetEpics = vi.mocked(getEpics);
 const mockGetTodo = vi.mocked(getTodo);
 const mockListBranches = vi.mocked(listBranches);
 const mockGetRepoConfig = vi.mocked(getRepoConfig);
+const mockListRepos = vi.mocked(listRepos);
 
 // A full RepoConfig with the plan gate flag overridable; the composer only reads
 // planGateEnabled but the store ingests the whole shape.
@@ -56,6 +58,7 @@ beforeEach(() => {
   mockGetTodo.mockReset();
   mockListBranches.mockReset();
   mockGetRepoConfig.mockReset();
+  mockListRepos.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
@@ -63,6 +66,7 @@ beforeEach(() => {
   mockGetEpics.mockResolvedValue([]);
   mockListBranches.mockResolvedValue({ current: "main", branches: ["main"] });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
+  mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
 });
 
 afterEach(() => {
@@ -354,6 +358,10 @@ describe("NewTask research toggle", () => {
     Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
       el.closest("label")?.textContent?.includes(m.newtask_plan_gate_label()),
     )!;
+  const autopilotBox = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+      el.closest("label")?.textContent?.includes(m.newtask_autopilot_label()),
+    )!;
   const autonomousOption = () =>
     document.querySelector<HTMLOptionElement>('#nt-sandbox option[value="autonomous"]')!;
   const sandboxSelect = () => document.querySelector<HTMLSelectElement>("#nt-sandbox")!;
@@ -384,6 +392,59 @@ describe("NewTask research toggle", () => {
     researchBox().click();
     await expect.poll(() => researchBox().checked).toBe(true);
     await expect.poll(() => planGateBox().checked).toBe(false);
+  });
+
+  it("toggling Research on unchecks Autopilot", async () => {
+    const repoPath = "/repo/research-clears-autopilot";
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
+    render(NewTask, { props: base({ initialRepoPath: repoPath }) });
+
+    // box mirrors the autopilot-ON default once config settles
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+  });
+
+  it("keeps Autopilot unchecked after a repo switch (touched pin survives)", async () => {
+    const repoA: RepoEntry = { name: "alpha", path: "/repo/ap-switch-a", display: "alpha" };
+    const repoB: RepoEntry = { name: "bravo", path: "/repo/ap-switch-b", display: "bravo" };
+    mockListRepos.mockResolvedValue({ repos: [repoA, repoB], recentWindowDays: 30 });
+    // both repos report autopilot ON
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoA.path } });
+
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+
+    researchBox().click();
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+
+    // switch to repo B via the RepoSelect combobox
+    const trigger = document.querySelector<HTMLButtonElement>(".rs-trigger")!;
+    trigger.click();
+    await expect
+      .poll(() =>
+        Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find((el) =>
+          el.textContent?.includes(repoB.name),
+        ),
+      )
+      .toBeTruthy();
+    const optB = Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find(
+      (el) => el.textContent?.includes(repoB.name),
+    )!;
+    optB.click();
+
+    // with autopilotTouched pinned, the re-seed $effect must NOT flip it back on
+    await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+
+    // backstop: submit carries explicit false (not null) — proves the touched pin held
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false, research: true });
   });
 
   it("toggling plan-gate on unchecks Research", async () => {

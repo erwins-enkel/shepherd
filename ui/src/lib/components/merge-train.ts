@@ -6,6 +6,8 @@ import type { Session, GitState, CreateInput } from "$lib/types";
  *  the client no longer expires marks on a short clock. This generous cap mirrors
  *  TRAIN_TRACKER_MAX_MS in src/service.ts and exists only so a wedged mark can't
  *  stick forever if a clear event is missed. */
+// DRIFT: keep in sync with src/rundown-core.ts (MERGE_MARK_BACKSTOP_MS). A parity test
+// in rundown-core.test.ts locks the two literals together.
 export const MERGE_MARK_BACKSTOP_MS = 24 * 60 * 60_000;
 
 /** True when a session is in a currently-running merge train: marked and the mark

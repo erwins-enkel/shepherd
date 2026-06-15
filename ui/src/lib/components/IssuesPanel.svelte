@@ -282,6 +282,7 @@
 
   .issues-header {
     padding: 6px 12px;
+    margin-bottom: 8px; /* gap below the border to the flush sticky filter — margin (outside the border), not padding */
     font-size: var(--fs-micro);
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -293,7 +294,7 @@
   .issues-list {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 12px;
+    padding: 0 12px 10px;
     display: flex;
     flex-direction: column;
     gap: 6px;

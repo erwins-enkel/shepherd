@@ -463,7 +463,7 @@
   .master-pane {
     border-right: 1px solid var(--color-line);
     overflow-y: auto;
-    padding: 6px 4px;
+    padding: 0 4px 6px;
   }
 
   .master-pane::-webkit-scrollbar {
@@ -513,7 +513,7 @@
   .mobile-master {
     flex: 1;
     overflow-y: auto;
-    padding: 6px 4px;
+    padding: 0 4px 6px;
     -webkit-overflow-scrolling: touch;
   }
 

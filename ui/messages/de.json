@@ -1299,7 +1299,7 @@
   "feat_newproject_owner_body": "Wenn du ein Projekt mit GitHub-Repository anlegst, kannst du jetzt wählen, ob es unter deinem persönlichen Konto oder einer deiner Organisationen landet — der Dialog listet jede Organisation auf, der du angehörst, statt immer dein Konto zu nehmen.",
   "forkrepo_title": "GitHub-Repo forken",
   "forkrepo_input_label": "Repository (owner/repo oder URL)",
-  "forkrepo_input_placeholder": "dannymcc/may",
+  "forkrepo_input_placeholder": "erwins-enkel/shepherd",
   "forkrepo_target_preview": "→ {root}/{name}",
   "forkrepo_hint": "Forkt das Repo unter deinem GitHub-Account und klont es. Pull Requests, die du daraus öffnest, zielen auf das Original (Upstream). Der Fork bleibt in deinem Account.",
   "forkrepo_submit": "Forken & starten",

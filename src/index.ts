@@ -578,9 +578,10 @@ const sweepStaleReviewWorktrees = () => {
       ...reviewService.inflightWorktrees(),
       ...standaloneCritic.inflightWorktrees(),
     ]);
-    const sessionWorktreePaths = new Set(store.list().map((s) => s.worktreePath));
+    const sessions = store.list();
+    const sessionWorktreePaths = new Set(sessions.map((s) => s.worktreePath));
     const parents = new Set<string>();
-    for (const s of store.list()) parents.add(join(dirname(s.repoPath), ".shepherd-worktrees"));
+    for (const s of sessions) parents.add(join(dirname(s.repoPath), ".shepherd-worktrees"));
     for (const row of store.listReviewerSpawns()) parents.add(dirname(row.worktreePath));
     const r = reapStaleReviewWorktrees({
       parents: [...parents],

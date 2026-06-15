@@ -1374,5 +1374,7 @@
   "gloss_rework_def": "A session sent back to revise its work after the plan gate or PR critic requested changes, instead of approving it.",
   "feat_herd_rundown_title": "Herd Rundown",
   "feat_herd_rundown_body": "A new ☰ Rundown lens (and top-bar button) shows a daily digest of your herd: what landed overnight, what needs a decision, which sessions went CI-red or REWORK, the merge-train status, and what to focus on next. Each item deep-links to its session.",
+  "feat_subagent_fanout_title": "Live sub-agent fan-out",
+  "feat_subagent_fanout_body": "The Activity tab now shows the sub-agents a session has spawned, live, with each one's type and how long it ran.",
   "rundown_all_quiet": "All quiet — nothing needs you right now."
 }

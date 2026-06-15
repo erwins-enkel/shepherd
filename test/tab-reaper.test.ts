@@ -3,7 +3,9 @@ import {
   reapOrphanTabs,
   reapOrphanTabsLegacy,
   isShepherdHelperLabel,
+  reapStaleReviewWorktrees,
   type ReapableHerdr,
+  type ReapWorktreesDeps,
 } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
 import { DISTILL_LABEL } from "../src/distiller";
@@ -299,4 +301,164 @@ describe("isShepherdHelperLabel", () => {
       expect(isShepherdHelperLabel(label)).toBe(false);
     });
   }
+});
+
+// ── Stranded review-worktree disk sweep (#721) ────────────────────────────────
+
+const PARENT = "/home/x/.shepherd-worktrees";
+const HEX8 = "deadbeef";
+const UUID_TAG = "643cfec7-1234-5678-9abc-def012345678-deadbeef";
+
+/** Terse fake-deps builder. By default: one parent listing `names`, nothing owned,
+ *  no live session, scanAlive→all-false, no spawns, now=1_000_000, grace=60_000. */
+function mkDeps(overrides: Partial<ReapWorktreesDeps> & { names?: string[] } = {}): {
+  deps: ReapWorktreesDeps;
+  removed: string[];
+} {
+  const removed: string[] = [];
+  const names = overrides.names ?? [];
+  const deps: ReapWorktreesDeps = {
+    parents: overrides.parents ?? [PARENT],
+    listDir: overrides.listDir ?? (() => names),
+    protectedPaths: overrides.protectedPaths ?? new Set(),
+    sessionWorktreePaths: overrides.sessionWorktreePaths ?? new Set(),
+    scanAlive: overrides.scanAlive ?? ((paths) => new Map(paths.map((p) => [p, false]))),
+    listReviewerSpawns: overrides.listReviewerSpawns ?? (() => []),
+    now: overrides.now ?? (() => 1_000_000),
+    graceMs: overrides.graceMs ?? 60_000,
+    remove: overrides.remove ?? ((p) => void removed.push(p)),
+  };
+  return { deps, removed };
+}
+
+test("stranded reap: dead, unowned, no-spawn review husk is removed", () => {
+  const name = `shepherd-review-${HEX8}`;
+  const { deps, removed } = mkDeps({ names: [name] });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([`${PARENT}/${name}`]);
+  expect(removed).toEqual([`${PARENT}/${name}`]);
+  expect(r.sparedOwned).toBe(0);
+  expect(r.sparedLive).toBe(0);
+});
+
+test("foreign-basename reap: a defunct-repo basename is still selected (basename-agnostic)", () => {
+  const name = `flowagent-review-${HEX8}`;
+  const { deps, removed } = mkDeps({ names: [name] });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([`${PARENT}/${name}`]);
+  expect(removed).toEqual([`${PARENT}/${name}`]);
+});
+
+test("uuid-tag reap: a randomUUID-sha8 tag shape is matched and removed", () => {
+  const name = `shepherd-review-${UUID_TAG}`;
+  const { deps, removed } = mkDeps({ names: [name] });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([`${PARENT}/${name}`]);
+  expect(removed).toEqual([`${PARENT}/${name}`]);
+});
+
+test("live-claude spare: a candidate hosting a live claude is sparedLive, not removed", () => {
+  const name = `shepherd-review-${HEX8}`;
+  const path = `${PARENT}/${name}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    scanAlive: () => new Map([[path, true]]),
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedLive).toBe(1);
+  expect(r.sparedOwned).toBe(0);
+});
+
+test("protectedPaths spare regardless of age/proc (#631 orphan regression guard)", () => {
+  // A re-adopted plan-gate orphan: DEAD reviewer (scanAlive→false) AND an OLD uncompleted
+  // reviewer_spawns row — but the service still holds it in memory. MUST be spared.
+  const name = `shepherd-review-${HEX8}`;
+  const path = `${PARENT}/${name}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    protectedPaths: new Set([path]),
+    scanAlive: () => new Map([[path, false]]),
+    listReviewerSpawns: () => [
+      { worktreePath: path, completedAt: null, spawnedAt: 0 }, // ancient, uncompleted
+    ],
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedOwned).toBe(1);
+  expect(r.sparedLive).toBe(0);
+});
+
+test("recent-spawn grace: within-grace uncompleted spawn spared; older-than-grace reaped", () => {
+  const name = `shepherd-review-${HEX8}`;
+  const path = `${PARENT}/${name}`;
+  // now=1_000_000, grace=60_000 → cutoff=940_000.
+  const recent = mkDeps({
+    names: [name],
+    listReviewerSpawns: () => [
+      { worktreePath: path, completedAt: null, spawnedAt: 950_000 }, // within grace
+    ],
+  });
+  const r1 = reapStaleReviewWorktrees(recent.deps);
+  expect(r1.reaped).toEqual([]);
+  expect(recent.removed).toEqual([]);
+  expect(r1.sparedOwned).toBe(1);
+
+  const stale = mkDeps({
+    names: [name],
+    listReviewerSpawns: () => [
+      { worktreePath: path, completedAt: null, spawnedAt: 900_000 }, // older than grace
+    ],
+  });
+  const r2 = reapStaleReviewWorktrees(stale.deps);
+  expect(r2.reaped).toEqual([path]);
+  expect(stale.removed).toEqual([path]);
+  expect(r2.sparedOwned).toBe(0);
+});
+
+test("session spare (guard e): a hex-tag dir backing a live session is spared", () => {
+  const name = `shepherd-review-${HEX8}`; // would match the regex
+  const path = `${PARENT}/${name}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    sessionWorktreePaths: new Set([path]),
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedOwned).toBe(1);
+});
+
+test("non-tag-shape user session ignored: non-hex suffix is not a candidate", () => {
+  const name = "shepherd-review-myfeature"; // user prompt slugging to review-myfeature
+  const { deps, removed } = mkDeps({ names: [name] });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  expect(r.sparedOwned).toBe(0);
+  expect(r.sparedLive).toBe(0);
+});
+
+test("non-review dir ignored: a work-issue dir is not a candidate", () => {
+  const name = "shepherd-work-issue-721";
+  const { deps, removed } = mkDeps({ names: [name] });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+});
+
+test("multi-parent: candidates gathered across two parents", () => {
+  const p1 = "/a/.shepherd-worktrees";
+  const p2 = "/b/.shepherd-worktrees";
+  const n1 = `shepherd-review-${HEX8}`;
+  const n2 = `tank-review-cafebabe`;
+  const { deps, removed } = mkDeps({
+    parents: [p1, p2],
+    listDir: (parent) => (parent === p1 ? [n1] : [n2]),
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(new Set(r.reaped)).toEqual(new Set([`${p1}/${n1}`, `${p2}/${n2}`]));
+  expect(new Set(removed)).toEqual(new Set([`${p1}/${n1}`, `${p2}/${n2}`]));
 });

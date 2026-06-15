@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
@@ -189,4 +190,133 @@ export function reapOrphanTabsLegacy(herdr: ReapableHerdr): string[] {
     .sort((a, b) => tabNumber(b.tabId) - tabNumber(a.tabId));
   for (const t of orphans) herdr.closeTab(t.tabId);
   return orphans.map((t) => t.tabId);
+}
+
+// ── Stranded review-worktree disk sweep (#721) ───────────────────────────────
+
+/**
+ * Reviewer/critic disposable checkouts (`{basename}-review-{tag}`, created by
+ * `worktree.ts:createDetached`) whose teardown was missed — a crash, a shepherd
+ * restart that cleared in-memory review tracking, or a foreign-era basename whose
+ * repo is no longer configured — accumulate as dead dirs under `.shepherd-worktrees`.
+ * This is a disk-driven sweep that reaps them; it COMPLEMENTS plan-gate's
+ * {@link gcStaleReviewWorktrees} (which is store-driven and only knows plan_gate
+ * spawns it still tracks) — it does not replace it. Runs SYNC (a boot + hourly
+ * maintenance pass, not on the typing hot path), consistent with that sibling.
+ *
+ * **Tag-shape match, basename-agnostic (guard d).** Selection keys off the reviewer
+ * TAG SHAPE — a name ending in `-review-(<8hex> | <uuid>-<8hex>)` — NOT the basename.
+ * This is deliberate: a worktree minted under a now-defunct basename (`tank-review-…`,
+ * `flowagent-review-…`, `pulse-review-…`) whose repo is no longer configured would be
+ * invisible to any basename- or repo-scoped filter, yet is exactly the kind of orphan
+ * that strands forever. Matching the tag suffix alone catches those. The flip side
+ * (guards below) is that a USER prompt slugging to `review-*` yields `{basename}-review-*`
+ * too — so a hex-shaped suffix could in principle alias real user work; (d)'s strict
+ * hex/uuid shape plus the session-path spare (e) keep that from being reaped.
+ *
+ * **Three spare reasons:**
+ *  - **owned in memory (`protectedPaths`)** — paths a reviewer service currently holds.
+ *    Spared REGARDLESS of age or `/proc` liveness. This is the #631 regression guard: a
+ *    re-adopted plan-gate orphan has a DEAD reviewer `claude` AND an OLD uncompleted
+ *    `reviewer_spawns` row, yet `tick()` still needs its worktree — age/proc heuristics
+ *    alone would wrongly reap it. The caller unions the three reviewer services'
+ *    `inflightWorktrees()` into this set.
+ *  - **live store session (`sessionWorktreePaths`, guard e)** — any path backing a live
+ *    user session is spared even if its name happens to match the tag shape.
+ *  - **recent uncompleted spawn** — a `reviewer_spawns` row with `completedAt == null`
+ *    whose `spawnedAt` is within `graceMs`: a spawn that may still be wiring up its
+ *    worktree before the owning service records it as inflight.
+ *
+ * Liveness for the remaining (non-owned) candidates comes from the injected
+ * {@link scanClaudeAliveByWorktree} — one cheap `/proc` pass; a candidate hosting a
+ * live `claude` is spared (`sparedLive`). Everything else is removed.
+ *
+ * Fully dependency-injected (no direct fs/proc/store calls) so it is unit-testable
+ * without a real filesystem, `/proc`, or store. The real wiring into `index.ts` is a
+ * separate task.
+ */
+export interface ReapWorktreesDeps {
+  /** Distinct `.shepherd-worktrees` dirs to sweep. */
+  parents: string[];
+  /** Entry NAMES under a parent (default in caller = readdirSync); `[]` if unreadable. */
+  listDir: (parent: string) => string[];
+  /** In-memory reviewer-owned paths — spare regardless of age/proc (#631 guard). */
+  protectedPaths: Set<string>;
+  /** Live store session worktreePaths — spare (user-work guard e). */
+  sessionWorktreePaths: Set<string>;
+  /** One-pass `/proc` liveness probe ({@link scanClaudeAliveByWorktree}). */
+  scanAlive: (paths: string[]) => Map<string, boolean>;
+  /** Append-only reviewer-spawn rows (subset of {@link ReviewerSpawnRow} fields). */
+  listReviewerSpawns: () => Array<{
+    worktreePath: string;
+    completedAt: number | null;
+    spawnedAt: number;
+  }>;
+  now: () => number;
+  /** Grace window for a recent uncompleted spawn (spare if `spawnedAt > now()-graceMs`). */
+  graceMs: number;
+  /** Worktree removal wrapper (`worktree.remove`). */
+  remove: (worktreePath: string) => void;
+}
+
+export interface ReapWorktreesResult {
+  /** Worktree paths actually removed this sweep. */
+  reaped: string[];
+  /** Spared because owned in memory / live session / recent uncompleted spawn. */
+  sparedOwned: number;
+  /** Spared because a live `claude` was running in them. */
+  sparedLive: number;
+}
+
+/** Reviewer disposable-worktree tag shape: `-review-` followed by an `sha8` or a
+ *  `randomUUID-sha8` (lowercase hex; `i` flag tolerates upper). Validated against every
+ *  on-disk `*-review-*` dir; matches the suffix produced by `worktree.ts:createDetached`. */
+const REVIEW_TAG_RE =
+  /-review-([0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8})$/i;
+
+export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktreesResult {
+  // 1. Candidate paths: tag-shape matches under every parent, de-duped.
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const parent of deps.parents) {
+    for (const name of deps.listDir(parent)) {
+      if (!REVIEW_TAG_RE.test(name)) continue;
+      const path = join(parent, name);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      candidates.push(path);
+    }
+  }
+
+  // 2. owned(path): in-memory-owned, live session, or recent uncompleted spawn.
+  const recent = new Set<string>();
+  const cutoff = deps.now() - deps.graceMs;
+  for (const sp of deps.listReviewerSpawns()) {
+    if (sp.completedAt == null && sp.spawnedAt > cutoff) recent.add(sp.worktreePath);
+  }
+  const owned = (path: string): boolean =>
+    deps.protectedPaths.has(path) || deps.sessionWorktreePaths.has(path) || recent.has(path);
+
+  // 3. One /proc pass over the non-owned candidates only.
+  const nonOwned = candidates.filter((p) => !owned(p));
+  const aliveMap = deps.scanAlive(nonOwned);
+
+  // 4. Classify each candidate.
+  const reaped: string[] = [];
+  let sparedOwned = 0;
+  let sparedLive = 0;
+  for (const path of candidates) {
+    if (owned(path)) {
+      sparedOwned++;
+      continue;
+    }
+    if (aliveMap.get(path)) {
+      sparedLive++;
+      continue;
+    }
+    deps.remove(path);
+    reaped.push(path);
+  }
+
+  return { reaped, sparedOwned, sparedLive };
 }

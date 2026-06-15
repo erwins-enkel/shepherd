@@ -777,6 +777,24 @@
   .panel.flow.bracket::after {
     display: none;
   }
+  /* On mobile (flow mode) the "THE HERD" title forces the filter row to wrap on
+     narrow phones; hide just the title span (the filter buttons are nested under
+     .right.filters, so the direct-child combinator leaves them untouched). The
+     herd_title key is still used on desktop (non-flow). */
+  .panel.flow .phead > .micro {
+    display: none;
+  }
+  /* Worst case (~320px wide phone with a status chip present = 6 buttons) still
+     overflows after hiding the title; tighten the filter buttons' tracking,
+     padding and inter-button gap just in flow mode so the row fits without
+     wrapping or horizontal overflow. */
+  .panel.flow .filters {
+    gap: 3px;
+  }
+  .panel.flow .filters .fbtn {
+    letter-spacing: 0.06em;
+    padding: 2px 4px;
+  }
 
   .phead {
     display: flex;

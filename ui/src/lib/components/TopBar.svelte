@@ -585,21 +585,6 @@
     </div>
   {/if}
   <div class="rightside">
-    <!-- ☰ RUNDOWN: opens the daily Herd Rundown digest lens. Compact (icon + label
-         dropped to a glyph) on phones and the touch-desktop badge crunch, mirroring
-         the NEEDS YOU badge's compact pattern. -->
-    <button
-      class="rundown-btn"
-      class:compact={mobile || compactBadges}
-      type="button"
-      onclick={() => onrundown?.()}
-      title={m.topbar_rundown()}
-      aria-label={m.topbar_rundown()}
-      use:coachTarget={"herd-rundown"}
-    >
-      <span class="rd-glyph" aria-hidden="true">☰</span>
-      {#if !(mobile || compactBadges)}<span class="rd-label">{m.topbar_rundown()}</span>{/if}
-    </button>
     {#if needsYou > 0}
       <button
         class="needsyou"
@@ -835,6 +820,21 @@
         <span class="health-dot" aria-hidden="true"></span>
       </button>
     {/if}
+    <!-- ☰ RUNDOWN: opens the daily Herd Rundown digest lens. Sits just left of the
+         settings cog. Compact (icon + label dropped to a glyph) on phones and the
+         touch-desktop badge crunch, mirroring the NEEDS YOU badge's compact pattern. -->
+    <button
+      class="rundown-btn"
+      class:compact={mobile || compactBadges}
+      type="button"
+      onclick={() => onrundown?.()}
+      title={m.topbar_rundown()}
+      aria-label={m.topbar_rundown()}
+      use:coachTarget={"herd-rundown"}
+    >
+      <span class="rd-glyph" aria-hidden="true">☰</span>
+      {#if !(mobile || compactBadges)}<span class="rd-label">{m.topbar_rundown()}</span>{/if}
+    </button>
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. A pip on the gear is the only at-rest cue that there's a

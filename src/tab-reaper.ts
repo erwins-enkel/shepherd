@@ -274,12 +274,12 @@ export interface ReapWorktreesResult {
 const REVIEW_TAG_RE =
   /-review-([0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8})$/i;
 
-export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktreesResult {
-  // 1. Candidate paths: tag-shape matches under every parent, de-duped.
+/** Collects de-duped tag-shape-matched worktree paths across all parent dirs. */
+function gatherReviewCandidates(parents: string[], listDir: (p: string) => string[]): string[] {
   const candidates: string[] = [];
   const seen = new Set<string>();
-  for (const parent of deps.parents) {
-    for (const name of deps.listDir(parent)) {
+  for (const parent of parents) {
+    for (const name of listDir(parent)) {
       if (!REVIEW_TAG_RE.test(name)) continue;
       const path = join(parent, name);
       if (seen.has(path)) continue;
@@ -287,19 +287,34 @@ export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktrees
       candidates.push(path);
     }
   }
+  return candidates;
+}
 
-  // 2. owned(path): in-memory-owned, live session, or recent uncompleted spawn.
+/** Builds the set of worktree paths for recent uncompleted spawns within `graceMs`. */
+function recentSpawnPaths(
+  rows: Array<{ worktreePath: string; completedAt: number | null; spawnedAt: number }>,
+  now: number,
+  graceMs: number,
+): Set<string> {
+  const cutoff = now - graceMs;
   const recent = new Set<string>();
-  const cutoff = deps.now() - deps.graceMs;
-  for (const sp of deps.listReviewerSpawns()) {
+  for (const sp of rows) {
     if (sp.completedAt == null && sp.spawnedAt > cutoff) recent.add(sp.worktreePath);
   }
+  return recent;
+}
+
+export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktreesResult {
+  // 1. Candidate paths: tag-shape matches under every parent, de-duped.
+  const candidates = gatherReviewCandidates(deps.parents, deps.listDir);
+
+  // 2. owned(path): in-memory-owned, live session, or recent uncompleted spawn.
+  const recent = recentSpawnPaths(deps.listReviewerSpawns(), deps.now(), deps.graceMs);
   const owned = (path: string): boolean =>
     deps.protectedPaths.has(path) || deps.sessionWorktreePaths.has(path) || recent.has(path);
 
   // 3. One /proc pass over the non-owned candidates only.
-  const nonOwned = candidates.filter((p) => !owned(p));
-  const aliveMap = deps.scanAlive(nonOwned);
+  const aliveMap = deps.scanAlive(candidates.filter((p) => !owned(p)));
 
   // 4. Classify each candidate.
   const reaped: string[] = [];

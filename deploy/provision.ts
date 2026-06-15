@@ -15,6 +15,7 @@
  * running anything (see test/provision.test.ts).
  */
 import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
@@ -84,6 +85,16 @@ export function decideServicePath(
   return { service, degradedBanner: false };
 }
 
+/** Template the systemd unit so its WorkingDirectory points at the ACTUAL checkout
+ *  (`repo`) instead of the hardcoded `%h/Work/shepherd`. This makes the default
+ *  (`~/Work/shepherd`) install byte-identical to today while making a custom
+ *  SHEPHERD_DIR correct — ExecStart stays `bun run src/index.ts` (relative to
+ *  WorkingDirectory) and bun's path is independent of the checkout, so retargeting
+ *  WorkingDirectory alone suffices. Replaces the single `WorkingDirectory=` line. */
+export function templateUnit(unit: string, repo: string): string {
+  return unit.replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${repo}`);
+}
+
 /** Final guidance follow-ups that need a human secret and are NEVER auto-run. */
 export function guidanceNextSteps(): string[] {
   return [
@@ -132,6 +143,18 @@ const defaultRunner: Runner = (cmd, args, opts) => {
   }
 };
 
+/** Injectable file IO. Production reads/writes the real filesystem; tests inject a
+ *  recorder so the templated unit can be asserted without touching disk. */
+export interface FileIO {
+  read: (path: string) => string;
+  write: (path: string, content: string) => void;
+}
+
+const defaultFileIO: FileIO = {
+  read: (path) => readFileSync(path, "utf8"),
+  write: (path, content) => writeFileSync(path, content),
+};
+
 /** Probe a binary's version via `<bin> --version`; null if absent or unparseable. */
 function probeVersion(bin: string): string | null {
   try {
@@ -159,11 +182,14 @@ interface ProvisionOpts {
   env?: NodeJS.ProcessEnv;
   /** Repo checkout root (cwd by default). */
   repo?: string;
+  /** Injectable file IO (templated-unit read/write); real fs by default. */
+  fileIO?: FileIO;
 }
 
 export function provision(opts: ProvisionOpts = {}): void {
   const run = opts.run ?? defaultRunner;
   const probe = opts.probe ?? probeVersion;
+  const fileIO = opts.fileIO ?? defaultFileIO;
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
   const repo = opts.repo ?? process.cwd();
@@ -202,7 +228,11 @@ export function provision(opts: ProvisionOpts = {}): void {
     log("installing systemd user unit");
     const unitDir = join(home, ".config", "systemd", "user");
     run("mkdir", ["-p", unitDir]);
-    run("cp", [join(repo, "deploy", "shepherd.service"), join(unitDir, "shepherd.service")]);
+    // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
+    // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
+    // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.
+    const unitSrc = fileIO.read(join(repo, "deploy", "shepherd.service"));
+    fileIO.write(join(unitDir, "shepherd.service"), templateUnit(unitSrc, repo));
     run("systemctl", ["--user", "daemon-reload"]);
     const user = env.USER;
     if (!user) throw new Error("cannot enable-linger: $USER is not set");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import {
   PREREQS,
   provision,
@@ -8,6 +9,8 @@ import {
   needsInstall,
   decideServicePath,
   guidanceNextSteps,
+  templateUnit,
+  type FileIO,
   type Runner,
 } from "../deploy/provision";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
@@ -95,6 +98,36 @@ describe("decideServicePath", () => {
   });
 });
 
+describe("templateUnit", () => {
+  const unit = readFileSync("deploy/shepherd.service", "utf8");
+
+  it("default repo (~/Work/shepherd) keeps output identical to the source unit", () => {
+    // The shipped unit hardcodes %h/Work/shepherd; templating the literal value back
+    // in is a no-op — proving the default install is byte-identical to today.
+    const home = homedir();
+    const defaultRepo = join(home, "Work", "shepherd");
+    const templated = templateUnit(unit, defaultRepo);
+    expect(templated).toContain(`WorkingDirectory=${defaultRepo}`);
+    // only the WorkingDirectory line changed (from %h-form to absolute)
+    expect(
+      templated.replace(`WorkingDirectory=${defaultRepo}`, "WorkingDirectory=%h/Work/shepherd"),
+    ).toBe(unit);
+  });
+
+  it("custom repo retargets WorkingDirectory and leaves ExecStart/Environment alone", () => {
+    const templated = templateUnit(unit, "/srv/shepherd-prod");
+    expect(templated).toContain("WorkingDirectory=/srv/shepherd-prod");
+    expect(templated).not.toContain("WorkingDirectory=%h/Work/shepherd");
+    expect(templated).toContain("ExecStart=%h/.bun/bin/bun run src/index.ts");
+    expect(templated).toContain("EnvironmentFile=-%h/.shepherd/env");
+  });
+
+  it("replaces exactly one WorkingDirectory line", () => {
+    const templated = templateUnit(unit, "/x");
+    expect(templated.match(/^WorkingDirectory=/gm)?.length).toBe(1);
+  });
+});
+
 function recorder() {
   const calls: string[][] = [];
   const opts: ({ env?: NodeJS.ProcessEnv } | undefined)[] = [];
@@ -102,7 +135,16 @@ function recorder() {
     calls.push([cmd, ...args]);
     opts.push(o);
   };
-  return { calls, opts, run };
+  // Fake fileIO: reads serve the real unit template from the repo (so templating is
+  // exercised against the true file), writes are recorded in-memory.
+  const writes = new Map<string, string>();
+  const fileIO: FileIO = {
+    read: (path) => readFileSync(path.replace(/^.*\/deploy\//, "deploy/"), "utf8"),
+    write: (path, content) => {
+      writes.set(path, content);
+    },
+  };
+  return { calls, opts, run, writes, fileIO };
 }
 
 // All prereqs adequate → no prereq install runs; only node-gyp + the branch work.
@@ -147,16 +189,44 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   });
 
   it("service path installs+enables the unit and delegates build to update.sh", () => {
-    const { calls, run } = recorder();
-    provision({ run, probe: adequateProbe, platform: "linux", env: { USER: "me" }, repo: "/repo" });
+    const { calls, run, writes, fileIO } = recorder();
+    provision({
+      run,
+      fileIO,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { USER: "me" },
+      repo: "/repo",
+    });
     const flat = calls.map((c) => c.join(" "));
-    expect(flat.some((c) => c.includes("systemd/user/shepherd.service"))).toBe(true);
+    // The unit is now templated+written via fileIO (not a runner `cp`).
+    const unitTargets = [...writes.keys()].filter((p) =>
+      p.endsWith("systemd/user/shepherd.service"),
+    );
+    expect(unitTargets.length).toBe(1);
     expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
     expect(flat.some((c) => c.includes("enable-linger"))).toBe(true);
     expect(flat.some((c) => c === "systemctl --user enable shepherd")).toBe(true);
     expect(flat.some((c) => c.includes("deploy/update.sh"))).toBe(true);
     // service path must NOT duplicate update.sh's deps/build
     expect(flat.some((c) => c.includes("ui && bun run build"))).toBe(false);
+    // no verbatim `cp` of the unit anymore
+    expect(flat.some((c) => c.startsWith("cp ") && c.includes("shepherd.service"))).toBe(false);
+  });
+
+  it("templates the installed unit's WorkingDirectory to the repo path (not a copy)", () => {
+    const { writes, run, fileIO } = recorder();
+    const repo = "/home/op/custom-shepherd-dir";
+    provision({ run, fileIO, probe: adequateProbe, platform: "linux", env: { USER: "me" }, repo });
+    const [target, content] = [...writes.entries()].find(([p]) =>
+      p.endsWith("systemd/user/shepherd.service"),
+    )!;
+    expect(target).toContain("systemd/user/shepherd.service");
+    // WorkingDirectory points at the custom checkout — proves templating, not passthrough
+    expect(content).toContain(`WorkingDirectory=${repo}`);
+    expect(content).not.toContain("WorkingDirectory=%h/Work/shepherd");
+    // everything else is untouched (ExecStart still relative + %h-based)
+    expect(content).toContain("ExecStart=%h/.bun/bin/bun run src/index.ts");
   });
 
   it("no-service path builds directly and never touches systemd", () => {

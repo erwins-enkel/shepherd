@@ -13,6 +13,7 @@ import { SessionStore } from "../src/store";
 import {
   SessionService,
   spawnSettingsOverlay,
+  buildHooksFragment,
   composeSystemPrompt,
   readInstalledPluginIds,
   installedPluginIds,
@@ -360,6 +361,86 @@ test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); ap
   } finally {
     config.authMode = prevMode;
     config.authApiKeyHelperPath = prevPath;
+  }
+});
+
+test("spawnSettingsOverlay: hooksIngest off (default) => no hooks key, byte-identical to today", () => {
+  const prev = config.hooksIngest;
+  try {
+    config.hooksIngest = false;
+    const hookOpts = { sessionId: "sess-1", baseUrl: "http://127.0.0.1:7330", token: "tok" };
+    // even with opts.hooks supplied, the flag-off output is unchanged from no-opts.
+    const withHooks = spawnSettingsOverlay({ hooks: hookOpts });
+    expect(JSON.parse(withHooks)).not.toHaveProperty("hooks");
+    expect(withHooks).toBe(spawnSettingsOverlay());
+  } finally {
+    config.hooksIngest = prev;
+  }
+});
+
+test("spawnSettingsOverlay: hooksIngest on + token => three http hooks with $SHEPHERD_TOKEN auth", () => {
+  const prevFlag = config.hooksIngest;
+  const prevToken = config.token;
+  try {
+    config.hooksIngest = true;
+    config.token = "secret";
+    const parsed = JSON.parse(
+      spawnSettingsOverlay({
+        hooks: { sessionId: "sess-42", baseUrl: "http://127.0.0.1:7330", token: config.token },
+      }),
+    );
+    expect(Object.keys(parsed.hooks).sort()).toEqual([
+      "Notification",
+      "PostToolUse",
+      "PostToolUseFailure",
+    ]);
+    for (const event of ["PostToolUse", "PostToolUseFailure", "Notification"]) {
+      const httpHook = parsed.hooks[event][0].hooks[0];
+      expect(parsed.hooks[event][0].matcher).toBe("*");
+      expect(httpHook.type).toBe("http");
+      expect(httpHook.url).toBe("http://127.0.0.1:7330/api/sessions/sess-42/hooks");
+      expect(httpHook.timeout).toBe(5);
+      expect(httpHook.headers.Authorization).toBe("Bearer $SHEPHERD_TOKEN");
+      expect(httpHook.allowedEnvVars).toEqual(["SHEPHERD_TOKEN"]);
+    }
+  } finally {
+    config.hooksIngest = prevFlag;
+    config.token = prevToken;
+  }
+});
+
+test("spawnSettingsOverlay: hooksIngest on + null token => hooks present but no auth fields", () => {
+  const prevFlag = config.hooksIngest;
+  const prevToken = config.token;
+  try {
+    config.hooksIngest = true;
+    config.token = null;
+    const parsed = JSON.parse(
+      spawnSettingsOverlay({
+        hooks: { sessionId: "sess-7", baseUrl: "http://127.0.0.1:7330", token: config.token },
+      }),
+    );
+    const httpHook = parsed.hooks.PostToolUse[0].hooks[0];
+    expect(httpHook.url).toBe("http://127.0.0.1:7330/api/sessions/sess-7/hooks");
+    expect(httpHook.timeout).toBe(5);
+    expect(httpHook).not.toHaveProperty("headers");
+    expect(httpHook).not.toHaveProperty("allowedEnvVars");
+  } finally {
+    config.hooksIngest = prevFlag;
+    config.token = prevToken;
+  }
+});
+
+test("buildHooksFragment: null token omits headers/allowedEnvVars on every event", () => {
+  const frag = buildHooksFragment({
+    sessionId: "s",
+    baseUrl: "http://127.0.0.1:7330",
+    token: null,
+  }) as Record<string, Array<{ hooks: Array<Record<string, unknown>> }>>;
+  for (const event of ["PostToolUse", "PostToolUseFailure", "Notification"]) {
+    const httpHook = frag[event]?.[0]?.hooks[0];
+    expect(httpHook).not.toHaveProperty("headers");
+    expect(httpHook).not.toHaveProperty("allowedEnvVars");
   }
 });
 

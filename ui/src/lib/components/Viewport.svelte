@@ -10,6 +10,7 @@
     Session,
     SessionStatus,
     SessionUsage,
+    SubagentEntry,
     UsageLimits,
   } from "$lib/types";
   import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
@@ -43,6 +44,7 @@
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
+  import SubagentFanout from "$lib/components/SubagentFanout.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
@@ -91,6 +93,7 @@
     workingBlocked = {},
     consumeAutoFocusTerm = () => true,
     drain = null,
+    subagents = {},
   }: {
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
@@ -154,6 +157,9 @@
     /** Live drain status for this session's repo; passed through to GitRail →
      *  AutomationPanel so the epic-mode precedence indicator can render. */
     drain?: DrainStatus | null;
+    /** Live per-session sub-agent roster map (the whole store.subagents record);
+     *  the Activity tab's fan-out section reads this session's entry from it. */
+    subagents?: Record<string, SubagentEntry[]>;
   } = $props();
 
   // Display-side status for every header/status render below (see display-status.ts).
@@ -2431,8 +2437,11 @@
       </div>
     {/if}
     {#if tab === "activity"}
-      <div class="panel-wrap">
-        <ActivityFeed sessionId={session.id} />
+      <div class="panel-wrap activity-wrap">
+        <SubagentFanout sessionId={session.id} {subagents} />
+        <div class="activity-feed-fill">
+          <ActivityFeed sessionId={session.id} />
+        </div>
       </div>
     {/if}
     {#if tab === "diff"}
@@ -3764,6 +3773,16 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+  }
+  /* Activity tab stacks the sub-agent fan-out (sized to content, self-capped) above
+     the scrolling activity feed, which fills the remaining height. */
+  .activity-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  .activity-feed-fill {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /* live preview pane: the iframe fills the body; a thin footer carries the

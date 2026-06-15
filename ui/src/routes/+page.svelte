@@ -1570,6 +1570,7 @@
               showSettings = true;
             }}
             drain={store.drain[selected.repoPath] ?? null}
+            subagents={store.subagents}
           />
         </div>
       {/if}
@@ -1703,6 +1704,7 @@
               showSettings = true;
             }}
             drain={store.drain[selected.repoPath] ?? null}
+            subagents={store.subagents}
           />
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>

@@ -105,6 +105,17 @@ export class HookIngest {
     this.#onSignal = onSignal;
   }
 
+  /**
+   * Set (or clear) the Phase-1 signal sink AFTER construction. index.ts constructs the
+   * HookIngest before the poller (the poller's prune callback needs it), then wires the
+   * sink once the poller exists — resolving the circular construction order without a
+   * forward-declared `let`. The ctor `onSignal` arg still works (Task 2 tests use it);
+   * this just lets the wiring happen post-construction when `config.hooksSignals` is on.
+   */
+  setSink(onSignal: (sessionId: string, ev: HookEvent) => void): void {
+    this.#onSignal = onSignal;
+  }
+
   /** Push an event, log it, and (only on a matched session) forward to signals. */
   record(sessionId: string, ev: HookEvent): void {
     try {

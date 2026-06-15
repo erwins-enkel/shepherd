@@ -187,8 +187,11 @@ export interface AppDeps {
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
   presence?: Pick<Presence, "set" | "drop">;
-  /** Status poller; used to manually dismiss a stall flag. Absent in tests. */
-  poller?: Pick<StatusPoller, "acknowledgeStall">;
+  /** Status poller; used to manually dismiss a stall flag (`acknowledgeStall`) and, when
+   *  `hooksSignals` is on, as the Phase-1 signal sink the index.ts onSignal closure feeds
+   *  push events to (`ingestActivity` / `ingestNotification` — issue #704). The route
+   *  itself never calls the ingest methods; the onSignal closure in index.ts does. */
+  poller?: Pick<StatusPoller, "acknowledgeStall" | "ingestActivity" | "ingestNotification">;
   /** Phase-0 hook ingest ring buffer (issue #704); absent in tests/envs that skip it.
    *  `record` is observe-only here — it forwards to signals only when Task 3 wires
    *  `onSignal` (the `hooksSignals` flag). */

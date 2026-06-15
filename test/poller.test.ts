@@ -6,6 +6,7 @@ import type { HerdrAgent } from "../src/herdr";
 import { classifyBlocked } from "../src/blocked";
 import { DEFAULT_STALL } from "../src/stall";
 import { maintenance } from "../src/maintenance";
+import { config } from "../src/config";
 
 const baseSession = {
   name: "x",
@@ -2161,4 +2162,335 @@ test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
   // must NOT throw (an unhandled throw on the 1s interval would crash shepherd)
   expect(() => poller.tick()).not.toThrow();
   expect(reaped).toBe(false); // tick bailed before touching the store
+});
+
+// ── Phase-1 push-hook ingestion (issue #704) ──────────────────────────────────
+//
+// `config.hooksSignals` gates the whole feature; save/restore it per-test so the
+// flag never leaks across the suite (default off ⇒ ingest* are inert).
+
+/** A running-agent harness for the push-hook tests: a `working` herdr agent whose
+ *  status + visible buffer are swappable, capturing block + activity emissions. The
+ *  transcript probe returns null by default (interim path) so the freshness guard's
+ *  interaction with the interim heartbeat is exercisable. */
+function hookHarness(opts?: {
+  visible?: () => string;
+  probe?: () => { snapshot: any; activity: any };
+  stallCfg?: { stallMs: number; pendingStallMs: number };
+}) {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const activities: { id: string; activity: any }[] = [];
+  const blocks: { id: string; block: any }[] = [];
+  let agentStatus = "working";
+  let clock = 1_700_000_000_000;
+  const visible = opts?.visible ?? (() => "Computing… (1s)");
+  const pruned: Array<Set<string>> = [];
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      } as HerdrAgent,
+    ],
+    read: () => visible(),
+    readAsync: () => Promise.resolve(visible()),
+  };
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    opts?.probe ?? (() => ({ snapshot: null, activity: null })),
+    opts?.stallCfg ?? { stallMs: 1, pendingStallMs: 1 },
+    7000, // probeCheckMs
+    () => {},
+    (id, activity) => activities.push({ id, activity }),
+    undefined, // preview
+    undefined, // liveness
+    () => {}, // onWorkingBlocked
+    (ids) => pruned.push(new Set(ids)), // pruneHooks
+  );
+  return {
+    poller,
+    store,
+    activities,
+    blocks,
+    pruned,
+    id: s.id,
+    setStatus: (st: string) => (agentStatus = st),
+    advance: (ms: number) => (clock += ms),
+    now: () => clock,
+  };
+}
+
+test("hooks: ingestActivity emits a deduped session:activity with a non-null summary + tick", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const h = hookHarness();
+    h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+    expect(h.activities).toHaveLength(1);
+    const a = h.activities[0]!.activity;
+    expect(a.summary).toBe("Edit");
+    expect(a.recentTs).toEqual([h.now()]);
+    expect(a.lastActivityTs).toBe(h.now());
+    expect(a.recentErrTs).toEqual([]);
+
+    // identical call → dedup (no re-emit)
+    h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+    expect(h.activities).toHaveLength(1);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: PostToolUseFailure (status:error) populates recentErrTs", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const h = hookHarness();
+    h.poller.ingestActivity(h.id, { toolName: "Bash", status: "error", ts: h.now() });
+    expect(h.activities).toHaveLength(1);
+    const a = h.activities[0]!.activity;
+    expect(a.summary).toBe("Bash");
+    expect(a.recentErrTs).toEqual([h.now()]);
+    expect(a.recentTs).toEqual([h.now()]);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: a permission_prompt notification triggers maybeClassify on the next (non-blocked) tick, consumed once", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    // agent stays herdr-"working" (not blocked) yet the TUI shows a menu → the push
+    // notification, not herdr's latch, surfaces the block.
+    const h = hookHarness({ visible: () => "❯ 1. Yes\n  2. No" });
+    h.poller.ingestNotification(h.id, "permission_prompt");
+
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(1);
+    expect((h.blocks[0]!.block as any).shape).toBe("menu");
+
+    // marker consumed → a later tick does NOT re-classify/re-fire (sig-deduped anyway,
+    // but the marker is gone so the awaiting branch never even runs again)
+    h.advance(5000);
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(1);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cadence passes", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    // status stays herdr-"working" so only the push marker (never herdr's latch / the
+    // maybeProbe path) can surface the block. The buffer is swappable so a later
+    // classify yields a fresh sig (proves the retried classify actually re-emitted vs.
+    // dedup short-circuited).
+    let buf = "❯ 1. Yes\n  2. No";
+    const h = hookHarness({ visible: () => buf });
+
+    // Prime `lastReadAt` fresh: a blocked tick runs maybeClassify (records the read
+    // time + emits the first menu block), then drop back to working.
+    h.setStatus("blocked");
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(1);
+    h.setStatus("working");
+
+    // Marker arrives but a classify just ran (<reclassifyMs ago) → this tick is
+    // throttled. maybeClassify returns false, so the marker is NOT consumed and no
+    // new block fires.
+    h.poller.ingestNotification(h.id, "permission_prompt");
+    h.advance(1000); // < reclassifyMs (3000)
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(1); // still throttled, nothing new
+
+    // Cadence passes → the RETAINED marker drives a real classify this tick. Vary the
+    // buffer so the sig differs from the primed menu and the emit isn't dedup-skipped.
+    buf = "❯ 1. Approve\n  2. Deny\n  3. Cancel";
+    h.advance(3000); // now > reclassifyMs since the priming read
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(2); // classify ran → block re-emitted
+    expect((h.blocks[1]!.block as any).shape).toBe("menu");
+
+    // Marker now consumed: a further (post-cadence) tick does not re-fire.
+    h.advance(3000);
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(2);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: idle_prompt does NOT trigger a block", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const h = hookHarness({ visible: () => "❯ 1. Yes\n  2. No" });
+    h.poller.ingestNotification(h.id, "idle_prompt");
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(0);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: freshness guard suppresses the interim activity emit while push is fresh", async () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    // interim path (probe null); terminal changes each cadence → normally a heartbeat
+    // tick emits. A fresh push must suppress that redundant null-summary emit.
+    let frame = 0;
+    const h = hookHarness({ visible: () => `Computing… (${frame}s)` });
+
+    // prime the interim baseline
+    h.poller.tick();
+    await flush();
+    expect(h.activities).toHaveLength(0);
+
+    // a fresh push lands (carries the real summary)
+    h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() });
+    expect(h.activities).toHaveLength(1); // the push emit
+    expect(h.activities[0]!.activity.summary).toBe("Read");
+
+    // next probe: terminal changed (would emit a null-summary heartbeat) but push is
+    // fresh → suppressed. The only activity remains the push emit.
+    frame += 7;
+    h.advance(7000);
+    h.poller.tick();
+    await flush();
+    const interimEmits = h.activities.filter((a) => a.activity.summary === null);
+    expect(interimEmits).toHaveLength(0);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: freshness guard keeps the transcript stall firing for a frozen pure-generation turn", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    // live-writing transcript that's a 10m-old silence candidate (frozen terminal) →
+    // stall must still fire even while a push keeps the activity path fresh.
+    const visible = "still chewing on it";
+    const h = hookHarness({
+      visible: () => visible,
+      probe: () => ({ snapshot: { lastTs: h.now() - 600_000, pending: false }, activity: null }),
+      stallCfg: { stallMs: 1, pendingStallMs: 1 },
+    });
+
+    // keep the push fresh throughout
+    const refresh = () =>
+      h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+
+    refresh();
+    h.poller.tick(); // priming: first sighting → interim, records transcript baseline
+    h.advance(7000);
+    refresh();
+    h.poller.tick(); // transcript path → terminal baseline, no stall yet
+    expect(h.blocks).toHaveLength(0);
+    h.advance(7000);
+    refresh();
+    h.poller.tick(); // frozen terminal + silent transcript → stall STILL fires
+    expect(h.blocks).toHaveLength(1);
+    expect((h.blocks[0]!.block as any).shape).toBe("stall");
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: freshness guard still emits the probe's activity when it carries error heat the push didn't", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    // transcript probe carries a recentErrTs while a non-error push is fresh — the
+    // belt-and-suspenders guard must still emit it (never drop error heat, Finding 3).
+    const h = hookHarness({
+      probe: () => ({
+        snapshot: null,
+        activity: {
+          lastActivityTs: h.now(),
+          summary: "$ bun test",
+          recentTs: [h.now()],
+          recentErrTs: [h.now()],
+        },
+      }),
+    });
+
+    // fresh non-error push
+    h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() });
+    const pushEmits = h.activities.length;
+
+    // prime then advance so the transcript path engages (newest record advances)
+    h.poller.tick();
+    h.advance(8000);
+    h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() }); // keep fresh
+    h.poller.tick();
+
+    // the probe's error-bearing signal was emitted despite the fresh push
+    const errEmits = h.activities.filter((a) => a.activity.recentErrTs.length > 0);
+    expect(errEmits.length).toBeGreaterThan(0);
+    expect(h.activities.length).toBeGreaterThan(pushEmits);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: pruneInactive clears the new maps and calls pruneHooks", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const h = hookHarness();
+    h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+    h.poller.ingestNotification(h.id, "permission_prompt");
+
+    // archive the session → it leaves the activeOnly list → pruneInactive
+    h.store.update(h.id, { status: "archived" });
+    h.advance(1000);
+    h.poller.tick();
+
+    // pruneHooks called with the (now empty) active set
+    expect(h.pruned.length).toBeGreaterThan(0);
+    expect(h.pruned[h.pruned.length - 1]!.has(h.id)).toBe(false);
+
+    // re-ingesting after prune starts a fresh strip (no stale ticks): a single tick
+    config.hooksSignals = true;
+    h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+    const a = h.activities[h.activities.length - 1]!.activity;
+    expect(a.recentTs).toEqual([h.now()]); // exactly one tick → strip was pruned
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: ingest* are inert when config.hooksSignals is off", () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = false;
+  try {
+    const h = hookHarness({ visible: () => "❯ 1. Yes\n  2. No" });
+    h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+    expect(h.activities).toHaveLength(0); // no emit
+
+    h.poller.ingestNotification(h.id, "permission_prompt");
+    h.poller.tick();
+    expect(h.blocks).toHaveLength(0); // no block trigger
+  } finally {
+    config.hooksSignals = orig;
+  }
 });

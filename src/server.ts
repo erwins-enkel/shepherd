@@ -2175,9 +2175,9 @@ async function handleGithubOwners({ req, parts, deps }: Ctx): Promise<Response |
 
 // GET /api/github/repos — list every GitHub repo the user can clone (their own plus
 // any reached as collaborator or org/team member), each flagged `cloned` when a local
-// repo already tracks it (matched by forge slug, falling back to folder name). A gh
-// failure (missing/not-authed) returns 200 with `{ repos: [], login: null,
-// available: false }` so the clone dialog quietly degrades to the URL-only path.
+// repo already tracks it. A gh failure (missing/not-authed) returns 200 with
+// `{ repos: [], login: null, available: false }` so the clone dialog quietly degrades
+// to the URL-only path.
 async function handleGithubRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "github" && parts[2] === "repos" && !parts[3])) {
     return null;
@@ -2192,21 +2192,22 @@ async function handleGithubRepos({ req, parts, deps }: Ctx): Promise<Response | 
   }
   const { login, repos } = listed;
 
-  // Build the set of repos already cloned locally so the dialog can hide them. Prefer
-  // the forge slug ("owner/repo") for an exact match; fall back to the folder name
-  // (which is how clone/fork derive the directory) for clones whose forge can't resolve.
+  // Build the set of repos already cloned locally so the dialog can hide them, keyed by
+  // forge slug ("owner/repo"). We deliberately do NOT fall back to the bare folder name:
+  // local dir names carry no owner, so a name-only match is owner-blind and would hide a
+  // not-yet-cloned repo (e.g. acme/widget) whenever any unrelated local repo happens to
+  // share its name (someone-else/widget). A clone whose forge can't resolve a slug simply
+  // stays listed — clicking it then fails cleanly with clonerepo_failed_exists.
   const local = listRepos(config.repoRoot);
   const clonedSlugs = new Set<string>();
-  const clonedNames = new Set<string>();
   for (const r of local) {
-    clonedNames.add(r.name.toLowerCase());
     const slug = deps.resolveForge?.(r.path)?.slug;
     if (slug) clonedSlugs.add(slug.toLowerCase());
   }
 
   const withCloned = repos.map((r) => ({
     ...r,
-    cloned: clonedSlugs.has(r.nameWithOwner.toLowerCase()) || clonedNames.has(r.name.toLowerCase()),
+    cloned: clonedSlugs.has(r.nameWithOwner.toLowerCase()),
   }));
   return json({ repos: withCloned, login, available: true });
 }

@@ -27,7 +27,7 @@ import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
 import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
-import { serve, buildBacklogPayload } from "./server";
+import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
@@ -78,6 +78,7 @@ import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import { normalizeDefaultModelSetting } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
+import { detectEgressHostLoopback } from "./egress";
 import { RecapService } from "./recap";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
@@ -216,10 +217,19 @@ const recapService = new RecapService({
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
 });
 
+// Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started
+// AFTER SessionService is constructed (it needs the same AppDeps), so the port is unknown here;
+// spawns only happen after startup completes, so the accessor returns the real port by the time
+// resolveSpawnBaseUrl/prepareSpawn read it. A holder object (mutated, not reassigned) avoids the
+// forward-reference `let`.
+const agentIngressState: { port: number | undefined } = { port: undefined };
+
 const service = new SessionService({
   store,
   worktree,
   herdr,
+  agentIngressPort: () => agentIngressState.port,
+  detectEgressHostLoopback,
   namer: generateName,
   refineName: config.llmNaming
     ? ({ taskText, label }) => llmName(taskText, { herdr, model: config.namerModel }, label)
@@ -1148,82 +1158,88 @@ const backlogPoller = new BacklogPoller(
 setTimeout(() => void backlogPoller.tick(), 3_000);
 backlogPoller.start();
 
-const server = serve(
-  {
-    store,
-    service,
-    events,
-    usageLimits,
-    refreshUsage,
-    updates,
-    herdrUpdates,
-    diagnostics,
-    starPrompt,
-    herdr,
-    resolveForge,
-    prCache: prPoller,
-    ownsPr,
-    activity: { snapshot: () => poller.activitySnapshot() },
-    claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
-    workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
-    preview: { snapshot: () => previewService.snapshot() },
-    previewServe: { snapshot: () => tailscaleServe.snapshot() },
-    push,
-    presence,
-    poller,
-    hooks: hookIngest,
-    reviewCache: {
-      snapshot: () => reviewService.snapshot(),
-      reviewing: () => reviewService.reviewingIds(),
-    },
-    planGateCache: {
-      snapshot: () => planGate.snapshot(),
-      reviewing: () => planGate.reviewingIds(),
-    },
-    planGate: { consider: (s) => planGate.consider(s) },
-    recapCache: { snapshot: () => recapService.snapshot() },
-    recap: { regenerate: (s) => recapService.regenerate(s) },
-    herdDigest: {
-      snapshot: () => herdDigestService.snapshot(),
-      currentFingerprint: () => herdDigestService.currentAttentionFingerprint(),
-      regenerate: () => herdDigestService.regenerate(),
-    },
-    verifyKey: () => verifyApiKey({ herdr }),
-    backlog,
-    // After a backlog merge, force-refresh the repo's counts past the read-TTL and
-    // re-broadcast the overview so the merged PR (and any auto-closed linked issue)
-    // leaves the counters + headline at once, not on the next ~45s warm tick.
-    //
-    // `dir` is safeRepoDir's realpath-resolved form, but the warmer +
-    // buildBacklogPayload key the counts cache by listRepos' raw join(repoRoot,
-    // name) path. Under a symlinked repoRoot/repo those diverge, so refreshing by
-    // `dir` would write a phantom key and the broadcast would re-read stale counts.
-    // Match the repo back to its listRepos entry by realpath and refresh that exact
-    // key (falling back to `dir` for a repo not under the enumerated root).
-    //
-    // Opportunistic: CountsService.load single-flights, so this refresh can
-    // piggyback on an in-flight pre-merge warm fetch and broadcast slightly stale
-    // counts; the next warm tick reconciles. Acceptable for a freshness nudge.
-    refreshBacklog: async (dir) => {
-      await backlog.refresh(listReposPathForReal(dir, config.repoRoot));
-      await broadcastBacklog();
-    },
-    distiller,
-    promoter,
-    gitignoreAdopter,
-    drain: {
-      snapshot: () => drain.snapshot(),
-      queue: (repoPath) => drain.queue(repoPath),
-      retainClaim: (id) => drain.retainClaim(id),
-      buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
-      approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
-      tick: () => drain.tick(),
-    },
-    autoMerge: { snapshot: () => autoMerge.snapshot() },
+const appDeps: AppDeps = {
+  store,
+  service,
+  events,
+  usageLimits,
+  refreshUsage,
+  updates,
+  herdrUpdates,
+  diagnostics,
+  starPrompt,
+  herdr,
+  resolveForge,
+  prCache: prPoller,
+  ownsPr,
+  activity: { snapshot: () => poller.activitySnapshot() },
+  claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
+  workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
+  preview: { snapshot: () => previewService.snapshot() },
+  previewServe: { snapshot: () => tailscaleServe.snapshot() },
+  push,
+  presence,
+  poller,
+  hooks: hookIngest,
+  reviewCache: {
+    snapshot: () => reviewService.snapshot(),
+    reviewing: () => reviewService.reviewingIds(),
   },
-  config.port,
-);
+  planGateCache: {
+    snapshot: () => planGate.snapshot(),
+    reviewing: () => planGate.reviewingIds(),
+  },
+  planGate: { consider: (s) => planGate.consider(s) },
+  recapCache: { snapshot: () => recapService.snapshot() },
+  recap: { regenerate: (s) => recapService.regenerate(s) },
+  herdDigest: {
+    snapshot: () => herdDigestService.snapshot(),
+    currentFingerprint: () => herdDigestService.currentAttentionFingerprint(),
+    regenerate: () => herdDigestService.regenerate(),
+  },
+  verifyKey: () => verifyApiKey({ herdr }),
+  backlog,
+  // After a backlog merge, force-refresh the repo's counts past the read-TTL and
+  // re-broadcast the overview so the merged PR (and any auto-closed linked issue)
+  // leaves the counters + headline at once, not on the next ~45s warm tick.
+  //
+  // `dir` is safeRepoDir's realpath-resolved form, but the warmer +
+  // buildBacklogPayload key the counts cache by listRepos' raw join(repoRoot,
+  // name) path. Under a symlinked repoRoot/repo those diverge, so refreshing by
+  // `dir` would write a phantom key and the broadcast would re-read stale counts.
+  // Match the repo back to its listRepos entry by realpath and refresh that exact
+  // key (falling back to `dir` for a repo not under the enumerated root).
+  //
+  // Opportunistic: CountsService.load single-flights, so this refresh can
+  // piggyback on an in-flight pre-merge warm fetch and broadcast slightly stale
+  // counts; the next warm tick reconciles. Acceptable for a freshness nudge.
+  refreshBacklog: async (dir) => {
+    await backlog.refresh(listReposPathForReal(dir, config.repoRoot));
+    await broadcastBacklog();
+  },
+  distiller,
+  promoter,
+  gitignoreAdopter,
+  drain: {
+    snapshot: () => drain.snapshot(),
+    queue: (repoPath) => drain.queue(repoPath),
+    retainClaim: (id) => drain.retainClaim(id),
+    buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
+    approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
+    tick: () => drain.tick(),
+  },
+  autoMerge: { snapshot: () => autoMerge.snapshot() },
+};
+const server = serve(appDeps, config.port);
 console.log(`shepherd core on http://localhost:${server.port}`);
+
+// Restricted agent-ingress listener: the autonomous netns's ONLY reachable control-plane surface.
+// Bound to loopback on an ephemeral port; slirp maps the netns's 10.0.2.2 → host 127.0.0.1. Started
+// with the SAME AppDeps as the main listener so delegated routes hit the real handlers (auth + origin
+// preserved). The lazy `agentIngressPort` accessor wired into SessionService reads `.port` below.
+const agentIngress = serveAgentIngress(appDeps);
+agentIngressState.port = agentIngress.port;
+console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {

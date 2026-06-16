@@ -38,6 +38,7 @@ import {
   isDegraded,
   isEgressDegraded,
   egressApplies,
+  willEgressConfine,
   wrapArgv,
   buildMembraneFlags,
   safeRealpath,
@@ -49,6 +50,8 @@ import {
 } from "./sandbox";
 import {
   detectEgressBackend as detectRealEgressBackend,
+  detectEgressHostLoopback as detectRealEgressHostLoopback,
+  SLIRP_HOST_GATEWAY,
   egressMembraneOverrideFlags,
   buildEgressAllowlist,
   buildEgressConfig,
@@ -121,6 +124,13 @@ export interface ServiceDeps {
    *  so no real netns/dnsmasq stack is spawned); defaults to the cached real self-test in
    *  egress.ts. Probed only for an autonomous spawn that already has an FS backend. */
   detectEgressBackend?: () => EgressBackend;
+  /** Restricted agent-ingress listener port accessor (lazy: the listener starts after this
+   *  service is constructed; see src/index.ts). Returns undefined when not wired (tests) or not
+   *  yet started; resolveSpawnBaseUrl/prepareSpawn fall back to the loopback main port then. */
+  agentIngressPort?: () => number | undefined;
+  /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
+   *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
+  detectEgressHostLoopback?: () => boolean;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
@@ -671,6 +681,14 @@ function agentBaseUrl(): string {
 }
 
 /**
+ * Base URL an egress-confined autonomous agent uses to reach Shepherd via the slirp host gateway
+ * (10.0.2.2 → host 127.0.0.1), targeting the RESTRICTED agent-ingress listener, not the main port.
+ */
+function agentEgressBaseUrl(ingressPort: number): string {
+  return `http://${SLIRP_HOST_GATEWAY}:${ingressPort}`;
+}
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -808,6 +826,44 @@ export class SessionService {
     });
   }
 
+  /** slirp host-loopback capability probe: injected seam (tests) or the real cached version
+   *  probe. Mirrors detectEgressBackend's PRESENCE check (the seam legitimately returns false). */
+  private detectHostLoopback(): boolean {
+    return this.deps.detectEgressHostLoopback
+      ? this.deps.detectEgressHostLoopback()
+      : detectRealEgressHostLoopback();
+  }
+
+  /**
+   * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. Egress-confined
+   * autonomous spawns (willEgressConfine) on a host-loopback-capable slirp, with a known ingress
+   * port, reach the restricted ingress listener via 10.0.2.2; everything else uses the loopback
+   * main port. Shares the SAME predicate + host-loopback probe + ingress-port accessor that
+   * prepareSpawn uses, so the baked URL and the actual wrap/hostGateway decision cannot diverge.
+   */
+  private resolveSpawnBaseUrl(
+    profileOverride: string | null | undefined,
+    repoPath: string,
+  ): string {
+    const profile = resolveProfile(
+      profileOverride,
+      this.deps.store.getRepoConfig(repoPath).sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    if (!egressApplies(profile)) return agentBaseUrl(); // no backend probe for trusted/standard
+    const backend = this.detectBackend();
+    const egressBackend = backend !== null ? this.detectEgressBackend() : null;
+    const ingressPort = this.deps.agentIngressPort?.();
+    if (
+      ingressPort != null &&
+      willEgressConfine(profile, backend, egressBackend) &&
+      this.detectHostLoopback()
+    ) {
+      return agentEgressBaseUrl(ingressPort);
+    }
+    return agentBaseUrl();
+  }
+
   /**
    * Auto-gate hold reason for resuming an auto session, or null when allowed. Prefers the
    * profile the session was SPAWNED with (`s.sandboxApplied`) so a per-spawn override is
@@ -911,8 +967,8 @@ export class SessionService {
     const hold = autoHoldReason(profile, backend, egressBackend);
     if (ctx.auto && hold) return { ok: false, holdReason: hold };
     const degraded = isDegraded(profile, backend);
-    // egress WILL wrap iff autonomous + FS backend + egress backend all present.
-    const egressOn = egressApplies(profile) && backend !== null && egressBackend != null;
+    // egress WILL wrap iff autonomous + FS backend + egress backend all present (shared predicate).
+    const egressOn = willEgressConfine(profile, backend, egressBackend ?? null);
     // An interactive autonomous session with the FS membrane but no egress backend ran
     // FS-only (network open) — warrants the egress-degraded banner.
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
@@ -955,7 +1011,15 @@ export class SessionService {
           ...this.deps.store.getRepoConfig(ctx.repoPath).egressExtraHosts,
         ],
       });
-      const cfg = buildEgressConfig(allowlist, { tmpDir: tmp });
+      // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
+      // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
+      // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
+      const ingressPort = this.deps.agentIngressPort?.();
+      const hostGateway =
+        this.detectHostLoopback() && ingressPort != null
+          ? { ip: SLIRP_HOST_GATEWAY, port: ingressPort }
+          : undefined;
+      const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
       writeEgressConfigFiles(tmp, cfg);
       const bwrapArgv = [
         "bwrap",
@@ -1033,6 +1097,7 @@ export class SessionService {
     planGateOn: boolean | undefined,
     isolated: boolean,
     trim: Awaited<ReturnType<typeof trimDecision>>,
+    baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const houseRules = this.houseRules(input.repoPath);
@@ -1041,7 +1106,7 @@ export class SessionService {
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
           sessionId,
-          baseUrl: agentBaseUrl(),
+          baseUrl,
           token: config.token,
           autopilot: autopilotActive,
         })
@@ -1057,7 +1122,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
-        hooks: { sessionId, baseUrl: agentBaseUrl(), token: config.token },
+        hooks: { sessionId, baseUrl, token: config.token },
       }),
     );
     argv.push(
@@ -1142,6 +1207,12 @@ export class SessionService {
       // plan. See resolvePlanGateOn for the override + research semantics.
       const planGateOn = this.resolvePlanGateOn(input, repoConfig);
       const trim = await this.trimFor(input.auto);
+      // Research needs OPEN web egress; a research session resolving to autonomous is
+      // downgraded to standard for this spawn (see researchSafeProfileOverride). Resolved BEFORE
+      // buildSpawnArgv so resolveSpawnBaseUrl bakes the URL matching the SAME profile prepareSpawn
+      // will wrap with — buildSpawnArgv doesn't use the override otherwise, so reordering is safe.
+      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
+      const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
       const argv = this.buildSpawnArgv(
         input,
         claudeSessionId,
@@ -1150,10 +1221,8 @@ export class SessionService {
         planGateOn,
         wt.isolated,
         trim,
+        baseUrl,
       );
-      // Research needs OPEN web egress; a research session resolving to autonomous is
-      // downgraded to standard for this spawn (see researchSafeProfileOverride).
-      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -1512,6 +1581,10 @@ export class SessionService {
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     if (agent) this.deps.herdr.stop(agent.terminalId);
+    // Bake the URL matching the SAME profile prepareSpawn resumes with (s.sandboxApplied), so an
+    // egress-confined resume reaches Shepherd via the restricted ingress listener, not the netns
+    // loopback. Uses the identical predicate/probe/port as prepareSpawn below → can't diverge.
+    const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const innerArgv = [
       "claude",
       "--dangerously-skip-permissions",
@@ -1523,7 +1596,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
-        hooks: { sessionId: s.id, baseUrl: agentBaseUrl(), token: config.token },
+        hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     );
     if (s.model) innerArgv.push("--model", s.model);

@@ -6,6 +6,7 @@ import {
   readdirSync,
   existsSync,
   utimesSync,
+  rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3884,4 +3885,145 @@ test("relaunch keeps research:true; explicit override flips it to false", async 
 
   const flipped = await service.relaunch(orig.id, undefined, { research: false });
   expect(flipped.research).toBe(false);
+});
+
+// ── agent base-URL selection (issue #711 Task 4) ────────────────────────────────
+// The URL baked into a spawn's hooks (and build-queue) calls: an egress-confined autonomous
+// spawn on a host-loopback-capable slirp with a known ingress port reaches Shepherd via the
+// restricted ingress listener at 10.0.2.2:<ingressPort>; everything else uses the loopback main
+// port. config.hooksIngest must be ON for the overlay to emit the hooks URL.
+function baseUrlService(opts: {
+  store: SessionStore;
+  record: { argv?: string[] };
+  detectBackend?: () => "bwrap" | null;
+  detectEgressBackend?: () => "slirp4netns" | null;
+  detectEgressHostLoopback?: () => boolean;
+  agentIngressPort?: () => number | undefined;
+}) {
+  return new SessionService({
+    store: opts.store,
+    namer: async () => "s",
+    worktree: {
+      create: () => ({ worktreePath: "/wt/s", branch: "shepherd/s", isolated: true }),
+      remove: () => {},
+      gitCommonDir: () => "/wt/s/.git",
+      ensureBaseRef: async () => {},
+    } as any,
+    herdr: {
+      start: (_name: string, cwd: string, argv: string[]) => {
+        opts.record.argv = argv;
+        return { terminalId: "term_x", cwd } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+    detectBackend: opts.detectBackend,
+    detectEgressBackend: opts.detectEgressBackend,
+    detectEgressHostLoopback: opts.detectEgressHostLoopback,
+    agentIngressPort: opts.agentIngressPort,
+  });
+}
+
+// Pull the hooks endpoint URL baked into the `--settings` JSON of a captured spawn argv.
+function hooksUrlFrom(argv: string[] | undefined): string {
+  const i = argv?.indexOf("--settings") ?? -1;
+  if (i < 0) throw new Error("no --settings in argv");
+  const settings = JSON.parse(argv![i + 1] ?? "{}") as any;
+  return settings.hooks.PostToolUse[0].hooks[0].url;
+}
+
+test("baseUrl: egress-confined autonomous on host-loopback slirp → hooks via 10.0.2.2:<ingressPort>", async () => {
+  const prev = config.hooksIngest;
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "autonomous" });
+  const record: { argv?: string[] } = {};
+  const service = baseUrlService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => true,
+    agentIngressPort: () => 7331,
+  });
+  try {
+    config.hooksIngest = true;
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    expect(hooksUrlFrom(record.argv)).toBe(`http://10.0.2.2:7331/api/sessions/${s.id}/hooks`);
+  } finally {
+    config.hooksIngest = prev;
+    rmSync(join(tmpdir(), "shepherd-egress"), { recursive: true, force: true });
+  }
+});
+
+test("baseUrl: autonomous but slirp NOT host-loopback-capable → falls back to loopback main port", async () => {
+  const prev = config.hooksIngest;
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "autonomous" });
+  const record: { argv?: string[] } = {};
+  const service = baseUrlService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => false,
+    agentIngressPort: () => 7331,
+  });
+  try {
+    config.hooksIngest = true;
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    expect(hooksUrlFrom(record.argv)).toBe(
+      `http://127.0.0.1:${config.port}/api/sessions/${s.id}/hooks`,
+    );
+  } finally {
+    config.hooksIngest = prev;
+    rmSync(join(tmpdir(), "shepherd-egress"), { recursive: true, force: true });
+  }
+});
+
+test("baseUrl: trusted (default) → loopback main port, no backend probe required", async () => {
+  const prev = config.hooksIngest;
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[] } = {};
+  let probed = false;
+  const service = baseUrlService({
+    store,
+    record,
+    // If resolveSpawnBaseUrl probed the backend for a trusted spawn this would flip — it must not.
+    detectBackend: () => {
+      probed = true;
+      return "bwrap";
+    },
+    detectEgressHostLoopback: () => true,
+    agentIngressPort: () => 7331,
+  });
+  try {
+    config.hooksIngest = true;
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    expect(hooksUrlFrom(record.argv)).toBe(
+      `http://127.0.0.1:${config.port}/api/sessions/${s.id}/hooks`,
+    );
+    // resolveSpawnBaseUrl returned early for the trusted profile (no backend probe).
+    expect(probed).toBe(false);
+  } finally {
+    config.hooksIngest = prev;
+  }
 });

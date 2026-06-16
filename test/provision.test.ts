@@ -309,6 +309,14 @@ describe("extracted helpers (direct)", () => {
     expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
     expect(flat.some((c) => c.includes("enable-linger"))).toBe(true);
     expect(flat.some((c) => c.includes("deploy/update.sh"))).toBe(true);
+    // ~/.shepherd is created before the unit starts (systemd opens StandardOutput=append:
+    // there before ExecStart and won't make parent dirs — else first start fails, #725).
+    const shepherdDir = join("/home/op", ".shepherd");
+    const shepherdMkdirIdx = calls.findIndex((c) => c[0] === "mkdir" && c.includes(shepherdDir));
+    expect(shepherdMkdirIdx).toBeGreaterThanOrEqual(0);
+    // it must precede the build/start delegation to update.sh
+    const updateIdx = calls.findIndex((c) => c.join(" ").includes("deploy/update.sh"));
+    expect(shepherdMkdirIdx).toBeLessThan(updateIdx);
 
     const fresh = recorder();
     expect(() =>

@@ -450,7 +450,7 @@ export class ReviewService {
     const f = this.inflight.get(session.id);
     if (f) {
       if (f.finalizing) return "skipped";
-      reapRun(this.deps.herdr.stop, this.deps.worktree.remove, f.terminalId, f.worktreePath);
+      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
       this.deps.onReviewing?.(session.id, false);
       this.inflight.delete(session.id);
     }
@@ -725,7 +725,7 @@ export class ReviewService {
       );
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
-      reapRun(this.deps.herdr.stop, this.deps.worktree.remove, f.terminalId, f.worktreePath);
+      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
   }
 

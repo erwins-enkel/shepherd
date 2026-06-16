@@ -169,15 +169,19 @@ function makeDeps(
       listEpicCompleted: (repoPath?: string) =>
         (opts.epicCompleted ?? []).filter((r) => repoPath === undefined || r.repoPath === repoPath),
     },
-    herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+    herdr: new (class {
+      readonly recorded = spies.stopped; // this-dependent: unbound call loses this.recorded
+      start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
         spies.started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
-      },
-      stop: (t: string) => spies.stopped.push(t),
-    },
-    worktree: {
-      createDetached: async (
+      }
+      stop(t: string) {
+        this.recorded.push(t); // this.recorded → throws TypeError if called unbound
+      }
+    })(),
+    worktree: new (class {
+      readonly recorded = spies.removed; // this-dependent: unbound call loses this.recorded
+      createDetached = async (
         _repo: string,
         branch: string,
         sha: string,
@@ -186,10 +190,12 @@ function makeDeps(
       ) => {
         spies.created.push({ branch, sha, slug, pullRef });
         return { worktreePath: "/review-wt", branch: null, isolated: true };
-      },
-      remove: (p: string) => spies.removed.push(p),
-      gitCommonDir: () => "/fake-git-common",
-    },
+      };
+      remove(p: string) {
+        this.recorded.push(p); // this.recorded → throws TypeError if called unbound
+      }
+      gitCommonDir = () => "/fake-git-common";
+    })(),
     resolveForge: opts.forge ?? (() => makeForge(spies)),
     repos: () => opts.repos ?? ["/r"],
     managedBranches: opts.managed ?? (() => new Set<string>()),
@@ -716,4 +722,17 @@ test("inflightWorktrees: returns worktree path after sweep() spawns a critic run
   const svc = new StandalonePrCriticService(deps as any);
   await svc.sweep();
   expect(svc.inflightWorktrees()).toEqual(["/review-wt"]);
+});
+
+// ── regression: reapRun unbound-this (stop/remove must not throw) ────────────
+
+test("stopAll: reaps in-flight run without throwing (regression: unbound this)", async () => {
+  const { deps, spies } = makeDeps();
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(svc.inflightWorktrees()).toEqual(["/review-wt"]);
+  expect(() => svc.stopAll()).not.toThrow();
+  expect(spies.stopped).toEqual(["rt"]);
+  expect(spies.removed).toEqual(["/review-wt"]);
+  expect(svc.inflightWorktrees()).toEqual([]);
 });

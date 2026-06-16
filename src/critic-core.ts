@@ -494,13 +494,16 @@ export async function captureUsage(
   }
 }
 
-/** Terminal + disposable-worktree teardown for a finished critic run. */
+/** Terminal + disposable-worktree teardown for a finished critic run.
+ *  Accepts the herdr and worktree OBJECTS and calls their methods so that
+ *  `this` is preserved — passing bare unbound methods would lose `this` and
+ *  crash inside HerdrDriver.stop / WorktreeMgr.remove. */
 export function reapRun(
-  stop: (terminalId: string) => void,
-  remove: (worktreePath: string) => void,
+  herdr: { stop(terminalId: string): void },
+  worktree: { remove(worktreePath: string): void },
   terminalId: string,
   worktreePath: string,
 ): void {
-  stop(terminalId);
-  remove(worktreePath);
+  herdr.stop(terminalId);
+  worktree.remove(worktreePath);
 }

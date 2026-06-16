@@ -8,6 +8,7 @@ import {
   buildVerdictCore,
   reviewPrompt,
   prReviewPrompt,
+  reapRun,
 } from "../src/critic-core";
 
 // ── prReviewPrompt (session-less) ───────────────────────────────────────────
@@ -230,4 +231,29 @@ test("buildVerdictCore: request-changes with no findings falls back to its summa
   );
   expect(core.decision).toBe("changes_requested");
   expect(core.findings).toEqual(["needs work"]);
+});
+
+// ── reapRun: teardown can't crash ───────────────────────────────────────────
+
+test("reapRun: a throwing herdr.stop still removes the worktree and does not escape", () => {
+  const removed: string[] = [];
+  const herdr = {
+    stop() {
+      throw new Error("herdr CLI failed (e.g. JSON.parse of a non-JSON list)");
+    },
+  };
+  const worktree = { remove: (p: string) => removed.push(p) };
+  // finally callers rely on this never throwing — a herdr hiccup must not strand the worktree.
+  expect(() => reapRun(herdr, worktree, "term-1", "/wt-1")).not.toThrow();
+  expect(removed).toEqual(["/wt-1"]);
+});
+
+test("reapRun: clean path reaps both terminal and worktree", () => {
+  const stopped: string[] = [];
+  const removed: string[] = [];
+  const herdr = { stop: (t: string) => stopped.push(t) };
+  const worktree = { remove: (p: string) => removed.push(p) };
+  reapRun(herdr, worktree, "term-2", "/wt-2");
+  expect(stopped).toEqual(["term-2"]);
+  expect(removed).toEqual(["/wt-2"]);
 });

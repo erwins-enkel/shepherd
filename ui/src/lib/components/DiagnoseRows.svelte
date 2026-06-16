@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DiagnosticCheck } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { DOC_LINKS } from "$lib/diagnostics-docs";
   import { dialog } from "$lib/a11yDialog";
   import { SvelteSet } from "svelte/reactivity";
 
@@ -97,6 +98,20 @@
             >
               {busyIds.has(check.id) ? m.diagnostics_fix_running() : m.diagnostics_fix()}
             </button>
+          </div>
+        {:else if check.state !== "ok" && DOC_LINKS[check.hintKey]}
+          <!-- Guidance-only row (no auto-Fix): external how-to-fix doc-link instead. -->
+          <div class="fix-wrap">
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external how-to-fix doc URL -->
+            <a
+              class="fix doc-link micro"
+              href={DOC_LINKS[check.hintKey]}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {m.diagnostics_doc_link()}<span aria-hidden="true"> ↗</span>
+            </a>
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
           </div>
         {/if}
       </div>
@@ -230,6 +245,15 @@
   .fix:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  /* Doc-link styled as the fix button (it's a link, not a button). */
+  .doc-link {
+    display: inline-block;
+    text-decoration: none;
+  }
+  .doc-link:hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
 
   /* Blocking confirm modal — scrim + (global) blur per the design rule. */

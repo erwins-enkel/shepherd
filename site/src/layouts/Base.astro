@@ -9,6 +9,8 @@ interface Props {
 
 const SITE_URL = "https://shepherd.run/";
 const OG_IMAGE = "https://shepherd.run/og-image.png";
+const OG_IMAGE_ALT =
+  "Shepherd — run a herd of real Claude Code agents; ship only what survives review.";
 
 const {
   title = "Shepherd — run a herd of real Claude Code agents",
@@ -38,12 +40,14 @@ const {
     <meta property="og:image" content={OG_IMAGE} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={OG_IMAGE_ALT} />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={OG_IMAGE} />
+    <meta name="twitter:image:alt" content={OG_IMAGE_ALT} />
 
     <!--
       Self-hosted fonts (astro:assets). Each <Font/> emits the @font-face rules

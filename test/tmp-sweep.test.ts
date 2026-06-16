@@ -1,8 +1,16 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
+import * as fsp from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { worktreeScratchDir, sweepClaudeTmp, removeWorktreeScratch } from "../src/tmp-sweep";
+import {
+  worktreeScratchDir,
+  sweepClaudeTmp,
+  removeWorktreeScratch,
+  reapFallowCaches,
+  pruneRepoWorktrees,
+  FALLOW_CACHE_PREFIX,
+} from "../src/tmp-sweep";
 
 const uid = (): number => process.getuid?.() ?? 1000;
 const nested = `claude-${uid()}`;
@@ -326,5 +334,215 @@ describe("removeWorktreeScratch", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("reapFallowCaches", () => {
+  test("removes a stale fallow dir and its .lock / .last-used sidecars", async () => {
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    const name = `${FALLOW_CACHE_PREFIX}abc123`;
+    const dir = join(root, name);
+    mkdirSync(dir);
+    writeFileSync(`${dir}.lock`, "");
+    writeFileSync(`${dir}.last-used`, "");
+
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+
+    const res = await reapFallowCaches({ now, staleMs: 24 * 3600_000, fsOps: fsp, log: () => {} });
+
+    expect(res.removed).toBe(1);
+    expect(existsSync(dir)).toBe(false);
+    expect(existsSync(`${dir}.lock`)).toBe(false);
+    expect(existsSync(`${dir}.last-used`)).toBe(false);
+  });
+
+  test("keeps a fresh fallow dir", async () => {
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    const name = `${FALLOW_CACHE_PREFIX}fresh`;
+    const dir = join(root, name);
+    mkdirSync(dir);
+
+    const res = await reapFallowCaches({
+      now: Date.now(),
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+    });
+
+    expect(res.removed).toBe(0);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  test("ignores non-fallow dirs", async () => {
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    const otherDir = join(root, "bunx-1000-something");
+    mkdirSync(otherDir);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(otherDir, old, old);
+
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+    });
+
+    expect(res.removed).toBe(0);
+    expect(existsSync(otherDir)).toBe(true);
+  });
+
+  test("ignores .lock and .last-used sidecar entries in the scan", async () => {
+    // Even if a .lock / .last-used entry matches the prefix after stripping, they must not
+    // be treated as primary cache dirs — the reaper skips them; they're removed alongside
+    // their parent, not independently.
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    // Create only sidecars, no parent dir (orphaned sidecars).
+    writeFileSync(join(root, `${FALLOW_CACHE_PREFIX}orphan.lock`), "");
+    writeFileSync(join(root, `${FALLOW_CACHE_PREFIX}orphan.last-used`), "");
+
+    const res = await reapFallowCaches({
+      now: Date.now(),
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+    });
+
+    // sidecars are skipped, so removed count stays 0; the sidecar files themselves stay
+    expect(res.removed).toBe(0);
+  });
+
+  test("scans the bare tmpdir() root", async () => {
+    // Simulate a stale fallow cache landing in the system tmpdir (TMPDIR was system default
+    // during the push). We create it under a test-controlled root set as SHEPHERD_TMP_SWEEP_DIR
+    // but also verify tmpdir() is in the scan roots by using the real tmpdir.
+    const sysTmp = tmpdir();
+    const name = `${FALLOW_CACHE_PREFIX}systmp-test-${Math.random().toString(36).slice(2)}`;
+    const dir = join(sysTmp, name);
+    mkdirSync(dir);
+    dirs.push(dir); // cleaned up in afterEach
+
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+
+    // Point SHEPHERD_TMP_SWEEP_DIR to a fresh temp dir that has NO fallow caches,
+    // so only the systmp root can supply the removed count.
+    const cleanRoot = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", cleanRoot);
+
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+    });
+
+    expect(res.removed).toBeGreaterThanOrEqual(1);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("runs without a statfs/inode gate", async () => {
+    // reapFallowCaches must work even when statfs would be unavailable (no fsOps.statfs).
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    const name = `${FALLOW_CACHE_PREFIX}ungated`;
+    const dir = join(root, name);
+    mkdirSync(dir);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+
+    // Only provide readdir/stat/rm — no statfs property at all.
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: { readdir: fsp.readdir, stat: fsp.stat, rm: fsp.rm },
+      log: () => {},
+    });
+
+    expect(res.removed).toBe(1);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("never rejects; per-entry errors are swallowed", async () => {
+    const root = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
+
+    const name = `${FALLOW_CACHE_PREFIX}bad`;
+    const dir = join(root, name);
+    mkdirSync(dir);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: {
+        readdir: fsp.readdir,
+        stat: fsp.stat,
+        rm: async () => {
+          throw new Error("EACCES");
+        },
+      },
+      log: () => {},
+    });
+
+    // rm threw, so nothing removed — but we did not reject
+    expect(res.removed).toBe(0);
+  });
+});
+
+describe("pruneRepoWorktrees", () => {
+  test("invokes git -C <repo> worktree prune once per repo", async () => {
+    const calls: Array<{ repo: string; args: string[] }> = [];
+    const fakeExecGit = async (repo: string, args: string[]) => {
+      calls.push({ repo, args });
+    };
+
+    const res = await pruneRepoWorktrees(["/repo/a", "/repo/b"], {
+      execGit: fakeExecGit,
+      log: () => {},
+    });
+
+    expect(res.pruned).toBe(2);
+    expect(res.failed).toBe(0);
+    expect(calls).toHaveLength(2);
+    expect(calls.at(0)?.args).toEqual(["-C", "/repo/a", "worktree", "prune"]);
+    expect(calls.at(1)?.args).toEqual(["-C", "/repo/b", "worktree", "prune"]);
+  });
+
+  test("a failing repo does not abort the others", async () => {
+    const calls: string[] = [];
+    const fakeExecGit = async (repo: string) => {
+      if (repo === "/repo/bad") throw new Error("not a git repo");
+      calls.push(repo);
+    };
+
+    const res = await pruneRepoWorktrees(["/repo/bad", "/repo/good"], {
+      execGit: fakeExecGit,
+      log: () => {},
+    });
+
+    expect(res.pruned).toBe(1);
+    expect(res.failed).toBe(1);
+    expect(calls).toEqual(["/repo/good"]);
+  });
+
+  test("never rejects; empty list returns zeroes", async () => {
+    const res = await pruneRepoWorktrees([], { execGit: async () => {}, log: () => {} });
+    expect(res).toEqual({ pruned: 0, failed: 0 });
   });
 });

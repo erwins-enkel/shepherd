@@ -62,7 +62,7 @@ import { tailLines } from "./blocked";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
-import { sweepClaudeTmp, compileCacheDir } from "./tmp-sweep";
+import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees } from "./tmp-sweep";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
@@ -274,9 +274,10 @@ try {
 }
 
 // Inode-guard sweep: drops the compile cache + stale scratch once /tmp inode pressure
-// crosses the threshold. Fire-and-forget — sweepClaudeTmp never rejects; runDailySweep is
-// synchronous, so the daily caller must not await it either.
-const fireTmpSweep = (phase: "boot" | "daily") =>
+// crosses the threshold. Also unconditionally reaps stale fallow caches and prunes
+// orphaned git worktree records. Fire-and-forget — none of these ever reject;
+// runDailySweep is synchronous, so the daily caller must not await them either.
+const fireTmpSweep = (phase: "boot" | "daily") => {
   void sweepClaudeTmp()
     .then((r) => {
       if (r.swept)
@@ -285,6 +286,19 @@ const fireTmpSweep = (phase: "boot" | "daily") =>
         );
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} sweep failed:`, err));
+
+  void reapFallowCaches()
+    .then(({ removed }) =>
+      pruneRepoWorktrees(listRepos(config.repoRoot).map((r) => r.path)).then(
+        ({ pruned, failed }) => {
+          console.warn(
+            `[tmp-sweep] ${phase}: fallow reap removed ${removed}, worktree prune pruned ${pruned}${failed ? `, failed ${failed}` : ""}`,
+          );
+        },
+      ),
+    )
+    .catch((err) => console.warn(`[tmp-sweep] ${phase} fallow/prune failed:`, err));
+};
 
 fireTmpSweep("boot");
 

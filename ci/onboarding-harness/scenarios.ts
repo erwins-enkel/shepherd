@@ -117,4 +117,29 @@ export const SCENARIOS: Scenario[] = [
     coaching: "structured",
     installE2E: true,
   },
+  {
+    // Same inverse-flow installer scenario as install-e2e (bare host → real
+    // deploy/install.sh → assert green), PLUS the full systemd USER-UNIT lifecycle
+    // that install-e2e deliberately skips: install-e2e runs install.sh with
+    // SHEPHERD_NO_SERVICE=1 (no systemd in a fresh exec session); this one establishes
+    // the per-user systemd manager (loginctl enable-linger root + wait for the user
+    // bus socket), runs install.sh THROUGH the service path (no SHEPHERD_NO_SERVICE),
+    // then asserts `systemctl --user is-active shepherd` and health-checks Shepherd
+    // THROUGH the running unit. `expect` is the same TARGET-ok set as install-e2e.
+    id: "install-e2e-service",
+    // ubuntu/24.04: apt + x86_64 node-pty prebuilt (no node-gyp rebuild), and
+    // `git init -b main` needs git ≥2.28 — ubuntu/24.04 ships git ≥2.43, so it's fine.
+    image: "images:ubuntu/24.04",
+    seed: [],
+    expect: [
+      { id: "herdr", state: "ok" },
+      { id: "bun", state: "ok" },
+      { id: "node", state: "ok" },
+      { id: "git", state: "ok" },
+      { id: "claude", state: "ok" },
+    ],
+    coaching: "structured",
+    installE2E: true,
+    serviceLifecycle: true,
+  },
 ];

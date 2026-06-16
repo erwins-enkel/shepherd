@@ -34,12 +34,9 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
     `cd ${SHEPHERD_DIR} && setsid env -u SHEPHERD_TOKEN ` +
     `PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH" ` +
     `~/.bun/bin/bun src/index.ts ${redirect}${SHEPHERD_LOG} 2>&1 </dev/null &`;
-  // Poll the HTTP API until it answers or the ceiling elapses (degraded boots are
-  // expected — we only need the server up far enough to serve /api/diagnostics).
-  const pollCmd = `for i in $(seq 1 ${BOOT_POLL_CEILING}); do curl -sf localhost:${PORT}/api/diagnostics >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1`;
 
   await driver.exec(name, ["sh", "-c", launch(">")]);
-  let poll = await driver.exec(name, ["sh", "-c", pollCmd]);
+  let poll = await driver.exec(name, ["sh", "-c", pollApiCmd()]);
 
   if (poll.code !== 0) {
     // First boot didn't answer. A transient boot flake is worth ONE retry — but
@@ -61,7 +58,7 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
       // Port free ⇒ server died. Relaunch ONCE, appending to the log so the first
       // crash's output survives, then poll again on the same ceiling.
       await driver.exec(name, ["sh", "-c", launch(">>")]);
-      poll = await driver.exec(name, ["sh", "-c", pollCmd]);
+      poll = await driver.exec(name, ["sh", "-c", pollApiCmd()]);
     }
   }
 
@@ -73,6 +70,12 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
     throw new Error(await withLogTail(driver, name, base));
   }
 }
+
+/** The poll command shared by the manual-boot retry path and `waitForApi`: poll
+ *  the HTTP API until it answers or the ceiling elapses (degraded boots are
+ *  expected — we only need the server up far enough to serve /api/diagnostics). */
+const pollApiCmd = (): string =>
+  `for i in $(seq 1 ${BOOT_POLL_CEILING}); do curl -sf localhost:${PORT}/api/diagnostics >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1`;
 
 /** Best-effort: append a tail of the boot log to `base`. On any failure (exec
  *  throws, non-zero, or empty/whitespace-only log) returns the bare `base` so the
@@ -89,6 +92,31 @@ async function withLogTail(driver: IncusDriver, name: string, base: string): Pro
     return `${base}\n--- tail ${SHEPHERD_LOG} ---\n${log}`;
   } catch {
     return base;
+  }
+}
+
+/** Poll Shepherd's HTTP API until `/api/diagnostics` answers (or time out). Shared
+ *  by the manual-boot path (`bootShepherd`) and the systemd-lifecycle path, which
+ *  has the unit own the process and only needs to wait for it to serve. Uses the
+ *  same ${BOOT_POLL_CEILING}s ceiling as the manual boot (60s was too tight on a
+ *  slow/cold instance). */
+export async function waitForApi(driver: IncusDriver, name: string): Promise<void> {
+  const poll = await driver.exec(name, ["sh", "-c", pollApiCmd()]);
+  if (poll.code !== 0) throw new Error(`Shepherd did not come up in ${name}`);
+}
+
+/** Assert the `shepherd` systemd USER unit is `active` (the lifecycle scenario's
+ *  proof that the service path — not a hand-rolled boot — owns the process).
+ *  `XDG_RUNTIME_DIR=/run/user/0` is required for `systemctl --user` to reach the
+ *  user bus inside an `incus exec` session (no login session sets it). */
+export async function assertUnitActive(driver: IncusDriver, name: string): Promise<void> {
+  const r = await driver.exec(name, [
+    "sh",
+    "-c",
+    "XDG_RUNTIME_DIR=/run/user/0 systemctl --user is-active shepherd",
+  ]);
+  if (r.stdout.trim() !== "active") {
+    throw new Error(`shepherd user unit not active in ${name}: ${r.stdout || r.stderr}`);
   }
 }
 

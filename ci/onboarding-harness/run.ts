@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { IncusDriver } from "./incus";
 import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
-import { bootShepherd, probeDiagnostics } from "./probe";
+import { assertUnitActive, bootShepherd, probeDiagnostics, waitForApi } from "./probe";
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport, statusDescription } from "./report";
@@ -67,6 +67,88 @@ async function runInstallE2E(
   };
 }
 
+/** Turn the freshly-extracted /opt/shepherd into a real git checkout BEFORE
+ *  install.sh runs. The service path invokes deploy/update.sh, which does
+ *  `git rev-parse`/`git diff` under `set -euo pipefail`; a real install gets a
+ *  `.git` from `git clone`, but the harness stages source from a `git archive`
+ *  TARBALL (no `.git`), so update.sh would abort in a non-git dir. We install git,
+ *  extract the tarball, and seed a one-commit repo. Running install.sh then with
+ *  SHEPHERD_SRC==SHEPHERD_DIR==/opt/shepherd makes resolve_from_src use it IN PLACE
+ *  (no clone, no copy, no clobber), preserving this `.git`. */
+const GIT_CHECKOUT_SCRIPT =
+  "apt-get update && apt-get install -y git && " +
+  "mkdir -p /opt/shepherd && tar -xf /root/shepherd.tar -C /opt/shepherd && " +
+  "cd /opt/shepherd && git init -q -b main && git add -A && " +
+  'git -c user.email=harness@local -c user.name=harness commit -qm "harness seed"';
+
+/** Establish the per-user systemd manager so `systemctl --user` works inside the
+ *  `incus exec` session. `loginctl enable-linger` starts it ASYNCHRONOUSLY, so we
+ *  poll until the user bus socket exists before any `systemctl --user` runs —
+ *  without the wait, the immediately-following call races and fails to connect. */
+const BUS_ESTABLISH_SCRIPT =
+  "loginctl enable-linger root && " +
+  "for i in $(seq 1 30); do [ -S /run/user/0/bus ] && break; sleep 0.5; done; " +
+  "[ -S /run/user/0/bus ]";
+
+/** Run install.sh THROUGH the service path: no SHEPHERD_NO_SERVICE (the unit must
+ *  be installed + started), USER=root set explicitly (provision's installService
+ *  throws if $USER is unset), XDG_RUNTIME_DIR so provision's own `systemctl --user`
+ *  calls reach the bus, and SHEPHERD_SRC==SHEPHERD_DIR so install.sh uses the git
+ *  checkout in place. */
+const INSTALL_SERVICE_CMD =
+  "XDG_RUNTIME_DIR=/run/user/0 USER=root " +
+  "SHEPHERD_SRC=/opt/shepherd SHEPHERD_DIR=/opt/shepherd bash /root/install.sh";
+
+/** Inverse flow PLUS the real systemd USER-UNIT lifecycle: bare host → git-checkout
+ *  /opt/shepherd → enable-linger + user bus → real deploy/install.sh THROUGH the
+ *  service path → assert the `shepherd` unit is active → health-check through the
+ *  running unit. Unlike runInstallE2E it does NOT pass SHEPHERD_NO_SERVICE and never
+ *  hand-boots `bun src/index.ts` (the unit owns the process). Throws fail-closed at
+ *  every step; carries installE2E:true so a failure classifies as an INSTALL GAP. */
+async function runInstallLifecycleE2E(
+  driver: IncusDriver,
+  scenario: Scenario,
+  base: ScenarioBase,
+  tarball: string,
+): Promise<ScenarioResult> {
+  // Bare host: same seeding as runInstallE2E (pushes tarball + install.sh, no
+  // baseline) — works because the scenario also sets installE2E:true.
+  await seedInstance(driver, scenario, tarball, INSTALL_SCRIPT);
+
+  const checkout = await driver.exec(scenario.id, ["sh", "-c", GIT_CHECKOUT_SCRIPT]);
+  if (checkout.code !== 0) {
+    throw new Error(
+      `git checkout setup failed in ${scenario.id}:\n${checkout.stderr || checkout.stdout}`,
+    );
+  }
+
+  const bus = await driver.exec(scenario.id, ["sh", "-c", BUS_ESTABLISH_SCRIPT]);
+  if (bus.code !== 0) {
+    throw new Error(`user bus did not come up in ${scenario.id}:\n${bus.stderr || bus.stdout}`);
+  }
+
+  const install = await driver.exec(scenario.id, ["sh", "-c", INSTALL_SERVICE_CMD]);
+  if (install.code !== 0) {
+    throw new Error(
+      `install.sh (service) failed in ${scenario.id}:\n${install.stderr || install.stdout}`,
+    );
+  }
+
+  // The unit owns the process — assert it's active, then wait for it to serve.
+  await assertUnitActive(driver, scenario.id);
+  await waitForApi(driver, scenario.id);
+
+  const after = await probeDiagnostics(driver, scenario.id);
+  const detection = assertDetection(after, scenario.id, scenario.expect);
+  return {
+    ...base,
+    detection,
+    appliedVia: "verbatim",
+    reachedGreen: detection.detected,
+    installE2E: true,
+  };
+}
+
 /** Pick + run the standard-path remediation: detection-only (by design or
  *  agent-incompatible), verbatim, or agent. Returns the chosen `appliedVia` and
  *  whether this was a detection-only (no-apply) run. */
@@ -107,6 +189,8 @@ export async function runScenario(
   };
   let detection: DetectionResult | undefined;
   try {
+    if (scenario.serviceLifecycle)
+      return await runInstallLifecycleE2E(driver, scenario, base, tarball);
     if (scenario.installE2E) return await runInstallE2E(driver, scenario, base, tarball);
 
     await seedInstance(driver, scenario, tarball);

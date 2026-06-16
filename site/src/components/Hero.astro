@@ -1,0 +1,151 @@
+---
+import InstallBlock from "./InstallBlock.astro";
+import HerdMock from "./HerdMock.astro";
+
+const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
+---
+
+<section class="hero">
+  <div class="copy">
+    <h1 class="headline">
+      Run a herd of real Claude Code agents
+      <span class="emph">ship only what survives review.</span>
+    </h1>
+
+    <p class="pitch">
+      Self-hosted mission control for interactive Claude Code — spawn, watch,
+      and steer a herd of real <code>claude</code> sessions from your browser or
+      phone, with best-practice guardrails built in. On your own server, on your
+      own subscription.
+    </p>
+
+    <div class="ctas">
+      <a class="btn btn-primary" href="#install">Install</a>
+      <a
+        class="btn btn-ghost"
+        href={GITHUB_URL}
+        rel="noopener noreferrer"
+        target="_blank">View on GitHub</a
+      >
+    </div>
+
+    <InstallBlock />
+  </div>
+
+  <div class="visual">
+    <HerdMock />
+  </div>
+</section>
+
+<style>
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: center;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: clamp(3rem, 8vw, 6rem) 1.5rem;
+  }
+
+  .copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .headline {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2.2rem, 6vw, 3.6rem);
+    letter-spacing: -0.02em;
+  }
+
+  .emph {
+    display: block;
+    background: var(--gradient-amber-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .pitch {
+    max-width: 38rem;
+    font-size: 1.1rem;
+    color: var(--ink-muted);
+  }
+
+  .pitch code {
+    font-size: 0.95em;
+    color: var(--ink);
+  }
+
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.7rem 1.4rem;
+    border-radius: 0.6rem;
+    font-weight: 500;
+    font-size: 1rem;
+    cursor: pointer;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .btn-primary {
+    background: var(--gradient-amber-green);
+    color: var(--bg);
+    font-weight: 700;
+    box-shadow: 0 8px 24px -12px var(--green);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px -12px var(--green);
+  }
+
+  .btn-ghost {
+    border: 1px solid var(--panel-2);
+    color: var(--ink);
+    background: var(--panel);
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--green);
+    transform: translateY(-1px);
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+  }
+
+  .visual {
+    width: 100%;
+  }
+
+  @media (min-width: 900px) {
+    .hero {
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 3.5rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn {
+      transition: none;
+    }
+    .btn-primary:hover,
+    .btn-ghost:hover {
+      transform: none;
+    }
+  }
+</style>

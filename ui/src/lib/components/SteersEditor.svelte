@@ -246,8 +246,7 @@
             onfocus={(e) => onTextFocus(s, e)}
             oninput={(e) => onTextInput(s, e)}
             onblur={(e) => onTextBlur(s, e)}
-            onkeydown={(e) => onTextKeydown(s, e)}
-          ></textarea>
+            onkeydown={(e) => onTextKeydown(s, e)}></textarea>
           {#if slashFor === s.id}
             <SlashCommandMenu
               commands={slashMatches}

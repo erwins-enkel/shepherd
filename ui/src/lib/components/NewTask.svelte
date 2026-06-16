@@ -521,8 +521,7 @@
         oninput={onPromptInput}
         onkeydown={onPromptKeydown}
         onblur={() => (slashOpen = false)}
-        required
-      ></textarea>
+        required></textarea>
       {#if slashOpen}
         <SlashCommandMenu
           commands={slashMatches}

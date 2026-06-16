@@ -347,8 +347,7 @@
           autogrow();
           refreshSlash();
         }}
-        onblur={() => (slashOpen = false)}
-      ></textarea>
+        onblur={() => (slashOpen = false)}></textarea>
       {#if slashOpen}
         <SlashCommandMenu
           commands={slashMatches}

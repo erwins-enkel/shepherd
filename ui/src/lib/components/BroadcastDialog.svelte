@@ -127,8 +127,7 @@
       rows="2"
       data-1p-ignore
       placeholder={m.broadcast_placeholder()}
-      aria-label={m.broadcast_textarea_aria()}
-    ></textarea>
+      aria-label={m.broadcast_textarea_aria()}></textarea>
 
     {#if result}
       <div class="result" class:failed>

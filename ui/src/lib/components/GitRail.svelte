@@ -564,8 +564,7 @@
           bind:value={prBody}
           placeholder={m.gitrail_pr_description_placeholder()}
           aria-label={m.gitrail_pr_body_aria()}
-          rows="4"
-        ></textarea>
+          rows="4"></textarea>
         <div class="pr-actions">
           <button class="gbtn" type="button" onclick={() => (showPr = false)}
             >{m.gitrail_cancel()}</button

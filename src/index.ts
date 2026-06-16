@@ -383,9 +383,13 @@ if (config.hooksSignals && !config.hooksIngest) {
       poller.ingestNotification(id, ev.notificationType ?? "");
     } else if (ev.event === "SessionStart") {
       poller.ingestSessionStart(id);
+    } else if (ev.event === "Stop") {
+      poller.ingestStopMeasure(id, ev.receivedAt);
     }
-    // Stop + SessionEnd are observe-only this phase (deferred to #713):
-    // record() ring-buffers + logs them regardless of the sink, so they're measurable.
+    // Stop now feeds an observe-only window MEASUREMENT (no status mutation): the offset
+    // between the Stop hook and herdr's done flip (issue #713). SessionEnd stays observe-only
+    // (measured: reason always `other`, n=6, validator retained). record() ring-buffers +
+    // logs both regardless of the sink, so they remain measurable.
   });
 }
 // Phase-3 sub-agent fan-out push (issue #710): every roster mutation pushes the session's

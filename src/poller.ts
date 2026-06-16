@@ -28,6 +28,10 @@ const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
  */
 const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
 
+/** Pairing horizon for the observe-only Stop↔herdr-done window (issue #713): a Stop and a
+ *  done-flip more than this apart are treated as unrelated turns and never paired. */
+const STOP_WINDOW_MAX_MS = 30_000;
+
 /** Both transcript-derived signals from a single read; the unified probe's result. */
 type TranscriptSignals = { snapshot: ActivitySnapshot | null; activity: SessionActivity | null };
 
@@ -163,6 +167,16 @@ export class StatusPoller {
    *  herdr's latchy `blocked` status. */
   private hookAwaitingInput = new Set<string>();
 
+  /** Observe-only Stop↔herdr-done pairing markers (issue #713), flag-gated, NO behaviour
+   *  change. They measure the offset between a Claude Code `Stop` hook and herdr's `done`
+   *  flip per turn; polling stays authoritative. The two sides of the same pairing:
+   *  `pendingStopAt` holds a Stop seen before its done-flip (stop-wins side); `pendingDoneAt`
+   *  holds a done-flip seen before its Stop (herdr-wins side). Whichever arrives first parks
+   *  here; the other side pairs it (emitting the signed window) or it expires unpaired. Both
+   *  are reaped on gone/prune and inert when `config.hooksSignals` is off. */
+  private pendingStopAt = new Map<string, number>();
+  private pendingDoneAt = new Map<string, number>();
+
   /** Timestamp of the last claude-liveness sweep (0 = never). */
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
@@ -221,6 +235,18 @@ export class StatusPoller {
      * ingest module isn't wired, e.g. in tests / flag off).
      */
     private pruneHooks?: (activeIds: Set<string>) => void,
+    /**
+     * Observe-only Stop↔herdr-done window emitter (issue #713), flag-gated. Called once per
+     * resolved pairing with the SIGNED offset between a `Stop` hook and herdr's `done` flip:
+     * `windowMs > 0` ⇒ Stop arrived first (stop-wins); `windowMs <= 0` ⇒ herdr flipped first
+     * (herdr-wins); `windowMs === null` ⇒ a done-flip never paired (no Stop within the
+     * horizon). Pure measurement — never mutates status/routing. Defaults to a single
+     * greppable `[hooks]` log line; tests inject a capturer.
+     */
+    private onStopWindow: (id: string, windowMs: number | null) => void = (id, windowMs) => {
+      const kind = windowMs === null ? "no-stop" : windowMs > 0 ? "stop-wins" : "herdr-wins";
+      console.log(`[hooks] stop-window session=${id} windowMs=${windowMs ?? "null"} case=${kind}`);
+    },
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -272,6 +298,9 @@ export class StatusPoller {
       else this.reconcileAgent(s, agent);
     }
     this.pruneInactive(activeIds);
+    // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
+    // within the horizon (no-stop emit / silent stale-Stop drop). Gated; no behaviour change.
+    if (config.hooksSignals) this.expireStaleStopWindows();
     // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
     this.maybeRunPreviewSweep(sessions);
     // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
@@ -331,6 +360,10 @@ export class StatusPoller {
   private reapGone(s: Session): void {
     if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     this.clearBlock(s.id);
+    // Observe-only Stop↔herdr-done markers (issue #713): the agent's gone — drop both
+    // without an emit (a reap is not a measurable done-flip pairing).
+    this.pendingStopAt.delete(s.id);
+    this.pendingDoneAt.delete(s.id);
     if (s.status !== "done") {
       this.store.update(s.id, { status: "done", lastState: "done" });
       this.onChange(s.id, "done");
@@ -350,6 +383,13 @@ export class StatusPoller {
       this.onChange(s.id, status); // nudge clients to re-attach the PTY to the fresh terminal
     }
     if (idChanged) s = { ...s, herdrAgentId: agent.terminalId };
+    // Observe-only Stop↔herdr-done measurement (issue #713): on the done-EDGE (status flips
+    // to done; `s.status` holds the PRIOR value) record/pair the window. Placed BEFORE the
+    // tryHookAwaitingBlock early-return below so a stale `hookAwaitingInput` short-circuit
+    // can never swallow the measurement. Pure measurement — does not alter status/routing.
+    if (config.hooksSignals && status === "done" && s.status !== "done") {
+      this.measureStopWindow(s.id, this.now());
+    }
     this.dropReadyToMergeIfActionable(s, status);
     // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
     // display flag must drop in the SAME tick, not via the throttled probe paths.
@@ -431,6 +471,8 @@ export class StatusPoller {
       ...this.lastHookActivityAt.keys(),
       ...this.hookTicks.keys(),
       ...this.hookAwaitingInput,
+      ...this.pendingStopAt.keys(),
+      ...this.pendingDoneAt.keys(),
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -453,6 +495,9 @@ export class StatusPoller {
         this.lastHookActivityAt.delete(id);
         this.hookTicks.delete(id);
         this.hookAwaitingInput.delete(id);
+        // Observe-only Stop↔herdr-done markers (issue #713)
+        this.pendingStopAt.delete(id);
+        this.pendingDoneAt.delete(id);
       }
     }
     // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too
@@ -542,6 +587,72 @@ export class StatusPoller {
     if (this.lastClaudeAlive.get(id) !== true) {
       this.lastClaudeAlive.set(id, true);
       this.livenessWiring.onChange(id, true);
+    }
+  }
+
+  /**
+   * Observe-only Stop measurement (issue #713), fed by HookIngest.onSignal for `Stop`
+   * events. Records the Stop's receive time as one half of the Stop↔herdr-done pairing.
+   * If a done-flip is already pending within the horizon, herdr won this turn's race —
+   * emit the (≤0) window immediately and clear the pending done. Otherwise park the Stop
+   * so the next done-flip in `measureStopWindow` can pair it (a stale prior pending stop
+   * is silently overwritten — Stop is a per-turn edge, only the latest matters).
+   *
+   * Pure measurement: never touches status, routing, or any block/activity state — polling
+   * stays authoritative. No-op when `config.hooksSignals` is off.
+   */
+  ingestStopMeasure(id: string, stopAt: number): void {
+    if (!config.hooksSignals) return;
+    const d = this.pendingDoneAt.get(id);
+    if (d !== undefined && stopAt - d <= STOP_WINDOW_MAX_MS) {
+      // herdr-wins: the done-flip preceded this Stop (window ≤ 0).
+      this.onStopWindow(id, d - stopAt);
+      this.pendingDoneAt.delete(id);
+    } else {
+      this.pendingStopAt.set(id, stopAt);
+    }
+  }
+
+  /**
+   * Observe-only done-edge half of the Stop↔herdr-done pairing (issue #713), called from
+   * `reconcileAgent` on a done-flip. If a Stop is already pending within the horizon, Stop
+   * won this turn's race — emit the (≥0) window and clear it. Otherwise park the done as
+   * pending so a later `ingestStopMeasure` can pair it; if a prior pending done is being
+   * superseded (it never paired) emit a `null` for it first, then record this one.
+   *
+   * Pure measurement: never touches status, onChange, or routing — emit + marker
+   * bookkeeping only.
+   */
+  private measureStopWindow(id: string, doneAt: number): void {
+    const st = this.pendingStopAt.get(id);
+    if (st !== undefined && doneAt - st <= STOP_WINDOW_MAX_MS) {
+      // stop-wins: the Stop preceded this done-flip (window ≥ 0).
+      this.onStopWindow(id, doneAt - st);
+      this.pendingStopAt.delete(id);
+    } else {
+      // No pairable Stop. A prior pending done is being superseded by this fresh one and
+      // never paired → emit null for it before overwriting.
+      if (this.pendingDoneAt.has(id)) this.onStopWindow(id, null);
+      this.pendingDoneAt.set(id, doneAt);
+    }
+  }
+
+  /**
+   * Per-tick expiry sweep for the observe-only Stop↔done markers (issue #713). A pending
+   * done that aged past the horizon never paired with a Stop → emit `null` (no-stop) and
+   * drop it. A pending Stop that aged out is dropped SILENTLY — a Stop with no done-flip is
+   * not a done-flip and emits nothing. Inert when `config.hooksSignals` is off (callers gate).
+   */
+  private expireStaleStopWindows(): void {
+    const now = this.now();
+    for (const [id, doneAt] of this.pendingDoneAt) {
+      if (now - doneAt > STOP_WINDOW_MAX_MS) {
+        this.onStopWindow(id, null);
+        this.pendingDoneAt.delete(id);
+      }
+    }
+    for (const [id, stopAt] of this.pendingStopAt) {
+      if (now - stopAt > STOP_WINDOW_MAX_MS) this.pendingStopAt.delete(id);
     }
   }
 

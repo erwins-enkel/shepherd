@@ -9,8 +9,14 @@
 // activity signals; Notification(permission_prompt) feeds block detection.
 //
 // Phase 2 (#709): SessionStart is consumed to flip claude-liveness to true (fast-path
-// before the poller's liveness sweep). Stop / SessionEnd are recorded + logged only —
-// observe-only, no signal consumption this phase (deferred to #713).
+// before the poller's liveness sweep).
+//
+// Phase 2b (#713): Stop now feeds a turn-complete-window *measurement* — the poller pairs
+// it against herdr's `done` flip to record the offset between the two (flag-gated,
+// observe-only; NO status consumption — polling stays authoritative). SessionEnd remains
+// observe-only by gated decision: its `reason` proved uninformative in the spike (n=6, all
+// `other`), so consuming it would add nothing; the validator + HookEvent fields are retained
+// for ongoing observability so a future terminal reason can revive it.
 //
 // Phase 3 (#710): SubagentStart / SubagentStop maintain a per-session sub-agent roster
 // (agentId → entry; live until a matching Stop). The roster is its own state — gated only

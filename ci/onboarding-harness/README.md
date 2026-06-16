@@ -8,8 +8,32 @@ Success is scoped **per scenario**: a scenario passes when the checks it broke r
 
 Two scenario classes:
 
-- **Green-able** — the defect can be coached back to `ok` unattended. `coaching: "structured"` runs a verbatim `REMEDIATIONS` command (deterministic, LLM-free, **release-gate-eligible**); `coaching: "prose"` uses the agent (e.g. distro-specific git install). Today: `herdr-missing`, `claude-missing`, `node-too-old` (structured) and `git-missing` (prose).
+- **Green-able** — the defect can be coached back to `ok` unattended. `coaching: "structured"` runs a verbatim `REMEDIATIONS` command (deterministic, LLM-free, **release-gate-eligible**); `coaching: "prose"` uses the agent (e.g. distro-specific git install). Today: `herdr-missing`, `claude-missing`, `node-too-old` (structured) and `git-missing` (prose). `install-e2e` is also structured (see below).
 - **Detection-only** (`detectionOnly: true`) — the defect is detectable but its fix needs a human/secret a throw-away instance can't supply (`gh auth login`; a Tailscale tailnet login + `serve`). No apply is attempted; excluded from the green tally and the gate; reported as DETECTION-ONLY. Today: `gh-unauthed`, `gh-missing`, `tailscale-missing`.
+
+### install-e2e
+
+The inverse of the seed-a-defect scenarios. A **bare** Ubuntu instance — no Bun, no checkout, no
+baseline — where the harness runs the real `deploy/install.sh` (via `SHEPHERD_SRC` pointing at the
+git-archive tarball of the current HEAD, `SHEPHERD_NO_SERVICE=1`, `SHEPHERD_DIR=/opt/shepherd`) rather than
+seeding a specific defect. Once the installer exits, the harness boots Shepherd and asserts that
+the auto-fixable checks reach `ok`:
+
+```
+herdr  bun  node  git  claude
+```
+
+`gh` and `tailscale` stay non-ok on a throw-away host (no tailnet, no gh login) and are
+intentionally excluded from `expect` — success is scoped to the installer's auto-fixable set,
+same as every other scenario.
+
+`install-e2e` is `coaching: "structured"` and not `detectionOnly`, so it is **gate-eligible**:
+`onboarding-gate.sh` and the nightly verdict pick it up, and a failing installer blocks the
+release gate. Run it directly with:
+
+```bash
+bun run onboarding:test --scenario install-e2e
+```
 
 ## Prerequisites
 

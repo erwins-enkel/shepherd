@@ -18,7 +18,8 @@ describe("scenario catalog", () => {
 
   it("every scenario seeds at least one command and expects at least one flag", () => {
     for (const s of SCENARIOS) {
-      expect(s.seed.length).toBeGreaterThan(0);
+      // installE2E scenarios intentionally seed NO defect (bare host → install.sh).
+      if (!s.installE2E) expect(s.seed.length).toBeGreaterThan(0);
       expect(s.expect.length).toBeGreaterThan(0);
     }
   });

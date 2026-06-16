@@ -9,19 +9,36 @@ import type { ScenarioResult } from "./types";
  *  ran keeps its real detection result (non-empty misses or detected=true) and is
  *  classified as a normal gap instead. */
 function isHarnessError(r: ScenarioResult): boolean {
+  // install-e2e is never infra: it EXISTS to test the installer end-to-end, so a throw
+  // (install.sh non-zero, boot/probe failure) is an INSTALL regression that must gate —
+  // fail closed, never excluded as infra. (A genuinely down Incus host is handled by
+  // onboarding-gate.sh's host-unavailable bypass, not by silently dropping this scenario.)
+  if (r.installE2E) return false;
   return !!r.error && !r.detection.detected && r.detection.misses.length === 0;
 }
 
+type Classification =
+  | "PASS"
+  | "DETECTION GAP"
+  | "ADVICE GAP"
+  | "INSTALL GAP"
+  | "DETECTION-ONLY"
+  | "HARNESS ERROR";
+
 /** Pure: render the per-scenario outcomes as a markdown gap report. Classifies
  *  each scenario as PASS, DETECTION GAP (defect missed/misclassified), ADVICE GAP
- *  (detected but coaching didn't reach green), DETECTION-ONLY (detected with no
- *  apply attempted by design — e.g. claude-missing in Phase 1; NOT a gap), or
- *  HARNESS ERROR (threw before detection — infra/image-rot, not a product gap).
- *  The green tally counts only apply-able scenarios so detection-only AND
- *  harness-errored ones don't drag the denominator. */
-function classify(
-  r: ScenarioResult,
-): "PASS" | "DETECTION GAP" | "ADVICE GAP" | "DETECTION-ONLY" | "HARNESS ERROR" {
+ *  (detected but coaching didn't reach green), INSTALL GAP (the install-e2e scenario
+ *  didn't reach green — an installer regression, NOT a detection failure, since it
+ *  has no seeded defect), DETECTION-ONLY (detected with no apply attempted by
+ *  design — e.g. claude-missing in Phase 1; NOT a gap), or HARNESS ERROR (threw
+ *  before detection — infra/image-rot, not a product gap). The green tally counts
+ *  only apply-able scenarios so detection-only AND harness-errored ones don't drag
+ *  the denominator. */
+function classify(r: ScenarioResult): Classification {
+  // install-e2e takes precedence over the infra check: it has no seeded defect, so a
+  // miss — including a thrown install.sh/boot/probe failure — is an installer regression
+  // (INSTALL GAP), never a HARNESS ERROR or a DETECTION GAP ("a defect was missed").
+  if (r.installE2E) return r.reachedGreen ? "PASS" : "INSTALL GAP";
   if (isHarnessError(r)) return "HARNESS ERROR";
   if (r.detectionOnly) return r.detection.detected ? "DETECTION-ONLY" : "DETECTION GAP";
   if (r.reachedGreen) return "PASS";
@@ -47,11 +64,14 @@ export function statusDescription(results: ScenarioResult[]): string {
     : `${gaps.length} gate gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}`;
 }
 
-function tableRow(r: ScenarioResult, klass: ReturnType<typeof classify>): string {
+function tableRow(r: ScenarioResult, klass: Classification): string {
   return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`;
 }
 
-function gapEntry(r: ScenarioResult, klass: "DETECTION GAP" | "ADVICE GAP"): string {
+function gapEntry(
+  r: ScenarioResult,
+  klass: "DETECTION GAP" | "ADVICE GAP" | "INSTALL GAP",
+): string {
   const misses = r.detection.misses.map((m) => `${m.id} want=${m.want} got=${m.got}`).join("; ");
   return `- **${r.scenarioId}** (${klass})${misses ? ` — ${misses}` : ""}${r.error ? ` — ${r.error}` : ""}`;
 }
@@ -85,7 +105,7 @@ export function buildGapReport(results: ScenarioResult[]): string {
   for (const r of results) {
     const klass = classify(r);
     lines.push(tableRow(r, klass));
-    if (klass === "DETECTION GAP" || klass === "ADVICE GAP") {
+    if (klass === "DETECTION GAP" || klass === "ADVICE GAP" || klass === "INSTALL GAP") {
       gaps.push(gapEntry(r, klass));
     } else if (klass === "HARNESS ERROR") {
       errors.push(harnessErrorEntry(r));

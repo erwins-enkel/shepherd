@@ -28,6 +28,15 @@ export interface Scenario {
    *  rarely triggers (claude-missing has a verbatim reinstall), but a scenario with
    *  no verbatim fix AND no claude falls back to detection-only rather than failing. */
   agentIncompatible?: boolean;
+  /** Installer END-TO-END regression scenario (the inverse of every other entry).
+   *  Instead of seeding a defect onto a bootable baseline, this launches a BARE
+   *  instance (no Bun, no checkout, no baseline) and runs the REAL `deploy/install.sh`
+   *  against it, then asserts the host reaches green. So there is NO seeded defect:
+   *  `seed` is empty and `expect` lists the checks that must be `ok` AFTER the
+   *  install (the target state, not a seeded defect). seed.ts skips the baseline +
+   *  scenario.seed and only pushes the tarball + install.sh; run.ts runs the
+   *  installer, boots, probes, and compares the snapshot against `expect`. */
+  installE2E?: true;
 }
 
 export interface ExpectedCheck {
@@ -60,6 +69,11 @@ export interface ScenarioResult {
    *  rolling issue); prose/agent + detection-only scenarios stay in the report as
    *  information and never block a release. */
   gateEligible: boolean;
+  /** This is the installer END-TO-END scenario (inverse flow: bare host → real
+   *  install.sh → assert green). It has NO seeded defect, so a non-green outcome is
+   *  an INSTALL regression, not a detection failure — the report classifies it as an
+   *  INSTALL GAP instead of a DETECTION GAP to keep the nightly signal accurate. */
+  installE2E?: boolean;
   error?: string;
 }
 

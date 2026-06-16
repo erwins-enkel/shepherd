@@ -57,29 +57,49 @@ function baselineCommands(): string[] {
   ];
 }
 
-/** Launch a fresh instance for `scenario`, install the bootable baseline, push
- *  the Shepherd build, then run the scenario's messy-state seed commands. */
-export async function seedInstance(
-  driver: IncusDriver,
-  scenario: Scenario,
-  tarballPath: string,
-): Promise<void> {
-  await driver.launch(scenario.image, scenario.id, {
-    vm: scenario.vm,
-    profiles: PROFILES,
-  });
-  // Wait for the instance's network to actually resolve DNS before the baseline
-  // hits the package mirrors. `/bin/sh` exists instantly, so the old test only
-  // proved the rootfs unpacked — on Arch, systemd-resolved comes up slower than
-  // on debian/fedora and `pacman -Sy` failed with "Could not resolve host". Poll
-  // a real resolution instead (skip on images without glibc `getent`, e.g. musl).
-  await driver.exec(scenario.id, [
+/** Wait for the instance's network to actually resolve DNS before anything hits
+ *  the package mirrors. `/bin/sh` exists instantly, so a launch alone only proves
+ *  the rootfs unpacked — on Arch, systemd-resolved comes up slower than on debian/
+ *  fedora and `pacman -Sy` failed with "Could not resolve host". Poll a real
+ *  resolution instead (skip on images without glibc `getent`, e.g. musl). */
+async function waitForDns(driver: IncusDriver, name: string): Promise<void> {
+  await driver.exec(name, [
     "sh",
     "-c",
     "for i in $(seq 1 60); do command -v getent >/dev/null 2>&1 || break; " +
       "getent hosts bun.sh >/dev/null 2>&1 && break; sleep 1; done",
   ]);
+}
+
+/** Launch a fresh instance for `scenario`, install the bootable baseline, push
+ *  the Shepherd build, then run the scenario's messy-state seed commands.
+ *
+ *  installE2E scenarios are the inverse: a BARE instance with NO baseline + NO
+ *  defect seed. We launch, wait for DNS (the real install.sh needs network), and
+ *  push the tarball + install.sh; run.ts then runs the installer itself. */
+export async function seedInstance(
+  driver: IncusDriver,
+  scenario: Scenario,
+  tarballPath: string,
+  installScriptPath?: string,
+): Promise<void> {
+  await driver.launch(scenario.image, scenario.id, {
+    vm: scenario.vm,
+    profiles: PROFILES,
+  });
+  await waitForDns(driver, scenario.id);
   await driver.push(scenario.id, tarballPath, "/root/shepherd.tar");
+
+  if (scenario.installE2E) {
+    // Bare host: skip the baseline (bun/extract/install) AND the defect seed — the
+    // real deploy/install.sh does all provisioning. Just stage the installer.
+    if (!installScriptPath) {
+      throw new Error(`installE2E scenario ${scenario.id} requires installScriptPath`);
+    }
+    await driver.push(scenario.id, installScriptPath, "/root/install.sh");
+    return;
+  }
+
   // Baseline steps are infrastructure: a failure here (e.g. bun didn't install)
   // leaves a non-bootable instance, so surface it now instead of limping on to a
   // misleading "Shepherd did not come up" 60s later.

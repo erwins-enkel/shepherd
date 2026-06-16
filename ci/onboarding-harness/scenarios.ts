@@ -97,4 +97,24 @@ export const SCENARIOS: Scenario[] = [
     expect: [{ id: "node", state: "warning" }],
     coaching: "structured",
   },
+  {
+    // Installer end-to-end regression: a BARE instance (no Bun, no checkout, no
+    // baseline) where the real deploy/install.sh must bring the host to green.
+    // `expect` is the TARGET-ok set, not a seeded defect (seed is empty). gh +
+    // tailscale are intentionally out — a throw-away instance has no gh login /
+    // tailnet, so they stay non-ok; success is scoped to the auto-fixable set,
+    // same as every other scenario.
+    id: "install-e2e",
+    image: "images:ubuntu/24.04", // apt (covered by install.sh distro detection for git) + x86_64 node-pty prebuilt → no node-gyp rebuild
+    seed: [],
+    expect: [
+      { id: "herdr", state: "ok" },
+      { id: "bun", state: "ok" },
+      { id: "node", state: "ok" },
+      { id: "git", state: "ok" },
+      { id: "claude", state: "ok" },
+    ],
+    coaching: "structured",
+    installE2E: true,
+  },
 ];

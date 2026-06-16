@@ -106,6 +106,76 @@ describe("buildGapReport", () => {
     expect(md).toContain("0 / 1 scenarios reached green"); // stays in the denominator
   });
 
+  it("classifies a red install-e2e result as an INSTALL GAP, not a DETECTION GAP", () => {
+    const md = buildGapReport([
+      {
+        scenarioId: "install-e2e",
+        image: "images:ubuntu/24.04",
+        // install-e2e has no seeded defect — `detected:false` here means the host
+        // didn't reach green after install.sh, i.e. an installer regression.
+        detection: {
+          scenarioId: "install-e2e",
+          detected: false,
+          misses: [{ id: "bun", want: "ok", got: "absent" }],
+        },
+        appliedVia: "verbatim",
+        reachedGreen: false,
+        gateEligible: true,
+        installE2E: true,
+      },
+    ]);
+    expect(md).toContain("INSTALL GAP");
+    expect(md).not.toContain("DETECTION GAP");
+    expect(md).toContain("## Gaps");
+    expect(md).toContain("bun want=ok got=absent");
+    expect(md).toContain("0 / 1 scenarios reached green");
+  });
+
+  it("classifies a THROWN install-e2e (install.sh non-zero / boot crash) as an INSTALL GAP that gates, not a HARNESS ERROR", () => {
+    // This is the runScenario catch-block sentinel for install-e2e: error set,
+    // detection never ran (detected:false, no misses) — identical in shape to a
+    // pre-detection infra throw. Because it carries installE2E, it must be an
+    // INSTALL GAP (gates, stays in the denominator), NOT excluded as infra.
+    const md = buildGapReport([
+      {
+        scenarioId: "install-e2e",
+        image: "images:ubuntu/24.04",
+        detection: { scenarioId: "install-e2e", detected: false, misses: [] },
+        appliedVia: "skipped",
+        reachedGreen: false,
+        gateEligible: true,
+        installE2E: true,
+        error: "install.sh failed in install-e2e:\nfnm install --lts: network unreachable",
+      },
+    ]);
+    expect(md).toContain("INSTALL GAP");
+    expect(md).not.toContain("HARNESS ERROR");
+    expect(md).not.toContain("## Harness errors");
+    expect(md).toContain("## Gaps");
+    expect(md).toContain("install.sh failed in install-e2e");
+    // Stays in the denominator and is NOT green → a real installer regression gates.
+    expect(md).toContain("0 / 1 scenarios reached green");
+    expect(md).not.toContain("harness error");
+  });
+
+  it("classifies a green install-e2e result as PASS like the others", () => {
+    const md = buildGapReport([
+      {
+        scenarioId: "install-e2e",
+        image: "images:ubuntu/24.04",
+        detection: { scenarioId: "install-e2e", detected: true, misses: [] },
+        appliedVia: "verbatim",
+        reachedGreen: true,
+        gateEligible: true,
+        installE2E: true,
+      },
+    ]);
+    expect(md).toContain("PASS");
+    expect(md).not.toContain("INSTALL GAP");
+    expect(md).not.toContain("## Gaps");
+    expect(md).toContain("1 / 1 scenarios reached green");
+  });
+
   it("classifies a by-design no-apply scenario as DETECTION-ONLY and excludes it from the denominator", () => {
     const md = buildGapReport([
       {

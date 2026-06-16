@@ -1,5 +1,53 @@
 # Changelog
 
+## [1.32.0](https://github.com/erwins-enkel/shepherd/compare/v1.31.0...v1.32.0) (2026-06-16)
+
+
+### Features
+
+* **hooks:** live sub-agent fan-out in the HUD (SubagentStart/Stop) — phase 3 ([#710](https://github.com/erwins-enkel/shepherd/issues/710)) ([#723](https://github.com/erwins-enkel/shepherd/issues/723)) ([82f832d](https://github.com/erwins-enkel/shepherd/commit/82f832dfe24601b907d9b859344fd061a8338ff4))
+* **hooks:** measure Stop→herdr-done window (observe-only); drop SessionEnd consume ([#713](https://github.com/erwins-enkel/shepherd/issues/713)) ([#733](https://github.com/erwins-enkel/shepherd/issues/733)) ([daeb944](https://github.com/erwins-enkel/shepherd/commit/daeb9449a543156bf421262129d7bd035106617a))
+* **hooks:** push-based agent-info ingestion via Claude Code hooks — Phase 0 + 1 ([#704](https://github.com/erwins-enkel/shepherd/issues/704)) ([fdf62ad](https://github.com/erwins-enkel/shepherd/commit/fdf62adbb1f1713f99acb5018542db9c9b477d40))
+* **hooks:** reach Shepherd from inside the autonomous egress netns ([#711](https://github.com/erwins-enkel/shepherd/issues/711)) ([#738](https://github.com/erwins-enkel/shepherd/issues/738)) ([953b6c5](https://github.com/erwins-enkel/shepherd/commit/953b6c5299f92152a43025c72b5f8074217a7cf3))
+* **hooks:** sessionStart consumed; stop/sessionEnd observe-only — phase 2 ([#709](https://github.com/erwins-enkel/shepherd/issues/709)) ([#718](https://github.com/erwins-enkel/shepherd/issues/718)) ([7e498d8](https://github.com/erwins-enkel/shepherd/commit/7e498d8dc334411e836e0b4c623919d805374384))
+* in-app DIAGNOSE one-click Fix + keystone src/remediations.ts ([#703](https://github.com/erwins-enkel/shepherd/issues/703)) ([#707](https://github.com/erwins-enkel/shepherd/issues/707)) ([29c16fa](https://github.com/erwins-enkel/shepherd/commit/29c16fa71a3613707a5dda6e12448e024bcb7e1e))
+* **installer:** DIAGNOSE doc-links + full systemd-lifecycle e2e ([#725](https://github.com/erwins-enkel/shepherd/issues/725)) ([#734](https://github.com/erwins-enkel/shepherd/issues/734)) ([a402802](https://github.com/erwins-enkel/shepherd/commit/a4028021bbde41be488b25feea15125fafd0625a))
+* **installer:** shepherd.run vanity install redirect via Vercel (Phase 1) ([#736](https://github.com/erwins-enkel/shepherd/issues/736)) ([e907db1](https://github.com/erwins-enkel/shepherd/commit/e907db1074f0e30c02a0cbc84377c2f9a7e2ed02))
+* **installer:** Surface A curl|bash bootstrap + Phase-4 e2e gate ([#706](https://github.com/erwins-enkel/shepherd/issues/706)) ([#724](https://github.com/erwins-enkel/shepherd/issues/724)) ([fdc3765](https://github.com/erwins-enkel/shepherd/commit/fdc3765952ebbd0594b23c4ad81275169e3f444d))
+* **newtask:** info tooltips for run options + visible repo autopilot default ([#698](https://github.com/erwins-enkel/shepherd/issues/698)) ([146ead2](https://github.com/erwins-enkel/shepherd/commit/146ead2872d65814c9ad9d19e3cb828fa18ff77c))
+* **newtask:** per-task Autopilot override in the New Task dialog ([#696](https://github.com/erwins-enkel/shepherd/issues/696)) ([94e2018](https://github.com/erwins-enkel/shepherd/commit/94e2018e2afb079c0c0ab62516c54f3e9175a628))
+* **repos:** add "Sync fork with upstream" action to fork repos ([#737](https://github.com/erwins-enkel/shepherd/issues/737)) ([eff45a7](https://github.com/erwins-enkel/shepherd/commit/eff45a760316cd19d6c4aab8182f4b1f568f581f))
+* **rundown:** herd rundown — synthesized cross-session attention digest ([#693](https://github.com/erwins-enkel/shepherd/issues/693)) ([#700](https://github.com/erwins-enkel/shepherd/issues/700)) ([07ff6b6](https://github.com/erwins-enkel/shepherd/commit/07ff6b6380944aa64e489fa5117a3ef0d3593213))
+
+
+### Bug Fixes
+
+* **automation-panel:** centered modal sheet + blurred scrim on touch ([#695](https://github.com/erwins-enkel/shepherd/issues/695)) ([abed809](https://github.com/erwins-enkel/shepherd/commit/abed80992ffb08e95e0d0d4e3c559e368c232e58))
+* **backlog:** pin search fields flush so list doesn't bleed above them ([#717](https://github.com/erwins-enkel/shepherd/issues/717)) ([5cb2f13](https://github.com/erwins-enkel/shepherd/commit/5cb2f13609e0d06d668d919958605e25882fac68))
+* **newtask:** ticking Research also unticks Autopilot to PR ([#702](https://github.com/erwins-enkel/shepherd/issues/702)) ([0da705c](https://github.com/erwins-enkel/shepherd/commit/0da705c141da44aa7eb8b63f2a4af25ce1cda454))
+* **onboarding-harness:** clear git-missing + herdr-missing nightly harness errors ([#732](https://github.com/erwins-enkel/shepherd/issues/732)) ([1df8dc6](https://github.com/erwins-enkel/shepherd/commit/1df8dc6acf3ffbb93c826828b66e4f0d8e5c8719))
+* **onboarding-harness:** green git-missing via cross-distro git remediation ([#735](https://github.com/erwins-enkel/shepherd/issues/735)) ([240c709](https://github.com/erwins-enkel/shepherd/commit/240c709d77deee681a64d4701e68374af4c2d1df))
+* **repos:** use Shepherd's own repo as fork placeholder example ([#694](https://github.com/erwins-enkel/shepherd/issues/694)) ([9a91321](https://github.com/erwins-enkel/shepherd/commit/9a9132170195a343b688d322cf9d7be4042592fb))
+* **rundown:** make ☰ RUNDOWN button toggle the lens off on re-click ([#729](https://github.com/erwins-enkel/shepherd/issues/729)) ([97726a5](https://github.com/erwins-enkel/shepherd/commit/97726a51df0befa388ce2cf66c688ca8291da96b))
+* **settings:** show theme, contrast & about metadata on desktop too ([#705](https://github.com/erwins-enkel/shepherd/issues/705)) ([7cea13d](https://github.com/erwins-enkel/shepherd/commit/7cea13d7ec6715e0e8dbd1f540cf2b8fad942e47))
+* **tab-reaper:** husk detection + worktree GC under herdr 0.7 pane-persistence ([#721](https://github.com/erwins-enkel/shepherd/issues/721)) ([#726](https://github.com/erwins-enkel/shepherd/issues/726)) ([abe66f2](https://github.com/erwins-enkel/shepherd/commit/abe66f24eba1e52427a61992ff189f03d6f48b4b))
+* **ui:** drop THE HERD label on mobile; move rundown next to settings cog ([#722](https://github.com/erwins-enkel/shepherd/issues/722)) ([375f51b](https://github.com/erwins-enkel/shepherd/commit/375f51ba629de587322968e108bc08dc510f0494))
+* **whatsnew:** lock background scroll so the drawer doesn't scroll the page ([#728](https://github.com/erwins-enkel/shepherd/issues/728)) ([8c21126](https://github.com/erwins-enkel/shepherd/commit/8c211263fdd81beae0ef61a012f3d4875b2a4d9b))
+
+
+### Code Refactoring
+
+* **tab-reaper:** retire herdr-0.6 fallback + positional-id machinery ([#714](https://github.com/erwins-enkel/shepherd/issues/714)) ([#731](https://github.com/erwins-enkel/shepherd/issues/731)) ([504933d](https://github.com/erwins-enkel/shepherd/commit/504933d9f7919b60c072aada3243c51ae52064c9))
+
+
+### Documentation
+
+* **merge-train:** never move home-base HEAD; rebase in scratch worktree ([#716](https://github.com/erwins-enkel/shepherd/issues/716)) ([f55a1ae](https://github.com/erwins-enkel/shepherd/commit/f55a1ae84647b4a17cd2ad9221358f1b494876c2))
+* **research:** expanded Claude Code hooks for richer agent info ingestion ([#701](https://github.com/erwins-enkel/shepherd/issues/701)) ([845010f](https://github.com/erwins-enkel/shepherd/commit/845010ff5e78d7e107eabc5af533aae5628ea540))
+* **research:** installer investigation — reuse diagnostics/remediation layer ([#699](https://github.com/erwins-enkel/shepherd/issues/699)) ([4690adb](https://github.com/erwins-enkel/shepherd/commit/4690adbfd117241cd0753972505e3a2355a63325))
+* **research:** mobile PWA header/nav study for iPhone 14 [no-feature-entry] ([#719](https://github.com/erwins-enkel/shepherd/issues/719)) ([850449f](https://github.com/erwins-enkel/shepherd/commit/850449fbcc0461cc4f96a8dd22382c5fd6dfe335))
+* **tab-reaper:** correct positional-id comments for herdr 0.7 stable ids + add 0.7-id reap test ([#715](https://github.com/erwins-enkel/shepherd/issues/715)) ([c4d15af](https://github.com/erwins-enkel/shepherd/commit/c4d15afd046013d0a8d7c0390adfc6f659dbadce))
+
 ## [1.31.0](https://github.com/erwins-enkel/shepherd/compare/v1.30.0...v1.31.0) (2026-06-14)
 
 

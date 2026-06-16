@@ -105,6 +105,17 @@ export function formatReset(ts: number, nowMs: number): string {
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/**
+ * Coarse relative countdown to a future reset timestamp, e.g. "2h", "5d".
+ * Delegates to `formatAgo(ts - nowMs)`, which floors each unit and clamps
+ * negative deltas to 0 — so a stale past-reset snapshot yields "0s" rather
+ * than throwing. Pairs with `formatReset` (absolute) for combined display:
+ * `resets in {formatResetIn(ts, nowMs)} ({formatReset(ts, nowMs)})`.
+ */
+export function formatResetIn(ts: number, nowMs: number): string {
+  return formatAgo(ts - nowMs);
+}
+
 export const STATUS_COLOR: Record<SessionStatus, string> = {
   running: "var(--status-running)",
   idle: "var(--status-idle)",

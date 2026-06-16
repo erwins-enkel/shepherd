@@ -360,11 +360,12 @@
   "topbar_tally_status_aria": "{status} {count}; nur diese Sessions anzeigen",
   "topbar_gauge_period_5h": "5-Stunden",
   "topbar_gauge_period_weekly": "wöchentlich",
-  "topbar_gauge_title": "{period}-Limit · {pct}% genutzt · Reset {reset}",
+  "topbar_gauge_title": "{period}-Limit · {pct}% genutzt · Reset in {rel} ({abs})",
   "topbar_gauge_stale_suffix": " · veraltet",
   "topbar_gauge_popover_title": "Auslastung",
   "topbar_gauge_toggle_aria": "{period}-Limit bei {pct}%; für Details tippen",
   "topbar_gauge_reset": "Reset {reset}",
+  "topbar_gauge_reset_rel": "Reset in {rel} ({abs})",
   "topbar_theme_cycle": "Design: {label}; zum Wechseln tippen",
   "topbar_theme_cycle_aria": "Design: {label}",
   "topbar_settings_aria": "Einstellungen",
@@ -1388,5 +1389,7 @@
   "syncfork_toast_gh_missing": "GitHub CLI (gh) ist nicht installiert.",
   "syncfork_toast_generic": "Fork konnte nicht synchronisiert werden, bitte erneut",
   "feat_fork_sync_title": "Einen Fork mit einem Klick aktuell halten",
-  "feat_fork_sync_body": "Fork-Repos in der Auswahl zeigen jetzt einen ⟲ Sync-Button. Er führt gh repo sync aus, um den Standard-Branch deines Forks mit dem Upstream abzugleichen, und fast-forwardet den lokalen Klon — damit neue PR-Branches vom aktuellen Upstream statt von einer veralteten Basis ausgehen."
+  "feat_fork_sync_body": "Fork-Repos in der Auswahl zeigen jetzt einen ⟲ Sync-Button. Er führt gh repo sync aus, um den Standard-Branch deines Forks mit dem Upstream abzugleichen, und fast-forwardet den lokalen Klon — damit neue PR-Branches vom aktuellen Upstream statt von einer veralteten Basis ausgehen.",
+  "feat_usage_reset_countdown_title": "Auslastungslimits mit Countdown",
+  "feat_usage_reset_countdown_body": "Die 5-Stunden- und wöchentlichen Auslastungsanzeigen zeigen jetzt an, wie lange es noch bis zum Reset dauert — z. B. \"Reset in 2h (21:30)\" — damit du auf einen Blick siehst, ob bald wieder Kapazität verfügbar ist."
 }

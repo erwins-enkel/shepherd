@@ -22,6 +22,25 @@
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   const slide = { x: 440, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
+  // Lock the background document scroll while the drawer is open. Without this a
+  // touch-drag near the right edge (or overscroll at the list's top/bottom)
+  // chains through to the page, so the operator scrolls the background instead of
+  // the drawer — the "two scrollbars" they see on mobile. Compensate the now-gone
+  // scrollbar with padding so desktop layout doesn't jump (mobile scrollbars are
+  // overlay/0-width, so no shift there).
+  $effect(() => {
+    const root = document.documentElement;
+    const sbw = window.innerWidth - root.clientWidth;
+    const prevOverflow = root.style.overflow;
+    const prevPadding = root.style.paddingRight;
+    root.style.overflow = "hidden";
+    if (sbw > 0) root.style.paddingRight = `${sbw}px`;
+    return () => {
+      root.style.overflow = prevOverflow;
+      root.style.paddingRight = prevPadding;
+    };
+  });
+
   function dismiss() {
     ondismiss();
     onclose();
@@ -182,6 +201,9 @@
     gap: 22px;
     flex: 1;
     overflow-y: auto;
+    /* keep the scroll inside the drawer — don't chain to the background page when
+       the list bottoms out (pairs with the document scroll-lock in the script) */
+    overscroll-behavior: contain;
   }
   .group {
     display: flex;

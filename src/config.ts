@@ -34,11 +34,11 @@ export const PLAN_REVIEW_CYCLES_MAX = 12;
 // Single source of truth for the readiness-probe version floors (issue #623).
 // Floors are ADVISORY: a below-floor toolchain is a `warning`, never an `error`
 // — presence is the only hard gate. Seeded conservatively below the versions
-// installed today (node 24.x, bun 1.3.x, herdr 0.6.x) so a typical install isn't
+// installed today (node 24.x, bun 1.3.x, herdr 0.7.x) so a typical install isn't
 // warned on day one while a genuinely stale toolchain still flags.
 export const NODE_MIN_VERSION = "20.0.0";
 export const BUN_MIN_VERSION = "1.1.0";
-export const HERDR_MIN_VERSION = "0.6.0";
+export const HERDR_MIN_VERSION = "0.7.0";
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;

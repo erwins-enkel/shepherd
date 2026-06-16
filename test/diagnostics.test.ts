@@ -21,7 +21,7 @@ function versionRunner(map: Record<string, string | Error>): DiagnosticsDeps["ru
 }
 
 const HEALTHY_VERSIONS: Record<string, string> = {
-  herdr: "herdr 0.6.10",
+  herdr: "herdr 0.7.0",
   bun: "1.3.10",
   node: "v24.14.1",
   git: "git version 2.45.0",
@@ -90,7 +90,7 @@ describe("DiagnosticsService probes", () => {
     [
       "herdr",
       "herdr",
-      "herdr 0.6.10",
+      "herdr 0.7.0",
       "herdr 0.5.0",
       "diagnostics_hint_herdr_ok",
       "diagnostics_hint_herdr_outdated",

@@ -4,6 +4,7 @@ import {
   autopilotBadgeShown,
   relativeAge,
   formatAgo,
+  formatResetIn,
   heartbeatTone,
   canResume,
   canRelaunch,
@@ -120,6 +121,21 @@ describe("relativeAge", () => {
     expect(relativeAge(now - 2 * 3_600_000, now)).toBe("2h");
     expect(relativeAge(now - 3 * 86_400_000, now)).toBe("3d");
     expect(relativeAge(now + 10_000, now)).toBe("now"); // future clamps to 0
+  });
+});
+
+describe("formatResetIn", () => {
+  const now = 1_000_000_000_000;
+  it("returns coarse floored unit for future reset times", () => {
+    expect(formatResetIn(now + 2 * 3_600_000, now)).toBe("2h");
+    expect(formatResetIn(now + 5 * 86_400_000, now)).toBe("5d");
+    expect(formatResetIn(now + 45 * 60_000, now)).toBe("45m");
+    expect(formatResetIn(now + 30_000, now)).toBe("30s");
+  });
+  it("clamps past/now resets to 0s", () => {
+    expect(formatResetIn(now, now)).toBe("0s");
+    expect(formatResetIn(now - 1000, now)).toBe("0s"); // stale: past reset
+    expect(formatResetIn(now - 3_600_000, now)).toBe("0s"); // far past
   });
 });
 

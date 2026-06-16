@@ -6,7 +6,7 @@
     HerdrUpdateStatus,
     DiagnosticState,
   } from "$lib/types";
-  import { formatReset, relativeAge } from "$lib/format";
+  import { formatReset, formatResetIn, relativeAge } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
   import { refreshUsage } from "$lib/api";
@@ -230,7 +230,8 @@
     return `${m.topbar_gauge_title({
       period: periodLabel(k),
       pct,
-      reset: formatReset(resetAt, nowMs),
+      rel: formatResetIn(resetAt, nowMs),
+      abs: formatReset(resetAt, nowMs),
     })}${limits?.stale ? m.topbar_gauge_stale_suffix() : ""}`;
   }
 
@@ -681,7 +682,10 @@
                   <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
                 </div>
                 <div class="gauge-pop-reset micro">
-                  {m.topbar_gauge_reset({ reset: formatReset(g.w.resetAt, nowMs) })}
+                  {m.topbar_gauge_reset_rel({
+                    rel: formatResetIn(g.w.resetAt, nowMs),
+                    abs: formatReset(g.w.resetAt, nowMs),
+                  })}
                 </div>
               {/each}
               {@render creditDetail()}
@@ -731,7 +735,10 @@
                   ></span></span
                 >
                 <div class="gauge-pop-reset micro">
-                  {m.topbar_gauge_reset({ reset: formatReset(g.w.resetAt, nowMs) })}
+                  {m.topbar_gauge_reset_rel({
+                    rel: formatResetIn(g.w.resetAt, nowMs),
+                    abs: formatReset(g.w.resetAt, nowMs),
+                  })}
                 </div>
               </div>
             {/each}

@@ -250,8 +250,15 @@ raw GitHub URL on day one, no domain required:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
-# later, optionally, a vanity:  curl -fsSL https://shepherd.dev/install.sh | bash
+# later, optionally, a vanity (illustrative `shepherd.dev` superseded by the
+# now-registered `shepherd.run`):  curl -fsSL https://shepherd.run/install.sh | bash
 ```
+
+> **Update (hosting resolved):** the vanity domain is now **`shepherd.run`**
+> (registered), served via a **Vercel 302 redirect → the raw-GitHub
+> `deploy/install.sh` on `main`** (repo stays the single source of truth). See
+> `deploy/vanity/`. The advertised command above stays on the raw-GitHub URL
+> until DNS cutover is verified (a deferred phase).
 
 Piping through `| bash` adds three mechanics worth designing for explicitly:
 
@@ -368,8 +375,11 @@ inventing a parallel one.
 1. **Scope of v1** — ship only Surface B (in-app Fix, finishing setup for users who already cloned),
    or also Surface A (`curl|bash` cold-start) for the OSS launch? _(Recommend B first — small,
    reuses the on-screen surface; A next as the launch lever.)_
-2. **`install.sh` hosting** — committed in-repo and run via raw GitHub URL, or a vanity
-   `shepherd.dev/install.sh`? (The latter matches herdr/bun/claude but needs a domain.)
+2. **`install.sh` hosting** — _resolved._ Committed in-repo (single source of truth) and reachable
+   via the registered vanity **`shepherd.run`**, served by a **Vercel 302 redirect → the raw-GitHub
+   `deploy/install.sh` on `main`** (`deploy/vanity/`). The illustrative `shepherd.dev` above is
+   superseded by `shepherd.run`. Matches the herdr/bun/claude vanity pattern; the README/`install.sh`
+   command swaps to the vanity only after the redirect is verified (deferred).
 3. **OS scope of v1** (see §5) — Linux-only (the only fully-featured, harness-proven target), or
    also a labeled core-only macOS path? Recommendation in §5 is Linux-first + refuse/degrade
    elsewhere; this question is whether that's acceptable for launch.

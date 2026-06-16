@@ -1,6 +1,10 @@
 import { promises as fsp, type Dirent } from "node:fs";
+import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Centralizes the "claude tmp directory" geometry and a threshold-gated inode-guard
@@ -142,13 +146,45 @@ async function inodeUsePct(
 const REGENERABLE_CACHE = /^(bunx-|fallow-|agent-browser-)/;
 
 /**
+ * Name prefix for fallow's audit-base worktree caches: `fallow-audit-base-cache-<srcHash>-<shaHash>`.
+ * Each `git worktree prune` pre-push creates one; they accumulate until reaped.
+ */
+export const FALLOW_CACHE_PREFIX = "fallow-audit-base-cache-";
+
+/**
+ * Shared helper: age-gate a single known-regenerable-cache dir by its own top-level mtime and
+ * `rm -rf` it if stale. Returns 1 if removed, 0 if kept. Fail-closed: a stat or rm failure is
+ * logged and counted as 0 (never miscounted as success). Does NOT remove sidecar files — callers
+ * that need sidecar cleanup (e.g. `reapFallowCaches`) must do so themselves.
+ */
+async function removeIfStale(
+  p: string,
+  st: { mtimeMs: number | bigint },
+  ctx: Pick<SweepCtx, "now" | "staleMs" | "log"> & { ops: Pick<FsOps, "rm"> },
+): Promise<number> {
+  // Deliberately the top-level entry's own mtime, not a recursive
+  // newest-descendant walk — don't "fix" this into a sync/expensive tree traversal.
+  if (ctx.now - Number(st.mtimeMs) > ctx.staleMs) {
+    try {
+      await ctx.ops.rm(p, { recursive: true, force: true });
+      return 1;
+    } catch (err) {
+      ctx.log(`[tmp-sweep] failed to remove ${p}: ${String(err)}`);
+      return 0;
+    }
+  }
+  return 0;
+}
+
+/**
  * Handles ONE directory entry, returning the count removed (0 or 1). Fail-closed per-entry:
  * its own try/catch surfaces a removal failure in the log and continues, so a bad entry NEVER
  * aborts the sweep and is never miscounted as success. The cases:
  *  - `node-compile-cache` — pure V8 compile cache, dropped wholesale regardless of age.
  *  - the nested `claude-$uid` root — never wholesale-removed (its children are swept when it is
  *    itself the sweep root); skipped here.
- *  - a known regenerable cache (see `REGENERABLE_CACHE`) — age-gated by its top-level mtime.
+ *  - a known regenerable cache (see `REGENERABLE_CACHE`) — age-gated by its top-level mtime via
+ *    `removeIfStale`.
  *  - anything else (per-session/unknown scratch) — LEFT in place; never wholesale-removed by
  *    this sweep (reclaimed via `removeWorktreeScratch` on archival instead).
  */
@@ -165,15 +201,9 @@ async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<numb
     if (!REGENERABLE_CACHE.test(ent.name)) return 0;
 
     const st = await ctx.ops.stat(p);
-    // Deliberately the top-level entry's own mtime, not a recursive
-    // newest-descendant walk — don't "fix" this into a sync/expensive tree traversal.
-    if (ctx.now - st.mtimeMs > ctx.staleMs) {
-      await ctx.ops.rm(p, { recursive: true, force: true });
-      return 1;
-    }
-    return 0;
+    return removeIfStale(p, st, ctx);
   } catch (err) {
-    // Fail-closed per-entry: a removal that fails is surfaced in the log and
+    // Fail-closed per-entry: a stat or wholesale-rm failure is surfaced in the log and
     // skipped — it NEVER aborts the sweep and is never miscounted as success.
     ctx.log(`[tmp-sweep] failed to remove ${p}: ${String(err)}`);
     return 0;
@@ -268,4 +298,148 @@ export async function removeWorktreeScratch(
   } catch {
     /* best-effort */
   }
+}
+
+interface ReapFallowOpts {
+  staleMs?: number;
+  now?: number;
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "rm">;
+  log?: (msg: string) => void;
+}
+
+export interface ReapFallowResult {
+  removed: number;
+}
+
+/** Shared context threaded through the fallow reaper helpers. */
+interface ReapFallowCtx {
+  ops: Pick<FsOps, "readdir" | "stat" | "rm">;
+  now: number;
+  staleMs: number;
+  log: (msg: string) => void;
+}
+
+/**
+ * Handles ONE fallow-cache directory entry. Skips sidecar files (`.lock`/`.last-used` —
+ * cleaned up alongside their parent) and any name not starting with `FALLOW_CACHE_PREFIX`.
+ * For eligible entries: stats the path, age-gates via `removeIfStale`, and on removal
+ * best-effort removes `${p}.lock` and `${p}.last-used`. Per-entry try/catch — never
+ * aborts the pass, never rejects. Returns 1 if the dir was removed, 0 otherwise.
+ */
+async function reapFallowEntry(root: string, ent: Dirent, ctx: ReapFallowCtx): Promise<number> {
+  // Skip sidecar files (.lock / .last-used) — cleaned up with their parent dir.
+  if (!ent.name.startsWith(FALLOW_CACHE_PREFIX)) return 0;
+  if (ent.name.endsWith(".lock") || ent.name.endsWith(".last-used")) return 0;
+
+  const p = join(root, ent.name);
+  try {
+    const st = await ctx.ops.stat(p);
+    const wasRemoved = await removeIfStale(p, st, ctx);
+    if (wasRemoved) {
+      // Best-effort removal of sidecars; ignore individual failures.
+      await ctx.ops.rm(`${p}.lock`, { recursive: false, force: true }).catch(() => {});
+      await ctx.ops.rm(`${p}.last-used`, { recursive: false, force: true }).catch(() => {});
+      return 1;
+    }
+    return 0;
+  } catch (err) {
+    ctx.log(`[tmp-sweep] fallow reap failed for ${p}: ${String(err)}`);
+    return 0;
+  }
+}
+
+/**
+ * Reaps one root directory: readdirs it (skipping missing/unreadable roots silently) then
+ * sums `reapFallowEntry` over every entry. Returns the count of dirs removed.
+ */
+async function reapFallowRoot(root: string, ctx: ReapFallowCtx): Promise<number> {
+  let entries: Dirent[];
+  try {
+    entries = (await ctx.ops.readdir(root, { withFileTypes: true })) as Dirent[];
+  } catch {
+    // Missing/unreadable root — skip it silently.
+    return 0;
+  }
+  let removed = 0;
+  for (const ent of entries) removed += await reapFallowEntry(root, ent, ctx);
+  return removed;
+}
+
+/**
+ * Ungated reaper for stale `fallow-audit-base-cache-*` worktree cache dirs. Runs regardless of
+ * inode pressure — decoupled from the `sweepClaudeTmp` threshold gate.
+ *
+ * Scans the deduped set of roots `[claudeTmpRoot(), join(claudeTmpRoot(), "claude-"+uid()),
+ * tmpdir()]` (the third catches caches whose `TMPDIR` was the bare system `/tmp`). Only considers
+ * entries whose name starts with `FALLOW_CACHE_PREFIX`; ignores `.lock`/`.last-used` sidecar
+ * files (they are cleaned up alongside their parent dir). For each stale cache dir it removes the
+ * dir AND `${dir}.lock` AND `${dir}.last-used`. Per-entry try/catch — never aborts the pass,
+ * never rejects. Returns `{ removed }`.
+ */
+export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallowResult> {
+  const log = opts?.log ?? console.warn;
+  const staleMs = opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000;
+  const now = opts?.now ?? Date.now();
+  const ops: Pick<FsOps, "readdir" | "stat" | "rm"> = opts?.fsOps ?? {
+    readdir: fsp.readdir,
+    stat: fsp.stat,
+    rm: fsp.rm,
+  };
+
+  // Dedupe roots: claudeTmpRoot(), claude-$uid subdir, and bare tmpdir() for caches whose
+  // TMPDIR was the system default. Using a Set so a reconfigured env can't double-scan.
+  const claudeRoot = claudeTmpRoot();
+  const nestedRoot = join(claudeRoot, `claude-${uid()}`);
+  const systemTmp = tmpdir();
+  const roots = [...new Set([claudeRoot, nestedRoot, systemTmp])];
+
+  const ctx: ReapFallowCtx = { ops, now, staleMs, log };
+  let removed = 0;
+  for (const root of roots) removed += await reapFallowRoot(root, ctx);
+
+  return { removed };
+}
+
+interface PruneOpts {
+  /** Injectable git-exec hook for tests. Receives the same args as `git -C <repo> worktree prune`. */
+  execGit?: (repo: string, args: string[]) => Promise<void>;
+  log?: (msg: string) => void;
+}
+
+export interface PruneResult {
+  pruned: number;
+  failed: number;
+}
+
+/**
+ * Runs `git worktree prune` for each supplied repo path. Unconditional — prunes every
+ * orphaned record (missing working dir) regardless of how the dir vanished (reboot,
+ * tmpfiles, manual rm). Per-repo try/catch: a failing repo is logged and skipped; the
+ * rest still run. Never rejects. Returns `{ pruned, failed }`.
+ */
+export async function pruneRepoWorktrees(
+  repoPaths: string[],
+  opts?: PruneOpts,
+): Promise<PruneResult> {
+  const log = opts?.log ?? console.warn;
+  const execGit =
+    opts?.execGit ?? ((repo: string, args: string[]) => execFileAsync("git", args).then(() => {}));
+
+  let pruned = 0;
+  let failed = 0;
+  for (const repo of repoPaths) {
+    try {
+      // `--expire=now` makes the immediate-prune intent explicit. A bare `git worktree prune`
+      // already defaults to `--expire=TIME_MAX` (prune every orphaned record regardless of age),
+      // but `gc.worktreePruneExpire` (default 3.months.ago) governs the prune that automatic
+      // `git gc` runs — so being explicit here keeps reaped records (deleted at ~24h) from being
+      // misread as subject to that 3-month window.
+      await execGit(repo, ["-C", repo, "worktree", "prune", "--expire=now"]);
+      pruned += 1;
+    } catch (err) {
+      log(`[tmp-sweep] git worktree prune failed for ${repo}: ${String(err)}`);
+      failed += 1;
+    }
+  }
+  return { pruned, failed };
 }

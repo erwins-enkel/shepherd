@@ -236,6 +236,101 @@ export async function listGithubOwners(runner?: GhOutRunner): Promise<GithubOwne
   return { login, orgs };
 }
 
+/** A GitHub repository the authenticated user can clone — their own plus any they
+ *  reach as a collaborator or org/team member. `url` is the HTTPS clone URL. */
+export type GithubRepo = {
+  /** "owner/repo" */
+  nameWithOwner: string;
+  owner: string;
+  name: string;
+  /** HTTPS clone URL (e.g. https://github.com/owner/repo.git). */
+  url: string;
+  isPrivate: boolean;
+  isFork: boolean;
+  isArchived: boolean;
+  /** ISO timestamp of the last push, or null; used to sort most-recent first. */
+  pushedAt: string | null;
+};
+
+/** Default stdout `gh` runner for repo enumeration: a 30s timeout and a larger
+ *  buffer than {@link defaultGhOutRunner}, since `--paginate` over a user with many
+ *  repos can return a few MB across pages. */
+const defaultGhReposRunner: GhOutRunner = async (args) => {
+  const { stdout } = await execFileAsync("gh", args, {
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  return stdout.toString();
+};
+
+/**
+ * Enumerate every GitHub repo the authenticated user can clone: their own repos
+ * plus any they reach as a collaborator or org/team member
+ * (`affiliation=owner,collaborator,organization_member`). Paginates so users with
+ * more than a page of repos get the full set, sorted most-recently-pushed first.
+ *
+ * Returns `{ login, repos }`; `login` (the authenticated user, best-effort) lets the
+ * caller separate the user's own account from the teams they belong to. Throws when
+ * the repo listing itself fails (gh missing / not authed) so the route can degrade to
+ * the URL-only clone path.
+ */
+export async function listGithubRepos(
+  runner?: GhOutRunner,
+): Promise<{ login: string | null; repos: GithubRepo[] }> {
+  const run = runner ?? defaultGhReposRunner;
+
+  let login: string | null = null;
+  try {
+    login = (await run(["api", "user", "--jq", ".login"])).trim() || null;
+  } catch {
+    // Login is only used to group "your account" vs teams — degrade silently.
+  }
+
+  const out = await run([
+    "api",
+    "user/repos?per_page=100&affiliation=owner,collaborator,organization_member&sort=pushed",
+    "--paginate",
+    "--jq",
+    ".[] | {nameWithOwner: .full_name, owner: .owner.login, name: .name, url: .clone_url, isPrivate: .private, isFork: .fork, isArchived: .archived, pushedAt: .pushed_at}",
+  ]);
+
+  const seen = new Set<string>();
+  const repos: GithubRepo[] = [];
+  for (const line of out.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let o: any;
+    try {
+      o = JSON.parse(t);
+    } catch {
+      continue; // skip a malformed jq line rather than failing the whole list
+    }
+    if (
+      !o ||
+      typeof o.nameWithOwner !== "string" ||
+      typeof o.url !== "string" ||
+      typeof o.owner !== "string" ||
+      typeof o.name !== "string"
+    ) {
+      continue;
+    }
+    const key = o.nameWithOwner.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    repos.push({
+      nameWithOwner: o.nameWithOwner,
+      owner: o.owner,
+      name: o.name,
+      url: o.url,
+      isPrivate: !!o.isPrivate,
+      isFork: !!o.isFork,
+      isArchived: !!o.isArchived,
+      pushedAt: typeof o.pushedAt === "string" ? o.pushedAt : null,
+    });
+  }
+  return { login, repos };
+}
+
 /** Check whether a commit identity is available — either via the GIT_AUTHOR_ /
  *  GIT_COMMITTER_ environment variables (which git honors over config, e.g. on
  *  CI runners without a global config) or via configured user.name/user.email. */

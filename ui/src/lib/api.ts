@@ -251,6 +251,38 @@ export async function getGithubOwners(): Promise<{ login: string | null; orgs: s
   }
 }
 
+/** A GitHub repo the user can clone, as returned by GET /api/github/repos. */
+export interface GithubRepo {
+  nameWithOwner: string;
+  owner: string;
+  name: string;
+  url: string;
+  isPrivate: boolean;
+  isFork: boolean;
+  isArchived: boolean;
+  pushedAt: string | null;
+  /** True when a local repo already tracks this one (hidden from the clone picker). */
+  cloned: boolean;
+}
+
+/** List the GitHub repos the user can clone — their own account plus any team/org
+ *  repos they reach. `available` is false when gh is unavailable/unauthed, in which
+ *  case the clone dialog falls back to the URL field. Never throws (degrades). */
+export async function getGithubRepos(): Promise<{
+  repos: GithubRepo[];
+  login: string | null;
+  available: boolean;
+}> {
+  try {
+    return await getJson<{ repos: GithubRepo[]; login: string | null; available: boolean }>(
+      "/api/github/repos",
+      "github_repos",
+    );
+  } catch {
+    return { repos: [], login: null, available: false };
+  }
+}
+
 export async function getSettings(): Promise<Settings> {
   const r = await fetch("/api/settings");
   if (!r.ok) throw await failed(r, "settings");

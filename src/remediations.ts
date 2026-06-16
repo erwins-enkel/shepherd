@@ -20,6 +20,16 @@ const NODE_INSTALL =
   '"$HOME/.local/bin/node"';
 const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
 
+// git has no user-space installer — it's a distro system package. One cross-distro
+// chain (the same apt||apk||dnf||pacman shape the onboarding baseline's ensurePkg
+// uses) covers ubuntu/debian/alpine/arch/fedora. NO `sudo`: the harness runs as root
+// (and busybox alpine has no sudo); the in-app surface never auto-runs it (git is
+// GUIDANCE_ONLY below), so this string is only ever executed with privilege.
+const GIT_INSTALL =
+  "command -v git >/dev/null 2>&1 || " +
+  "(apt-get update && apt-get install -y git) || apk add --no-cache git || " +
+  "dnf install -y git || pacman -Sy --noconfirm git";
+
 export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_bun_missing: "curl -fsSL https://bun.sh/install | bash",
   diagnostics_hint_node_missing: NODE_INSTALL,
@@ -28,16 +38,24 @@ export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
   diagnostics_hint_tailscale_missing: "curl -fsSL https://tailscale.com/install.sh | sh",
+  diagnostics_hint_git_missing: GIT_INSTALL,
 };
 
-/** Hints that have a verbatim install command (valid for a future cold-start
- *  installer) but where running that command never clears the diagnostics check —
- *  so the in-app Fix surface must treat them as guidance-only, not auto-fix.
- *
- *  tailscale is the canonical case: installing the binary leaves `resolveNodeHost`
- *  null until an interactive tailnet login, so the check stays non-ok. This is the
- *  in-app analogue of the harness `detectionOnly` split in scenarios.ts. */
-export const GUIDANCE_ONLY: ReadonlySet<string> = new Set(["diagnostics_hint_tailscale_missing"]);
+/** Hints that have a verbatim REMEDIATIONS command but that the in-app Fix surface
+ *  must NOT auto-run — it presents them as guidance, not a one-click fix. Two reasons
+ *  qualify a hint:
+ *   - running the command never clears the check unattended — tailscale: installing
+ *     the binary leaves `resolveNodeHost` null until an interactive tailnet login;
+ *   - the fix is a privileged system-package install — git: an apt/apk/dnf/pacman
+ *     install that needs root/sudo we can't assume for the Shepherd service user,
+ *     even though it DOES clear the check when run with privilege.
+ *  This is the in-app analogue of the harness `detectionOnly` split in scenarios.ts.
+ *  `remediationsFor` stays guidance-agnostic, so the harness (running as root) still
+ *  applies these and reaches green. */
+export const GUIDANCE_ONLY: ReadonlySet<string> = new Set([
+  "diagnostics_hint_tailscale_missing",
+  "diagnostics_hint_git_missing",
+]);
 
 /** Verbatim commands for every non-ok check whose emitted hintKey has a known fix. */
 export function remediationsFor(snapshot: DiagnosticsSnapshot): string[] {

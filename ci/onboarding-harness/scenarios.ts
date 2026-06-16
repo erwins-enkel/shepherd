@@ -8,11 +8,13 @@ import type { Scenario } from "./types";
  *
  * Two classes of scenario:
  *  - **Green-able** — the seeded defect can be coached back to `ok` unattended.
- *    `coaching: "structured"` uses the deterministic verbatim-remediation path
- *    (LLM-free, release-gate-eligible) and MUST have a matching REMEDIATIONS entry
- *    in src/remediations.ts; `coaching: "prose"` uses the agent path (e.g. git, whose
- *    install is distro-specific with no single one-liner — the agent picks apt/
- *    apk/dnf). Success = the scenario's expected checks are `ok` after the apply.
+ *    `coaching: "structured"` is release-gate-eligible (LLM-free, deterministic) and
+ *    MUST have a matching REMEDIATIONS entry in src/remediations.ts. `coaching: "prose"`
+ *    is NON-gating: it still reaches green via whatever apply path fits — either a
+ *    verbatim REMEDIATIONS entry it deliberately keeps out of the gate (git: a
+ *    cross-distro apt/apk/dnf/pacman install we don't want a mirror flake to block a
+ *    release on) or the agent path. Success = the scenario's expected checks are `ok`
+ *    after the apply.
  *  - **Detection-only** (`detectionOnly: true`) — the defect is detectable but its
  *    fix needs a human/secret that a throw-away instance cannot supply (`gh auth
  *    login` device-flow; a Tailscale tailnet login + `serve` to reach `ok`). These
@@ -85,8 +87,12 @@ export const SCENARIOS: Scenario[] = [
     image: "images:alpine/3.21",
     seed: ["apk del git 2>/dev/null || true", "rm -f /usr/bin/git"],
     expect: [{ id: "git", state: "error" }],
-    // prose: git install is distro-specific; no single verbatim one-liner covers
-    // ubuntu/debian/alpine/arch/fedora → agent path picks the right installer.
+    // git now has a deterministic cross-distro verbatim remediation
+    // (apt||apk||dnf||pacman, src/remediations.ts GIT_INSTALL), so the verbatim-first
+    // dispatch reaches green LLM-free. Kept coaching:"prose" — NOT "structured" —
+    // deliberately, so it stays OUT of the release gate: installing git is a
+    // privileged system-package op we don't want a transient mirror flake to gate a
+    // release on. (Reaching green also needs the alpine bash baseline fix, PR #732.)
     coaching: "prose",
   },
   {

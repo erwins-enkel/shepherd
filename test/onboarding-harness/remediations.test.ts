@@ -44,4 +44,27 @@ describe("remediations catalog", () => {
     expect(GUIDANCE_ONLY.has("diagnostics_hint_tailscale_missing")).toBe(true);
     expect(autoFixCommandFor("diagnostics_hint_tailscale_missing")).toBeUndefined();
   });
+
+  it("git has a cross-distro verbatim install, gated guidance-only for the in-app surface", () => {
+    const cmd = REMEDIATIONS.diagnostics_hint_git_missing;
+    expect(cmd).toBeDefined();
+    // covers the harness's distros (apt / apk / dnf / pacman) in one chain
+    expect(cmd).toContain("apt-get install -y git");
+    expect(cmd).toContain("apk add --no-cache git");
+    expect(cmd).toContain("dnf install -y git");
+    expect(cmd).toContain("pacman -Sy --noconfirm git");
+    expect(cmd).not.toContain("sudo"); // harness runs as root; busybox alpine has no sudo
+    // privileged system install ⇒ guidance-only in-app (the root harness still applies it)
+    expect(GUIDANCE_ONLY.has("diagnostics_hint_git_missing")).toBe(true);
+    expect(autoFixCommandFor("diagnostics_hint_git_missing")).toBeUndefined();
+  });
+
+  it("remediationsFor includes the git install for a git-error snapshot (harness applies it as root)", () => {
+    const snap: DiagnosticsSnapshot = {
+      checks: [{ id: "git", state: "error", hintKey: "diagnostics_hint_git_missing" }],
+      generatedAt: 1,
+      overall: "error",
+    };
+    expect(remediationsFor(snap)).toEqual([REMEDIATIONS.diagnostics_hint_git_missing!]);
+  });
 });

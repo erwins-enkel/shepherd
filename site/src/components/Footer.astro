@@ -1,0 +1,106 @@
+---
+// Footer landmark: GitHub link, exact license (Apache-2.0 © 2026 Erwins Enkel
+// GmbH, from ./LICENSE), and a no-affiliation disclaimer.
+const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
+const LICENSE_URL =
+  "https://github.com/erwins-enkel/shepherd/blob/main/LICENSE";
+---
+
+<footer class="footer" aria-label="Site footer">
+  <div class="inner">
+    <div class="top">
+      <span class="wordmark">shepherd</span>
+      <nav class="flinks" aria-label="Footer">
+        <a href={GITHUB_URL} rel="noopener noreferrer" target="_blank">GitHub</a
+        >
+        <a href={LICENSE_URL} rel="noopener noreferrer" target="_blank"
+          >License</a
+        >
+      </nav>
+    </div>
+
+    <p class="license">
+      Apache-2.0 © 2026 Erwins Enkel GmbH
+    </p>
+
+    <p class="disclaimer">
+      Not affiliated with Anthropic. Claude and Anthropic are trademarks of
+      Anthropic, PBC.
+    </p>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding: clamp(2.5rem, 6vw, 4rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+    background: var(--panel);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+  }
+
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--ink);
+  }
+
+  .flinks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    font-size: 0.95rem;
+  }
+
+  .flinks a {
+    color: var(--ink-muted);
+    border-bottom: 1px solid transparent;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .flinks a:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  .flinks a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  .license {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+  }
+
+  .disclaimer {
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+    max-width: 40rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flinks a {
+      transition: none;
+    }
+  }
+</style>

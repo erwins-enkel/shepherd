@@ -1,0 +1,142 @@
+---
+// Six-card feature grid. Copy is faithful to README "Opinionated by design" +
+// intro — describes what ships, no invented capabilities.
+interface Feature {
+  title: string;
+  body: string;
+}
+
+const features: Feature[] = [
+  {
+    title: "Interactive agent control",
+    body: "Spawn, watch, and steer a herd of real claude sessions in isolated git worktrees, from your browser or phone.",
+  },
+  {
+    title: "Readiness",
+    body: "Scores a JS/TS repo's guardrails — typecheck, lint, tests, CI, house rules — before you point agents at it, turning gaps into an install task.",
+  },
+  {
+    title: "Plan gate",
+    body: "Before an autonomous run, the agent writes a plan a separate read-only reviewer grills adversarially; only a plan that survives review is released to implement.",
+  },
+  {
+    title: "Critic",
+    body: "The moment a PR's CI goes green, an isolated read-only agent reviews the full diff and posts a verdict; with Auto-Address on, findings flow back to the author until the list is empty.",
+  },
+  {
+    title: "Learnings",
+    body: "Distills past sessions' failure signals into proposed house rules; the ones you approve are injected into every new agent in the repo, so lessons compound.",
+  },
+  {
+    title: "Merge train",
+    body: "A finished PR lands only when it's open, CI-green, conflict-free, and up to date; one that has fallen behind is rebased and fully re-verified first.",
+  },
+];
+---
+
+<section class="features" id="features" aria-labelledby="features-h">
+  <div class="inner">
+    <header class="sec-head">
+      <p class="eyebrow">What's in the herd</p>
+      <h2 id="features-h">
+        The discipline that keeps parallel agent work shippable
+      </h2>
+    </header>
+
+    <ul class="grid">
+      {
+        features.map((f) => (
+          <li class="card">
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .features {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .sec-head {
+    max-width: 42rem;
+    margin-bottom: clamp(2rem, 5vw, 3rem);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 0.6rem;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+  }
+
+  .grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.9rem;
+    padding: 1.4rem;
+    box-shadow: 0 1px 0 var(--panel-2) inset;
+    transition: border-color 0.15s ease;
+  }
+
+  .card:hover {
+    border-color: color-mix(in srgb, var(--green) 45%, var(--panel-2));
+  }
+
+  .card h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.15rem;
+    margin-bottom: 0.55rem;
+  }
+
+  .card p {
+    color: var(--ink-muted);
+    font-size: 0.98rem;
+  }
+
+  @media (min-width: 640px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 980px) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card {
+      transition: none;
+    }
+  }
+</style>

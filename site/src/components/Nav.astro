@@ -1,0 +1,112 @@
+---
+// Top navigation landmark. No JS — links wrap on narrow viewports.
+const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
+---
+
+<nav class="nav" aria-label="Primary">
+  <div class="inner">
+    <a class="wordmark" href="#top" aria-label="Shepherd home">
+      <svg
+        class="mark"
+        viewBox="0 0 24 24"
+        width="22"
+        height="22"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M4 21c0-3 2-5 5-5h6c3 0 5 2 5 5" />
+        <path d="M12 3v4" />
+        <circle cx="12" cy="9" r="2.4" />
+      </svg>
+      <span>shepherd</span>
+    </a>
+
+    <ul class="links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#install">Install</a></li>
+      <li>
+        <a href={GITHUB_URL} rel="noopener noreferrer" target="_blank">GitHub</a
+        >
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.25rem;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0.85rem 1.5rem;
+  }
+
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+
+  .mark {
+    color: var(--green);
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1.4rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.95rem;
+  }
+
+  .links a {
+    color: var(--ink-muted);
+    padding: 0.25rem 0;
+    border-bottom: 1px solid transparent;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .links a:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  .wordmark:focus-visible,
+  .links a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .links a {
+      transition: none;
+    }
+  }
+</style>

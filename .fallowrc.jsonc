@@ -58,7 +58,18 @@
   // node_modules/axe-core/axe.min.js into extension/public/ and the background
   // worker injects it with chrome.scripting.executeScript({files}) — there is no
   // ESM import, so fallow can't see the usage. Build-provided, not unused.
-  "ignoreDependencies": ["tailwindcss", "axe-core"],
+  //
+  // @fontsource/space-grotesk + @fontsource/jetbrains-mono are consumed by the
+  // site/ Astro font pipeline via fontProviders.npm({ package: "…" }) in
+  // site/astro.config.mjs — Astro parses the package's CSS at build time and
+  // self-hosts the woff2. There is no static ESM import, so fallow sees the
+  // packages as unused. Build-provided, not unused (same class as the two above).
+  "ignoreDependencies": [
+    "tailwindcss",
+    "axe-core",
+    "@fontsource/space-grotesk",
+    "@fontsource/jetbrains-mono"
+  ],
 
   "rules": {
     // OFF — every method fallow flags here (GitForge.openPr, the HerdrDriver

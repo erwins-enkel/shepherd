@@ -1,0 +1,169 @@
+---
+// Terminal-style one-line installer with copy-to-clipboard.
+// The copy logic is an inline <script> (Astro bundles it) so we don't add a
+// standalone .ts module that the fallow gate would scan.
+const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
+---
+
+<div class="install" id="install">
+  <div class="bar">
+    <span class="dots" aria-hidden="true">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </span>
+    <button
+      type="button"
+      class="copy"
+      data-cmd={INSTALL_CMD}
+      aria-label="Copy install command to clipboard"
+    >
+      <span class="copy-label" aria-hidden="true">Copy</span>
+    </button>
+  </div>
+  <div class="row">
+    <pre class="cmd"><code><span class="prompt">$</span> {INSTALL_CMD}</code></pre>
+  </div>
+  <p class="affirm" role="status" aria-live="polite"></p>
+</div>
+
+<script>
+  const block = document.getElementById("install");
+  const btn = block?.querySelector<HTMLButtonElement>(".copy");
+  const label = btn?.querySelector<HTMLElement>(".copy-label");
+  const affirm = block?.querySelector<HTMLElement>(".affirm");
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
+
+  btn?.addEventListener("click", async () => {
+    const cmd = btn.dataset.cmd ?? "";
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — fall back.
+      const ta = document.createElement("textarea");
+      ta.value = cmd;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch {
+        /* nothing more we can do */
+      }
+      ta.remove();
+    }
+    if (label) label.textContent = "Copied!";
+    btn.classList.add("is-copied");
+    if (affirm) affirm.textContent = "Install command copied to clipboard.";
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      if (label) label.textContent = "Copy";
+      btn.classList.remove("is-copied");
+      if (affirm) affirm.textContent = "";
+    }, 2000);
+  });
+</script>
+
+<style>
+  .install {
+    width: 100%;
+    max-width: 34rem;
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 0 var(--panel-2) inset;
+    overflow: hidden;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem 0.45rem 0.85rem;
+    background: var(--panel-2);
+  }
+
+  .dots {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  .dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--ink-dim);
+  }
+
+  .row {
+    padding: 0.85rem;
+  }
+
+  .cmd {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+
+  .prompt {
+    color: var(--green);
+    user-select: none;
+    margin-right: 0.5rem;
+    font-weight: 500;
+  }
+
+  .copy {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid color-mix(in srgb, var(--ink-dim) 50%, transparent);
+    border-radius: 0.45rem;
+    background: var(--panel);
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .copy:hover,
+  .copy:focus-visible {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  .copy:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+  }
+
+  .copy.is-copied {
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  .affirm {
+    min-height: 0;
+    margin: 0;
+    padding: 0 0.85rem;
+    color: var(--green);
+    font-size: 0.8rem;
+  }
+
+  .affirm:not(:empty) {
+    padding-bottom: 0.7rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .copy {
+      transition: none;
+    }
+  }
+</style>

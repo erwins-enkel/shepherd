@@ -1,6 +1,9 @@
 # Lockfiles
 bun.lock
 
+# Self-contained Astro marketing site (own toolchain; later extracted to its own repo)
+site
+
 # Generated changelog — leave its formatting alone
 CHANGELOG.md
 

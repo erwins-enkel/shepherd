@@ -496,6 +496,10 @@
   "diff_empty": "Keine Änderungen ggü. {base}",
   "diff_stale": "Basis-Fetch fehlgeschlagen; Vergleich mit lokalem {base}",
   "activity_empty": "Noch keine Aktivität.",
+  "subagents_section_title": "Sub-Agenten",
+  "subagents_live_count": "{count} aktiv",
+  "subagent_status_live": "aktiv",
+  "subagent_status_done": "fertig",
   "activity_active": "vor {ago} aktiv",
   "activity_starting": "startet…",
   "activity_stage_planning": "Planung",
@@ -1370,5 +1374,7 @@
   "gloss_rework_def": "Eine Sitzung, die zur Überarbeitung zurückgeschickt wird, nachdem das Plan-Gate oder der PR-Critic Änderungen verlangt hat, anstatt sie freizugeben.",
   "feat_herd_rundown_title": "Herd-Rundown",
   "feat_herd_rundown_body": "Eine neue ☰-Rundown-Ansicht (und Schaltfläche in der Kopfzeile) zeigt einen täglichen Überblick über deinen Herd: was über Nacht eingespielt wurde, was eine Entscheidung braucht, welche Sitzungen CI-rot oder REWORK wurden, den Merge-Train-Status und worauf du dich als Nächstes konzentrieren solltest. Jeder Eintrag verlinkt direkt zu seiner Sitzung.",
+  "feat_subagent_fanout_title": "Live-Sub-Agenten-Übersicht",
+  "feat_subagent_fanout_body": "Der Aktivitäts-Tab zeigt jetzt live die von einer Sitzung gestarteten Sub-Agenten an — mit dem jeweiligen Typ und der Laufzeit.",
   "rundown_all_quiet": "Alles ruhig — derzeit ist nichts zu tun."
 }

@@ -541,6 +541,18 @@ export interface ActivityEntry {
   status: "ok" | "error" | "pending";
 }
 
+/**
+ * One entry in a session's sub-agent roster (mirrors the server shape).
+ * `startedAt`/`endedAt` are ms-epoch server time; `endedAt` absent ⇒ the
+ * sub-agent is still live.
+ */
+export interface SubagentEntry {
+  agentId: string;
+  agentType: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
 export interface LimitWindow {
   pct: number;
   resetAt: number;
@@ -721,6 +733,7 @@ export type WsEvent =
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
+  | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
   | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }
   | { event: "session:working-blocked"; data: { id: string; working: boolean } }
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }

@@ -496,6 +496,10 @@
   "diff_empty": "No changes vs {base}",
   "diff_stale": "Base fetch failed; comparing local {base}",
   "activity_empty": "No activity yet.",
+  "subagents_section_title": "Sub-agents",
+  "subagents_live_count": "{count} live",
+  "subagent_status_live": "live",
+  "subagent_status_done": "done",
   "activity_active": "active {ago} ago",
   "activity_starting": "starting…",
   "activity_stage_planning": "Planning",
@@ -1370,5 +1374,7 @@
   "gloss_rework_def": "A session sent back to revise its work after the plan gate or PR critic requested changes, instead of approving it.",
   "feat_herd_rundown_title": "Herd Rundown",
   "feat_herd_rundown_body": "A new ☰ Rundown lens (and top-bar button) shows a daily digest of your herd: what landed overnight, what needs a decision, which sessions went CI-red or REWORK, the merge-train status, and what to focus on next. Each item deep-links to its session.",
+  "feat_subagent_fanout_title": "Live sub-agent fan-out",
+  "feat_subagent_fanout_body": "The Activity tab now shows the sub-agents a session has spawned, live, with each one's type and how long it ran.",
   "rundown_all_quiet": "All quiet — nothing needs you right now."
 }

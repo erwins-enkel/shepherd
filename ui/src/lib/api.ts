@@ -37,6 +37,7 @@ import type {
   WorkflowRun,
   WorkflowJob,
   SessionActivity,
+  SubagentEntry,
   BuildQueue,
   BuildStepStatus,
   PullResult,
@@ -629,6 +630,15 @@ export async function claudeAliveStates(): Promise<Record<string, boolean>> {
 export async function workingBlockedStates(): Promise<Record<string, boolean>> {
   const r = await fetch("/api/working-blocked");
   if (!r.ok) throw await failed(r, "working-blocked states");
+  return r.json();
+}
+
+/** Snapshot of the per-session sub-agent roster, keyed by session id (for client
+ *  bootstrap). Each value is the session's `SubagentEntry[]` (an entry with no
+ *  `endedAt` is still live). Empty object when nothing is running. */
+export async function subagentStates(): Promise<Record<string, SubagentEntry[]>> {
+  const r = await fetch("/api/subagents");
+  if (!r.ok) throw await failed(r, "subagent states");
   return r.json();
 }
 

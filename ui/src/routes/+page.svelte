@@ -20,6 +20,7 @@
     activityStates,
     claudeAliveStates,
     workingBlockedStates,
+    subagentStates,
     previewStates,
     getBacklog,
     getSettings,
@@ -409,6 +410,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    subagentStates()
+      .then((m) => store.setSubagents(m))
       .catch(() => {});
     previewStates()
       .then((m) => {
@@ -946,6 +950,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    subagentStates()
+      .then((m) => store.setSubagents(m))
       .catch(() => {});
     previewStates()
       .then((m) => {
@@ -1563,6 +1570,7 @@
               showSettings = true;
             }}
             drain={store.drain[selected.repoPath] ?? null}
+            subagents={store.subagents}
           />
         </div>
       {/if}
@@ -1696,6 +1704,7 @@
               showSettings = true;
             }}
             drain={store.drain[selected.repoPath] ?? null}
+            subagents={store.subagents}
           />
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>

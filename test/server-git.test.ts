@@ -327,6 +327,30 @@ test("GET /api/activity → {} when no activity dep is wired", async () => {
   expect(await res.json()).toEqual({});
 });
 
+test("GET /api/subagents returns the sub-agent roster snapshot", async () => {
+  const snap = {
+    s1: [{ agentId: "a1", agentType: "general-purpose", startedAt: 123 }],
+  };
+  const deps = Object.assign(makeDeps(fakeForge()), {
+    hooks: {
+      record: () => {},
+      snapshot: () => [],
+      allSubagentsSnapshot: () => snap,
+    } as AppDeps["hooks"],
+  });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/subagents"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(snap);
+});
+
+test("GET /api/subagents → {} when no hooks dep is wired", async () => {
+  const app = makeApp(makeDeps(fakeForge()));
+  const res = await app.fetch(new Request("http://localhost/api/subagents"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
+});
+
 test("POST git/pr writes cache + emits session:git", async () => {
   const deps = makeDeps(fakeForge());
   const app = makeApp(deps);

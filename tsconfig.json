@@ -9,9 +9,9 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  // ui/ and extension/ are separate packages with their own tsconfig + `bun run
-  // check` (svelte-check resolves $lib/.svelte for ui, chrome/vite-client types
-  // for the extension — neither of which this server tsconfig provides). Keep
-  // the root type-check scoped to server code.
-  "exclude": ["node_modules", "ui", "extension"]
+  // ui/, extension/ and site/ are separate packages with their own tsconfig +
+  // check command (svelte-check for ui, chrome/vite-client types for the
+  // extension, `astro check` for the static marketing site — none of which this
+  // server tsconfig provides). Keep the root type-check scoped to server code.
+  "exclude": ["node_modules", "ui", "extension", "site"]
 }

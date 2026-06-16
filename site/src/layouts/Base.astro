@@ -1,0 +1,34 @@
+---
+import { Font } from "astro:assets";
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Shepherd",
+  description = "Shepherd — interactive mission control for autonomous coding agents.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <!--
+      Self-hosted fonts (astro:assets). Each <Font/> emits the @font-face rules
+      (woff2, font-display: swap) plus a <link rel="preload"> for the primary
+      weight to respect the performance budget.
+    -->
+    <Font cssVariable="--font-space-grotesk" preload={[{ weight: 400 }]} />
+    <Font cssVariable="--font-jetbrains-mono" preload={[{ weight: 400 }]} />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

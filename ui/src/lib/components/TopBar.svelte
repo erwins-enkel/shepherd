@@ -44,6 +44,7 @@
     needsYou = 0,
     ontriage,
     onrundown,
+    rundownActive = false,
     update = null,
     onupdate,
     herdrUpdate = null,
@@ -66,8 +67,10 @@
     onhalt?: () => void;
     needsYou?: number;
     ontriage?: () => void;
-    /** Called when the ☰ RUNDOWN control is clicked — selects the Rundown lens. */
+    /** Called when the ☰ RUNDOWN control is clicked — toggles the Rundown lens. */
     onrundown?: () => void;
+    /** true while the Rundown lens is the active herd view, so the ☰ button reads as on. */
+    rundownActive?: boolean;
     update?: UpdateStatus | null;
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
@@ -826,10 +829,12 @@
     <button
       class="rundown-btn"
       class:compact={mobile || compactBadges}
+      class:active={rundownActive}
       type="button"
       onclick={() => onrundown?.()}
       title={m.topbar_rundown()}
       aria-label={m.topbar_rundown()}
+      aria-pressed={rundownActive}
       use:coachTarget={"herd-rundown"}
     >
       <span class="rd-glyph" aria-hidden="true">☰</span>
@@ -1079,6 +1084,13 @@
   .rundown-btn:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
+  }
+  /* Active: the Rundown lens is open. The ☰ button reads as on so re-clicking it to
+     toggle back is the obvious return path, mirroring the tally filters' active state. */
+  .rundown-btn.active {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
   }
   .rundown-btn:focus-visible {
     outline: none;

@@ -644,6 +644,12 @@ export class StandalonePrCriticService {
     return [...this.inFlight.keys()];
   }
 
+  /** Worktree paths of standalone critic runs currently owned in-memory — the GC sweep must spare
+   *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
+  inflightWorktrees(): string[] {
+    return [...this.inFlight.values()].map((f) => f.worktreePath);
+  }
+
   /** Tear down every in-flight run (reap its terminal + worktree). For process shutdown. */
   stopAll(): void {
     for (const f of this.inFlight.values()) {

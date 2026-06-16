@@ -821,6 +821,12 @@ export class ReviewService {
     return [...this.inflight.keys()];
   }
 
+  /** Worktree paths of critic runs currently owned in-memory — the GC sweep must spare
+   *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
+  inflightWorktrees(): string[] {
+    return [...this.inflight.values()].map((f) => f.worktreePath);
+  }
+
   forget(sessionId: string): void {
     // Clear any mid-spawn claim: a begin() suspended in either gh fetch (author-notes or
     // issue-body) checks this on resume and aborts, so an archived session can't get a critic

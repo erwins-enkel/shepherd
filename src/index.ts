@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   config,
   SESSION_RETENTION_MS,
@@ -25,7 +25,8 @@ import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
-import { reapOrphanTabs } from "./tab-reaper";
+import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
+import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, buildBacklogPayload } from "./server";
 import { detectForge } from "./forge";
 import { AccountUsageIndex } from "./usage";
@@ -281,16 +282,26 @@ fireTmpSweep("boot");
 // teardown paths close these at the source; this sweep is the safety net for husks
 // they miss — agents that crashed out of `agent list`, or anything left over after a
 // shepherd restart cleared the in-memory review tracking. Run once on boot, then hourly.
+// Debounce state for reapOrphanTabs' two-sweep husk confirmation (#721): the shell-only
+// tabIds seen last sweep, threaded back in as `prevShellOnly` so a husk is only reaped when
+// it read shell-only on two consecutive sweeps (avoids reaping an agent's pre-`exec` window).
+let shellOnlyTabs = new Set<string>();
 const sweepOrphanTabs = () => {
   if (maintenance.active) return;
-  try {
-    const closed = reapOrphanTabs(herdr);
-    if (closed.length) console.warn(`[tabs] reaped ${closed.length} orphan helper tab(s)`);
-  } catch (err) {
-    console.warn("[tabs] orphan sweep failed:", err);
-  }
+  void reapOrphanTabs(herdr, shellOnlyTabs)
+    .then((r) => {
+      shellOnlyTabs = r.shellOnly;
+      if (r.closed.length || r.sparedError)
+        console.warn(
+          `[tabs] reaped ${r.closed.length} husk tab(s); spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
+        );
+    })
+    .catch((err) => console.warn("[tabs] orphan sweep failed:", err));
 };
+// Boot + a confirming pass @45s so pre-existing husks clear despite the two-sweep debounce,
+// then hourly.
 setTimeout(sweepOrphanTabs, 5_000);
+setTimeout(sweepOrphanTabs, 45_000);
 setInterval(sweepOrphanTabs, 60 * 60 * 1000);
 
 // Memoize forge resolution: detectForge shells out to a synchronous
@@ -549,16 +560,78 @@ const planGate = new PlanGateService({
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   cap: () => config.planReviewCyclesCap,
 });
+// Grace window for a recent uncompleted reviewer_spawns row: spares a recently-spawned reviewer
+// whose path is not currently in `inflight` (e.g. a restart-orphan before re-adoption). It does
+// NOT cover the pre-`inflight` begin() window — recordReviewerSpawn runs AFTER inflight.set — so
+// that window is covered instead by the directory-age guard in reapStaleReviewWorktrees, which
+// reuses this same value as the dir-age threshold.
+const REVIEW_WORKTREE_GRACE_MS = 15 * 60 * 1000;
+
+// Disk-driven stale reviewer-worktree sweep (#721): reaps `*-review-*` checkouts under each
+// `.shepherd-worktrees` dir whose teardown was missed (crash / restart / foreign-era basename).
+// COMPLEMENTS planGate.gcStaleReviewWorktrees (store-driven) — see tab-reaper.ts. Spares any
+// path a reviewer service currently holds (protectedPaths, the #631 guard — load-bearing that
+// adoptOrphans has repopulated `inflight` before the boot call), any live session path, any
+// recent uncompleted spawn, and any worktree hosting a live `claude`.
+const sweepStaleReviewWorktrees = () => {
+  if (maintenance.active) return; // a sync /proc+git sweep must not run mid-update
+  try {
+    const protectedPaths = new Set([
+      ...planGate.inflightWorktrees(),
+      ...reviewService.inflightWorktrees(),
+      ...standaloneCritic.inflightWorktrees(),
+    ]);
+    const sessions = store.list();
+    const sessionWorktreePaths = new Set(sessions.map((s) => s.worktreePath));
+    const parents = new Set<string>();
+    for (const s of sessions) parents.add(join(dirname(s.repoPath), ".shepherd-worktrees"));
+    for (const row of store.listReviewerSpawns()) parents.add(dirname(row.worktreePath));
+    const r = reapStaleReviewWorktrees({
+      parents: [...parents],
+      listDir: (parent) => {
+        try {
+          return readdirSync(parent);
+        } catch {
+          return [];
+        }
+      },
+      protectedPaths,
+      sessionWorktreePaths,
+      scanAlive: scanClaudeAliveByWorktree,
+      listReviewerSpawns: () => store.listReviewerSpawns(),
+      now: Date.now,
+      graceMs: REVIEW_WORKTREE_GRACE_MS,
+      dirMtime: (p) => {
+        try {
+          return statSync(p).mtimeMs;
+        } catch {
+          return null;
+        }
+      },
+      remove: (p) => worktree.remove(p),
+    });
+    if (r.reaped.length)
+      console.warn(
+        `[worktrees] reaped ${r.reaped.length} stale review worktree(s); spared ${r.sparedOwned} owned, ${r.sparedLive} live`,
+      );
+  } catch (err) {
+    console.warn("[worktrees] sweep failed:", err);
+  }
+};
+
 // Re-adopt plan reviews left in flight by the previous run (the `inflight` map is in-memory):
 // without this a restart mid-review orphans the reviewer forever — its verdict goes unread, the
 // gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
 // The next tick() then finalizes each re-adopted run from the verdict it already wrote.
 // gcStaleReviewWorktrees runs AFTER adoptOrphans has repopulated `inflight` so it only reaps
-// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans).
+// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans); the
+// disk-sweep then runs after gc, with `inflight` populated so its protectedPaths spare holds.
 void planGate
   .adoptOrphans()
   .then(() => planGate.gcStaleReviewWorktrees())
+  .then(() => sweepStaleReviewWorktrees())
   .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
+setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
 
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);

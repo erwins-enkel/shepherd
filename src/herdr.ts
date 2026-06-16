@@ -29,6 +29,14 @@ export interface HerdrTab {
   workspaceId: string;
 }
 
+export interface HerdrPane {
+  paneId: string;
+  tabId: string;
+  label: string;
+  cwd: string;
+  agentStatus: HerdrState;
+}
+
 export type Runner = (args: string[]) => string;
 /** Async counterpart to `Runner` — spawns off Bun's single loop (no blocking). */
 export type AsyncRunner = (args: string[]) => Promise<string>;
@@ -206,6 +214,41 @@ export class HerdrDriver {
     }));
   }
 
+  /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
+  panes(): HerdrPane[] {
+    const parsed = JSON.parse(this.runner(["pane", "list"]));
+    const panes = parsed?.result?.panes ?? [];
+    return panes.map((p: Record<string, string>) => ({
+      paneId: p.pane_id ?? "",
+      tabId: p.tab_id ?? "",
+      label: p.label ?? "",
+      cwd: p.cwd ?? "",
+      agentStatus: (p.agent_status ?? "unknown") as HerdrState,
+    }));
+  }
+
+  /**
+   * Async: returns the foreground process **names** in a pane (`pane process-info`).
+   * For a husk pane (idle shell) this is `["zsh"]`; for a live agent pane it includes
+   * `"claude"` and companion processes.
+   *
+   * A JSON parse failure (missing/malformed reply) returns `[]` — the caller can treat
+   * an unreadable pane as "no known foreground processes". A thrown CLI error (e.g.
+   * herdr lacks the subcommand) **propagates** — callers must distinguish "shell-only"
+   * (`["zsh"]`) from "subcommand unavailable" (throw).
+   */
+  async paneForegroundProcs(paneId: string): Promise<string[]> {
+    const out = await this.asyncRunner(["pane", "process-info", "--pane", paneId]);
+    try {
+      const parsed = JSON.parse(out);
+      const procs: Array<{ name: string }> =
+        parsed?.result?.process_info?.foreground_processes ?? [];
+      return procs.map((p) => p.name);
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * herdr ≥0.6 refuses `tab create` with `workspace_not_found: no active workspace`
    * unless a workspace exists. A fresh daemon — or one restarted after an update —
@@ -348,8 +391,10 @@ export class HerdrDriver {
    * TAB, not just its pane: every agent gets its own dedicated tab, so closing only the
    * pane left an empty husk tab behind. Resolves `terminalId → current tabId` FRESH from
    * the live list — the live list is the source of truth; the agent may have ended or been
-   * relabeled, so a cached tabId may be stale. No-op if the agent has already left the
-   * list — the orphan sweep reaps that husk.
+   * relabeled, so a cached tabId may be stale. Under herdr 0.7 an exited agent persists as
+   * a husk that retains its terminalId, so stop() still finds and closes its tab. The no-op
+   * path fires only when the pane is truly gone from the list; the orphan sweep handles any
+   * residue in that case.
    */
   stop(terminalId: string): void {
     const agent = this.list().find((a) => a.terminalId === terminalId);

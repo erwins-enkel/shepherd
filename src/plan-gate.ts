@@ -628,6 +628,12 @@ export class PlanGateService {
     return [...this.inflight.keys()];
   }
 
+  /** Worktree paths of plan reviews currently owned in-memory — the GC sweep must spare
+   *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
+  inflightWorktrees(): string[] {
+    return [...this.inflight.values()].map((f) => f.worktreePath);
+  }
+
   forget(sessionId: string): void {
     // Clear the `starting` tombstone so an archived session can't get a review after
     // forget(). begin() now awaits a best-effort network `getIssue` AFTER allocating its

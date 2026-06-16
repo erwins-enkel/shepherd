@@ -704,3 +704,16 @@ test("bwrap backend present: critic spawn is wrapped + isolated, credential mask
     expect(spies.started[0]!.env).toBeUndefined();
   });
 });
+
+test("inflightWorktrees: empty before any sweep", () => {
+  const { deps } = makeDeps();
+  const svc = new StandalonePrCriticService(deps as any);
+  expect(svc.inflightWorktrees()).toEqual([]);
+});
+
+test("inflightWorktrees: returns worktree path after sweep() spawns a critic run", async () => {
+  const { deps } = makeDeps();
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(svc.inflightWorktrees()).toEqual(["/review-wt"]);
+});

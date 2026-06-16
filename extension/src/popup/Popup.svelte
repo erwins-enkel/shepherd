@@ -475,8 +475,7 @@
       <textarea
         class="min-h-20 rounded border border-gray-300 px-2 py-1"
         bind:value={prompt}
-        placeholder={m.popup_prompt_placeholder()}
-      ></textarea>
+        placeholder={m.popup_prompt_placeholder()}></textarea>
     </label>
 
     <p class="text-xs text-gray-500">

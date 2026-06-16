@@ -181,8 +181,7 @@
               use:autosize={draft(l)}
               value={draft(l)}
               oninput={(e) => (drafts = { ...drafts, [l.id]: e.currentTarget.value })}
-              aria-label={m.learnings_rule_aria()}
-            ></textarea>
+              aria-label={m.learnings_rule_aria()}></textarea>
             {#if l.rationale}
               <p class="why"><span>{m.learnings_rationale_label()}:</span> {l.rationale}</p>
             {/if}

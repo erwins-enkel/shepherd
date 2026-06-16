@@ -8,6 +8,9 @@ import {
   egressMembraneOverrideFlags,
   detectEgressBackend,
   resetEgressBackendCache,
+  detectEgressHostLoopback,
+  resetEgressHostLoopbackCache,
+  SLIRP_HOST_GATEWAY,
   egressRunnerPath,
   egressTmpDir,
   writeEgressConfigFiles,
@@ -416,6 +419,103 @@ describe("buildEgressConfig", () => {
   test("invalid nftSet throws a clear error", () => {
     expect(() => config({ nftSet: "../../evil; rm -rf /" })).toThrow(/invalid nftSet/);
     expect(() => config({ nftSet: "" })).toThrow(/invalid nftSet/);
+  });
+
+  test("hostGateway: emits one allow rule after @allowed accept, before ipv6 reject", () => {
+    const { nftRuleset } = config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port: 7330 } });
+    expect(nftRuleset).toContain("ip daddr 10.0.2.2 tcp dport 7330 accept");
+    const idxRule = nftRuleset.indexOf("ip daddr 10.0.2.2 tcp dport 7330 accept");
+    const idxAllowed = nftRuleset.indexOf("ip daddr @allowed accept");
+    const idxIpv6 = nftRuleset.indexOf("meta nfproto ipv6 reject");
+    expect(idxAllowed).toBeGreaterThan(-1);
+    expect(idxRule).toBeGreaterThan(idxAllowed);
+    expect(idxRule).toBeLessThan(idxIpv6);
+  });
+
+  test("hostGateway absent: ruleset has no host gateway and is byte-identical to no-hostGateway", () => {
+    const withGw = config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port: 7330 } });
+    const without = config();
+    expect(without.nftRuleset).not.toContain("10.0.2.2");
+    // Default config (no hostGateway) must be unchanged vs. an explicitly-omitted one.
+    expect(config({}).nftRuleset).toBe(without.nftRuleset);
+    expect(withGw.nftRuleset).not.toBe(without.nftRuleset);
+  });
+
+  test("hostGateway: invalid port throws a clear error", () => {
+    for (const port of [0, -1, 70000, 1.5]) {
+      expect(() => config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port } })).toThrow(
+        /invalid hostGateway\.port/,
+      );
+    }
+  });
+});
+
+// ── detectEgressHostLoopback ─────────────────────────────────────────────────
+
+describe("detectEgressHostLoopback", () => {
+  beforeEach(() => {
+    resetEgressHostLoopbackCache();
+  });
+
+  test("true for 'slirp4netns version 1.3.3'", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => "slirp4netns version 1.3.3" })).toBe(
+      true,
+    );
+  });
+
+  test("true for exactly the floor '1.0.0'", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => "1.0.0" })).toBe(true);
+  });
+
+  test("false for below-floor 'slirp4netns version 0.4.7'", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => "slirp4netns version 0.4.7" })).toBe(
+      false,
+    );
+  });
+
+  test("numeric (not string) comparison: '1.10.0' >= '1.0.0' => true", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => "1.10.0" })).toBe(true);
+  });
+
+  test("false for null capture", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => null })).toBe(false);
+  });
+
+  test("false for unparseable garbage", () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => "no version here" })).toBe(false);
+  });
+
+  test("never throws even when versionOutput throws", () => {
+    expect(() =>
+      detectEgressHostLoopback({
+        versionOutput: () => {
+          throw new Error("spawn ENOENT");
+        },
+      }),
+    ).not.toThrow();
+    resetEgressHostLoopbackCache();
+    expect(
+      detectEgressHostLoopback({
+        versionOutput: () => {
+          throw new Error("spawn ENOENT");
+        },
+      }),
+    ).toBe(false);
+  });
+
+  test("caches result: second call ignores new deps", () => {
+    let calls = 0;
+    expect(
+      detectEgressHostLoopback({
+        versionOutput: () => {
+          calls++;
+          return "1.3.3";
+        },
+      }),
+    ).toBe(true);
+    // Second call with a would-be-false dep still returns the cached true and does not re-probe.
+    expect(detectEgressHostLoopback({ versionOutput: () => "0.4.7" })).toBe(true);
+    expect(calls).toBe(1);
   });
 });
 

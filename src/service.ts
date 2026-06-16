@@ -38,6 +38,7 @@ import {
   isDegraded,
   isEgressDegraded,
   egressApplies,
+  willEgressConfine,
   wrapArgv,
   buildMembraneFlags,
   safeRealpath,
@@ -49,6 +50,8 @@ import {
 } from "./sandbox";
 import {
   detectEgressBackend as detectRealEgressBackend,
+  detectEgressHostLoopback as detectRealEgressHostLoopback,
+  SLIRP_HOST_GATEWAY,
   egressMembraneOverrideFlags,
   buildEgressAllowlist,
   buildEgressConfig,
@@ -121,6 +124,13 @@ export interface ServiceDeps {
    *  so no real netns/dnsmasq stack is spawned); defaults to the cached real self-test in
    *  egress.ts. Probed only for an autonomous spawn that already has an FS backend. */
   detectEgressBackend?: () => EgressBackend;
+  /** Restricted agent-ingress listener port accessor (lazy: the listener starts after this
+   *  service is constructed; see src/index.ts). Returns undefined when not wired (tests) or not
+   *  yet started; resolveSpawnBaseUrl/prepareSpawn fall back to the loopback main port then. */
+  agentIngressPort?: () => number | undefined;
+  /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
+   *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
+  detectEgressHostLoopback?: () => boolean;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
@@ -238,6 +248,19 @@ export function spawnSettingsOverlay(
  * `$SHEPHERD_TOKEN` placeholder + `allowedEnvVars`; Claude Code resolves it from the hook
  * process env (only listed vars are interpolated). With no token (open loopback) we omit the
  * `headers` + `allowedEnvVars` keys entirely, matching the queue route's no-auth path.
+ *
+ * Token + `autonomous` (issue #711, DELIBERATE): under the autonomous membrane `--clearenv`
+ * strips `SHEPHERD_TOKEN`, so `$SHEPHERD_TOKEN` interpolates empty → the ingress listener 401s
+ * → hooks fail-open to polling (today's behaviour). We keep the placeholder rather than baking
+ * the literal token here ON PURPOSE: the hook header rides the ps-visible argv and is readable
+ * from the autonomous agent's own `/proc/self/cmdline`, so baking it would hand a hijacked agent
+ * the control-plane token — defeating the containment the autonomous profile exists to provide.
+ * This is asymmetric with the build-queue curl (buildQueueDirective), which DOES carry the literal
+ * token over the same ingress transport: that exposure is pre-existing, opt-in (only when
+ * `buildQueueEnabled`), and already documented as accepted there. Token-LESS deployments (the
+ * default) are unaffected and reach hooks under autonomous normally. To make token + autonomous
+ * hooks reach, re-inject the token into the sandbox env or accept the literal-in-argv exposure —
+ * intentionally NOT done here.
  */
 export function buildHooksFragment(input: {
   sessionId: string;
@@ -671,6 +694,14 @@ function agentBaseUrl(): string {
 }
 
 /**
+ * Base URL an egress-confined autonomous agent uses to reach Shepherd via the slirp host gateway
+ * (10.0.2.2 → host 127.0.0.1), targeting the RESTRICTED agent-ingress listener, not the main port.
+ */
+function agentEgressBaseUrl(ingressPort: number): string {
+  return `http://${SLIRP_HOST_GATEWAY}:${ingressPort}`;
+}
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -808,6 +839,58 @@ export class SessionService {
     });
   }
 
+  /** slirp host-loopback capability probe: injected seam (tests) or the real cached version
+   *  probe. Mirrors detectEgressBackend's PRESENCE check (the seam legitimately returns false). */
+  private detectHostLoopback(): boolean {
+    return this.deps.detectEgressHostLoopback
+      ? this.deps.detectEgressHostLoopback()
+      : detectRealEgressHostLoopback();
+  }
+
+  /** The host-gateway {ip,port} to bake into an egress-confined autonomous spawn's control-plane
+   *  reachability (base URL + the nft allow rule), or null when this spawn must use the loopback
+   *  main port instead. SINGLE source for both the baked base URL (resolveSpawnBaseUrl) and the nft
+   *  host-gateway rule (prepareSpawn), so the two can never drift. Requires: an egress-confined
+   *  autonomous spawn (willEgressConfine) on a host-loopback-capable slirp, with a known ingress port. */
+  private egressHostGateway(
+    profile: SandboxProfile,
+    backend: SandboxBackend,
+    egressBackend: EgressBackend,
+  ): { ip: string; port: number } | null {
+    const ingressPort = this.deps.agentIngressPort?.();
+    if (
+      ingressPort != null &&
+      willEgressConfine(profile, backend, egressBackend) &&
+      this.detectHostLoopback()
+    ) {
+      return { ip: SLIRP_HOST_GATEWAY, port: ingressPort };
+    }
+    return null;
+  }
+
+  /**
+   * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. Egress-confined
+   * autonomous spawns (willEgressConfine) on a host-loopback-capable slirp, with a known ingress
+   * port, reach the restricted ingress listener via 10.0.2.2; everything else uses the loopback
+   * main port. Shares the SAME predicate + host-loopback probe + ingress-port accessor that
+   * prepareSpawn uses, so the baked URL and the actual wrap/hostGateway decision cannot diverge.
+   */
+  private resolveSpawnBaseUrl(
+    profileOverride: string | null | undefined,
+    repoPath: string,
+  ): string {
+    const profile = resolveProfile(
+      profileOverride,
+      this.deps.store.getRepoConfig(repoPath).sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    if (!egressApplies(profile)) return agentBaseUrl(); // no backend probe for trusted/standard
+    const backend = this.detectBackend();
+    const egressBackend = backend !== null ? this.detectEgressBackend() : null;
+    const gw = this.egressHostGateway(profile, backend, egressBackend);
+    return gw ? agentEgressBaseUrl(gw.port) : agentBaseUrl();
+  }
+
   /**
    * Auto-gate hold reason for resuming an auto session, or null when allowed. Prefers the
    * profile the session was SPAWNED with (`s.sandboxApplied`) so a per-spawn override is
@@ -911,8 +994,8 @@ export class SessionService {
     const hold = autoHoldReason(profile, backend, egressBackend);
     if (ctx.auto && hold) return { ok: false, holdReason: hold };
     const degraded = isDegraded(profile, backend);
-    // egress WILL wrap iff autonomous + FS backend + egress backend all present.
-    const egressOn = egressApplies(profile) && backend !== null && egressBackend != null;
+    // egress WILL wrap iff autonomous + FS backend + egress backend all present (shared predicate).
+    const egressOn = willEgressConfine(profile, backend, egressBackend ?? null);
     // An interactive autonomous session with the FS membrane but no egress backend ran
     // FS-only (network open) — warrants the egress-degraded banner.
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
@@ -939,37 +1022,16 @@ export class SessionService {
         }
       : ({} as MembraneInputs);
 
-    let wrapped: string[];
-    let egressAllowlist: string[] | undefined;
-    let egressDnsLog: string | undefined;
-    if (egressOn) {
-      // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
-      // egress override binds (between the membrane flags and `--`), then wrap that in the
-      // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
-      // this case bypasses it.
-      const tmp = egressTmpDir(ctx.sessionId);
-      const allowlist = buildEgressAllowlist({
-        forges: config.forges,
-        extraHosts: [
-          ...config.sandboxEgressExtraHosts,
-          ...this.deps.store.getRepoConfig(ctx.repoPath).egressExtraHosts,
-        ],
-      });
-      const cfg = buildEgressConfig(allowlist, { tmpDir: tmp });
-      writeEgressConfigFiles(tmp, cfg);
-      const bwrapArgv = [
-        "bwrap",
-        ...buildMembraneFlags(membrane),
-        ...egressMembraneOverrideFlags(tmp),
-        "--",
-        ...innerArgv,
-      ];
-      wrapped = wrapEgress(bwrapArgv, tmp);
-      egressAllowlist = allowlist;
-      egressDnsLog = join(tmp, "dns.log");
-    } else {
-      wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
-    }
+    const { wrapped, egressAllowlist, egressDnsLog } = this.wrapSpawnArgv({
+      innerArgv,
+      profile,
+      backend,
+      egressBackend,
+      membrane,
+      egressOn,
+      sessionId: ctx.sessionId,
+      repoPath: ctx.repoPath,
+    });
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
     // no membrane to mask the credential in place, so point the spawn at the
     // credential-less mirror dir. The membrane case masks creds in place (keeping
@@ -992,6 +1054,56 @@ export class SessionService {
       degraded,
       egressApplied: egressOn,
       egressDegraded,
+    };
+  }
+
+  /** Build the final spawn argv for an egress-confined run (writes the per-session egress config +
+   *  wraps the membrane bwrap argv in the egress-runner) or the plain membrane wrap otherwise.
+   *  Returns the wrapped argv plus the drop-watcher inputs (allowlist + dns log path) when egress wrapped. */
+  private wrapSpawnArgv(args: {
+    innerArgv: string[];
+    profile: SandboxProfile;
+    backend: SandboxBackend;
+    egressBackend: EgressBackend | undefined;
+    membrane: MembraneInputs;
+    egressOn: boolean;
+    sessionId: string;
+    repoPath: string;
+  }): { wrapped: string[]; egressAllowlist?: string[]; egressDnsLog?: string } {
+    const { innerArgv, profile, backend, egressBackend, membrane, egressOn } = args;
+    if (!egressOn) {
+      return { wrapped: wrapArgv(innerArgv, { profile, backend, membrane }) };
+    }
+    // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
+    // egress override binds (between the membrane flags and `--`), then wrap that in the
+    // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
+    // this case bypasses it.
+    const tmp = egressTmpDir(args.sessionId);
+    const allowlist = buildEgressAllowlist({
+      forges: config.forges,
+      extraHosts: [
+        ...config.sandboxEgressExtraHosts,
+        ...this.deps.store.getRepoConfig(args.repoPath).egressExtraHosts,
+      ],
+    });
+    // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
+    // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
+    // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
+    const hostGateway =
+      this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
+    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
+    writeEgressConfigFiles(tmp, cfg);
+    const bwrapArgv = [
+      "bwrap",
+      ...buildMembraneFlags(membrane),
+      ...egressMembraneOverrideFlags(tmp),
+      "--",
+      ...innerArgv,
+    ];
+    return {
+      wrapped: wrapEgress(bwrapArgv, tmp),
+      egressAllowlist: allowlist,
+      egressDnsLog: join(tmp, "dns.log"),
     };
   }
 
@@ -1033,6 +1145,7 @@ export class SessionService {
     planGateOn: boolean | undefined,
     isolated: boolean,
     trim: Awaited<ReturnType<typeof trimDecision>>,
+    baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const houseRules = this.houseRules(input.repoPath);
@@ -1041,7 +1154,7 @@ export class SessionService {
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
           sessionId,
-          baseUrl: agentBaseUrl(),
+          baseUrl,
           token: config.token,
           autopilot: autopilotActive,
         })
@@ -1057,7 +1170,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
-        hooks: { sessionId, baseUrl: agentBaseUrl(), token: config.token },
+        hooks: { sessionId, baseUrl, token: config.token },
       }),
     );
     argv.push(
@@ -1142,6 +1255,12 @@ export class SessionService {
       // plan. See resolvePlanGateOn for the override + research semantics.
       const planGateOn = this.resolvePlanGateOn(input, repoConfig);
       const trim = await this.trimFor(input.auto);
+      // Research needs OPEN web egress; a research session resolving to autonomous is
+      // downgraded to standard for this spawn (see researchSafeProfileOverride). Resolved BEFORE
+      // buildSpawnArgv so resolveSpawnBaseUrl bakes the URL matching the SAME profile prepareSpawn
+      // will wrap with — buildSpawnArgv doesn't use the override otherwise, so reordering is safe.
+      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
+      const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
       const argv = this.buildSpawnArgv(
         input,
         claudeSessionId,
@@ -1150,10 +1269,8 @@ export class SessionService {
         planGateOn,
         wt.isolated,
         trim,
+        baseUrl,
       );
-      // Research needs OPEN web egress; a research session resolving to autonomous is
-      // downgraded to standard for this spawn (see researchSafeProfileOverride).
-      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -1512,6 +1629,10 @@ export class SessionService {
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     if (agent) this.deps.herdr.stop(agent.terminalId);
+    // Bake the URL matching the SAME profile prepareSpawn resumes with (s.sandboxApplied), so an
+    // egress-confined resume reaches Shepherd via the restricted ingress listener, not the netns
+    // loopback. Uses the identical predicate/probe/port as prepareSpawn below → can't diverge.
+    const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const innerArgv = [
       "claude",
       "--dangerously-skip-permissions",
@@ -1523,7 +1644,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
-        hooks: { sessionId: s.id, baseUrl: agentBaseUrl(), token: config.token },
+        hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     );
     if (s.model) innerArgv.push("--model", s.model);

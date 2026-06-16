@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
 import {
   type BackendProbeDeps,
@@ -124,10 +125,19 @@ function buildProbeMembrane(probeDir: string, deps: EgressBackendProbeDeps): Mem
   };
 }
 
+/** Representative port for the self-test only — the probe verifies the host-gateway rule LOADS,
+ *  not that it routes anywhere. The real spawn passes the live ingress port. */
+const PROBE_GATEWAY_PORT = 7330;
+
 /** Write probe config files to tmpDir and return the inner bwrap argv. */
 function buildProbeInnerArgv(tmpDir: string, deps: EgressBackendProbeDeps): string[] {
   const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
-  const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir });
+  // When host-loopback is available, load the SAME rule shape the real spawn uses, so the
+  // self-test actually nft-loads it; omit it otherwise (probe matches production omission).
+  const hostGateway = detectEgressHostLoopback()
+    ? { ip: SLIRP_HOST_GATEWAY, port: PROBE_GATEWAY_PORT }
+    : undefined;
+  const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir, hostGateway });
   writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset);
   writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
   writeFile(join(tmpDir, "resolv.conf"), cfg.resolvConf);
@@ -197,6 +207,69 @@ export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBa
   }
 }
 
+// ── host-loopback capability probe ──────────────────────────────────────────────
+
+let _egressHostLoopbackCache: boolean | undefined;
+
+/** Clear the per-process host-loopback capability cache (tests). */
+export function resetEgressHostLoopbackCache(): void {
+  _egressHostLoopbackCache = undefined;
+}
+
+/** Parse the first X.Y.Z (or X.Y) triple from slirp4netns --version output. */
+function parseSemverish(out: string): [number, number, number] | null {
+  const m = out.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
+}
+
+/** Numeric major.minor.patch comparison: a >= b. */
+function semverGte(a: [number, number, number], b: [number, number, number]): boolean {
+  for (let i = 0; i < 3; i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return true;
+}
+
+/**
+ * Detect whether the host's slirp4netns is recent enough to route the host-loopback
+ * gateway (10.0.2.2 → host 127.0.0.1), gating agent→Shepherd reachability. Cached per
+ * process. Best-effort: NEVER throws — a capture failure or unparseable version is false.
+ *
+ * @param deps.versionOutput  Override for capturing `slirp4netns --version` stdout
+ *                            (default: execFileSync wrapper), trimmed or null on throw.
+ */
+export function detectEgressHostLoopback(
+  deps: { versionOutput?: () => string | null } = {},
+): boolean {
+  if (_egressHostLoopbackCache !== undefined) return _egressHostLoopbackCache;
+
+  const versionOutput =
+    deps.versionOutput ??
+    (() => {
+      try {
+        return execFileSync("slirp4netns", ["--version"], { encoding: "utf8" }).toString().trim();
+      } catch {
+        return null;
+      }
+    });
+
+  let result = false;
+  try {
+    const out = versionOutput();
+    const parsed = out ? parseSemverish(out) : null;
+    if (parsed) result = semverGte(parsed, SLIRP4NETNS_HOSTLOOPBACK_MIN);
+  } catch {
+    result = false; // best-effort — never throw
+  }
+
+  _egressHostLoopbackCache = result;
+  return result;
+}
+
 // ── Anthropic base set ────────────────────────────────────────────────────────
 
 /**
@@ -233,6 +306,15 @@ const DEFAULT_NFT_SET = "inet#egress#allowed";
 
 /** slirp4netns built-in DNS forwarder — always reachable at this IP inside the netns. */
 const SLIRP_RESOLVER = "10.0.2.3";
+
+/** slirp4netns host-loopback gateway: inside the netns this IP routes to the host's 127.0.0.1
+ *  (reachable once `--disable-host-loopback` is dropped from the slirp invocation). */
+export const SLIRP_HOST_GATEWAY = "10.0.2.2";
+
+/** Minimum slirp4netns version whose host-loopback (10.0.2.2 → host 127.0.0.1) we rely on.
+ *  Human-readable source-of-truth: "1.0.0" — a broadly-available modern floor; below it we fall back
+ *  to polling (see detectEgressHostLoopback). Module-private (only detectEgressHostLoopback uses it). */
+const SLIRP4NETNS_HOSTLOOPBACK_MIN: [number, number, number] = [1, 0, 0];
 
 /** dnsmasq min-cache-ttl in seconds: keeps resolved IPs pinned in the nft set longer. */
 const DEFAULT_MIN_CACHE_TTL = 600;
@@ -368,6 +450,8 @@ export interface EgressConfig {
  * @param opts.resolver      Upstream DNS resolver IP (default "10.0.2.3" = slirp4netns's built-in).
  * @param opts.minCacheTtl   dnsmasq min-cache-ttl seconds (default 600).
  * @param opts.nftSet        nft set identifier (default "inet#egress#allowed").
+ * @param opts.hostGateway   When set, opens exactly that host IP+port outbound (least-privilege
+ *                           agent→Shepherd reachability via the slirp host-loopback gateway).
  */
 export function buildEgressConfig(
   allowlist: string[],
@@ -376,16 +460,27 @@ export function buildEgressConfig(
     resolver?: string;
     minCacheTtl?: number;
     nftSet?: string;
+    hostGateway?: { ip: string; port: number };
   },
 ): EgressConfig {
   const resolver = opts.resolver ?? SLIRP_RESOLVER;
   const minCacheTtl = opts.minCacheTtl ?? DEFAULT_MIN_CACHE_TTL;
   const nftSet = opts.nftSet ?? DEFAULT_NFT_SET;
-  const { tmpDir } = opts;
+  const { tmpDir, hostGateway } = opts;
 
   // Guard: nftSet is interpolated directly into dnsmasq and nft config — must be safe.
   if (!/^[a-z0-9#_]+$/i.test(nftSet)) {
     throw new Error(`buildEgressConfig: invalid nftSet "${nftSet}" — must match /^[a-z0-9#_]+$/i`);
+  }
+
+  // Guard: hostGateway.port is interpolated directly into the nft ruleset — must be a port.
+  if (
+    hostGateway &&
+    !(Number.isInteger(hostGateway.port) && hostGateway.port >= 1 && hostGateway.port <= 65535)
+  ) {
+    throw new Error(
+      `buildEgressConfig: invalid hostGateway.port "${hostGateway.port}" — must be an integer 1..65535`,
+    );
   }
 
   // ── dnsmasq argv ────────────────────────────────────────────────────────────
@@ -425,6 +520,11 @@ export function buildEgressConfig(
 
   // ── nft ruleset ─────────────────────────────────────────────────────────────
   // family inet, table egress, default-drop with explicit REJECT for fast-fail.
+  // When hostGateway is set, ONE least-privilege allow for the host IP+port goes
+  // right after the @allowed accept (return traffic is covered by ct established).
+  const hostGatewayRule = hostGateway
+    ? `\n    ip daddr ${hostGateway.ip} tcp dport ${hostGateway.port} accept`
+    : "";
   const nftRuleset = `table inet egress {
   set allowed {
     type ipv4_addr
@@ -436,7 +536,7 @@ export function buildEgressConfig(
     ct state established,related accept
     ip daddr ${resolver} udp dport 53 accept
     ip daddr ${resolver} tcp dport 53 accept
-    ip daddr @allowed accept
+    ip daddr @allowed accept${hostGatewayRule}
     meta nfproto ipv6 reject
     meta l4proto tcp reject with tcp reset
     reject

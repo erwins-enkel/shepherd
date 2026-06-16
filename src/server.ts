@@ -3659,6 +3659,48 @@ export function makeApp(deps: AppDeps) {
   };
 }
 
+/** Method+path allowlist for the restricted agent-ingress listener: EXACTLY the agent→server
+ *  control-plane routes the spawn directives instruct the agent to call. `parts` is
+ *  url.pathname.split("/").filter(Boolean), e.g. ["api","sessions","<id>","hooks"]. The session id
+ *  segment is an unguessable per-session UUID the agent only knows for its own session, so it is the
+ *  de-facto per-session capability; the listener exposes no enumeration route. NOTE: /queue/approve
+ *  is deliberately EXCLUDED — it is the human/autopilot gate, not an agent action. */
+export function isAgentIngressRoute(method: string, parts: string[]): boolean {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[2])) return false;
+  // POST /api/sessions/<id>/hooks
+  if (method === "POST" && parts[3] === "hooks" && !parts[4]) return true;
+  // PUT /api/sessions/<id>/queue
+  if (method === "PUT" && parts[3] === "queue" && !parts[4]) return true;
+  // POST /api/sessions/<id>/queue/steps/<stepId>
+  if (method === "POST" && parts[3] === "queue" && parts[4] === "steps" && parts[5] && !parts[6]) {
+    return true;
+  }
+  return false;
+}
+
+/** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise
+ *  DELEGATE to the full app (so checkAuth + checkOrigin + the real handlers all still apply). This is
+ *  the autonomous netns's ONLY reachable control-plane surface (see isAgentIngressRoute). */
+export function makeAgentIngressApp(deps: AppDeps) {
+  const app = makeApp(deps);
+  return {
+    async fetch(req: Request): Promise<Response> {
+      const url = new URL(req.url);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
+      return app.fetch(req); // MUST delegate — preserves checkAuth (token) + checkOrigin (CSRF) + handlers
+    },
+  };
+}
+
+/** Start the agent-ingress listener bound to LOOPBACK ONLY (never config.host, which may be 0.0.0.0)
+ *  on an ephemeral port. slirp maps the netns's 10.0.2.2 to the host's 127.0.0.1, so loopback is the
+ *  correct + safest bind. Returns the Bun server (read `.port`). */
+export function serveAgentIngress(deps: AppDeps, port = 0) {
+  const app = makeAgentIngressApp(deps);
+  return Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => app.fetch(req) });
+}
+
 type WsData =
   | { kind: "events" }
   | { kind: "pty"; id: string; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };

@@ -248,6 +248,19 @@ export function spawnSettingsOverlay(
  * `$SHEPHERD_TOKEN` placeholder + `allowedEnvVars`; Claude Code resolves it from the hook
  * process env (only listed vars are interpolated). With no token (open loopback) we omit the
  * `headers` + `allowedEnvVars` keys entirely, matching the queue route's no-auth path.
+ *
+ * Token + `autonomous` (issue #711, DELIBERATE): under the autonomous membrane `--clearenv`
+ * strips `SHEPHERD_TOKEN`, so `$SHEPHERD_TOKEN` interpolates empty → the ingress listener 401s
+ * → hooks fail-open to polling (today's behaviour). We keep the placeholder rather than baking
+ * the literal token here ON PURPOSE: the hook header rides the ps-visible argv and is readable
+ * from the autonomous agent's own `/proc/self/cmdline`, so baking it would hand a hijacked agent
+ * the control-plane token — defeating the containment the autonomous profile exists to provide.
+ * This is asymmetric with the build-queue curl (buildQueueDirective), which DOES carry the literal
+ * token over the same ingress transport: that exposure is pre-existing, opt-in (only when
+ * `buildQueueEnabled`), and already documented as accepted there. Token-LESS deployments (the
+ * default) are unaffected and reach hooks under autonomous normally. To make token + autonomous
+ * hooks reach, re-inject the token into the sandbox env or accept the literal-in-argv exposure —
+ * intentionally NOT done here.
  */
 export function buildHooksFragment(input: {
   sessionId: string;

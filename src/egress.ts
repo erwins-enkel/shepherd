@@ -261,8 +261,7 @@ export function detectEgressHostLoopback(
   try {
     const out = versionOutput();
     const parsed = out ? parseSemverish(out) : null;
-    if (parsed)
-      result = semverGte(parsed, parseSemverish(SLIRP4NETNS_HOSTLOOPBACK_MIN) ?? [1, 0, 0]);
+    if (parsed) result = semverGte(parsed, SLIRP4NETNS_HOSTLOOPBACK_MIN);
   } catch {
     result = false; // best-effort — never throw
   }
@@ -313,8 +312,9 @@ const SLIRP_RESOLVER = "10.0.2.3";
 export const SLIRP_HOST_GATEWAY = "10.0.2.2";
 
 /** Minimum slirp4netns version whose host-loopback (10.0.2.2 → host 127.0.0.1) we rely on.
- *  A broadly-available modern floor; below it we fall back to polling (see detectEgressHostLoopback). */
-export const SLIRP4NETNS_HOSTLOOPBACK_MIN = "1.0.0";
+ *  Human-readable source-of-truth: "1.0.0" — a broadly-available modern floor; below it we fall back
+ *  to polling (see detectEgressHostLoopback). Module-private (only detectEgressHostLoopback uses it). */
+const SLIRP4NETNS_HOSTLOOPBACK_MIN: [number, number, number] = [1, 0, 0];
 
 /** dnsmasq min-cache-ttl in seconds: keeps resolved IPs pinned in the nft set longer. */
 const DEFAULT_MIN_CACHE_TTL = 600;

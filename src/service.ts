@@ -1009,42 +1009,16 @@ export class SessionService {
         }
       : ({} as MembraneInputs);
 
-    let wrapped: string[];
-    let egressAllowlist: string[] | undefined;
-    let egressDnsLog: string | undefined;
-    if (egressOn) {
-      // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
-      // egress override binds (between the membrane flags and `--`), then wrap that in the
-      // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
-      // this case bypasses it.
-      const tmp = egressTmpDir(ctx.sessionId);
-      const allowlist = buildEgressAllowlist({
-        forges: config.forges,
-        extraHosts: [
-          ...config.sandboxEgressExtraHosts,
-          ...this.deps.store.getRepoConfig(ctx.repoPath).egressExtraHosts,
-        ],
-      });
-      // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
-      // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
-      // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
-      const hostGateway =
-        this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
-      const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
-      writeEgressConfigFiles(tmp, cfg);
-      const bwrapArgv = [
-        "bwrap",
-        ...buildMembraneFlags(membrane),
-        ...egressMembraneOverrideFlags(tmp),
-        "--",
-        ...innerArgv,
-      ];
-      wrapped = wrapEgress(bwrapArgv, tmp);
-      egressAllowlist = allowlist;
-      egressDnsLog = join(tmp, "dns.log");
-    } else {
-      wrapped = wrapArgv(innerArgv, { profile, backend, membrane });
-    }
+    const { wrapped, egressAllowlist, egressDnsLog } = this.wrapSpawnArgv({
+      innerArgv,
+      profile,
+      backend,
+      egressBackend,
+      membrane,
+      egressOn,
+      sessionId: ctx.sessionId,
+      repoPath: ctx.repoPath,
+    });
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
     // no membrane to mask the credential in place, so point the spawn at the
     // credential-less mirror dir. The membrane case masks creds in place (keeping
@@ -1067,6 +1041,56 @@ export class SessionService {
       degraded,
       egressApplied: egressOn,
       egressDegraded,
+    };
+  }
+
+  /** Build the final spawn argv for an egress-confined run (writes the per-session egress config +
+   *  wraps the membrane bwrap argv in the egress-runner) or the plain membrane wrap otherwise.
+   *  Returns the wrapped argv plus the drop-watcher inputs (allowlist + dns log path) when egress wrapped. */
+  private wrapSpawnArgv(args: {
+    innerArgv: string[];
+    profile: SandboxProfile;
+    backend: SandboxBackend;
+    egressBackend: EgressBackend | undefined;
+    membrane: MembraneInputs;
+    egressOn: boolean;
+    sessionId: string;
+    repoPath: string;
+  }): { wrapped: string[]; egressAllowlist?: string[]; egressDnsLog?: string } {
+    const { innerArgv, profile, backend, egressBackend, membrane, egressOn } = args;
+    if (!egressOn) {
+      return { wrapped: wrapArgv(innerArgv, { profile, backend, membrane }) };
+    }
+    // Egress path: write the per-session config artefacts, build the bwrap argv WITH the
+    // egress override binds (between the membrane flags and `--`), then wrap that in the
+    // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
+    // this case bypasses it.
+    const tmp = egressTmpDir(args.sessionId);
+    const allowlist = buildEgressAllowlist({
+      forges: config.forges,
+      extraHosts: [
+        ...config.sandboxEgressExtraHosts,
+        ...this.deps.store.getRepoConfig(args.repoPath).egressExtraHosts,
+      ],
+    });
+    // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
+    // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
+    // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
+    const hostGateway =
+      this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
+    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
+    writeEgressConfigFiles(tmp, cfg);
+    const bwrapArgv = [
+      "bwrap",
+      ...buildMembraneFlags(membrane),
+      ...egressMembraneOverrideFlags(tmp),
+      "--",
+      ...innerArgv,
+    ];
+    return {
+      wrapped: wrapEgress(bwrapArgv, tmp),
+      egressAllowlist: allowlist,
+      egressDnsLog: join(tmp, "dns.log"),
     };
   }
 

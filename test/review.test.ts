@@ -1912,3 +1912,131 @@ test("inflightWorktrees: returns worktree path after consider() spawns a review"
   await svc.consider(session(), OPEN_GREEN);
   expect(svc.inflightWorktrees()).toEqual(["/review-wt"]);
 });
+
+// ── forceReview (operator-initiated manual re-review) ───────────────────────────
+
+test("forceReview LEVER: re-reviews an unchanged head (same patch-id) that consider() skips", async () => {
+  // The regression guard for the actual re-trigger lever (§4): a non-error prior verdict whose
+  // patchId equals the current head's computed patch-id. force must SPAWN — proving rebaseSkip
+  // did NOT skip because force bypassed shouldSkipForPatchId. NOT reliant on streak/error resets.
+  const mk = () =>
+    makeDeps({ computePatchId: async () => ({ patchId: "pid-same", baseSha: "b", files: ["f"] }) });
+
+  // control: same head + matching patch-id via the AUTO path → skipped, no spawn.
+  const ctl = mk();
+  ctl.reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "abc" }); // OPEN_GREEN.headSha
+  const ctlSvc = new ReviewService(ctl.deps as any);
+  const ctlOutcome = await ctlSvc.consider(session(), OPEN_GREEN);
+  expect(ctlOutcome).toBe("skipped");
+  expect(ctl.started).toHaveLength(0);
+
+  // forceReview: same setup → bypasses the patch-id skip → spawns.
+  const f = mk();
+  f.reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "abc" });
+  const svc = new ReviewService(f.deps as any);
+  const outcome = await svc.forceReview(session(), OPEN_GREEN);
+  expect(outcome).toBe("started");
+  expect(f.started).toHaveLength(1);
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("forceReview: aborts an in-flight run (finalizing=false), reaps it, then respawns", async () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const {
+    deps: d,
+    started,
+    stopped,
+    removed,
+  } = makeDeps({
+    onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN); // now in-flight (terminal "rt", worktree /review-wt)
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+  const outcome = await svc.forceReview(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(outcome).toBe("started");
+  // old run reaped: its terminal stopped + worktree removed; onReviewing(false) emitted
+  expect(stopped).toContain("rt");
+  expect(removed).toContain("/review-wt");
+  expect(events).toContainEqual({ id: "s1", reviewing: false });
+  // fresh run spawned (a second herdr.start) and is in-flight again
+  expect(started).toHaveLength(2);
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("forceReview: finalizing in-flight run → skipped, does NOT reap (tick owns teardown)", async () => {
+  const { deps: d, started, stopped, removed } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // tick()'s finalize already owns this run's teardown + verdict.
+  (svc as any).inflight.get("s1").finalizing = true;
+  const outcome = await svc.forceReview(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  expect(outcome).toBe("skipped");
+  expect(stopped).toEqual([]); // not reaped — finalize() owns it
+  expect(removed).toEqual([]);
+  expect(started).toHaveLength(1); // no respawn
+});
+
+test("forceReview: mid-spawn (starting) → skipped", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  (svc as any).starting.add("s1");
+  const outcome = await svc.forceReview(session(), OPEN_GREEN);
+  expect(outcome).toBe("skipped");
+  expect(started).toHaveLength(0);
+});
+
+test("forceReview: preconditions still gate → skipped (CI not green)", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  expect(await svc.forceReview(session(), { ...OPEN_GREEN, checks: "pending" })).toBe("skipped");
+  expect(started).toHaveLength(0);
+});
+
+test("forceReview: preconditions still gate → skipped (PR not open)", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  expect(await svc.forceReview(session(), { ...OPEN_GREEN, state: "merged" })).toBe("skipped");
+  expect(started).toHaveLength(0);
+});
+
+test("forceReview: preconditions still gate → skipped (critic disabled)", async () => {
+  const { deps: d, started } = makeDeps({});
+  d.store.getRepoConfig = () => ({ criticEnabled: false, autoAddressEnabled: false });
+  const svc = new ReviewService(d as any);
+  expect(await svc.forceReview(session(), OPEN_GREEN)).toBe("skipped");
+  expect(started).toHaveLength(0);
+});
+
+test("forceReview: begin() bails (spawn throws) → error, worktree cleaned up", async () => {
+  const { deps: d, removed } = makeDeps({});
+  d.herdr.start = () => {
+    throw new Error("spawn failed");
+  };
+  const svc = new ReviewService(d as any);
+  const outcome = await svc.forceReview(session(), OPEN_GREEN);
+  expect(outcome).toBe("error");
+  expect(removed).toEqual(["/review-wt"]); // probe worktree reaped on the bail
+  expect(svc.reviewingIds()).toEqual([]); // nothing left in-flight
+});
+
+test("forceReview HYGIENE: resets errorRound/streak/reviewedPatchIds on the prior verdict", async () => {
+  const { deps: d, reviews } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  reviews["s1"] = priorReview({
+    headSha: "abc",
+    errorRound: 2,
+    streakReviews: 5,
+    reviewedPatchIds: ["pid-x", "pid-y"],
+    findings: ["still outstanding"],
+    addressRound: 1,
+  });
+  await svc.forceReview(session(), OPEN_GREEN);
+  // hygiene resets persisted via putReview, applied before the force re-review runs
+  expect(reviews["s1"]?.errorRound).toBe(0);
+  expect(reviews["s1"]?.streakReviews).toBe(0);
+  expect(reviews["s1"]?.reviewedPatchIds).toEqual([]);
+  // outstanding-work state the critic must re-verify is preserved
+  expect(reviews["s1"]?.findings).toEqual(["still outstanding"]);
+  expect(reviews["s1"]?.addressRound).toBe(1);
+});

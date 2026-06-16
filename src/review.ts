@@ -40,6 +40,10 @@ import { config } from "./config";
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
 export { reviewPrompt, defaultComputePatchId, scopeFindings, CRITIC_THINKING_TOKENS };
 
+/** Outcome of a consider()/forceReview() call: a critic was spawned, the run was declined
+ *  (preconditions unmet / dedup / ceiling / race guard), or begin() bailed before spawning. */
+export type ReviewOutcome = "started" | "skipped" | "error";
+
 /** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd. */
 function steerText(findings: string[], prNumber: number): string {
   return [
@@ -245,14 +249,23 @@ export class ReviewService {
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
-  /** Decide whether `git` warrants a fresh critic run for `session`, and start one. */
-  async consider(session: Session, git: GitState): Promise<void> {
-    if (git.state !== "open" || git.checks !== "success" || !git.headSha || !git.number) return;
-    if (!session.branch) return;
-    if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return;
-    if (this.inflight.has(session.id) || this.starting.has(session.id)) return; // in flight / mid-spawn
+  /** Decide whether `git` warrants a fresh critic run for `session`, and start one. With
+   *  `opts.force` (the operator's manual re-review via forceReview) the same-head dedup,
+   *  the spawn ceiling, and the patch-id churn-skip are bypassed — but the hard preconditions
+   *  (PR open + CI green + critic enabled + not already running) still gate. */
+  async consider(
+    session: Session,
+    git: GitState,
+    opts?: { force?: boolean },
+  ): Promise<ReviewOutcome> {
+    const force = opts?.force === true;
+    if (git.state !== "open" || git.checks !== "success" || !git.headSha || !git.number)
+      return "skipped";
+    if (!session.branch) return "skipped";
+    if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return "skipped";
+    if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getReview(session.id);
-    if (prior?.headSha === git.headSha) return; // head already reviewed
+    if (!force && prior?.headSha === git.headSha) return "skipped"; // head already reviewed
     // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
     // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
     // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
@@ -271,22 +284,31 @@ export class ReviewService {
     // can exceed 2*cap while errors interleave — bounded by errorRound + the human it escalates
     // to, not by this gate.
     //
-    // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused. The only
-    // resume paths are a clean verdict that lands while still under budget (won't happen
-    // once paused — we don't re-spawn) or a human archiving the session (forget() →
-    // dropReview clears the row, resetting the streak). There is deliberately no in-PR
-    // "re-request review" action; crossing the ceiling means the critic gives up here.
-    if (prior && prior.findings.length > 0 && prior.streakReviews >= 2 * this.cap) return;
+    // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused on the AUTO path.
+    // Crossing the ceiling halts only auto re-spawns here — the resume paths are a clean verdict
+    // that lands while still under budget (won't happen once paused — we don't auto re-spawn), a
+    // human archiving the session (forget() → dropReview clears the row, resetting the streak),
+    // or an operator manually re-engaging via forceReview (which resets the streak as hygiene so
+    // the next auto consider() re-engages too). `force` here is that manual path bypassing the
+    // ceiling for one run.
+    if (!force && prior && prior.findings.length > 0 && prior.streakReviews >= 2 * this.cap)
+      return "skipped";
     // Claim the slot synchronously, BEFORE begin()'s await, so a concurrent consider bails.
     this.starting.add(session.id);
     try {
-      await this.begin(session, git);
+      await this.begin(session, git, force);
     } finally {
       this.starting.delete(session.id);
     }
+    // begin() populates `inflight` only when it actually spawned a critic; its silent early
+    // returns (worktree/spawn fail, api-key-mode-without-key, post-await `starting` tombstone,
+    // or a non-force rebaseSkip churn-skip) leave it unset → "error". The auto caller ignores
+    // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
+    // only for the manual/force path.
+    return this.inflight.has(session.id) ? "started" : "error";
   }
 
-  private async begin(session: Session, git: GitState): Promise<void> {
+  private async begin(session: Session, git: GitState, force: boolean): Promise<void> {
     // The prior verdict (an earlier head — consider() never re-reviews the same head)
     // carries this streak's accountability state: its findings get fed to the critic
     // to verify they were addressed, and its addressRound bounds the auto-address loop.
@@ -308,6 +330,7 @@ export class ReviewService {
       git,
       prior,
       wt.worktreePath,
+      force,
     );
     if (skipped) return;
     // The base the critic diffs against == the base the fingerprint (and file set) used —
@@ -418,6 +441,37 @@ export class ReviewService {
     this.deps.onReviewing?.(session.id, true);
   }
 
+  /** Operator-initiated (re)start of a critic review for `session`, bypassing the auto path's
+   *  same-head dedup, spawn ceiling, and patch-id churn-skip. Aborts a hung in-flight run first. */
+  async forceReview(session: Session, git: GitState): Promise<ReviewOutcome> {
+    // 1. mid-spawn window: can't safely abort begin()'s async fetch; operator retries.
+    if (this.starting.has(session.id)) return "skipped";
+    // 2. in-flight: abort it, but NOT if tick()'s finalize() already owns the teardown+verdict.
+    const f = this.inflight.get(session.id);
+    if (f) {
+      if (f.finalizing) return "skipped";
+      reapRun(this.deps.herdr.stop, this.deps.worktree.remove, f.terminalId, f.worktreePath);
+      this.deps.onReviewing?.(session.id, false);
+      this.inflight.delete(session.id);
+    }
+    // 3. escalation/streak HYGIENE on the prior verdict (NOT the re-trigger lever — rebaseSkip's
+    //    force bypass is): reset errorRound so finalize() doesn't immediately re-fire the
+    //    consecutive-error stall signal, and reset the streak so the next AUTO consider()
+    //    re-engages instead of re-hitting the ceiling. Preserve outstanding-work state the critic
+    //    must re-verify.
+    const prior = this.deps.store.getReview(session.id);
+    if (prior) {
+      this.deps.store.putReview({
+        ...prior,
+        errorRound: 0,
+        streakReviews: 0,
+        reviewedPatchIds: [],
+      });
+    }
+    // 4. one code path:
+    return this.consider(session, git, { force: true });
+  }
+
   /**
    * Rebase-skip: dedup on WHAT the critic reviews (the branch diff `base...HEAD`), not on
    * the head SHA. A rebase/force-push moves the SHA but leaves the branch's own diff
@@ -448,14 +502,19 @@ export class ReviewService {
     git: GitState,
     prior: ReviewVerdict | null,
     worktreePath: string,
+    force: boolean,
   ): Promise<{ patchId: string; baseSha: string | null; files: string[]; skipped: boolean }> {
     // Threads the fresh base SHA + changed-file set through alongside the fingerprint (all from
     // ONE computePatchId resolution) so the critic prompt and the buildVerdict backstop key off
-    // the same base the skip decision did. Skip logic itself is unchanged — keyed on patchId only.
+    // the same base the skip decision did. The fingerprint is always computed; only the skip
+    // short-circuit is suppressed under `force` — this is the lever that makes an operator's
+    // manual re-review of an unchanged head actually RUN. `shouldSkipForPatchId` matches via its
+    // `prior.patchId === patchId` OR-branch for any non-error prior, so clearing reviewedPatchIds
+    // alone would not prevent the skip; bypassing the decision under force is what works.
     const res = await this.computePatchId(worktreePath, session.baseBranch);
     const { baseSha, files } = res;
     const patchId = res.patchId ?? "";
-    if (shouldSkipForPatchId(prior, patchId)) {
+    if (!force && shouldSkipForPatchId(prior, patchId)) {
       this.deps.store.bumpReviewHead(session.id, git.headSha!, this.now());
       this.deps.worktree.remove(worktreePath);
       return { patchId, baseSha, files, skipped: true };

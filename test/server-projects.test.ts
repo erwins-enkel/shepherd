@@ -344,3 +344,50 @@ test("GET /api/github/owners gh failure → 200 with null login, empty orgs", as
   expect(body.login).toBeNull();
   expect(body.orgs).toEqual([]);
 });
+
+// ── GET /api/github/repos ───────────────────────────────────────────────────
+
+function getRepos(app: ReturnType<typeof makeApp>): Promise<Response> {
+  return app.fetch(new Request("http://x/api/github/repos", { method: "GET" }));
+}
+
+test("GET /api/github/repos → repos + login from injected runner, available true", async () => {
+  // Use a name unlikely to exist under the real config.repoRoot so `cloned` stays false.
+  const slug = "octocat/zz-clone-picker-fixture-xyz";
+  const runner = async (args: string[]) => {
+    if (args[1] === "user") return "octocat\n";
+    return (
+      JSON.stringify({
+        nameWithOwner: slug,
+        owner: "octocat",
+        name: "zz-clone-picker-fixture-xyz",
+        url: `https://github.com/${slug}.git`,
+        isPrivate: false,
+        isFork: false,
+        isArchived: false,
+        pushedAt: "2026-06-01T00:00:00Z",
+      }) + "\n"
+    );
+  };
+  const app = makeApp({ ...makeDeps(), githubReposRunner: runner });
+  const res = await getRepos(app);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.available).toBe(true);
+  expect(body.login).toBe("octocat");
+  expect(body.repos).toHaveLength(1);
+  expect(body.repos[0].nameWithOwner).toBe(slug);
+  expect(body.repos[0].cloned).toBe(false);
+});
+
+test("GET /api/github/repos gh failure → 200 with empty list, available false", async () => {
+  const runner = () =>
+    Promise.reject(Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" }));
+  const app = makeApp({ ...makeDeps(), githubReposRunner: runner });
+  const res = await getRepos(app);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.available).toBe(false);
+  expect(body.repos).toEqual([]);
+  expect(body.login).toBeNull();
+});

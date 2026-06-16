@@ -21,6 +21,7 @@ import {
   createProject,
   classifyProjectError,
   listGithubOwners,
+  listGithubRepos,
   forkRepo,
   classifyForkError,
   type GhRunner,
@@ -450,6 +451,74 @@ test("listGithubOwners: org-list failure → login with empty orgs", async () =>
   const owners = await listGithubOwners(runner);
   expect(owners.login).toBe("octocat");
   expect(owners.orgs).toEqual([]);
+});
+
+/** listGithubRepos: login + repos parsed from gh stdout (one jq object per line). */
+test("listGithubRepos: parses login and repos from gh stdout", async () => {
+  const runner: GhOutRunner = async (args) => {
+    if (args[1] === "user") return "octocat\n";
+    // args[1] is "user/repos?..." — return two jq-emitted objects, one per line.
+    return [
+      JSON.stringify({
+        nameWithOwner: "octocat/hello",
+        owner: "octocat",
+        name: "hello",
+        url: "https://github.com/octocat/hello.git",
+        isPrivate: false,
+        isFork: false,
+        isArchived: false,
+        pushedAt: "2026-06-01T00:00:00Z",
+      }),
+      JSON.stringify({
+        nameWithOwner: "acme/widget",
+        owner: "acme",
+        name: "widget",
+        url: "https://github.com/acme/widget.git",
+        isPrivate: true,
+        isFork: false,
+        isArchived: false,
+        pushedAt: "2026-05-01T00:00:00Z",
+      }),
+      "",
+    ].join("\n");
+  };
+  const { login, repos } = await listGithubRepos(runner);
+  expect(login).toBe("octocat");
+  expect(repos.map((r) => r.nameWithOwner)).toEqual(["octocat/hello", "acme/widget"]);
+  expect(repos[1]!.isPrivate).toBe(true);
+});
+
+/** listGithubRepos: dedups repeated slugs and skips malformed jq lines. */
+test("listGithubRepos: dedups and skips malformed lines", async () => {
+  const ok = JSON.stringify({
+    nameWithOwner: "octocat/hello",
+    owner: "octocat",
+    name: "hello",
+    url: "https://github.com/octocat/hello.git",
+  });
+  const runner: GhOutRunner = async (args) => {
+    if (args[1] === "user") return "octocat\n";
+    return [ok, "not json", ok].join("\n");
+  };
+  const { repos } = await listGithubRepos(runner);
+  expect(repos).toHaveLength(1);
+  expect(repos[0]!.nameWithOwner).toBe("octocat/hello");
+});
+
+/** listGithubRepos: a failed login lookup still returns repos (login null). */
+test("listGithubRepos: login failure degrades to null login", async () => {
+  const runner: GhOutRunner = async (args) => {
+    if (args[1] === "user") throw new Error("not authed for user");
+    return JSON.stringify({
+      nameWithOwner: "acme/widget",
+      owner: "acme",
+      name: "widget",
+      url: "https://github.com/acme/widget.git",
+    });
+  };
+  const { login, repos } = await listGithubRepos(runner);
+  expect(login).toBeNull();
+  expect(repos).toHaveLength(1);
 });
 
 /** Stub rejects with "name already exists" → ok:true + warning:newproject_failed_gh_exists + dir kept. */

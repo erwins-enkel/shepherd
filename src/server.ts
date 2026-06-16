@@ -40,6 +40,7 @@ import {
   cloneRepo,
   createProject,
   listGithubOwners,
+  listGithubRepos,
   forkRepo,
   type GhRunner,
   type GhOutRunner,
@@ -278,6 +279,10 @@ export interface AppDeps {
    *  (listGithubOwners falls back to the real `gh` runner); tests inject a fake so the
    *  owner-enumeration route can be exercised without hitting GitHub. */
   githubOwnersRunner?: GhOutRunner;
+  /** Injectable stdout `gh` runner for GET /api/github/repos. Absent in production
+   *  (listGithubRepos falls back to the real `gh` runner); tests inject a fake so the
+   *  repo-enumeration route can be exercised without hitting GitHub. */
+  githubReposRunner?: GhOutRunner;
 }
 
 const sessionUsage = (s: Session) =>
@@ -2168,6 +2173,44 @@ async function handleGithubOwners({ req, parts, deps }: Ctx): Promise<Response |
   }
 }
 
+// GET /api/github/repos — list every GitHub repo the user can clone (their own plus
+// any reached as collaborator or org/team member), each flagged `cloned` when a local
+// repo already tracks it (matched by forge slug, falling back to folder name). A gh
+// failure (missing/not-authed) returns 200 with `{ repos: [], login: null,
+// available: false }` so the clone dialog quietly degrades to the URL-only path.
+async function handleGithubRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "github" && parts[2] === "repos" && !parts[3])) {
+    return null;
+  }
+  if (req.method !== "GET") return null;
+
+  let listed: Awaited<ReturnType<typeof listGithubRepos>>;
+  try {
+    listed = await listGithubRepos(deps.githubReposRunner);
+  } catch {
+    return json({ repos: [], login: null, available: false });
+  }
+  const { login, repos } = listed;
+
+  // Build the set of repos already cloned locally so the dialog can hide them. Prefer
+  // the forge slug ("owner/repo") for an exact match; fall back to the folder name
+  // (which is how clone/fork derive the directory) for clones whose forge can't resolve.
+  const local = listRepos(config.repoRoot);
+  const clonedSlugs = new Set<string>();
+  const clonedNames = new Set<string>();
+  for (const r of local) {
+    clonedNames.add(r.name.toLowerCase());
+    const slug = deps.resolveForge?.(r.path)?.slug;
+    if (slug) clonedSlugs.add(slug.toLowerCase());
+  }
+
+  const withCloned = repos.map((r) => ({
+    ...r,
+    cloned: clonedSlugs.has(r.nameWithOwner.toLowerCase()) || clonedNames.has(r.name.toLowerCase()),
+  }));
+  return json({ repos: withCloned, login, available: true });
+}
+
 // ── settings: verify the configured api-key authenticates end-to-end ──
 // POST /api/settings/verify-key → spawns a transient verify agent (via deps.verifyKey)
 // and returns ONLY {ok,reason?,detail?} — never the key or its helper path, never logged.
@@ -3651,6 +3694,7 @@ const ROUTE_HANDLERS = [
   handleRepos,
   handleProjects,
   handleGithubOwners,
+  handleGithubRepos,
   handleSettingsVerifyKey,
   handleSettings,
   handleSteers,

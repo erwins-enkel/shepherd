@@ -3,6 +3,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { isAgentIngressRoute, makeAgentIngressApp, type AppDeps } from "../src/server";
+import { config } from "../src/config";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
 // for its own session.
@@ -156,4 +157,45 @@ test("makeAgentIngressApp: an ALLOWED route DELEGATES to the full app (reaches t
   const q = await ok.json();
   expect(q.steps.length).toBe(1);
   expect(q.steps[0].title).toBe("do a thing");
+});
+
+test("makeAgentIngressApp: delegation does NOT bypass checkAuth (token is enforced)", async () => {
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const app = makeAgentIngressApp(deps);
+  const prev = config.token;
+  config.token = "secret-token";
+  try {
+    // ALLOWED route, but WITHOUT a valid Authorization header → checkAuth 401s through the gate.
+    const unauthed = await app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/queue`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
+      }),
+    );
+    expect(unauthed.status).toBe(401);
+    expect(await unauthed.json()).toEqual({ error: "unauthorized" });
+
+    // SAME allowed route WITH the correct bearer token → past checkAuth, reaches the handler.
+    const authed = await app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/queue`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          Authorization: "Bearer secret-token",
+        },
+        body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
+      }),
+    );
+    expect(authed.status).not.toBe(401);
+  } finally {
+    config.token = prev;
+  }
 });

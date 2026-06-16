@@ -834,6 +834,27 @@ export class SessionService {
       : detectRealEgressHostLoopback();
   }
 
+  /** The host-gateway {ip,port} to bake into an egress-confined autonomous spawn's control-plane
+   *  reachability (base URL + the nft allow rule), or null when this spawn must use the loopback
+   *  main port instead. SINGLE source for both the baked base URL (resolveSpawnBaseUrl) and the nft
+   *  host-gateway rule (prepareSpawn), so the two can never drift. Requires: an egress-confined
+   *  autonomous spawn (willEgressConfine) on a host-loopback-capable slirp, with a known ingress port. */
+  private egressHostGateway(
+    profile: SandboxProfile,
+    backend: SandboxBackend,
+    egressBackend: EgressBackend,
+  ): { ip: string; port: number } | null {
+    const ingressPort = this.deps.agentIngressPort?.();
+    if (
+      ingressPort != null &&
+      willEgressConfine(profile, backend, egressBackend) &&
+      this.detectHostLoopback()
+    ) {
+      return { ip: SLIRP_HOST_GATEWAY, port: ingressPort };
+    }
+    return null;
+  }
+
   /**
    * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. Egress-confined
    * autonomous spawns (willEgressConfine) on a host-loopback-capable slirp, with a known ingress
@@ -853,15 +874,8 @@ export class SessionService {
     if (!egressApplies(profile)) return agentBaseUrl(); // no backend probe for trusted/standard
     const backend = this.detectBackend();
     const egressBackend = backend !== null ? this.detectEgressBackend() : null;
-    const ingressPort = this.deps.agentIngressPort?.();
-    if (
-      ingressPort != null &&
-      willEgressConfine(profile, backend, egressBackend) &&
-      this.detectHostLoopback()
-    ) {
-      return agentEgressBaseUrl(ingressPort);
-    }
-    return agentBaseUrl();
+    const gw = this.egressHostGateway(profile, backend, egressBackend);
+    return gw ? agentEgressBaseUrl(gw.port) : agentBaseUrl();
   }
 
   /**
@@ -1014,11 +1028,8 @@ export class SessionService {
       // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
       // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
       // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
-      const ingressPort = this.deps.agentIngressPort?.();
       const hostGateway =
-        this.detectHostLoopback() && ingressPort != null
-          ? { ip: SLIRP_HOST_GATEWAY, port: ingressPort }
-          : undefined;
+        this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
       const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
       writeEgressConfigFiles(tmp, cfg);
       const bwrapArgv = [

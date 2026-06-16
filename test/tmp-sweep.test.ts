@@ -520,8 +520,8 @@ describe("pruneRepoWorktrees", () => {
     expect(res.pruned).toBe(2);
     expect(res.failed).toBe(0);
     expect(calls).toHaveLength(2);
-    expect(calls.at(0)?.args).toEqual(["-C", "/repo/a", "worktree", "prune"]);
-    expect(calls.at(1)?.args).toEqual(["-C", "/repo/b", "worktree", "prune"]);
+    expect(calls.at(0)?.args).toEqual(["-C", "/repo/a", "worktree", "prune", "--expire=now"]);
+    expect(calls.at(1)?.args).toEqual(["-C", "/repo/b", "worktree", "prune", "--expire=now"]);
   });
 
   test("a failing repo does not abort the others", async () => {

@@ -429,7 +429,12 @@ export async function pruneRepoWorktrees(
   let failed = 0;
   for (const repo of repoPaths) {
     try {
-      await execGit(repo, ["-C", repo, "worktree", "prune"]);
+      // `--expire=now` makes the immediate-prune intent explicit. A bare `git worktree prune`
+      // already defaults to `--expire=TIME_MAX` (prune every orphaned record regardless of age),
+      // but `gc.worktreePruneExpire` (default 3.months.ago) governs the prune that automatic
+      // `git gc` runs — so being explicit here keeps reaped records (deleted at ~24h) from being
+      // misread as subject to that 3-month window.
+      await execGit(repo, ["-C", repo, "worktree", "prune", "--expire=now"]);
       pruned += 1;
     } catch (err) {
       log(`[tmp-sweep] git worktree prune failed for ${repo}: ${String(err)}`);

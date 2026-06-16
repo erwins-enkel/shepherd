@@ -38,6 +38,10 @@ describe("seedInstance", () => {
     const seedIdx = flat.findIndex((c) => c.includes("rm -rf ~/.config/gh"));
     expect(bunIdx).toBeGreaterThanOrEqual(0);
     expect(seedIdx).toBeGreaterThan(bunIdx);
+    // bash prereq must be ensured before the bun installer (which pipes to bash)
+    const bashIdx = flat.findIndex((c) => c.includes("command -v bash"));
+    expect(bashIdx).toBeGreaterThanOrEqual(0);
+    expect(bashIdx).toBeLessThan(bunIdx);
     // unzip (bun installer prereq) + a build toolchain (node-pty) are ensured
     expect(flat.some((c) => c.includes("unzip"))).toBe(true);
     expect(flat.some((c) => c.includes("build-essential"))).toBe(true);

@@ -16,7 +16,8 @@ export default defineConfig({
     {
       name: "Space Grotesk",
       cssVariable: "--font-space-grotesk",
-      provider: fontProviders.npm({ package: "@fontsource/space-grotesk" }),
+      provider: fontProviders.npm(),
+      options: { package: "@fontsource/space-grotesk" },
       weights: [400, 500, 700],
       styles: ["normal"],
       subsets: ["latin"],
@@ -25,7 +26,8 @@ export default defineConfig({
     {
       name: "JetBrains Mono",
       cssVariable: "--font-jetbrains-mono",
-      provider: fontProviders.npm({ package: "@fontsource/jetbrains-mono" }),
+      provider: fontProviders.npm(),
+      options: { package: "@fontsource/jetbrains-mono" },
       weights: [400, 500],
       styles: ["normal"],
       subsets: ["latin"],

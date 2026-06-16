@@ -207,6 +207,19 @@ export async function forkRepo(target: string): Promise<RepoEntry> {
   return postJson<RepoEntry>("/api/repos/fork", { target }, "fork");
 }
 
+/** Sync a fork's default branch with its upstream (`gh repo sync`) and fast-forward
+ *  the local clone. Fork repos only. Resolves to the synced default branch name on
+ *  success; on failure throws with `err.message` set to the server's `error` field
+ *  (a `syncfork_failed_*` code) so the caller can map it to a toast message. */
+export async function syncFork(repoPath: string): Promise<{ branch?: string }> {
+  const r = await fetch("/api/repos/sync-fork", JSON_POST({ repo: repoPath }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+  return (await r.json().catch(() => ({}))) as { branch?: string };
+}
+
 /** Create a new local git project (optionally with a GitHub remote).
  *  On success returns a `RepoEntry` plus an optional `warning` when the local repo
  *  was created but the GitHub step failed (partial success — the modal treats this as

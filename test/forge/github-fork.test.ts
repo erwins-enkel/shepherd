@@ -123,3 +123,25 @@ test("non-fork canPush: probes the origin slug", async () => {
   const view = calls.find((c) => c[0] === "repo" && c[1] === "view")!;
   expect(view[2]).toBe("o/r");
 });
+
+// ── isFork + syncFork: keep the fork current with upstream ────────────────────────
+
+test("fork mode: isFork true; syncFork runs `gh repo sync <fork> --source <upstream>`", async () => {
+  const { run, calls } = fakeRunner({ "repo sync": "" });
+  const forge = new GithubForge(UPSTREAM, {}, run, FORK);
+  expect(forge.isFork).toBe(true);
+  await forge.syncFork();
+
+  const sync = calls.find((c) => c[0] === "repo" && c[1] === "sync")!;
+  expect(sync).toBeDefined();
+  expect(sync.slice(0, 3)).toEqual(["repo", "sync", FORK]); // destination = the fork
+  expect(sync[sync.indexOf("--source") + 1]).toBe(UPSTREAM); // source = upstream
+});
+
+test("non-fork: isFork false; syncFork throws and never shells out", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  expect(forge.isFork).toBe(false);
+  await expect(forge.syncFork()).rejects.toThrow();
+  expect(calls.find((c) => c[0] === "repo" && c[1] === "sync")).toBeUndefined();
+});

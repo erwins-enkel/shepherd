@@ -7,7 +7,9 @@
     getEpics,
     uploadImage,
     isPreviewBlocked,
+    syncFork,
   } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import { handleImagePaste } from "$lib/clipboard";
   import {
     MODELS,
@@ -162,6 +164,32 @@
       }
     }
     return best?.path ?? list[0]?.path ?? "";
+  }
+
+  /** Map a `syncfork_failed_*` code to its toast message (default = generic). */
+  function syncForkMsg(code: string): string {
+    switch (code) {
+      case "syncfork_failed_diverged":
+        return m.syncfork_toast_diverged();
+      case "syncfork_failed_auth":
+        return m.syncfork_toast_auth();
+      case "syncfork_failed_gh_missing":
+        return m.syncfork_toast_gh_missing();
+      default:
+        return m.syncfork_toast_generic();
+    }
+  }
+
+  /** Sync a fork row with its upstream. Awaited by RepoSelect so the row shows a
+   *  busy state; result is surfaced as a toast. */
+  async function handleSync(repo: RepoEntry) {
+    try {
+      await syncFork(repo.path);
+      toasts.info(m.syncfork_toast_done({ name: repo.name }));
+    } catch (e) {
+      const code = e instanceof Error ? e.message : "syncfork_failed_generic";
+      toasts.info(syncForkMsg(code), { alert: true });
+    }
   }
 
   onMount(() => {
@@ -497,6 +525,7 @@
         {onclone}
         {onfork}
         {onnewproject}
+        onsync={handleSync}
       />
     </div>
 

@@ -238,6 +238,10 @@ export interface GitForge {
   readonly deployWorkflow: string | null;
   /** Repo's web home page (e.g. https://github.com/owner/repo); null when unbuildable; absent → null. */
   readonly webUrl?: string | null;
+  /** True when this forge runs in fork mode — `origin` is a fork and `slug` is the
+   *  upstream it was forked from (the `gh repo fork --clone` topology). Drives the
+   *  repo picker's per-fork "Sync fork" affordance. Absent/false ⇒ not a fork. */
+  readonly isFork?: boolean;
   listIssues(): Promise<Issue[]>;
   /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
   listPullRequests(): Promise<PullRequest[]>;
@@ -274,6 +278,14 @@ export interface GitForge {
    *  an info toast rather than an error). Optional: hosts without an access API omit
    *  it and the adopter treats absence as "no push access". */
   canPush?(): Promise<boolean>;
+  /** Sync the fork's default branch from the upstream on the host (`gh repo sync`),
+   *  keeping the fork current so fresh PR branches cut off it aren't already behind.
+   *  Only meaningful in fork mode ({@link isFork}); throws on a non-fork forge and
+   *  propagates the host error (auth / a diverged fork default) for the caller to
+   *  classify. The local clone is fast-forwarded separately by the caller. Optional:
+   *  only hosts with a fork-sync API (GitHub) implement it; others omit it and the
+   *  sync-fork endpoint 400s. */
+  syncFork?(): Promise<void>;
   /** The repo's default branch name (the promote PR's base). */
   defaultBranch(): Promise<string>;
   /** Short-names of all host branches under `prefix` (e.g. `"epic/"`), `refs/heads/`

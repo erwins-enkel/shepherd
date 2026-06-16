@@ -24,6 +24,9 @@ export interface RepoEntry {
   lastUsedAt?: number;
   /** Count of sessions (agents) run on this repo within the recent window; undefined if none. */
   recentAgentCount?: number;
+  /** True when the repo is a fork (origin = fork, upstream = original) — the repo
+   *  picker shows a "Sync fork" action on these. Absent/false ⇒ not a fork. */
+  isFork?: boolean;
 }
 
 export interface Settings {

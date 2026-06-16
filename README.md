@@ -273,11 +273,18 @@ upstream** with its head on your fork (`<you>:<branch>`).
 Requires `gh auth login`. The fork is a real, persistent repo on your GitHub
 account — Shepherd does not remove it.
 
+**Keep the fork current:** fork rows in the repo picker carry a **⟲ Sync** button.
+It runs `gh repo sync` to fast-forward your fork's default branch from upstream and
+updates the local clone, so a fresh PR branch starts from current upstream rather
+than a stale base. If your fork's default branch has diverged (commits not on
+upstream), the sync is declined rather than discarding them — reconcile it on
+GitHub.
+
 v1 limitations on a fork (surfaced, not silent — they return GitHub's permission
 error if attempted): maintainer-side actions you don't have rights for —
 **merging** the upstream PR (the maintainer does that), re-running upstream CI,
 renaming upstream branches, requesting reviewers — and **epic / multi-branch**
-orchestration. Keeping the fork current with upstream (`gh repo sync`) is manual.
+orchestration.
 
 ### Submitting tasks from external agents
 

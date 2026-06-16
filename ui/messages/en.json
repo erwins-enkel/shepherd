@@ -1380,5 +1380,13 @@
   "feat_herd_rundown_body": "A new ☰ Rundown lens (and top-bar button) shows a daily digest of your herd: what landed overnight, what needs a decision, which sessions went CI-red or REWORK, the merge-train status, and what to focus on next. Each item deep-links to its session.",
   "feat_subagent_fanout_title": "Live sub-agent fan-out",
   "feat_subagent_fanout_body": "The Activity tab now shows the sub-agents a session has spawned, live, with each one's type and how long it ran.",
-  "rundown_all_quiet": "All quiet — nothing needs you right now."
+  "rundown_all_quiet": "All quiet — nothing needs you right now.",
+  "syncfork_action_title": "Sync fork with upstream",
+  "syncfork_toast_done": "Synced {name} with upstream",
+  "syncfork_toast_diverged": "Your fork's default branch has commits that aren't upstream — sync it manually on GitHub.",
+  "syncfork_toast_auth": "Not logged in to GitHub. Run gh auth login.",
+  "syncfork_toast_gh_missing": "GitHub CLI (gh) is not installed.",
+  "syncfork_toast_generic": "Couldn't sync the fork, please retry",
+  "feat_fork_sync_title": "Keep a fork current with one click",
+  "feat_fork_sync_body": "Fork repos in the picker now show a ⟲ Sync button. It runs gh repo sync to bring your fork's default branch up to date with upstream and fast-forwards the local clone — so new PR branches you cut start from current upstream instead of a stale base."
 }

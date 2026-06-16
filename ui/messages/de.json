@@ -1380,5 +1380,13 @@
   "feat_herd_rundown_body": "Eine neue ☰-Rundown-Ansicht (und Schaltfläche in der Kopfzeile) zeigt einen täglichen Überblick über deinen Herd: was über Nacht eingespielt wurde, was eine Entscheidung braucht, welche Sitzungen CI-rot oder REWORK wurden, den Merge-Train-Status und worauf du dich als Nächstes konzentrieren solltest. Jeder Eintrag verlinkt direkt zu seiner Sitzung.",
   "feat_subagent_fanout_title": "Live-Sub-Agenten-Übersicht",
   "feat_subagent_fanout_body": "Der Aktivitäts-Tab zeigt jetzt live die von einer Sitzung gestarteten Sub-Agenten an — mit dem jeweiligen Typ und der Laufzeit.",
-  "rundown_all_quiet": "Alles ruhig — derzeit ist nichts zu tun."
+  "rundown_all_quiet": "Alles ruhig — derzeit ist nichts zu tun.",
+  "syncfork_action_title": "Fork mit Upstream synchronisieren",
+  "syncfork_toast_done": "{name} mit Upstream synchronisiert",
+  "syncfork_toast_diverged": "Der Standard-Branch deines Forks hat Commits, die nicht im Upstream sind — synchronisiere ihn manuell auf GitHub.",
+  "syncfork_toast_auth": "Nicht bei GitHub angemeldet. Führe gh auth login aus.",
+  "syncfork_toast_gh_missing": "GitHub CLI (gh) ist nicht installiert.",
+  "syncfork_toast_generic": "Fork konnte nicht synchronisiert werden, bitte erneut",
+  "feat_fork_sync_title": "Einen Fork mit einem Klick aktuell halten",
+  "feat_fork_sync_body": "Fork-Repos in der Auswahl zeigen jetzt einen ⟲ Sync-Button. Er führt gh repo sync aus, um den Standard-Branch deines Forks mit dem Upstream abzugleichen, und fast-forwardet den lokalen Klon — damit neue PR-Branches vom aktuellen Upstream statt von einer veralteten Basis ausgehen."
 }

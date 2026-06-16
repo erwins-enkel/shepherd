@@ -36,6 +36,9 @@ function ensureToolchain(): string {
 function baselineCommands(): string[] {
   return [
     ensurePkg("curl"),
+    // busybox/minimal images (alpine) ship no `bash`; the bun installer pipes
+    // to `bash` explicitly, so it must be present before the curl step runs.
+    ensurePkg("bash"),
     // bun's installer hard-requires `unzip`; minimal images (debian/12) lack it,
     // and without it the bun install silently no-ops and Shepherd never boots.
     ensurePkg("unzip"),

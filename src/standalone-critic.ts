@@ -635,7 +635,7 @@ export class StandalonePrCriticService {
         `pr:${f.repoPath}#${f.prNumber}`,
       );
     } finally {
-      reapRun(this.deps.herdr.stop, this.deps.worktree.remove, f.terminalId, f.worktreePath);
+      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
   }
 
@@ -653,7 +653,7 @@ export class StandalonePrCriticService {
   /** Tear down every in-flight run (reap its terminal + worktree). For process shutdown. */
   stopAll(): void {
     for (const f of this.inFlight.values()) {
-      reapRun(this.deps.herdr.stop, this.deps.worktree.remove, f.terminalId, f.worktreePath);
+      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
     this.inFlight.clear();
     this.starting.clear();

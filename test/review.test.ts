@@ -168,18 +168,24 @@ function makeDeps(
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         completedSpawns.push({ id, u, at }),
     },
-    herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+    herdr: new (class {
+      readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
+      start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
         started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
-      },
-      stop: (t: string) => stopped.push(t),
-    },
-    worktree: {
-      createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
-      remove: (p: string) => removed.push(p),
-      gitCommonDir: () => "/fake-git-common",
-    },
+      }
+      stop(t: string) {
+        this.recorded.push(t); // this.recorded → throws TypeError if called unbound
+      }
+    })(),
+    worktree: new (class {
+      readonly recorded = removed; // this-dependent: unbound call loses this.recorded
+      createDetached = async () => ({ worktreePath: "/review-wt", branch: null, isolated: true });
+      remove(p: string) {
+        this.recorded.push(p); // this.recorded → throws TypeError if called unbound
+      }
+      gitCommonDir = () => "/fake-git-common";
+    })(),
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
     resolveForge: () =>

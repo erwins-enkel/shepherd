@@ -236,6 +236,12 @@ export function installService(
   log("installing systemd user unit");
   const unitDir = join(home, ".config", "systemd", "user");
   run("mkdir", ["-p", unitDir]);
+  // Create ~/.shepherd BEFORE the unit is enabled/started: systemd opens the unit's
+  // StandardOutput=append:%h/.shepherd/shepherd.log (and StandardError) BEFORE ExecStart
+  // and does NOT create parent dirs. The server only makes ~/.shepherd at runtime — too
+  // late for the first `systemctl --user start`, which would otherwise fail to activate
+  // (EXIT_STDOUT, status 209) on a genuinely fresh host.
+  run("mkdir", ["-p", join(home, ".shepherd")]);
   // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
   // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
   // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.

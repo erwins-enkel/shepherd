@@ -99,6 +99,57 @@ describe("DiagnoseRows fix button gating", () => {
       .toBeInTheDocument();
   });
 
+  it("renders a doc-link on a non-ok guidance-only row with a known hintKey", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          // non-ok, NO remediation, known hintKey → doc-link, no Fix button
+          check({ id: "gh", state: "error", hintKey: "diagnostics_hint_gh_missing" }),
+        ],
+      },
+    });
+
+    const link = document.querySelector<HTMLAnchorElement>("a.doc-link");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe("https://github.com/cli/cli#installation");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.textContent).toContain(m.diagnostics_doc_link());
+    // mutually exclusive with the Fix button
+    expect(document.querySelector("button.fix")).toBeNull();
+  });
+
+  it("renders the Fix button and NO doc-link on a fixable check (mutual exclusivity)", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "gh",
+            state: "error",
+            hintKey: "diagnostics_hint_gh_missing",
+            remediation: "gh auth login",
+          }),
+        ],
+      },
+    });
+
+    expect(document.querySelector("button.fix")).not.toBeNull();
+    expect(document.querySelector("a.doc-link")).toBeNull();
+  });
+
+  it("renders neither Fix button nor doc-link on an ok check", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [check({ id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_missing" })],
+      },
+    });
+
+    expect(document.querySelector("button.fix")).toBeNull();
+    expect(document.querySelector("a.doc-link")).toBeNull();
+  });
+
   it("Esc cancels the confirm modal without calling onfix", async () => {
     const onfix = vi.fn();
     render(DiagnoseRows, {

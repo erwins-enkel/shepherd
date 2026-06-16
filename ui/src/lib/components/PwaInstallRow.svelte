@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import { pwaRowState, type PwaRowState } from "$lib/pwa";
+  import { pwaDocLink } from "$lib/diagnostics-docs";
 
   // Client-only: install/standalone state isn't knowable on the server, so this row
   // is rendered independently of the /api/diagnostics snapshot (issue #662). It
@@ -52,6 +53,20 @@
     {#if state !== "installed"}
       <p class="hint">{hint(state)}</p>
     {/if}
+    {#if pwaDocLink(state)}
+      <div class="fix-wrap">
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external PWA-install help URL -->
+        <a
+          class="fix doc-link micro"
+          href={pwaDocLink(state)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {m.diagnostics_learn_more()}<span aria-hidden="true"> ↗</span>
+        </a>
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -87,5 +102,24 @@
     color: var(--color-muted);
     margin: 0 0 0 22px;
     line-height: 1.5;
+  }
+  /* Mirrors DiagnoseRows' fix-wrap + doc-link recipe (link styled as fix button). */
+  .fix-wrap {
+    margin: 2px 0 0 22px;
+  }
+  .doc-link {
+    display: inline-block;
+    background: none;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 4px 10px;
+    text-decoration: none;
+  }
+  .doc-link:hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
 </style>

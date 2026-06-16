@@ -8,7 +8,7 @@ Success is scoped **per scenario**: a scenario passes when the checks it broke r
 
 Two scenario classes:
 
-- **Green-able** — the defect can be coached back to `ok` unattended. `coaching: "structured"` runs a verbatim `REMEDIATIONS` command (deterministic, LLM-free, **release-gate-eligible**); `coaching: "prose"` uses the agent (e.g. distro-specific git install). Today: `herdr-missing`, `claude-missing`, `node-too-old` (structured) and `git-missing` (prose). `install-e2e` is also structured (see below).
+- **Green-able** — the defect can be coached back to `ok` unattended. `coaching: "structured"` runs a verbatim `REMEDIATIONS` command (deterministic, LLM-free, **release-gate-eligible**); `coaching: "prose"` uses the agent (e.g. distro-specific git install). Today: `herdr-missing`, `claude-missing`, `node-too-old` (structured) and `git-missing` (prose). `install-e2e` and `install-e2e-service` are also structured (see below).
 - **Detection-only** (`detectionOnly: true`) — the defect is detectable but its fix needs a human/secret a throw-away instance can't supply (`gh auth login`; a Tailscale tailnet login + `serve`). No apply is attempted; excluded from the green tally and the gate; reported as DETECTION-ONLY. Today: `gh-unauthed`, `gh-missing`, `tailscale-missing`.
 
 ### install-e2e
@@ -33,6 +33,26 @@ release gate. Run it directly with:
 
 ```bash
 bun run onboarding:test --scenario install-e2e
+```
+
+### install-e2e-service
+
+The same inverse-flow installer scenario as `install-e2e`, **plus the real systemd
+user-unit lifecycle** that `install-e2e` deliberately skips (it passes
+`SHEPHERD_NO_SERVICE=1`). It makes `/opt/shepherd` a real git checkout (so the
+service path's `update.sh` `git` calls work against the `git archive` tarball),
+establishes the per-user systemd manager (`loginctl enable-linger root` + waits for
+the `/run/user/0/bus` socket), runs `install.sh` **through the service path** (no
+`SHEPHERD_NO_SERVICE`, `SHEPHERD_SRC=SHEPHERD_DIR=/opt/shepherd`, `XDG_RUNTIME_DIR=/run/user/0`),
+then asserts `systemctl --user is-active shepherd` is `active` and health-checks
+Shepherd **through the running unit** (provision does `systemctl --user enable
+shepherd`, then `update.sh` starts it via `systemctl --user restart` →
+serve-through-unit) — no manual `bun src/index.ts` boot. Same target-ok set as `install-e2e`
+(`herdr bun node git claude`), also `coaching: "structured"` and not `detectionOnly`,
+so it is **gate-eligible**. Run it directly with:
+
+```bash
+bun run onboarding:test --scenario install-e2e-service
 ```
 
 ## Prerequisites

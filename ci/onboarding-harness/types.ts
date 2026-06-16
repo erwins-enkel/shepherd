@@ -37,6 +37,15 @@ export interface Scenario {
    *  scenario.seed and only pushes the tarball + install.sh; run.ts runs the
    *  installer, boots, probes, and compares the snapshot against `expect`. */
   installE2E?: true;
+  /** Real systemd-unit LIFECYCLE path. Implies the `installE2E` bare-host seeding
+   *  and the same INSTALL-GAP reporting/gate classification, but additionally
+   *  exercises the full service lifecycle the plain `install-e2e` deliberately
+   *  skips (it passes `SHEPHERD_NO_SERVICE=1`): it makes `/opt/shepherd` a real git
+   *  checkout, runs `enable-linger` + waits for the user bus, runs install.sh
+   *  THROUGH the systemd service path (no `SHEPHERD_NO_SERVICE`), then asserts the
+   *  `shepherd` user unit is `active` and health-checks Shepherd through the running
+   *  unit (no manual `bun src/index.ts` boot — the unit owns the process). */
+  serviceLifecycle?: true;
 }
 
 export interface ExpectedCheck {

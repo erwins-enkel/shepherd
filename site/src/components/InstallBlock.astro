@@ -6,11 +6,10 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 ---
 
 <div class="install" id="install">
-  <div class="bar" aria-hidden="true">
-    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-  </div>
-  <div class="row">
-    <pre class="cmd"><code><span class="prompt">$</span> {INSTALL_CMD}</code></pre>
+  <div class="bar">
+    <span class="dots" aria-hidden="true">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </span>
     <button
       type="button"
       class="copy"
@@ -19,6 +18,9 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
     >
       <span class="copy-label" aria-hidden="true">Copy</span>
     </button>
+  </div>
+  <div class="row">
+    <pre class="cmd"><code><span class="prompt">$</span> {INSTALL_CMD}</code></pre>
   </div>
   <p class="affirm" role="status" aria-live="polite"></p>
 </div>
@@ -74,10 +76,17 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 
   .bar {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem 0.45rem 0.85rem;
+    background: var(--panel-2);
+  }
+
+  .dots {
+    display: flex;
     gap: 0.4rem;
     align-items: center;
-    padding: 0.6rem 0.85rem;
-    background: var(--panel-2);
   }
 
   .dot {
@@ -88,20 +97,16 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
   }
 
   .row {
-    display: flex;
-    align-items: stretch;
-    gap: 0.5rem;
     padding: 0.85rem;
   }
 
   .cmd {
-    flex: 1;
     margin: 0;
-    overflow-x: auto;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
     font-size: 0.9rem;
+    line-height: 1.55;
     color: var(--ink);
-    align-self: center;
   }
 
   .prompt {
@@ -113,13 +118,13 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 
   .copy {
     flex: 0 0 auto;
-    padding: 0.45rem 0.85rem;
-    border: 1px solid var(--panel-2);
-    border-radius: 0.5rem;
-    background: var(--panel-2);
+    padding: 0.3rem 0.7rem;
+    border: 1px solid color-mix(in srgb, var(--ink-dim) 50%, transparent);
+    border-radius: 0.45rem;
+    background: var(--panel);
     color: var(--ink-muted);
     font-family: var(--font-display);
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-weight: 500;
     cursor: pointer;
     transition:

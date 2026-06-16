@@ -1204,6 +1204,7 @@ const appDeps: AppDeps = {
     reviewing: () => planGate.reviewingIds(),
   },
   planGate: { consider: (s) => planGate.consider(s) },
+  reviewTrigger: { force: (s, g) => reviewService.forceReview(s, g) },
   recapCache: { snapshot: () => recapService.snapshot() },
   recap: { regenerate: (s) => recapService.regenerate(s) },
   herdDigest: {

@@ -1403,5 +1403,13 @@
   "clonerepo_repos_unavailable": "Couldn't list your GitHub repositories. Clone by URL below.",
   "clonerepo_url_toggle": "Clone by URL instead",
   "feat_clone_repo_picker_title": "Pick a repo to clone",
-  "feat_clone_repo_picker_body": "The clone dialog now lists every GitHub repo you can reach — your own account plus the orgs and teams you belong to — and clones the one you pick directly. Already-cloned repos are hidden, and clone-by-URL is still there as a fallback."
+  "feat_clone_repo_picker_body": "The clone dialog now lists every GitHub repo you can reach — your own account plus the orgs and teams you belong to — and clones the one you pick directly. Already-cloned repos are hidden, and clone-by-URL is still there as a fallback.",
+  "gitrail_review": "Review",
+  "gitrail_rereview": "Re-review",
+  "gitrail_restart_review": "Restart",
+  "gitrail_confirm_review": "confirm ✓",
+  "gitrail_review_skipped": "Review not started — conditions changed or one's already running.",
+  "gitrail_review_failed": "Couldn't start the review. Try again.",
+  "feat_manual_critic_review_title": "Restart a critic review",
+  "feat_manual_critic_review_body": "When the AI critic never started or stalled without a verdict, a Review/Re-review button on the PR rail lets you start or restart it on demand — for open PRs with green CI."
 }

@@ -220,6 +220,11 @@ export interface AppDeps {
   planGate?: {
     consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
   };
+  /** Operator-initiated critic review (the POST /review-pr route). Wired to
+   *  ReviewService.forceReview in index.ts; absent in tests that don't exercise it. */
+  reviewTrigger?: {
+    force(session: Session, git: GitState): Promise<import("./review").ReviewOutcome>;
+  };
   /** Snapshot of session recaps keyed by session id; absent in tests that skip it. */
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
@@ -1274,6 +1279,26 @@ async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Respo
   return json({ ok: true, status }, 202);
 }
 
+// POST /api/sessions/:id/review-pr — operator-initiated (re)start of the critic review.
+// 404 unknown id; 404 when the repo has no forge; 502 on a forge error; 202 with
+// {status} = "started" | "skipped" | "error" so the UI can explain the outcome (fail-closed:
+// "skipped"/"error" must never read as success). forceReview itself enforces the CI-green /
+// open / critic-enabled / not-already-running preconditions and returns "skipped" when unmet.
+async function handleSessionReviewPr({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "review-pr")) return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const forge = deps.resolveForge?.(s.repoPath) ?? null;
+  if (!forge) return json({ error: "no forge for this repo" }, 404);
+  try {
+    const git = await resolveGitState(forge, s, deps);
+    const status = (await deps.reviewTrigger?.force(s, git)) ?? "skipped";
+    return json({ ok: true, status }, 202);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+  }
+}
+
 // POST /api/sessions/:id/recap/regenerate — force-regenerate the session recap on demand.
 // 404 unknown id; 202 with {status} = "started" | "empty" | "error" so the UI can explain the outcome.
 // NOTE: unlike the auto-fire sweep (which skips drain sessions), on-demand regenerate is
@@ -1734,6 +1759,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReply,
     handleSessionGo,
     handleSessionReviewPlan,
+    handleSessionReviewPr,
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,
@@ -1829,17 +1855,16 @@ async function dispatchForgeAction(
   return null;
 }
 
-/**
- * GET /api/sessions/:id/git — the session's current PR status, with the same trust
- * logic as the background poller (trustsTerminal): keep a genuinely-merged/closed PR
- * when the session is merge-train-flagged or the cache already owned this PR, else
- * drop a reused-branch-name collision to "none" so GitRail and the list overview agree.
- */
-async function forgeGitStateResponse(
+// Compute the session's live, trust-guarded PR GitState — the same trust logic the
+// background poller uses (trustsTerminal): keep a genuinely-merged/closed PR when the
+// session is merge-train-flagged or the cache already owned this PR, else drop a
+// reused-branch-name collision to "none". Shared by the GET /git route and the
+// POST /review-pr route so both observe the identical value.
+async function resolveGitState(
   forge: GitForge,
   session: Session,
   deps: AppDeps,
-): Promise<Response> {
+): Promise<GitState> {
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff(
     { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
@@ -1853,9 +1878,23 @@ async function forgeGitStateResponse(
     session.mergingSince != null,
     session.mergingPrNumber ?? null,
   );
-  return json(
-    trusted ? git : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null),
-  );
+  return trusted
+    ? git
+    : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null);
+}
+
+/**
+ * GET /api/sessions/:id/git — the session's current PR status, with the same trust
+ * logic as the background poller (trustsTerminal): keep a genuinely-merged/closed PR
+ * when the session is merge-train-flagged or the cache already owned this PR, else
+ * drop a reused-branch-name collision to "none" so GitRail and the list overview agree.
+ */
+async function forgeGitStateResponse(
+  forge: GitForge,
+  session: Session,
+  deps: AppDeps,
+): Promise<Response> {
+  return json(await resolveGitState(forge, session, deps));
 }
 
 async function handleSessionGit(ctx: Ctx): Promise<Response | null> {

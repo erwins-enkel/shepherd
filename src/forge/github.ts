@@ -175,6 +175,11 @@ export class GithubForge implements GitForge {
     return `https://github.com/${this.slug}`;
   }
 
+  /** Fork mode = a fork slug was supplied (`slug` is the upstream it forked from). */
+  get isFork(): boolean {
+    return !!this.forkSlug;
+  }
+
   async listIssues(): Promise<Issue[]> {
     const out = await this.run([
       "issue",
@@ -592,6 +597,18 @@ export class GithubForge implements GitForge {
         // Absent/unknown permission is not a definitive deny — surface as a probe failure.
         throw new Error(`unexpected viewerPermission: ${viewerPermission ?? "(absent)"}`);
     }
+  }
+
+  /** Sync the fork's default branch from upstream on GitHub
+   *  (`gh repo sync <fork> --source <upstream>`). Idempotent — a fork already level
+   *  with upstream is a no-op. THROWS (with gh's stderr) when called on a non-fork,
+   *  on an auth failure, or when the fork's default branch has diverged from upstream
+   *  (gh refuses a non-fast-forward rather than discarding the fork's commits); the
+   *  caller classifies the stderr into a `syncfork_failed_*` code. */
+  async syncFork(): Promise<void> {
+    if (!this.forkSlug) throw new Error("syncFork called on a non-fork repo");
+    // `slug` is the upstream (source of truth); `forkSlug` is the fork (destination).
+    await this.run(["repo", "sync", this.forkSlug, "--source", this.slug]);
   }
 
   async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import type { RepoEntry } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -13,6 +14,7 @@
     onclone,
     onfork,
     onnewproject,
+    onsync,
     windowDays,
   }: {
     repos: RepoEntry[];
@@ -21,6 +23,9 @@
     onclone?: () => void;
     onfork?: () => void;
     onnewproject?: () => void;
+    /** Sync a fork repo with its upstream. Awaited so the row shows a busy state
+     *  while it runs; the parent owns the toast/refresh. Only fork rows expose it. */
+    onsync?: (repo: RepoEntry) => Promise<void> | void;
     /** Day count the server computed recentAgentCount over — named in the per-row label. */
     windowDays: number;
   } = $props();
@@ -41,6 +46,19 @@
   function setIcon(path: string, emoji: string | null) {
     projectIcons.set(path, emoji).catch(() => {});
     pickerFor = null;
+  }
+
+  // Paths with an in-flight fork sync — disables the row's sync button + shows a
+  // spinner glyph. SvelteSet is reactive, so direct add/delete re-render the row.
+  const syncing = new SvelteSet<string>();
+  async function doSync(r: RepoEntry) {
+    if (syncing.has(r.path)) return;
+    syncing.add(r.path);
+    try {
+      await onsync?.(r);
+    } finally {
+      syncing.delete(r.path);
+    }
   }
 
   // How many repos to pin in the "recently worked on" shortcut group at the top.
@@ -252,6 +270,21 @@
               <span class="rs-count" title={label} aria-label={label}>
                 {r.recentAgentCount}
               </span>
+            {/if}
+            {#if r.isFork && onsync}
+              <button
+                type="button"
+                class="rs-sync-btn"
+                title={m.syncfork_action_title()}
+                aria-label={m.syncfork_action_title()}
+                disabled={syncing.has(r.path)}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  void doSync(r);
+                }}
+              >
+                {syncing.has(r.path) ? "…" : "⟲"}
+              </button>
             {/if}
           </li>
         {/each}
@@ -514,6 +547,29 @@
     color: var(--color-amber);
     background: color-mix(in srgb, var(--color-amber) 12%, transparent);
     border-radius: 999px;
+  }
+
+  /* Per-fork "sync with upstream" affordance. margin-left:auto right-aligns it on
+     rows without a count chip; on rows that have one, the chip claims the free space
+     and the button trails it. */
+  .rs-sync-btn {
+    flex-shrink: 0;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    font-size: var(--fs-base);
+    line-height: 1;
+    padding: 1px 5px;
+    cursor: pointer;
+    color: var(--color-amber);
+  }
+  .rs-sync-btn:hover {
+    border-color: var(--color-line);
+  }
+  .rs-sync-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .rs-empty {

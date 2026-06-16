@@ -2125,6 +2125,10 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
         ...r,
         lastUsedAt: lastUsed[r.path],
         recentAgentCount: recentCounts[r.path],
+        // Fork mode is derived from the (memoized) forge resolution, so the picker
+        // can offer "Sync fork" only on fork repos. resolveForge is cached per dir
+        // and shared with the backlog poller — no extra git shell on a warm cache.
+        isFork: deps.resolveForge?.(r.path)?.isFork ?? false,
       }));
       // Return the window alongside the repos so the picker labels the count with
       // the exact day count it was computed over — single source of truth.
@@ -2722,6 +2726,61 @@ async function handleRepoPull({ req, parts, deps }: Ctx): Promise<Response | nul
   const result = await fastForwardDefaultBranch(dir, branch);
   const status = result.ok ? 200 : result.reason === "error" ? 502 : 409;
   return json(result, status);
+}
+
+// Map a `gh repo sync` failure to a stable `syncfork_failed_*` code (mirrors the
+// fork-create classifier). Diverged = the fork's default branch carries commits
+// not on upstream, so gh refuses a non-fast-forward — client-correctable, hence 409.
+function classifySyncForkError(e: unknown): { code: string; status: number } {
+  const s = String(
+    (e as { stderr?: string; message?: string }).stderr ?? (e as Error).message ?? "",
+  ).toLowerCase();
+  if (s.includes("command not found") || (e as { code?: string }).code === "ENOENT")
+    return { code: "syncfork_failed_gh_missing", status: 502 };
+  if (
+    s.includes("not logged") ||
+    s.includes("gh auth login") ||
+    s.includes("authentication") ||
+    s.includes("403")
+  )
+    return { code: "syncfork_failed_auth", status: 502 };
+  if (s.includes("diverg") || s.includes("fast forward") || s.includes("fast-forward"))
+    return { code: "syncfork_failed_diverged", status: 409 };
+  return { code: "syncfork_failed_generic", status: 502 };
+}
+
+// POST /api/repos/sync-fork — bring a fork current with its upstream. Runs
+// `gh repo sync` on the host (updates the fork's default branch from upstream),
+// then fast-forwards the local default-branch checkout so the canonical clone
+// matches. Fork repos only: a non-fork forge (no `syncFork`) 400s and the UI never
+// offers the action. 200 on success; 4xx/502 with a `syncfork_failed_*` code on failure.
+async function handleSyncFork({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "repos" ||
+    parts[2] !== "sync-fork"
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.syncFork || !forge.isFork) return json({ error: "syncfork_failed_not_fork" }, 400);
+  try {
+    await forge.syncFork();
+  } catch (e) {
+    const { code, status } = classifySyncForkError(e);
+    return json({ error: code }, status);
+  }
+  // Best-effort: fast-forward the local default-branch checkout to the freshly
+  // synced fork tip. A fail-closed FF state (dirty/diverged local tree) is NOT a
+  // sync failure — the remote fork is already current — so we still report ok.
+  const branch = await resolveDefaultBranch(dir, {
+    forgeDefault: () => forge.defaultBranch().catch(() => null),
+  });
+  if (branch) await fastForwardDefaultBranch(dir, branch).catch(() => undefined);
+  return json({ ok: true, branch: branch ?? undefined });
 }
 
 // POST /api/prs/dependabot-rebase — post the opt-in "@dependabot rebase" command on
@@ -3610,6 +3669,7 @@ const ROUTE_HANDLERS = [
   handleActionsRunJobs,
   handlePrMerge,
   handleRepoPull,
+  handleSyncFork,
   handleDependabotRebase,
   handleReadiness,
   handleAdoptGitignore,

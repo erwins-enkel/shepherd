@@ -33,13 +33,13 @@ intentionally dropped — the root now serves a page; GitHub is an on-page link.
 
 ## ⚠️ Deployment inertness — merging does NOT make shepherd.run serve this page
 
-The `shepherd.run` Vercel project's **Root Directory still points at
-`deploy/vanity`** (the redirect-only project). Until an operator extracts this
-folder to the `shepherd-site` repo **and re-points the Vercel project**,
-`shepherd.run/` keeps 302-redirecting to GitHub and nothing this folder changes
-is live. The work is **deployment-inert** until the manual step below.
+There is **no Vercel project for `shepherd.run` yet** (the connected Vercel
+account had zero projects as of 2026-06-16; `deploy/vanity/` only ever held the
+redirect *config + setup instructions*, which were never provisioned). So this
+work is **deployment-inert**: nothing is served at `shepherd.run` until an
+operator does the from-scratch steps below.
 
-## Go-live (manual operator steps)
+## Go-live (manual operator steps — creating from scratch)
 
 1. **Create the repo (operator-gated — not done autonomously by an agent).**
    From an extracted copy of this folder (fresh `git init`), the operator runs:
@@ -47,16 +47,23 @@ is live. The work is **deployment-inert** until the manual step below.
    gh repo create erwins-enkel/shepherd-site --public --source=. --push
    ```
    (or creates `shepherd-site` in the GitHub UI and pushes). Creating a public
-   org repo is an outward-facing action and is the operator's call.
-2. **Re-point the existing `shepherd.run` Vercel project** (do not create a new
-   one): **Settings → Git** → connect `shepherd-site`; set **Root Directory =**
-   the repo root; **Framework Preset = Astro**.
-3. **Redeploy**, then verify:
+   org repo is an outward-facing action and is the operator's call. (Alternative:
+   import the monorepo and set Root Directory = `site` — but a dedicated repo is
+   the issue's decision.)
+2. **Create the Vercel project:** **Add New → Project**, import `shepherd-site`.
+   Astro is auto-detected (build `astro build`, output `dist/`). The shipped
+   `vercel.json` preserves the `/install.sh` 302 and intentionally has no bare-`/`
+   redirect (root serves the page).
+3. **Attach the domain:** Project → **Settings → Domains** → add `shepherd.run`,
+   then set the **DNS records Vercel prescribes** at the registrar. Nothing is
+   live — and the on-page `curl shepherd.run/install.sh` won't resolve — until the
+   domain is attached and DNS propagates.
+4. **Deploy**, then verify:
    ```bash
    curl -fsSL https://shepherd.run/ | head            # serves the landing page HTML
    curl -fsSI https://shepherd.run/install.sh | head  # 302 → raw-GitHub installer
    ```
 
-Once `shepherd-site` serves both the root page and `/install.sh`, the
-`deploy/vanity` redirect-only project is redundant and can be retired in a
-separate follow-up.
+If the redirect-only `deploy/vanity/` config is ever actually provisioned as its
+own project, it becomes redundant once `shepherd-site` serves both the root page
+and `/install.sh`, and can be retired.

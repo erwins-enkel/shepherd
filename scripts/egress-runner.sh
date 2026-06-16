@@ -113,8 +113,13 @@ for _ in $(seq 1 200); do
 done
 
 # ── (B) slirp4netns uplink, ALSO pdeathsig-bound (host-side leash) ────────────
+# Host-loopback IS permitted at the slirp level (we do NOT pass the slirp flag that
+# would block it) so the netns can reach the host's 127.0.0.1 control plane via the
+# slirp gateway 10.0.2.2.
+# The nft ruleset (policy drop + a single explicit allow for that IP:port) remains
+# the real gate — dropping the slirp-level block widens nothing on its own.
 setpriv --pdeathsig SIGKILL \
-  slirp4netns --configure --mtu=65520 --disable-host-loopback "$CHILD" tap0 &
+  slirp4netns --configure --mtu=65520 "$CHILD" tap0 &
 SLIRP=$!
 
 wait "$CHILD"   # agent runs; stdio = inherited PTY fds (never redirected)

@@ -27,11 +27,11 @@
  */
 
 import { test, expect, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { buildEgressConfig } from "../src/egress";
+import { buildEgressConfig, SLIRP_HOST_GATEWAY } from "../src/egress";
 import { egressRunnerShouldSkip } from "./egress-runner-gate";
 
 const SCRIPT = join(import.meta.dir, "..", "scripts", "egress-runner.sh");
@@ -69,6 +69,21 @@ const SKIP = egressRunnerShouldSkip({
 function makeTmp(): string {
   const dir = mkdtempSync(join(tmpdir(), "egress-runner-"));
   const cfg = buildEgressConfig(["api.anthropic.com"], { tmpDir: dir });
+  writeFileSync(join(dir, "egress.nft"), cfg.nftRuleset);
+  writeFileSync(join(dir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
+  return dir;
+}
+
+/**
+ * Like makeTmp, but the egress.nft INCLUDES the host-gateway allow rule
+ * (10.0.2.2:port), so a curl from inside the netns to that host port is permitted.
+ */
+function makeTmpWithGateway(port: number): string {
+  const dir = mkdtempSync(join(tmpdir(), "egress-runner-gw-"));
+  const cfg = buildEgressConfig(["api.anthropic.com"], {
+    tmpDir: dir,
+    hostGateway: { ip: SLIRP_HOST_GATEWAY, port },
+  });
   writeFileSync(join(dir, "egress.nft"), cfg.nftRuleset);
   writeFileSync(join(dir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
   return dir;
@@ -149,7 +164,85 @@ function spawnRunner(inner: string[]) {
   });
 }
 
+/** Spawn the runner against a SPECIFIC tmp dir (already tracked for teardown). */
+function spawnRunnerInDir(dir: string, inner: string[]) {
+  return Bun.spawn([SCRIPT, "--tmp", dir, "--", ...inner], {
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+}
+
+/** True iff `curl` resolves on the host PATH (the gated reachability tests need it). */
+function hostHasCurl(): boolean {
+  return spawnSync("command", ["-v", "curl"], { shell: true }).status === 0;
+}
+
+// ── always-run: the script no longer disables host-loopback ──────────────────────
+
+test("egress-runner.sh permits host-loopback at the slirp level (no --disable-host-loopback)", () => {
+  const src = readFileSync(SCRIPT, "utf8");
+  expect(src).toContain("slirp4netns");
+  expect(src).not.toContain("--disable-host-loopback");
+});
+
 // ── tests (gated) ─────────────────────────────────────────────────────────────────
+
+const SKIP_LIVE_GW = SKIP || !hostHasCurl();
+
+test.skipIf(SKIP_LIVE_GW)(
+  "host-loopback reachability: netns reaches host 127.0.0.1 via 10.0.2.2 when nft allows it",
+  async () => {
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = server.port as number;
+    try {
+      // (a) ALLOWED: the gateway rule opens exactly this port → curl succeeds.
+      const dir = makeTmpWithGateway(port);
+      tmpDirs.push(dir);
+      const proc = spawnRunnerInDir(dir, [
+        "bash",
+        "-c",
+        `curl -fsS --max-time 5 -o /dev/null http://${SLIRP_HOST_GATEWAY}:${port}/ ; exit $?`,
+      ]);
+      recorded.push(proc.pid);
+      const { owner, slirp } = await captureChildren(proc.pid);
+      if (owner) recorded.push(owner);
+      if (slirp) recorded.push(slirp);
+      const code = await proc.exited;
+      expect(code).toBe(0);
+    } finally {
+      server.stop(true);
+    }
+  },
+);
+
+test.skipIf(SKIP_LIVE_GW)(
+  "least-privilege: a host port with NO nft rule + NO listener is unreachable from the netns",
+  async () => {
+    // Listener bound to `port`; nft rule opens ONLY `port`. We curl `port + 1`,
+    // which has no listener AND no nft allow → policy-drop rejects it, runner nonzero.
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = server.port as number;
+    const blockedPort = port + 1;
+    try {
+      const dir = makeTmpWithGateway(port);
+      tmpDirs.push(dir);
+      const proc = spawnRunnerInDir(dir, [
+        "bash",
+        "-c",
+        `curl -fsS --max-time 5 -o /dev/null http://${SLIRP_HOST_GATEWAY}:${blockedPort}/ ; exit $?`,
+      ]);
+      recorded.push(proc.pid);
+      const { owner, slirp } = await captureChildren(proc.pid);
+      if (owner) recorded.push(owner);
+      if (slirp) recorded.push(slirp);
+      const code = await proc.exited;
+      expect(code).not.toBe(0);
+    } finally {
+      server.stop(true);
+    }
+  },
+);
 
 test.skipIf(SKIP)("propagates the inner exit code (42)", async () => {
   const proc = spawnRunner(["bash", "-c", "echo READY; exit 42"]);

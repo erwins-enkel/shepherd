@@ -1,0 +1,137 @@
+---
+// Three-step "how it works". Copy faithful to README Install + intro.
+interface Step {
+  n: string;
+  title: string;
+  body: string;
+}
+
+const steps: Step[] = [
+  {
+    n: "01",
+    title: "Install on your server",
+    body: "One curl … | bash. Linux gets full support; macOS runs core-only.",
+  },
+  {
+    n: "02",
+    title: "Point it at a repo",
+    body: "Shepherd readiness-scores its guardrails and turns the gaps into setup tasks.",
+  },
+  {
+    n: "03",
+    title: "Spawn the herd",
+    body: "Watch and steer agents from your browser or phone; merge only what survives plan gate, critic, and the merge train.",
+  },
+];
+---
+
+<section class="how" aria-labelledby="how-h">
+  <div class="inner">
+    <header class="sec-head">
+      <p class="eyebrow">How it works</p>
+      <h2 id="how-h">From bare server to a reviewed merge</h2>
+    </header>
+
+    <ol class="steps">
+      {
+        steps.map((s) => (
+          <li class="step">
+            <span class="num" aria-hidden="true">
+              {s.n}
+            </span>
+            <div class="text">
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>
+
+<style>
+  .how {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .sec-head {
+    max-width: 42rem;
+    margin-bottom: clamp(2rem, 5vw, 3rem);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 0.6rem;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+  }
+
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .step {
+    display: flex;
+    gap: 1.1rem;
+    align-items: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.9rem;
+    padding: 1.4rem;
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1;
+    background: var(--gradient-amber-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    flex: 0 0 auto;
+  }
+
+  .text h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.15rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .text p {
+    color: var(--ink-muted);
+    font-size: 0.98rem;
+  }
+
+  @media (min-width: 860px) {
+    .steps {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .step {
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+  }
+</style>

@@ -1,0 +1,268 @@
+---
+// Requirements + the defining ToS-compliance constraint. Copy faithful to
+// README "ToS compliance model", "OS matrix", and "Requirements".
+interface OsRow {
+  os: string;
+  mode: string;
+  modeKind: "full" | "degraded" | "none";
+  note: string;
+}
+
+const osMatrix: OsRow[] = [
+  {
+    os: "Linux",
+    mode: "Full",
+    modeKind: "full",
+    note: "systemd + unprivileged userns — sandbox membrane, egress allowlist, auto-drain, previews, and the systemd unit.",
+  },
+  {
+    os: "macOS",
+    mode: "Core-only",
+    modeKind: "degraded",
+    note: "Installs and builds, but no sandbox, egress allowlist, auto-drain, previews, or systemd unit. Run bun run start manually.",
+  },
+  {
+    os: "Windows",
+    mode: "Not supported",
+    modeKind: "none",
+    note: "The installer refuses and routes you to WSL2.",
+  },
+];
+
+const needs = [
+  "Bun — backend runtime + package manager",
+  "herdr on PATH — owns the interactive claude PTYs",
+  "The claude CLI, logged in",
+  "Node.js — for the PTY helper subprocess",
+];
+---
+
+<section class="req" aria-labelledby="req-h">
+  <div class="inner">
+    <header class="sec-head">
+      <p class="eyebrow">The defining constraint</p>
+      <h2 id="req-h">It only drives real terminal sessions</h2>
+    </header>
+
+    <div class="constraint">
+      <p class="big">
+        Shepherd <strong>only drives genuine interactive terminal sessions</strong
+        > — it <strong>never uses the Agent SDK or <code>claude -p</code></strong
+        >. It observes (reads the terminal and agent status) and steers (injects
+        keystrokes into the live pane).
+      </p>
+      <p class="rule">
+        “If a feature can't be done by typing into a real terminal, it doesn't
+        ship.”
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="block">
+        <h3>Auth</h3>
+        <p>
+          Runs on your own Claude Max/Pro subscription — or opt into
+          <strong>API-key auth (footing B)</strong> in Settings → Session for a
+          clearly-compliant metered path. Either way these are still genuine
+          interactive sessions, never <code>claude -p</code> or the Agent SDK.
+        </p>
+      </div>
+
+      <div class="block">
+        <h3>Needs</h3>
+        <ul class="needs">
+          {needs.map((n) => <li>{n}</li>)}
+        </ul>
+        <p class="self">Self-hosted on your own server.</p>
+      </div>
+    </div>
+
+    <div class="block os">
+      <h3>Operating systems</h3>
+      <ul class="os-list">
+        {
+          osMatrix.map((row) => (
+            <li class={`os-row k-${row.modeKind}`}>
+              <span class="os-name">{row.os}</span>
+              <span class="os-mode">{row.mode}</span>
+              <span class="os-note">{row.note}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .req {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .sec-head {
+    max-width: 42rem;
+    margin-bottom: clamp(1.6rem, 4vw, 2.4rem);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 0.6rem;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+  }
+
+  .constraint {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-left: 3px solid var(--green);
+    border-radius: 0.9rem;
+    padding: clamp(1.4rem, 3vw, 2rem);
+    margin-bottom: 1rem;
+  }
+
+  .big {
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+    color: var(--ink);
+  }
+
+  .big strong {
+    font-weight: 700;
+  }
+
+  .big code,
+  .block code {
+    font-size: 0.92em;
+    color: var(--amber);
+  }
+
+  .rule {
+    margin-top: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--ink-muted);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .block {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.9rem;
+    padding: 1.4rem;
+  }
+
+  .block h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.7rem;
+  }
+
+  .block p {
+    color: var(--ink-muted);
+    font-size: 0.98rem;
+  }
+
+  .needs {
+    list-style: none;
+    margin: 0 0 0.7rem;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+    color: var(--ink-muted);
+    font-size: 0.95rem;
+  }
+
+  .needs li {
+    padding-left: 1.1rem;
+    position: relative;
+  }
+
+  .needs li::before {
+    content: "›";
+    position: absolute;
+    left: 0;
+    color: var(--green);
+    font-family: var(--font-mono);
+  }
+
+  .self {
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+  }
+
+  .os-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .os-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.2rem 1rem;
+    padding: 0.85rem 1rem;
+    background: var(--bg);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.6rem;
+  }
+
+  .os-name {
+    font-family: var(--font-display);
+    font-weight: 600;
+  }
+
+  .os-mode {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .k-full .os-mode {
+    color: var(--green);
+  }
+  .k-degraded .os-mode {
+    color: var(--amber);
+  }
+  .k-none .os-mode {
+    color: var(--ink-muted);
+  }
+
+  .os-note {
+    color: var(--ink-muted);
+    font-size: 0.92rem;
+  }
+
+  @media (min-width: 760px) {
+    .grid {
+      grid-template-columns: 1fr 1fr;
+    }
+    .os-row {
+      grid-template-columns: 8rem 9rem 1fr;
+      align-items: baseline;
+    }
+  }
+</style>

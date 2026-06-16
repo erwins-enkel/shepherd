@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/install.sh",
+      "destination": "https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh",
+      "statusCode": 302
+    }
+  ]
+}

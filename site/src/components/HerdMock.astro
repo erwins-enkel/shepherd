@@ -58,7 +58,14 @@ const agents: Agent[] = [
     <span class="title">HERD</span>
     <span class="meta">4 sessions</span>
     <span class="spacer"></span>
-    <span class="gauge" aria-label="5-hour usage at 62 percent">
+    <span
+      class="gauge"
+      role="meter"
+      aria-label="5-hour usage"
+      aria-valuenow="62"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
       <span class="gauge-label">5h usage</span>
       <span class="gauge-track" aria-hidden="true">
         <span class="gauge-fill" style="width: 62%"></span>

@@ -7,9 +7,12 @@ interface Props {
   description?: string;
 }
 
+const SITE_URL = "https://shepherd.run/";
+const OG_IMAGE = "https://shepherd.run/og-image.png";
+
 const {
-  title = "Shepherd",
-  description = "Shepherd — interactive mission control for autonomous coding agents.",
+  title = "Shepherd — run a herd of real Claude Code agents",
+  description = "Self-hosted mission control for interactive Claude Code — spawn, watch, and steer a herd of real claude sessions from your browser or phone, with best-practice guardrails built in.",
 } = Astro.props;
 ---
 
@@ -20,6 +23,28 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={SITE_URL} />
+    <meta name="theme-color" content="#0a0d0c" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={SITE_URL} />
+    <meta property="og:image" content={OG_IMAGE} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={OG_IMAGE} />
+
     <!--
       Self-hosted fonts (astro:assets). Each <Font/> emits the @font-face rules
       (woff2, font-display: swap) plus a <link rel="preload"> for the primary

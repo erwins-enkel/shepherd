@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Shepherd</title>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="14" fill="#0f1413" stroke="#2c3835" stroke-width="1.5"/>
+  <!-- wool: fluffy cloud crown -->
+  <g fill="#e9f1ec">
+    <circle cx="22" cy="24" r="9"/>
+    <circle cx="32" cy="19" r="10"/>
+    <circle cx="43" cy="24" r="9"/>
+    <circle cx="20" cy="34" r="9"/>
+    <circle cx="32" cy="36" r="11"/>
+    <circle cx="44" cy="34" r="9"/>
+  </g>
+  <!-- ears -->
+  <ellipse cx="20" cy="38" rx="4" ry="6" fill="#0a0d0c" transform="rotate(-22 20 38)"/>
+  <ellipse cx="44" cy="38" rx="4" ry="6" fill="#0a0d0c" transform="rotate(22 44 38)"/>
+  <!-- face -->
+  <ellipse cx="32" cy="41" rx="11" ry="12" fill="#0a0d0c"/>
+  <!-- eyes -->
+  <circle cx="27.5" cy="39" r="2.1" fill="#e8a13a"/>
+  <circle cx="36.5" cy="39" r="2.1" fill="#e8a13a"/>
+  <!-- muzzle -->
+  <ellipse cx="32" cy="47.5" rx="3.4" ry="2.6" fill="#5d6c67"/>
+</svg>

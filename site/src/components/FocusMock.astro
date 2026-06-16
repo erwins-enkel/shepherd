@@ -42,9 +42,9 @@ const rows: Row[] = [
 // Live terminal lines for the focused session (TASK-07).
 const termLines = [
   { k: "cmd", t: "> Edit src/auth/session.ts" },
-  { k: "out", t: "⎿ rotate refresh token on renew" },
+  { k: "out", t: "rotate refresh token on renew" },
   { k: "cmd", t: "> Bash bun test ./test/session.test.ts" },
-  { k: "ok", t: "⎿ 14 pass · 0 fail (1.2s)" },
+  { k: "ok", t: "14 pass · 0 fail (1.2s)" },
   { k: "cmd", t: "> Read src/auth/cookies.ts" },
 ];
 ---
@@ -168,12 +168,13 @@ const termLines = [
 
   .body {
     display: grid;
-    grid-template-columns: 11rem 1fr;
+    grid-template-columns: 13rem 1fr;
     min-height: 16.5rem;
   }
 
   /* sidebar (the herd) */
   .side {
+    overflow: hidden;
     border-right: 1px solid var(--panel-2);
     padding: 0.6rem 0.5rem;
     background: color-mix(in srgb, var(--bg) 45%, var(--panel));
@@ -347,9 +348,11 @@ const termLines = [
     color: var(--ink);
   }
   .tl.out {
+    padding-left: 1.15rem;
     color: var(--ink-muted);
   }
   .tl.ok {
+    padding-left: 1.15rem;
     color: var(--green);
   }
   .tl.cursor {

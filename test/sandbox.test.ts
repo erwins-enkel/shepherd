@@ -7,6 +7,7 @@ import {
   isDegraded,
   isEgressDegraded,
   egressApplies,
+  willEgressConfine,
   EGRESS_UNAVAILABLE_REASON,
   buildMembraneFlags,
   wrapArgv,
@@ -16,6 +17,7 @@ import {
   type MembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
+import type { EgressBackend } from "../src/egress";
 
 // A deterministic MembraneInputs for flag-construction tests. exists is
 // injected so the host never influences the output.
@@ -193,6 +195,34 @@ describe("egressApplies", () => {
   test("false for trusted and standard", () => {
     expect(egressApplies("trusted")).toBe(false);
     expect(egressApplies("standard")).toBe(false);
+  });
+});
+
+describe("willEgressConfine", () => {
+  test("autonomous + bwrap + slirp4netns => true (fully confined)", () => {
+    expect(willEgressConfine("autonomous", "bwrap", "slirp4netns")).toBe(true);
+  });
+
+  test("autonomous + bwrap + null egressBackend => false (no egress backend)", () => {
+    expect(willEgressConfine("autonomous", "bwrap", null)).toBe(false);
+  });
+
+  test("autonomous + null backend + slirp4netns => false (no FS backend)", () => {
+    expect(willEgressConfine("autonomous", null, "slirp4netns")).toBe(false);
+  });
+
+  test("autonomous + bwrap + undefined egressBackend => false (loose-null check treats undefined as null)", () => {
+    expect(willEgressConfine("autonomous", "bwrap", undefined as unknown as EgressBackend)).toBe(
+      false,
+    );
+  });
+
+  test("standard + both backends present => false (egressApplies is false for standard)", () => {
+    expect(willEgressConfine("standard", "bwrap", "slirp4netns")).toBe(false);
+  });
+
+  test("trusted + both backends present => false (egressApplies is false for trusted)", () => {
+    expect(willEgressConfine("trusted", "bwrap", "slirp4netns")).toBe(false);
   });
 });
 

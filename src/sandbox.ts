@@ -516,3 +516,18 @@ export function isEgressDegraded(
 export function egressApplies(profile: SandboxProfile): boolean {
   return profile === "autonomous";
 }
+
+/**
+ * Whether this spawn will actually run egress-confined: an autonomous profile
+ * (egressApplies) WITH both the FS sandbox backend AND the egress backend present.
+ * The single source of truth for "egress wraps this spawn" — shared by prepareSpawn
+ * (the wrap decision) and the agent base-URL decision (which control-plane address to
+ * bake) so the two can never drift.
+ */
+export function willEgressConfine(
+  profile: SandboxProfile,
+  backend: SandboxBackend,
+  egressBackend: EgressBackend,
+): boolean {
+  return egressApplies(profile) && backend !== null && egressBackend != null;
+}

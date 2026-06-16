@@ -58,6 +58,11 @@ produce a working redirect and a false-green here. Ownership of `shepherd.run`
 rests on the operator's registrar fact (the registered-domain answer), not on
 this resolving.
 
+> **Confirmed spelling: `shepherd.run`** (s-h-e-p-h-e-r-d, `.run` TLD). An earlier
+> reference to `shepard.run` was a typo; the registrant confirmed the registered,
+> paid-for domain is `shepherd.run`. Before cutover, re-check that the domain
+> attached in Vercel matches the registrar exactly — character for character.
+
 ## Phase 2 gate (deferred — separate PR)
 
 The advertised install command in **`README.md`** and the header comment in

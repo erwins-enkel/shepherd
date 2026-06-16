@@ -928,6 +928,18 @@ export async function reviewPlan(id: string): Promise<PlanReviewTrigger> {
   return body.status ?? "skipped";
 }
 
+export type PrReviewTrigger = "started" | "skipped" | "error";
+
+/** Trigger an on-demand critic PR review (202). Fire-and-forget; the REVIEWING state and
+ *  verdict return via WS. Returns the trigger outcome so the caller can tell a real start
+ *  ("started") from a server decline ("skipped") and a spawn failure ("error"). */
+export async function reviewPr(id: string): Promise<PrReviewTrigger> {
+  const r = await fetch(`/api/sessions/${id}/review-pr`, JSON_POST());
+  if (!r.ok) throw await failed(r, "review-pr");
+  const body = (await r.json().catch(() => ({}))) as { status?: PrReviewTrigger };
+  return body.status ?? "skipped";
+}
+
 export async function getBacklog(): Promise<BacklogPayload> {
   const r = await fetch("/api/backlog");
   if (!r.ok) throw await failed(r, "backlog");

@@ -1403,5 +1403,13 @@
   "clonerepo_repos_unavailable": "Deine GitHub-Repositories konnten nicht geladen werden. Klone unten per URL.",
   "clonerepo_url_toggle": "Stattdessen per URL klonen",
   "feat_clone_repo_picker_title": "Repo zum Klonen auswählen",
-  "feat_clone_repo_picker_body": "Der Klon-Dialog listet jetzt alle GitHub-Repos auf, auf die du Zugriff hast — deinen eigenen Account sowie die Orgs und Teams, denen du angehörst — und klont das ausgewählte direkt. Bereits geklonte Repos werden ausgeblendet, und das Klonen per URL bleibt als Rückfalloption erhalten."
+  "feat_clone_repo_picker_body": "Der Klon-Dialog listet jetzt alle GitHub-Repos auf, auf die du Zugriff hast — deinen eigenen Account sowie die Orgs und Teams, denen du angehörst — und klont das ausgewählte direkt. Bereits geklonte Repos werden ausgeblendet, und das Klonen per URL bleibt als Rückfalloption erhalten.",
+  "gitrail_review": "Prüfen",
+  "gitrail_rereview": "Erneut prüfen",
+  "gitrail_restart_review": "Neu starten",
+  "gitrail_confirm_review": "bestätigen ✓",
+  "gitrail_review_skipped": "Prüfung nicht gestartet – Bedingungen geändert oder läuft bereits.",
+  "gitrail_review_failed": "Prüfung konnte nicht gestartet werden. Erneut versuchen.",
+  "feat_manual_critic_review_title": "Kritiker-Review neu starten",
+  "feat_manual_critic_review_body": "Wenn der KI-Kritiker nie startete oder ohne Urteil hängen blieb, kannst du ihn über eine Schaltfläche in der PR-Leiste bei Bedarf neu starten – für offene PRs mit grünem CI."
 }

@@ -29,6 +29,10 @@ const gitStateFn = vi.fn(async () => openPrState);
 // pulls other named exports like getRepoConfig/getReviews) and override only the
 // PR-state fetch GitRail makes on mount. The real network calls never fire under
 // test: gitState is stubbed, and no other call path is exercised.
+// reviewPrFn drives the manual critic-trigger handler; per-test we resolve it to
+// "started"/"skipped"/"error" or reject it to exercise the fail-closed toast paths.
+const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
+
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {
@@ -38,15 +42,24 @@ vi.mock("$lib/api", async (importOriginal) => {
     mergePr: vi.fn(),
     redeploy: vi.fn(),
     replySession: vi.fn(),
+    reviewPr: reviewPrFn,
   };
 });
+
+// Mock the shared toast store so the manual-review handler's fail-closed/skipped
+// toasts can be asserted without rendering the real toast UI.
+const toastsInfo = vi.fn();
+vi.mock("$lib/toasts.svelte", () => ({
+  toasts: { info: toastsInfo },
+}));
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
 // The plan-gate reviewing store drives the auto-pill pulse for plan reviews,
 // mirroring the critic (reviews) store. Imported from the same module the
 // component reads so toggling it reactively updates the rendered pill.
-const { planGates, reviews } = await import("$lib/reviews.svelte");
+// repoConfig drives the critic-enabled flag the manual-review button gates on.
+const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
 
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
 // local agree. The rail mounts into a fixed-width host cell. On desktop the
@@ -689,5 +702,174 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
       new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }),
     );
     expect(document.activeElement, "Shift+Tab wraps first → last").toBe(last);
+  });
+});
+
+describe("GitRail — manual critic-review trigger", () => {
+  // The button gates on git open + checks success + repo critic enabled. critic
+  // defaults to enabled (repoConfig.isEnabled → true when unknown); we set it
+  // explicitly so the gate is deterministic and the disabled-critic case is real.
+  beforeEach(() => {
+    reviewPrFn.mockResolvedValue("started");
+    toastsInfo.mockClear();
+    reviewPrFn.mockClear();
+    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
+  });
+  afterEach(() => {
+    reviews.drop(baseProps.sessionId);
+    // reset critic flag so it can't leak across suites
+    const next = { ...repoConfig.enabled };
+    delete next[baseProps.repoPath];
+    repoConfig.enabled = next;
+  });
+
+  // The manual-review button is a .gbtn with one of the Review/Re-review/Restart
+  // labels; the Merge button is also a .gbtn, so select by accessible name.
+  function reviewBtn(h: HTMLElement): HTMLButtonElement | null {
+    return (
+      [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")].find((b) =>
+        /^(Review|Re-review|Restart|confirm)/.test(b.textContent?.trim() ?? ""),
+      ) ?? null
+    );
+  }
+
+  // ── visibility ─────────────────────────────────────────────────────────────
+  it("renders the Review button when open + checks success + critic enabled", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    // start state: no verdict, not reviewing → "Review" label (the new no-verdict path)
+    await vi.waitFor(() => expect(reviewBtn(h), "review button present").not.toBeNull());
+    expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_review());
+  });
+
+  it("hides the Review button when CI is not success", async () => {
+    gitStateFn.mockResolvedValue({ ...openPrState, checks: "pending" });
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    expect(reviewBtn(h), "no review button without green CI").toBeNull();
+  });
+
+  it("hides the Review button when the PR is not open", async () => {
+    gitStateFn.mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "success",
+      deployConfigured: false,
+    });
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/merged/i)).toBeVisible();
+    expect(reviewBtn(h), "no review button when not open").toBeNull();
+  });
+
+  it("hides the Review button when the repo critic is disabled", async () => {
+    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: false };
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
+    );
+    expect(reviewBtn(h), "no review button when critic disabled").toBeNull();
+  });
+
+  // ── arm → confirm → call ─────────────────────────────────────────────────────
+  it("first click arms (no call), second click calls reviewPr once", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
+
+    const btn = reviewBtn(h)!;
+    btn.click();
+    // armed → label becomes confirm, reviewPr NOT yet called
+    await vi.waitFor(() =>
+      expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
+    );
+    expect(reviewPrFn, "not called on first (arming) click").not.toHaveBeenCalled();
+
+    reviewBtn(h)!.click();
+    await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
+    expect(reviewPrFn).toHaveBeenCalledWith(baseProps.sessionId);
+  });
+
+  // ── fail-closed + skipped + started toasts ───────────────────────────────────
+  async function armAndConfirm(h: HTMLElement) {
+    await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
+    reviewBtn(h)!.click();
+    await vi.waitFor(() =>
+      expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
+    );
+    reviewBtn(h)!.click();
+  }
+
+  it("'error' status raises the persistent, keyed failure toast", async () => {
+    reviewPrFn.mockResolvedValue("error");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirm(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(
+      m.gitrail_review_failed(),
+      expect.objectContaining({
+        duration: null,
+        alert: true,
+        key: `review-pr:${baseProps.sessionId}`,
+      }),
+    );
+  });
+
+  it("a rejected reviewPr raises the persistent failure toast", async () => {
+    reviewPrFn.mockRejectedValue(new Error("boom"));
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirm(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(
+      m.gitrail_review_failed(),
+      expect.objectContaining({ duration: null, alert: true }),
+    );
+  });
+
+  it("'skipped' status raises a transient info toast", async () => {
+    reviewPrFn.mockResolvedValue("skipped");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirm(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_skipped());
+  });
+
+  it("'started' status raises NO toast (the REVIEWING badge is the feedback)", async () => {
+    reviewPrFn.mockResolvedValue("started");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirm(h);
+    await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
+    // give any (incorrect) toast a tick to fire, then assert silence
+    await new Promise((r) => setTimeout(r, 20));
+    expect(toastsInfo, "no toast on started").not.toHaveBeenCalled();
   });
 });

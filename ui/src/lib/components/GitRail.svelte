@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { gitState, openPr, mergePr, redeploy, replySession } from "$lib/api";
+  import { gitState, openPr, mergePr, redeploy, replySession, reviewPr } from "$lib/api";
   import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -69,9 +69,9 @@
   let showAutomation = $state(false);
 
   // two-step confirm for destructive actions (mirrors decommission UX)
-  let armed = $state<"merge" | "redeploy" | null>(null);
+  let armed = $state<"merge" | "redeploy" | "review" | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
-  function arm(which: "merge" | "redeploy"): boolean {
+  function arm(which: "merge" | "redeploy" | "review"): boolean {
     if (armed === which) {
       clearTimeout(armTimer);
       armed = null;
@@ -298,6 +298,21 @@
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
   const chip = $derived(criticChip(verdict, reviewing));
+  // Manual critic trigger: only when the auto path's own precondition holds (open PR, green
+  // CI) AND the repo has the critic enabled. Mirrors the server's forceReview guard so a
+  // shown button is never server-rejected. Reviewing is allowed (label becomes "Restart").
+  const canReview = $derived(
+    git?.state === "open" && git?.checks === "success" && repoConfig.flags(repoPath).critic,
+  );
+  const reviewLabel = $derived(
+    armed === "review"
+      ? m.gitrail_confirm_review()
+      : reviewing
+        ? m.gitrail_restart_review()
+        : verdict
+          ? m.gitrail_rereview()
+          : m.gitrail_review(),
+  );
   // Render the (AI-authored) findings as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay off
   // the first-paint critical path; gated on showReview so the (browser-only)
@@ -360,6 +375,28 @@
   $effect(() => {
     if (repoPath) repoConfig.ensure(repoPath);
   });
+
+  async function doReview() {
+    if (!arm("review")) return; // first click arms, second confirms
+    try {
+      const status = await reviewPr(sessionId);
+      // "started" → the REVIEWING badge (via WS) is the feedback; nothing to show. Fail-closed:
+      // a decline or error must never read as success.
+      if (status === "skipped") toasts.info(m.gitrail_review_skipped());
+      else if (status !== "started")
+        toasts.info(m.gitrail_review_failed(), {
+          duration: null,
+          alert: true,
+          key: `review-pr:${sessionId}`,
+        });
+    } catch {
+      toasts.info(m.gitrail_review_failed(), {
+        duration: null,
+        alert: true,
+        key: `review-pr:${sessionId}`,
+      });
+    }
+  }
 
   async function sendReviewToAgent() {
     if (!verdict?.body) return;
@@ -513,6 +550,18 @@
           onclick={(e) => toggleReview(e)}
         >
           {chip.label}
+        </button>
+      {/if}
+
+      {#if canReview}
+        <button
+          class="gbtn"
+          class:armed={armed === "review"}
+          type="button"
+          onclick={() => doReview()}
+          use:coachTarget={"manual-critic-review"}
+        >
+          {reviewLabel}
         </button>
       {/if}
 

@@ -327,6 +327,11 @@ async function main() {
   const driver = new IncusDriver(undefined, `shep-onb-${runId}-`);
   const results: ScenarioResult[] = [];
   try {
+    // Ensure the shared `shep-onb` profile exists with the in-repo spec before any
+    // instance is launched. Runs for both full and --scenario paths (only --reap-orphans
+    // returns early above, so this is never reached on that path). Fail-closed: a wrong
+    // or missing profile would silently OOM every instance, so we fix it up front.
+    await driver.ensureProfile();
     const tarball = buildTarball();
     for (const s of scenarios) {
       console.log(`\n=== ${s.id} (${s.image}) ===`);

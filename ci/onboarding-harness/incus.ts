@@ -1,6 +1,21 @@
 import { captureSpawn } from "./spawn";
 import type { IncusExec, IncusRunner } from "./types";
 
+/** The harness's `shep-onb` Incus profile, owned in-repo so a fresh/misconfigured host
+ *  self-heals. limits.memory headroom (4GiB) clears the ~2GB transient peak of claude's
+ *  native installer that OOM-killed the 2GiB profile (#749). */
+export const HARNESS_PROFILE = {
+  name: "shep-onb",
+  /** key/value pairs applied via `incus profile set` (additive — never clobbers extras). */
+  config: {
+    "limits.cpu": "2",
+    "limits.memory": "4GiB",
+    "security.nesting": "true",
+  },
+  /** `incus profile device add <name> tun unix-char path=/dev/net/tun`. */
+  device: { name: "tun", type: "unix-char", options: ["path=/dev/net/tun"] },
+} as const;
+
 /** Backstop kill timeout for any single `incus` call. The genuine hang fix is
  *  `captureSpawn` closing stdin (the incus Go client deadlocks on an open stdin
  *  pipe for operation-streaming commands); this cap only guards a process that
@@ -70,5 +85,41 @@ export class IncusDriver {
     for (const full of await this.listManaged()) {
       await this.run(["delete", full, "--force"]);
     }
+  }
+
+  /** Idempotently ensures the `shep-onb` Incus profile exists with the configured keys.
+   *
+   *  Uses additive `create`/`set`/`device add` (NOT declarative `profile edit`) so the
+   *  method enforces only the keys it owns and never strips operator-added config (e.g.
+   *  a credential disk). Profile names are global — NOT instance-prefixed — so we use
+   *  `HARNESS_PROFILE.name` raw, never `this.full()`.
+   *
+   *  Step 1: `profile create` — tolerated on non-zero (profile already exists is the
+   *    normal steady state on a pre-configured host).
+   *  Step 2: `profile set` with the full config key/value pairs — MUST succeed;
+   *    throws fail-closed on non-zero because a wrong memory cap defeats the fix for #749.
+   *  Step 3: `profile device add` — tolerated on non-zero (device already present). */
+  async ensureProfile(): Promise<void> {
+    const name = HARNESS_PROFILE.name;
+
+    // Step 1: create (tolerate non-zero — already-exists is the steady state).
+    await this.run(["profile", "create", name]);
+
+    // Step 2: set all config keys additively (must succeed — applies the memory cap).
+    // Pass each as a single `key=value` token — the canonical, unambiguous form for
+    // setting multiple keys in one `incus profile set` call.
+    const configArgs = Object.entries(HARNESS_PROFILE.config).map(
+      ([key, value]) => `${key}=${value}`,
+    );
+    const setResult = await this.run(["profile", "set", name, ...configArgs]);
+    if (setResult.code !== 0) {
+      throw new Error(
+        `incus profile set failed for ${name}: ${setResult.stderr || setResult.stdout}`,
+      );
+    }
+
+    // Step 3: device add (tolerate non-zero — device already present is fine).
+    const { device } = HARNESS_PROFILE;
+    await this.run(["profile", "device", "add", name, device.name, device.type, ...device.options]);
   }
 }

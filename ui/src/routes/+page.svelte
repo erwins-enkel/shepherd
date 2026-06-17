@@ -1123,10 +1123,18 @@
       } else if (result.status === "not-stalled") {
         toasts.info(m.quota_resume_cleared());
       } else {
-        toasts.info(m.quota_resume_failed(), { duration: null, alert: true });
+        toasts.info(m.quota_resume_failed(), {
+          duration: null,
+          alert: true,
+          key: `quota-resume-fail:${id}`,
+        });
       }
     } catch {
-      toasts.info(m.quota_resume_failed(), { duration: null, alert: true });
+      toasts.info(m.quota_resume_failed(), {
+        duration: null,
+        alert: true,
+        key: `quota-resume-fail:${id}`,
+      });
     }
   }
 

@@ -324,7 +324,7 @@ test("matchAgents: a sole session at its cwd re-pairs even when its name drifted
 });
 
 import { maintenance } from "../src/maintenance";
-import { HerdrUnavailableError, makeHerdrRunner } from "../src/herdr";
+import { HerdrUnavailableError, makeHerdrRunner, isNameTakenError } from "../src/herdr";
 
 test("runner throws fast (no spawn) while maintenance is active", () => {
   let spawned = 0;
@@ -615,4 +615,208 @@ test("paneForegroundProcs() propagates a thrown runner error (does not swallow)"
   await expect(d.paneForegroundProcs("w65:p2")).rejects.toThrow(
     "herdr: unknown subcommand pane process-info",
   );
+});
+
+// -- isNameTakenError unit tests --
+
+const NAME_TAKEN_JSON =
+  '{"error":{"code":"agent_name_taken","message":"agent name review TASK-504 is already used; candidates: terminal_id=t1 tab_id=tab_9 status=Unknown"},"id":"cli:agent:start"}';
+
+test("isNameTakenError: true when agent_name_taken appears on .stderr", () => {
+  const err = Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
+  expect(isNameTakenError(err)).toBe(true);
+});
+
+test("isNameTakenError: true when agent_name_taken appears on .message", () => {
+  const err = new Error(NAME_TAKEN_JSON);
+  expect(isNameTakenError(err)).toBe(true);
+});
+
+test("isNameTakenError: true when agent_name_taken appears on .stdout", () => {
+  const err = Object.assign(new Error("herdr CLI error"), { stdout: NAME_TAKEN_JSON });
+  expect(isNameTakenError(err)).toBe(true);
+});
+
+test("isNameTakenError: false for an unrelated error", () => {
+  const err = new Error("herdr: some other failure");
+  expect(isNameTakenError(err)).toBe(false);
+});
+
+test("isNameTakenError: false for undefined", () => {
+  expect(isNameTakenError(undefined)).toBe(false);
+});
+
+test("isNameTakenError: false for null", () => {
+  expect(isNameTakenError(null)).toBe(false);
+});
+
+test("isNameTakenError: false for plain string without marker", () => {
+  expect(isNameTakenError("something went wrong")).toBe(false);
+});
+
+// -- start() collision-breaker tests --
+
+// Fixture: the squatter agent that holds the name before the retry succeeds
+const SQUATTER_LIST = JSON.stringify({
+  result: {
+    type: "agent_list",
+    agents: [
+      {
+        agent: "claude",
+        agent_status: "done",
+        cwd: "/wt/a",
+        name: "review TASK-504",
+        pane_id: "p_sq",
+        tab_id: "tab_squatter",
+        terminal_id: "term_squatter",
+        workspace_id: "w1",
+      },
+    ],
+  },
+});
+
+// Agent list after the squatter is evicted: the freshly started agent appears at /wt/a
+const POST_EVICT_LIST = JSON.stringify({
+  result: {
+    type: "agent_list",
+    agents: [
+      {
+        agent: "claude",
+        agent_status: "working",
+        cwd: "/wt/a",
+        name: "review TASK-504",
+        pane_id: "p_new",
+        tab_id: "tab_started",
+        terminal_id: "term_started",
+        workspace_id: "w1",
+      },
+    ],
+  },
+});
+
+function makeNameTakenError(): Error {
+  return Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
+}
+
+test("start: single collision then success — squatter tab closed, agent returned", () => {
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+  // list() returns squatter on first call (during eviction), then the fresh agent
+  let listCallCount = 0;
+
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      if (agentStartAttempts === 1) throw makeNameTakenError();
+      return "{}";
+    }
+    if (args[0] === "agent" && args[1] === "list") {
+      listCallCount++;
+      // first list() call is during eviction (resolves squatter), second is the final resolve
+      return listCallCount === 1 ? SQUATTER_LIST : POST_EVICT_LIST;
+    }
+    if (args[0] === "tab" && args[1] === "close") return "{}";
+    if (args[0] === "pane" && args[1] === "close") return "{}";
+    return "{}";
+  };
+
+  const d = new HerdrDriver(runner);
+  const agent = d.start("review TASK-504", "/wt/a", ["claude", "go"]);
+
+  // squatter's tab was closed
+  expect(calls).toContainEqual(["tab", "close", "tab_squatter"]);
+  // exactly 2 agent start attempts
+  expect(agentStartAttempts).toBe(2);
+  // returned the newly started agent
+  expect(agent.terminalId).toBe("term_started");
+});
+
+test("start: two collisions then success — bounded retry recovers, squatter evicted each time", () => {
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+  let listCallCount = 0;
+
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      if (agentStartAttempts < 3) throw makeNameTakenError();
+      return "{}";
+    }
+    if (args[0] === "agent" && args[1] === "list") {
+      listCallCount++;
+      // first two list() calls are squatter evictions; third is final resolve
+      return listCallCount < 3 ? SQUATTER_LIST : POST_EVICT_LIST;
+    }
+    if (args[0] === "tab" && args[1] === "close") return "{}";
+    if (args[0] === "pane" && args[1] === "close") return "{}";
+    return "{}";
+  };
+
+  const d = new HerdrDriver(runner);
+  const agent = d.start("review TASK-504", "/wt/a", ["claude", "go"]);
+
+  expect(agentStartAttempts).toBe(3);
+  expect(agent.terminalId).toBe("term_started");
+  // squatter tab closed at least once (may be twice if it re-appears)
+  const closeCalls = calls.filter((c) => c[0] === "tab" && c[1] === "close");
+  // the squatter close happened (tab_squatter), created tab NOT closed (no rollback)
+  expect(closeCalls.some((c) => c[2] === "tab_squatter")).toBe(true);
+  expect(closeCalls.every((c) => c[2] !== "t_new")).toBe(true);
+});
+
+test("start: persistent collision exhausts 3 attempts — created tab rolled back, throws", () => {
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      throw makeNameTakenError();
+    }
+    if (args[0] === "agent" && args[1] === "list") return SQUATTER_LIST;
+    if (args[0] === "tab" && args[1] === "close") return "{}";
+    return "{}";
+  };
+
+  const d = new HerdrDriver(runner);
+  expect(() => d.start("review TASK-504", "/wt/a", ["claude", "go"])).toThrow();
+
+  // 3 total attempts exhausted
+  expect(agentStartAttempts).toBe(3);
+  // our freshly created tab (t_new) was rolled back
+  expect(calls).toContainEqual(["tab", "close", "t_new"]);
+});
+
+test("start: non-name-taken error — no retry, immediate rollback", () => {
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      throw new Error("herdr: disk full");
+    }
+    if (args[0] === "tab" && args[1] === "close") return "{}";
+    return "{}";
+  };
+
+  const d = new HerdrDriver(runner);
+  expect(() => d.start("review TASK-504", "/wt/a", ["claude", "go"])).toThrow("herdr: disk full");
+
+  // only one attempt — no retry for non-name-taken errors
+  expect(agentStartAttempts).toBe(1);
+  // created tab rolled back
+  expect(calls).toContainEqual(["tab", "close", "t_new"]);
 });

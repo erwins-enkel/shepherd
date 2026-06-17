@@ -181,6 +181,27 @@ export function matchAgents(
   return out;
 }
 
+/**
+ * Returns true when the error thrown by `runner` signals that a same-named agent is
+ * already registered in herdr. The CLI emits `agent_name_taken` as a JSON code on
+ * stderr/stdout, which execFileSync surfaces on the thrown error's `.stderr`/`.stdout`/
+ * `.message`. Defensive: coerces unknown fields to string safely; non-Error throws return
+ * false.
+ */
+export function isNameTakenError(err: unknown): boolean {
+  if (err == null) return false;
+  const marker = "agent_name_taken";
+  if (typeof err === "string") return err.includes(marker);
+  if (typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    for (const field of ["stderr", "stdout", "message"]) {
+      const v = e[field];
+      if (v != null && String(v).includes(marker)) return true;
+    }
+  }
+  return false;
+}
+
 export class HerdrDriver {
   constructor(
     private runner: Runner = defaultRunner,
@@ -302,7 +323,14 @@ export class HerdrDriver {
             .map(([k, v]) => `${k}=${v}`)
         : [];
       const wrapped = ["env", `NODE_COMPILE_CACHE=${compileCacheDir()}`, ...envTokens, ...argv];
-      this.runner([
+      // Collision-breaker: if herdr rejects with `agent_name_taken` (a stale same-named
+      // agent is still registered — e.g. shepherd restarted while an interactive `claude`
+      // was running), resolve the squatter(s) by name from `list()`, close their tabs
+      // (which both kills the orphan via --die-with-parent and synchronously releases the
+      // name), then retry. Bounded at 3 total attempts — no sleep: the sync herdr
+      // round-trips (list + tab close) provide the real-world spacing; a blocking sleep
+      // would freeze Bun's single event loop and stall the live web terminal.
+      const agentStartArgs = [
         "agent",
         "start",
         name,
@@ -313,7 +341,22 @@ export class HerdrDriver {
         "--no-focus",
         "--",
         ...wrapped,
-      ]);
+      ];
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          this.runner(agentStartArgs);
+          break;
+        } catch (err) {
+          if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) {
+            // Non-name-taken error → propagate immediately; or attempts exhausted → propagate
+            throw err;
+          }
+          // Evict squatter(s) by name — never by regex-parsing the error string
+          const squatters = this.list().filter((a) => a.name === name);
+          for (const sq of squatters) this.closeTab(sq.tabId);
+        }
+      }
 
       if (rootPaneId) {
         try {

@@ -1,8 +1,9 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { DistillerService } from "../src/distiller";
+import { DistillerService, DISTILL_LABEL } from "../src/distiller";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { HerdrUnavailableError } from "../src/herdr";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -390,4 +391,199 @@ test("dismissed rules are passed to the distiller so they aren't re-proposed", (
   const d = new DistillerService(deps as any);
   d.distillNow("/r");
   expect(captured).toContain("dismissed rule");
+});
+
+// ── New tests: unique agent name, concurrency cap, health ───────────────────
+
+function mkCollisionAwareDeps(
+  store: SessionStore,
+  proposals: any,
+  onChange = () => {},
+  maxConcurrent?: number,
+) {
+  const liveNames = new Set<string>();
+  const nameByTerminalId = new Map<string, string>();
+  let nextId = 0;
+  const started: { name: string; dir: string }[] = [];
+  return {
+    deps: {
+      store,
+      herdr: {
+        start: (name: string, cwd: string) => {
+          if (liveNames.has(name)) throw new Error(`agent_name_taken: ${name}`);
+          const terminalId = `dist${nextId++}`;
+          liveNames.add(name);
+          nameByTerminalId.set(terminalId, name);
+          started.push({ name, dir: cwd });
+          return { terminalId };
+        },
+        stop: (terminalId: string) => {
+          const n = nameByTerminalId.get(terminalId);
+          if (n) liveNames.delete(n);
+          nameByTerminalId.delete(terminalId);
+        },
+      } as any,
+      scratch: {
+        create: () => ({ dir: `/scratch/${nextId}` }),
+        remove: () => {},
+      },
+      onChange,
+      now: () => 1000,
+      minSignals: 3,
+      maxConcurrent,
+      writeSignals: () => {},
+      readProposals: () => proposals,
+    },
+    started,
+    liveNames,
+  };
+}
+
+test("collision regression: two repos considered together get distinct unique agent names", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r1", 3);
+  seedSignals(store, "/r2", 3);
+  const { deps, started } = mkCollisionAwareDeps(store, { rules: [], ineffective: [] });
+  const d = new DistillerService(deps as any);
+  // Both repos pass threshold — both should spawn without collision
+  d.consider("/r1");
+  d.consider("/r2");
+  expect(started.length).toBe(2);
+  // Names must be unique and share the DISTILL_LABEL prefix
+  const [n1, n2] = started.map((s) => s.name);
+  expect(n1).toMatch(new RegExp(`^${DISTILL_LABEL}`));
+  expect(n2).toMatch(new RegExp(`^${DISTILL_LABEL}`));
+  expect(n1).not.toBe(n2);
+});
+
+test("concurrency cap: at most maxConcurrent spawns live; queue drains via tick", async () => {
+  const store = new SessionStore(":memory:");
+  for (const r of ["/r1", "/r2", "/r3", "/r4"]) seedSignals(store, r, 3);
+  let tickRead = false;
+  const readProposals = () => (tickRead ? { rules: [], ineffective: [] } : null);
+  const { deps, started } = mkCollisionAwareDeps(store, null, () => {}, 2);
+  // override readProposals to be dynamic
+  (deps as any).readProposals = readProposals;
+  const d = new DistillerService(deps as any);
+
+  d.consider("/r1");
+  d.consider("/r2");
+  d.consider("/r3");
+  d.consider("/r4");
+
+  // Only 2 spawned (cap)
+  expect(started.length).toBe(2);
+
+  // Let the inflight runs finalize and drain queue
+  tickRead = true;
+  await d.tick(); // finalizes r1 + r2, drains r3 + r4
+  expect(started.length).toBe(4);
+});
+
+test("distillNow respects the cap: second call queued, drains on tick", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r1", 1);
+  seedSignals(store, "/r2", 1);
+  let tickRead = false;
+  const readProposals = () => (tickRead ? { rules: [], ineffective: [] } : null);
+  const { deps, started } = mkCollisionAwareDeps(store, null, () => {}, 1);
+  (deps as any).readProposals = readProposals;
+  const d = new DistillerService(deps as any);
+
+  d.distillNow("/r1");
+  d.distillNow("/r2");
+
+  expect(started.length).toBe(1); // only 1 inflight
+
+  tickRead = true;
+  await d.tick(); // finalizes r1, drains r2
+  expect(started.length).toBe(2);
+});
+
+test("health — spawn failures accumulate; HerdrUnavailableError is NOT counted", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 5; i++) seedSignals(store, `/r${i}`, 1);
+
+  let throwUnavailable = false;
+  let throwSpawn = false;
+  const deps = {
+    store,
+    herdr: {
+      start: () => {
+        if (throwUnavailable) throw new HerdrUnavailableError();
+        if (throwSpawn) throw new Error("spawn failed");
+        return { terminalId: "t1" };
+      },
+      stop: () => {},
+    } as any,
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 1,
+    writeSignals: () => {},
+    readProposals: () => null,
+  };
+  const d = new DistillerService(deps as any);
+
+  // HerdrUnavailableError does NOT affect health
+  throwUnavailable = true;
+  d.distillNow("/r0");
+  expect(d.health().ok).toBe(true);
+  expect(d.health().consecutiveFailures).toBe(0);
+
+  throwUnavailable = false;
+  throwSpawn = true;
+
+  // 3 spawn failures → threshold breached
+  d.distillNow("/r1");
+  expect(d.health().ok).toBe(true); // 1 failure
+  d.distillNow("/r2");
+  expect(d.health().ok).toBe(true); // 2 failures
+  d.distillNow("/r3");
+  expect(d.health().ok).toBe(false); // 3 failures → not ok
+  expect(d.health().consecutiveFailures).toBe(3);
+  expect(d.health().lastFailure?.reason).toBe("spawn");
+  expect(d.health().lastFailure?.repoPath).toBe("/r3");
+});
+
+test("health — timeout-no-output counts as failure; successful finalize resets health", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 1);
+  let t = 1000;
+  let readResult: any = null;
+  let stops = 0;
+  const deps = {
+    store,
+    herdr: {
+      start: () => ({ terminalId: "t1" }),
+      stop: () => stops++,
+    } as any,
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => t,
+    minSignals: 1,
+    timeoutMs: 5_000,
+    writeSignals: () => {},
+    readProposals: () => readResult,
+  };
+  const d = new DistillerService(deps as any);
+
+  // 3 timeout failures to trip health
+  for (let i = 0; i < 3; i++) {
+    readResult = null;
+    d.distillNow("/r");
+    t += 6_000; // force timeout
+    await d.tick(); // timeout-no-output → failure
+  }
+  expect(d.health().ok).toBe(false);
+  expect(d.health().consecutiveFailures).toBe(3);
+
+  // Now a successful run resets health
+  t += 1;
+  readResult = { rules: [], ineffective: [] };
+  d.distillNow("/r");
+  await d.tick(); // proposals ready → success
+  expect(d.health().ok).toBe(true);
+  expect(d.health().consecutiveFailures).toBe(0);
+  expect(d.health().lastFailure).toBeNull();
 });

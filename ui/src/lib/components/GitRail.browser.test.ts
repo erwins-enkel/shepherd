@@ -1095,7 +1095,11 @@ describe("GitRail — manual plan-review trigger", () => {
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
       m.gitrail_review_plan_failed(),
-      expect.objectContaining({ duration: null, alert: true }),
+      expect.objectContaining({
+        duration: null,
+        alert: true,
+        key: `review-plan:${baseProps.sessionId}`,
+      }),
     );
   });
 

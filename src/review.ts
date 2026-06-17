@@ -5,7 +5,7 @@ import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
-import type { ReviewVerdict, Session } from "./types";
+import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import {
   isApiKeyMode,
@@ -921,58 +921,12 @@ export class ReviewService {
 
       // Wrap the entire row body so one bad row cannot abort the sweep.
       try {
-        // a. Always close the dangling row first — read real usage when available, else
-        //    zero (so the row is never re-listed every boot). This is ONE unconditional
-        //    completion, avoiding captureUsage's `if (usage)` double-complete trap.
-        const usage = await this.readUsage(row.worktreePath, row.reviewerSessionId).catch(
-          () => null,
-        );
-        const zeroedUsage: SessionUsage = {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          total: 0,
-          messageCount: 0,
-          lastActivity: null,
-          byModel: {},
-          fullRecaches: 0,
-          sidechainCount: 0,
-        };
-        this.deps.store.completeReviewerSpawn(
-          row.reviewerSessionId,
-          usage ?? zeroedUsage,
-          this.now(),
-        );
-
-        // b. Worktree gone → finalize already ran; just a dangling completion row.
-        //    Do NOT reap/drop/re-kick — preserves genuine-timeout error verdict accounting.
-        if (!this.worktreeExists(row.worktreePath)) {
+        const result = await this.reapOneOrphanRow(row);
+        if (result.kind === "dangling") {
           danglingClosed++;
-          continue;
-        }
-
-        // c. True orphan: the disposable worktree still exists → finalize never ran.
-        orphansReaped++;
-        const s = this.deps.store.get(row.taskSessionId);
-        // Free the name AND kill the still-alive claude process by closing its herdr tab.
-        // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
-        // (avoids a second list() call for the name-absent case when the session is gone).
-        const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
-        if (squatter) this.deps.herdr.closeTab(squatter.tabId);
-        // Remove the worktree AFTER freeing the name so the herdr slot is open before
-        // the worktree is gone (mirrors plan-gate's ordering invariant).
-        this.deps.worktree.remove(row.worktreePath);
-
-        // Re-engage only when the session is still present — a gone session needs no kick.
-        if (s) {
-          reKick.push(row.taskSessionId);
-          // An error verdict carries no findings — drop it so the next run starts fresh
-          // without a sticky REVIEW ERR badge. Non-error verdicts are left intact so the
-          // force-consider path in the later wiring task can preserve their streak accounting.
-          if (this.deps.store.getReview(row.taskSessionId)?.decision === "error") {
-            this.deps.store.dropReview(row.taskSessionId);
-          }
+        } else if (result.kind === "orphan") {
+          orphansReaped++;
+          if (result.reKickId) reKick.push(result.reKickId);
         }
       } catch (err) {
         console.warn(`[review] reapOrphans: error processing row ${row.reviewerSessionId}:`, err);
@@ -983,6 +937,60 @@ export class ReviewService {
       `[review] reapOrphans: ${orphansReaped} orphan(s) reaped, ${danglingClosed} dangling row(s) closed`,
     );
     return reKick;
+  }
+
+  /** Process a single uncompleted reviewer_spawns row during the boot orphan sweep.
+   *  Returns `{ kind: "dangling" }` for rows whose worktree is already gone (finalize ran),
+   *  or `{ kind: "orphan", reKickId }` for true restart-orphans (worktree still present).
+   *  Always closes the DB row first. Never throws — caller's try/catch scopes the error. */
+  private async reapOneOrphanRow(
+    row: ReviewerSpawnRow,
+  ): Promise<{ kind: "dangling" } | { kind: "orphan"; reKickId: string | null }> {
+    // a. Always close the dangling row first — read real usage when available, else
+    //    zero (so the row is never re-listed every boot). This is ONE unconditional
+    //    completion, avoiding captureUsage's `if (usage)` double-complete trap.
+    const usage = await this.readUsage(row.worktreePath, row.reviewerSessionId).catch(() => null);
+    const zeroedUsage: SessionUsage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+      messageCount: 0,
+      lastActivity: null,
+      byModel: {},
+      fullRecaches: 0,
+      sidechainCount: 0,
+    };
+    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, usage ?? zeroedUsage, this.now());
+
+    // b. Worktree gone → finalize already ran; just a dangling completion row.
+    //    Do NOT reap/drop/re-kick — preserves genuine-timeout error verdict accounting.
+    if (!this.worktreeExists(row.worktreePath)) {
+      return { kind: "dangling" };
+    }
+
+    // c. True orphan: the disposable worktree still exists → finalize never ran.
+    const s = this.deps.store.get(row.taskSessionId);
+    // Free the name AND kill the still-alive claude process by closing its herdr tab.
+    // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
+    // (avoids a second list() call for the name-absent case when the session is gone).
+    const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
+    if (squatter) this.deps.herdr.closeTab(squatter.tabId);
+    // Remove the worktree AFTER freeing the name so the herdr slot is open before
+    // the worktree is gone (mirrors plan-gate's ordering invariant).
+    this.deps.worktree.remove(row.worktreePath);
+
+    // Re-engage only when the session is still present — a gone session needs no kick.
+    if (!s) return { kind: "orphan", reKickId: null };
+
+    // An error verdict carries no findings — drop it so the next run starts fresh
+    // without a sticky REVIEW ERR badge. Non-error verdicts are left intact so the
+    // force-consider path in the later wiring task can preserve their streak accounting.
+    if (this.deps.store.getReview(row.taskSessionId)?.decision === "error") {
+      this.deps.store.dropReview(row.taskSessionId);
+    }
+    return { kind: "orphan", reKickId: row.taskSessionId };
   }
 
   snapshot(): Record<string, ReviewVerdict> {

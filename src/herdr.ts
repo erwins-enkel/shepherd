@@ -288,6 +288,44 @@ export class HerdrDriver {
     }
   }
 
+  /** Bounded-retry wrapper around `agent start` that evicts same-named squatter agents
+   *  when herdr rejects with `agent_name_taken`. Up to 3 attempts; no sleep between them
+   *  (the sync herdr round-trips provide real-world spacing). */
+  private startAgentWithCollisionRetry(
+    name: string,
+    tabId: string,
+    cwd: string,
+    wrapped: string[],
+  ): void {
+    const agentStartArgs = [
+      "agent",
+      "start",
+      name,
+      "--tab",
+      tabId,
+      "--cwd",
+      cwd,
+      "--no-focus",
+      "--",
+      ...wrapped,
+    ];
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        this.runner(agentStartArgs);
+        return;
+      } catch (err) {
+        if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) {
+          // Non-name-taken error → propagate immediately; or attempts exhausted → propagate
+          throw err;
+        }
+        // Evict squatter(s) by name — never by regex-parsing the error string
+        const squatters = this.list().filter((a) => a.name === name);
+        for (const sq of squatters) this.closeTab(sq.tabId);
+      }
+    }
+  }
+
   start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     this.ensureWorkspace(cwd);
@@ -330,33 +368,7 @@ export class HerdrDriver {
       // name), then retry. Bounded at 3 total attempts — no sleep: the sync herdr
       // round-trips (list + tab close) provide the real-world spacing; a blocking sleep
       // would freeze Bun's single event loop and stall the live web terminal.
-      const agentStartArgs = [
-        "agent",
-        "start",
-        name,
-        "--tab",
-        tabId,
-        "--cwd",
-        cwd,
-        "--no-focus",
-        "--",
-        ...wrapped,
-      ];
-      const MAX_ATTEMPTS = 3;
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        try {
-          this.runner(agentStartArgs);
-          break;
-        } catch (err) {
-          if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) {
-            // Non-name-taken error → propagate immediately; or attempts exhausted → propagate
-            throw err;
-          }
-          // Evict squatter(s) by name — never by regex-parsing the error string
-          const squatters = this.list().filter((a) => a.name === name);
-          for (const sq of squatters) this.closeTab(sq.tabId);
-        }
-      }
+      this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
 
       if (rootPaneId) {
         try {

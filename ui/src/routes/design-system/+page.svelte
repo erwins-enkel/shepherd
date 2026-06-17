@@ -415,7 +415,8 @@ input, select, textarea {
       <code>flex:1; min-width:0</code>; 44 px touch target (<code>min-height:44px</code>);
       <code>--fs-base</code> (13 px) labels; no uppercase, no letter-spacing (monospace). Active
       state: <code>--color-amber</code> text + <code>--color-inset</code> fill + amber 2 px bottom
-      inset. Inactive: <code>--color-faint</code>. Full-bleed on mobile via
+      inset. Inactive: <code>--color-muted</code> (≥4.5:1 contrast — not the lower-contrast
+      <code>--color-faint</code>). Full-bleed on mobile via
       <code>margin-inline: calc(-1 * var(--mobile-shell-pad))</code>.
     </p>
     <div class="demo">

@@ -727,11 +727,13 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await expect
       .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
       .toBeInTheDocument();
+    // mobile bottom sheet: Settings is a plain button (not role=menuitem — invalid in dialog)
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .element(page.getByRole("button", { name: m.settings_title() }))
       .toBeInTheDocument();
     // mobile footer: a link to Shepherd's home (README + docs) and the build version
-    const docs = page.getByRole("menuitem", { name: m.topbar_menu_docs() });
+    // The sheet uses plain <a>, not role=menuitem (invalid inside role=dialog)
+    const docs = page.getByRole("link", { name: m.topbar_menu_docs() });
     await expect.element(docs).toBeInTheDocument();
     await expect.element(docs).toHaveAttribute("href", REPO_URL);
     await expect.element(page.getByText(`v${version}`)).toBeInTheDocument();

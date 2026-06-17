@@ -1448,5 +1448,7 @@
   "herd_seg_done": "Done",
   "herd_seg_rundown": "Rundown",
   "feat_mobile_header_title": "Tidier mobile header",
-  "feat_mobile_header_body": "The status filter in the Herd header is now a compact segmented control on mobile — one tap switches lens, glyphs are gone, and the bar stays single-line at any phone width."
+  "feat_mobile_header_body": "The status filter in the Herd header is now a compact segmented control on mobile — one tap switches lens, glyphs are gone, and the bar stays single-line at any phone width.",
+  "topbar_sheet_title": "Controls",
+  "topbar_sheet_usage": "Usage"
 }

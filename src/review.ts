@@ -490,7 +490,21 @@ export class ReviewService {
     //    finalRoundPending) so a session stalled at the address cap gets a fresh budget — forcing a
     //    review implies "try again". Preserve outstanding-work state the critic must re-verify
     //    (findings, body, headSha, etc.).
-    this.clearStallState(session);
+    //
+    //    Deliberately NO onChange here — the reset is hygiene before the real re-review; emitting
+    //    a zeroed-counter row now would flicker the badge to "clean" before the verdict lands.
+    //    onChange fires once when finalize() persists the real verdict via consider().
+    const priorForReset = this.deps.store.getReview(session.id);
+    if (priorForReset) {
+      this.deps.store.putReview({
+        ...priorForReset,
+        errorRound: 0,
+        streakReviews: 0,
+        reviewedPatchIds: [],
+        addressRound: 0,
+        finalRoundPending: false,
+      });
+    }
     // 4. one code path:
     return this.consider(session, git, { force: true });
   }

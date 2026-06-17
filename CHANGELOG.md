@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.33.0](https://github.com/erwins-enkel/shepherd/compare/v1.32.0...v1.33.0) (2026-06-17)
+
+
+### Features
+
+* **gitrail:** first-class manual plan-review trigger ([#753](https://github.com/erwins-enkel/shepherd/issues/753)) ([#754](https://github.com/erwins-enkel/shepherd/issues/754)) ([39cddba](https://github.com/erwins-enkel/shepherd/commit/39cddba7aae2ae1d1c2ef3858df7b7cd10eb71a9))
+* **gitrail:** manual critic-review trigger ([#745](https://github.com/erwins-enkel/shepherd/issues/745)) ([85383cf](https://github.com/erwins-enkel/shepherd/commit/85383cf34d2a1ba03dbc233ffaf71b2b00cb571d))
+* **repos:** list cloneable GitHub repos in the clone dialog ([#744](https://github.com/erwins-enkel/shepherd/issues/744)) ([29a0ab6](https://github.com/erwins-enkel/shepherd/commit/29a0ab6aa4ea7b054a80563b535742bf0338f41e))
+* **site:** shepherd.run landing page (Astro static) ([#741](https://github.com/erwins-enkel/shepherd/issues/741)) ([bc1c3da](https://github.com/erwins-enkel/shepherd/commit/bc1c3da526414a8f5074ecfa1fc96266e5ef04b0))
+* surface quota-exhausted sessions as a 'needs you' nudge ([#755](https://github.com/erwins-enkel/shepherd/issues/755)) ([c53a4f1](https://github.com/erwins-enkel/shepherd/commit/c53a4f1c64a9281226b34139e41135347e5ee7e7))
+* **topbar:** relative reset countdown on usage gauges ([#746](https://github.com/erwins-enkel/shepherd/issues/746)) ([321a746](https://github.com/erwins-enkel/shepherd/commit/321a7461b42f9bb3bb3dc2f1e15266a5b9fff3be))
+
+
+### Bug Fixes
+
+* **critic:** bind herdr/worktree in reapRun so critic teardown can't crash ([#748](https://github.com/erwins-enkel/shepherd/issues/748)) ([1f7ddc4](https://github.com/erwins-enkel/shepherd/commit/1f7ddc41dbb47c104051f8847914b772d62b36d6))
+* **learnings:** restore distiller — unique agent name, bounded concurrency, fail-closed health ([#750](https://github.com/erwins-enkel/shepherd/issues/750)) ([79e5e6e](https://github.com/erwins-enkel/shepherd/commit/79e5e6e7e5ae86fe9985aba3def109ac4fa7b363))
+* **onboarding-harness:** 4GiB profile cap clears claude-installer OOM; surface install RAM floor ([#749](https://github.com/erwins-enkel/shepherd/issues/749)) ([#752](https://github.com/erwins-enkel/shepherd/issues/752)) ([c174828](https://github.com/erwins-enkel/shepherd/commit/c174828dffcb7d21c473337af1503f74f2e0d2e0))
+* **review:** reap orphaned reviewers across restart to stop recurring REVIEW ERR ([#751](https://github.com/erwins-enkel/shepherd/issues/751)) ([41b420e](https://github.com/erwins-enkel/shepherd/commit/41b420e7efde6cca2700db7f2284de564b086658))
+* **tmp-sweep:** reap stale fallow caches + prune orphaned worktree records ([#742](https://github.com/erwins-enkel/shepherd/issues/742)) ([22bf7f8](https://github.com/erwins-enkel/shepherd/commit/22bf7f84600251e02546326dedee07631e935c09))
+
 ## [1.32.0](https://github.com/erwins-enkel/shepherd/compare/v1.31.0...v1.32.0) (2026-06-16)
 
 

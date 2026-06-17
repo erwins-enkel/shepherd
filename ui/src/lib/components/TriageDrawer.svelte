@@ -49,6 +49,13 @@
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
   }
 
+  function quotaNote(kind: "rework" | "review" | "error" | "plan" | undefined): string {
+    if (kind === "rework") return m.triage_quota_rework();
+    if (kind === "review") return m.triage_quota_review();
+    if (kind === "error") return m.triage_quota_error();
+    return m.triage_quota_plan();
+  }
+
   function sendBatch() {
     const t = batchText;
     if (!t) return;
@@ -88,6 +95,26 @@
     </button>
   {/snippet}
 
+  {#snippet replyForm(id: string, desig: string)}
+    <form
+      class="reply"
+      onsubmit={(ev) => {
+        ev.preventDefault();
+        const t = drafts[id] ?? "";
+        if (t) onreply(id, t);
+        drafts[id] = "";
+      }}
+    >
+      <input
+        placeholder={m.triage_reply_placeholder()}
+        aria-label={m.triage_reply_aria({ desig })}
+        bind:value={drafts[id]}
+      />
+      <button type="submit">{m.triage_send_button()}</button>
+      {@render consoleBtn(id, desig)}
+    </form>
+  {/snippet}
+
   {#each entries as e (e.session.id)}
     <section class="row">
       <div class="head">
@@ -102,17 +129,7 @@
       </div>
 
       {#if e.reason.shape === "quota"}
-        <p class="quota-note">
-          {#if e.reason.quotaKind === "rework"}
-            {m.triage_quota_rework()}
-          {:else if e.reason.quotaKind === "review"}
-            {m.triage_quota_review()}
-          {:else if e.reason.quotaKind === "error"}
-            {m.triage_quota_error()}
-          {:else}
-            {m.triage_quota_plan()}
-          {/if}
-        </p>
+        <p class="quota-note">{quotaNote(e.reason.quotaKind)}</p>
         {#if e.reason.tail.length > 0}
           <pre class="tail">{e.reason.tail.join("\n")}</pre>
         {/if}
@@ -134,48 +151,30 @@
             >{m.triage_quota_abandon()}</button
           >
         </div>
-      {:else}
-        {#if e.reason.shape === "stall"}
-          <div class="stall-head">
-            <p class="stall-note">{m.triage_stall_note()}</p>
-            <button
-              class="dismiss"
-              onclick={() => ondismiss(e.session.id)}
-              aria-label={m.triage_dismiss_aria({ desig: e.session.desig })}
-            >
-              {m.triage_dismiss_button()}
-            </button>
-          </div>
-        {/if}
-
-        <pre class="tail">{e.reason.tail.join("\n")}</pre>
-
-        {#if e.reason.shape === "awaiting-input" || e.reason.shape === "stall"}
-          <form
-            class="reply"
-            onsubmit={(ev) => {
-              ev.preventDefault();
-              const t = drafts[e.session.id] ?? "";
-              if (t) onreply(e.session.id, t);
-              drafts[e.session.id] = "";
-            }}
+      {:else if e.reason.shape === "stall"}
+        <div class="stall-head">
+          <p class="stall-note">{m.triage_stall_note()}</p>
+          <button
+            class="dismiss"
+            onclick={() => ondismiss(e.session.id)}
+            aria-label={m.triage_dismiss_aria({ desig: e.session.desig })}
           >
-            <input
-              placeholder={m.triage_reply_placeholder()}
-              aria-label={m.triage_reply_aria({ desig: e.session.desig })}
-              bind:value={drafts[e.session.id]}
-            />
-            <button type="submit">{m.triage_send_button()}</button>
-            {@render consoleBtn(e.session.id, e.session.desig)}
-          </form>
-        {:else}
-          <div class="opts">
-            {#each e.reason.options as o (o.send)}
-              <button onclick={() => onreply(e.session.id, o.send)}>{o.label}</button>
-            {/each}
-            {@render consoleBtn(e.session.id, e.session.desig)}
-          </div>
-        {/if}
+            {m.triage_dismiss_button()}
+          </button>
+        </div>
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        {@render replyForm(e.session.id, e.session.desig)}
+      {:else if e.reason.shape === "awaiting-input"}
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        {@render replyForm(e.session.id, e.session.desig)}
+      {:else}
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        <div class="opts">
+          {#each e.reason.options as o (o.send)}
+            <button onclick={() => onreply(e.session.id, o.send)}>{o.label}</button>
+          {/each}
+          {@render consoleBtn(e.session.id, e.session.desig)}
+        </div>
       {/if}
     </section>
   {/each}

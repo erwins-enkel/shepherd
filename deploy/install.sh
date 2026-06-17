@@ -26,6 +26,9 @@
 #   SHEPHERD_NO_SERVICE  Passed through to provision.ts: skip the systemd unit.
 #                        Set automatically on macOS (core-only mode).
 #
+# RAM floor: Claude Code's installer transiently needs ~2 GB RSS; hosts below ~3 GB
+#   total RAM may OOM-kill the install. Add RAM or swap if the install fails.
+#
 # Test seams (override OS detection; never set in real use):
 #   SHEPHERD_UNAME_S  Overrides `uname -s`.
 #   SHEPHERD_UNAME_M  Overrides `uname -m`.

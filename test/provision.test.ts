@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn, beforeEach, afterEach } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
@@ -14,6 +14,8 @@ import {
   ensureNodeGyp,
   installService,
   buildOnly,
+  lowMemoryWarning,
+  INSTALL_RAM_FLOOR_BYTES,
   type FileIO,
   type Runner,
 } from "../deploy/provision";
@@ -331,6 +333,73 @@ describe("extracted helpers (direct)", () => {
     expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
     expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
     expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+  });
+});
+
+describe("lowMemoryWarning (pure)", () => {
+  it("returns null at exactly the floor", () => {
+    expect(lowMemoryWarning(INSTALL_RAM_FLOOR_BYTES)).toBeNull();
+  });
+
+  it("returns null above the floor", () => {
+    expect(lowMemoryWarning(4 * 1024 ** 3)).toBeNull();
+  });
+
+  it("returns a non-null string below the floor that mentions the detected amount", () => {
+    const result = lowMemoryWarning(2 * 1024 ** 3);
+    expect(result).not.toBeNull();
+    expect(result).toContain("2.0 GiB");
+  });
+
+  it("custom floor: above custom floor → null", () => {
+    expect(lowMemoryWarning(2 * 1024 ** 3, 1 * 1024 ** 3)).toBeNull();
+  });
+});
+
+describe("provision — low-memory advisory wiring", () => {
+  let written: string[];
+  let restore: () => void;
+
+  beforeEach(() => {
+    written = [];
+    const spy = spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+    restore = () => spy.mockRestore();
+  });
+
+  afterEach(() => restore());
+
+  it("emits the advisory when totalMem is below the floor", () => {
+    const { run, fileIO } = recorder();
+    provision({
+      run,
+      fileIO,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1" },
+      repo: "/repo",
+      totalMem: () => 2 * 1024 ** 3,
+    });
+    const all = written.join("");
+    expect(all).toContain("low memory");
+    expect(all).toContain("2.0 GiB");
+  });
+
+  it("does NOT emit the advisory when totalMem is above the floor", () => {
+    const { run, fileIO } = recorder();
+    provision({
+      run,
+      fileIO,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { SHEPHERD_NO_SERVICE: "1" },
+      repo: "/repo",
+      totalMem: () => 8 * 1024 ** 3,
+    });
+    const all = written.join("");
+    expect(all).not.toContain("low memory");
   });
 });
 

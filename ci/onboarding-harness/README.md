@@ -57,16 +57,11 @@ bun run onboarding:test --scenario install-e2e-service
 
 ## Prerequisites
 
-- Self-hosted Incus host with the `shep-onb` profile configured:
-  ```
-  incus profile create shep-onb
-  incus profile set shep-onb limits.cpu 2 limits.memory 2GiB
-  # For tailscale/systemd scenarios (nesting + TUN):
-  incus profile set shep-onb security.nesting true
-  incus profile device add shep-onb tun unix-char path=/dev/net/tun
-  ```
+- Self-hosted Incus host. No manual profile setup needed — the harness ensures the `shep-onb` profile automatically at run start (cpu 2, memory 4 GiB, nesting enabled, TUN device).
 - `bun` installed on the Incus host.
 - `~/.claude` credentials accessible on the host (mounted into instances for the agent apply path). The harness expects a valid Claude Code credential so the proxy-user agent can run `claude -p` inside each instance.
+
+**Install-time RAM floor:** Claude Code's native installer transiently peaks at ~2 GB RSS during `claude install`. The harness sizes instances at 4 GiB to provide headroom above the ~3 GB floor; hosts below that may OOM-kill the install.
 
 ## Usage
 

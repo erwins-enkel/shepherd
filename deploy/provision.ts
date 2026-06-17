@@ -16,7 +16,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
 import { compareSemver } from "../src/herdr-update";
@@ -44,6 +44,24 @@ export const PREREQS: readonly Prereq[] = [
   // claude is presence-only (no version floor), like diagnostics.
   { bin: "claude", hintKey: "diagnostics_hint_claude_missing" },
 ];
+
+/** Install-time RAM floor. Claude Code's native installer transiently peaks at ~2 GB during
+ *  `claude install`; below this, the install can be OOM-killed on a small host (#749). Advisory
+ *  only — we warn, never abort (a swap-backed host may still succeed). */
+export const INSTALL_RAM_FLOOR_BYTES = 3 * 1024 * 1024 * 1024; // 3 GiB
+
+/** Pure: an advisory string when total RAM is under the floor, else null. */
+export function lowMemoryWarning(
+  totalBytes: number,
+  floorBytes = INSTALL_RAM_FLOOR_BYTES,
+): string | null {
+  if (totalBytes >= floorBytes) return null;
+  const gib = (n: number) => (n / 1024 / 1024 / 1024).toFixed(1);
+  return (
+    `low memory: ${gib(totalBytes)} GiB total RAM detected; Claude Code's installer needs ` +
+    `~2 GB free during setup, so the install may be OOM-killed. Add RAM or swap if it fails.`
+  );
+}
 
 /** The decision a host yields: whether to take the systemd-service path, and
  *  whether to print the macOS DEGRADED banner. */
@@ -184,6 +202,8 @@ interface ProvisionOpts {
   repo?: string;
   /** Injectable file IO (templated-unit read/write); real fs by default. */
   fileIO?: FileIO;
+  /** Injectable total-memory probe; defaults to os.totalmem. */
+  totalMem?: () => number;
 }
 
 /** Step 1 — table-driven prereq install loop (idempotent; skips adequate tools). */
@@ -275,6 +295,12 @@ export function provision(opts: ProvisionOpts = {}): void {
   const env = opts.env ?? process.env;
   const repo = opts.repo ?? process.cwd();
   const home = homedir();
+  const memFn = opts.totalMem ?? totalmem;
+
+  const memWarning = lowMemoryWarning(memFn());
+  if (memWarning !== null) {
+    process.stdout.write(`\x1b[33m${memWarning}\x1b[0m\n`);
+  }
 
   installPrereqs(probe, run, env);
   const buildEnv = ensureNodeGyp(run, env, home);

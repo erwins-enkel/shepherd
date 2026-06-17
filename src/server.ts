@@ -221,16 +221,16 @@ export interface AppDeps {
   planGate?: {
     consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
     /** Reset the plan-gate round so the quota block clears, re-delivering findings to the agent. */
-    resume(session: Session): boolean;
+    resume?(session: Session): boolean;
     /** Reset the plan-gate round WITHOUT re-delivering findings (dismiss the quota block). */
-    dismiss(session: Session): void;
+    dismiss?(session: Session): void;
   };
   /** Operator-initiated critic review (the POST /review-pr route). Wired to
    *  ReviewService.forceReview in index.ts; absent in tests that don't exercise it. */
   reviewTrigger?: {
     force(session: Session, git: GitState): Promise<import("./review").ReviewOutcome>;
     /** Reset escalation counters WITHOUT re-triggering a review (dismiss the quota block). */
-    clearStallState(session: Session): void;
+    clearStallState?(session: Session): void;
   };
   /** Snapshot of session recaps keyed by session id; absent in tests that skip it. */
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };

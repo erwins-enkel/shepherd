@@ -139,7 +139,7 @@ test("selectWords returns kept + usedSpecific for a strong prompt", () => {
   const { kept, usedSpecific } = selectWords("the mobile footer needs settings export");
   expect(usedSpecific).toBe(true);
   // "mobile", "footer", "settings", "export" are specific (not in STOPWORDS or COMMON)
-  expect(kept.length).toBeGreaterThanOrEqual(2);
+  expect(kept).toEqual(["mobile", "footer", "settings", "export"]);
 });
 
 test("selectWords returns usedSpecific=false for an all-common fallback prompt", () => {
@@ -160,24 +160,34 @@ test("isHeuristicNameStrong truth table", () => {
 });
 
 test("no-drift pinning: normalize and isHeuristicNameStrong derive from selectWords", () => {
+  // Corpus covers: strong multi-word, single-specific-word, only-COMMON fallback,
+  // all-stopword/fallback, and various prose prompts.
   const corpus = [
-    "the mobile footer needs settings export",
+    "the mobile footer needs settings export", // strong: multi-word specific
+    "export", // single specific word → not strong, no "-"
+    "make the button nice", // only-COMMON survivors → not strong
+    "und der die", // all-stopword fallback → not strong
     "please can you do it",
-    "make the button nice",
-    "export",
     "Add status lights to cards",
     "Refactor parser tokenizer lexer evaluator",
     "I was wondering if maybe we could make the export button a little more obvious",
     "There's a weird thing where the diff viewport scrolls to the top on every keystroke",
     "läuft das bis morgen denn",
-    "und der die",
     "!!! ??? ...",
     "Even with the two recent PRs...",
     "p",
   ];
   for (const p of corpus) {
-    const { kept, usedSpecific } = selectWords(p);
+    const { kept } = selectWords(p);
+
+    // load-bearing: the built name's words ARE the kept words
     expect(normalize(p)).toBe(kept.join("-"));
-    expect(isHeuristicNameStrong(p)).toBe(usedSpecific && kept.length >= 2);
+    expect(normalize(p).split("-").filter(Boolean)).toEqual(kept);
+
+    // load-bearing: when strong, the built name must contain "-" (≥2 words);
+    // lowering the threshold to >= 1 would break this
+    if (isHeuristicNameStrong(p)) {
+      expect(normalize(p)).toContain("-");
+    }
   }
 });

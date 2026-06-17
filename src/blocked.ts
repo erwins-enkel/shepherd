@@ -1,4 +1,4 @@
-export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
+export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
 
 export interface BlockOption {
   label: string;
@@ -11,6 +11,8 @@ export interface BlockReason {
   options: BlockOption[];
   /** Last non-empty terminal lines for context; most recent last. */
   tail: string[];
+  /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
+  quotaKind?: "rework" | "review" | "error" | "plan";
 }
 
 const TAIL_LINES = 15;

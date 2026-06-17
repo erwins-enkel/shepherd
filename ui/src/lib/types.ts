@@ -106,7 +106,7 @@ export interface SlashCommand {
   argumentHint?: string;
 }
 
-export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall";
+export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
 export interface BlockOption {
   label: string;
   send: string;
@@ -115,6 +115,8 @@ export interface BlockReason {
   shape: BlockShape;
   options: BlockOption[];
   tail: string[];
+  /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
+  quotaKind?: "rework" | "review" | "error" | "plan";
 }
 
 export type ForgeKind = "github" | "gitea";

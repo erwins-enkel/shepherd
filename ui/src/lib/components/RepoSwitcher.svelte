@@ -313,10 +313,10 @@
     /* a fixed single-line height so the rail never wraps */
     padding: 2px 0;
     scrollbar-width: none;
-    /* peek cue: reserve enough room on the right so the next chip's leading edge
-       is always partially visible (straddles the clip boundary at rest). Combined
-       with the narrow right-fade below, this guarantees a real visible peek on
-       coarse-pointer / touch devices without a trackpad affordance. */
+    /* peek cue: the visible at-rest peek comes from the .rs-track's trailing
+       padding-right plus the narrow right-edge fade, which together guarantee the
+       next chip's leading edge protrudes into view. scroll-padding-right keeps
+       keyboard-focus scrollIntoView clear of the faded edge. */
     scroll-padding-right: 20px;
   }
   .rs-scroller::-webkit-scrollbar {

@@ -937,6 +937,9 @@
     padding: 0 2px;
     color: var(--color-faint);
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition:
       color 0.12s ease,
       background 0.12s ease;

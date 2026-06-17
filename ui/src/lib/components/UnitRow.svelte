@@ -69,6 +69,7 @@
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
+    quotaKind = null,
   }: {
     session: Session;
     selected: boolean;
@@ -100,6 +101,8 @@
     onrepofilter?: (repoPath: string | null) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
+    // quota block kind for this session; non-null surfaces the quota badge
+    quotaKind?: "rework" | "review" | "error" | "plan" | null;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -456,6 +459,15 @@
       {#if !stepperTerminal}<PrBadge {git} />{/if}
       <CriticBadge sessionId={session.id} />
       <PlanGateBadge {session} />
+      {#if quotaKind}
+        <span
+          class="badge quota-stalled"
+          role="img"
+          title={m.unitrow_quota_title()}
+          aria-label={m.unitrow_quota_title()}
+          >{#if quotaKind === "rework"}{m.unitrow_quota_rework()}{:else if quotaKind === "review"}{m.unitrow_quota_review()}{:else if quotaKind === "error"}{m.unitrow_quota_error()}{:else}{m.unitrow_quota_plan()}{/if}</span
+        >
+      {/if}
       <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
       {#if !reviewing}<AutopilotBadge {session} />{/if}
       <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
@@ -1053,6 +1065,16 @@
     border: 1px solid var(--color-amber);
     border-radius: 2px;
     color: var(--color-amber);
+  }
+
+  /* QUOTA STALLED: session blocked on quota exhaustion — amber attention, same idiom
+     as sandbox-warn; needs a human to resume/take over/abandon. */
+  .badge.quota-stalled {
+    padding: 1px 6px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font-weight: 600;
   }
 
   .elapsed {

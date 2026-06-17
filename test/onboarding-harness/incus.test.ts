@@ -91,7 +91,7 @@ describe("ensureProfile", () => {
 
     // Step 2: profile set — must include limits.memory immediately followed by the
     // constant's value (NOT a second literal), plus limits.cpu and security.nesting.
-    const setCall = calls[1];
+    const setCall = calls[1]!;
     expect(setCall[0]).toBe("profile");
     expect(setCall[1]).toBe("set");
     expect(setCall[2]).toBe("shep-onb");

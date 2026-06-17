@@ -1,3 +1,6 @@
+import { addressStallStatus } from "./review-status";
+import type { Session, ReviewVerdict, PlanGate } from "./types";
+
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
 
 export interface BlockOption {
@@ -90,4 +93,42 @@ export function classifyBlocked(text: string): BlockReason {
   }
 
   return { shape: "awaiting-input", options: [], tail };
+}
+
+/**
+ * Pure detector: decides whether an idle session is quota-exhausted and which kind.
+ * Returns a `BlockReason` of `shape: "quota"` with the matching `quotaKind` and
+ * `tail` set to the relevant findings array, or `null` when not exhausted.
+ */
+export function quotaBlockReason(
+  session: Session,
+  review: ReviewVerdict | null,
+  gate: PlanGate | null,
+  now: number,
+): BlockReason | null {
+  // Guard: running session is still working — never fire prematurely.
+  if (session.status === "running") return null;
+
+  // Plan gate (pre-execution domain): check first.
+  if (gate !== null && gate.decision === "changes_requested" && gate.round >= gate.cap) {
+    return { shape: "quota", quotaKind: "plan", options: [], tail: gate.findings };
+  }
+
+  // Critic cases (only when no plan match), in precedence order.
+  if (review !== null) {
+    // Error ceiling: critic can't produce a real verdict.
+    if (review.errorRound >= review.addressCap) {
+      return { shape: "quota", quotaKind: "error", options: [], tail: review.findings };
+    }
+    // Review ceiling: reviewed 2*cap times without ever going clean.
+    if (review.streakReviews >= 2 * review.addressCap) {
+      return { shape: "quota", quotaKind: "review", options: [], tail: review.findings };
+    }
+    // Rework stall: auto-address held at cap.
+    if (addressStallStatus(review, now) === "stalled") {
+      return { shape: "quota", quotaKind: "rework", options: [], tail: review.findings };
+    }
+  }
+
+  return null;
 }

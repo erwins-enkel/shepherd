@@ -48,6 +48,7 @@ import type {
   Recap,
   CompletedEpic,
   HerdDigest,
+  DistillerHealth,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -1080,6 +1081,12 @@ export async function getPendingLearnings(): Promise<Learning[]> {
 export async function getInjectableLearnings(): Promise<RepoInjectable[]> {
   const r = await fetch("/api/learnings/injectable");
   if (!r.ok) throw await failed(r, "injectable learnings");
+  return r.json();
+}
+
+export async function getLearningsHealth(): Promise<DistillerHealth> {
+  const r = await fetch("/api/learnings/health");
+  if (!r.ok) throw await failed(r, "learnings health");
   return r.json();
 }
 

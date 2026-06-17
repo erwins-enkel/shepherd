@@ -4,6 +4,7 @@
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import type { Learning, RepoInjectable, SignalKind } from "$lib/types";
+  import { learnings } from "$lib/learnings.svelte";
   import {
     basename,
     repoAnchorId,
@@ -136,6 +137,15 @@
     <span class="title">{m.learnings_title()}</span>
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
   </header>
+
+  {#if !learnings.health.ok}
+    <div class="health-warn" role="status">
+      <strong class="hw-title">{m.learnings_distiller_stalled_title()}</strong>
+      <span class="hw-body"
+        >{m.learnings_distiller_stalled_body({ count: learnings.health.consecutiveFailures })}</span
+      >
+    </div>
+  {/if}
 
   <section class="about">
     <button
@@ -346,6 +356,24 @@
     color: var(--color-muted);
     cursor: pointer;
     font-size: var(--fs-lg);
+  }
+  /* distiller-stalled persistent warning banner */
+  .health-warn {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 12%, var(--color-head));
+    font-size: var(--fs-base);
+  }
+  .hw-title {
+    color: var(--color-amber);
+    font-weight: 600;
+  }
+  .hw-body {
+    color: var(--color-ink-bright);
+    line-height: 1.45;
   }
   /* "What is this?" explainer — collapsible, default open, state remembered. */
   .about {

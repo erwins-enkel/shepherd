@@ -252,7 +252,14 @@ export interface AppDeps {
   /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
    *  Optional so environments/tests that don't wire it still type-check; the route
    *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
-  distiller?: { distillNow: (repoPath: string) => void };
+  distiller?: {
+    distillNow: (repoPath: string) => void;
+    health?: () => {
+      ok: boolean;
+      consecutiveFailures: number;
+      lastFailure: { reason: string; at: number; repoPath: string } | null;
+    };
+  };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
@@ -877,6 +884,16 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
       };
     });
     return json(out);
+  }
+
+  // GET /api/learnings/health — distiller health (fail-safe: safe default when absent)
+  if (parts[2] === "health") {
+    const h = deps.distiller?.health?.() ?? {
+      ok: true,
+      consecutiveFailures: 0,
+      lastFailure: null,
+    };
+    return json(h);
   }
 
   // GET /api/learnings?repo=&status=

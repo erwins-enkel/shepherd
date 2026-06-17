@@ -1232,6 +1232,32 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
   expect(off.rules[0].injected).toBe(false);
 });
 
+// ── /api/learnings/health ────────────────────────────────────────────────────
+
+test("GET /api/learnings/health returns distiller health when health() present", async () => {
+  const deps = makeDeps();
+  const unhealthy = {
+    ok: false,
+    consecutiveFailures: 3,
+    lastFailure: { reason: "spawn", at: 1, repoPath: "/r" },
+  };
+  deps.distiller = { distillNow: () => {}, health: () => unhealthy };
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/learnings/health"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toEqual(unhealthy);
+});
+
+test("GET /api/learnings/health returns safe default when distiller lacks health()", async () => {
+  const deps = makeDeps(); // distiller = { distillNow: () => {} } — no health
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/learnings/health"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toEqual({ ok: true, consecutiveFailures: 0, lastFailure: null });
+});
+
 // ── clear-all-merged endpoint ────────────────────────────────────────────────
 // Build an app with a mutable stub prCache (the merged source of truth) + reaper.
 // Rows get random ids, so we create them first, then seed each session's PR state.

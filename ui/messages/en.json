@@ -444,6 +444,8 @@
   "learnings_promote_started": "Opened a CLAUDE.md PR for the rule",
   "learnings_promote_failed": "Could not promote the rule; see the server log",
   "learnings_promoted_pr": "View PR",
+  "learnings_distiller_stalled_title": "Learnings distiller stalled",
+  "learnings_distiller_stalled_body": "The distiller hasn't completed a run in its last {count} attempts — new learnings won't appear until it recovers.",
   "viewport_back_aria": "Back to herd",
   "viewport_back_button": "‹ Herd",
   "viewport_next_needs_you": "Needs you · {count}",

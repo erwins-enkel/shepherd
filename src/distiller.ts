@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
+import { HerdrUnavailableError } from "./herdr";
 import type { Signal, SignalKind } from "./types";
 import {
   isApiKeyMode,
@@ -20,12 +21,16 @@ const PROPOSALS_FILE = ".shepherd-learnings.json";
 const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>(["egress_drop"]);
 
 /**
- * Reserved herdr label for the ephemeral distiller agent. The underscores are load-bearing:
- * prompt-derived session slugs are `[a-z0-9-]` only (see namer.ts), so no real session can
- * collide. The orphan-tab reaper keys off this exact label — a bare "distill" would NOT be
- * safe, since a user prompt slugs to exactly that and would get reaped (cf. {@link PROBE_NAME}).
+ * Prefix for ephemeral distiller agent names. Each run appends the first 8 chars of its
+ * session UUID so concurrent runs for different repos never collide on the same herdr name
+ * (`agent_name_taken`). The underscores are load-bearing: prompt-derived session slugs are
+ * `[a-z0-9-]` only (see namer.ts), so no real session can collide. The orphan-tab reaper
+ * matches tabs whose name starts with this prefix — a bare "distill" would NOT be safe, since
+ * a user prompt slugs to exactly that and would get reaped (cf. {@link PROBE_NAME}).
  */
 export const DISTILL_LABEL = "__distill__";
+
+const HEALTH_FAILURE_THRESHOLD = 3;
 
 interface RawRule {
   rule?: unknown;
@@ -70,6 +75,7 @@ export interface DistillerDeps {
   timeoutMs?: number;
   windowMs?: number; // how far back to read signals (default 60d)
   minSignals?: number; // threshold for consider() (default 5)
+  maxConcurrent?: number; // max simultaneous distill runs (default 3)
   writeSignals?: (
     dir: string,
     signals: Signal[],
@@ -81,20 +87,58 @@ export interface DistillerDeps {
 
 export class DistillerService {
   private inflight = new Map<string, InFlight>();
+  private queue: { repoPath: string; signals: Signal[] }[] = [];
+  private queued = new Set<string>();
+  private maxConcurrent: number;
   private now: () => number;
   private timeoutMs: number;
   private windowMs: number;
   private minSignals: number;
   private writeSignals: NonNullable<DistillerDeps["writeSignals"]>;
   private readProposals: (dir: string) => RawProposals | null;
+  private healthFailures = 0;
+  private lastFailure: { reason: string; at: number; repoPath: string } | null = null;
 
   constructor(private deps: DistillerDeps) {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
     this.windowMs = deps.windowMs ?? 60 * 24 * 60 * 60 * 1000;
     this.minSignals = deps.minSignals ?? 5;
+    this.maxConcurrent = deps.maxConcurrent ?? 3;
     this.writeSignals = deps.writeSignals ?? defaultWriteSignals;
     this.readProposals = deps.readProposals ?? defaultReadProposals;
+  }
+
+  health(): {
+    ok: boolean;
+    consecutiveFailures: number;
+    lastFailure: { reason: string; at: number; repoPath: string } | null;
+  } {
+    return {
+      ok: this.healthOk(),
+      consecutiveFailures: this.healthFailures,
+      lastFailure: this.lastFailure,
+    };
+  }
+
+  private healthOk(): boolean {
+    return this.healthFailures < HEALTH_FAILURE_THRESHOLD;
+  }
+
+  private recordHealthFailure(repoPath: string, reason: string): void {
+    this.healthFailures++;
+    this.lastFailure = { reason, at: this.now(), repoPath };
+    // Emit on the ok→unhealthy transition AND on every further failure while unhealthy,
+    // so an already-open drawer keeps a fresh consecutiveFailures count instead of freezing
+    // at the threshold value. Below the threshold the banner is hidden, so no emit is needed.
+    if (!this.healthOk()) this.deps.onChange();
+  }
+
+  private recordHealthSuccess(): void {
+    const wasUnhealthy = !this.healthOk();
+    this.healthFailures = 0;
+    this.lastFailure = null;
+    if (wasUnhealthy) this.deps.onChange();
   }
 
   /** Recent learning signals for a repo — listSignals minus non-learning kinds
@@ -108,20 +152,29 @@ export class DistillerService {
 
   /** Start a distill run for `repoPath` if enough recent signals exist and none is in flight. */
   consider(repoPath: string): void {
-    if (this.inflight.has(repoPath)) return;
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
     const signals = this.recentLearningSignals(repoPath);
     if (signals.length < this.minSignals) return;
-    this.begin(repoPath, signals);
+    this.enqueueOrBegin(repoPath, signals);
   }
 
   /** Force a distill run regardless of the signal threshold (manual trigger).
-   *  Still requires at least one signal — nothing to distill from otherwise. */
+   *  Still requires at least one signal — nothing to distill from otherwise.
+   *  Subject to the concurrency cap; excess calls are queued. */
   distillNow(repoPath: string): void {
-    if (this.inflight.has(repoPath)) return;
     const signals = this.recentLearningSignals(repoPath);
     if (signals.length === 0) return;
-    this.begin(repoPath, signals);
+    this.enqueueOrBegin(repoPath, signals);
+  }
+
+  private enqueueOrBegin(repoPath: string, signals: Signal[]): void {
+    if (this.inflight.has(repoPath) || this.queued.has(repoPath)) return;
+    if (this.inflight.size < this.maxConcurrent) {
+      this.begin(repoPath, signals);
+    } else {
+      this.queue.push({ repoPath, signals });
+      this.queued.add(repoPath);
+    }
   }
 
   private begin(repoPath: string, signals: Signal[]): void {
@@ -146,6 +199,7 @@ export class DistillerService {
     } catch (err) {
       console.warn(`[distill] write signals failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);
+      this.recordHealthFailure(repoPath, "write");
       return;
     }
     // Read-only distiller — same hard-won spawn contract as the critic
@@ -154,10 +208,12 @@ export class DistillerService {
     // --allowedTools) so the trailing prompt isn't swallowed. Bare Write only.
     // Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
     // apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR.
+    const sessionId = randomUUID();
+    const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
     const argv = [
       "claude",
       "--session-id",
-      randomUUID(),
+      sessionId,
       "--settings",
       // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
       JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
@@ -174,13 +230,18 @@ export class DistillerService {
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
-        DISTILL_LABEL,
+        agentName,
         dir,
         argv,
         apiKeyPassthroughEnv(false),
       ).terminalId;
     } catch (err) {
-      console.warn(`[distill] spawn failed for ${repoPath}:`, err);
+      if (err instanceof HerdrUnavailableError) {
+        console.warn(`[distill] herdr unavailable for ${repoPath}:`, err);
+      } else {
+        console.warn(`[distill] spawn failed for ${repoPath}:`, err);
+        this.recordHealthFailure(repoPath, "spawn");
+      }
       this.deps.scratch.remove(dir);
       return;
     }
@@ -193,7 +254,7 @@ export class DistillerService {
     });
   }
 
-  /** Finalize any run whose proposals file is ready or that timed out. */
+  /** Finalize any run whose proposals file is ready or that timed out, then drain queue. */
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue;
@@ -204,6 +265,12 @@ export class DistillerService {
       this.finalize(f, raw);
       this.inflight.delete(f.repoPath);
     }
+    // Drain queue: each finalized run frees a slot
+    while (this.inflight.size < this.maxConcurrent && this.queue.length) {
+      const e = this.queue.shift()!;
+      this.queued.delete(e.repoPath);
+      this.begin(e.repoPath, e.signals);
+    }
   }
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
@@ -211,6 +278,11 @@ export class DistillerService {
     const flagged = this.applyIneffective(f, raw);
     this.deps.herdr.stop(f.terminalId);
     this.deps.scratch.remove(f.dir);
+    if (raw !== null) {
+      this.recordHealthSuccess();
+    } else {
+      this.recordHealthFailure(f.repoPath, "timeout-no-output");
+    }
     if (added > 0 || flagged > 0) this.deps.onChange();
   }
 

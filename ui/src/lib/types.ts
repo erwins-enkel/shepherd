@@ -906,6 +906,12 @@ export interface RepoInjectable {
   rules: (Learning & { injected: boolean })[];
 }
 
+export interface DistillerHealth {
+  ok: boolean;
+  consecutiveFailures: number;
+  lastFailure: { reason: string; at: number; repoPath: string } | null;
+}
+
 // ── leftover subprocesses surfaced at session close ─────────────────────────
 export type LeftoverKind = "process" | "system";
 

@@ -1066,6 +1066,7 @@ const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
 const runDailySweep = () => {
+  if (maintenance.active) return;
   if (config.sessionHousekeepingEnabled)
     store.pruneArchivedSessions({
       maxAgeMs: SESSION_RETENTION_MS,

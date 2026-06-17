@@ -133,6 +133,43 @@ test("non-helper untouched: a non-helper shell-only pane is ignored across two s
   expect(f2.closed).toEqual([]);
 });
 
+test("distiller unique label: husk tab __distill__<8hex> is reaped after two shell-only sweeps", async () => {
+  const uniqueLabel = `${DISTILL_LABEL}a1b2c3d4`;
+  const panes = [pane("w1:p1", "w1:t1", uniqueLabel)];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+
+  // Sweep 1: shell-only sighting — recorded, NOT closed.
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.closed).toEqual([]);
+  expect(f1.closed).toEqual([]);
+  expect(r1.shellOnly).toEqual(new Set(["w1:t1"]));
+
+  // Sweep 2: still shell-only AND seen last sweep → close.
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly);
+  expect(r2.closed).toEqual(["w1:t1"]);
+  expect(f2.closed).toEqual(["w1:t1"]);
+});
+
+test("distiller unique label: tab __distill__<8hex> with live agent is spared (liveness gate)", async () => {
+  const uniqueLabel = `${DISTILL_LABEL}a1b2c3d4`;
+  const panes = [pane("w1:p1", "w1:t1", uniqueLabel)];
+  const procMap: Record<string, string[]> = { "w1:p1": ["claude"] };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.closed).toEqual([]);
+  expect(r1.sparedLive).toBe(1);
+  expect(r1.shellOnly.has("w1:t1")).toBe(false);
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly);
+  expect(r2.closed).toEqual([]);
+  expect(f2.closed).toEqual([]);
+  expect(r2.sparedLive).toBe(1);
+});
+
 test("panes() throwing fails closed — reaps nothing, preserves debounce state", async () => {
   const { h, closed } = procFake([], {}, { panesThrows: true });
   const r = await reapOrphanTabs(h, new Set(["w1:t1"]));
@@ -147,7 +184,8 @@ describe("isShepherdHelperLabel", () => {
   const trueLabels: [string, string][] = [
     // pre-existing helpers
     [PROBE_NAME, "usage probe (underscore marker)"],
-    [DISTILL_LABEL, "distiller (underscore marker)"],
+    [DISTILL_LABEL, "distiller bare prefix (underscore marker)"],
+    [`${DISTILL_LABEL}a1b2c3d4`, "distiller unique label (prefix + 8hex suffix)"],
     ["review TASK-09", "critic/code-review"],
     ["name TASK-09", "background namer"],
     // new helpers (#721)
@@ -171,6 +209,7 @@ describe("isShepherdHelperLabel", () => {
     ["my-feature", "ordinary user session slug"],
     ["usage-probe", "slug form of PROBE_NAME — must NOT be reaped"],
     ["distill", "slug form of DISTILL_LABEL — must NOT be reaped"],
+    ["my-feature-branch", "ordinary user slug (no underscores)"],
     ["reviewing-pr", "starts with 'review' but no trailing space"],
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],
     ["name-my-thing", "hyphen instead of space — not a namer helper"],

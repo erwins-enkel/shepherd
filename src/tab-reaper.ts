@@ -23,9 +23,14 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  is reachable by a slug. Exception: `"rundown"` (exact, no space) relies on the
  *  liveness gate instead.
  *
+ *  The distiller now spawns under a UNIQUE per-run name of the form
+ *  `__distill__<8hex>` (prefix `DISTILL_LABEL`), matched here by prefix. The prefix ends
+ *  in `__`, which `[a-z0-9-]` slugs can never produce, so the prefix match stays
+ *  collision-proof. The per-pane liveness check remains the actual safety gate.
+ *
  *  Helpers covered:
  *  - `__usage_probe__`   — usage probe (PROBE_NAME)
- *  - `__distill__`       — distiller (DISTILL_LABEL)
+ *  - `__distill__<hex>`  — distiller (DISTILL_LABEL prefix, unique per run)
  *  - `review <desig>`    — critic / code-review spawns
  *  - `name <desig>`      — background LLM namer
  *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
@@ -37,7 +42,7 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
 export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
-    label === DISTILL_LABEL ||
+    label.startsWith(DISTILL_LABEL) ||
     label === "rundown" ||
     label === "verify api key" ||
     label.startsWith("review ") ||

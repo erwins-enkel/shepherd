@@ -2046,3 +2046,315 @@ test("forceReview HYGIENE: resets errorRound/streak/reviewedPatchIds on the prio
   expect(reviews["s1"]?.findings).toEqual(["still outstanding"]);
   expect(reviews["s1"]?.addressRound).toBe(1);
 });
+
+// ── reapOrphans (boot reconcile) ────────────────────────────────────────────────
+
+/** Build fake deps for reapOrphans tests — minimal, narrowly focused on reapOrphans. */
+function makeOrphanDeps(
+  rows: any[],
+  opts: {
+    sessions?: Record<string, any>;
+    reviews?: Record<string, any>;
+    agents?: any[];
+    worktreeExists?: (p: string) => boolean;
+    readUsage?: (wt: string, id: string) => Promise<any>;
+  } = {},
+) {
+  const completedSpawns: { id: string; u: any; at: number }[] = [];
+  const droppedReviews: string[] = [];
+  const closedTabs: string[] = [];
+  const removedWorktrees: string[] = [];
+  const agents = opts.agents ?? [];
+
+  const deps = {
+    store: {
+      listReviewerSpawns: () => rows,
+      get: (id: string) => opts.sessions?.[id] ?? null,
+      getReview: (id: string) => opts.reviews?.[id] ?? null,
+      completeReviewerSpawn: (id: string, u: any, at: number) =>
+        completedSpawns.push({ id, u, at }),
+      dropReview: (id: string) => droppedReviews.push(id),
+      // other store methods not needed for reapOrphans
+      getRepoConfig: () => ({ criticEnabled: false, autoAddressEnabled: false }),
+      getReview_unused: () => null,
+      putReview: () => {},
+      bumpReviewHead: () => {},
+      snapshotReviews: () => ({}),
+      addSignal: () => {},
+      recordReviewerSpawn: () => {},
+    },
+    herdr: {
+      start: () => ({ terminalId: "rt" }) as any,
+      stop: () => {},
+      list: () => agents,
+      closeTab: (tabId: string) => closedTabs.push(tabId),
+    },
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/wt", branch: null, isolated: true }),
+      remove: (p: string) => removedWorktrees.push(p),
+      gitCommonDir: () => "/fake-git",
+    },
+    resolveForge: () => null,
+    onChange: () => {},
+    detectBackend: () => null,
+    worktreeExists: opts.worktreeExists ?? (() => false),
+    readUsage: opts.readUsage ?? (async () => null),
+    now: () => 9999,
+  };
+
+  return { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees };
+}
+
+test("reapOrphans: true orphan (worktree present), error verdict — reaps, drops, returns taskId", async () => {
+  const row = {
+    reviewerSessionId: "rev-1",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const s = session({ id: "s1", desig: "TASK-01" });
+  const fakeUsage = {
+    input: 10,
+    output: 5,
+    cacheRead: 20,
+    cacheWrite: 1,
+    total: 36,
+    messageCount: 2,
+    lastActivity: 0,
+    byModel: {},
+    fullRecaches: 0,
+    sidechainCount: 0,
+  };
+  const { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees } = makeOrphanDeps(
+    [row],
+    {
+      sessions: { s1: s },
+      reviews: { s1: priorReview({ decision: "error" }) },
+      agents: [
+        { name: "review TASK-01", tabId: "tab-99", terminalId: "rt-99", cwd: "/other-wt" } as any,
+      ],
+      worktreeExists: (p) => p === "/orphan-wt",
+      readUsage: async () => fakeUsage,
+    },
+  );
+  const svc = new ReviewService(deps as any);
+  const result = await svc.reapOrphans();
+
+  // store.get was called with the taskSessionId
+  // squatter found by name "review TASK-01" → closeTab called
+  expect(closedTabs).toEqual(["tab-99"]);
+  // worktree removed
+  expect(removedWorktrees).toEqual(["/orphan-wt"]);
+  // spawn row completed with real usage
+  expect(completedSpawns).toHaveLength(1);
+  expect(completedSpawns[0]!.id).toBe("rev-1");
+  expect(completedSpawns[0]!.u.total).toBe(36);
+  // error verdict → dropReview called
+  expect(droppedReviews).toEqual(["s1"]);
+  // taskId in re-kick set
+  expect(result).toContain("s1");
+});
+
+test("reapOrphans: readUsage returns null → zeroed usage used", async () => {
+  const row = {
+    reviewerSessionId: "rev-null",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const s = session({ id: "s1", desig: "TASK-01" });
+  const { deps, completedSpawns } = makeOrphanDeps([row], {
+    sessions: { s1: s },
+    reviews: { s1: priorReview({ decision: "error" }) },
+    agents: [],
+    worktreeExists: () => true,
+    readUsage: async () => null,
+  });
+  const svc = new ReviewService(deps as any);
+  await svc.reapOrphans();
+
+  expect(completedSpawns).toHaveLength(1);
+  const u = completedSpawns[0]!.u;
+  // all numeric fields zeroed
+  expect(u.input).toBe(0);
+  expect(u.output).toBe(0);
+  expect(u.cacheRead).toBe(0);
+  expect(u.cacheWrite).toBe(0);
+  expect(u.total).toBe(0);
+  expect(u.messageCount).toBe(0);
+  expect(u.fullRecaches).toBe(0);
+  expect(u.sidechainCount).toBe(0);
+});
+
+test("reapOrphans: non-error prior verdict — NOT dropped, BUT taskId IS returned and proc/worktree reaped", async () => {
+  const row = {
+    reviewerSessionId: "rev-2",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const s = session({ id: "s1", desig: "TASK-01" });
+  const { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees } = makeOrphanDeps(
+    [row],
+    {
+      sessions: { s1: s },
+      reviews: { s1: priorReview({ decision: "changes_requested" }) },
+      agents: [
+        { name: "review TASK-01", tabId: "tab-55", terminalId: "rt-55", cwd: "/orphan-wt" } as any,
+      ],
+      worktreeExists: () => true,
+    },
+  );
+  const svc = new ReviewService(deps as any);
+  const result = await svc.reapOrphans();
+
+  // proc and worktree reaped
+  expect(closedTabs).toEqual(["tab-55"]);
+  expect(removedWorktrees).toEqual(["/orphan-wt"]);
+  // spawn row completed
+  expect(completedSpawns).toHaveLength(1);
+  // NOT dropped (non-error verdict)
+  expect(droppedReviews).toEqual([]);
+  // but taskId IS in the re-kick set
+  expect(result).toContain("s1");
+});
+
+test("reapOrphans: worktree absent (cleanly finalized, transcript miss) — completes row, no reap/drop/re-kick", async () => {
+  const row = {
+    reviewerSessionId: "rev-3",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/gone-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees } = makeOrphanDeps(
+    [row],
+    {
+      sessions: { s1: session({ id: "s1", desig: "TASK-01" }) },
+      reviews: {},
+      agents: [],
+      worktreeExists: () => false, // worktree gone → cleanly finalized
+    },
+  );
+  const svc = new ReviewService(deps as any);
+  const result = await svc.reapOrphans();
+
+  // row completed (zeroed usage)
+  expect(completedSpawns).toHaveLength(1);
+  expect(completedSpawns[0]!.u.total).toBe(0);
+  // no reap, no drop, no re-kick
+  expect(closedTabs).toEqual([]);
+  expect(removedWorktrees).toEqual([]);
+  expect(droppedReviews).toEqual([]);
+  expect(result).not.toContain("s1");
+});
+
+test("reapOrphans: kind=plan_gate and completedAt!=null rows are ignored entirely", async () => {
+  const rows = [
+    {
+      reviewerSessionId: "rev-pg",
+      taskSessionId: "pg1",
+      kind: "plan_gate",
+      worktreePath: "/pg-wt",
+      completedAt: null,
+      spawnedAt: 0,
+    },
+    {
+      reviewerSessionId: "rev-done",
+      taskSessionId: "s2",
+      kind: "review",
+      worktreePath: "/done-wt",
+      completedAt: 12345, // already completed
+      spawnedAt: 0,
+    },
+  ];
+  const { deps, completedSpawns, closedTabs, removedWorktrees } = makeOrphanDeps(rows, {
+    sessions: { pg1: session({ id: "pg1" }), s2: session({ id: "s2" }) },
+    worktreeExists: () => true,
+  });
+  const svc = new ReviewService(deps as any);
+  const result = await svc.reapOrphans();
+
+  // neither row processed (no completions, no reaps, empty re-kick set)
+  expect(completedSpawns).toHaveLength(0);
+  expect(closedTabs).toHaveLength(0);
+  expect(removedWorktrees).toHaveLength(0);
+  expect(result).toEqual([]);
+});
+
+test("reapOrphans: row body throws → sweep continues to process next row", async () => {
+  const throwingRow = {
+    reviewerSessionId: "rev-bad",
+    taskSessionId: "s-bad",
+    kind: "review",
+    worktreePath: "/bad-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const goodRow = {
+    reviewerSessionId: "rev-good",
+    taskSessionId: "s-good",
+    kind: "review",
+    worktreePath: "/good-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, completedSpawns } = makeOrphanDeps([throwingRow, goodRow], {
+    sessions: { "s-good": session({ id: "s-good", desig: "TASK-02" }) },
+    worktreeExists: (p) => p === "/good-wt",
+    // readUsage throws for the bad row, returns null for the good one
+    readUsage: async (_wt, id) => {
+      if (id === "rev-bad") throw new Error("transcript gone");
+      return null;
+    },
+  });
+  const svc = new ReviewService(deps as any);
+  // must not reject
+  const result = await svc.reapOrphans();
+
+  // good row was still processed
+  expect(completedSpawns.some((c) => c.id === "rev-good")).toBe(true);
+  // good row re-kick (session exists + worktree present)
+  expect(result).toContain("s-good");
+});
+
+test("reapOrphans: session gone (store.get → undefined) — reaps proc/worktree (cwd fallback), no drop, not returned", async () => {
+  const row = {
+    reviewerSessionId: "rev-gone",
+    taskSessionId: "s-gone",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees } = makeOrphanDeps(
+    [row],
+    {
+      sessions: {}, // session gone
+      agents: [
+        // no name match (session gone, label empty), but cwd matches
+        { name: "", tabId: "tab-cwd", terminalId: "rt-cwd", cwd: "/orphan-wt" } as any,
+      ],
+      worktreeExists: () => true,
+    },
+  );
+  const svc = new ReviewService(deps as any);
+  const result = await svc.reapOrphans();
+
+  // spawn row completed
+  expect(completedSpawns).toHaveLength(1);
+  // squatter found by cwd fallback → closeTab called
+  expect(closedTabs).toEqual(["tab-cwd"]);
+  // worktree removed
+  expect(removedWorktrees).toEqual(["/orphan-wt"]);
+  // NOT dropped, NOT returned
+  expect(droppedReviews).toEqual([]);
+  expect(result).not.toContain("s-gone");
+});

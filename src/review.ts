@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 import type { SessionStore } from "./store";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
@@ -124,8 +125,10 @@ export interface ReviewServiceDeps {
     | "addSignal"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "listReviewerSpawns"
+    | "get"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
@@ -155,6 +158,10 @@ export interface ReviewServiceDeps {
   model?: string | null; // optional --model for the critic
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
+  /** default: `existsSync` — whether a reviewer's disposable worktree is still on disk.
+   *  reapOrphans() uses it to tell a true restart-orphan (worktree survives) from an
+   *  already-finalized review (finalize reaps the worktree). */
+  worktreeExists?: (p: string) => boolean;
   /** Injectable verdict reader (default: read VERDICT_FILE from the worktree). */
   readVerdict?: (worktreePath: string) => RawVerdict | null;
   /** Injectable content fingerprint of `git diff base...HEAD` in the worktree (default:
@@ -209,6 +216,7 @@ export class ReviewService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
+  private worktreeExists: (p: string) => boolean;
 
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-
    *  checked (not `??`) because the seam legitimately returns null (no backend). */
@@ -247,6 +255,7 @@ export class ReviewService {
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.readActivity = deps.readActivity ?? defaultReadActivity;
     this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. With
@@ -869,6 +878,108 @@ export class ReviewService {
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
       updatedAt: this.now(),
     };
+  }
+
+  /** Find a live herdr agent that was spawned for a review run, resolved by NAME first
+   *  ("review TASK-<n>"), falling back to the worktree cwd. ONE `list()` call per
+   *  invocation. Returns undefined when no live agent matches — the reviewer is already gone. */
+  private findSquatter(label: string, cwd: string): HerdrAgent | undefined {
+    const agents = this.deps.herdr.list();
+    return agents.find((a) => a.name === label) ?? agents.find((a) => a.cwd === cwd);
+  }
+
+  /** Boot reconcile: close dangling `reviewer_spawns` rows from the last run and kill
+   *  any still-alive orphaned critic processes.
+   *
+   *  An "orphan" is a review that was in flight when the server last restarted. Because
+   *  `inflight` is in-memory only, tick() never finalizes it; the still-alive `claude`
+   *  holds the stable herdr name "review TASK-<n>", and the next consider() for that
+   *  session collides with `agent_name_taken`. This sweep detects and reaps them.
+   *
+   *  The orphan SIGNAL is the surviving disposable worktree — finalize() always removes
+   *  it, so a present worktree means finalize() NEVER ran (i.e., a true restart-orphan).
+   *  A row whose worktree is already gone (finalize ran but captureUsage's `if (usage)`
+   *  guard left the row uncompleted) is NOT an orphan: it's a completed-but-unclosed row.
+   *  We close those too (step a), but we do NOT reap/drop/re-kick them — preserving any
+   *  genuine-timeout `error` verdict's errorRound/streak escalation accounting.
+   *
+   *  Returns the taskSessionIds that should be re-kicked by the caller (index.ts wiring
+   *  in a separate task). Logs a one-line summary of what was reaped. */
+  async reapOrphans(): Promise<string[]> {
+    const reKick: string[] = [];
+    let danglingClosed = 0;
+    let orphansReaped = 0;
+
+    for (const row of this.deps.store.listReviewerSpawns()) {
+      // Only handle uncompleted review rows; plan_gate/recap/rundown are handled elsewhere.
+      if (row.kind !== "review" || row.completedAt != null) continue;
+      // Defensive: if already tracked in-memory (shouldn't be at boot, but guard anyway).
+      if (this.inflight.has(row.taskSessionId) || this.starting.has(row.taskSessionId)) continue;
+
+      // Wrap the entire row body so one bad row cannot abort the sweep.
+      try {
+        // a. Always close the dangling row first — read real usage when available, else
+        //    zero (so the row is never re-listed every boot). This is ONE unconditional
+        //    completion, avoiding captureUsage's `if (usage)` double-complete trap.
+        const usage = await this.readUsage(row.worktreePath, row.reviewerSessionId).catch(
+          () => null,
+        );
+        const zeroedUsage: SessionUsage = {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+          messageCount: 0,
+          lastActivity: null,
+          byModel: {},
+          fullRecaches: 0,
+          sidechainCount: 0,
+        };
+        this.deps.store.completeReviewerSpawn(
+          row.reviewerSessionId,
+          usage ?? zeroedUsage,
+          this.now(),
+        );
+
+        // b. Worktree gone → finalize already ran; just a dangling completion row.
+        //    Do NOT reap/drop/re-kick — preserves genuine-timeout error verdict accounting.
+        if (!this.worktreeExists(row.worktreePath)) {
+          danglingClosed++;
+          continue;
+        }
+
+        // c. True orphan: the disposable worktree still exists → finalize never ran.
+        orphansReaped++;
+        const s = this.deps.store.get(row.taskSessionId);
+        // Free the name AND kill the still-alive claude process by closing its herdr tab.
+        // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
+        // (avoids a second list() call for the name-absent case when the session is gone).
+        const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
+        if (squatter) this.deps.herdr.closeTab(squatter.tabId);
+        // Remove the worktree AFTER freeing the name so the herdr slot is open before
+        // the worktree is gone (mirrors plan-gate's ordering invariant).
+        this.deps.worktree.remove(row.worktreePath);
+
+        // Re-engage only when the session is still present — a gone session needs no kick.
+        if (s) {
+          reKick.push(row.taskSessionId);
+          // An error verdict carries no findings — drop it so the next run starts fresh
+          // without a sticky REVIEW ERR badge. Non-error verdicts are left intact so the
+          // force-consider path in the later wiring task can preserve their streak accounting.
+          if (this.deps.store.getReview(row.taskSessionId)?.decision === "error") {
+            this.deps.store.dropReview(row.taskSessionId);
+          }
+        }
+      } catch (err) {
+        console.warn(`[review] reapOrphans: error processing row ${row.reviewerSessionId}:`, err);
+      }
+    }
+
+    console.warn(
+      `[review] reapOrphans: ${orphansReaped} orphan(s) reaped, ${danglingClosed} dangling row(s) closed`,
+    );
+    return reKick;
   }
 
   snapshot(): Record<string, ReviewVerdict> {

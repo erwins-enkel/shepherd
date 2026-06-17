@@ -1,5 +1,5 @@
-import type { Learning, RepoInjectable } from "./types";
-import { getPendingLearnings, getInjectableLearnings } from "./api";
+import type { Learning, RepoInjectable, DistillerHealth } from "./types";
+import { getPendingLearnings, getInjectableLearnings, getLearningsHealth } from "./api";
 
 /** Client cache of PROPOSED learnings (across all repos) plus the per-repo
  *  INJECTABLE view (active/promoted rules + budget meter). Loaded once on app
@@ -8,6 +8,7 @@ import { getPendingLearnings, getInjectableLearnings } from "./api";
 class LearningsStore {
   items = $state<Learning[]>([]);
   injectable = $state<RepoInjectable[]>([]);
+  health = $state<DistillerHealth>({ ok: true, consecutiveFailures: 0, lastFailure: null });
 
   async load() {
     // Independent best-effort fetches: a failure in one must not blank the other.
@@ -19,6 +20,11 @@ class LearningsStore {
         }),
       getInjectableLearnings()
         .then((v) => (this.injectable = v))
+        .catch(() => {
+          /* best-effort */
+        }),
+      getLearningsHealth()
+        .then((v) => (this.health = v))
         .catch(() => {
           /* best-effort */
         }),

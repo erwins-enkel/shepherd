@@ -444,6 +444,8 @@
   "learnings_promote_started": "CLAUDE.md-PR für die Regel geöffnet",
   "learnings_promote_failed": "Regel konnte nicht übernommen werden; siehe Server-Log",
   "learnings_promoted_pr": "PR ansehen",
+  "learnings_distiller_stalled_title": "Learnings-Distiller blockiert",
+  "learnings_distiller_stalled_body": "Der Distiller hat seine letzten {count} Versuche nicht abgeschlossen – neue Learnings erscheinen erst, wenn er sich erholt.",
   "viewport_back_aria": "Zurück zum Herd",
   "viewport_back_button": "‹ Herd",
   "viewport_next_needs_you": "Wartet · {count}",

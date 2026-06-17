@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { classifyStop, classifierPrompt, VERDICT_FILE } from "../src/autopilot-llm";
+import { classifyStop, classifierPrompt, preClassify, VERDICT_FILE } from "../src/autopilot-llm";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
@@ -173,4 +173,56 @@ test("classifyStop: surfaces (and cleans up) when the spawn throws", async () =>
   const v = await classifyStop(["…"], "task", deps, "l");
   expect(v).toEqual({ kind: "unknown", summary: "" });
   expect(calls.cleaned).toBe(true); // temp dir still removed
+});
+
+// --- preClassify unit tests ---
+
+test("preClassify: empty array → SURFACE", () => {
+  expect(preClassify([])).toEqual({ kind: "unknown", summary: "" });
+});
+
+test("preClassify: whitespace-only lines → SURFACE", () => {
+  expect(preClassify(["  "])).toEqual({ kind: "unknown", summary: "" });
+});
+
+test("preClassify: non-empty line → null (proceed to spawn)", () => {
+  expect(preClassify(["hi"])).toBeNull();
+});
+
+// --- classifyStop integration tests for preClassify wiring ---
+
+test("classifyStop: empty tail short-circuits with no spawn", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  const v = await classifyStop([], "some task", deps, "l");
+  expect(v).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
+});
+
+test("classifyStop: whitespace-only tail short-circuits with no spawn", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  const v = await classifyStop(["   ", "\t", ""], "some task", deps, "l");
+  expect(v).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
+});
+
+test("classifyStop: non-empty tail still reaches spawn", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  await classifyStop(["Ready to start? (y/n)"], "task", deps, "l");
+  expect(calls.started).not.toBeNull();
+});
+
+test("classifyStop: api-key guard wins over pre-filter (non-empty tail, no key → SURFACE, no spawn)", async () => {
+  const { result, calls } = await withAuth("api-key", null, async () => {
+    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    const r = await classifyStop(["non-empty tail line"], "task", d.deps, "l");
+    return { result: r, calls: d.calls };
+  });
+  expect(result).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
 });

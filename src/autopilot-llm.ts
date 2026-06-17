@@ -37,6 +37,20 @@ interface RawVerdict {
 }
 
 /**
+ * Deterministic pre-filter for classifyStop: when there is no terminal tail to
+ * classify (the no-tail onDone path, autopilot.ts readTail throws/empties), there is
+ * nothing for Haiku to read, so conservatively surface (unknown — never auto-proceed)
+ * without paying for a spawn. Returns SURFACE for an empty/whitespace-only tail, else
+ * null (→ caller proceeds to the Haiku spawn, unchanged). NOT an identical-verdict
+ * optimization: today's empty-tail spawn still sees the task prompt and could return
+ * complete/finished — this conservative override always surfaces instead.
+ */
+export function preClassify(tail: string[]): AutopilotVerdict | null {
+  if (tail.every((l) => l.trim() === "")) return SURFACE;
+  return null;
+}
+
+/**
  * Self-contained instructions for the classifier agent. NOT UI chrome — never i18n'd.
  * The tail is UNTRUSTED agent output; it is embedded as data the agent only classifies,
  * never executes — the Write-only / dontAsk / no-Bash sandbox contains any injection.
@@ -174,6 +188,9 @@ export async function classifyStop(
   // Fail closed: api-key mode without a configured key must NOT bill the subscription —
   // surface to the operator rather than auto-classifying on the wrong footing.
   if (isApiKeyMode() && !isApiKeyConfigured()) return SURFACE;
+
+  const pre = preClassify(tail);
+  if (pre) return pre;
 
   let cwd: string | null = null;
   let terminalId: string | null = null;

@@ -1441,5 +1441,12 @@
   "quota_resume_failed": "Fortsetzen fehlgeschlagen — öffne die Sitzung zum Übernehmen.",
   "quota_resume_cleared": "Bereits erledigt.",
   "feat_quota_needs_you_title": "Hängende Sessions melden sich jetzt",
-  "feat_quota_needs_you_body": "Wenn eine Session ihr Überarbeitungs- oder Review-Limit erreicht, wird sie nicht mehr still inaktiv — sie zeigt ein „braucht dich\"-Badge und eine Benachrichtigung, und im Triage kannst du sie fortsetzen, übernehmen oder verwerfen."
+  "feat_quota_needs_you_body": "Wenn eine Session ihr Überarbeitungs- oder Review-Limit erreicht, wird sie nicht mehr still inaktiv — sie zeigt ein „braucht dich\"-Badge und eine Benachrichtigung, und im Triage kannst du sie fortsetzen, übernehmen oder verwerfen.",
+  "herd_seg_all": "Alle",
+  "herd_seg_ready": "Bereit",
+  "herd_seg_research": "Recherche",
+  "herd_seg_done": "Fertig",
+  "herd_seg_rundown": "Rundown",
+  "feat_mobile_header_title": "Aufgeräumterer mobiler Kopf",
+  "feat_mobile_header_body": "Der Statusfilter in der Herd-Kopfzeile ist auf dem Handy jetzt ein kompaktes Segmented-Control — ein Tippen wechselt die Ansicht, Symbole entfallen, und die Leiste bleibt einzeilig auf jeder Handybreite."
 }

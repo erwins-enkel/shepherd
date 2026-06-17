@@ -347,6 +347,69 @@
       {/if}
     </div>
   </div>
+  {#if flow}
+    <!-- Mobile-only segmented control: replaces the .fbtn filter row in flow
+         mode. A direct child of the already-full-bleed .panel.flow, so it spans
+         the full phone width without its own negative margin. Equal-width segments,
+         44px touch targets, --fs-base labels without leading glyphs. -->
+    <div class="seg-row" use:coachTarget={"mobile-seg-ctrl"}>
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={statusFilter == null && filter === "all"}
+        title={m.herd_all_title()}
+        aria-pressed={statusFilter == null && filter === "all"}
+        onclick={() => {
+          filter = "all";
+          onstatusfilter?.(null);
+        }}>{m.herd_seg_all()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={statusFilter == null && filter === "ready"}
+        title={m.herd_ready_title()}
+        aria-pressed={statusFilter == null && filter === "ready"}
+        onclick={() => {
+          filter = "ready";
+          onstatusfilter?.(null);
+        }}>{m.herd_seg_ready()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={statusFilter == null && filter === "research"}
+        title={m.herd_research_title()}
+        aria-pressed={statusFilter == null && filter === "research"}
+        onclick={() => {
+          filter = "research";
+          onstatusfilter?.(null);
+        }}>{m.herd_seg_research()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={statusFilter == null && filter === "done"}
+        title={m.herd_done_title()}
+        aria-pressed={statusFilter == null && filter === "done"}
+        onclick={() => {
+          filter = "done";
+          onstatusfilter?.(null);
+        }}>{m.herd_seg_done()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={statusFilter == null && filter === "rundown"}
+        title={m.herd_rundown_title()}
+        aria-pressed={statusFilter == null && filter === "rundown"}
+        onclick={() => {
+          filter = "rundown";
+          onstatusfilter?.(null);
+        }}>{m.herd_seg_rundown()}</button
+      >
+    </div>
+  {/if}
   <div class="units" class:flow>
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
@@ -806,16 +869,11 @@
   .panel.flow .phead > .micro {
     display: none;
   }
-  /* Worst case (~320px wide phone with a status chip present = 6 buttons) still
-     overflows after hiding the title; tighten the filter buttons' tracking,
-     padding and inter-button gap just in flow mode so the row fits without
-     wrapping or horizontal overflow. */
+  /* In flow mode the desktop .fbtn row is replaced by the segmented control row
+     below; hide the entire filters bar (and the statchip within it) on mobile.
+     Desktop keeps .phead + .filters exactly as-is. */
   .panel.flow .filters {
-    gap: 3px;
-  }
-  .panel.flow .filters .fbtn {
-    letter-spacing: 0.06em;
-    padding: 2px 4px;
+    display: none;
   }
 
   .phead {
@@ -851,6 +909,50 @@
     color: var(--color-amber);
   }
   .fbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  /* Mobile-only segmented control: replaces the .fbtn filter row in flow mode.
+     A direct child of the already-full-bleed .panel.flow, so it spans the full
+     phone width without its own negative margin. Equal-width segments, 44px touch
+     targets, --fs-base labels. */
+  .seg-row {
+    display: none;
+  }
+  .panel.flow .seg-row {
+    display: flex;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .seg-btn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-base);
+    cursor: pointer;
+    padding: 0 2px;
+    color: var(--color-faint);
+    text-align: center;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .seg-btn:last-child {
+    border-right: 0;
+  }
+  .seg-btn:hover {
+    color: var(--color-ink);
+  }
+  .seg-btn.seg-active {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    box-shadow: inset 0 -2px 0 var(--color-amber);
+  }
+  .seg-btn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }

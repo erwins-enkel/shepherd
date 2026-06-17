@@ -935,7 +935,7 @@
     font-size: var(--fs-base);
     cursor: pointer;
     padding: 0 2px;
-    color: var(--color-faint);
+    color: var(--color-muted);
     text-align: center;
     white-space: nowrap;
     overflow: hidden;

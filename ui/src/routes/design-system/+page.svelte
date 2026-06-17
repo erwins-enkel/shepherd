@@ -182,7 +182,8 @@ input, select, textarea {
   font-size: var(--fs-base);
   cursor: pointer;
   padding: 0 2px;
-  color: var(--color-faint);
+  /* Inactive labels use --color-muted for ≥4.5:1 contrast; active uses --color-amber */
+  color: var(--color-muted);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -721,7 +722,7 @@ input, select, textarea {
     font-size: var(--fs-base);
     cursor: pointer;
     padding: 0 2px;
-    color: var(--color-faint);
+    color: var(--color-muted);
     text-align: center;
     white-space: nowrap;
     overflow: hidden;

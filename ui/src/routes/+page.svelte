@@ -1492,6 +1492,7 @@
       <RepoSwitcher
         chips={repoChips}
         {repoFilter}
+        mobile={mobile.current}
         onrepofilter={(repoPath) => (repoFilter = repoPath)}
         onlearnings={(repoPath) => {
           learningsRepo = repoPath;

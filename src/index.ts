@@ -661,13 +661,44 @@ const sweepStaleReviewWorktrees = () => {
 // gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
 // The next tick() then finalizes each re-adopted run from the verdict it already wrote.
 // gcStaleReviewWorktrees runs AFTER adoptOrphans has repopulated `inflight` so it only reaps
-// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans); the
-// disk-sweep then runs after gc, with `inflight` populated so its protectedPaths spare holds.
+// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans).
+// reapOrphans() runs BEFORE sweepStaleReviewWorktrees: for a dead-process orphan whose claude
+// already exited but finalize never ran the worktree survives — the disk sweep would delete it
+// first, erasing the orphan signal before reapOrphans can see it. Running reap first drops the
+// sticky error verdict and returns the task session ids to re-kick with a force-consider so the
+// critic re-runs; the disk-sweep then runs last, with `inflight` populated so protectedPaths hold.
+const reKickReapedReview = (id: string) => {
+  const s = store.get(id);
+  if (!s) return;
+  const git = prPoller.get(id);
+  if (git) {
+    // Have a fresh cached GitState → re-review directly. NOT forced, and that is deliberate:
+    // for an error orphan reapOrphans already dropped the verdict, so a plain consider() re-reviews
+    // (no head-dedup); for a non-error orphan, normal rules re-review on a moved head and correctly
+    // skip a redundant same-head re-review, keeping the spawn-ceiling cost guard intact. This also
+    // matches the cold-cache branch below, which can only run a non-force consider via the
+    // subscription — so both paths have identical semantics (consider itself no-ops if the PR
+    // isn't open+green, so a stale kick is safe).
+    void reviewService
+      .consider(s, git)
+      .catch((err) => console.warn("[review] reap re-kick consider failed:", err));
+  } else {
+    // No cached GitState yet (the 3s boot warm-tick hasn't run): drop+pollSession so the next
+    // refresh() emits session:git with no prior `prev`, firing the same non-force consider() via
+    // the subscription below.
+    prPoller.drop(id);
+    prPoller.pollSession(id);
+  }
+};
 void planGate
   .adoptOrphans()
   .then(() => planGate.gcStaleReviewWorktrees())
+  .then(() => reviewService.reapOrphans())
+  .then((ids) => {
+    for (const id of ids) reKickReapedReview(id);
+  })
   .then(() => sweepStaleReviewWorktrees())
-  .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
+  .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
 setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
 
 attachReviewPush(events, store, push);

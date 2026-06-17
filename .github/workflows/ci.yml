@@ -106,5 +106,11 @@ jobs:
       - name: Fallow audit (PR delta)
         # Only new findings introduced by the PR block — inherited issues don't.
         # Skip on direct pushes to main: there's no base branch to diff against.
+        # Version pinned (not @latest) so analyzer changes are adopted deliberately,
+        # not on a random CI run. 2.97.0 is the last release before the synthetic
+        # Svelte <template> complexity metric, whose unnamed entry breaks fallow's
+        # inherited-vs-introduced attribution on line shifts (#756). A future bump to
+        # 2.98+ must intentionally adopt a <template> config (thresholdOverrides /
+        # health.ignore). Keep this in sync with .husky/pre-push and CONTRIBUTING.md.
         if: github.event_name == 'pull_request'
-        run: bunx fallow audit --base origin/${{ github.base_ref }} --fail-on-issues
+        run: bunx fallow@2.97.0 audit --base origin/${{ github.base_ref }} --fail-on-issues

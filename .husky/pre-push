@@ -63,9 +63,11 @@ echo "→ extension build"
 
 # Delta audit vs the merge base — only new dead-code/complexity/dupes block.
 # Skipped when origin/main is unavailable (e.g. offline) so a push isn't wedged.
+# Version pinned (see .github/workflows/ci.yml): 2.97.0 is the last release before
+# the synthetic Svelte <template> complexity metric (#756); bump deliberately.
 if git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "→ fallow audit (delta vs origin/main)"
-  bunx fallow audit --base origin/main --fail-on-issues
+  bunx fallow@2.97.0 audit --base origin/main --fail-on-issues
 else
   echo "→ fallow audit skipped (origin/main not available)"
 fi

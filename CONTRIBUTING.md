@@ -82,12 +82,21 @@ The `pre-push` hook runs the **same checks as CI** so failures surface before a 
 8. `bun test ./test` (core tests)
 9. `cd ui && bun run test` (ui tests)
 10. `cd ui && bun run build` (ui build)
-11. `bunx fallow audit --base origin/main --fail-on-issues` (delta dead-code/complexity audit
-    vs `origin/main`)
+11. `bunx fallow@2.97.0 audit --base origin/main --fail-on-issues` (delta dead-code/complexity
+    audit vs `origin/main`; version pinned — see note below)
 
 > Lint and typecheck are separate gates: eslint catches lint rules, `tsc` catches
 > type errors. Bun runs `.ts` by stripping types, so it never type-checks — only
 > `tsc` does.
+
+> **fallow is pinned to `2.97.0`** (not `@latest`) so analyzer changes are adopted
+> deliberately, not on a random run. 2.97.0 is the last release before the synthetic
+> Svelte `<template>` complexity metric, whose unnamed entry breaks fallow's
+> inherited-vs-introduced attribution on line shifts and trips the gate on any PR
+> touching a large UI file ([#756](https://github.com/erwins-enkel/shepherd/issues/756)).
+> A future bump to 2.98+ must intentionally adopt a `<template>` config
+> (`health.thresholdOverrides` or `health.ignore`). Keep the version in sync with
+> `.github/workflows/ci.yml` and `.husky/pre-push`.
 
 Run any of these manually at any time:
 
@@ -100,7 +109,7 @@ cd ui && bun run check       # svelte-check (ui types)
 cd ui && bun run check:i18n  # locale-catalog parity (en ↔ de)
 cd ui && bun run test        # ui test suite (vitest)
 cd ui && bun run build       # ui production build
-bunx fallow audit --base origin/main --fail-on-issues   # delta dead-code/complexity audit
+bunx fallow@2.97.0 audit --base origin/main --fail-on-issues  # delta dead-code/complexity audit (version pinned)
 ```
 
 ## Tests

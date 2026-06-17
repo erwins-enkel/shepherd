@@ -1410,6 +1410,13 @@
   "gitrail_confirm_review": "bestätigen ✓",
   "gitrail_review_skipped": "Prüfung nicht gestartet – Bedingungen geändert oder läuft bereits.",
   "gitrail_review_failed": "Prüfung konnte nicht gestartet werden. Erneut versuchen.",
+  "gitrail_review_plan": "Plan prüfen",
+  "gitrail_rereview_plan": "Plan erneut prüfen",
+  "gitrail_reviewing_plan": "Prüfe Plan…",
+  "gitrail_review_plan_skipped": "Plan-Prüfung nicht gestartet – unverändert, bereits freigegeben oder läuft bereits.",
+  "gitrail_review_plan_failed": "Plan-Prüfung konnte nicht gestartet werden. Erneut versuchen.",
   "feat_manual_critic_review_title": "Kritiker-Review neu starten",
-  "feat_manual_critic_review_body": "Wenn der KI-Kritiker nie startete oder ohne Urteil hängen blieb, kannst du ihn über eine Schaltfläche in der PR-Leiste bei Bedarf neu starten – für offene PRs mit grünem CI."
+  "feat_manual_critic_review_body": "Wenn der KI-Kritiker nie startete oder ohne Urteil hängen blieb, kannst du ihn über eine Schaltfläche in der PR-Leiste bei Bedarf neu starten – für offene PRs mit grünem CI.",
+  "feat_manual_plan_review_title": "Plan-Review neu starten",
+  "feat_manual_plan_review_body": "Wenn das Plan-Gate ohne Urteil hängen bleibt (REVIEW ERR), kannst du die adversarische Plan-Prüfung über eine Schaltfläche in der Git-Leiste bei Bedarf neu starten – ohne das Plan-Panel zu öffnen."
 }

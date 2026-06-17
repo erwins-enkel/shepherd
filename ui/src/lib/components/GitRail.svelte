@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { gitState, openPr, mergePr, redeploy, replySession, reviewPr } from "$lib/api";
+  import {
+    gitState,
+    openPr,
+    mergePr,
+    redeploy,
+    replySession,
+    reviewPr,
+    reviewPlan,
+  } from "$lib/api";
   import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -69,9 +77,9 @@
   let showAutomation = $state(false);
 
   // two-step confirm for destructive actions (mirrors decommission UX)
-  let armed = $state<"merge" | "redeploy" | "review" | null>(null);
+  let armed = $state<"merge" | "redeploy" | "review" | "review-plan" | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
-  function arm(which: "merge" | "redeploy" | "review"): boolean {
+  function arm(which: "merge" | "redeploy" | "review" | "review-plan"): boolean {
     if (armed === which) {
       clearTimeout(armTimer);
       armed = null;
@@ -92,6 +100,21 @@
     }
   }
 
+  // Bridge the gap between the review-plan HTTP reply and the WS plangate-reviewing
+  // flag so the button's reviewing state doesn't blink back to idle. Held until the
+  // reviewing flag is observed, with a backstop timeout so a lost event can't wedge it.
+  let awaitingPlanReview = $state(false);
+  // A real WS reviewing run supersedes the bridge.
+  $effect(() => {
+    if (planGates.isReviewing(sessionId)) awaitingPlanReview = false;
+  });
+  // Backstop: never wedge the indicator if the reviewing event never arrives.
+  $effect(() => {
+    if (!awaitingPlanReview) return;
+    const t = setTimeout(() => (awaitingPlanReview = false), 4000);
+    return () => clearTimeout(t);
+  });
+
   $effect(() => {
     const id = sessionId;
     git = null;
@@ -101,6 +124,7 @@
     showPr = false;
     showReview = false;
     showAutomation = false;
+    awaitingPlanReview = false;
     load(id);
     // light poll only while a PR is open (CI/merge state can change);
     // hidden-tab ticks are skipped, with a refresh on tab return
@@ -313,6 +337,19 @@
           ? m.gitrail_rereview()
           : m.gitrail_review(),
   );
+  // Manual plan-review trigger: visible only while the plan gate is active
+  // (planPhase === "planning"), matching PlanPanel's canReviewNow.
+  const canReviewPlan = $derived(planPhase === "planning");
+  const planReviewing = $derived(planGates.isReviewing(sessionId) || awaitingPlanReview);
+  const planReviewLabel = $derived(
+    armed === "review-plan"
+      ? m.gitrail_confirm_review()
+      : planReviewing
+        ? m.gitrail_reviewing_plan()
+        : planGates.map[sessionId]
+          ? m.gitrail_rereview_plan()
+          : m.gitrail_review_plan(),
+  );
   // Render the (AI-authored) findings as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay off
   // the first-paint critical path; gated on showReview so the (browser-only)
@@ -394,6 +431,31 @@
         duration: null,
         alert: true,
         key: `review-pr:${sessionId}`,
+      });
+    }
+  }
+
+  async function doReviewPlan() {
+    if (!arm("review-plan")) return; // first click arms, second confirms
+    if (planReviewing) return; // already in flight — consider() would skip
+    try {
+      const status = await reviewPlan(sessionId);
+      // "started" → bridge to the WS reviewing flag (silent; the indicator is the feedback).
+      // "skipped" while NOT already reviewing → transient note. "error" → persistent toast.
+      if (status === "started") awaitingPlanReview = true;
+      else if (status === "skipped" && !planGates.isReviewing(sessionId))
+        toasts.info(m.gitrail_review_plan_skipped());
+      else if (status !== "skipped")
+        toasts.info(m.gitrail_review_plan_failed(), {
+          duration: null,
+          alert: true,
+          key: `review-plan:${sessionId}`,
+        });
+    } catch {
+      toasts.info(m.gitrail_review_plan_failed(), {
+        duration: null,
+        alert: true,
+        key: `review-plan:${sessionId}`,
       });
     }
   }
@@ -562,6 +624,18 @@
           use:coachTarget={"manual-critic-review"}
         >
           {reviewLabel}
+        </button>
+      {/if}
+
+      {#if canReviewPlan}
+        <button
+          class="gbtn"
+          class:armed={armed === "review-plan"}
+          type="button"
+          disabled={planReviewing}
+          onclick={() => doReviewPlan()}
+        >
+          {planReviewLabel}
         </button>
       {/if}
 

@@ -32,6 +32,8 @@ const gitStateFn = vi.fn(async () => openPrState);
 // reviewPrFn drives the manual critic-trigger handler; per-test we resolve it to
 // "started"/"skipped"/"error" or reject it to exercise the fail-closed toast paths.
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
+// reviewPlanFn drives the manual plan-review trigger handler; same resolution options.
+const reviewPlanFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
@@ -43,6 +45,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     redeploy: vi.fn(),
     replySession: vi.fn(),
     reviewPr: reviewPrFn,
+    reviewPlan: reviewPlanFn,
   };
 });
 
@@ -871,5 +874,321 @@ describe("GitRail — manual critic-review trigger", () => {
     // give any (incorrect) toast a tick to fire, then assert silence
     await new Promise((r) => setTimeout(r, 20));
     expect(toastsInfo, "no toast on started").not.toHaveBeenCalled();
+  });
+});
+
+describe("GitRail — manual plan-review trigger", () => {
+  beforeEach(() => {
+    reviewPlanFn.mockResolvedValue("started");
+    reviewPlanFn.mockClear();
+    toastsInfo.mockClear();
+  });
+  afterEach(() => {
+    planGates.drop(baseProps.sessionId);
+  });
+
+  // Find the plan-review button: a .gbtn whose text starts with "Review plan"
+  // (or "Re-review plan" / "Reviewing…" / "confirm ✓" once armed/reviewing).
+  function planReviewBtn(h: HTMLElement): HTMLButtonElement | null {
+    return (
+      [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")].find((b) => {
+        const text = b.textContent?.trim() ?? "";
+        return (
+          text.startsWith("Review plan") ||
+          text.startsWith("Re-review plan") ||
+          text === m.gitrail_reviewing_plan() ||
+          text === m.gitrail_confirm_review()
+        );
+      }) ?? null
+    );
+  }
+
+  // arm and confirm the plan-review button (two clicks)
+  async function armAndConfirmPlan(h: HTMLElement) {
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+    planReviewBtn(h)!.click();
+    await vi.waitFor(() =>
+      expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
+    );
+    planReviewBtn(h)!.click();
+  }
+
+  // 1. renders the Review-plan button when planPhase === "planning"
+  it("renders the Review-plan button when planPhase === 'planning'", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+    expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_review_plan());
+  });
+
+  // 2. hides the button when planPhase is null or "executing"
+  it("hides the button when planPhase is null", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: null },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
+    );
+    expect(planReviewBtn(h), "no plan-review button when planPhase null").toBeNull();
+  });
+
+  it("hides the button when planPhase is 'executing'", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "executing" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
+    );
+    expect(planReviewBtn(h), "no plan-review button when planPhase executing").toBeNull();
+  });
+
+  // 3. shows Re-review plan when a prior verdict exists in planGates.map
+  it("shows Re-review plan label when a prior plan-gate verdict exists", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    // seed a prior plan gate verdict
+    planGates.apply(baseProps.sessionId, {
+      sessionId: baseProps.sessionId,
+      planHash: "abc123",
+      decision: "approved",
+      summary: "looks good",
+      body: "all good",
+      findings: [],
+      round: 0,
+      cap: 3,
+      approved: true,
+      plan: "do stuff",
+      updatedAt: Date.now(),
+    });
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+    expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_rereview_plan());
+  });
+
+  // 4. first click arms (no call), second calls reviewPlan once
+  it("first click arms (no call); second click calls reviewPlan once with session id", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+
+    const btn = planReviewBtn(h)!;
+    btn.click();
+    // armed → label becomes confirm, reviewPlan NOT yet called
+    await vi.waitFor(() =>
+      expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
+    );
+    expect(reviewPlanFn, "not called on first (arming) click").not.toHaveBeenCalled();
+
+    planReviewBtn(h)!.click();
+    await vi.waitFor(() => expect(reviewPlanFn).toHaveBeenCalledTimes(1));
+    expect(reviewPlanFn).toHaveBeenCalledWith(baseProps.sessionId);
+  });
+
+  // 5. "skipped" (NOT reviewing) → transient info toast
+  it("'skipped' (not reviewing) raises a transient info toast", async () => {
+    reviewPlanFn.mockResolvedValue("skipped");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirmPlan(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_plan_skipped());
+  });
+
+  // 6. "skipped" WHILE isReviewing is true → toasts.info NOT called.
+  // NOTE: Chromium disables click events on disabled buttons even via dispatchEvent,
+  // so we cannot reach doReviewPlan's planReviewing guard through the DOM. Instead,
+  // we verify the observable invariant: when planGates.isReviewing is true the button
+  // becomes disabled, preventing any interaction — which transitively means no toast
+  // can fire (the disabled state IS the guard at the DOM level). The in-handler
+  // `if (planReviewing) return` acts as belt-and-suspenders for programmatic callers.
+  it("'skipped' while planGates.isReviewing is true → button disabled → no interaction possible", async () => {
+    reviewPlanFn.mockResolvedValue("skipped");
+    gitStateFn.mockResolvedValue(openPrState);
+    planGates.applyReviewing(baseProps.sessionId, true);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+    // button must be disabled → no clicks can reach the handler → no toast
+    expect(planReviewBtn(h)!.disabled, "button disabled while reviewing").toBe(true);
+    // try clicking — handler must not fire because button is disabled
+    planReviewBtn(h)!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      reviewPlanFn,
+      "reviewPlan not called on click of disabled button",
+    ).not.toHaveBeenCalled();
+    expect(toastsInfo, "no toast when button disabled").not.toHaveBeenCalled();
+  });
+
+  // 7. "error" status AND rejected → persistent keyed toast
+  it("'error' status raises the persistent, keyed failure toast", async () => {
+    reviewPlanFn.mockResolvedValue("error");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirmPlan(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(
+      m.gitrail_review_plan_failed(),
+      expect.objectContaining({
+        duration: null,
+        alert: true,
+        key: `review-plan:${baseProps.sessionId}`,
+      }),
+    );
+  });
+
+  it("a rejected reviewPlan raises the persistent failure toast", async () => {
+    reviewPlanFn.mockRejectedValue(new Error("boom"));
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirmPlan(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(
+      m.gitrail_review_plan_failed(),
+      expect.objectContaining({
+        duration: null,
+        alert: true,
+        key: `review-plan:${baseProps.sessionId}`,
+      }),
+    );
+  });
+
+  // 8. "started" → toasts.info NOT called
+  it("'started' status raises NO toast", async () => {
+    reviewPlanFn.mockResolvedValue("started");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await armAndConfirmPlan(h);
+    await vi.waitFor(() => expect(reviewPlanFn).toHaveBeenCalledTimes(1));
+    // give any (incorrect) toast a tick to fire, then assert silence
+    await new Promise((r) => setTimeout(r, 20));
+    expect(toastsInfo, "no toast on started").not.toHaveBeenCalled();
+  });
+
+  // 9. button is disabled while planGates.isReviewing is true
+  it("button is disabled while planGates.isReviewing is true", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    planGates.applyReviewing(baseProps.sessionId, true);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
+    expect(planReviewBtn(h)!.disabled, "button disabled while reviewing").toBe(true);
+  });
+
+  // 10. Co-render arm isolation: both buttons mounted, arm one, other stays unarmed.
+  // Captures stable DOM node references before any clicking to avoid re-querying
+  // ambiguously when both may show "confirm ✓" text.
+  it("arming plan-review button does not arm the critic button (arm isolation)", async () => {
+    // enable critic so both buttons render
+    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
+    gitStateFn.mockResolvedValue(openPrState); // open + checks:success + critic enabled
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+
+    // Capture stable DOM node references while both buttons show initial unarmed labels.
+    // The critic button starts as "Review" (no prior verdict); plan button as "Review plan".
+    let criticNode: HTMLButtonElement;
+    let planNode: HTMLButtonElement;
+    await vi.waitFor(() => {
+      const allBtns = [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")];
+      const critic = allBtns.find((b) =>
+        /^(Review|Re-review|Restart)$/.test(b.textContent?.trim() ?? ""),
+      );
+      const plan = allBtns.find((b) => (b.textContent?.trim() ?? "").startsWith("Review plan"));
+      expect(critic, "critic button present").not.toBeNull();
+      expect(plan, "plan button present").not.toBeNull();
+      criticNode = critic!;
+      planNode = plan!;
+    });
+
+    // Click plan button once → plan button armed ("confirm ✓"), critic NOT armed
+    planNode!.click();
+    await vi.waitFor(() => expect(planNode!.textContent?.trim()).toBe(m.gitrail_confirm_review()));
+    expect(
+      criticNode!.textContent?.trim(),
+      "critic button NOT armed after plan button click",
+    ).not.toBe(m.gitrail_confirm_review());
+
+    // Click critic button once → critic button armed ("confirm ✓"), plan disarmed
+    criticNode!.click();
+    await vi.waitFor(() =>
+      expect(criticNode!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
+    );
+    // plan button should show its unarmed "Review plan" label (NOT "confirm ✓")
+    expect(
+      planNode!.textContent?.trim(),
+      "plan button NOT armed after critic button click",
+    ).not.toBe(m.gitrail_confirm_review());
+
+    // cleanup
+    const next = { ...repoConfig.enabled };
+    delete next[baseProps.repoPath];
+    repoConfig.enabled = next;
   });
 });

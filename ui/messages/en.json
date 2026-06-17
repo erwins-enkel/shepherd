@@ -1410,6 +1410,13 @@
   "gitrail_confirm_review": "confirm ✓",
   "gitrail_review_skipped": "Review not started — conditions changed or one's already running.",
   "gitrail_review_failed": "Couldn't start the review. Try again.",
+  "gitrail_review_plan": "Review plan",
+  "gitrail_rereview_plan": "Re-review plan",
+  "gitrail_reviewing_plan": "Reviewing…",
+  "gitrail_review_plan_skipped": "Plan review not started — unchanged, already approved, or one's already running.",
+  "gitrail_review_plan_failed": "Couldn't start the plan review. Try again.",
   "feat_manual_critic_review_title": "Restart a critic review",
-  "feat_manual_critic_review_body": "When the AI critic never started or stalled without a verdict, a Review/Re-review button on the PR rail lets you start or restart it on demand — for open PRs with green CI."
+  "feat_manual_critic_review_body": "When the AI critic never started or stalled without a verdict, a Review/Re-review button on the PR rail lets you start or restart it on demand — for open PRs with green CI.",
+  "feat_manual_plan_review_title": "Restart a plan review",
+  "feat_manual_plan_review_body": "When the plan gate stalls without a verdict (REVIEW ERR), a Review-plan button on the git rail lets you re-kick the adversarial plan review on demand — no need to open the plan panel."
 }

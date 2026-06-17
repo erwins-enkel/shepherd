@@ -1439,5 +1439,7 @@
   "quota_resume_started": "Resuming — granting another round.",
   "quota_resume_pr_gone": "PR already merged or closed — nothing to resume.",
   "quota_resume_failed": "Couldn't resume — open the session to take over.",
-  "quota_resume_cleared": "Already cleared."
+  "quota_resume_cleared": "Already cleared.",
+  "feat_quota_needs_you_title": "Stalled sessions now ask for you",
+  "feat_quota_needs_you_body": "When a session hits its rework or review limit it no longer goes quietly idle — it raises a 'needs you' badge and a notification, and Triage lets you resume it, take over, or abandon."
 }

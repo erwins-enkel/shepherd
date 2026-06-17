@@ -1439,5 +1439,7 @@
   "quota_resume_started": "Wird fortgesetzt — weitere Runde gewährt.",
   "quota_resume_pr_gone": "PR bereits zusammengeführt oder geschlossen — nichts zum Fortsetzen.",
   "quota_resume_failed": "Fortsetzen fehlgeschlagen — öffne die Sitzung zum Übernehmen.",
-  "quota_resume_cleared": "Bereits erledigt."
+  "quota_resume_cleared": "Bereits erledigt.",
+  "feat_quota_needs_you_title": "Hängende Sessions melden sich jetzt",
+  "feat_quota_needs_you_body": "Wenn eine Session ihr Überarbeitungs- oder Review-Limit erreicht, wird sie nicht mehr still inaktiv — sie zeigt ein „braucht dich\"-Badge und eine Benachrichtigung, und im Triage kannst du sie fortsetzen, übernehmen oder verwerfen."
 }

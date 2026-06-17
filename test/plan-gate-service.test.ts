@@ -756,3 +756,135 @@ test("inflightWorktrees: returns worktree path after consider() spawns a review"
   await h.svc.consider(planningSession() as any);
   expect(h.svc.inflightWorktrees()).toEqual(["/wt-detached"]);
 });
+
+// ── resume (operator "resume" for plan stalled at adversarial-review cap) ────
+
+test("resume happy path: resets round to 0, fires onChange, re-steers findings, returns true", () => {
+  const cap = 3;
+  const findings = ["address concern X", "clarify scope Y"];
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "changes_requested",
+    summary: "needs work",
+    body: "## plan issues",
+    findings,
+    round: cap, // at cap — stalled
+    cap,
+    approved: false,
+    plan: "do stuff",
+    updatedAt: 1000,
+  };
+  const putCalls: any[] = [];
+  const onChangeCalls: any[] = [];
+  const replyCalls: string[] = [];
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
+    onChange: (id: string, g: any) => onChangeCalls.push({ id, g }),
+    reply: (id: string, text: string) => {
+      replyCalls.push(text);
+      return true;
+    },
+  });
+  const result = h.svc.resume(planningSession() as any);
+  // round reset to 0
+  expect(putCalls).toHaveLength(1);
+  expect(putCalls[0].round).toBe(0);
+  // other gate fields preserved
+  expect(putCalls[0].findings).toEqual(findings);
+  expect(putCalls[0].decision).toBe("changes_requested");
+  // onChange fired with the reset gate
+  expect(onChangeCalls).toHaveLength(1);
+  expect(onChangeCalls[0].id).toBe("s1");
+  expect(onChangeCalls[0].g.round).toBe(0);
+  // reply called with the steer text containing the findings
+  expect(replyCalls).toHaveLength(1);
+  expect(replyCalls[0]).toContain("address concern X");
+  expect(replyCalls[0]).toContain("clarify scope Y");
+  // returns the reply boolean
+  expect(result).toBe(true);
+});
+
+test("resume: reply returns false → resume returns false", () => {
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "changes_requested",
+    summary: "",
+    body: "",
+    findings: ["fix X"],
+    round: 3,
+    cap: 3,
+    approved: false,
+    plan: "",
+    updatedAt: 1000,
+  };
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: () => {} },
+    reply: () => false,
+  });
+  expect(h.svc.resume(planningSession() as any)).toBe(false);
+});
+
+test("resume no-op: no gate → returns false, no putPlanGate/reply", () => {
+  const putCalls: any[] = [];
+  const replyCalls: any[] = [];
+  const h = harness({
+    store: { getPlanGate: () => null, putPlanGate: (g: any) => putCalls.push(g) },
+    reply: (id: string, text: string) => {
+      replyCalls.push(text);
+      return true;
+    },
+  });
+  const result = h.svc.resume(planningSession() as any);
+  expect(result).toBe(false);
+  expect(putCalls).toHaveLength(0);
+  expect(replyCalls).toHaveLength(0);
+});
+
+test("resume no-op: gate decision is 'approved' → returns false, no putPlanGate/reply", () => {
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "approved",
+    summary: "",
+    body: "",
+    findings: [],
+    round: 2,
+    cap: 3,
+    approved: true,
+    plan: "",
+    updatedAt: 1000,
+  };
+  const putCalls: any[] = [];
+  const replyCalls: any[] = [];
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
+    reply: (id: string, text: string) => {
+      replyCalls.push(text);
+      return true;
+    },
+  });
+  const result = h.svc.resume(planningSession() as any);
+  expect(result).toBe(false);
+  expect(putCalls).toHaveLength(0);
+  expect(replyCalls).toHaveLength(0);
+});
+
+test("resume no-op: gate decision is 'error' → returns false", () => {
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "error",
+    summary: "",
+    body: "",
+    findings: [],
+    round: 1,
+    cap: 3,
+    approved: false,
+    plan: "",
+    updatedAt: 1000,
+  };
+  const h = harness({ store: { getPlanGate: () => gate, putPlanGate: () => {} } });
+  expect(h.svc.resume(planningSession() as any)).toBe(false);
+});

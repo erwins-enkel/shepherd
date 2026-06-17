@@ -465,9 +465,11 @@ export class ReviewService {
     }
     // 3. escalation/streak HYGIENE on the prior verdict (NOT the re-trigger lever — rebaseSkip's
     //    force bypass is): reset errorRound so finalize() doesn't immediately re-fire the
-    //    consecutive-error stall signal, and reset the streak so the next AUTO consider()
-    //    re-engages instead of re-hitting the ceiling. Preserve outstanding-work state the critic
-    //    must re-verify.
+    //    consecutive-error stall signal, reset the streak so the next AUTO consider() re-engages
+    //    instead of re-hitting the ceiling, and reset the auto-address streak (addressRound /
+    //    finalRoundPending) so a session stalled at the address cap gets a fresh budget — forcing a
+    //    review implies "try again". Preserve outstanding-work state the critic must re-verify
+    //    (findings, body, headSha, etc.).
     const prior = this.deps.store.getReview(session.id);
     if (prior) {
       this.deps.store.putReview({
@@ -475,6 +477,8 @@ export class ReviewService {
         errorRound: 0,
         streakReviews: 0,
         reviewedPatchIds: [],
+        addressRound: 0,
+        finalRoundPending: false,
       });
     }
     // 4. one code path:

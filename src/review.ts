@@ -985,8 +985,9 @@ export class ReviewService {
     if (!s) return { kind: "orphan", reKickId: null };
 
     // An error verdict carries no findings — drop it so the next run starts fresh
-    // without a sticky REVIEW ERR badge. Non-error verdicts are left intact so the
-    // force-consider path in the later wiring task can preserve their streak accounting.
+    // without a sticky REVIEW ERR badge (and so the re-kick's plain consider() isn't head-deduped).
+    // Non-error verdicts are left intact: the re-kick re-reviews them under normal rules (on a moved
+    // head, within the spawn ceiling), which preserves their streak accounting — no dropReview reset.
     if (this.deps.store.getReview(row.taskSessionId)?.decision === "error") {
       this.deps.store.dropReview(row.taskSessionId);
     }

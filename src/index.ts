@@ -672,14 +672,20 @@ const reKickReapedReview = (id: string) => {
   if (!s) return;
   const git = prPoller.get(id);
   if (git) {
-    // Warm cache: force-consider bypasses head-dedup and spawn-ceiling so it doesn't depend on
-    // gitStateChanged; consider itself no-ops if the PR isn't open+green, so a stale kick is safe.
+    // Have a fresh cached GitState → re-review directly. NOT forced, and that is deliberate:
+    // for an error orphan reapOrphans already dropped the verdict, so a plain consider() re-reviews
+    // (no head-dedup); for a non-error orphan, normal rules re-review on a moved head and correctly
+    // skip a redundant same-head re-review, keeping the spawn-ceiling cost guard intact. This also
+    // matches the cold-cache branch below, which can only run a non-force consider via the
+    // subscription — so both paths have identical semantics (consider itself no-ops if the PR
+    // isn't open+green, so a stale kick is safe).
     void reviewService
-      .consider(s, git, { force: true })
+      .consider(s, git)
       .catch((err) => console.warn("[review] reap re-kick consider failed:", err));
   } else {
-    // Cold cache (3s warm tick hasn't run yet): drop+pollSession so the next refresh() emits
-    // session:git with no prior `prev`, guaranteeing consider() fires via the subscription below.
+    // No cached GitState yet (the 3s boot warm-tick hasn't run): drop+pollSession so the next
+    // refresh() emits session:git with no prior `prev`, firing the same non-force consider() via
+    // the subscription below.
     prPoller.drop(id);
     prPoller.pollSession(id);
   }

@@ -1,7 +1,13 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import { mapState, matchAgents, type HerdrDriver, type HerdrAgent } from "./herdr";
-import { classifyBlocked, hasActiveSpinner, tailLines, type BlockReason } from "./blocked";
+import {
+  classifyBlocked,
+  hasActiveSpinner,
+  quotaBlockReason,
+  tailLines,
+  type BlockReason,
+} from "./blocked";
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
@@ -11,6 +17,7 @@ import { resolveDevPort } from "./preview";
 import { config } from "./config";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
+const QUOTA_SIG = "quota"; // fixed signature → a quota block fires once per episode
 
 /**
  * Notification `notification_type`s that assert an awaiting-input edge (Phase 1,
@@ -407,7 +414,7 @@ export class StatusPoller {
 
     if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
-    else this.clearBlock(s.id);
+    else this.maybeQuota(s, status);
   }
 
   /**
@@ -1065,6 +1072,30 @@ export class StatusPoller {
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);
     this.onBlock(id, null);
+  }
+
+  /**
+   * Idle/done branch: evaluate quota exhaustion. Emits a quota block once per episode
+   * (deduped via QUOTA_SIG in lastSig) and clears it when the exhaustion resolves.
+   * When a quota-carrying session transitions to running, the running-path guard in
+   * probeTerminalInterim clears the now-stale nudge (that guard is deliberately NOT
+   * exempted for QUOTA_SIG — see brief for rationale).
+   */
+  private maybeQuota(s: Session, status: Session["status"]): void {
+    const reason = quotaBlockReason(
+      { ...s, status },
+      this.store.getReview(s.id),
+      this.store.getPlanGate(s.id),
+      this.now(),
+    );
+    if (reason) {
+      if (this.lastSig.get(s.id) !== QUOTA_SIG) {
+        this.lastSig.set(s.id, QUOTA_SIG);
+        this.onBlock(s.id, reason);
+      }
+    } else {
+      this.clearBlock(s.id);
+    }
   }
 
   /**

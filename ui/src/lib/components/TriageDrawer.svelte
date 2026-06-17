@@ -21,6 +21,9 @@
     ondismiss,
     onopen,
     onclose,
+    onresume,
+    ontakeover,
+    onabandon,
   }: {
     entries: BlockedEntry[];
     nowMs: number;
@@ -28,6 +31,9 @@
     ondismiss: (id: string) => void;
     onopen: (id: string) => void;
     onclose: () => void;
+    onresume: (id: string) => void;
+    ontakeover: (id: string) => void;
+    onabandon: (id: string) => void;
   } = $props();
 
   let selected = $state<Record<string, boolean>>({});
@@ -41,6 +47,13 @@
   function waited(since: number): string {
     const s = Math.max(0, Math.round((nowMs - since) / 1000));
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+  }
+
+  function quotaNote(kind: "rework" | "review" | "error" | "plan" | undefined): string {
+    if (kind === "rework") return m.triage_quota_rework();
+    if (kind === "review") return m.triage_quota_review();
+    if (kind === "error") return m.triage_quota_error();
+    return m.triage_quota_plan();
   }
 
   function sendBatch() {
@@ -82,6 +95,26 @@
     </button>
   {/snippet}
 
+  {#snippet replyForm(id: string, desig: string)}
+    <form
+      class="reply"
+      onsubmit={(ev) => {
+        ev.preventDefault();
+        const t = drafts[id] ?? "";
+        if (t) onreply(id, t);
+        drafts[id] = "";
+      }}
+    >
+      <input
+        placeholder={m.triage_reply_placeholder()}
+        aria-label={m.triage_reply_aria({ desig })}
+        bind:value={drafts[id]}
+      />
+      <button type="submit">{m.triage_send_button()}</button>
+      {@render consoleBtn(id, desig)}
+    </form>
+  {/snippet}
+
   {#each entries as e (e.session.id)}
     <section class="row">
       <div class="head">
@@ -95,7 +128,30 @@
         <span class="waited">{waited(e.since)}</span>
       </div>
 
-      {#if e.reason.shape === "stall"}
+      {#if e.reason.shape === "quota"}
+        <p class="quota-note">{quotaNote(e.reason.quotaKind)}</p>
+        {#if e.reason.tail.length > 0}
+          <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        {/if}
+        <div class="opts">
+          <button
+            onclick={() => onresume(e.session.id)}
+            aria-label={m.triage_quota_resume_aria({ desig: e.session.desig })}
+            >{m.triage_quota_resume()}</button
+          >
+          <button
+            onclick={() => ontakeover(e.session.id)}
+            aria-label={m.triage_quota_takeover_aria({ desig: e.session.desig })}
+            >{m.triage_quota_takeover()}</button
+          >
+          <button
+            class="abandon"
+            onclick={() => onabandon(e.session.id)}
+            aria-label={m.triage_quota_abandon_aria({ desig: e.session.desig })}
+            >{m.triage_quota_abandon()}</button
+          >
+        </div>
+      {:else if e.reason.shape === "stall"}
         <div class="stall-head">
           <p class="stall-note">{m.triage_stall_note()}</p>
           <button
@@ -106,29 +162,13 @@
             {m.triage_dismiss_button()}
           </button>
         </div>
-      {/if}
-
-      <pre class="tail">{e.reason.tail.join("\n")}</pre>
-
-      {#if e.reason.shape === "awaiting-input" || e.reason.shape === "stall"}
-        <form
-          class="reply"
-          onsubmit={(ev) => {
-            ev.preventDefault();
-            const t = drafts[e.session.id] ?? "";
-            if (t) onreply(e.session.id, t);
-            drafts[e.session.id] = "";
-          }}
-        >
-          <input
-            placeholder={m.triage_reply_placeholder()}
-            aria-label={m.triage_reply_aria({ desig: e.session.desig })}
-            bind:value={drafts[e.session.id]}
-          />
-          <button type="submit">{m.triage_send_button()}</button>
-          {@render consoleBtn(e.session.id, e.session.desig)}
-        </form>
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        {@render replyForm(e.session.id, e.session.desig)}
+      {:else if e.reason.shape === "awaiting-input"}
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
+        {@render replyForm(e.session.id, e.session.desig)}
       {:else}
+        <pre class="tail">{e.reason.tail.join("\n")}</pre>
         <div class="opts">
           {#each e.reason.options as o (o.send)}
             <button onclick={() => onreply(e.session.id, o.send)}>{o.label}</button>
@@ -225,6 +265,11 @@
     font-variant-numeric: tabular-nums;
     font-size: var(--fs-base);
   }
+  .quota-note {
+    margin: 0;
+    color: var(--color-amber);
+    font-size: var(--fs-base);
+  }
   .stall-head {
     display: flex;
     align-items: center;
@@ -279,6 +324,15 @@
   .batch input {
     min-height: 40px;
   }
+  /* quota: destructive abandon option — red to signal permanent action */
+  .opts button.abandon {
+    color: var(--color-red);
+    border-color: var(--color-red);
+  }
+  .opts button.abandon:hover {
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  }
+
   /* secondary action: jump into this session's full console (with the
      ↑↓←→/Esc/Ctrl bar) — the inline reply only covers one-liners */
   .to-console {

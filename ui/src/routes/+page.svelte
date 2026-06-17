@@ -39,6 +39,8 @@
     getEpic,
     getDiagnostics,
     halt as apiHalt,
+    resumeQuota,
+    dismissQuota,
   } from "$lib/api";
   import type {
     CompletedEpic,
@@ -1111,6 +1113,41 @@
       });
   }
 
+  async function handleResumeQuota(id: string) {
+    try {
+      const result = await resumeQuota(id);
+      if (result.status === "resumed" || result.status === "started") {
+        toasts.info(m.quota_resume_started());
+      } else if (result.status === "pr-merged" || result.status === "pr-closed") {
+        toasts.info(m.quota_resume_pr_gone());
+      } else if (result.status === "not-stalled") {
+        toasts.info(m.quota_resume_cleared());
+      } else {
+        toasts.info(m.quota_resume_failed(), {
+          duration: null,
+          alert: true,
+          key: `quota-resume-fail:${id}`,
+        });
+      }
+    } catch {
+      toasts.info(m.quota_resume_failed(), {
+        duration: null,
+        alert: true,
+        key: `quota-resume-fail:${id}`,
+      });
+    }
+  }
+
+  function handleTakeoverQuota(id: string) {
+    selectUnit(id);
+    showTriage = false;
+    dismissQuota(id).catch(() => {});
+  }
+
+  function handleAbandonQuota(id: string) {
+    archiveSession(id).catch(() => {});
+  }
+
   async function onsubmit(input: {
     repoPath: string;
     baseBranch: string;
@@ -1503,6 +1540,7 @@
             flow={true}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
+            blocks={store.blocks}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             doneList={doneSessions.sessions}
@@ -1651,6 +1689,7 @@
             }}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
+            blocks={store.blocks}
             collapsible={canCollapse}
             oncollapse={toggleSidebar}
             completedEpics={completedEpicsShown}
@@ -1740,6 +1779,9 @@
         showTriage = false;
       }}
       onclose={() => (showTriage = false)}
+      onresume={(id) => handleResumeQuota(id)}
+      ontakeover={(id) => handleTakeoverQuota(id)}
+      onabandon={(id) => handleAbandonQuota(id)}
     />
   {/if}
 

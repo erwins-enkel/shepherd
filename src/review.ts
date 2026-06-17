@@ -450,6 +450,26 @@ export class ReviewService {
     this.deps.onReviewing?.(session.id, true);
   }
 
+  /**
+   * Reset the prior review verdict's escalation counters WITHOUT re-triggering a review.
+   * Used by the "dismiss" quota action so the block clears on the next poll tick without
+   * spawning a new critic run. Only acts when a prior verdict row exists.
+   */
+  clearStallState(session: Session): void {
+    const prior = this.deps.store.getReview(session.id);
+    if (!prior) return;
+    const reset: typeof prior = {
+      ...prior,
+      addressRound: 0,
+      finalRoundPending: false,
+      streakReviews: 0,
+      errorRound: 0,
+      reviewedPatchIds: [],
+    };
+    this.deps.store.putReview(reset);
+    this.deps.onChange(session.id, reset);
+  }
+
   /** Operator-initiated (re)start of a critic review for `session`, bypassing the auto path's
    *  same-head dedup, spawn ceiling, and patch-id churn-skip. Aborts a hung in-flight run first. */
   async forceReview(session: Session, git: GitState): Promise<ReviewOutcome> {
@@ -465,16 +485,24 @@ export class ReviewService {
     }
     // 3. escalation/streak HYGIENE on the prior verdict (NOT the re-trigger lever — rebaseSkip's
     //    force bypass is): reset errorRound so finalize() doesn't immediately re-fire the
-    //    consecutive-error stall signal, and reset the streak so the next AUTO consider()
-    //    re-engages instead of re-hitting the ceiling. Preserve outstanding-work state the critic
-    //    must re-verify.
-    const prior = this.deps.store.getReview(session.id);
-    if (prior) {
+    //    consecutive-error stall signal, reset the streak so the next AUTO consider() re-engages
+    //    instead of re-hitting the ceiling, and reset the auto-address streak (addressRound /
+    //    finalRoundPending) so a session stalled at the address cap gets a fresh budget — forcing a
+    //    review implies "try again". Preserve outstanding-work state the critic must re-verify
+    //    (findings, body, headSha, etc.).
+    //
+    //    Deliberately NO onChange here — the reset is hygiene before the real re-review; emitting
+    //    a zeroed-counter row now would flicker the badge to "clean" before the verdict lands.
+    //    onChange fires once when finalize() persists the real verdict via consider().
+    const priorForReset = this.deps.store.getReview(session.id);
+    if (priorForReset) {
       this.deps.store.putReview({
-        ...prior,
+        ...priorForReset,
         errorRound: 0,
         streakReviews: 0,
         reviewedPatchIds: [],
+        addressRound: 0,
+        finalRoundPending: false,
       });
     }
     // 4. one code path:

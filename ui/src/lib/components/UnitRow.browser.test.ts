@@ -326,3 +326,51 @@ describe("UnitRow badge mutual-exclusion (reviewing vs autopilot/status)", () =>
     await expect.element(page.getByText(m.status_done())).not.toBeInTheDocument();
   });
 });
+
+describe("UnitRow quota-stalled badge", () => {
+  it("shows the quota badge when quotaKind is set", async () => {
+    render(UnitRow, {
+      session: session({ id: "qb1", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      quotaKind: "rework",
+    });
+    await expect.element(page.getByText(m.unitrow_quota_rework())).toBeInTheDocument();
+  });
+
+  it("shows the correct label per quotaKind", async () => {
+    render(UnitRow, {
+      session: session({ id: "qb2", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      quotaKind: "review",
+    });
+    await expect.element(page.getByText(m.unitrow_quota_review())).toBeInTheDocument();
+  });
+
+  it("does NOT show the quota badge when quotaKind is null", async () => {
+    render(UnitRow, {
+      session: session({ id: "qb3", status: "idle" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText(m.unitrow_quota_rework())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.unitrow_quota_review())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.unitrow_quota_error())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.unitrow_quota_plan())).not.toBeInTheDocument();
+  });
+
+  it("badge has the correct title for accessibility", async () => {
+    render(UnitRow, {
+      session: session({ id: "qb4", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      quotaKind: "plan",
+    });
+    await expect.element(page.getByTitle(m.unitrow_quota_title())).toBeInTheDocument();
+  });
+});

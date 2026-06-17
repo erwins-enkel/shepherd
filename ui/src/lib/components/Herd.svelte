@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity, Epic, CompletedEpic } from "$lib/types";
+  import type { BlockState } from "$lib/triage";
   import UnitRow from "./UnitRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import EpicGroupHeader from "./EpicGroupHeader.svelte";
@@ -47,6 +48,7 @@
     statusFilter = null,
     onstatusfilter = undefined,
     workingBlocked = {},
+    blocks = {},
     collapsible = false,
     oncollapse = undefined,
     completedEpics = [],
@@ -120,6 +122,8 @@
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
+    // live quota blocks map (store.blocks); only "quota"-shape entries surface a badge
+    blocks?: Record<string, BlockState>;
     // when true, renders a collapse arrow at the trailing end of the filters bar —
     // only set on touch-primary wide devices where collapsing is meaningful
     collapsible?: boolean;
@@ -149,6 +153,12 @@
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
   // the reviewer is actively working the session, so it is NOT awaiting the operator.
   const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+
+  // Derives the quota block kind for a session if its block has shape "quota"; null otherwise.
+  const quotaKindFor = (id: string) => {
+    const b = blocks[id];
+    return b?.reason.shape === "quota" ? (b.reason.quotaKind ?? null) : null;
+  };
 
   // sidebar list filter (bindable prop): "all" or "ready" (only sessions not actively
   // working — anything but a running agent: idle, blocked, done → awaiting the operator;
@@ -428,6 +438,7 @@
                 {repoFilter}
                 {onrepofilter}
                 {workingBlocked}
+                quotaKind={quotaKindFor(session.id)}
               />
             {/each}
           </div>
@@ -450,6 +461,7 @@
           {repoFilter}
           {onrepofilter}
           {workingBlocked}
+          quotaKind={quotaKindFor(session.id)}
         />
       {/each}
       {#if partition.ciRunning.length > 0}
@@ -473,6 +485,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -497,6 +510,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -521,6 +535,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -547,6 +562,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -573,6 +589,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -594,6 +611,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -618,6 +636,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -655,6 +674,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -679,6 +699,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}
@@ -716,6 +737,7 @@
             {repoFilter}
             {onrepofilter}
             {workingBlocked}
+            quotaKind={quotaKindFor(session.id)}
           />
         {/each}
       {/if}

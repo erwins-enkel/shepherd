@@ -998,4 +998,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_manual_plan_review_title",
     bodyKey: "feat_manual_plan_review_body",
   },
+  {
+    id: "quota-needs-you",
+    sinceVersion: "1.33.0",
+    titleKey: "feat_quota_needs_you_title",
+    bodyKey: "feat_quota_needs_you_body",
+  },
 ];

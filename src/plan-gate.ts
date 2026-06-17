@@ -634,6 +634,34 @@ export class PlanGateService {
     return [...this.inflight.values()].map((f) => f.worktreePath);
   }
 
+  /**
+   * Operator "resume" for a plan stalled at the adversarial-review cap: reset the round budget so
+   * the at-cap stall clears, and re-deliver the outstanding findings so the planning agent revises.
+   * The normal consider() driver re-reviews once the revised plan changes its hash. Returns whether
+   * the steer reached the live pane (false if there's nothing to resume or the pane was unreachable).
+   */
+  resume(session: Session): boolean {
+    const gate = this.deps.store.getPlanGate(session.id);
+    if (!gate || gate.decision !== "changes_requested") return false; // nothing to resume
+    const reset = { ...gate, round: 0 };
+    this.deps.store.putPlanGate(reset);
+    this.deps.onChange(session.id, reset);
+    return this.deps.reply(session.id, planSteerText(gate.findings));
+  }
+
+  /**
+   * Operator "dismiss" for a plan stalled at the adversarial-review cap: reset the round
+   * budget WITHOUT re-delivering findings (unlike `resume`, no steer is sent). The block
+   * clears on the next poll tick once `quotaBlockReason` re-derives from the reset row.
+   */
+  dismiss(session: Session): void {
+    const gate = this.deps.store.getPlanGate(session.id);
+    if (!gate || gate.decision !== "changes_requested") return;
+    const reset = { ...gate, round: 0 };
+    this.deps.store.putPlanGate(reset);
+    this.deps.onChange(session.id, reset);
+  }
+
   forget(sessionId: string): void {
     // Clear the `starting` tombstone so an archived session can't get a review after
     // forget(). begin() now awaits a best-effort network `getIssue` AFTER allocating its

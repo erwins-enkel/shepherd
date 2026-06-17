@@ -255,6 +255,31 @@ test("blockSummary maps shapes to human text", () => {
   expect(blockSummary({ shape: "stall", options: [], tail: [] }, "de")).toMatch(/ruhig|hängen/i);
 });
 
+test("blockSummary returns locale-specific quota strings for each quotaKind", () => {
+  expect(blockSummary({ shape: "quota", quotaKind: "rework", options: [], tail: [] }, "en")).toBe(
+    "Auto-fix hit its limit — open findings still need you.",
+  );
+  expect(blockSummary({ shape: "quota", quotaKind: "review", options: [], tail: [] }, "en")).toBe(
+    "Critic keeps finding issues — auto-review paused.",
+  );
+  expect(blockSummary({ shape: "quota", quotaKind: "error", options: [], tail: [] }, "en")).toBe(
+    "Critic can't review this PR — needs you.",
+  );
+  expect(blockSummary({ shape: "quota", quotaKind: "plan", options: [], tail: [] }, "en")).toBe(
+    "Plan review stuck — keeps requesting changes.",
+  );
+  // German translations
+  expect(blockSummary({ shape: "quota", quotaKind: "plan", options: [], tail: [] }, "de")).toBe(
+    "Plan-Review hängt — fordert weiter Änderungen.",
+  );
+});
+
+test("blockSummary falls back to other for unknown quotaKind", () => {
+  expect(blockSummary({ shape: "quota", quotaKind: undefined, options: [], tail: [] }, "en")).toBe(
+    "Waiting on your input.",
+  );
+});
+
 test("buildPayload localizes title + body by subscriber locale", () => {
   const done: NotifyInput = { kind: "done", sessionId: "s", tag: "s", name: "Bob" };
   expect(buildPayload(done, "en")).toMatchObject({

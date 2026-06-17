@@ -7,6 +7,7 @@ import { classifyBlocked } from "../src/blocked";
 import { DEFAULT_STALL } from "../src/stall";
 import { maintenance } from "../src/maintenance";
 import { config } from "../src/config";
+import type { ReviewVerdict, PlanGate } from "../src/types";
 
 const baseSession = {
   name: "x",
@@ -2543,4 +2544,223 @@ test("hooks: ingestSessionStart is inert when config.hooksSignals is off", () =>
   } finally {
     config.hooksSignals = orig;
   }
+});
+
+// ── quota block lifecycle (task 3) ────────────────────────────────────────────
+
+/** Minimal ReviewVerdict that puts the review in rework-stall state.
+ *  addressRound === addressCap, finalRoundPending=false → addressStallStatus="stalled". */
+function makeReworkStallReview(sessionId: string): ReviewVerdict {
+  return {
+    sessionId,
+    headSha: "abc",
+    patchId: "p1",
+    decision: "changes_requested",
+    summary: "issues",
+    body: "## issues",
+    findings: ["fix A", "fix B"],
+    addressRound: 3,
+    addressCap: 3,
+    streakReviews: 2,
+    reviewedPatchIds: ["p1"],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 60_000,
+    seenNoteIds: [],
+    updatedAt: 1000,
+  };
+}
+
+/** Minimal PlanGate at cap (decision=changes_requested, round>=cap). */
+function makeExhaustedGate(sessionId: string): PlanGate {
+  return {
+    sessionId,
+    planHash: "h1",
+    decision: "changes_requested",
+    summary: "plan issues",
+    body: "## plan",
+    findings: ["address X"],
+    round: 5,
+    cap: 5,
+    approved: false,
+    plan: "do stuff",
+    updatedAt: 1000,
+  };
+}
+
+/** Build a poller whose single session is idle (herdr agentStatus="done") and
+ *  whose block callbacks are captured. The store is returned so tests can seed
+ *  review/gate rows and mutate session status. */
+function idleQuotaHarness() {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "done" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "",
+  };
+
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => Date.now(),
+  );
+
+  return { store, s, blocks, poller };
+}
+
+// Property 1: emit once per episode
+test("quota: idle session in rework-stall emits block once; second tick with same state does not re-emit", () => {
+  const { store, s, blocks, poller } = idleQuotaHarness();
+  store.putReview(makeReworkStallReview(s.id));
+
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("quota");
+  expect((blocks[0]!.block as any).quotaKind).toBe("rework");
+
+  // second tick with same state → deduped, no new emit
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+});
+
+// Property 2: clear on resolve
+test("quota: clears block when review is reset so quotaBlockReason returns null", () => {
+  const { store, s, blocks, poller } = idleQuotaHarness();
+  store.putReview(makeReworkStallReview(s.id));
+
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("quota");
+
+  // reset the review row so the detector returns null
+  store.dropReview(s.id);
+
+  poller.tick();
+  expect(blocks).toHaveLength(2);
+  expect(blocks[1]).toEqual({ id: s.id, block: null });
+});
+
+// Property 3: clear on resume (running-path guard clears stale quota block)
+test("quota: block is cleared when a quota-carrying session transitions to running", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  let agentStatus: "done" | "working" = "done";
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "",
+    readAsync: () => Promise.resolve(""),
+  };
+
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => Date.now(),
+  );
+
+  store.putReview(makeReworkStallReview(s.id));
+
+  // idle tick → quota block emitted
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("quota");
+
+  // session resumes
+  agentStatus = "working";
+  poller.tick();
+  // the running-path guard (probeTerminalInterim ~line 833) clears any non-stall
+  // lastSig asynchronously via the interim path; flush the microtask queue.
+  await flush();
+  expect(blocks.length).toBeGreaterThanOrEqual(2);
+  expect(blocks[blocks.length - 1]).toEqual({ id: s.id, block: null });
+});
+
+// Property 4: blocked-status priority — quota branch not invoked for blocked sessions
+test("quota: blocked session goes through maybeClassify, not the quota branch", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+
+  // herdr says blocked, terminal shows a menu prompt
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "blocked" as const,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "❯ 1. Yes\n  2. No",
+  };
+
+  const clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+
+  // seed a quota condition too — but it must not matter for a blocked session
+  store.putReview(makeReworkStallReview(s.id));
+
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  // must be a menu block (from maybeClassify), not a quota block
+  expect((blocks[0]!.block as any).shape).toBe("menu");
+});
+
+// Property 5: plan kind emits quotaKind "plan"
+test("quota: idle session with exhausted plan gate (no review) emits quotaKind 'plan'", () => {
+  const { store, s, blocks, poller } = idleQuotaHarness();
+  store.putPlanGate(makeExhaustedGate(s.id));
+
+  poller.tick();
+  expect(blocks).toHaveLength(1);
+  expect((blocks[0]!.block as any).shape).toBe("quota");
+  expect((blocks[0]!.block as any).quotaKind).toBe("plan");
 });

@@ -1235,8 +1235,15 @@ const appDeps: AppDeps = {
     snapshot: () => planGate.snapshot(),
     reviewing: () => planGate.reviewingIds(),
   },
-  planGate: { consider: (s) => planGate.consider(s) },
-  reviewTrigger: { force: (s, g) => reviewService.forceReview(s, g) },
+  planGate: {
+    consider: (s) => planGate.consider(s),
+    resume: (s) => planGate.resume(s),
+    dismiss: (s) => planGate.dismiss(s),
+  },
+  reviewTrigger: {
+    force: (s, g) => reviewService.forceReview(s, g),
+    clearStallState: (s) => reviewService.clearStallState(s),
+  },
   recapCache: { snapshot: () => recapService.snapshot() },
   recap: { regenerate: (s) => recapService.regenerate(s) },
   herdDigest: {

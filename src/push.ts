@@ -102,6 +102,10 @@ const NOTIFY_TEXT = {
     menu: "Waiting on a menu choice.",
     "yes-no": "Waiting on a yes/no.",
     stall: "Quiet — no recent activity; may be stuck.",
+    quotaRework: "Auto-fix hit its limit — open findings still need you.",
+    quotaReview: "Critic keeps finding issues — auto-review paused.",
+    quotaError: "Critic can't review this PR — needs you.",
+    quotaPlan: "Plan review stuck — keeps requesting changes.",
     other: "Waiting on your input.",
     reviewTitle: (name: string) => `${name} — review`,
     reviewBody: "Critic requested changes on the PR.",
@@ -135,6 +139,10 @@ const NOTIFY_TEXT = {
     menu: "Wartet auf eine Menüauswahl.",
     "yes-no": "Wartet auf ein Ja/Nein.",
     stall: "Ruhig — keine Aktivität; möglicherweise hängengeblieben.",
+    quotaRework: "Auto-Fix am Limit — offene Punkte brauchen dich.",
+    quotaReview: "Kritiker findet weiter Probleme — Auto-Review pausiert.",
+    quotaError: "Kritiker kann den PR nicht prüfen — braucht dich.",
+    quotaPlan: "Plan-Review hängt — fordert weiter Änderungen.",
     other: "Wartet auf deine Eingabe.",
     reviewTitle: (name: string) => `${name} — Review`,
     reviewBody: "Kritiker fordert Änderungen am PR an.",
@@ -194,6 +202,19 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
       return t["yes-no"];
     case "stall":
       return t.stall;
+    case "quota":
+      switch (reason.quotaKind) {
+        case "rework":
+          return t.quotaRework;
+        case "review":
+          return t.quotaReview;
+        case "error":
+          return t.quotaError;
+        case "plan":
+          return t.quotaPlan;
+        default:
+          return t.other;
+      }
     default:
       return t.other;
   }

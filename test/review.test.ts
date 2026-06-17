@@ -2026,7 +2026,7 @@ test("forceReview: begin() bails (spawn throws) → error, worktree cleaned up",
   expect(svc.reviewingIds()).toEqual([]); // nothing left in-flight
 });
 
-test("forceReview HYGIENE: resets errorRound/streak/reviewedPatchIds on the prior verdict", async () => {
+test("forceReview HYGIENE: resets errorRound/streak/reviewedPatchIds/addressRound on the prior verdict", async () => {
   const { deps: d, reviews } = makeDeps({});
   const svc = new ReviewService(d as any);
   reviews["s1"] = priorReview({
@@ -2036,15 +2036,40 @@ test("forceReview HYGIENE: resets errorRound/streak/reviewedPatchIds on the prio
     reviewedPatchIds: ["pid-x", "pid-y"],
     findings: ["still outstanding"],
     addressRound: 1,
+    finalRoundPending: true,
   });
   await svc.forceReview(session(), OPEN_GREEN);
   // hygiene resets persisted via putReview, applied before the force re-review runs
   expect(reviews["s1"]?.errorRound).toBe(0);
   expect(reviews["s1"]?.streakReviews).toBe(0);
   expect(reviews["s1"]?.reviewedPatchIds).toEqual([]);
-  // outstanding-work state the critic must re-verify is preserved
+  // auto-address streak also reset so a forced review grants a fresh address budget
+  expect(reviews["s1"]?.addressRound).toBe(0);
+  expect(reviews["s1"]?.finalRoundPending).toBe(false);
+  // outstanding-work state (findings + diff) the critic must re-verify is preserved
   expect(reviews["s1"]?.findings).toEqual(["still outstanding"]);
-  expect(reviews["s1"]?.addressRound).toBe(1);
+});
+
+test("forceReview HYGIENE: addressRound at cap (rework stall) → reset clears quota block", async () => {
+  const { deps: d, reviews } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  const addressCap = 3;
+  reviews["s1"] = priorReview({
+    headSha: "abc",
+    errorRound: 0,
+    streakReviews: 2,
+    reviewedPatchIds: [],
+    findings: ["outstanding finding"],
+    addressRound: addressCap, // stalled at cap
+    addressCap,
+    finalRoundPending: false,
+  });
+  await svc.forceReview(session(), OPEN_GREEN);
+  // reset must clear the stall: addressRound back to 0
+  expect(reviews["s1"]?.addressRound).toBe(0);
+  expect(reviews["s1"]?.finalRoundPending).toBe(false);
+  // findings preserved — the critic must still re-verify them
+  expect(reviews["s1"]?.findings).toEqual(["outstanding finding"]);
 });
 
 // ── reapOrphans (boot reconcile) ────────────────────────────────────────────────

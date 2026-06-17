@@ -692,7 +692,7 @@ void planGate
     for (const id of ids) reKickReapedReview(id);
   })
   .then(() => sweepStaleReviewWorktrees())
-  .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
+  .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
 setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
 
 attachReviewPush(events, store, push);

@@ -106,10 +106,11 @@ export class IncusDriver {
     await this.run(["profile", "create", name]);
 
     // Step 2: set all config keys additively (must succeed — applies the memory cap).
-    const configArgs: string[] = [];
-    for (const [key, value] of Object.entries(HARNESS_PROFILE.config)) {
-      configArgs.push(key, value);
-    }
+    // Pass each as a single `key=value` token — the canonical, unambiguous form for
+    // setting multiple keys in one `incus profile set` call.
+    const configArgs = Object.entries(HARNESS_PROFILE.config).map(
+      ([key, value]) => `${key}=${value}`,
+    );
     const setResult = await this.run(["profile", "set", name, ...configArgs]);
     if (setResult.code !== 0) {
       throw new Error(

@@ -89,21 +89,16 @@ describe("ensureProfile", () => {
     // Step 1: profile create
     expect(calls[0]).toEqual(["profile", "create", "shep-onb"]);
 
-    // Step 2: profile set — must include limits.memory immediately followed by the
-    // constant's value (NOT a second literal), plus limits.cpu and security.nesting.
+    // Step 2: profile set — each config key passed as a single `key=value` token
+    // (the canonical form), with the memory value sourced from the constant (NOT a
+    // second literal), plus limits.cpu and security.nesting.
     const setCall = calls[1]!;
     expect(setCall[0]).toBe("profile");
     expect(setCall[1]).toBe("set");
     expect(setCall[2]).toBe("shep-onb");
-    const memIdx = setCall.indexOf("limits.memory");
-    expect(memIdx).toBeGreaterThan(-1);
-    expect(setCall[memIdx + 1]).toBe(HARNESS_PROFILE.config["limits.memory"]);
-    expect(setCall).toContain("limits.cpu");
-    const cpuIdx = setCall.indexOf("limits.cpu");
-    expect(setCall[cpuIdx + 1]).toBe(HARNESS_PROFILE.config["limits.cpu"]);
-    expect(setCall).toContain("security.nesting");
-    const nestIdx = setCall.indexOf("security.nesting");
-    expect(setCall[nestIdx + 1]).toBe(HARNESS_PROFILE.config["security.nesting"]);
+    expect(setCall).toContain(`limits.memory=${HARNESS_PROFILE.config["limits.memory"]}`);
+    expect(setCall).toContain(`limits.cpu=${HARNESS_PROFILE.config["limits.cpu"]}`);
+    expect(setCall).toContain(`security.nesting=${HARNESS_PROFILE.config["security.nesting"]}`);
 
     // Step 3: device add
     expect(calls[2]).toEqual([

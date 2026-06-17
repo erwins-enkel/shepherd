@@ -2076,7 +2076,6 @@ function makeOrphanDeps(
       dropReview: (id: string) => droppedReviews.push(id),
       // other store methods not needed for reapOrphans
       getRepoConfig: () => ({ criticEnabled: false, autoAddressEnabled: false }),
-      getReview_unused: () => null,
       putReview: () => {},
       bumpReviewHead: () => {},
       snapshotReviews: () => ({}),
@@ -2157,7 +2156,7 @@ test("reapOrphans: true orphan (worktree present), error verdict — reaps, drop
   expect(result).toContain("s1");
 });
 
-test("reapOrphans: readUsage returns null → zeroed usage used", async () => {
+test("reapOrphans: readUsage returns null → zeroed usage used, full reap for error-verdict orphan", async () => {
   const row = {
     reviewerSessionId: "rev-null",
     taskSessionId: "s1",
@@ -2167,15 +2166,15 @@ test("reapOrphans: readUsage returns null → zeroed usage used", async () => {
     spawnedAt: 0,
   };
   const s = session({ id: "s1", desig: "TASK-01" });
-  const { deps, completedSpawns } = makeOrphanDeps([row], {
+  const { deps, completedSpawns, droppedReviews } = makeOrphanDeps([row], {
     sessions: { s1: s },
     reviews: { s1: priorReview({ decision: "error" }) },
     agents: [],
-    worktreeExists: () => true,
+    worktreeExists: () => true, // true orphan: worktree present, finalize never ran
     readUsage: async () => null,
   });
   const svc = new ReviewService(deps as any);
-  await svc.reapOrphans();
+  const result = await svc.reapOrphans();
 
   expect(completedSpawns).toHaveLength(1);
   const u = completedSpawns[0]!.u;
@@ -2188,6 +2187,9 @@ test("reapOrphans: readUsage returns null → zeroed usage used", async () => {
   expect(u.messageCount).toBe(0);
   expect(u.fullRecaches).toBe(0);
   expect(u.sidechainCount).toBe(0);
+  // worktree-present error orphan: dropReview called and taskSessionId in re-kick set
+  expect(droppedReviews).toContain("s1");
+  expect(result).toContain("s1");
 });
 
 test("reapOrphans: non-error prior verdict — NOT dropped, BUT taskId IS returned and proc/worktree reaped", async () => {
@@ -2357,4 +2359,36 @@ test("reapOrphans: session gone (store.get → undefined) — reaps proc/worktre
   // NOT dropped, NOT returned
   expect(droppedReviews).toEqual([]);
   expect(result).not.toContain("s-gone");
+});
+
+test("findSquatter: empty label does NOT match an unnamed agent whose cwd differs (no wrong-agent kill)", async () => {
+  // Regression guard for the empty-label correctness edge: when the session is gone the caller
+  // passes label="" — a naive `a.name === label` would match any unnamed agent (name="") regardless
+  // of cwd, potentially closing an unrelated agent. The fix skips the name match when label is falsy.
+  const row = {
+    reviewerSessionId: "rev-unrelated",
+    taskSessionId: "s-unrelated",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, closedTabs } = makeOrphanDeps([row], {
+    sessions: {}, // session gone → label will be ""
+    agents: [
+      // unnamed agent whose cwd does NOT match the orphan's worktree — must NOT be closed
+      {
+        name: "",
+        tabId: "tab-unrelated",
+        terminalId: "rt-unrelated",
+        cwd: "/completely-different-wt",
+      } as any,
+    ],
+    worktreeExists: () => true,
+  });
+  const svc = new ReviewService(deps as any);
+  await svc.reapOrphans();
+
+  // The unrelated unnamed agent must not have been killed
+  expect(closedTabs).toEqual([]);
 });

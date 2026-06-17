@@ -882,10 +882,13 @@ export class ReviewService {
 
   /** Find a live herdr agent that was spawned for a review run, resolved by NAME first
    *  ("review TASK-<n>"), falling back to the worktree cwd. ONE `list()` call per
-   *  invocation. Returns undefined when no live agent matches — the reviewer is already gone. */
+   *  invocation. An empty/falsy `label` (session gone) skips the name match entirely —
+   *  an unnamed agent (name="") would otherwise match every gone-session lookup and
+   *  close an unrelated agent. Returns undefined when no live agent matches. */
   private findSquatter(label: string, cwd: string): HerdrAgent | undefined {
     const agents = this.deps.herdr.list();
-    return agents.find((a) => a.name === label) ?? agents.find((a) => a.cwd === cwd);
+    const byName = label ? agents.find((a) => a.name === label) : undefined;
+    return byName ?? agents.find((a) => a.cwd === cwd);
   }
 
   /** Boot reconcile: close dangling `reviewer_spawns` rows from the last run and kill

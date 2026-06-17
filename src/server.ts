@@ -1458,6 +1458,25 @@ function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
 //     open PR → reviewTrigger.force; status passthrough from force()
 //   not stalled → 202 status: "not-stalled"
 //   unknown id → 404; no forge → 404
+
+/** Resume handler for critic-kind quota blocks (rework / review / error). */
+async function resumeCriticQuota(s: Session, deps: AppDeps): Promise<Response> {
+  const forge = deps.resolveForge?.(s.repoPath) ?? null;
+  if (!forge) return json({ error: "no forge for this repo" }, 404);
+  try {
+    const git = await resolveGitState(forge, s, deps);
+    if (git.state !== "open") {
+      // PR closed/merged: block is moot — dismiss so the nudge clears
+      deps.reviewTrigger?.clearStallState?.(s);
+      return json({ ok: true, status: git.state === "merged" ? "pr-merged" : "pr-closed" }, 202);
+    }
+    const status = (await deps.reviewTrigger?.force(s, git)) ?? "skipped";
+    return json({ ok: true, status }, 202);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+  }
+}
+
 async function handleSessionQuotaResume({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "quota" && parts[4] === "resume"))
     return null;
@@ -1475,20 +1494,7 @@ async function handleSessionQuotaResume({ req, parts, deps }: Ctx): Promise<Resp
     return json({ ok: true, status: ok ? "resumed" : "unreachable" }, 202);
   }
   // critic kinds: rework / review / error
-  const forge = deps.resolveForge?.(s.repoPath) ?? null;
-  if (!forge) return json({ error: "no forge for this repo" }, 404);
-  try {
-    const git = await resolveGitState(forge, s, deps);
-    if (git.state !== "open") {
-      // PR closed/merged: block is moot — dismiss so the nudge clears
-      deps.reviewTrigger?.clearStallState?.(s);
-      return json({ ok: true, status: git.state === "merged" ? "pr-merged" : "pr-closed" }, 202);
-    }
-    const status = (await deps.reviewTrigger?.force(s, git)) ?? "skipped";
-    return json({ ok: true, status }, 202);
-  } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
-  }
+  return resumeCriticQuota(s, deps);
 }
 
 // POST /api/sessions/:id/quota/dismiss — operator "Dismiss / Take over" for a quota-blocked session.

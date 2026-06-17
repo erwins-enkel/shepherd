@@ -414,7 +414,11 @@
   }
   function dismissOnOutside(e: MouseEvent) {
     if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
-    if (menuOpen && gearWrap && !gearWrap.contains(e.target as Node)) closeMenu();
+    // On mobile the sheet's own `.menu-scrim` backdrop (onclick={() => closeMenu()}) handles
+    // outside-tap and `use:dialog` handles Esc — so we MUST NOT gate on gearWrap containment
+    // here, or every in-sheet click (which bubbles to <svelte:window>) wrongly dismisses the
+    // sheet.  Desktop keeps the original outside-click behaviour unchanged.
+    if (menuOpen && !mobile && gearWrap && !gearWrap.contains(e.target as Node)) closeMenu();
   }
 </script>
 
@@ -891,7 +895,6 @@
             aria-hidden="true"
           ></span>{/if}{#if sheetPip && !herdrUpdateAvailable}<span
             class="sheet-pip"
-            class:shift-halt={haltable > 0}
             aria-hidden="true"
           ></span>{/if}</button
       >
@@ -1080,18 +1083,20 @@
     {/if}
 
     <!-- What's New row -->
-    <button
-      type="button"
-      class="sheet-item"
-      onclick={() => {
-        closeMenu();
-        onwhatsnew?.();
-      }}
-      aria-label={m.whatsnew_topbar_aria()}
-    >
-      <span class="sheet-glyph" aria-hidden="true">●</span>
-      <span class="sheet-label">{m.whatsnew_open()}</span>
-    </button>
+    {#if whatsNew}
+      <button
+        type="button"
+        class="sheet-item"
+        onclick={() => {
+          closeMenu();
+          onwhatsnew?.();
+        }}
+        aria-label={m.whatsnew_topbar_aria()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">●</span>
+        <span class="sheet-label">{m.whatsnew_open()}</span>
+      </button>
+    {/if}
 
     <div class="sheet-sep"></div>
 
@@ -1551,13 +1556,6 @@
     border-radius: 50%;
     background: var(--color-amber);
     box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  /* When halt-pip occupies top-right and shift moves gear-dot to bottom-right,
-     sheet-pip must shift to bottom-left (default) — already there, no extra rule.
-     shift-halt: when haltable>0 the halt-pip is active, sheet-pip stays bottom-left. */
-  .sheet-pip.shift-halt {
-    bottom: 3px;
-    left: 3px;
   }
   .menu-item {
     display: flex;
@@ -2157,9 +2155,6 @@
   }
   .needsyou.compact .ny-n {
     font-weight: 600;
-  }
-  .hud.mobile .update-badge {
-    min-height: 44px;
   }
 
   /* Coarse pointers (touch, any layout width): the secondary icon buttons are

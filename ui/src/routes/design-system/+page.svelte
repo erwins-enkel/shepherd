@@ -184,6 +184,9 @@ input, select, textarea {
   padding: 0 2px;
   color: var(--color-faint);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .seg-btn:last-child { border-right: 0; }
 .seg-btn:hover { color: var(--color-ink); }
@@ -720,6 +723,9 @@ input, select, textarea {
     padding: 0 2px;
     color: var(--color-faint);
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .seg-btn-demo:last-child {
     border-right: 0;

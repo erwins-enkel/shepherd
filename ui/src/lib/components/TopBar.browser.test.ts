@@ -927,3 +927,74 @@ describe("TopBar — CR extra-credit gauge", () => {
     );
   });
 });
+
+describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnOutside bug)", () => {
+  // Regression guard for the critical bug: on mobile, every click inside the gear
+  // bottom sheet bubbled to <svelte:window onclick={dismissOnOutside}> and closed the
+  // sheet because the sheet is rendered OUTSIDE .gear-wrap. The fix gates the
+  // gearWrap-containment branch to !mobile; the sheet's own .menu-scrim backdrop and
+  // use:dialog handle dismissal on mobile.
+  //
+  // This test opens the mobile sheet then clicks a theme button that is rendered
+  // inside it. Without the !mobile guard that click wrongly triggers closeMenu() via
+  // the window handler. With the fix the sheet stays open.
+
+  it("mobile: clicking a theme button inside the sheet does NOT close the sheet", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    // Use an idle session list so the gear always opens the menu on mobile.
+    const list = [{ id: "d1", status: "done" }] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: list,
+    });
+
+    // Open the sheet.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // Confirm the sheet rendered (the theme button is one of its controls).
+    const themeBtn = page.getByRole("button", {
+      name: m.actionbar_theme_option({ label: m.theme_light() }),
+    });
+    await expect.element(themeBtn).toBeInTheDocument();
+
+    // Click the theme button — this is an in-sheet click that must NOT close the
+    // sheet (it should NOT propagate to the window dismissOnOutside handler and call
+    // closeMenu, because mobile is excluded from that branch).
+    await themeBtn.click();
+
+    // The sheet must still be in the document: the Settings button lives in the same
+    // sheet and would disappear if closeMenu() had run.
+    await expect
+      .element(page.getByRole("button", { name: m.settings_title() }))
+      .toBeInTheDocument();
+  });
+
+  it("desktop: clicking outside the gear wrap still closes the desktop dropdown", async () => {
+    // Guard that the !mobile change does NOT regress the desktop outside-click path.
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+    });
+
+    // Open the desktop dropdown.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .toBeInTheDocument();
+
+    // Simulate an outside click by dispatching a MouseEvent on document.body (which
+    // is outside .gear-wrap). The svelte:window handler should call closeMenu().
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextFrame();
+
+    await expect
+      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .not.toBeInTheDocument();
+  });
+});

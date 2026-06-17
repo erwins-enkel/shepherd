@@ -52,7 +52,8 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
-  import { reviews, repoConfig } from "$lib/reviews.svelte";
+  import PlanGateBadge from "$lib/components/PlanGateBadge.svelte";
+  import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import RedrawMenu from "$lib/components/RedrawMenu.svelte";
@@ -511,12 +512,24 @@
       git.checks === "success" &&
       git.latestReview?.state !== "changes_requested",
   );
+  const planGate = $derived(planGates.map[session.id]);
+  // The git strip holds the Review-plan action during planning; flag the collapsed
+  // desktop disclosure when the gate is in the stuck state the re-kick is FOR — a
+  // latched REVIEW ERR — so the operator is cued to expand it and reach the button.
+  // Scoped to "error" only: other planning states are surfaced by the PlanGateBadge
+  // in the header without lighting a "needs you" hue on every planning session.
+  // (During planning there is no PR, so prAttention/prClear are both false → no hue
+  // conflict with the merge-readiness vocabulary; once a PR opens, planPhase is
+  // "executing" so planAttention is false. The two are temporally disjoint.)
+  const planAttention = $derived(
+    session.planPhase === "planning" && planGate?.decision === "error",
+  );
   // Localized status word folded into the toggle's title/aria so the hue isn't the only
   // signal — color-only status fails colorblind users and screen readers.
   const gitToggleState = $derived(
     prClear
       ? m.viewport_git_actions_state_clear()
-      : prAttention
+      : prAttention || planAttention
         ? m.viewport_git_actions_state_attention()
         : "",
   );
@@ -2145,6 +2158,10 @@
         aria-label={statusLabel(dStatus)}>{statusMark}</span
       >
     {/if}
+    <!-- plan-gate state in the focused view (PLANNING / REWORK / READY / REVIEW ERR);
+         self-hides outside the plan phase. Both layouts — the Review-plan trigger on
+         the git rail acts on this state. -->
+    <PlanGateBadge {session} />
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
            plus the autopilot toggle live one disclosure away — this toggle reveals
@@ -2154,7 +2171,7 @@
       <button
         class="git-toggle"
         class:open={gitOpen}
-        class:attention={prAttention}
+        class:attention={prAttention || planAttention}
         class:clear={prClear}
         type="button"
         aria-expanded={gitOpen}

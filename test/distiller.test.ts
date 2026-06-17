@@ -546,6 +546,43 @@ test("health — spawn failures accumulate; HerdrUnavailableError is NOT counted
   expect(d.health().lastFailure?.repoPath).toBe("/r3");
 });
 
+test("health — onChange fires on the unhealthy transition and on every further failure while unhealthy", () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 6; i++) seedSignals(store, `/r${i}`, 1);
+
+  let changes = 0;
+  const deps = {
+    store,
+    herdr: {
+      start: () => {
+        throw new Error("spawn failed");
+      },
+      stop: () => {},
+    } as any,
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => changes++,
+    now: () => 1000,
+    minSignals: 1,
+    writeSignals: () => {},
+    readProposals: () => null,
+  };
+  const d = new DistillerService(deps as any);
+
+  // Below threshold (banner hidden): no emit.
+  d.distillNow("/r0"); // 1 failure
+  d.distillNow("/r1"); // 2 failures
+  expect(changes).toBe(0);
+
+  d.distillNow("/r2"); // 3rd failure → ok→unhealthy transition
+  expect(changes).toBe(1);
+
+  // Already unhealthy: each further failure still emits so the count stays fresh.
+  d.distillNow("/r3"); // 4 failures
+  d.distillNow("/r4"); // 5 failures
+  expect(changes).toBe(3);
+  expect(d.health().consecutiveFailures).toBe(5);
+});
+
 test("health — timeout-no-output counts as failure; successful finalize resets health", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 1);

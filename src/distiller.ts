@@ -126,10 +126,12 @@ export class DistillerService {
   }
 
   private recordHealthFailure(repoPath: string, reason: string): void {
-    const wasOk = this.healthOk();
     this.healthFailures++;
     this.lastFailure = { reason, at: this.now(), repoPath };
-    if (wasOk && !this.healthOk()) this.deps.onChange();
+    // Emit on the ok→unhealthy transition AND on every further failure while unhealthy,
+    // so an already-open drawer keeps a fresh consecutiveFailures count instead of freezing
+    // at the threshold value. Below the threshold the banner is hidden, so no emit is needed.
+    if (!this.healthOk()) this.deps.onChange();
   }
 
   private recordHealthSuccess(): void {

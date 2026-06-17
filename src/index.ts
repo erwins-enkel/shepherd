@@ -661,11 +661,36 @@ const sweepStaleReviewWorktrees = () => {
 // gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
 // The next tick() then finalizes each re-adopted run from the verdict it already wrote.
 // gcStaleReviewWorktrees runs AFTER adoptOrphans has repopulated `inflight` so it only reaps
-// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans); the
-// disk-sweep then runs after gc, with `inflight` populated so its protectedPaths spare holds.
+// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans).
+// reapOrphans() runs BEFORE sweepStaleReviewWorktrees: for a dead-process orphan whose claude
+// already exited but finalize never ran the worktree survives — the disk sweep would delete it
+// first, erasing the orphan signal before reapOrphans can see it. Running reap first drops the
+// sticky error verdict and returns the task session ids to re-kick with a force-consider so the
+// critic re-runs; the disk-sweep then runs last, with `inflight` populated so protectedPaths hold.
+const reKickReapedReview = (id: string) => {
+  const s = store.get(id);
+  if (!s) return;
+  const git = prPoller.get(id);
+  if (git) {
+    // Warm cache: force-consider bypasses head-dedup and spawn-ceiling so it doesn't depend on
+    // gitStateChanged; consider itself no-ops if the PR isn't open+green, so a stale kick is safe.
+    void reviewService
+      .consider(s, git, { force: true })
+      .catch((err) => console.warn("[review] reap re-kick consider failed:", err));
+  } else {
+    // Cold cache (3s warm tick hasn't run yet): drop+pollSession so the next refresh() emits
+    // session:git with no prior `prev`, guaranteeing consider() fires via the subscription below.
+    prPoller.drop(id);
+    prPoller.pollSession(id);
+  }
+};
 void planGate
   .adoptOrphans()
   .then(() => planGate.gcStaleReviewWorktrees())
+  .then(() => reviewService.reapOrphans())
+  .then((ids) => {
+    for (const id of ids) reKickReapedReview(id);
+  })
   .then(() => sweepStaleReviewWorktrees())
   .catch((err) => console.warn("[plan-gate] adoptOrphans:", err));
 setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);

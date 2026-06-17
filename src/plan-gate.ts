@@ -649,6 +649,19 @@ export class PlanGateService {
     return this.deps.reply(session.id, planSteerText(gate.findings));
   }
 
+  /**
+   * Operator "dismiss" for a plan stalled at the adversarial-review cap: reset the round
+   * budget WITHOUT re-delivering findings (unlike `resume`, no steer is sent). The block
+   * clears on the next poll tick once `quotaBlockReason` re-derives from the reset row.
+   */
+  dismiss(session: Session): void {
+    const gate = this.deps.store.getPlanGate(session.id);
+    if (!gate || gate.decision !== "changes_requested") return;
+    const reset = { ...gate, round: 0 };
+    this.deps.store.putPlanGate(reset);
+    this.deps.onChange(session.id, reset);
+  }
+
   forget(sessionId: string): void {
     // Clear the `starting` tombstone so an archived session can't get a review after
     // forget(). begin() now awaits a best-effort network `getIssue` AFTER allocating its

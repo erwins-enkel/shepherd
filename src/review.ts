@@ -450,6 +450,26 @@ export class ReviewService {
     this.deps.onReviewing?.(session.id, true);
   }
 
+  /**
+   * Reset the prior review verdict's escalation counters WITHOUT re-triggering a review.
+   * Used by the "dismiss" quota action so the block clears on the next poll tick without
+   * spawning a new critic run. Only acts when a prior verdict row exists.
+   */
+  clearStallState(session: Session): void {
+    const prior = this.deps.store.getReview(session.id);
+    if (!prior) return;
+    const reset: typeof prior = {
+      ...prior,
+      addressRound: 0,
+      finalRoundPending: false,
+      streakReviews: 0,
+      errorRound: 0,
+      reviewedPatchIds: [],
+    };
+    this.deps.store.putReview(reset);
+    this.deps.onChange(session.id, reset);
+  }
+
   /** Operator-initiated (re)start of a critic review for `session`, bypassing the auto path's
    *  same-head dedup, spawn ceiling, and patch-id churn-skip. Aborts a hung in-flight run first. */
   async forceReview(session: Session, git: GitState): Promise<ReviewOutcome> {
@@ -470,17 +490,7 @@ export class ReviewService {
     //    finalRoundPending) so a session stalled at the address cap gets a fresh budget — forcing a
     //    review implies "try again". Preserve outstanding-work state the critic must re-verify
     //    (findings, body, headSha, etc.).
-    const prior = this.deps.store.getReview(session.id);
-    if (prior) {
-      this.deps.store.putReview({
-        ...prior,
-        errorRound: 0,
-        streakReviews: 0,
-        reviewedPatchIds: [],
-        addressRound: 0,
-        finalRoundPending: false,
-      });
-    }
+    this.clearStallState(session);
     // 4. one code path:
     return this.consider(session, git, { force: true });
   }

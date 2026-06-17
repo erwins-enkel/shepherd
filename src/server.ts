@@ -108,6 +108,7 @@ import {
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
 import { fingerprintDiffCount } from "./rundown-core";
+import { quotaBlockReason } from "./blocked";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -219,11 +220,17 @@ export interface AppDeps {
    *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */
   planGate?: {
     consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
+    /** Reset the plan-gate round so the quota block clears, re-delivering findings to the agent. */
+    resume(session: Session): boolean;
+    /** Reset the plan-gate round WITHOUT re-delivering findings (dismiss the quota block). */
+    dismiss(session: Session): void;
   };
   /** Operator-initiated critic review (the POST /review-pr route). Wired to
    *  ReviewService.forceReview in index.ts; absent in tests that don't exercise it. */
   reviewTrigger?: {
     force(session: Session, git: GitState): Promise<import("./review").ReviewOutcome>;
+    /** Reset escalation counters WITHOUT re-triggering a review (dismiss the quota block). */
+    clearStallState(session: Session): void;
   };
   /** Snapshot of session recaps keyed by session id; absent in tests that skip it. */
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
@@ -1443,6 +1450,74 @@ function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   return ok ? json({ ok: true }) : json({ error: "no stall to dismiss" }, 404);
 }
 
+// POST /api/sessions/:id/quota/resume — operator "Resume" for a quota-blocked session.
+// Determines the block kind via quotaBlockReason (the pure detector), then:
+//   plan kind → planGate.resume (resets round + re-delivers findings); status: "resumed"|"unreachable"
+//   critic kinds (rework/review/error) → resolves forge + GitState (fail-closed: 502 on error),
+//     merged/closed PR → clearStallState so block clears; status: "pr-merged"|"pr-closed"
+//     open PR → reviewTrigger.force; status passthrough from force()
+//   not stalled → 202 status: "not-stalled"
+//   unknown id → 404; no forge → 404
+async function handleSessionQuotaResume({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "quota" && parts[4] === "resume"))
+    return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const reason = quotaBlockReason(
+    s,
+    deps.store.getReview(s.id),
+    deps.store.getPlanGate(s.id),
+    Date.now(),
+  );
+  if (!reason) return json({ ok: true, status: "not-stalled" }, 202);
+  if (reason.quotaKind === "plan") {
+    const ok = deps.planGate?.resume?.(s) ?? false;
+    return json({ ok: true, status: ok ? "resumed" : "unreachable" }, 202);
+  }
+  // critic kinds: rework / review / error
+  const forge = deps.resolveForge?.(s.repoPath) ?? null;
+  if (!forge) return json({ error: "no forge for this repo" }, 404);
+  try {
+    const git = await resolveGitState(forge, s, deps);
+    if (git.state !== "open") {
+      // PR closed/merged: block is moot — dismiss so the nudge clears
+      deps.reviewTrigger?.clearStallState?.(s);
+      return json({ ok: true, status: git.state === "merged" ? "pr-merged" : "pr-closed" }, 202);
+    }
+    const status = (await deps.reviewTrigger?.force(s, git)) ?? "skipped";
+    return json({ ok: true, status }, 202);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
+  }
+}
+
+// POST /api/sessions/:id/quota/dismiss — operator "Dismiss / Take over" for a quota-blocked session.
+// Determines the block kind via quotaBlockReason, resets the underlying row so the block
+// clears on the next poll tick (does NOT re-trigger a review or re-deliver plan findings).
+//   plan kind → planGate.dismiss (round reset, no steer)
+//   critic kinds → reviewTrigger.clearStallState (counter reset, no re-review)
+//   not stalled → 202 status: "not-stalled"
+//   unknown id → 404
+function handleSessionQuotaDismiss({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "quota" && parts[4] === "dismiss"))
+    return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const reason = quotaBlockReason(
+    s,
+    deps.store.getReview(s.id),
+    deps.store.getPlanGate(s.id),
+    Date.now(),
+  );
+  if (!reason) return json({ ok: true, status: "not-stalled" }, 202);
+  if (reason.quotaKind === "plan") {
+    deps.planGate?.dismiss?.(s);
+  } else {
+    deps.reviewTrigger?.clearStallState?.(s);
+  }
+  return json({ ok: true, status: "dismissed" }, 202);
+}
+
 // PUT /api/sessions/:id/autopilot — set the per-session opt-in override.
 // Body: { enabled: boolean | null }  (null = inherit the repo default)
 async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -1784,6 +1859,8 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionResume,
     handleSessionReady,
     handleSessionDismissStall,
+    handleSessionQuotaResume,
+    handleSessionQuotaDismiss,
     handleSessionAutopilot,
     handleSessionAutoMerge,
     handleSessionRelaunch,

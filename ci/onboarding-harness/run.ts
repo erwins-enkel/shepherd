@@ -325,6 +325,11 @@ async function main() {
   // touches our own, so overlapping runs can't destroy each other (point 5).
   const runId = `${Date.now().toString(36)}-${process.pid}`;
   const driver = new IncusDriver(undefined, `shep-onb-${runId}-`);
+  // Ensure the shared `shep-onb` profile exists with the in-repo spec before any
+  // instance is launched. Runs for both full and --scenario paths (only --reap-orphans
+  // returns early above, so this is never reached on that path). Fail-closed: a wrong
+  // or missing profile would silently OOM every instance, so we fix it up front.
+  await driver.ensureProfile();
   const results: ScenarioResult[] = [];
   try {
     const tarball = buildTarball();

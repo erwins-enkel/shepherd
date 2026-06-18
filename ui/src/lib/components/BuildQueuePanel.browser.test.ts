@@ -343,4 +343,33 @@ describe("BuildQueuePanel — collapse/expand", () => {
       .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` }))
       .toBeVisible();
   });
+
+  it("clicking the header anywhere (not just the ▴ glyph) expands a collapsed queue", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+
+    buildQueueCollapse.set(true);
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content.collapsed"))
+      .toBeTruthy();
+
+    // Click the title label — NOT the ▴ glyph. The whole header is the toggle
+    // button, so a click anywhere on the bar bubbles to it and expands.
+    (document.querySelector(".bqp-title") as HTMLElement).click();
+
+    await expect
+      .poll(() =>
+        document
+          .querySelector<HTMLButtonElement>("button.bqp-collapse-toggle")
+          ?.getAttribute("aria-expanded"),
+      )
+      .toBe("true");
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content")?.offsetParent)
+      .not.toBeNull();
+  });
 });

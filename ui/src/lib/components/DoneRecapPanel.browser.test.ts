@@ -119,6 +119,73 @@ describe("DoneRecapPanel ready state", () => {
   });
 });
 
+describe("DoneRecapPanel VisualReview blocks", () => {
+  it("renders VisualReview when blocks present (callout label + file-tree segment visible)", async () => {
+    recaps.map = {
+      b1: recap({
+        sessionId: "b1",
+        blocks: [
+          { type: "rich-text", id: "r1", markdown: "Summary text." },
+          {
+            type: "file-tree",
+            id: "ft1",
+            // single-segment path so getByText finds it directly as one node
+            entries: [{ path: "index.ts", change: "added" }],
+          },
+          { type: "callout", id: "c1", tone: "risk", markdown: "Watch out!" },
+        ],
+        changedFiles: ["index.ts"],
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "b1" }) });
+    // callout tone label visible
+    await expect.element(page.getByText("Risk")).toBeInTheDocument();
+    // file-tree leaf segment visible
+    await expect.element(page.getByText("index.ts")).toBeInTheDocument();
+  });
+
+  it("file-tree block supersedes standalone changed-files list", async () => {
+    recaps.map = {
+      b2: recap({
+        sessionId: "b2",
+        blocks: [
+          {
+            type: "file-tree",
+            id: "ft2",
+            // use a single-segment path so getByText finds it directly
+            entries: [{ path: "widget.ts", change: "modified" }],
+          },
+        ],
+        changedFiles: ["widget.ts"],
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "b2" }) });
+    // wait for the VisualReview file-tree content to appear
+    await expect.element(page.getByText("widget.ts")).toBeInTheDocument();
+    // standalone "Changed files" heading must NOT appear
+    expect(
+      page.getByText("Changed files").elements().length,
+      "no standalone changed-files heading when file-tree block present",
+    ).toBe(0);
+  });
+
+  it("no blocks → flat body still renders", async () => {
+    recaps.map = {
+      b3: recap({
+        sessionId: "b3",
+        body: "Plain **body** text.",
+        changedFiles: ["src/c.ts"],
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "b3" }) });
+    // headline still renders
+    await expect.element(page.getByText("Shipped the feature")).toBeInTheDocument();
+    // changed-files section still shows
+    await expect.element(page.getByText("Changed files")).toBeInTheDocument();
+    await expect.element(page.getByText("src/c.ts")).toBeInTheDocument();
+  });
+});
+
 describe("DoneRecapPanel generating state", () => {
   it("shows the generating line", async () => {
     recaps.map = { g1: recap({ sessionId: "g1", state: "generating" }) };

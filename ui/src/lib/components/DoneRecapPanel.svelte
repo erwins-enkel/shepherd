@@ -4,6 +4,7 @@
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import VisualReview from "./VisualReview.svelte";
 
   let { session }: { session: Session } = $props();
 
@@ -60,6 +61,8 @@
     if (v === "parked") return m.recap_verdict_parked();
     return m.recap_verdict_needs_attention();
   }
+
+  const hasFileTree = $derived(!!recap?.blocks?.some((b) => b.type === "file-tree"));
 </script>
 
 <section class="done-recap" aria-label={m.done_recap_panel_aria({ desig: session.desig })}>
@@ -81,7 +84,9 @@
       {#if recap.headline}
         <p class="dr-headline">{recap.headline}</p>
       {/if}
-      {#if renderedBody}
+      {#if recap.blocks && recap.blocks.length > 0}
+        <VisualReview blocks={recap.blocks} />
+      {:else if renderedBody}
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
         <div class="dr-md">{@html renderedBody}</div>
       {/if}
@@ -95,7 +100,7 @@
           </ul>
         </div>
       {/if}
-      {#if recap.changedFiles.length > 0}
+      {#if recap.changedFiles.length > 0 && !hasFileTree}
         <div class="dr-section">
           <p class="dr-section-head">{m.recap_changed_files()}</p>
           <ul class="dr-list dr-files">

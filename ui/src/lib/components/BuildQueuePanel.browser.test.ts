@@ -5,6 +5,7 @@ import "../../app.css";
 import type { BuildQueue } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { putBuildQueue } from "$lib/api";
+import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
 
 // Mock the API so no real network calls are made.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -27,6 +28,7 @@ const { default: BuildQueuePanel } = await import("./BuildQueuePanel.svelte");
 
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
+  buildQueueCollapse.set(false);
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
     --font-mono: ui-monospace, monospace;
@@ -241,5 +243,104 @@ describe("BuildQueuePanel — approved/running state", () => {
     const activeBadges = document.querySelectorAll(".badge-active");
     expect(doneBadges.length).toBeGreaterThan(0);
     expect(activeBadges.length).toBeGreaterThan(0);
+  });
+});
+
+describe("BuildQueuePanel — collapse/expand", () => {
+  const curationQueue: BuildQueue = {
+    sessionId: "s1",
+    approved: false,
+    steps: [
+      { id: "a", title: "Install deps", status: "pending", position: 0 },
+      { id: "b", title: "Run tests", status: "pending", position: 1 },
+    ],
+  };
+
+  it("initially expanded: content wrapper visible, inputs visible", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    const content = document.querySelector(".bqp-content");
+    expect(content).not.toBeNull();
+    await expect
+      .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` }))
+      .toBeVisible();
+    const toggleBtn = document.querySelector<HTMLButtonElement>("button.bqp-collapse-toggle");
+    expect(toggleBtn?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("after collapse: content wrapper not visible, wrapper + id still in DOM, inputs not visible, aria-expanded false", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+
+    buildQueueCollapse.set(true);
+    // poll until Svelte reactivity flushes and the collapsed class appears
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content.collapsed"))
+      .toBeTruthy();
+
+    // wrapper stays in the DOM with the correct id
+    const content = document.querySelector<HTMLElement>(".bqp-content");
+    expect(content, "wrapper stays in DOM").not.toBeNull();
+    expect(content!.id).toBe("bqp-content-s1");
+
+    // wrapper has the collapsed class applied → CSS display:none cascade hides it
+    expect(content!.classList.contains("collapsed"), "collapsed class present").toBe(true);
+
+    // wrapper itself is layout-excluded (proves display:none on .bqp-content.collapsed)
+    expect(content!.offsetParent, "wrapper hidden (offsetParent null)").toBeNull();
+
+    // each curation input is physically inside the hidden wrapper → not visible
+    const inputs = document.querySelectorAll<HTMLInputElement>("input.bqp-title-input");
+    expect(inputs.length, "inputs still in DOM").toBe(2);
+    for (const input of inputs) {
+      // offsetParent is null for elements that are not rendered (display:none on self or ancestor)
+      expect(input.offsetParent, "input hidden by cascade (offsetParent null)").toBeNull();
+    }
+
+    // toggle button reports collapsed state
+    const toggleBtn = document.querySelector<HTMLButtonElement>("button.bqp-collapse-toggle");
+    expect(toggleBtn?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("after toggling back to expanded: wrapper and inputs visible, aria-expanded true", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+
+    buildQueueCollapse.set(true);
+    // wait for collapse to flush
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content.collapsed"))
+      .toBeTruthy();
+
+    buildQueueCollapse.set(false);
+    // wait until wrapper is layout-visible again (offsetParent non-null)
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content")?.offsetParent)
+      .not.toBeNull();
+
+    // aria-expanded should reflect expanded state
+    await expect
+      .poll(() =>
+        document
+          .querySelector<HTMLButtonElement>("button.bqp-collapse-toggle")
+          ?.getAttribute("aria-expanded"),
+      )
+      .toBe("true");
+
+    await expect
+      .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` }))
+      .toBeVisible();
   });
 });

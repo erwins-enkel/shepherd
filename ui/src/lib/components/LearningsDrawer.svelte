@@ -12,10 +12,15 @@
     injectionBadge,
     injectedCount,
     showIneffective,
-    flaggedRules,
     flaggedCount,
     totalFlagged,
     evidenceSources,
+    sortGroupsForTriage,
+    isOverBudget,
+    droppedCount,
+    splitDropped,
+    reposNeedingAttention,
+    visibleInjectableRules,
   } from "./learnings-drawer";
 
   // Human label for an evidence source kind. Mirrors the server SignalKind set;
@@ -115,10 +120,12 @@
   // Matches the drawer width so the fly-in starts fully off-screen.
   const slide = { x: 520, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
-  const groups = $derived(mergeRepoGroups(items, injectable));
+  // Change 1: Use sortGroupsForTriage to order repos by triage priority.
+  const groups = $derived(sortGroupsForTriage(mergeRepoGroups(items, injectable)));
   // Empty only when there's nothing to curate in either view.
   const empty = $derived(groups.length === 0);
 
+  // Change 2: Two independent header filters — flaggedOnly + overBudgetOnly, union semantics.
   // "Not working" filter: show only repos/rules the distiller flagged. The toggle
   // only renders when something is flagged, and auto-resets so the view can't get
   // stuck on an empty filter once the last flagged rule is optimized/dismissed away.
@@ -127,9 +134,25 @@
   $effect(() => {
     if (totalFlaggedCount === 0) flaggedOnly = false;
   });
+
+  let overBudgetOnly = $state(false);
+  const totalOverBudget = $derived(injectable.reduce((n, r) => n + droppedCount(r), 0));
+  $effect(() => {
+    if (totalOverBudget === 0) overBudgetOnly = false;
+  });
+
   const displayGroups = $derived(
-    flaggedOnly ? groups.filter((g) => flaggedCount(g.injectable) > 0) : groups,
+    !flaggedOnly && !overBudgetOnly
+      ? groups
+      : groups.filter(
+          (g) =>
+            (flaggedOnly && flaggedCount(g.injectable) > 0) ||
+            (overBudgetOnly && isOverBudget(g.injectable)),
+        ),
   );
+
+  // Change 3: Triage summary band — repos needing attention.
+  const attention = $derived(reposNeedingAttention(groups));
 
   // Deep-link: when opened from a repo's status row, scroll that repo's section into
   // view. Runs once on mount (a frame later, so the fly-in has laid out the sections).
@@ -155,15 +178,25 @@
   <header class="bar">
     <span class="title">{m.learnings_title()}</span>
     {#if totalFlaggedCount > 0}
+      <!-- Change 2: stable-labeled press toggle (no label swap) -->
       <button
         class="filter-toggle"
         type="button"
         aria-pressed={flaggedOnly}
         onclick={() => (flaggedOnly = !flaggedOnly)}
       >
-        {flaggedOnly
-          ? m.learnings_filter_all()
-          : m.learnings_filter_flagged({ count: totalFlaggedCount })}
+        {m.learnings_filter_flagged({ count: totalFlaggedCount })}
+      </button>
+    {/if}
+    {#if totalOverBudget > 0}
+      <!-- Change 2: over-budget toggle beside the not-working toggle -->
+      <button
+        class="filter-toggle"
+        type="button"
+        aria-pressed={overBudgetOnly}
+        onclick={() => (overBudgetOnly = !overBudgetOnly)}
+      >
+        {m.learnings_filter_overbudget({ count: totalOverBudget })}
       </button>
     {/if}
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
@@ -205,14 +238,102 @@
     <div class="about-body" id="learnings-about" hidden={!aboutOpen}>
       <p>{m.learnings_about_lead()} <strong>{m.learnings_about_scope()}</strong></p>
       <p>{m.learnings_about_flow()}</p>
+      <!-- Change 8: Budget explainer line -->
+      <p>{m.learnings_about_budget()}</p>
     </div>
   </section>
+
+  <!-- Change 3: Triage summary band — stable above group list, reflects ALL attention repos -->
+  {#if attention.length > 0}
+    <section class="triage" aria-label={m.learnings_triage_heading()}>
+      <span class="triage-label">{m.learnings_triage_heading()}</span>
+      <div class="triage-chips">
+        {#each attention as a (a.repoPath)}
+          <button
+            class="triage-chip"
+            type="button"
+            aria-label={m.learnings_triage_jump_aria({ repo: basename(a.repoPath) })}
+            onclick={() =>
+              document.getElementById(repoAnchorId(a.repoPath))?.scrollIntoView({ block: "start" })}
+          >
+            <span class="tc-repo">{basename(a.repoPath)}</span>
+            {#if a.droppedCount > 0}<span class="tc-over"
+                >{m.learnings_triage_over({ count: a.droppedCount })}</span
+              >{/if}
+            {#if a.flaggedCount > 0}<span class="tc-flagged"
+                >{m.learnings_triage_flagged({ count: a.flaggedCount })}</span
+              >{/if}
+          </button>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  <!-- Change 6: Injectable-rule snippet — single source, no copy-paste.
+       Accepts the repo's enabled flag so the badge reflects injection state correctly. -->
+  {#snippet irule(r: Learning & { injected: boolean }, enabled: boolean)}
+    {@const badge = injectionBadge(r, enabled)}
+    <article class="irule">
+      <p class="itext">{r.rule}</p>
+      <div class="ifoot">
+        <span class="chip" class:promoted={r.status === "promoted"}>
+          {r.status === "promoted" ? m.learnings_status_promoted() : m.learnings_status_active()}
+        </span>
+        {#if badge === "injected"}
+          <span class="badge ok">✓ {m.learnings_injected_badge()}</span>
+        {:else if badge === "over-budget"}
+          <span class="badge warn" title={m.learnings_overbudget_title()}>
+            ⊘ {m.learnings_overbudget_badge()}
+          </span>
+        {:else}
+          <span class="badge off">⊘ {m.learnings_injection_disabled_badge()}</span>
+        {/if}
+        {#if showIneffective(r)}
+          <span class="badge bad" title={m.learnings_ineffective_title()}>
+            ⚠ {m.learnings_ineffective_badge({ count: r.ineffectiveCount })}
+          </span>
+        {/if}
+        <span class="spacer"></span>
+        <div class="iactions">
+          {#if showIneffective(r)}
+            <button
+              class="optimize"
+              type="button"
+              onclick={() => onoptimize(r.id)}
+              aria-label={m.learnings_optimize_aria()}
+            >
+              {m.learnings_optimize()}
+            </button>
+          {/if}
+          {#if r.status === "active"}
+            <!-- Change 9: de-emphasised Dismiss with margin-left gap from Promote -->
+            <button class="dismiss dismiss-muted" onclick={() => ondismiss(r.id)}>
+              {m.learnings_dismiss()}
+            </button>
+            <button
+              class="promote"
+              onclick={() => onpromote(r.id)}
+              aria-label={m.learnings_promote_aria()}
+            >
+              {m.learnings_promote()}
+            </button>
+          {:else if r.status === "promoted" && r.promotedPrUrl}
+            <a class="prlink" href={r.promotedPrUrl} target="_blank" rel="noopener external">
+              {m.learnings_promoted_pr()}
+            </a>
+          {/if}
+        </div>
+      </div>
+    </article>
+  {/snippet}
 
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>
   {:else}
     {#each displayGroups as group (group.repoPath)}
+      <!-- Change 4: group container with left-accent border + faint surface -->
       <section class="group" id={repoAnchorId(group.repoPath)}>
+        <!-- Change 4: sticky repo header -->
         <div class="ghead">
           <span class="repo">{basename(group.repoPath)}</span>
           <button
@@ -224,7 +345,8 @@
           </button>
         </div>
 
-        {#each flaggedOnly ? [] : group.proposed as l (l.id)}
+        <!-- Change 7: hide proposals under either active lens -->
+        {#each flaggedOnly || overBudgetOnly ? [] : group.proposed as l (l.id)}
           <article class="rule">
             <textarea
               class="text"
@@ -293,17 +415,25 @@
 
         {#if group.injectable && group.injectable.rules.length > 0}
           {@const inj = group.injectable}
+          {@const lensActive = flaggedOnly || overBudgetOnly}
           <div class="injected">
             <div class="ihead">
               <span class="ititle">{m.learnings_injected_section()}</span>
-              <span class="meter">
-                {m.learnings_budget_meter({
-                  used: inj.usedChars,
-                  budget: inj.budgetChars,
-                  injected: injectedCount(inj),
-                  total: inj.rules.length,
-                })}
-              </span>
+              <!-- Change 5: conditional meter — dominant amber when over budget -->
+              {#if isOverBudget(inj)}
+                <span class="meter over"
+                  >{m.learnings_budget_over({ dropped: droppedCount(inj) })}</span
+                >
+              {:else}
+                <span class="meter">
+                  {m.learnings_budget_meter({
+                    injected: injectedCount(inj),
+                    total: inj.rules.length,
+                    used: inj.usedChars,
+                    budget: inj.budgetChars,
+                  })}
+                </span>
+              {/if}
               {#if flaggedCount(group.injectable) > 0}
                 <button
                   class="optimize-all"
@@ -314,67 +444,19 @@
                 </button>
               {/if}
             </div>
-            {#each flaggedOnly ? flaggedRules(group.injectable) : inj.rules as r (r.id)}
-              {@const badge = injectionBadge(r, inj.enabled)}
-              <article class="irule">
-                <p class="itext">{r.rule}</p>
-                <div class="ifoot">
-                  <span class="chip" class:promoted={r.status === "promoted"}>
-                    {r.status === "promoted"
-                      ? m.learnings_status_promoted()
-                      : m.learnings_status_active()}
-                  </span>
-                  {#if badge === "injected"}
-                    <span class="badge ok">✓ {m.learnings_injected_badge()}</span>
-                  {:else if badge === "over-budget"}
-                    <span class="badge warn" title={m.learnings_overbudget_title()}>
-                      ⊘ {m.learnings_overbudget_badge()}
-                    </span>
-                  {:else}
-                    <span class="badge off">⊘ {m.learnings_injection_disabled_badge()}</span>
-                  {/if}
-                  {#if showIneffective(r)}
-                    <span class="badge bad" title={m.learnings_ineffective_title()}>
-                      ⚠ {m.learnings_ineffective_badge({ count: r.ineffectiveCount })}
-                    </span>
-                  {/if}
-                  <span class="spacer"></span>
-                  <div class="iactions">
-                    {#if showIneffective(r)}
-                      <button
-                        class="optimize"
-                        type="button"
-                        onclick={() => onoptimize(r.id)}
-                        aria-label={m.learnings_optimize_aria()}
-                      >
-                        {m.learnings_optimize()}
-                      </button>
-                    {/if}
-                    {#if r.status === "active"}
-                      <button class="dismiss" onclick={() => ondismiss(r.id)}>
-                        {m.learnings_dismiss()}
-                      </button>
-                      <button
-                        class="promote"
-                        onclick={() => onpromote(r.id)}
-                        aria-label={m.learnings_promote_aria()}
-                      >
-                        {m.learnings_promote()}
-                      </button>
-                    {:else if r.status === "promoted" && r.promotedPrUrl}
-                      <a
-                        class="prlink"
-                        href={r.promotedPrUrl}
-                        target="_blank"
-                        rel="noopener external"
-                      >
-                        {m.learnings_promoted_pr()}
-                      </a>
-                    {/if}
-                  </div>
-                </div>
-              </article>
-            {/each}
+            <!-- Change 6: dropped-first rendering via snippet + splitDropped -->
+            {#if lensActive}
+              {#each visibleInjectableRules(inj, { flaggedOnly, overBudgetOnly }) as r (r.id)}
+                {@render irule(r, inj.enabled)}
+              {/each}
+            {:else}
+              {@const split = splitDropped(inj)}
+              {#if split.dropped.length > 0}
+                <p class="not-injected-label">{m.learnings_not_injected_label()}</p>
+                {#each split.dropped as r (r.id)}{@render irule(r, inj.enabled)}{/each}
+              {/if}
+              {#each split.injected as r (r.id)}{@render irule(r, inj.enabled)}{/each}
+            {/if}
           </div>
         {/if}
       </section>
@@ -421,8 +503,8 @@
     cursor: pointer;
     font-size: var(--fs-lg);
   }
-  /* "Not working" header filter — token-outlined like .distill; pressed state
-     reads as the active (amber) "flagged" lens. */
+  /* Header filters — token-outlined like .distill; pressed state
+     reads as the active (amber) lens. Both toggles share the same class. */
   .filter-toggle {
     margin-left: auto;
     font-size: var(--fs-meta);
@@ -499,22 +581,74 @@
     color: var(--color-ink-bright);
     font-weight: 600;
   }
+  /* Change 3: Triage summary band */
+  .triage {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-line);
+    background: var(--color-head);
+  }
+  .triage-label {
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+  }
+  .triage-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .triage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: 1px solid var(--color-line-bright);
+    padding: 3px 8px;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-meta);
+  }
+  .triage-chip:hover {
+    border-color: var(--color-ink-bright);
+  }
+  .tc-repo {
+    color: var(--color-ink-bright);
+    font-weight: 600;
+  }
+  .tc-over,
+  .tc-flagged {
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+  }
   .empty {
     color: var(--color-muted);
     font-size: var(--fs-base);
     line-height: 1.5;
   }
+  /* Change 4: group container with left-accent border + faint surface */
   .group {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    border-left: 2px solid var(--color-line-bright);
+    background: var(--color-head);
+    padding: 6px 8px;
   }
+  /* Change 4: sticky repo header — opaque background so scrolled content doesn't bleed */
   .ghead {
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--color-line);
     padding-bottom: 4px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-head);
   }
   .repo {
     font-size: var(--fs-base);
@@ -710,6 +844,11 @@
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
   }
+  /* Change 5: over-budget meter variant — dominant amber headline */
+  .meter.over {
+    color: var(--color-amber);
+    font-weight: 600;
+  }
   /* Per-repo "Optimize all flagged" — token-outlined small action, mirrors .optimize (amber, not green). */
   .optimize-all {
     margin-left: auto;
@@ -719,6 +858,14 @@
     color: var(--color-amber);
     padding: 3px 8px;
     cursor: pointer;
+  }
+  /* Change 6: "Not injected — over budget" sub-label */
+  .not-injected-label {
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-amber);
+    margin: 4px 0 2px;
   }
   .irule {
     border: 1px solid var(--color-line);
@@ -745,6 +892,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+  /* Change 9: de-emphasised Dismiss on active/promoted rules — muted + gap from Promote */
+  .dismiss-muted {
+    color: var(--color-muted);
+    border-color: var(--color-line);
+    margin-right: 4px;
   }
   .chip {
     font-size: var(--fs-micro);

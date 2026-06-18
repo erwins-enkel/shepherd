@@ -431,7 +431,7 @@
   "learnings_distill_aria": "Destillierer jetzt für {repo} ausführen",
   "learnings_distill_started": "Destillierer für {repo} gestartet",
   "learnings_injected_section": "Injizierte Projektregeln",
-  "learnings_budget_meter": "{used}/{budget} Zeichen · {injected}/{total} injiziert",
+  "learnings_budget_meter": "{injected} von {total} Regeln injiziert · {used}/{budget} Zeichen",
   "learnings_injected_badge": "Injiziert",
   "learnings_overbudget_badge": "Über Budget",
   "learnings_injection_disabled_badge": "Injektion deaktiviert",
@@ -1517,5 +1517,13 @@
   "vblock_wireframe_surface_popover": "Popover-Skizze",
   "vblock_wireframe_surface_panel": "Panel-Skizze",
   "feat_visual_recap_wireframes_title": "UI-Skizzen in Zusammenfassungen",
-  "feat_visual_recap_wireframes_body": "Zusammenfassungen von UI-Arbeit können jetzt gerenderte, gestaltete Skizzen der betroffenen Bildschirme enthalten — klar als illustrativ gekennzeichnet, nicht als Screenshots."
+  "feat_visual_recap_wireframes_body": "Zusammenfassungen von UI-Arbeit können jetzt gerenderte, gestaltete Skizzen der betroffenen Bildschirme enthalten — klar als illustrativ gekennzeichnet, nicht als Screenshots.",
+  "learnings_budget_over": "Über Budget · {dropped} nicht injiziert",
+  "learnings_not_injected_label": "Nicht injiziert — über Budget",
+  "learnings_filter_overbudget": "Über Budget ({count})",
+  "learnings_triage_heading": "Braucht Aufmerksamkeit",
+  "learnings_triage_over": "{count} über",
+  "learnings_triage_flagged": "{count} nicht funktionierend",
+  "learnings_triage_jump_aria": "Zu {repo} springen",
+  "learnings_about_budget": "Die freigegebenen Regeln jedes Repos werden bis zu einem gemeinsamen Zeichenbudget injiziert; Regeln über dem Budget werden übersprungen, bis du sie kürzt oder das Budget erhöhst."
 }

@@ -66,7 +66,7 @@ import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees }
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
-import { OptimizerService } from "./optimizer";
+import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
@@ -1066,7 +1066,7 @@ const promoter = new Promoter({ store, worktree, resolveForge });
 const optimizer = new OptimizerService({
   store,
   herdr,
-  scratch: defaultScratch,
+  scratch: defaultOptimizerScratch,
   promoter,
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });

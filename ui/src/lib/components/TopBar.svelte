@@ -893,11 +893,15 @@
     {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
-         the Settings entry. A pip on the gear is the only at-rest cue that there's a
-         herd to halt: amber while agents simply work (matches the working colour),
-         escalating to red only when something is blocked — so red keeps meaning
-         "needs you", consistent with the rest of the bar. The blue herdr-update dot
-         (mobile) shifts to the opposite corner when both want the gear. -->
+         the Settings entry. The pip differs by platform:
+         • Desktop keeps the dedicated halt-pip — the only at-rest cue that there's a
+           herd to halt: amber while agents simply work (matches the working colour),
+           escalating to red only when something is blocked. Other signals (update,
+           health, what's-new, learnings) live in their own labelled badges.
+         • Mobile folds those badges into the gear's bottom sheet, so the gear carries
+           a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
+           signal — red > orange > yellow > blue. Red still means "needs you",
+           consistent with the rest of the bar. -->
     <div class="gear-wrap" bind:this={gearWrap}>
       <button
         bind:this={gearBtn}

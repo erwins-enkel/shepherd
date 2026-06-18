@@ -1064,7 +1064,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => ({}) as any,
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1106,7 +1106,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => ({}) as any,
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1150,7 +1150,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => ({}) as any,
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1192,7 +1192,7 @@ test("archive with no reap keys never calls the reaper", async () => {
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => ({}) as any,
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,

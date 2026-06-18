@@ -244,7 +244,6 @@ input, select, textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px; /* for the armed decom "?" adornment beside the SVG */
   width: var(--icon-btn-hit);    /* 28px — desktop square hit area */
   height: var(--icon-btn-hit);
   padding: 0;
@@ -462,7 +461,7 @@ input, select, textarea {
         type="button"
         class="icon-btn"
         aria-label="Decommission (confirm)"
-        style="color: var(--color-red)"
+        style="background: var(--color-red); border-color: var(--color-red); color: var(--color-bg)"
       >
         <svg
           viewBox="0 0 24 24"
@@ -474,7 +473,7 @@ input, select, textarea {
           aria-hidden="true"
         >
           <path d="M18 6 6 18" /><path d="M6 6l12 12" />
-        </svg><span aria-hidden="true" style="font-size: var(--fs-meta); line-height: 1">?</span>
+        </svg>
       </button>
       <button type="button" class="icon-btn" aria-label="Upload">
         <svg

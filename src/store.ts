@@ -19,7 +19,7 @@ import type {
   HerdDigest,
   RundownItem,
 } from "./types";
-import { parseVisualBlocks, type VisualBlock } from "./visual-blocks";
+import type { VisualBlock } from "./visual-blocks";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
@@ -1415,9 +1415,14 @@ export class SessionStore implements CapStore, CreditStore {
     } catch {
       changedFiles = [];
     }
-    let blocks: VisualBlock[];
+    // Persisted blocks were already validated + server-grounded at finalize (the real DiffFile is
+    // joined onto diff blocks there). Parse as trusted data — do NOT re-run parseVisualBlocks, the
+    // LLM-input trust boundary, which strips the joined `file` off diff blocks. parseVisualBlocks
+    // runs only on fresh spawn output (recap-core.ts), never on DB reads.
+    let blocks: VisualBlock[] = [];
     try {
-      blocks = parseVisualBlocks(JSON.parse(r.blocks));
+      const parsed = JSON.parse(r.blocks);
+      if (Array.isArray(parsed)) blocks = parsed as VisualBlock[];
     } catch {
       blocks = [];
     }

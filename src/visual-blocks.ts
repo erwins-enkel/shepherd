@@ -132,27 +132,38 @@ const VALIDATORS: Record<string, BlockValidator> = {
   diff: validateDiff,
 };
 
+/** Validate a single raw element into a typed VisualBlock, or null when malformed. */
+function parseBlock(item: unknown): VisualBlock | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  const r = item as Record<string, unknown>;
+
+  const id = r.id;
+  if (typeof id !== "string" || id === "") return null;
+
+  const type = r.type;
+  if (typeof type !== "string") return null;
+
+  const validate = VALIDATORS[type]; // unknown type → undefined → drop
+  return validate ? validate(r, id) : null;
+}
+
 /** Parse + validate LLM-emitted JSON into typed VisualBlock[]. Never throws.
  *  Drops malformed blocks and returns only valid ones ([] on non-array input).
+ *  Enforces unique block ids (a later duplicate is dropped) — the renderer keys its
+ *  `{#each}` by `block.id`, so a duplicate id would break the keyed-each.
  *  This is the trust boundary — be defensive, drop on any doubt. */
 export function parseVisualBlocks(raw: unknown): VisualBlock[] {
   if (!Array.isArray(raw)) return [];
 
   const result: VisualBlock[] = [];
+  const seenIds = new Set<string>();
 
   for (const item of raw) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const r = item as Record<string, unknown>;
-
-    const id = r.id;
-    if (typeof id !== "string" || id === "") continue;
-
-    const type = r.type;
-    if (typeof type !== "string") continue;
-
-    const validate = VALIDATORS[type]; // unknown type → undefined → drop
-    const block = validate ? validate(r, id) : null;
-    if (block) result.push(block);
+    const block = parseBlock(item);
+    if (!block) continue;
+    if (seenIds.has(block.id)) continue; // duplicate id → drop (keyed-each requires unique ids)
+    seenIds.add(block.id);
+    result.push(block);
   }
 
   return result;

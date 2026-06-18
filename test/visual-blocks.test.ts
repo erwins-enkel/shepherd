@@ -262,6 +262,27 @@ describe("parseVisualBlocks", () => {
     ]);
     expect(result.map((b) => b.id)).toEqual(["r1", "c1", "r2"]);
   });
+
+  it("drops a later block with a duplicate id (keyed-each needs unique ids)", () => {
+    const result = parseVisualBlocks([
+      { type: "rich-text", id: "dup", markdown: "first" },
+      { type: "callout", id: "dup", tone: "info", markdown: "second" },
+      { type: "rich-text", id: "keep", markdown: "third" },
+    ]);
+    expect(result.map((b) => b.id)).toEqual(["dup", "keep"]);
+    expect(result.map((b) => b.type)).toEqual(["rich-text", "rich-text"]);
+  });
+
+  it("reserves a duplicate id only once a VALID block used it", () => {
+    // first block with id "x" is invalid (missing markdown) and dropped → the id is not reserved,
+    // so the later valid block with the same id survives.
+    const result = parseVisualBlocks([
+      { type: "rich-text", id: "x" }, // invalid: no markdown → dropped, id not reserved
+      { type: "callout", id: "x", tone: "risk", markdown: "real" },
+    ]);
+    expect(result.map((b) => b.id)).toEqual(["x"]);
+    expect(result[0]?.type).toBe("callout");
+  });
 });
 
 // ── joinDiffBlocks ────────────────────────────────────────────────────────────

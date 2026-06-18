@@ -202,6 +202,30 @@ test("recaps: blocks round-trip via put→get / snapshot / generatingRecaps", ()
   expect(gen.find((x) => x.sessionId === "s1")?.blocks).toEqual(sampleBlocks);
 });
 
+test("recaps: diff block keeps its server-grounded `file` through put→get / snapshot / generatingRecaps", () => {
+  const s = new SessionStore(":memory:");
+  const diffBlock: VisualBlock = {
+    type: "diff",
+    id: "d1",
+    path: "src/store.ts",
+    summary: "tweak",
+    file: sampleDiffFile,
+  };
+  s.putRecap(r({ sessionId: "s1", state: "generating", blocks: [diffBlock] }));
+  s.putRecap(
+    r({ sessionId: "s2", state: "ready", verdict: "ready", headline: "done", blocks: [diffBlock] }),
+  );
+
+  // hydrateRecap must NOT re-run parseVisualBlocks (the LLM-input trust boundary, which strips the
+  // server-attached `file` off diff blocks): the persisted real DiffFile must survive every DB read.
+  const got = s.getRecap("s2")?.blocks?.[0];
+  expect(got).toBeDefined();
+  if (got?.type !== "diff") throw new Error("expected a diff block");
+  expect(got.file).toEqual(sampleDiffFile);
+  expect(s.snapshotRecaps()["s2"]?.blocks?.[0]).toEqual(diffBlock);
+  expect(s.generatingRecaps().find((x) => x.sessionId === "s1")?.blocks?.[0]).toEqual(diffBlock);
+});
+
 test("recaps: blocks back-compat — absent blocks hydrates to []", () => {
   const s = new SessionStore(":memory:");
   s.putRecap(r({ sessionId: "s1", state: "ready", verdict: "ready", headline: "h" }));

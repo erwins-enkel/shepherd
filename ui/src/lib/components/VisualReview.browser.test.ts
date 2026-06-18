@@ -50,8 +50,8 @@ describe("VisualReview dispatcher", () => {
   });
 
   it("does not throw on unknown block type", () => {
-    // file-tree + diff are unhandled in Phase 1 — should render nothing, not throw
-    const blocks = [{ type: "file-tree", id: "ft1", entries: [] } as unknown as VisualBlock];
+    // verifies that truly unknown types (not file-tree/diff/rich-text/callout) render nothing, not throw
+    const blocks = [{ type: "totally-unknown", id: "u1" } as unknown as VisualBlock];
     expect(() => render(VisualReview, { blocks })).not.toThrow();
   });
 
@@ -126,8 +126,18 @@ describe("VisualReview dispatcher", () => {
         file: TEST_DIFF_FILE,
       },
     ];
-    render(VisualReview, { blocks });
+    const { container } = render(VisualReview, { blocks });
     await expect.element(page.getByText(/Highlighted changes/i)).toBeInTheDocument();
+    // assert DOM order: heading must precede the first diff block output
+    const heading = container.querySelector(".vr-highlight-head");
+    const diffSummary = container.querySelector(".diff-summary, .vr-diff-summary, .diff-block");
+    expect(heading).not.toBeNull();
+    if (heading && diffSummary) {
+      // Node.DOCUMENT_POSITION_FOLLOWING (4) means diffSummary comes after heading
+      expect(
+        heading.compareDocumentPosition(diffSummary) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   it("does not show 'Highlighted changes' heading when no diff blocks", async () => {

@@ -32,7 +32,7 @@
         map.set(head, { ...map.get(head), leaf: entry });
       } else {
         const existing = map.get(head);
-        const childMap: DirMap = (existing?.dir as DirMap | undefined) ?? new Map();
+        const childMap: DirMap = existing?.dir ?? new Map();
         map.set(head, { ...existing, dir: childMap });
         insertEntry(childMap, rest, entry);
       }
@@ -44,7 +44,7 @@
         if (value.leaf) {
           nodes.push({ kind: "leaf", segment, entry: value.leaf });
         } else if (value.dir) {
-          nodes.push({ kind: "dir", segment, children: mapToNodes(value.dir as DirMap) });
+          nodes.push({ kind: "dir", segment, children: mapToNodes(value.dir) });
         }
       }
       return nodes;
@@ -69,13 +69,13 @@
     renamed: "R",
   };
 
-  // Tokens mirroring DiffFileBlock status glyphs — verified against design-system:
-  // added→--color-green, modified→--color-amber, removed→--color-red, renamed→--color-blue
+  // Tokens mirroring DiffFileBlock status glyphs (.status-added/deleted/renamed/modified):
+  // added→--color-green, modified→--color-amber, removed→--color-red, renamed→--color-amber
   const CHANGE_COLOR: Record<FileTreeChange, string> = {
     added: "var(--color-green)",
     modified: "var(--color-amber)",
     removed: "var(--color-red)",
-    renamed: "var(--color-blue)",
+    renamed: "var(--color-amber)",
   };
 
   function changeLabel(change: FileTreeChange): string {

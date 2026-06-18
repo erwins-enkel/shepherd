@@ -607,7 +607,6 @@
   "viewport_resume_title": "Session zurückholen",
   "viewport_resume_sub": "Tippen zum Fortsetzen",
   "viewport_resume_failed": "Konnte nicht fortsetzen. Nochmal tippen",
-  "viewport_redraw_btn": "Neu zeichnen",
   "viewport_redraw_title": "Neu zeichnen: gestauchten Terminal-Text reparieren (Testvarianten)",
   "redrawmenu_label": "Neuzeichnen-Varianten",
   "redrawmenu_nudge": "Resize-Impuls",

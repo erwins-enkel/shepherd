@@ -2237,6 +2237,7 @@
       {#if tab === "term"}
         <button
           class="vp-redraw"
+          class:compact
           bind:this={redrawBtnEl}
           type="button"
           aria-haspopup="menu"
@@ -2245,8 +2246,18 @@
           title={m.viewport_redraw_title()}
           aria-label={m.viewport_redraw_title()}
         >
-          <span aria-hidden="true">↔</span>
-          {#if !compact}<span>{m.viewport_redraw_btn()}</span>{/if}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path
+              d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z"
+            /></svg
+          >
         </button>
         {#if redrawOpen && redrawBtnEl}
           <RedrawMenu
@@ -3117,26 +3128,33 @@
   /* Resume: the primary action of a parked session, so it stays on the identity
      row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
      → no green/red), brightening to ink on hover. */
-  /* redraw-variants toggle: mirrors .vp-resume's quiet ghost styling so the
-     trailing header controls read as one set */
+  /* redraw-variants toggle: icon-only wrench, ghost styling matching the
+     trailing header controls cluster; compact class enlarges to touch target */
   .vp-redraw {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-faint);
-    font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 2px 7px;
+    padding: 0;
     cursor: pointer;
     transition:
       color 0.12s,
       border-color 0.12s;
+  }
+  .vp-redraw.compact {
+    width: var(--mobile-actionbar-hit);
+    height: var(--mobile-actionbar-hit);
+  }
+  .vp-redraw svg {
+    width: 18px;
+    height: 18px;
+    display: block;
   }
   .vp-redraw:hover,
   .vp-redraw[aria-expanded="true"] {

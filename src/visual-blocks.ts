@@ -39,7 +39,6 @@ export type VisualBlock =
       type: "code";
       id: string;
       filename: string;
-      language?: string;
       /** Server-populated from DiffFile — never from LLM input. */
       code?: string;
       truncated?: boolean;
@@ -48,7 +47,6 @@ export type VisualBlock =
       type: "annotated-code";
       id: string;
       filename: string;
-      language?: string;
       /** Prose-only annotations — no line anchors (decision #4). */
       annotations?: DiffAnnotation[];
       /** Server-populated from DiffFile — never from LLM input. */
@@ -186,7 +184,6 @@ function validateCode(r: Record<string, unknown>, id: string): VisualBlock | nul
   if (typeof r.filename !== "string" || r.filename === "") return null;
   // strip server-populated fields
   const block: VisualBlock & { type: "code" } = { type: "code", id, filename: r.filename };
-  if (typeof r.language === "string") block.language = r.language;
   // code/truncated intentionally NOT copied — server-populated
   return block;
 }
@@ -198,7 +195,6 @@ function validateAnnotatedCode(r: Record<string, unknown>, id: string): VisualBl
     id,
     filename: r.filename,
   };
-  if (typeof r.language === "string") block.language = r.language;
   if (Array.isArray(r.annotations)) {
     const annotations: DiffAnnotation[] = [];
     for (const a of r.annotations) {
@@ -281,9 +277,13 @@ function validateRelation(raw: unknown): { from: string; to: string; kind: strin
 
 function validateDataModel(r: Record<string, unknown>, id: string): VisualBlock | null {
   if (!Array.isArray(r.entities) || r.entities.length === 0) return null;
-  const entities: DataModelEntity[] = r.entities
-    .map(validateEntity)
-    .filter((e): e is DataModelEntity => e !== null);
+  const entities: DataModelEntity[] = [];
+  const seenEntityIds = new Set<string>();
+  for (const e of r.entities.map(validateEntity)) {
+    if (!e || seenEntityIds.has(e.id)) continue; // drop invalid + duplicate ids (keyed-each)
+    seenEntityIds.add(e.id);
+    entities.push(e);
+  }
   if (entities.length === 0) return null;
   const block: VisualBlock & { type: "data-model" } = { type: "data-model", id, entities };
   // inferred intentionally NOT copied — server forces it
@@ -378,18 +378,25 @@ function validateTable(r: Record<string, unknown>, id: string): VisualBlock | nu
   return { type: "table", id, columns, rows };
 }
 
+type ChecklistItem = { id: string; label: string; note?: string; checked?: boolean };
+
+function validateChecklistItem(raw: unknown): ChecklistItem | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const ir = raw as Record<string, unknown>;
+  if (typeof ir.id !== "string" || typeof ir.label !== "string") return null;
+  const item: ChecklistItem = { id: ir.id, label: ir.label };
+  if (typeof ir.note === "string") item.note = ir.note;
+  if (typeof ir.checked === "boolean") item.checked = ir.checked;
+  return item;
+}
+
 function validateChecklist(r: Record<string, unknown>, id: string): VisualBlock | null {
   if (!Array.isArray(r.items)) return null;
-  type ChecklistItem = { id: string; label: string; note?: string; checked?: boolean };
   const items: ChecklistItem[] = [];
-  for (const raw of r.items) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const ir = raw as Record<string, unknown>;
-    if (typeof ir.id !== "string" || typeof ir.label !== "string") continue;
-    const item: ChecklistItem = { id: ir.id, label: ir.label };
-    if (typeof ir.note === "string") item.note = ir.note;
-    if (ir.checked === true) item.checked = true;
-    else if (ir.checked === false) item.checked = false;
+  const seenItemIds = new Set<string>();
+  for (const item of r.items.map(validateChecklistItem)) {
+    if (!item || seenItemIds.has(item.id)) continue; // drop invalid + duplicate ids (keyed-each)
+    seenItemIds.add(item.id);
     items.push(item);
   }
   if (items.length === 0) return null;

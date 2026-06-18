@@ -688,12 +688,13 @@ describe("validateCode (type=code)", () => {
     expect(block.filename).toBe("src/foo.ts");
   });
 
-  it("accepts code block with optional language", () => {
+  it("ignores any model-supplied language (highlighting derives from the path)", () => {
     const result = parseVisualBlocks([
       { type: "code", id: "c1", filename: "src/foo.ts", language: "typescript" },
     ]);
     const block = asBlock(result[0], "code");
-    expect(block.language).toBe("typescript");
+    expect(block.filename).toBe("src/foo.ts");
+    expect("language" in block).toBe(false);
   });
 
   it("drops code block missing filename", () => {
@@ -810,6 +811,22 @@ describe("validateDataModel (type=data-model)", () => {
   it("drops data-model with no entities", () => {
     const result = parseVisualBlocks([{ type: "data-model", id: "dm1", entities: [] }]);
     expect(result).toEqual([]);
+  });
+
+  it("drops a later entity reusing an earlier entity id (keyed-each safety)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "data-model",
+        id: "dm1",
+        entities: [
+          validEntity,
+          { id: "e1", name: "Duplicate", fields: [{ name: "x", type: "int" }] },
+        ],
+      },
+    ]);
+    const block = asBlock(result[0], "data-model");
+    expect(block.entities).toHaveLength(1);
+    expect(block.entities[0]!.name).toBe("User"); // first wins, dup dropped
   });
 
   it("drops entity missing fields", () => {
@@ -1043,6 +1060,22 @@ describe("validateChecklist (type=checklist)", () => {
   it("drops checklist with no items", () => {
     const result = parseVisualBlocks([{ type: "checklist", id: "cl1", items: [] }]);
     expect(result).toEqual([]);
+  });
+
+  it("drops a later item reusing an earlier item id (keyed-each safety)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "checklist",
+        id: "cl1",
+        items: [
+          { id: "i1", label: "First" },
+          { id: "i1", label: "Duplicate" },
+        ],
+      },
+    ]);
+    const block = asBlock(result[0], "checklist");
+    expect(block.items).toHaveLength(1);
+    expect(block.items[0]!.label).toBe("First"); // first wins, dup dropped
   });
 
   it("drops item missing label", () => {

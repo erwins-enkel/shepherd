@@ -262,7 +262,6 @@ export type VisualBlock =
       type: "code";
       id: string;
       filename: string;
-      language?: string;
       /** Server-populated from DiffFile — never from LLM input. */
       code?: string;
       truncated?: boolean;
@@ -271,7 +270,6 @@ export type VisualBlock =
       type: "annotated-code";
       id: string;
       filename: string;
-      language?: string;
       /** Prose-only annotations — no line anchors (decision #4). */
       annotations?: DiffAnnotation[];
       /** Server-populated from DiffFile — never from LLM input. */

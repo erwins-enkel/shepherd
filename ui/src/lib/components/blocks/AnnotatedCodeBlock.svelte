@@ -9,7 +9,6 @@
     type: "code" as const,
     id: block.id,
     filename: block.filename,
-    language: block.language,
     code: block.code,
     truncated: block.truncated,
   });

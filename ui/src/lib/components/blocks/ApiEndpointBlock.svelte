@@ -2,6 +2,8 @@
   import type { VisualBlock } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import InferredBadge from "./InferredBadge.svelte";
+  import ApiParamRow from "./ApiParamRow.svelte";
+  import ApiResponseRow from "./ApiResponseRow.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "api-endpoint" }> } = $props();
 
@@ -42,21 +44,7 @@
       <table class="ae-table">
         <tbody>
           {#each block.params as param, i (i)}
-            <tr class="ae-row">
-              <td class="ae-param-name">
-                {param.name}
-                {#if param.required}<span class="ae-required"
-                    >{m.vblock_apiendpoint_required()}</span
-                  >{/if}
-              </td>
-              <td class="ae-param-in">{param.in}</td>
-              <td class="ae-param-type">{param.type}</td>
-              {#if param.note}
-                <td class="ae-param-note">{param.note}</td>
-              {:else}
-                <td></td>
-              {/if}
-            </tr>
+            <ApiParamRow {param} />
           {/each}
         </tbody>
       </table>
@@ -69,19 +57,7 @@
       <table class="ae-table">
         <tbody>
           {#each block.responses as resp, i (i)}
-            <tr class="ae-row">
-              <td class="ae-resp-status">{resp.status}</td>
-              {#if resp.description}
-                <td class="ae-resp-desc">{resp.description}</td>
-              {:else}
-                <td></td>
-              {/if}
-              {#if resp.example}
-                <td class="ae-resp-example"><code>{resp.example}</code></td>
-              {:else}
-                <td></td>
-              {/if}
-            </tr>
+            <ApiResponseRow {resp} />
           {/each}
         </tbody>
       </table>
@@ -158,47 +134,48 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
-  .ae-row td {
+  /* Row styles target child component markup via :global() */
+  :global(.ae-row td) {
     padding: 2px 6px;
     vertical-align: top;
   }
-  .ae-row td:first-child {
+  :global(.ae-row td:first-child) {
     padding-left: 0;
   }
-  .ae-row:not(:last-child) td {
+  :global(.ae-row:not(:last-child) td) {
     border-bottom: 1px solid var(--color-line);
   }
-  .ae-param-name {
+  :global(.ae-param-name) {
     color: var(--color-ink);
     white-space: nowrap;
   }
-  .ae-param-in {
+  :global(.ae-param-in) {
     color: var(--color-muted);
     white-space: nowrap;
   }
-  .ae-param-type {
+  :global(.ae-param-type) {
     color: var(--color-muted);
     white-space: nowrap;
   }
-  .ae-param-note {
+  :global(.ae-param-note) {
     color: var(--color-muted);
     font-family: inherit;
   }
-  .ae-required {
+  :global(.ae-required) {
     display: inline-block;
     margin-left: 4px;
     font-size: var(--fs-micro);
     color: var(--color-red);
     font-family: var(--font-sans, inherit);
   }
-  .ae-resp-status {
+  :global(.ae-resp-status) {
     color: var(--color-ink);
     white-space: nowrap;
   }
-  .ae-resp-desc {
+  :global(.ae-resp-desc) {
     color: var(--color-muted);
   }
-  .ae-resp-example {
+  :global(.ae-resp-example) {
     color: var(--color-muted);
     font-size: var(--fs-micro);
     overflow: hidden;

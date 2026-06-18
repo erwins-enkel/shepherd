@@ -2,15 +2,9 @@
   import type { VisualBlock } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import InferredBadge from "./InferredBadge.svelte";
+  import DataModelFieldRow from "./DataModelFieldRow.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "data-model" }> } = $props();
-
-  const CHANGE_COLOR: Record<string, string> = {
-    added: "var(--color-green)",
-    modified: "var(--color-amber)",
-    removed: "var(--color-red)",
-    renamed: "var(--color-amber)",
-  };
 </script>
 
 <div class="dm-block">
@@ -26,26 +20,7 @@
       <table class="dm-table">
         <tbody>
           {#each entity.fields as field, i (i)}
-            <tr
-              class="dm-field"
-              class:dm-field-changed={!!field.change}
-              style:color={field.change ? CHANGE_COLOR[field.change] : undefined}
-            >
-              <td class="dm-field-name">
-                {field.name}
-                {#if field.pk}<span class="dm-tag dm-pk">{m.vblock_datamodel_pk()}</span>{/if}
-                {#if field.fk}<span class="dm-tag dm-fk">{m.vblock_datamodel_fk()}</span>{/if}
-                {#if field.nullable !== undefined && !field.nullable}<span class="dm-tag dm-nn"
-                    >{m.vblock_datamodel_nullable()}</span
-                  >{/if}
-              </td>
-              <td class="dm-field-type">{field.type}</td>
-              {#if field.was}
-                <td class="dm-field-was">{m.vblock_datamodel_was({ was: field.was })}</td>
-              {:else}
-                <td></td>
-              {/if}
-            </tr>
+            <DataModelFieldRow {field} />
           {/each}
         </tbody>
       </table>
@@ -98,27 +73,28 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
-  .dm-field td {
+  /* Field row styles target child component markup via :global() */
+  :global(.dm-field td) {
     padding: 3px 10px;
     vertical-align: top;
   }
-  .dm-field:not(:last-child) td {
+  :global(.dm-field:not(:last-child) td) {
     border-bottom: 1px solid var(--color-line);
   }
-  .dm-field-name {
+  :global(.dm-field-name) {
     color: var(--color-ink);
     white-space: nowrap;
   }
-  .dm-field-type {
+  :global(.dm-field-type) {
     color: var(--color-muted);
     white-space: nowrap;
   }
-  .dm-field-was {
+  :global(.dm-field-was) {
     color: var(--color-muted);
     font-size: var(--fs-micro);
     white-space: nowrap;
   }
-  .dm-tag {
+  :global(.dm-tag) {
     display: inline-block;
     margin-left: 4px;
     padding: 0 3px;
@@ -128,15 +104,15 @@
     font-family: var(--font-sans, inherit);
     font-weight: 600;
   }
-  .dm-pk {
+  :global(.dm-pk) {
     background: var(--color-amber);
     color: var(--color-surface);
   }
-  .dm-fk {
+  :global(.dm-fk) {
     background: var(--color-blue);
     color: var(--color-surface);
   }
-  .dm-nn {
+  :global(.dm-nn) {
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
   }

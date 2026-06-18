@@ -245,48 +245,86 @@ function validateDataModelField(raw: unknown): {
   return field;
 }
 
+type DataModelEntity = {
+  id: string;
+  name: string;
+  fields: {
+    name: string;
+    type: string;
+    pk?: boolean;
+    fk?: string;
+    nullable?: boolean;
+    change?: FileTreeChange;
+    was?: string;
+  }[];
+};
+
+function validateEntity(raw: unknown): DataModelEntity | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const er = raw as Record<string, unknown>;
+  if (typeof er.id !== "string" || typeof er.name !== "string") return null;
+  if (!Array.isArray(er.fields)) return null;
+  const fields = er.fields
+    .map(validateDataModelField)
+    .filter((f): f is NonNullable<typeof f> => f !== null);
+  if (fields.length === 0) return null;
+  return { id: er.id, name: er.name, fields };
+}
+
+function validateRelation(raw: unknown): { from: string; to: string; kind: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rr = raw as Record<string, unknown>;
+  if (typeof rr.from !== "string" || typeof rr.to !== "string" || typeof rr.kind !== "string")
+    return null;
+  return { from: rr.from, to: rr.to, kind: rr.kind };
+}
+
 function validateDataModel(r: Record<string, unknown>, id: string): VisualBlock | null {
   if (!Array.isArray(r.entities) || r.entities.length === 0) return null;
-  type Entity = {
-    id: string;
-    name: string;
-    fields: {
-      name: string;
-      type: string;
-      pk?: boolean;
-      fk?: string;
-      nullable?: boolean;
-      change?: FileTreeChange;
-      was?: string;
-    }[];
-  };
-  const entities: Entity[] = [];
-  for (const raw of r.entities) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const er = raw as Record<string, unknown>;
-    if (typeof er.id !== "string" || typeof er.name !== "string") continue;
-    if (!Array.isArray(er.fields)) continue;
-    const fields = er.fields
-      .map(validateDataModelField)
-      .filter((f): f is NonNullable<typeof f> => f !== null);
-    if (fields.length === 0) continue;
-    entities.push({ id: er.id, name: er.name, fields });
-  }
+  const entities: DataModelEntity[] = r.entities
+    .map(validateEntity)
+    .filter((e): e is DataModelEntity => e !== null);
   if (entities.length === 0) return null;
   const block: VisualBlock & { type: "data-model" } = { type: "data-model", id, entities };
   // inferred intentionally NOT copied — server forces it
   if (Array.isArray(r.relations)) {
-    const relations: { from: string; to: string; kind: string }[] = [];
-    for (const rel of r.relations) {
-      if (!rel || typeof rel !== "object" || Array.isArray(rel)) continue;
-      const rr = rel as Record<string, unknown>;
-      if (typeof rr.from === "string" && typeof rr.to === "string" && typeof rr.kind === "string") {
-        relations.push({ from: rr.from, to: rr.to, kind: rr.kind });
-      }
-    }
+    const relations = r.relations
+      .map(validateRelation)
+      .filter((rel): rel is { from: string; to: string; kind: string } => rel !== null);
     if (relations.length > 0) block.relations = relations;
   }
   return block;
+}
+
+function validateApiParam(
+  raw: unknown,
+): { name: string; in: string; type: string; required?: boolean; note?: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const pr = raw as Record<string, unknown>;
+  if (typeof pr.name !== "string" || typeof pr.in !== "string" || typeof pr.type !== "string")
+    return null;
+  const param: { name: string; in: string; type: string; required?: boolean; note?: string } = {
+    name: pr.name,
+    in: pr.in,
+    type: pr.type,
+  };
+  if (pr.required === true) param.required = true;
+  if (typeof pr.note === "string") param.note = pr.note;
+  return param;
+}
+
+function validateApiResponse(
+  raw: unknown,
+): { status: number; description?: string; example?: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rr = raw as Record<string, unknown>;
+  if (typeof rr.status !== "number") return null;
+  const response: { status: number; description?: string; example?: string } = {
+    status: rr.status,
+  };
+  if (typeof rr.description === "string") response.description = rr.description;
+  if (typeof rr.example === "string") response.example = rr.example;
+  return response;
 }
 
 function validateApiEndpoint(r: Record<string, unknown>, id: string): VisualBlock | null {
@@ -303,37 +341,20 @@ function validateApiEndpoint(r: Record<string, unknown>, id: string): VisualBloc
   if (typeof r.change === "string") block.change = r.change;
   if (r.deprecated === true) block.deprecated = true;
   if (Array.isArray(r.params)) {
-    const params: { name: string; in: string; type: string; required?: boolean; note?: string }[] =
-      [];
-    for (const p of r.params) {
-      if (!p || typeof p !== "object" || Array.isArray(p)) continue;
-      const pr = p as Record<string, unknown>;
-      if (typeof pr.name !== "string" || typeof pr.in !== "string" || typeof pr.type !== "string")
-        continue;
-      const param: { name: string; in: string; type: string; required?: boolean; note?: string } = {
-        name: pr.name,
-        in: pr.in,
-        type: pr.type,
-      };
-      if (pr.required === true) param.required = true;
-      if (typeof pr.note === "string") param.note = pr.note;
-      params.push(param);
-    }
+    const params = r.params
+      .map(validateApiParam)
+      .filter(
+        (p): p is { name: string; in: string; type: string; required?: boolean; note?: string } =>
+          p !== null,
+      );
     if (params.length > 0) block.params = params;
   }
   if (Array.isArray(r.responses)) {
-    const responses: { status: number; description?: string; example?: string }[] = [];
-    for (const resp of r.responses) {
-      if (!resp || typeof resp !== "object" || Array.isArray(resp)) continue;
-      const rr = resp as Record<string, unknown>;
-      if (typeof rr.status !== "number") continue;
-      const response: { status: number; description?: string; example?: string } = {
-        status: rr.status,
-      };
-      if (typeof rr.description === "string") response.description = rr.description;
-      if (typeof rr.example === "string") response.example = rr.example;
-      responses.push(response);
-    }
+    const responses = r.responses
+      .map(validateApiResponse)
+      .filter(
+        (resp): resp is { status: number; description?: string; example?: string } => resp !== null,
+      );
     if (responses.length > 0) block.responses = responses;
   }
   return block;
@@ -483,6 +504,23 @@ export function reconcileFileTree(blocks: VisualBlock[], diffFiles: DiffFile[]):
 
 // ── joinCodeBlocks ────────────────────────────────────────────────────────────
 
+/** Reconstruct post-image code from an added DiffFile's hunks.
+ *  Returns { code } when reconstruction fits within the cap, or { truncated: true } otherwise.
+ *  Returns { truncated: true } when hunks are absent (pre-truncated or binary). */
+function reconstructAddedFileCode(file: DiffFile): { code?: string; truncated?: true } {
+  if (file.hunks.length === 0) return { truncated: true };
+  const lines: string[] = [];
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "add" || line.kind === "ctx") {
+        lines.push(line.content);
+      }
+    }
+  }
+  if (lines.length > DIFF_BLOCK_MAX_LINES) return { truncated: true };
+  return { code: lines.join("\n") };
+}
+
 /** Reconstruct code bodies for `code`/`annotated-code` blocks from real added DiffFiles.
  *  - Path missing or status !== "added" → drop.
  *  - hunks.length === 0 (pre-truncated or binary) → emit with code omitted + truncated:true.
@@ -500,29 +538,7 @@ export function joinCodeBlocks(blocks: VisualBlock[], diffFiles: DiffFile[]): Vi
     }
     const file = byPath.get(block.filename);
     if (!file || file.status !== "added") continue; // drop
-
-    if (file.hunks.length === 0) {
-      // pre-truncated or binary — no usable content
-      result.push({ ...block, truncated: true });
-      continue;
-    }
-
-    // Reconstruct post-image text from add+ctx lines
-    const lines: string[] = [];
-    for (const hunk of file.hunks) {
-      for (const line of hunk.lines) {
-        if (line.kind === "add" || line.kind === "ctx") {
-          lines.push(line.content);
-        }
-      }
-    }
-
-    if (lines.length > DIFF_BLOCK_MAX_LINES) {
-      result.push({ ...block, truncated: true });
-      continue;
-    }
-
-    result.push({ ...block, code: lines.join("\n") });
+    result.push({ ...block, ...reconstructAddedFileCode(file) });
   }
 
   return result;

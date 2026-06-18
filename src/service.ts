@@ -1530,9 +1530,10 @@ export class SessionService {
   /** Kick off the background name refine without blocking create(). No-op when disabled. */
   private scheduleRefine(session: Session, herd?: string): void {
     if (!config.llmNaming || !this.deps.refineName) return;
-    // Deterministic-first (issue #692): when the heuristic already latched a distinctive
-    // multi-word subject, the name is good enough — skip the background Haiku refine. A
-    // bounded quality trade (strong ≠ provably optimal), not zero-loss; weaker names still refine.
+    // Deterministic-first (issue #692): skip the background Haiku refine only when the
+    // heuristic captured the full distinctive subject — nothing was dropped by the 4-word cap.
+    // Long prompts whose distinctive words overflow the cap (truncated=true) still refine.
+    // Bounded quality trade (strong ≠ provably optimal), not zero-loss; weaker names still refine.
     if (isHeuristicNameStrong(session.prompt)) return;
     void this.refineNameInBackground(session, herd).catch((err) =>
       console.warn(`[namer] refine failed for ${session.id}:`, err),

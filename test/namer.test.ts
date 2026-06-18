@@ -136,20 +136,34 @@ test("normalize drops new stopwords ob, bis, denn", () => {
 // --- selectWords + isHeuristicNameStrong tests ---
 
 test("selectWords returns kept + usedSpecific for a strong prompt", () => {
-  const { kept, usedSpecific } = selectWords("the mobile footer needs settings export");
+  const { kept, usedSpecific, truncated } = selectWords("the mobile footer needs settings export");
   expect(usedSpecific).toBe(true);
   // "mobile", "footer", "settings", "export" are specific (not in STOPWORDS or COMMON)
   expect(kept).toEqual(["mobile", "footer", "settings", "export"]);
+  // exactly 4 distinctive words — fits within the cap, not truncated
+  expect(truncated).toBe(false);
+});
+
+test("selectWords returns truncated=true when distinctive words exceed the 4-word cap", () => {
+  // 5+ distinctive words: mobile, footer, settings, export, sticky, cta, scroll
+  const { kept, usedSpecific, truncated } = selectWords(
+    "the mobile footer needs settings export and a sticky CTA on scroll",
+  );
+  expect(usedSpecific).toBe(true);
+  expect(kept.length).toBe(4); // slice to 4
+  expect(truncated).toBe(true); // pre-slice list had >4
 });
 
 test("selectWords returns usedSpecific=false for an all-common fallback prompt", () => {
-  const { kept, usedSpecific } = selectWords("please can you do it");
+  const { kept, usedSpecific, truncated } = selectWords("please can you do it");
   expect(usedSpecific).toBe(false);
   expect(kept.length).toBeGreaterThan(0);
+  // truncated is set for shape symmetry; gate doesn't reach it (usedSpecific=false)
+  expect(typeof truncated).toBe("boolean");
 });
 
 test("isHeuristicNameStrong truth table", () => {
-  // strong: ≥2 distinctive words
+  // strong: ≥2 distinctive words, fits in cap (truncated=false)
   expect(isHeuristicNameStrong("the mobile footer needs settings export")).toBe(true);
   // weak: all stopwords — falls back to raw words but usedSpecific=false
   expect(isHeuristicNameStrong("please can you do it")).toBe(false);
@@ -157,11 +171,30 @@ test("isHeuristicNameStrong truth table", () => {
   expect(isHeuristicNameStrong("make the button nice")).toBe(false);
   // weak: single specific word (kept.length < 2)
   expect(isHeuristicNameStrong("export")).toBe(false);
+  // weak: 5+ distinctive words overflow the cap → truncated=true → NOT strong
+  expect(
+    isHeuristicNameStrong("the mobile footer needs settings export and a sticky CTA on scroll"),
+  ).toBe(false);
+  // --- real-prompt regression: user's actual stuck tasks (live-DB validation) ---
+  // This task's own prompt: 16 distinctive words → truncated → must refine
+  expect(
+    isHeuristicNameStrong(
+      "Did we break the task renamer? I feel like new tasks end up with just the tokenized name that never gets renamed via the LLM call",
+    ),
+  ).toBe(false);
+  // "five learnings" task: 14 distinctive words → truncated → must refine
+  expect(
+    isHeuristicNameStrong(
+      "Why does the system offer five learnings that need approval yet when I open the pane there are none",
+    ),
+  ).toBe(false);
+  // accepted residual: 3 distinctive words, fits cap → stays heuristic (documents known non-fix)
+  expect(isHeuristicNameStrong('Make "not workking" learnings actionable')).toBe(true);
 });
 
 test("no-drift pinning: normalize and isHeuristicNameStrong derive from selectWords", () => {
   // Corpus covers: strong multi-word, single-specific-word, only-COMMON fallback,
-  // all-stopword/fallback, and various prose prompts.
+  // all-stopword/fallback, various prose prompts, and a long many-keyword prompt.
   const corpus = [
     "the mobile footer needs settings export", // strong: multi-word specific
     "export", // single specific word → not strong, no "-"
@@ -176,6 +209,8 @@ test("no-drift pinning: normalize and isHeuristicNameStrong derive from selectWo
     "!!! ??? ...",
     "Even with the two recent PRs...",
     "p",
+    // long many-keyword prompt: truncated=true → not strong; normalize output unchanged
+    "Did we break the task renamer? I feel like new tasks end up with just the tokenized name that never gets renamed via the LLM call",
   ];
   for (const p of corpus) {
     const { kept } = selectWords(p);

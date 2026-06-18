@@ -1852,6 +1852,28 @@ test("refine skipped (gate) when the heuristic name is already strong", async ()
   expect(refineCallCount).toBe(0);
 });
 
+test("refine fires (gate loosened) when the prompt has 5+ distinctive words (truncated)", async () => {
+  // "the mobile footer needs settings export and a sticky CTA on scroll" →
+  // isHeuristicNameStrong=false (truncated=true) → refineName IS called
+  let refineCallCount = 0;
+  const { deps } = svcDeps({
+    refineName: async () => {
+      refineCallCount++;
+      return "refined-name";
+    },
+  });
+  const svc = new SessionService(deps);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "the mobile footer needs settings export and a sticky CTA on scroll",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(refineCallCount).toBe(1);
+});
+
 test("refine fires when the heuristic name is weak", async () => {
   // "make the button nice" → isHeuristicNameStrong=false → refineName IS called
   let refineCallCount = 0;

@@ -389,8 +389,14 @@ const COMMAND_PREFIX_RE =
 /** The word-selection at the heart of {@link normalize}, exposed so the namer's
  *  "is this name strong?" judgment derives from the SAME logic that builds the name
  *  (no drift). `usedSpecific` is true when distinctive (non-COMMON) words drove the
- *  pick; `kept` is the final, deduped, ≤4-word list that normalize joins. */
-export function selectWords(s: string): { kept: string[]; usedSpecific: boolean } {
+ *  pick; `kept` is the final, deduped, ≤4-word list that normalize joins.
+ *  `truncated` is true when the distinctive-word list exceeded the 4-word cap — the
+ *  heuristic lost subject words, so the LLM refine should run to recover them. */
+export function selectWords(s: string): {
+  kept: string[];
+  usedSpecific: boolean;
+  truncated: boolean;
+} {
   const words = transliterate(s)
     .toLowerCase()
     .replace(COMMAND_PREFIX_RE, "")
@@ -399,13 +405,18 @@ export function selectWords(s: string): { kept: string[]; usedSpecific: boolean 
     .split(/\s+/)
     .filter(Boolean);
   const survivors = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
-  if (!survivors.length) return { kept: words.slice(0, 4), usedSpecific: false };
+  // truncated is dead for the gate here since usedSpecific=false already forces refine;
+  // set it for return-shape symmetry so callers never see an undefined field.
+  if (!survivors.length)
+    return { kept: words.slice(0, 4), usedSpecific: false, truncated: words.length > 4 };
   const specific = survivors.filter((w) => !COMMON.has(w));
   const usedSpecific = specific.length > 0;
   const base = usedSpecific ? specific : survivors;
   const seen = new Set<string>();
   const unique = base.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
-  return { kept: unique.slice(0, 4), usedSpecific };
+  // Compute truncated BEFORE slice — unique.length > 4 means the cap dropped words.
+  const truncated = unique.length > 4;
+  return { kept: unique.slice(0, 4), usedSpecific, truncated };
 }
 
 /**
@@ -424,12 +435,16 @@ export function normalize(s: string): string {
   return selectWords(s).kept.join("-");
 }
 
-/** True when the heuristic name already latched a distinctive multi-word subject —
- *  the deterministic name is good enough that the background Haiku refine can be skipped.
+/** True when the heuristic name captured the full distinctive subject — nothing was
+ *  dropped by the 4-word cap — so the background Haiku refine can be skipped.
+ *  Requires: specific words drove the pick (usedSpecific), at least 2 were kept, AND
+ *  the distinctive list fit within the cap (truncated=false). When a long prompt
+ *  overflows the cap the heuristic loses subject words; those prompts are NOT strong
+ *  and the LLM refine fires to recover them.
  *  Bounded quality trade, not zero-loss: a strong name may still be improvable. */
 export function isHeuristicNameStrong(prompt: string): boolean {
-  const { kept, usedSpecific } = selectWords(prompt);
-  return usedSpecific && kept.length >= 2;
+  const { kept, usedSpecific, truncated } = selectWords(prompt);
+  return usedSpecific && kept.length >= 2 && !truncated;
 }
 
 /**

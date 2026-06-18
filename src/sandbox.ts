@@ -143,7 +143,16 @@ export function detectBackend(deps: BackendProbeDeps = {}): SandboxBackend {
   };
   const flags = buildMembraneFlags(membrane, deps);
   // chain `node --version && git --version` inside the sandbox via /bin/sh -c.
-  const probe = run("bwrap", [...flags, "--", "/bin/sh", "-c", "node --version && git --version"]);
+  // The mkdir exercises the session-env carve-out specifically: if the --tmpfs for
+  // session-env is missing/regressed, the mkdir hits EROFS and the probe exits non-zero,
+  // degrading the backend to null and surfacing the regression loudly.
+  const probe = run("bwrap", [
+    ...flags,
+    "--",
+    "/bin/sh",
+    "-c",
+    `node --version && git --version && mkdir -p '${claudeDir}/session-env/.shepherd-probe'`,
+  ]);
 
   _backendCache = probe.status === 0 ? "bwrap" : null;
   return _backendCache;
@@ -353,6 +362,13 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "--bind-try",
     `${claudeDir}/shell-snapshots`,
     `${claudeDir}/shell-snapshots`,
+    // session-env: claude 2.1.181+ mkdirs `<config-dir>/session-env/<id>` before EVERY
+    // Bash command. A tmpfs (not a host bind) makes it writable + ephemeral per-session
+    // scratch — no host pollution. MUST sit AFTER claudeDirBaseBinds so it overrides both
+    // the subscription whole-dir `--ro-bind` and the api-key maskCredentials per-child
+    // `--ro-bind-try` of session-env (else the mkdir fails EROFS and Bash dies).
+    "--tmpfs",
+    `${claudeDir}/session-env`,
     // OAuth credential: rw bind (subscription) or nothing (api-key mask: absent).
     ...credentialFlags,
     // RW persisted: trust/onboarding state (else non-interactive auto hangs on onboarding).

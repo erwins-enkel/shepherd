@@ -607,7 +607,6 @@
   "viewport_resume_title": "Resume session",
   "viewport_resume_sub": "Tap to bring it back",
   "viewport_resume_failed": "Couldn't resume. Tap to retry",
-  "viewport_redraw_btn": "Redraw",
   "viewport_redraw_title": "Redraw: fix squished terminal text (test variants)",
   "redrawmenu_label": "Redraw variants",
   "redrawmenu_nudge": "Resize nudge",

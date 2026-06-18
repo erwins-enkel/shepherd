@@ -28,6 +28,7 @@ import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import { offerUpdateMain } from "./pull-offer";
+import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -144,6 +145,12 @@ export class HerdStore {
   /** Seed (or replace) the build queue for a session — called after a bootstrap GET. */
   setBuildQueue(q: BuildQueue) {
     this.buildQueues = { ...this.buildQueues, [q.sessionId]: q };
+    buildQueuesStore.upsert(q);
+  }
+  /** Bulk-replace the build queue map — called after a resync GET /api/queues. */
+  setBuildQueues(map: Record<string, BuildQueue>) {
+    this.buildQueues = map;
+    buildQueuesStore.seed(map);
   }
   /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push. */
   setEpic(e: Epic) {
@@ -423,6 +430,7 @@ export class HerdStore {
         break;
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
+        buildQueuesStore.upsert(ev.data);
         break;
       case "epic:update":
         this.setEpic(ev.data);

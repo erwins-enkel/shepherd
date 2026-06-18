@@ -34,6 +34,7 @@
   import PrBadge from "./PrBadge.svelte";
   import TimePopover from "./TimePopover.svelte";
   import CriticBadge from "./CriticBadge.svelte";
+  import BuildQueueBadge from "./BuildQueueBadge.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
   import { reviews } from "$lib/reviews.svelte";
@@ -458,6 +459,7 @@
       <ResearchBadge {session} />
       {#if !stepperTerminal}<PrBadge {git} />{/if}
       <CriticBadge sessionId={session.id} />
+      <BuildQueueBadge sessionId={session.id} />
       <PlanGateBadge {session} />
       {#if quotaKind}
         <span

@@ -1,0 +1,21 @@
+import type { BuildQueue } from "./types";
+
+/** Module-level reactive build-queue map keyed by sessionId.
+ *  Driven by two sources:
+ *  - WS `queue:update` events (via HerdStore.apply → upsertBuildQueue)
+ *  - The resync bootstrap GET /api/queues (via seedBuildQueues)
+ *  Components (e.g. BuildQueueBadge) read from this directly by sessionId
+ *  without needing the page-local HerdStore instance as a prop. */
+class BuildQueuesStore {
+  map = $state<Record<string, BuildQueue>>({});
+
+  upsert(q: BuildQueue) {
+    this.map = { ...this.map, [q.sessionId]: q };
+  }
+
+  seed(queues: Record<string, BuildQueue>) {
+    this.map = queues;
+  }
+}
+
+export const buildQueues = new BuildQueuesStore();

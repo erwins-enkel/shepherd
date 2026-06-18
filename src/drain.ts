@@ -41,6 +41,12 @@ const EPIC_BLOCKED_BY_CONCURRENCY = 8;
  *  keeps `gh api matching-refs` off the per-pump hot path. */
 const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
 
+/** #790: after a drain spawn for an issue fails (e.g. worktree isolation aborted), back off
+ *  re-attempting that issue for this long. Without it, abort + the ~30s tick would loop
+ *  spawn→abort→re-claim with GitHub label-API churn. A transient failure self-heals after the
+ *  window; a persistent one stops churning. */
+const SPAWN_FAIL_COOLDOWN_MS = 5 * 60_000;
+
 /** #645 (Task 2): once a child's PR is found targeting the wrong base, don't re-pay the
  *  `prReviewMeta` API call on every pump while the operator hasn't fixed it — recheck at most
  *  this often per child. Bounds the cost to ≤1 call/child/~60s while a child stays blocked. */
@@ -192,6 +198,9 @@ export class DrainService {
   // recomputing on restart is fine — no persisted column).
   private epicBranchScanCache = new Map<string, { at: number; divergent: string[] }>();
   private lastEpicSig = new Map<string, string>();
+  /** #790: `${repoPath}#${issueNumber}` → last spawn-failure timestamp; throttles re-spawn
+   *  of an issue whose create() keeps throwing. Cleared on a successful spawn. In-memory. */
+  private spawnFailures = new Map<string, number>();
   private approvedNext = new Set<string>();
   private now: () => number;
   private issuesTtlMs: number;
@@ -1180,6 +1189,14 @@ export class DrainService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
     const { number, url, title, body } = decision.issue;
+    const failKey = `${repoPath}#${number}`;
+    const lastFail = this.spawnFailures.get(failKey);
+    if (lastFail !== undefined) {
+      if (this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) {
+        return; // #790: recently failed to spawn this issue — back off to avoid claim/label churn
+      }
+      this.spawnFailures.delete(failKey); // #790: cooldown elapsed — drop the stale entry so the map can't grow unbounded
+    }
     // Sandbox auto-gate pre-check: skip a held issue cleanly BEFORE claiming the label
     // or spawning, so a repo whose profile refuses auto (standard, or autonomous with no
     // backend) doesn't churn the claim label every tick. create() re-checks and throws as
@@ -1249,10 +1266,12 @@ export class DrainService {
         auto: true,
         issueRef: { number, url, title, body },
       });
+      this.spawnFailures.delete(failKey); // #790: clear any prior failure cooldown on success
       // The new auto session appears in the next buildState → counts toward the
       // cap AND mappedIssueNumbers, so the loop won't re-spawn this issue and
       // naturally stops at cap.
     } catch (err) {
+      this.spawnFailures.set(failKey, this.now());
       console.warn(`[drain] spawn failed for issue #${number}:`, err);
       // Release the claim so the unspawned issue returns to the pool (best-effort).
       try {

@@ -101,7 +101,13 @@ export class GitignoreAdopter {
     // Unique per-attempt branch: a partial failure (push ok but PR url missing → 502)
     // must not wedge a retry on a stale branch name / non-fast-forward push.
     const name = `adopt-gitignore-${randomUUID().slice(0, 8)}`;
-    const wt = this.createAdoptWorktree(repoPath, base, name);
+    let wt: WorktreeResult;
+    try {
+      wt = this.createAdoptWorktree(repoPath, base, name);
+    } catch (err) {
+      console.warn("[gitignore-adopt] worktree isolation failed for", repoPath, err);
+      return { ok: false, error: "worktree creation failed", status: 500 };
+    }
     if (!wt.isolated || !wt.branch) {
       if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, error: "worktree creation failed", status: 500 };
@@ -147,9 +153,11 @@ export class GitignoreAdopter {
    *  head (branch hygiene). Falls back to the local base ref when `origin/<base>`
    *  isn't available — offline, or a fresh repo with no remote-tracking ref. */
   private createAdoptWorktree(repoPath: string, base: string, name: string): WorktreeResult {
-    const wt = this.deps.worktree.create(repoPath, `origin/${base}`, name);
-    if (wt.isolated && wt.branch) return wt;
-    return this.deps.worktree.create(repoPath, base, name);
+    try {
+      return this.deps.worktree.create(repoPath, `origin/${base}`, name);
+    } catch {
+      return this.deps.worktree.create(repoPath, base, name);
+    }
   }
 
   /** Tear down the throwaway worktree and force-delete its local branch. The pushed

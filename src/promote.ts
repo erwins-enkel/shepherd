@@ -156,7 +156,13 @@ export class Promoter {
     // Unique per-attempt branch: a partial failure (push ok but PR url missing → 502)
     // must not wedge a retry on a stale branch name / non-fast-forward push.
     const name = `learnings-promote-${id.slice(0, 8)}-${randomUUID().slice(0, 8)}`;
-    const wt = this.createPromoteWorktree(learning.repoPath, base, name);
+    let wt: WorktreeResult;
+    try {
+      wt = this.createPromoteWorktree(learning.repoPath, base, name);
+    } catch (err) {
+      console.warn(`[promote] worktree isolation failed for ${id}:`, err);
+      return { ok: false, error: "worktree creation failed", status: 500 };
+    }
     if (!wt.isolated || !wt.branch) {
       if (wt.worktreePath !== learning.repoPath) this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, error: "worktree creation failed", status: 500 };
@@ -177,9 +183,11 @@ export class Promoter {
    *  isn't available — offline, or a fresh repo with no remote-tracking ref — so an
    *  unreachable remote degrades to a local-base PR rather than an opaque 500. */
   private createPromoteWorktree(repoPath: string, base: string, name: string): WorktreeResult {
-    const wt = this.deps.worktree.create(repoPath, `origin/${base}`, name);
-    if (wt.isolated && wt.branch) return wt;
-    return this.deps.worktree.create(repoPath, base, name);
+    try {
+      return this.deps.worktree.create(repoPath, `origin/${base}`, name);
+    } catch {
+      return this.deps.worktree.create(repoPath, base, name);
+    }
   }
 
   /** Tear down the throwaway worktree and force-delete its local branch. The pushed

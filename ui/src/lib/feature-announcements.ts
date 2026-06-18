@@ -1095,4 +1095,11 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_visual_recap_diagrams_body",
     targetId: "session-recap",
   },
+  {
+    id: "visual-recap-wireframes",
+    sinceVersion: "1.34.0",
+    titleKey: "feat_visual_recap_wireframes_title",
+    bodyKey: "feat_visual_recap_wireframes_body",
+    targetId: "session-recap",
+  },
 ];

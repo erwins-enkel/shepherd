@@ -12,14 +12,14 @@
   import TableBlock from "./blocks/TableBlock.svelte";
   import ChecklistBlock from "./blocks/ChecklistBlock.svelte";
   import MermaidBlock from "./blocks/MermaidBlock.svelte";
+  import WireframeBlock from "./blocks/WireframeBlock.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { blocks }: { blocks: VisualBlock[] } = $props();
 
-  // Dispatch table — block.type → its renderer. Each block component narrows `block`
-  // to its own variant internally; the map is typed loosely here because a dispatcher
-  // is inherently heterogeneous.
-  const COMPONENTS: Record<VisualBlock["type"], Component<{ block: VisualBlock }>> = {
+  // Dispatch table — block.type → its renderer. Using `satisfies` enforces key-exhaustiveness
+  // (a missing block type is a compile error) while keeping the value cast localised to the use site.
+  const COMPONENTS = {
     "rich-text": RichTextBlock,
     callout: CalloutBlock,
     "file-tree": FileTreeBlock,
@@ -31,7 +31,8 @@
     table: TableBlock,
     checklist: ChecklistBlock,
     mermaid: MermaidBlock,
-  } as unknown as Record<VisualBlock["type"], Component<{ block: VisualBlock }>>;
+    wireframe: WireframeBlock,
+  } satisfies Record<VisualBlock["type"], unknown>;
 
   const firstDiffIndex = $derived(blocks.findIndex((b) => b.type === "diff"));
 </script>
@@ -41,7 +42,7 @@
     {#if block.type === "diff" && i === firstDiffIndex}
       <h4 class="vr-highlight-head">{m.vblock_diff_highlighted_heading()}</h4>
     {/if}
-    {@const Block = COMPONENTS[block.type]}
+    {@const Block = COMPONENTS[block.type] as unknown as Component<{ block: VisualBlock }>}
     {#if Block}
       <Block {block} />
     {/if}

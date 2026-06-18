@@ -1509,5 +1509,13 @@
   "feat_visual_recap_cards_body": "Zusammenfassungen zeigen Schemaänderungen, API-Endpunkte, Code-Ausschnitte, Tabellen und Checklisten jetzt als typisierte Karten — nicht mehr nur als reinen Text. Datenmodell- und API-Karten sind als „abgeleitet“ markiert, um anzuzeigen, dass sie vom Modell extrahiert und nicht verifiziert wurden.",
   "vblock_mermaid_error": "Diagramm konnte nicht gerendert werden",
   "feat_visual_recap_diagrams_title": "Architekturdiagramme in Zusammenfassungen",
-  "feat_visual_recap_diagrams_body": "Zusammenfassungen können jetzt gerenderte Architektur- und Flussdiagramme (Mermaid) enthalten. Sie sind als „abgeleitet“ markiert — vom Modell extrahiert, nicht gegen das Diff verifiziert."
+  "feat_visual_recap_diagrams_body": "Zusammenfassungen können jetzt gerenderte Architektur- und Flussdiagramme (Mermaid) enthalten. Sie sind als „abgeleitet“ markiert — vom Modell extrahiert, nicht gegen das Diff verifiziert.",
+  "vblock_wireframe_mockup_label": "Illustrative Skizze — nicht aus dem Code generiert",
+  "vblock_wireframe_surface_browser": "Browser-Skizze",
+  "vblock_wireframe_surface_desktop": "Desktop-Skizze",
+  "vblock_wireframe_surface_mobile": "Mobile Skizze",
+  "vblock_wireframe_surface_popover": "Popover-Skizze",
+  "vblock_wireframe_surface_panel": "Panel-Skizze",
+  "feat_visual_recap_wireframes_title": "UI-Skizzen in Zusammenfassungen",
+  "feat_visual_recap_wireframes_body": "Zusammenfassungen von UI-Arbeit können jetzt gerenderte, gestaltete Skizzen der betroffenen Bildschirme enthalten — klar als illustrativ gekennzeichnet, nicht als Screenshots."
 }

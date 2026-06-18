@@ -110,6 +110,20 @@
      reads as alarm; the same recipe is re-tuned for light below. */
   --wash-blocked: color-mix(in srgb, var(--color-red) 24%, var(--color-head));
   --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
+
+  /* Wireframe mockup tokens — themed off the semantic --color-* layer (read as computed
+     values by WireframeBlock and injected into its sandboxed iframe, which can't inherit these). */
+  --wf-ink: var(--color-ink-bright);
+  --wf-muted: var(--color-muted);
+  --wf-line: var(--color-line);
+  --wf-paper: var(--color-bg);
+  --wf-card: var(--color-panel);
+  --wf-radius: 2px;
+  --wf-accent: var(--color-amber);
+  --wf-accent-fg: var(--color-bg);
+  --wf-accent-soft: color-mix(in srgb, var(--color-amber) 20%, var(--color-panel));
+  --wf-warn: var(--color-red);
+  --wf-ok: var(--color-green);
 }
 
 /* ── Light ────────────────────────────────────────────────────────────────────

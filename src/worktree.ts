@@ -66,10 +66,10 @@ export class WorktreeMgr {
     const branch = `shepherd/${name}`;
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
     const worktreePath = join(parent, `${basename(repoPath)}-${name}`);
-    mkdirSync(parent, { recursive: true });
 
     // First attempt
     try {
+      mkdirSync(parent, { recursive: true });
       execFileSync("git", ["worktree", "add", "-b", branch, worktreePath, baseBranch], {
         cwd: repoPath,
         stdio: "pipe",

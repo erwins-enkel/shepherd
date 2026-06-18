@@ -91,7 +91,8 @@ export type VisualBlock =
       type: "checklist";
       id: string;
       items: { id: string; label: string; note?: string; checked?: boolean }[];
-    };
+    }
+  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ export const FILE_TREE_CHANGES: readonly FileTreeChange[] = [
 ];
 
 export const DIFF_BLOCK_MAX_LINES = 600;
+export const MERMAID_SOURCE_MAX_CHARS = 8000;
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
@@ -403,6 +405,15 @@ function validateChecklist(r: Record<string, unknown>, id: string): VisualBlock 
   return { type: "checklist", id, items };
 }
 
+function validateMermaid(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.source !== "string" || r.source === "") return null;
+  if (r.source.length > MERMAID_SOURCE_MAX_CHARS) return null; // DROP — truncating breaks diagram grammar
+  const block: VisualBlock & { type: "mermaid" } = { type: "mermaid", id, source: r.source };
+  // inferred intentionally NOT copied — server forces it
+  if (typeof r.caption === "string") block.caption = r.caption;
+  return block;
+}
+
 type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
 
 const VALIDATORS: Record<string, BlockValidator> = {
@@ -416,6 +427,7 @@ const VALIDATORS: Record<string, BlockValidator> = {
   "api-endpoint": validateApiEndpoint,
   table: validateTable,
   checklist: validateChecklist,
+  mermaid: validateMermaid,
 };
 
 /** Validate a single raw element into a typed VisualBlock, or null when malformed. */
@@ -553,11 +565,11 @@ export function joinCodeBlocks(blocks: VisualBlock[], diffFiles: DiffFile[]): Vi
 
 // ── markInferred ──────────────────────────────────────────────────────────────
 
-/** Force inferred:true on every data-model/api-endpoint block.
+/** Force inferred:true on every data-model/api-endpoint/mermaid block.
  *  Other block types are returned as-is. Returns a new array; inputs not mutated. */
 export function markInferred(blocks: VisualBlock[]): VisualBlock[] {
   return blocks.map((blk) => {
-    if (blk.type === "data-model" || blk.type === "api-endpoint") {
+    if (blk.type === "data-model" || blk.type === "api-endpoint" || blk.type === "mermaid") {
       return { ...blk, inferred: true };
     }
     return blk;

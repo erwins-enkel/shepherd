@@ -12,6 +12,7 @@ function asBlock<T extends VisualBlock["type"]>(
 import {
   CALLOUT_TONES,
   DIFF_BLOCK_MAX_LINES,
+  MERMAID_SOURCE_MAX_CHARS,
   FILE_TREE_CHANGES,
   capDiffBlock,
   groundBlocks,
@@ -1268,6 +1269,79 @@ describe("joinCodeBlocks", () => {
   });
 });
 
+// ── validateMermaid ───────────────────────────────────────────────────────────
+
+describe("validateMermaid (type=mermaid)", () => {
+  it("accepts a valid mermaid block with source only", () => {
+    const result = parseVisualBlocks([
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "mermaid");
+    expect(block.source).toBe("flowchart TD\n  A --> B");
+    expect(block.caption).toBeUndefined();
+  });
+
+  it("accepts a valid mermaid block with caption", () => {
+    const result = parseVisualBlocks([
+      { type: "mermaid", id: "m1", source: "sequenceDiagram\n  A->>B: Hello", caption: "Flow" },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "mermaid");
+    expect(block.source).toBe("sequenceDiagram\n  A->>B: Hello");
+    expect(block.caption).toBe("Flow");
+  });
+
+  it("drops caption when not a string", () => {
+    const result = parseVisualBlocks([
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B", caption: 42 },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "mermaid");
+    expect(block.caption).toBeUndefined();
+  });
+
+  it("drops mermaid block when source is missing", () => {
+    const result = parseVisualBlocks([{ type: "mermaid", id: "m1" }]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops mermaid block when source is empty string", () => {
+    const result = parseVisualBlocks([{ type: "mermaid", id: "m1", source: "" }]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops mermaid block when source is not a string", () => {
+    const result = parseVisualBlocks([{ type: "mermaid", id: "m1", source: 123 }]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops mermaid block when source exceeds MERMAID_SOURCE_MAX_CHARS", () => {
+    const source = "A".repeat(MERMAID_SOURCE_MAX_CHARS + 1);
+    const result = parseVisualBlocks([{ type: "mermaid", id: "m1", source }]);
+    expect(result).toEqual([]);
+  });
+
+  it("accepts mermaid block when source is exactly MERMAID_SOURCE_MAX_CHARS", () => {
+    const source = "A".repeat(MERMAID_SOURCE_MAX_CHARS);
+    const result = parseVisualBlocks([{ type: "mermaid", id: "m1", source }]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("strips incoming inferred field (server forces it)", () => {
+    const result = parseVisualBlocks([
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B", inferred: true },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "mermaid");
+    expect((block as unknown as Record<string, unknown>).inferred).toBeUndefined();
+  });
+
+  it("MERMAID_SOURCE_MAX_CHARS is 8000", () => {
+    expect(MERMAID_SOURCE_MAX_CHARS).toBe(8000);
+  });
+});
+
 // ── markInferred ──────────────────────────────────────────────────────────────
 
 describe("markInferred", () => {
@@ -1290,6 +1364,15 @@ describe("markInferred", () => {
     ]);
     const result = markInferred(blocks);
     const block = asBlock(result[0], "api-endpoint");
+    expect(block.inferred).toBe(true);
+  });
+
+  it("sets inferred:true on mermaid blocks", () => {
+    const blocks = parseVisualBlocks([
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+    ]);
+    const result = markInferred(blocks);
+    const block = asBlock(result[0], "mermaid");
     expect(block.inferred).toBe(true);
   });
 
@@ -1415,6 +1498,39 @@ describe("groundBlocks Phase-2", () => {
       ]);
       const result = groundBlocks(blocks, [], []);
       const block = asBlock(result[0], "api-endpoint");
+      expect(block.inferred).toBe(true);
+    });
+  });
+
+  describe("mermaid in groundBlocks", () => {
+    const addedFile: DiffFile = {
+      path: "src/new.ts",
+      status: "added",
+      additions: 1,
+      deletions: 0,
+      binary: false,
+      hunks: [],
+    };
+
+    it("mermaid block survives carrier-present branch with inferred:true", () => {
+      const blocks = parseVisualBlocks([
+        { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+      ]);
+      const result = groundBlocks(blocks, [addedFile], ["src/new.ts"]);
+      expect(result).toHaveLength(1);
+      const block = asBlock(result[0], "mermaid");
+      expect(block.source).toBe("flowchart TD\n  A --> B");
+      expect(block.inferred).toBe(true);
+    });
+
+    it("mermaid block survives carrier-empty branch with inferred:true", () => {
+      const blocks = parseVisualBlocks([
+        { type: "mermaid", id: "m1", source: "sequenceDiagram\n  A->>B: Hello" },
+      ]);
+      const result = groundBlocks(blocks, [], []);
+      expect(result).toHaveLength(1);
+      const block = asBlock(result[0], "mermaid");
+      expect(block.source).toBe("sequenceDiagram\n  A->>B: Hello");
       expect(block.inferred).toBe(true);
     });
   });

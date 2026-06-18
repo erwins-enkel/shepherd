@@ -314,7 +314,8 @@ export type VisualBlock =
       type: "checklist";
       id: string;
       items: { id: string; label: string; note?: string; checked?: boolean }[];
-    };
+    }
+  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean };
 
 // ── session recap ────────────────────────────────────────────────────────────
 // mirrors server Recap / RecapState / RecapVerdict

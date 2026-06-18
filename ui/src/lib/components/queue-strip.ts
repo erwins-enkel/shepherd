@@ -99,6 +99,20 @@ export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip
   return repoFilter !== null && !chips.some((c) => c.repoPath === repoFilter);
 }
 
+/** Global learnings badge counts for the TopBar: proposed rules awaiting review
+ *  (across all repos) and over-budget ("curate") active rules across all repos.
+ *  Derived from the learnings store, NOT repoChips — so the badge reflects repos
+ *  with no live session too (the drawer shows those). */
+export function globalLearningsCounts(
+  items: Learning[],
+  injectable: RepoInjectable[],
+): { proposed: number; curate: number } {
+  return {
+    proposed: items.length,
+    curate: injectable.reduce((sum, r) => sum + overBudgetCount(r), 0),
+  };
+}
+
 /** Whether the `queued` indicator is an interactive trigger (opens the queue
  *  popover) rather than inert text — true only when something is actually queued. */
 export function queueOpenable(d: DrainStatus): boolean {

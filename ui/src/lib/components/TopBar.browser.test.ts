@@ -998,3 +998,81 @@ describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnO
       .not.toBeInTheDocument();
   });
 });
+
+describe("TopBar — global learnings button", () => {
+  const idleSession = [{ id: "d1", status: "done" }] as unknown as Session[];
+
+  it("desktop, proposed: shows learnings button with correct aria-label and calls onlearnings", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onlearnings = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: idleSession,
+      learnings: 3,
+      onlearnings,
+    });
+    const btn = page.getByRole("button", { name: m.learnings_open_aria({ count: 3 }) });
+    await expect.element(btn).toBeVisible();
+    await btn.click();
+    expect(onlearnings).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop, none: no learnings button when learnings=0 and learningsCurate=0", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: idleSession,
+      learnings: 0,
+      learningsCurate: 0,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    expect(hud!.querySelector(".learnings-btn"), "no learnings button when none").toBeNull();
+  });
+
+  it("desktop, curate-only: shows button with curate aria-label and calls onlearnings", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onlearnings = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: idleSession,
+      learnings: 0,
+      learningsCurate: 2,
+      onlearnings,
+    });
+    const btn = page.getByRole("button", { name: m.learnings_open_curate_aria({ count: 2 }) });
+    await expect.element(btn).toBeVisible();
+    await btn.click();
+    expect(onlearnings).toHaveBeenCalledTimes(1);
+  });
+
+  it("mobile sheet: learnings row appears after opening gear sheet and calls onlearnings", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onlearnings = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: idleSession,
+      learnings: 2,
+      onlearnings,
+    });
+    // Open the sheet by clicking the gear
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // The sheet should contain the learnings row
+    const learningsBtn = page.getByRole("button", { name: m.learnings_open_aria({ count: 2 }) });
+    await expect.element(learningsBtn).toBeInTheDocument();
+    await learningsBtn.click();
+    expect(onlearnings).toHaveBeenCalledTimes(1);
+  });
+});

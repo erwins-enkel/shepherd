@@ -4,6 +4,7 @@ import {
   chipHasTelemetry,
   chipRailVisible,
   enabledDrains,
+  globalLearningsCounts,
   mergeTrainIsAttention,
   mergeTrainLabel,
   pausedText,
@@ -450,5 +451,50 @@ describe("shouldClearRepoFilter", () => {
 
   it("TRUE when no chips remain (all sessions ended)", () => {
     expect(shouldClearRepoFilter("/repos/a", [])).toBe(true);
+  });
+});
+
+// ─── globalLearningsCounts ────────────────────────────────────────────────────
+
+describe("globalLearningsCounts", () => {
+  it("returns zeros for empty inputs", () => {
+    expect(globalLearningsCounts([], [])).toEqual({ proposed: 0, curate: 0 });
+  });
+
+  it("proposed equals items.length regardless of repoPath", () => {
+    const items = [
+      learning({ id: "l1", repoPath: "/repos/a" }),
+      learning({ id: "l2", repoPath: "/repos/b" }),
+      learning({ id: "l3", repoPath: "/repos/c" }),
+    ];
+    expect(globalLearningsCounts(items, [])).toEqual({ proposed: 3, curate: 0 });
+  });
+
+  it("curate sums non-injected rules across enabled injectables", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] }), // 2 over-budget
+      injectable({ repoPath: "/repos/b", rules: [rule(false)] }), // 1 over-budget
+    ];
+    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 3 });
+  });
+
+  it("disabled injectable contributes 0 to curate even with non-injected rules", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false), rule(false)] }),
+    ];
+    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 0 });
+  });
+
+  it("injected rules (injected=true) do not count toward curate", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(true)] }), // all injected → 0 over-budget
+    ];
+    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 0 });
+  });
+
+  it("combines proposed and curate independently", () => {
+    const items = [learning({ id: "l1" }), learning({ id: "l2" })];
+    const injectables = [injectable({ rules: [rule(false)] })];
+    expect(globalLearningsCounts(items, injectables)).toEqual({ proposed: 2, curate: 1 });
   });
 });

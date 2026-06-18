@@ -60,6 +60,9 @@
     workingBlocked = {},
     diagnosticsOverall = "ok",
     ondiagnose,
+    learnings = 0,
+    learningsCurate = 0,
+    onlearnings,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -87,6 +90,12 @@
     diagnosticsOverall?: DiagnosticState;
     /** Called when the health pip is clicked — should open Settings → Diagnose tab. */
     ondiagnose?: () => void;
+    /** Count of proposed learnings awaiting approve/dismiss across all repos. */
+    learnings?: number;
+    /** Count of over-budget ("curate") active rules across all repos. */
+    learningsCurate?: number;
+    /** Opens the global learnings drawer. */
+    onlearnings?: () => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -107,11 +116,15 @@
   // (~1000px) the #247/#322 overflow fixes targeted. The halt e-stop is NOT a bar
   // badge — it folds into the always-present gear menu — so it never counts here.
   const mode = $derived(modeOf(mobile, touch));
+  const learningsPresent = $derived(learnings > 0 || learningsCurate > 0);
+  // Badge shows proposed count when any proposed, else the curate count
+  const learningsCount = $derived(learnings > 0 ? learnings : learningsCurate);
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
     needsYou,
     whatsNew,
+    learnings: learnings + learningsCurate,
   });
   const plan = $derived(topBarPlan(mode, chrome));
 
@@ -337,7 +350,12 @@
   // Composed alongside the halt-pip (.halt-pip) — the two use different corners
   // (.sheet-pip sits bottom-left; .halt-pip owns top-right; .gear-dot owns top/bottom-right).
   const sheetPip = $derived(
-    mobile && (updateAvailable || herdrUpdateAvailable || diagnosticsOverall !== "ok" || whatsNew),
+    mobile &&
+      (updateAvailable ||
+        herdrUpdateAvailable ||
+        diagnosticsOverall !== "ok" ||
+        whatsNew ||
+        learningsPresent),
   );
   function clickGear() {
     if (!gearOpensMenu) {
@@ -846,6 +864,25 @@
         <span class="health-dot" aria-hidden="true"></span>
       </button>
     {/if}
+    <!-- ✦ LEARNINGS: global entry point to review proposed house rules across all repos.
+         Desktop-only badge (mobile folds into the gear bottom sheet). Stays off status
+         hues — ✦ is neutral chrome, not an attention state (Four-Light Rule). -->
+    {#if !mobile && learningsPresent}
+      <button
+        class="learnings-btn"
+        class:compact={compactBadges}
+        type="button"
+        onclick={() => onlearnings?.()}
+        title={m.topbar_learnings_tip()}
+        aria-label={learnings > 0
+          ? m.learnings_open_aria({ count: learnings })
+          : m.learnings_open_curate_aria({ count: learningsCurate })}
+      >
+        <span class="learn-glyph" aria-hidden="true">✦</span>
+        {#if !compactBadges}<span class="learn-label">{m.learnings_title()}</span>{/if}
+        <span class="learn-n">{learningsCount}</span>
+      </button>
+    {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. A pip on the gear is the only at-rest cue that there's a
@@ -1073,6 +1110,24 @@
       </button>
     {/if}
 
+    <!-- Learnings row: review proposed house rules across all repos -->
+    {#if learningsPresent}
+      <button
+        type="button"
+        class="sheet-item"
+        onclick={() => {
+          closeMenu();
+          onlearnings?.();
+        }}
+        aria-label={learnings > 0
+          ? m.learnings_open_aria({ count: learnings })
+          : m.learnings_open_curate_aria({ count: learningsCurate })}
+      >
+        <span class="sheet-glyph" aria-hidden="true">✦</span>
+        <span class="sheet-label">{m.learnings_title()} · {learningsCount}</span>
+      </button>
+    {/if}
+
     <div class="sheet-sep"></div>
 
     <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
@@ -1217,6 +1272,48 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+  /* ✦ LEARNINGS: quiet neutral chrome control — review proposed house rules across all
+     repos. ✦ stays on the ink/faint ramp (no status hue). */
+  .learnings-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font: inherit;
+    font-size: var(--fs-meta);
+    padding: 5px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .learnings-btn:hover {
+    color: var(--color-ink);
+    border-color: var(--color-ink);
+  }
+  .learnings-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-ink);
+  }
+  .learn-glyph {
+    font-size: var(--fs-lg);
+    line-height: 1;
+  }
+  /* Compact: icon-only, ≥44px tap target. */
+  .learnings-btn.compact {
+    justify-content: center;
+    min-width: 44px;
+    padding: 8px 10px;
+    letter-spacing: 0;
+  }
+  .learn-n {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
   }
   /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
      working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
@@ -2095,6 +2192,7 @@
     .gear,
     .needsyou,
     .needsyou.compact,
+    .learnings-btn,
     .gauge-btn,
     .update-badge {
       min-height: 44px;

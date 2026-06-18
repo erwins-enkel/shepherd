@@ -8,16 +8,17 @@ import { badgeCount, topBarPlan, type Mode, type ChromeState } from "./top-bar-l
 
 const MODES: Mode[] = ["mobile", "touch-desktop", "desktop"];
 
-// Build every ChromeState from a 4-bit mask over the four badge-presence inputs.
+// Build every ChromeState from a 5-bit mask over the five badge-presence inputs.
 // The halt e-stop is NOT a bar badge (it lives in the gear menu), so it never
 // appears here.
-const ALL = 0b1111; // all four badges present
+const ALL = 0b11111; // all five badges present
 function stateFromMask(mask: number): ChromeState {
   return {
     updateAvailable: !!(mask & 1),
     herdrUpdateAvailable: !!(mask & 2),
     needsYou: mask & 4 ? 1 : 0,
     whatsNew: !!(mask & 8),
+    learnings: mask & 16 ? 1 : 0,
   };
 }
 
@@ -27,20 +28,63 @@ function expectedCount(s: ChromeState): number {
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
     (s.needsYou > 0 ? 1 : 0) +
-    (s.whatsNew ? 1 : 0)
+    (s.whatsNew ? 1 : 0) +
+    (s.learnings > 0 ? 1 : 0)
   );
 }
 
 describe("badgeCount", () => {
-  it("counts each present badge once across all 16 presence combos", () => {
+  it("counts each present badge once across all 32 presence combos", () => {
     for (let mask = 0; mask <= ALL; mask++) {
       const s = stateFromMask(mask);
       expect(badgeCount(s)).toBe(expectedCount(s));
     }
   });
+
+  it("returns 0 for all-zero/all-false state", () => {
+    const s: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 0,
+      whatsNew: false,
+      learnings: 0,
+    };
+    expect(badgeCount(s)).toBe(0);
+  });
+
+  it("counts learnings badge: learnings:3 → 1, learnings:0 → 0", () => {
+    const withLearnings: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 0,
+      whatsNew: false,
+      learnings: 3,
+    };
+    expect(badgeCount(withLearnings)).toBe(1);
+
+    const noLearnings: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 0,
+      whatsNew: false,
+      learnings: 0,
+    };
+    expect(badgeCount(noLearnings)).toBe(0);
+  });
+
+  it("sums learnings with another badge: needsYou:1 + learnings:2 → 2", () => {
+    const s: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 1,
+      whatsNew: false,
+      learnings: 2,
+    };
+    expect(badgeCount(s)).toBe(2);
+  });
 });
 
-describe("topBarPlan — exhaustive 3 modes × 16 presence combos", () => {
+describe("topBarPlan — exhaustive 3 modes × 32 presence combos", () => {
   // Desktop compaction is measurement-driven (TopBar.svelte / TopBar.browser.test.ts),
   // so the pure layer always returns false for desktop here.
   it("hideClockTime only on touch-desktop (>=1 badge); desktop + mobile never", () => {
@@ -96,5 +140,31 @@ describe("regression anchors (#322 / #247)", () => {
     const plan = topBarPlan("mobile", all);
     expect(plan.hideClockTime).toBe(false);
     expect(plan.compactBadges).toBe(false);
+  });
+
+  it("learnings>0 as lone badge on touch-desktop: drops clock, does not compact", () => {
+    const s: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 0,
+      whatsNew: false,
+      learnings: 5,
+    };
+    const plan = topBarPlan("touch-desktop", s);
+    expect(plan.hideClockTime).toBe(true);
+    expect(plan.compactBadges).toBe(false);
+  });
+
+  it("learnings>0 plus one more badge on touch-desktop: compactBadges", () => {
+    const s: ChromeState = {
+      updateAvailable: false,
+      herdrUpdateAvailable: false,
+      needsYou: 1,
+      whatsNew: false,
+      learnings: 2,
+    };
+    const plan = topBarPlan("touch-desktop", s);
+    expect(plan.hideClockTime).toBe(true);
+    expect(plan.compactBadges).toBe(true);
   });
 });

@@ -21,6 +21,8 @@ export interface ChromeState {
   herdrUpdateAvailable: boolean;
   needsYou: number;
   whatsNew: boolean;
+  /** pending learnings to review across all repos; >0 renders the global learnings badge */
+  learnings: number;
 }
 
 export interface TopBarPlan {
@@ -43,7 +45,8 @@ export function badgeCount(s: ChromeState): number {
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
     (s.needsYou > 0 ? 1 : 0) +
-    (s.whatsNew ? 1 : 0)
+    (s.whatsNew ? 1 : 0) +
+    (s.learnings > 0 ? 1 : 0)
   );
 }
 

@@ -98,7 +98,11 @@
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
   import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
-  import { repoChipRows, shouldClearRepoFilter } from "$lib/components/queue-strip";
+  import {
+    globalLearningsCounts,
+    repoChipRows,
+    shouldClearRepoFilter,
+  } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
@@ -203,6 +207,7 @@
   const repoChips = $derived(
     repoChipRows(store.sessions, store.drain, learnings.items, learnings.injectable),
   );
+  const learningsCounts = $derived(globalLearningsCounts(learnings.items, learnings.injectable));
   // Clear the filter only when its repo has no live session left (no chip) —
   // a filter on a vanished repo would strand an empty view.
   $effect(() => {
@@ -1513,6 +1518,12 @@
         onherdrupdate={() => (showHerdrUpdate = true)}
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
+        learnings={learningsCounts.proposed}
+        learningsCurate={learningsCounts.curate}
+        onlearnings={() => {
+          learningsRepo = null;
+          showLearnings = true;
+        }}
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}

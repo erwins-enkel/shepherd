@@ -1459,5 +1459,9 @@
   "feat_base_freshen_title": "Base branch freshens from upstream",
   "feat_base_freshen_body": "New tasks now start from the latest upstream tip of the base branch — Shepherd fetches and fast-forwards at launch, so you no longer fold in upstream changes by hand when the task is done. The New Task dialog flags when your base is behind or has diverged from origin.",
   "topbar_learnings_tip": "Review proposed house rules across all your repos",
-  "topbar_learnings_curate_tip": "Already-approved rules that don't fit the injection budget — trim some so the rest reach new agents"
+  "topbar_learnings_curate_tip": "Already-approved rules that don't fit the injection budget — trim some so the rest reach new agents",
+  "buildqueue_collapse_aria": "Collapse build queue",
+  "buildqueue_expand_aria": "Expand build queue",
+  "feat_build_queue_collapse_title": "Collapse the build queue",
+  "feat_build_queue_collapse_body": "The build queue can now be collapsed to a single bar so it no longer covers the terminal. Click the chevron in its header to fold or unfold it."
 }

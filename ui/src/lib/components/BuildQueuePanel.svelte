@@ -2,6 +2,8 @@
   import type { BuildQueue, BuildStep, BuildStepStatus } from "$lib/types";
   import { getBuildQueue, putBuildQueue, approveBuildQueue } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
+  import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     sessionId,
@@ -39,6 +41,8 @@
   const visible = $derived(enabled || (queue !== null && queue.steps.length > 0));
   const steps = $derived(queue?.steps ?? []);
   const approved = $derived(queue?.approved ?? false);
+
+  const contentId = $derived(`bqp-content-${sessionId}`);
 
   // ------------- edit helpers -------------
 
@@ -140,113 +144,129 @@
       {#if approved && steps.length > 0}
         <span class="bqp-approved">{m.buildqueue_approved_header()}</span>
       {/if}
+      <button
+        type="button"
+        class="bqp-btn bqp-collapse-toggle"
+        onclick={() => buildQueueCollapse.toggle()}
+        aria-expanded={!buildQueueCollapse.collapsed}
+        aria-controls={contentId}
+        aria-label={buildQueueCollapse.collapsed
+          ? m.buildqueue_expand_aria()
+          : m.buildqueue_collapse_aria()}
+        title={buildQueueCollapse.collapsed
+          ? m.buildqueue_expand_aria()
+          : m.buildqueue_collapse_aria()}
+        use:coachTarget={"build-queue-collapse"}>{buildQueueCollapse.collapsed ? "▴" : "▾"}</button
+      >
     </div>
 
-    {#if steps.length === 0}
-      <p class="bqp-empty">{m.buildqueue_empty()}</p>
-    {:else if !approved}
-      <!-- Curation mode: editable list -->
-      <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
-        {#each steps as step, i (step.id)}
-          <li class="bqp-row">
-            <span
-              class={["bqp-badge", statusClass(step.status)]}
-              aria-label={statusLabel(step.status)}>{statusLabel(step.status)}</span
-            >
-
-            <div class="bqp-fields">
-              <input
-                class="bqp-input bqp-title-input"
-                type="text"
-                value={step.title}
-                aria-label={`${m.buildqueue_step_title_aria()} ${i + 1}`}
-                placeholder={m.buildqueue_new_step()}
-                onblur={(e) => {
-                  commitTitle(step, (e.currentTarget as HTMLInputElement).value);
-                }}
-                onkeydown={(e) => {
-                  if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-                  if (e.key === "Escape") {
-                    (e.currentTarget as HTMLInputElement).value = step.title;
-                    (e.currentTarget as HTMLInputElement).blur();
-                  }
-                }}
-              />
-              <input
-                class="bqp-input bqp-detail-input"
-                type="text"
-                value={step.detail ?? ""}
-                aria-label={`${m.buildqueue_step_detail_aria()} ${i + 1}`}
-                placeholder={m.buildqueue_step_detail_placeholder()}
-                onblur={(e) => {
-                  commitDetail(step, (e.currentTarget as HTMLInputElement).value);
-                }}
-                onkeydown={(e) => {
-                  if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-                  if (e.key === "Escape") {
-                    (e.currentTarget as HTMLInputElement).value = step.detail ?? "";
-                    (e.currentTarget as HTMLInputElement).blur();
-                  }
-                }}
-              />
-            </div>
-
-            <div class="bqp-row-actions">
-              <button
-                type="button"
-                class="bqp-btn bqp-move"
-                disabled={i === 0}
-                onclick={() => moveStep(step.id, -1)}
-                aria-label={m.buildqueue_move_up_aria()}
-                title={m.buildqueue_move_up_aria()}>▲</button
+    <div class="bqp-content" id={contentId} class:collapsed={buildQueueCollapse.collapsed}>
+      {#if steps.length === 0}
+        <p class="bqp-empty">{m.buildqueue_empty()}</p>
+      {:else if !approved}
+        <!-- Curation mode: editable list -->
+        <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
+          {#each steps as step, i (step.id)}
+            <li class="bqp-row">
+              <span
+                class={["bqp-badge", statusClass(step.status)]}
+                aria-label={statusLabel(step.status)}>{statusLabel(step.status)}</span
               >
-              <button
-                type="button"
-                class="bqp-btn bqp-move"
-                disabled={i === steps.length - 1}
-                onclick={() => moveStep(step.id, 1)}
-                aria-label={m.buildqueue_move_down_aria()}
-                title={m.buildqueue_move_down_aria()}>▼</button
-              >
-              <button
-                type="button"
-                class="bqp-btn bqp-remove"
-                onclick={() => removeStep(step.id)}
-                aria-label={m.buildqueue_remove_aria()}
-                title={m.buildqueue_remove_aria()}>✕</button
-              >
-            </div>
-          </li>
-        {/each}
-      </ol>
 
-      <div class="bqp-footer">
-        <button type="button" class="bqp-btn bqp-add" onclick={addStep}>
-          {m.buildqueue_add_step()}
-        </button>
-        <button type="button" class="bqp-btn bqp-approve" onclick={approve}>
-          {m.buildqueue_approve()}
-        </button>
-      </div>
-    {:else}
-      <!-- Approved/running: read-only list -->
-      <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
-        {#each steps as step (step.id)}
-          <li class="bqp-row bqp-row-readonly">
-            <span
-              class={["bqp-badge", statusClass(step.status)]}
-              aria-label={statusLabel(step.status)}>{statusLabel(step.status)}</span
-            >
-            <div class="bqp-fields">
-              <span class="bqp-step-title">{step.title}</span>
-              {#if step.detail}
-                <span class="bqp-step-detail">{step.detail}</span>
-              {/if}
-            </div>
-          </li>
-        {/each}
-      </ol>
-    {/if}
+              <div class="bqp-fields">
+                <input
+                  class="bqp-input bqp-title-input"
+                  type="text"
+                  value={step.title}
+                  aria-label={`${m.buildqueue_step_title_aria()} ${i + 1}`}
+                  placeholder={m.buildqueue_new_step()}
+                  onblur={(e) => {
+                    commitTitle(step, (e.currentTarget as HTMLInputElement).value);
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                    if (e.key === "Escape") {
+                      (e.currentTarget as HTMLInputElement).value = step.title;
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                  }}
+                />
+                <input
+                  class="bqp-input bqp-detail-input"
+                  type="text"
+                  value={step.detail ?? ""}
+                  aria-label={`${m.buildqueue_step_detail_aria()} ${i + 1}`}
+                  placeholder={m.buildqueue_step_detail_placeholder()}
+                  onblur={(e) => {
+                    commitDetail(step, (e.currentTarget as HTMLInputElement).value);
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                    if (e.key === "Escape") {
+                      (e.currentTarget as HTMLInputElement).value = step.detail ?? "";
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                  }}
+                />
+              </div>
+
+              <div class="bqp-row-actions">
+                <button
+                  type="button"
+                  class="bqp-btn bqp-move"
+                  disabled={i === 0}
+                  onclick={() => moveStep(step.id, -1)}
+                  aria-label={m.buildqueue_move_up_aria()}
+                  title={m.buildqueue_move_up_aria()}>▲</button
+                >
+                <button
+                  type="button"
+                  class="bqp-btn bqp-move"
+                  disabled={i === steps.length - 1}
+                  onclick={() => moveStep(step.id, 1)}
+                  aria-label={m.buildqueue_move_down_aria()}
+                  title={m.buildqueue_move_down_aria()}>▼</button
+                >
+                <button
+                  type="button"
+                  class="bqp-btn bqp-remove"
+                  onclick={() => removeStep(step.id)}
+                  aria-label={m.buildqueue_remove_aria()}
+                  title={m.buildqueue_remove_aria()}>✕</button
+                >
+              </div>
+            </li>
+          {/each}
+        </ol>
+
+        <div class="bqp-footer">
+          <button type="button" class="bqp-btn bqp-add" onclick={addStep}>
+            {m.buildqueue_add_step()}
+          </button>
+          <button type="button" class="bqp-btn bqp-approve" onclick={approve}>
+            {m.buildqueue_approve()}
+          </button>
+        </div>
+      {:else}
+        <!-- Approved/running: read-only list -->
+        <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
+          {#each steps as step (step.id)}
+            <li class="bqp-row bqp-row-readonly">
+              <span
+                class={["bqp-badge", statusClass(step.status)]}
+                aria-label={statusLabel(step.status)}>{statusLabel(step.status)}</span
+              >
+              <div class="bqp-fields">
+                <span class="bqp-step-title">{step.title}</span>
+                {#if step.detail}
+                  <span class="bqp-step-detail">{step.detail}</span>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ol>
+      {/if}
+    </div>
   </div>
 {/if}
 
@@ -283,6 +303,20 @@
     /* In-progress, not complete — amber. Green is reserved by the design system for
        actionable-complete/READY, which a running queue is not. */
     color: var(--color-amber);
+  }
+
+  .bqp-collapse-toggle {
+    margin-left: auto;
+  }
+
+  .bqp-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bqp-content.collapsed {
+    display: none;
   }
 
   .bqp-empty {

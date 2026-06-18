@@ -1468,5 +1468,16 @@
   "queuebadge_title": "Build-Queue: {resolved} von {total} Schritten erledigt",
   "queuebadge_aria": "Build-Queue: {resolved} von {total} Schritten erledigt",
   "feat_build_queue_progress_title": "Build-Queue-Fortschritt auf einen Blick",
-  "feat_build_queue_progress_body": "Session-Karten zeigen jetzt ein kleines bernsteinfarbenes Badge mit Fortschrittsbalken, wenn eine genehmigte Build-Queue aktiv ist — erledigte / Gesamtschritte ohne Öffnen des Panels einsehbar."
+  "feat_build_queue_progress_body": "Session-Karten zeigen jetzt ein kleines bernsteinfarbenes Badge mit Fortschrittsbalken, wenn eine genehmigte Build-Queue aktiv ist — erledigte / Gesamtschritte ohne Öffnen des Panels einsehbar.",
+  "learnings_optimize": "Optimieren",
+  "learnings_optimize_aria": "Diese Regel optimieren",
+  "learnings_optimize_all": "Alle markierten optimieren ({count})",
+  "learnings_optimize_started": "Markierte Regeln werden optimiert…",
+  "learnings_optimize_failed": "Optimierung konnte nicht gestartet werden",
+  "learnings_filter_flagged": "Wirkungslos ({count})",
+  "learnings_filter_all": "Alle anzeigen",
+  "learnings_optimizer_stalled_title": "Optimierer blockiert",
+  "learnings_optimizer_stalled_body": "Der Regel-Optimierer ist {count}-mal in Folge fehlgeschlagen. Prüfe die Server-Logs.",
+  "feat_optimize_learnings_title": "„Wirkungslose“ Hausregeln mit einem Klick reparieren",
+  "feat_optimize_learnings_body": "Wenn eine Hausregel Fehler nicht mehr verhindert, filtere auf die markierten Regeln und lass Shepherd sie aus den Fehlern neu formulieren – einzeln oder alle auf einmal."
 }

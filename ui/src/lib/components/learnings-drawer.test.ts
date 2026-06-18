@@ -7,6 +7,9 @@ import {
   injectionBadge,
   injectedCount,
   showIneffective,
+  flaggedRules,
+  flaggedCount,
+  totalFlagged,
   evidenceSources,
 } from "./learnings-drawer";
 import type { Learning, LearningStatus, RepoInjectable } from "../types";
@@ -30,7 +33,7 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
 
 function IR(
   repo: string,
-  rules: { id: string; injected: boolean; status?: LearningStatus }[],
+  rules: { id: string; injected: boolean; status?: LearningStatus; ineffectiveCount?: number }[],
   over: Partial<RepoInjectable> = {},
 ): RepoInjectable {
   return {
@@ -38,7 +41,11 @@ function IR(
     enabled: true,
     budgetChars: 4000,
     usedChars: 100,
-    rules: rules.map((r) => ({ ...L(r.id, repo, r.status ?? "active"), injected: r.injected })),
+    rules: rules.map((r) => ({
+      ...L(r.id, repo, r.status ?? "active"),
+      injected: r.injected,
+      ineffectiveCount: r.ineffectiveCount ?? 0,
+    })),
     ...over,
   };
 }
@@ -134,6 +141,45 @@ describe("injectedCount", () => {
 test("showIneffective true only when ineffectiveCount > 0", () => {
   expect(showIneffective({ ineffectiveCount: 0 } as never)).toBe(false);
   expect(showIneffective({ ineffectiveCount: 3 } as never)).toBe(true);
+});
+
+describe("flaggedRules / flaggedCount", () => {
+  it("null repo → [] / 0", () => {
+    expect(flaggedRules(null)).toEqual([]);
+    expect(flaggedCount(null)).toBe(0);
+  });
+  it("returns only rules with ineffectiveCount > 0", () => {
+    const inj = IR("/a", [
+      { id: "1", injected: true, ineffectiveCount: 2 },
+      { id: "2", injected: true, ineffectiveCount: 0 },
+      { id: "3", injected: false, ineffectiveCount: 1 },
+    ]);
+    expect(flaggedRules(inj).map((r) => r.id)).toEqual(["1", "3"]);
+    expect(flaggedCount(inj)).toBe(2);
+  });
+  it("0 when none flagged", () => {
+    const inj = IR("/a", [{ id: "1", injected: true }]);
+    expect(flaggedRules(inj)).toEqual([]);
+    expect(flaggedCount(inj)).toBe(0);
+  });
+});
+
+describe("totalFlagged", () => {
+  it("sums flagged across repos", () => {
+    const a = IR("/a", [
+      { id: "1", injected: true, ineffectiveCount: 1 },
+      { id: "2", injected: true, ineffectiveCount: 0 },
+    ]);
+    const b = IR("/b", [
+      { id: "3", injected: true, ineffectiveCount: 3 },
+      { id: "4", injected: true, ineffectiveCount: 1 },
+    ]);
+    expect(totalFlagged([a, b])).toBe(3);
+  });
+  it("is 0 for an empty list", () => expect(totalFlagged([])).toBe(0));
+  it("is 0 when no repo has a flagged rule", () => {
+    expect(totalFlagged([IR("/a", [{ id: "1", injected: true }])])).toBe(0);
+  });
 });
 
 describe("evidenceSources", () => {

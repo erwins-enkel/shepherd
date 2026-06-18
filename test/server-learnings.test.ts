@@ -1,8 +1,22 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
+import { config } from "../src/config";
 import type { PromoteResult } from "../src/promote";
+
+let tmpRoot: string;
+let validRepo: string;
+
+beforeEach(() => {
+  tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-learnings-test-"));
+  validRepo = join(tmpRoot, "repo");
+  mkdirSync(validRepo);
+});
+
+afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
 function harness(promoter?: AppDeps["promoter"]): {
   app: ReturnType<typeof makeApp>;
@@ -68,4 +82,127 @@ test("promote with no promoter dep → 503", async () => {
   );
   expect(res.status).toBe(503);
   expect(await res.json()).toEqual({ error: "promote unavailable" });
+});
+
+// ── optimizer routes ─────────────────────────────────────────────────────────
+
+function makeOptimizerDeps(optimizer?: AppDeps["optimizer"]): AppDeps {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  return {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+    optimizer,
+  };
+}
+
+test("POST /api/learnings/optimize?repo= valid → 200 {ok:true} and calls optimizeAllFlagged", async () => {
+  const called: string[] = [];
+  const optimizer: AppDeps["optimizer"] = {
+    optimizeAllFlagged: (dir) => {
+      called.push(dir);
+    },
+    optimizeOne: () => {},
+  };
+  const app = makeApp(makeOptimizerDeps(optimizer));
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/optimize?repo=${encodeURIComponent(validRepo)}`, {
+      method: "POST",
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(called).toHaveLength(1);
+});
+
+test("POST /api/learnings/optimize?repo= missing → 400", async () => {
+  const optimizer: AppDeps["optimizer"] = {
+    optimizeAllFlagged: () => {},
+    optimizeOne: () => {},
+  };
+  const app = makeApp(makeOptimizerDeps(optimizer));
+
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/optimize?repo=", { method: "POST" }),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+test("POST /api/learnings/:id/optimize → 200 {ok:true} and calls optimizeOne", async () => {
+  const called: string[] = [];
+  const optimizer: AppDeps["optimizer"] = {
+    optimizeAllFlagged: () => {},
+    optimizeOne: (id) => {
+      called.push(id);
+    },
+  };
+  const app = makeApp(makeOptimizerDeps(optimizer));
+
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/rule-abc/optimize", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(called).toEqual(["rule-abc"]);
+});
+
+// ── GET /api/learnings/health with optimizer ─────────────────────────────────
+
+test("GET /api/learnings/health preserves top-level distiller fields and adds optimizer", async () => {
+  const distillerHealth = {
+    ok: false,
+    consecutiveFailures: 3,
+    lastFailure: { reason: "oops", at: 1, repoPath: "/r" },
+  };
+  const optimizerHealth = { ok: true, consecutiveFailures: 0, lastFailure: null };
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const deps: AppDeps = {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+    distiller: { distillNow: () => {}, health: () => distillerHealth },
+    optimizer: {
+      optimizeAllFlagged: () => {},
+      optimizeOne: () => {},
+      health: () => optimizerHealth,
+    },
+  };
+  const app = makeApp(deps);
+
+  const res = await app.fetch(new Request("http://x/api/learnings/health"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  // top-level distiller fields preserved
+  expect(body.ok).toBe(false);
+  expect(body.consecutiveFailures).toBe(3);
+  expect(body.lastFailure).toEqual(distillerHealth.lastFailure);
+  // optimizer sub-object present
+  expect(body.optimizer).toEqual(optimizerHealth);
+});
+
+test("GET /api/learnings/health without deps → safe defaults with optimizer sub-object", async () => {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const deps: AppDeps = {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  const app = makeApp(deps);
+
+  const res = await app.fetch(new Request("http://x/api/learnings/health"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.ok).toBe(true);
+  expect(body.consecutiveFailures).toBe(0);
+  expect(body.lastFailure).toBeNull();
+  expect(body.optimizer).toBeDefined();
+  expect(body.optimizer.ok).toBe(true);
 });

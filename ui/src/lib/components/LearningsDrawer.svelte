@@ -12,6 +12,9 @@
     injectionBadge,
     injectedCount,
     showIneffective,
+    flaggedRules,
+    flaggedCount,
+    totalFlagged,
     evidenceSources,
   } from "./learnings-drawer";
 
@@ -87,6 +90,8 @@
     ondismiss,
     ondistill,
     onpromote,
+    onoptimize,
+    onoptimizeall,
     onclose,
   }: {
     items: Learning[];
@@ -96,6 +101,8 @@
     ondismiss: (id: string) => void;
     ondistill: (repoPath: string) => void;
     onpromote: (id: string) => void;
+    onoptimize: (id: string) => void;
+    onoptimizeall: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -111,6 +118,18 @@
   const groups = $derived(mergeRepoGroups(items, injectable));
   // Empty only when there's nothing to curate in either view.
   const empty = $derived(groups.length === 0);
+
+  // "Not working" filter: show only repos/rules the distiller flagged. The toggle
+  // only renders when something is flagged, and auto-resets so the view can't get
+  // stuck on an empty filter once the last flagged rule is optimized/dismissed away.
+  let flaggedOnly = $state(false);
+  const totalFlaggedCount = $derived(totalFlagged(injectable));
+  $effect(() => {
+    if (totalFlaggedCount === 0) flaggedOnly = false;
+  });
+  const displayGroups = $derived(
+    flaggedOnly ? groups.filter((g) => flaggedCount(g.injectable) > 0) : groups,
+  );
 
   // Deep-link: when opened from a repo's status row, scroll that repo's section into
   // view. Runs once on mount (a frame later, so the fly-in has laid out the sections).
@@ -135,6 +154,18 @@
 >
   <header class="bar">
     <span class="title">{m.learnings_title()}</span>
+    {#if totalFlaggedCount > 0}
+      <button
+        class="filter-toggle"
+        type="button"
+        aria-pressed={flaggedOnly}
+        onclick={() => (flaggedOnly = !flaggedOnly)}
+      >
+        {flaggedOnly
+          ? m.learnings_filter_all()
+          : m.learnings_filter_flagged({ count: totalFlaggedCount })}
+      </button>
+    {/if}
     <button class="close" onclick={() => onclose()} aria-label={m.learnings_close_aria()}>✕</button>
   </header>
 
@@ -143,6 +174,17 @@
       <strong class="hw-title">{m.learnings_distiller_stalled_title()}</strong>
       <span class="hw-body"
         >{m.learnings_distiller_stalled_body({ count: learnings.health.consecutiveFailures })}</span
+      >
+    </div>
+  {/if}
+
+  {#if learnings.health.optimizer && !learnings.health.optimizer.ok}
+    <div class="health-warn" role="status">
+      <strong class="hw-title">{m.learnings_optimizer_stalled_title()}</strong>
+      <span class="hw-body"
+        >{m.learnings_optimizer_stalled_body({
+          count: learnings.health.optimizer.consecutiveFailures,
+        })}</span
       >
     </div>
   {/if}
@@ -169,7 +211,7 @@
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>
   {:else}
-    {#each groups as group (group.repoPath)}
+    {#each displayGroups as group (group.repoPath)}
       <section class="group" id={repoAnchorId(group.repoPath)}>
         <div class="ghead">
           <span class="repo">{basename(group.repoPath)}</span>
@@ -182,7 +224,7 @@
           </button>
         </div>
 
-        {#each group.proposed as l (l.id)}
+        {#each flaggedOnly ? [] : group.proposed as l (l.id)}
           <article class="rule">
             <textarea
               class="text"
@@ -262,8 +304,17 @@
                   total: inj.rules.length,
                 })}
               </span>
+              {#if flaggedCount(group.injectable) > 0}
+                <button
+                  class="optimize-all"
+                  type="button"
+                  onclick={() => onoptimizeall(group.repoPath)}
+                >
+                  {m.learnings_optimize_all({ count: flaggedCount(group.injectable) })}
+                </button>
+              {/if}
             </div>
-            {#each inj.rules as r (r.id)}
+            {#each flaggedOnly ? flaggedRules(group.injectable) : inj.rules as r (r.id)}
               {@const badge = injectionBadge(r, inj.enabled)}
               <article class="irule">
                 <p class="itext">{r.rule}</p>
@@ -288,6 +339,16 @@
                     </span>
                   {/if}
                   <span class="spacer"></span>
+                  {#if showIneffective(r)}
+                    <button
+                      class="optimize"
+                      type="button"
+                      onclick={() => onoptimize(r.id)}
+                      aria-label={m.learnings_optimize_aria()}
+                    >
+                      {m.learnings_optimize()}
+                    </button>
+                  {/if}
                   {#if r.status === "active"}
                     <button class="dismiss" onclick={() => ondismiss(r.id)}>
                       {m.learnings_dismiss()}
@@ -356,6 +417,24 @@
     color: var(--color-muted);
     cursor: pointer;
     font-size: var(--fs-lg);
+  }
+  /* "Not working" header filter — token-outlined like .distill; pressed state
+     reads as the active (amber) "flagged" lens. */
+  .filter-toggle {
+    margin-left: auto;
+    font-size: var(--fs-meta);
+    background: none;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .filter-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .filter-toggle[aria-pressed="true"] {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
   /* distiller-stalled persistent warning banner */
   .health-warn {
@@ -593,6 +672,16 @@
     color: var(--color-green);
     text-decoration: none;
   }
+  /* Per-rule "Optimize" — headline action for a flagged rule, styled primary-ish
+     like .promote but in the amber "needs attention" hue that flags the rule. */
+  .optimize {
+    font-size: var(--fs-base);
+    padding: 5px 12px;
+    cursor: pointer;
+    border: 1px solid var(--color-amber);
+    background: none;
+    color: var(--color-amber);
+  }
 
   /* ── injected house rules ────────────────────────────────────────────── */
   .injected {
@@ -617,6 +706,16 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
+  }
+  /* Per-repo "Optimize all flagged" — token-outlined small action, mirrors .optimize (amber, not green). */
+  .optimize-all {
+    margin-left: auto;
+    font-size: var(--fs-meta);
+    background: none;
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    padding: 3px 8px;
+    cursor: pointer;
   }
   .irule {
     border: 1px solid var(--color-line);

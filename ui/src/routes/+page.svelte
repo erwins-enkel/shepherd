@@ -29,6 +29,8 @@
     dismissLearning,
     distillRepo,
     promoteLearning,
+    optimizeLearning,
+    optimizeRepoFlagged,
     getMergedClearable,
     clearMerged,
     getDrain,
@@ -1860,6 +1862,14 @@
             return learnings.load();
           })
           .catch(() => toasts.info(m.learnings_promote_failed()))}
+      onoptimize={(id) =>
+        optimizeLearning(id)
+          .then(() => toasts.info(m.learnings_optimize_started()))
+          .catch(() => toasts.info(m.learnings_optimize_failed()))}
+      onoptimizeall={(repoPath) =>
+        optimizeRepoFlagged(repoPath)
+          .then(() => toasts.info(m.learnings_optimize_started()))
+          .catch(() => toasts.info(m.learnings_optimize_failed()))}
       onclose={() => {
         showLearnings = false;
         learningsRepo = null;

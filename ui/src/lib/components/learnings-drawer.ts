@@ -84,6 +84,19 @@ export function showIneffective(rule: { ineffectiveCount: number }): boolean {
   return rule.ineffectiveCount > 0;
 }
 
+/** Flagged ("not working") rules in a repo's injectable view (ineffectiveCount > 0). */
+export function flaggedRules(repo: RepoInjectable | null): (Learning & { injected: boolean })[] {
+  return repo ? repo.rules.filter((r) => r.ineffectiveCount > 0) : [];
+}
+/** Count of flagged rules in a repo's injectable view. */
+export function flaggedCount(repo: RepoInjectable | null): number {
+  return flaggedRules(repo).length;
+}
+/** Total flagged rules across all repos (drives the header filter toggle + its count). */
+export function totalFlagged(injectable: RepoInjectable[]): number {
+  return injectable.reduce((n, r) => n + flaggedCount(r), 0);
+}
+
 /** Stable display order for the evidence breakdown: most operator-meaningful
  *  source first (a correction you gave) down to passive ones (a stall). */
 const KIND_ORDER: SignalKind[] = ["reply", "critic", "block", "stall"];

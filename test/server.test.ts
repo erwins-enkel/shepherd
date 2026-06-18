@@ -1246,7 +1246,9 @@ test("GET /api/learnings/health returns distiller health when health() present",
   const res = await app.fetch(new Request("http://x/api/learnings/health"));
   expect(res.status).toBe(200);
   const body = await res.json();
-  expect(body).toEqual(unhealthy);
+  // top-level fields are the distiller's; optimizer is additive
+  expect(body).toMatchObject(unhealthy);
+  expect(body).toHaveProperty("optimizer");
 });
 
 test("GET /api/learnings/health returns safe default when distiller lacks health()", async () => {
@@ -1255,7 +1257,8 @@ test("GET /api/learnings/health returns safe default when distiller lacks health
   const res = await app.fetch(new Request("http://x/api/learnings/health"));
   expect(res.status).toBe(200);
   const body = await res.json();
-  expect(body).toEqual({ ok: true, consecutiveFailures: 0, lastFailure: null });
+  expect(body).toMatchObject({ ok: true, consecutiveFailures: 0, lastFailure: null });
+  expect(body).toHaveProperty("optimizer");
 });
 
 // ── clear-all-merged endpoint ────────────────────────────────────────────────

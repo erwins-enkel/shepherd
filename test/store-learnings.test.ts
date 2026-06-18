@@ -185,3 +185,127 @@ test("listActiveLearnings returns active + promoted only, oldest-updated first",
   const rules = s.listActiveLearnings("/r").map((l) => l.rule);
   expect(rules.sort()).toEqual(["active rule", "promoted rule"]);
 });
+
+// ── reviseLearning ────────────────────────────────────────────────────────────
+
+test("reviseLearning: active rule — text + rationale updated, ineffectiveCount → 0, updatedAt advanced, status unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "old rule",
+    rationale: "old rationale",
+    evidence: [],
+  });
+  s.setLearningStatus(l.id, "active");
+  s.incrementLearningIneffective(l.id, ["s1", "s2"]);
+  const before = s.getLearning(l.id)!;
+  expect(before.ineffectiveCount).toBe(2);
+
+  const updated = s.reviseLearning(l.id, "new rule", "new rationale")!;
+  expect(updated).not.toBeNull();
+  expect(updated.rule).toBe("new rule");
+  expect(updated.rationale).toBe("new rationale");
+  expect(updated.ineffectiveCount).toBe(0);
+  expect(updated.status).toBe("active");
+  expect(updated.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
+});
+
+test("reviseLearning: promoted rule is allowed", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "old", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  s.setLearningStatus(l.id, "promoted");
+  const updated = s.reviseLearning(l.id, "revised for promoted")!;
+  expect(updated).not.toBeNull();
+  expect(updated.rule).toBe("revised for promoted");
+  expect(updated.status).toBe("promoted");
+});
+
+test("reviseLearning: proposed rule → returns null, row unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "proposed rule", rationale: "", evidence: [] });
+  expect(s.reviseLearning(l.id, "attempt")).toBeNull();
+  expect(s.getLearning(l.id)!.rule).toBe("proposed rule");
+});
+
+test("reviseLearning: dismissed rule → returns null, row unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "dis rule", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  s.setLearningStatus(l.id, "dismissed");
+  expect(s.reviseLearning(l.id, "attempt")).toBeNull();
+  expect(s.getLearning(l.id)!.rule).toBe("dis rule");
+});
+
+test("reviseLearning: missing id → returns null", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.reviseLearning("no-such-id", "text")).toBeNull();
+});
+
+test("reviseLearning: empty/whitespace-only rule → returns null, row unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "keep this", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.reviseLearning(l.id, "")).toBeNull();
+  expect(s.reviseLearning(l.id, "   ")).toBeNull();
+  expect(s.getLearning(l.id)!.rule).toBe("keep this");
+});
+
+test("reviseLearning: text > 240 chars is capped to 240", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "original", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  const longRule = "x".repeat(300);
+  const updated = s.reviseLearning(l.id, longRule)!;
+  expect(updated.rule.length).toBe(240);
+});
+
+test("reviseLearning: omitted rationale preserves existing rationale", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "keep me", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  const updated = s.reviseLearning(l.id, "revised rule")!;
+  expect(updated.rationale).toBe("keep me");
+});
+
+test("reviseLearning: preserves ineffectiveSignalIds so old signals stay deduped after revision", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  // seed count = 2
+  s.incrementLearningIneffective(l.id, ["s1", "s2"]);
+  expect(s.getLearning(l.id)!.ineffectiveCount).toBe(2);
+  // revise clears visible count
+  s.reviseLearning(l.id, "new text");
+  expect(s.getLearning(l.id)!.ineffectiveCount).toBe(0);
+  // re-presenting the same signals → still deduped → null / count stays 0
+  expect(s.incrementLearningIneffective(l.id, ["s1", "s2"])).toBeNull();
+  expect(s.getLearning(l.id)!.ineffectiveCount).toBe(0);
+  // a genuinely new signal increments to 1
+  expect(s.incrementLearningIneffective(l.id, ["s3"])!.ineffectiveCount).toBe(1);
+});
+
+// ── ineffectiveSignalsFor ─────────────────────────────────────────────────────
+
+test("ineffectiveSignalsFor: returns matching Signal rows after flagging", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: null, kind: "reply", payload: "a" });
+  const sig2 = s.addSignal({ repoPath: "/r", sessionId: null, kind: "critic", payload: "b" });
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  s.incrementLearningIneffective(l.id, [sig1.id, sig2.id]);
+  const signals = s.ineffectiveSignalsFor(l.id);
+  expect(signals.map((sg) => sg.id).sort()).toEqual([sig1.id, sig2.id].sort());
+});
+
+test("ineffectiveSignalsFor: rule with no ineffective ids → []", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "clean", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.ineffectiveSignalsFor(l.id)).toEqual([]);
+});
+
+test("ineffectiveSignalsFor: missing id → []", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.ineffectiveSignalsFor("no-such-id")).toEqual([]);
+});

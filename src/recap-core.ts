@@ -128,9 +128,10 @@ export function buildRecapPrompt(input: {
     "- Redact secrets (API keys, tokens, passwords) in any summary/markdown/annotation — use",
     "  placeholders like `sk-•••` / `<redacted>`.",
     "",
-    `Write the result as JSON to the file \`.shepherd-recap.json\` in your CWD with EXACTLY this shape:`,
-    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...], "blocks": [ ... ]  // blocks optional, omit if not useful`,
-    `}`,
+    `Write the result as JSON to the file \`.shepherd-recap.json\` in your CWD with EXACTLY this shape`,
+    "(the `blocks` field is optional — omit it entirely if not useful; the file must be strict, valid",
+    "JSON with no comments):",
+    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...], "blocks": [ ... ]}`,
     "Write the file as your final action, then stop.",
   );
 

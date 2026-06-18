@@ -396,6 +396,20 @@ test("buildRecapPrompt: states diff hunks/file are server-supplied", () => {
   expect(p).toContain("the server attaches the real diff content");
 });
 
+test("buildRecapPrompt: JSON shape example carries no inline comment (strict JSON.parse safety)", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  // An inline `//` comment inside the shape's {...} literal would be echoed into
+  // .shepherd-recap.json and break strict JSON.parse — the optional-blocks note lives in prose.
+  expect(p).not.toContain("// blocks");
+  expect(p).toContain("no comments");
+});
+
 test("buildRecapPrompt: includes redact-secrets instruction", () => {
   const p = buildRecapPrompt({
     taskPrompt: "t",

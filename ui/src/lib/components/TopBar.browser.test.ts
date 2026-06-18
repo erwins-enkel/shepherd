@@ -1139,3 +1139,67 @@ describe("TopBar — learnings chip label switches between proposed and curate-o
     );
   });
 });
+
+describe("TopBar — mobile gear sheet portals out of transformed ancestor", () => {
+  // Regression guard for the fixed-containing-block bug: on mobile the sheet lives
+  // inside <header class="chrome"> which carries `will-change: transform` on
+  // `.shell.mobile.list .chrome`. That establishes a CSS containing block so
+  // `position: fixed` on `.gear-sheet` resolves against the short chrome box, not
+  // the viewport — the sheet is clipped to the top of the screen.
+  //
+  // The fix wraps .menu-scrim + .gear-sheet in a `use:portal` wrapper so they are
+  // re-parented to <body> (no transformed ancestor there), restoring honest
+  // viewport-relative fixed positioning.
+
+  let container: HTMLDivElement;
+
+  afterEach(() => {
+    container?.remove();
+  });
+
+  it("gear sheet escapes a will-change:transform ancestor and sits at the viewport bottom", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+
+    // Reproduce the trapping ancestor: a small container with will-change:transform,
+    // mirroring .shell.mobile.list .chrome which is top-pinned and short.
+    container = document.createElement("div");
+    container.style.cssText =
+      "will-change:transform;position:fixed;top:0;left:0;width:390px;height:60px;overflow:hidden;";
+    document.body.appendChild(container);
+
+    const list = [{ id: "d1", status: "done" }] as unknown as Session[];
+    render(TopBar, {
+      target: container,
+      props: {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        ...FLAGS.mobile,
+        sessions: list,
+      },
+    });
+
+    // Open the sheet.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // Wait for the sheet to appear.
+    await expect
+      .element(page.getByRole("button", { name: m.settings_title() }))
+      .toBeInTheDocument();
+
+    const gearSheet = document.querySelector<HTMLElement>(".gear-sheet");
+    expect(gearSheet, ".gear-sheet is in the document").not.toBeNull();
+
+    // Structural: sheet must have escaped the transformed container.
+    expect(
+      container.contains(gearSheet),
+      "gear-sheet must NOT be a descendant of the transformed ancestor",
+    ).toBe(false);
+
+    // Geometry: sheet bottom must sit at/near the viewport bottom (within 2px).
+    const rect = gearSheet!.getBoundingClientRect();
+    expect(
+      rect.bottom,
+      `gear-sheet bottom (${rect.bottom}) must be near viewport bottom (${window.innerHeight})`,
+    ).toBeGreaterThanOrEqual(window.innerHeight - 2);
+  });
+});

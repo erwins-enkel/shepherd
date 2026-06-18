@@ -1191,8 +1191,11 @@ export class DrainService {
     const { number, url, title, body } = decision.issue;
     const failKey = `${repoPath}#${number}`;
     const lastFail = this.spawnFailures.get(failKey);
-    if (lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) {
-      return; // #790: recently failed to spawn this issue — back off to avoid claim/label churn
+    if (lastFail !== undefined) {
+      if (this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) {
+        return; // #790: recently failed to spawn this issue — back off to avoid claim/label churn
+      }
+      this.spawnFailures.delete(failKey); // #790: cooldown elapsed — drop the stale entry so the map can't grow unbounded
     }
     // Sandbox auto-gate pre-check: skip a held issue cleanly BEFORE claiming the label
     // or spawning, so a repo whose profile refuses auto (standard, or autonomous with no

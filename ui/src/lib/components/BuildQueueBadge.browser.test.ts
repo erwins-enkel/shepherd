@@ -65,7 +65,7 @@ describe("BuildQueueBadge", () => {
     await expect.element(page.getByText("4/5")).toBeInTheDocument();
   });
 
-  it("meter fill width reflects resolved/total via --queue-pct", async () => {
+  it("background fill reflects resolved/total via --queue-pct", async () => {
     // 4/5 = 80%
     buildQueues.map = {
       s1: queue(true, [
@@ -82,7 +82,7 @@ describe("BuildQueueBadge", () => {
     expect(badge.style.getPropertyValue("--queue-pct")).toBe("80%");
   });
 
-  it("all resolved (all done) → shows 5/5 with 100% meter", async () => {
+  it("all resolved (all done) → shows 5/5 with 100% fill", async () => {
     buildQueues.map = {
       s1: queue(true, [
         step("done", "1"),

@@ -23,16 +23,18 @@
     use:coachTarget={"build-queue-progress"}
   >
     <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
-    <span class="queue-meter" aria-hidden="true"><span class="queue-fill"></span></span>
   </span>
 {/if}
 
 <style>
+  /* Single-row badge matching its siblings (PREVIEW / REWORK / status badges):
+     same outline idiom, same height. Progress is shown as a subtle amber wash
+     filling the badge box left→right to --queue-pct (hard-edged gradient stop),
+     so there's no extra meter row to make this badge taller than the others. */
   .queue-badge {
     display: inline-flex;
-    flex-direction: column;
+    align-items: center;
     flex: none;
-    gap: 2px;
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -41,21 +43,12 @@
     border: 1px solid var(--color-amber);
     border-radius: 2px;
     color: var(--color-amber);
-    background: transparent;
     white-space: nowrap;
-  }
-  .queue-meter {
-    display: block;
-    height: 2px;
-    width: 100%;
-    background: var(--color-line);
-    border-radius: 2px;
     overflow: hidden;
-  }
-  .queue-fill {
-    display: block;
-    height: 100%;
-    width: var(--queue-pct);
-    background: var(--color-amber);
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--color-amber) 22%, transparent) var(--queue-pct),
+      transparent var(--queue-pct)
+    );
   }
 </style>

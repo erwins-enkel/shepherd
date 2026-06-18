@@ -3,7 +3,24 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import VisualReview from "./VisualReview.svelte";
-import type { VisualBlock } from "$lib/types";
+import type { VisualBlock, DiffFile } from "$lib/types";
+
+const TEST_DIFF_FILE: DiffFile = {
+  path: "src/index.ts",
+  status: "modified",
+  additions: 1,
+  deletions: 1,
+  binary: false,
+  hunks: [
+    {
+      header: "@@ -1,2 +1,2 @@",
+      lines: [
+        { kind: "del", content: "old", oldNo: 1 },
+        { kind: "add", content: "new", newNo: 1 },
+      ],
+    },
+  ],
+};
 
 describe("VisualReview dispatcher", () => {
   it("renders a rich-text block content", async () => {
@@ -41,5 +58,81 @@ describe("VisualReview dispatcher", () => {
   it("renders nothing for an empty blocks array", () => {
     const { container } = render(VisualReview, { blocks: [] });
     expect(container.querySelector(".visual-review")?.children.length).toBe(0);
+  });
+
+  // ── Task 6 additions ────────────────────────────────────────────────────────
+
+  it("renders a file-tree block (dispatches to FileTreeBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "file-tree",
+        id: "ft1",
+        entries: [
+          { path: "src/foo.ts", change: "added" },
+          { path: "src/bar.ts", change: "modified" },
+        ],
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("foo.ts")).toBeInTheDocument();
+    await expect.element(page.getByText("bar.ts")).toBeInTheDocument();
+  });
+
+  it("renders a diff block with summary (dispatches to DiffBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "diff",
+        id: "d1",
+        path: "src/index.ts",
+        summary: "Fixed the bug",
+        file: TEST_DIFF_FILE,
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("Fixed the bug")).toBeInTheDocument();
+  });
+
+  it("shows 'Highlighted changes' heading exactly once for two diff blocks", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "diff",
+        id: "d1",
+        path: "src/a.ts",
+        summary: "First diff",
+        file: TEST_DIFF_FILE,
+      },
+      {
+        type: "diff",
+        id: "d2",
+        path: "src/b.ts",
+        summary: "Second diff",
+        file: { ...TEST_DIFF_FILE, path: "src/b.ts" },
+      },
+    ];
+    const { container } = render(VisualReview, { blocks });
+    const headings = container.querySelectorAll(".vr-highlight-head");
+    expect(headings.length).toBe(1);
+    await expect.element(page.getByText(/Highlighted changes/i)).toBeInTheDocument();
+  });
+
+  it("shows 'Highlighted changes' heading before the first diff block", async () => {
+    const blocks: VisualBlock[] = [
+      { type: "rich-text", id: "r1", markdown: "preamble" },
+      {
+        type: "diff",
+        id: "d1",
+        path: "src/x.ts",
+        summary: "A diff",
+        file: TEST_DIFF_FILE,
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText(/Highlighted changes/i)).toBeInTheDocument();
+  });
+
+  it("does not show 'Highlighted changes' heading when no diff blocks", async () => {
+    const blocks: VisualBlock[] = [{ type: "rich-text", id: "r1", markdown: "No diffs here." }];
+    const { container } = render(VisualReview, { blocks });
+    expect(container.querySelector(".vr-highlight-head")).toBeNull();
   });
 });

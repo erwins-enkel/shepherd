@@ -1484,5 +1484,10 @@
   "vblock_callout_decision": "Entscheidung",
   "vblock_callout_risk": "Risiko",
   "vblock_callout_warning": "Warnung",
-  "vblock_callout_success": "Erfolg"
+  "vblock_callout_success": "Erfolg",
+  "vblock_filetree_added": "Hinzugefügt",
+  "vblock_filetree_modified": "Geändert",
+  "vblock_filetree_removed": "Entfernt",
+  "vblock_filetree_renamed": "Umbenannt",
+  "vblock_diff_highlighted_heading": "Hervorgehobene Änderungen"
 }

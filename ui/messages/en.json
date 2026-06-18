@@ -1484,5 +1484,10 @@
   "vblock_callout_decision": "Decision",
   "vblock_callout_risk": "Risk",
   "vblock_callout_warning": "Warning",
-  "vblock_callout_success": "Success"
+  "vblock_callout_success": "Success",
+  "vblock_filetree_added": "Added",
+  "vblock_filetree_modified": "Modified",
+  "vblock_filetree_removed": "Removed",
+  "vblock_filetree_renamed": "Renamed",
+  "vblock_diff_highlighted_heading": "Highlighted changes"
 }

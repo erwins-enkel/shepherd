@@ -1479,5 +1479,10 @@
   "learnings_optimizer_stalled_title": "Optimierer blockiert",
   "learnings_optimizer_stalled_body": "Der Regel-Optimierer ist {count}-mal in Folge fehlgeschlagen. Prüfe die Server-Logs.",
   "feat_optimize_learnings_title": "„Wirkungslose“ Hausregeln mit einem Klick reparieren",
-  "feat_optimize_learnings_body": "Wenn eine Hausregel Fehler nicht mehr verhindert, filtere auf die markierten Regeln und lass Shepherd sie aus den Fehlern neu formulieren – einzeln oder alle auf einmal."
+  "feat_optimize_learnings_body": "Wenn eine Hausregel Fehler nicht mehr verhindert, filtere auf die markierten Regeln und lass Shepherd sie aus den Fehlern neu formulieren – einzeln oder alle auf einmal.",
+  "vblock_callout_info": "Info",
+  "vblock_callout_decision": "Entscheidung",
+  "vblock_callout_risk": "Risiko",
+  "vblock_callout_warning": "Warnung",
+  "vblock_callout_success": "Erfolg"
 }

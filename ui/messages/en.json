@@ -1479,5 +1479,10 @@
   "learnings_optimizer_stalled_title": "Optimizer stalled",
   "learnings_optimizer_stalled_body": "The rule optimizer failed {count} times in a row. Check the server logs.",
   "feat_optimize_learnings_title": "Fix ‘not working’ house rules in one click",
-  "feat_optimize_learnings_body": "When a house rule stops preventing mistakes, filter to the flagged ones and let Shepherd reword them from the failures — individually or all at once."
+  "feat_optimize_learnings_body": "When a house rule stops preventing mistakes, filter to the flagged ones and let Shepherd reword them from the failures — individually or all at once.",
+  "vblock_callout_info": "Info",
+  "vblock_callout_decision": "Decision",
+  "vblock_callout_risk": "Risk",
+  "vblock_callout_warning": "Warning",
+  "vblock_callout_success": "Success"
 }

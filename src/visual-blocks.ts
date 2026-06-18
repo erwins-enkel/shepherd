@@ -34,6 +34,65 @@ export type VisualBlock =
       annotations?: DiffAnnotation[];
       /** Server-joined real diff; populated by joinDiffBlocks — never from LLM input. */
       file?: DiffFile;
+    }
+  | {
+      type: "code";
+      id: string;
+      filename: string;
+      language?: string;
+      /** Server-populated from DiffFile — never from LLM input. */
+      code?: string;
+      truncated?: boolean;
+    }
+  | {
+      type: "annotated-code";
+      id: string;
+      filename: string;
+      language?: string;
+      /** Prose-only annotations — no line anchors (decision #4). */
+      annotations?: DiffAnnotation[];
+      /** Server-populated from DiffFile — never from LLM input. */
+      code?: string;
+      truncated?: boolean;
+    }
+  | {
+      type: "data-model";
+      id: string;
+      /** Server-forced to true — never trusted from LLM input. */
+      inferred?: boolean;
+      entities: {
+        id: string;
+        name: string;
+        fields: {
+          name: string;
+          type: string;
+          pk?: boolean;
+          fk?: string;
+          nullable?: boolean;
+          change?: FileTreeChange;
+          was?: string;
+        }[];
+      }[];
+      relations?: { from: string; to: string; kind: string }[];
+    }
+  | {
+      type: "api-endpoint";
+      id: string;
+      method: string;
+      path: string;
+      summary?: string;
+      change?: string;
+      deprecated?: boolean;
+      /** Server-forced to true — never trusted from LLM input. */
+      inferred?: boolean;
+      params?: { name: string; in: string; type: string; required?: boolean; note?: string }[];
+      responses?: { status: number; description?: string; example?: string }[];
+    }
+  | { type: "table"; id: string; columns: string[]; rows: string[][] }
+  | {
+      type: "checklist";
+      id: string;
+      items: { id: string; label: string; note?: string; checked?: boolean }[];
     };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -123,6 +182,199 @@ function validateDiff(r: Record<string, unknown>, id: string): VisualBlock | nul
   return block;
 }
 
+function validateCode(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.filename !== "string" || r.filename === "") return null;
+  // strip server-populated fields
+  const block: VisualBlock & { type: "code" } = { type: "code", id, filename: r.filename };
+  if (typeof r.language === "string") block.language = r.language;
+  // code/truncated intentionally NOT copied — server-populated
+  return block;
+}
+
+function validateAnnotatedCode(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.filename !== "string" || r.filename === "") return null;
+  const block: VisualBlock & { type: "annotated-code" } = {
+    type: "annotated-code",
+    id,
+    filename: r.filename,
+  };
+  if (typeof r.language === "string") block.language = r.language;
+  if (Array.isArray(r.annotations)) {
+    const annotations: DiffAnnotation[] = [];
+    for (const a of r.annotations) {
+      const ann = validateDiffAnnotation(a); // reuse — drops lines/side
+      if (ann) annotations.push(ann);
+    }
+    if (annotations.length > 0) block.annotations = annotations;
+  }
+  // code/truncated intentionally NOT copied — server-populated
+  return block;
+}
+
+function validateDataModelField(raw: unknown): {
+  name: string;
+  type: string;
+  pk?: boolean;
+  fk?: string;
+  nullable?: boolean;
+  change?: FileTreeChange;
+  was?: string;
+} | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const fr = raw as Record<string, unknown>;
+  if (typeof fr.name !== "string" || typeof fr.type !== "string") return null;
+  const field: {
+    name: string;
+    type: string;
+    pk?: boolean;
+    fk?: string;
+    nullable?: boolean;
+    change?: FileTreeChange;
+    was?: string;
+  } = {
+    name: fr.name,
+    type: fr.type,
+  };
+  if (fr.pk === true) field.pk = true;
+  if (typeof fr.fk === "string") field.fk = fr.fk;
+  if (fr.nullable === false) field.nullable = false;
+  else if (fr.nullable === true) field.nullable = true;
+  if (FILE_TREE_CHANGES.includes(fr.change as FileTreeChange))
+    field.change = fr.change as FileTreeChange;
+  if (typeof fr.was === "string") field.was = fr.was;
+  return field;
+}
+
+function validateDataModel(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!Array.isArray(r.entities) || r.entities.length === 0) return null;
+  type Entity = {
+    id: string;
+    name: string;
+    fields: {
+      name: string;
+      type: string;
+      pk?: boolean;
+      fk?: string;
+      nullable?: boolean;
+      change?: FileTreeChange;
+      was?: string;
+    }[];
+  };
+  const entities: Entity[] = [];
+  for (const raw of r.entities) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const er = raw as Record<string, unknown>;
+    if (typeof er.id !== "string" || typeof er.name !== "string") continue;
+    if (!Array.isArray(er.fields)) continue;
+    const fields = er.fields
+      .map(validateDataModelField)
+      .filter((f): f is NonNullable<typeof f> => f !== null);
+    if (fields.length === 0) continue;
+    entities.push({ id: er.id, name: er.name, fields });
+  }
+  if (entities.length === 0) return null;
+  const block: VisualBlock & { type: "data-model" } = { type: "data-model", id, entities };
+  // inferred intentionally NOT copied — server forces it
+  if (Array.isArray(r.relations)) {
+    const relations: { from: string; to: string; kind: string }[] = [];
+    for (const rel of r.relations) {
+      if (!rel || typeof rel !== "object" || Array.isArray(rel)) continue;
+      const rr = rel as Record<string, unknown>;
+      if (typeof rr.from === "string" && typeof rr.to === "string" && typeof rr.kind === "string") {
+        relations.push({ from: rr.from, to: rr.to, kind: rr.kind });
+      }
+    }
+    if (relations.length > 0) block.relations = relations;
+  }
+  return block;
+}
+
+function validateApiEndpoint(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.method !== "string" || r.method === "") return null;
+  if (typeof r.path !== "string" || r.path === "") return null;
+  const block: VisualBlock & { type: "api-endpoint" } = {
+    type: "api-endpoint",
+    id,
+    method: r.method,
+    path: r.path,
+  };
+  // inferred intentionally NOT copied — server forces it
+  if (typeof r.summary === "string") block.summary = r.summary;
+  if (typeof r.change === "string") block.change = r.change;
+  if (r.deprecated === true) block.deprecated = true;
+  if (Array.isArray(r.params)) {
+    const params: { name: string; in: string; type: string; required?: boolean; note?: string }[] =
+      [];
+    for (const p of r.params) {
+      if (!p || typeof p !== "object" || Array.isArray(p)) continue;
+      const pr = p as Record<string, unknown>;
+      if (typeof pr.name !== "string" || typeof pr.in !== "string" || typeof pr.type !== "string")
+        continue;
+      const param: { name: string; in: string; type: string; required?: boolean; note?: string } = {
+        name: pr.name,
+        in: pr.in,
+        type: pr.type,
+      };
+      if (pr.required === true) param.required = true;
+      if (typeof pr.note === "string") param.note = pr.note;
+      params.push(param);
+    }
+    if (params.length > 0) block.params = params;
+  }
+  if (Array.isArray(r.responses)) {
+    const responses: { status: number; description?: string; example?: string }[] = [];
+    for (const resp of r.responses) {
+      if (!resp || typeof resp !== "object" || Array.isArray(resp)) continue;
+      const rr = resp as Record<string, unknown>;
+      if (typeof rr.status !== "number") continue;
+      const response: { status: number; description?: string; example?: string } = {
+        status: rr.status,
+      };
+      if (typeof rr.description === "string") response.description = rr.description;
+      if (typeof rr.example === "string") response.example = rr.example;
+      responses.push(response);
+    }
+    if (responses.length > 0) block.responses = responses;
+  }
+  return block;
+}
+
+function validateTable(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!Array.isArray(r.columns) || r.columns.length === 0) return null;
+  const columns: string[] = r.columns.filter((c): c is string => typeof c === "string");
+  if (columns.length === 0) return null;
+  const ncols = columns.length;
+  const rows: string[][] = [];
+  if (Array.isArray(r.rows)) {
+    for (const row of r.rows) {
+      if (!Array.isArray(row)) continue;
+      const coerced: string[] = row.map((cell) => (typeof cell === "string" ? cell : String(cell)));
+      // pad short / truncate long rows to match column count
+      while (coerced.length < ncols) coerced.push("");
+      rows.push(coerced.slice(0, ncols));
+    }
+  }
+  return { type: "table", id, columns, rows };
+}
+
+function validateChecklist(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!Array.isArray(r.items)) return null;
+  type ChecklistItem = { id: string; label: string; note?: string; checked?: boolean };
+  const items: ChecklistItem[] = [];
+  for (const raw of r.items) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const ir = raw as Record<string, unknown>;
+    if (typeof ir.id !== "string" || typeof ir.label !== "string") continue;
+    const item: ChecklistItem = { id: ir.id, label: ir.label };
+    if (typeof ir.note === "string") item.note = ir.note;
+    if (ir.checked === true) item.checked = true;
+    else if (ir.checked === false) item.checked = false;
+    items.push(item);
+  }
+  if (items.length === 0) return null;
+  return { type: "checklist", id, items };
+}
+
 type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
 
 const VALIDATORS: Record<string, BlockValidator> = {
@@ -130,6 +382,12 @@ const VALIDATORS: Record<string, BlockValidator> = {
   callout: validateCallout,
   "file-tree": validateFileTree,
   diff: validateDiff,
+  code: validateCode,
+  "annotated-code": validateAnnotatedCode,
+  "data-model": validateDataModel,
+  "api-endpoint": validateApiEndpoint,
+  table: validateTable,
+  checklist: validateChecklist,
 };
 
 /** Validate a single raw element into a typed VisualBlock, or null when malformed. */
@@ -223,6 +481,66 @@ export function reconcileFileTree(blocks: VisualBlock[], diffFiles: DiffFile[]):
   return result;
 }
 
+// ── joinCodeBlocks ────────────────────────────────────────────────────────────
+
+/** Reconstruct code bodies for `code`/`annotated-code` blocks from real added DiffFiles.
+ *  - Path missing or status !== "added" → drop.
+ *  - hunks.length === 0 (pre-truncated or binary) → emit with code omitted + truncated:true.
+ *  - Over DIFF_BLOCK_MAX_LINES → truncated:true + code omitted.
+ *  - Otherwise reconstruct code from add+ctx lines.
+ *  Non-code blocks pass through. Returns a new array; inputs not mutated. */
+export function joinCodeBlocks(blocks: VisualBlock[], diffFiles: DiffFile[]): VisualBlock[] {
+  const byPath = new Map<string, DiffFile>(diffFiles.map((f) => [f.path, f]));
+  const result: VisualBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type !== "code" && block.type !== "annotated-code") {
+      result.push(block);
+      continue;
+    }
+    const file = byPath.get(block.filename);
+    if (!file || file.status !== "added") continue; // drop
+
+    if (file.hunks.length === 0) {
+      // pre-truncated or binary — no usable content
+      result.push({ ...block, truncated: true });
+      continue;
+    }
+
+    // Reconstruct post-image text from add+ctx lines
+    const lines: string[] = [];
+    for (const hunk of file.hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind === "add" || line.kind === "ctx") {
+          lines.push(line.content);
+        }
+      }
+    }
+
+    if (lines.length > DIFF_BLOCK_MAX_LINES) {
+      result.push({ ...block, truncated: true });
+      continue;
+    }
+
+    result.push({ ...block, code: lines.join("\n") });
+  }
+
+  return result;
+}
+
+// ── markInferred ──────────────────────────────────────────────────────────────
+
+/** Force inferred:true on every data-model/api-endpoint block.
+ *  Other block types are returned as-is. Returns a new array; inputs not mutated. */
+export function markInferred(blocks: VisualBlock[]): VisualBlock[] {
+  return blocks.map((blk) => {
+    if (blk.type === "data-model" || blk.type === "api-endpoint") {
+      return { ...blk, inferred: true };
+    }
+    return blk;
+  });
+}
+
 // ── groundBlocks ──────────────────────────────────────────────────────────────
 
 /**
@@ -244,13 +562,16 @@ export function groundBlocks(
     b = b.map((blk) =>
       blk.type === "diff" && blk.file ? { ...blk, file: capDiffBlock(blk.file) } : blk,
     );
-    return reconcileFileTree(b, pendingDiff);
+    b = reconcileFileTree(b, pendingDiff);
+    b = joinCodeBlocks(b, pendingDiff); // code/annotated-code → reconstruct or drop
+    return markInferred(b); // data-model/api-endpoint → inferred:true
   }
   // carrier miss — fail closed
   const paths = new Set(changedFiles);
   const out: VisualBlock[] = [];
   for (const blk of blocks) {
     if (blk.type === "diff") continue; // no real hunks → drop
+    if (blk.type === "code" || blk.type === "annotated-code") continue; // no real content → drop
     if (blk.type === "file-tree") {
       const entries = blk.entries.filter((e) => paths.has(e.path));
       if (entries.length > 0) out.push({ ...blk, entries });
@@ -258,7 +579,7 @@ export function groundBlocks(
     }
     out.push(blk);
   }
-  return out;
+  return markInferred(out); // data-model/api-endpoint → inferred:true even without carrier
 }
 
 // ── capDiffBlock ──────────────────────────────────────────────────────────────

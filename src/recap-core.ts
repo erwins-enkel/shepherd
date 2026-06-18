@@ -3,7 +3,7 @@
  * Mirrors the structure of critic-core.ts (parse/validate/clamp + prompt building).
  */
 import type { ActivityEntry } from "./activity";
-import type { Recap, RecapVerdict } from "./types";
+import type { DiffFileStatus, Recap, RecapVerdict } from "./types";
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
 
@@ -68,7 +68,7 @@ export function buildTranscriptDigest(
 export function buildRecapPrompt(input: {
   taskPrompt: string;
   plan: string; // "" when no .shepherd-plan.md
-  changedFiles: string[];
+  changedFiles: { path: string; status: DiffFileStatus }[];
   digest: string;
   context: string; // pre-rendered critic verdict / CI / readyToMerge lines (may be "")
 }): string {
@@ -86,7 +86,11 @@ export function buildRecapPrompt(input: {
   }
 
   if (input.changedFiles.length > 0) {
-    lines.push("Files changed in this session:", ...input.changedFiles.map((f) => `  ${f}`), "");
+    lines.push(
+      "Files changed in this session:",
+      ...input.changedFiles.map((f) => `  ${f.path} (${f.status})`),
+      "",
+    );
   }
 
   if (input.digest.trim()) {
@@ -115,6 +119,14 @@ export function buildRecapPrompt(input: {
     '- callout:   {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."} — a toned note for a decision, risk, or assumption.',
     '- file-tree: {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<real path>","change":"added|modified|removed|renamed","note?":"<short>"}]} — the change footprint. Use real changed paths only.',
     '- diff:      {"type":"diff","id":"...","path":"<real changed path>","summary":"<one line>","annotations?":[{"label?":"<short>","note":"<prose>"}]} — feature a specific changed file.',
+    "",
+    "Block types (Phase 2):",
+    '- code:           {"type":"code","id":"...","filename":"<path marked (added)>","language?":"<lang>"} — highlights a new file. Only emit for files marked (added) above; modified files use diff blocks. Never type the code body — the server attaches it.',
+    '- annotated-code: {"type":"annotated-code","id":"...","filename":"<path marked (added)>","language?":"<lang>","annotations?":[{"label?":"<short>","note":"<prose describing this part of the code>"}]} — code with prose notes. Only (added) files. Never type the code body, never line numbers.',
+    '- data-model:     {"type":"data-model","id":"...","entities":[{"id":"...","name":"...","fields":[{"name":"...","type":"...","pk?":true,"fk?":"<ref>","nullable?":true,"change?":"added|modified|removed|renamed","was?":"<old type>"}]}],"relations?":[{"from":"...","to":"...","kind":"..."}]} — ERD-ish card. Extract from real changed schema; do not invent fields; redact secrets. Will be tagged inferred automatically.',
+    '- api-endpoint:   {"type":"api-endpoint","id":"...","method":"GET|POST|...","path":"<route>","summary?":"...","change?":"added|modified|deprecated","deprecated?":true,"params?":[{"name":"...","in":"path|query|body","type":"...","required?":true,"note?":"..."}],"responses?":[{"status":200,"description?":"...","example?":"..."}]} — one route card. Extract from real changed routes; redact secrets. Will be tagged inferred automatically.',
+    '- table:          {"type":"table","id":"...","columns":["A","B"],"rows":[["a","b"]]} — columnar comparison or summary. Redact secrets.',
+    '- checklist:      {"type":"checklist","id":"...","items":[{"id":"...","label":"...","note?":"...","checked?":true}]} — task list or review checklist.',
     "",
     "Rules for blocks:",
     "- Every block must have a unique string `id`.",

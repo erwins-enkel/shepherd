@@ -416,6 +416,7 @@ export class RecapService {
       const digest = buildTranscriptDigest(transcript);
       const plan = this._readPlan(worktreePath);
       const changedFiles = diff.files.map((f) => f.path);
+      const changedFilesWithStatus = diff.files.map((f) => ({ path: f.path, status: f.status }));
 
       const contextParts: string[] = [];
       const review = this.deps.store.getReview(id);
@@ -427,7 +428,7 @@ export class RecapService {
       const prompt = buildRecapPrompt({
         taskPrompt: session.prompt,
         plan,
-        changedFiles,
+        changedFiles: changedFilesWithStatus,
         digest,
         context,
       });

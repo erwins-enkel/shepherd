@@ -848,8 +848,8 @@
          (on mobile it moves into the gear bottom sheet).
          Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right)
          or the herdr blue gear-dot. Color: slate ring with state-colored core —
-         amber for warning, red for error — distinct from both the halt-pip identity
-         and the herdr blue. Token choice: --color-amber / --color-red for the core,
+         warn for warning, red for error — distinct from both the halt-pip identity
+         and the herdr blue. Token choice: --status-warn / --color-red for the core,
          --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
     {#if diagnosticsOverall !== "ok" && !mobile}
       <button
@@ -1704,7 +1704,7 @@
      Visible only when diagnosticsOverall !== "ok" (hidden-when-OK via {#if}).
      Ring: --color-line-bright (neutral slate) — a quiet outline that doesn't
      read as the halt-pip or the herdr dot.
-     Core: --color-amber (warning) or --color-red (error, .alert). */
+     Core: --status-warn (warning) or --color-red (error, .alert). */
   .health-pip {
     position: relative;
     background: transparent;
@@ -1726,7 +1726,7 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: var(--color-amber);
+    background: var(--status-warn);
     display: block;
   }
   .health-pip.alert .health-dot {

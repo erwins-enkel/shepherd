@@ -296,21 +296,21 @@
   }
   /* Quiet warning note — landing PR couldn't be opened (no link yet). */
   .landing-failed {
-    color: var(--color-amber);
+    color: var(--status-warn);
     font-size: var(--fs-micro);
   }
 
   /* Warning-tone chip — unrun migrations need operator verification before clearing the row.
-     Amber = caution (NOT success-green); mirrors the .badge recipe with the warning hue. */
+     Warn = caution (NOT success-green); mirrors the .badge recipe with the warn hue. */
   .chip-migrations {
     flex: none;
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     padding: 1px 6px;
-    border: 1px solid var(--color-amber);
+    border: 1px solid var(--status-warn);
     border-radius: 2px;
-    color: var(--color-amber);
-    background: color-mix(in oklab, var(--color-amber) 12%, transparent);
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
 
   /* Canonical .gbtn recipe (scoped per-component; see /design-system). */

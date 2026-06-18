@@ -48,6 +48,7 @@
     { name: "red", note: "Blocked / destructive / error" },
     { name: "blue", note: "Informational accent" },
     { name: "slate", note: "Idle / parked (neutral, not 'done')" },
+    { name: "warn", note: "Caution / heads-up — not running, not error" },
   ];
 
   // Type scale — the six deliberate rungs in app.css. Never hardcode a px size;
@@ -71,6 +72,10 @@
     },
     { name: "status-blocked", note: "Blocked / needs the operator (red)" },
     { name: "status-idle", note: "Idle, no active turn (slate)" },
+    {
+      name: "status-warn",
+      note: "Caution / heads-up — distinct from running (amber) and blocked (red)",
+    },
   ];
 
   // Canonical markup blocks. Rendered as escaped text inside <pre>, so agents

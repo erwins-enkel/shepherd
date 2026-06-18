@@ -59,10 +59,10 @@
   }
 
   // State → color token. Design rule: never --color-green for healthy.
-  // ok → --status-done (slate), warning → --color-amber, error → --color-red.
+  // ok → --status-done (slate), warning → --status-warn, error → --color-red.
   const stateColor: Record<DiagnosticCheck["state"], string> = {
     ok: "var(--status-done)",
-    warning: "var(--color-amber)",
+    warning: "var(--status-warn)",
     error: "var(--color-red)",
   };
 </script>

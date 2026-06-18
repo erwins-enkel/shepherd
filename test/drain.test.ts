@@ -1380,3 +1380,85 @@ describe("drain epic mode", () => {
     expect(h.epics.length).toBeGreaterThan(epicsBefore);
   });
 });
+
+// ── #790: per-issue spawn-failure cooldown ────────────────────────────────────
+
+test("#790: spawn-failure cooldown: failed issue is skipped until window expires", async () => {
+  // Mutable clock injected as `now` dep so we control time deterministically.
+  let clock = 1_000_000;
+
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig(REPO, {
+    criticEnabled: false,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+    autopilotEnabled: false,
+    planGateEnabled: false,
+    autoDrainEnabled: true,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 2,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "trusted",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+  });
+
+  const candidateIssue = issue(42);
+  const forgeRec: ForgeRec = {
+    merges: [],
+    links: [],
+    listIssuesCalls: 0,
+    closedIssues: [],
+    added: [],
+    removed: [],
+    getIssueCalls: [],
+  };
+  // Count ACTIVE_LABEL claim calls only (addIssueLabel with ACTIVE_LABEL).
+  let claimCount = 0;
+  const forge = fakeForge([candidateIssue], forgeRec, {
+    addIssueLabel: async (n, label) => {
+      if (label === ACTIVE_LABEL) claimCount++;
+    },
+  });
+
+  const drain = new DrainService({
+    store,
+    service: {
+      create: async () => {
+        throw new Error("isolation failed");
+      },
+      archive: async (id: string): Promise<number> => {
+        store.archive(id);
+        return 1;
+      },
+    },
+    resolveForge: () => forge,
+    prCache: { snapshot: () => ({}) },
+    usage: { limits: (): UsageLimitsType => NO_USAGE },
+    repos: () => [REPO],
+    emitStatus: () => {},
+    emitArchived: () => {},
+    dropPrCache: () => {},
+    now: () => clock,
+    // Zero TTL so the issues list is never served from cache between pumps.
+    issuesTtlMs: 0,
+  });
+
+  // Step 3: first pump — one claim attempt, create throws, cooldown recorded.
+  await drain.pump(REPO);
+  expect(claimCount).toBe(1);
+
+  // Step 4: second pump, clock unchanged — still within cooldown window, skipped.
+  await drain.pump(REPO);
+  expect(claimCount).toBe(1);
+
+  // Step 5: advance clock past the 5-minute cooldown, pump again — re-attempted.
+  clock += 5 * 60_000 + 1;
+  await drain.pump(REPO);
+  expect(claimCount).toBe(2);
+});

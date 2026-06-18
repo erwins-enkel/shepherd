@@ -61,6 +61,7 @@ function makeDeps(): AppDeps {
     worktree: {
       create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
+      branchExists: () => false,
       remove: () => {},
     } as any,
     herdr: {

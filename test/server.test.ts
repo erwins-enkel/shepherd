@@ -33,6 +33,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     worktree: {
       create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
+      branchExists: () => false,
       remove: () => {},
     } as any,
     herdr: {
@@ -240,6 +241,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
     worktree: {
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
+      branchExists: () => false,
       remove: () => {},
     } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
@@ -1278,7 +1280,12 @@ function clearMergedHarness() {
   const service = new SessionService({
     store,
     namer: async () => "x",
-    worktree: { create: () => ({}) as any, ensureBaseRef: async () => {}, remove: () => {} } as any,
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
     reaper: {
       detect,
@@ -1867,6 +1874,7 @@ function harnessWithPreviewStop({
     worktree: {
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
+      branchExists: () => false,
       remove: () => {},
     } as any,
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,

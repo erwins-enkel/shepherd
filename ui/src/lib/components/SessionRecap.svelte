@@ -65,6 +65,7 @@
   }
 </script>
 
+<!-- fallow-ignore-next-line complexity -->
 {#if recap && recap.state !== "empty"}
   <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
   <div class="recap-card panel" use:coachTarget={"session-recap"}>

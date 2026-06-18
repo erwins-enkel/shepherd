@@ -57,6 +57,81 @@ export const DIFF_BLOCK_MAX_LINES = 600;
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
+function validateRichText(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.markdown !== "string") return null;
+  return { type: "rich-text", id, markdown: r.markdown };
+}
+
+function validateCallout(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.markdown !== "string") return null;
+  if (!CALLOUT_TONES.includes(r.tone as CalloutTone)) return null;
+  return { type: "callout", id, tone: r.tone as CalloutTone, markdown: r.markdown };
+}
+
+function validateFileTreeEntry(raw: unknown): FileTreeEntry | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const er = raw as Record<string, unknown>;
+  if (typeof er.path !== "string" || er.path === "") return null;
+  if (!FILE_TREE_CHANGES.includes(er.change as FileTreeChange)) return null;
+  const entry: FileTreeEntry = { path: er.path, change: er.change as FileTreeChange };
+  if (typeof er.note === "string") entry.note = er.note;
+  return entry;
+}
+
+function validateFileTree(r: Record<string, unknown>, id: string): VisualBlock | null {
+  const entries: FileTreeEntry[] = [];
+  if (Array.isArray(r.entries)) {
+    for (const e of r.entries) {
+      const entry = validateFileTreeEntry(e);
+      if (entry) entries.push(entry);
+    }
+  }
+  if (entries.length === 0) return null;
+  const block: VisualBlock & { type: "file-tree" } = { type: "file-tree", id, entries };
+  if (typeof r.title === "string") block.title = r.title;
+  return block;
+}
+
+function validateDiffAnnotation(raw: unknown): DiffAnnotation | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const ar = raw as Record<string, unknown>;
+  if (typeof ar.note !== "string") return null;
+  // strip lines/side (Phase-1 prose-only annotations)
+  const ann: DiffAnnotation = { note: ar.note };
+  if (typeof ar.label === "string") ann.label = ar.label;
+  return ann;
+}
+
+function validateDiff(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.path !== "string" || r.path === "") return null;
+  if (typeof r.summary !== "string") return null;
+  const block: VisualBlock & { type: "diff" } = {
+    type: "diff",
+    id,
+    path: r.path,
+    summary: r.summary,
+    // strip any incoming `file` field — server populates it via joinDiffBlocks
+  };
+  if (Array.isArray(r.annotations)) {
+    const annotations: DiffAnnotation[] = [];
+    for (const a of r.annotations) {
+      const ann = validateDiffAnnotation(a);
+      if (ann) annotations.push(ann);
+    }
+    if (annotations.length > 0) block.annotations = annotations;
+  }
+  return block;
+}
+
+type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
+
+const VALIDATORS: Record<string, BlockValidator> = {
+  "rich-text": validateRichText,
+  callout: validateCallout,
+  "file-tree": validateFileTree,
+  diff: validateDiff,
+};
+
 /** Parse + validate LLM-emitted JSON into typed VisualBlock[]. Never throws.
  *  Drops malformed blocks and returns only valid ones ([] on non-array input).
  *  This is the trust boundary — be defensive, drop on any doubt. */
@@ -75,72 +150,9 @@ export function parseVisualBlocks(raw: unknown): VisualBlock[] {
     const type = r.type;
     if (typeof type !== "string") continue;
 
-    switch (type) {
-      case "rich-text": {
-        if (typeof r.markdown !== "string") continue;
-        result.push({ type: "rich-text", id, markdown: r.markdown });
-        break;
-      }
-      case "callout": {
-        if (typeof r.markdown !== "string") continue;
-        if (!CALLOUT_TONES.includes(r.tone as CalloutTone)) continue;
-        result.push({ type: "callout", id, tone: r.tone as CalloutTone, markdown: r.markdown });
-        break;
-      }
-      case "file-tree": {
-        const rawEntries = r.entries;
-        const entries: FileTreeEntry[] = [];
-        if (Array.isArray(rawEntries)) {
-          for (const e of rawEntries) {
-            if (!e || typeof e !== "object" || Array.isArray(e)) continue;
-            const er = e as Record<string, unknown>;
-            if (typeof er.path !== "string" || er.path === "") continue;
-            if (!FILE_TREE_CHANGES.includes(er.change as FileTreeChange)) continue;
-            const entry: FileTreeEntry = {
-              path: er.path,
-              change: er.change as FileTreeChange,
-            };
-            if (typeof er.note === "string") entry.note = er.note;
-            entries.push(entry);
-          }
-        }
-        if (entries.length === 0) continue;
-        const block: VisualBlock & { type: "file-tree" } = { type: "file-tree", id, entries };
-        if (typeof r.title === "string") block.title = r.title;
-        result.push(block);
-        break;
-      }
-      case "diff": {
-        if (typeof r.path !== "string" || r.path === "") continue;
-        if (typeof r.summary !== "string") continue;
-        const block: VisualBlock & { type: "diff" } = {
-          type: "diff",
-          id,
-          path: r.path,
-          summary: r.summary,
-          // strip any incoming `file` field — server populates it via joinDiffBlocks
-        };
-        const rawAnnotations = r.annotations;
-        if (Array.isArray(rawAnnotations)) {
-          const annotations: DiffAnnotation[] = [];
-          for (const a of rawAnnotations) {
-            if (!a || typeof a !== "object" || Array.isArray(a)) continue;
-            const ar = a as Record<string, unknown>;
-            if (typeof ar.note !== "string") continue;
-            // strip lines/side (Phase-1 prose-only annotations)
-            const ann: DiffAnnotation = { note: ar.note };
-            if (typeof ar.label === "string") ann.label = ar.label;
-            annotations.push(ann);
-          }
-          if (annotations.length > 0) block.annotations = annotations;
-        }
-        result.push(block);
-        break;
-      }
-      default:
-        // unknown type — drop
-        continue;
-    }
+    const validate = VALIDATORS[type]; // unknown type → undefined → drop
+    const block = validate ? validate(r, id) : null;
+    if (block) result.push(block);
   }
 
   return result;

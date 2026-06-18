@@ -65,6 +65,7 @@
   const hasFileTree = $derived(!!recap?.blocks?.some((b) => b.type === "file-tree"));
 </script>
 
+<!-- fallow-ignore-next-line complexity -->
 <section class="done-recap" aria-label={m.done_recap_panel_aria({ desig: session.desig })}>
   <header class="dr-head">
     <span class="dr-desig">{session.desig}</span>

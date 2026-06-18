@@ -139,26 +139,28 @@
 
 {#if visible}
   <div class="bqp" role="region" aria-label={m.buildqueue_panel_title()}>
-    <div class="bqp-head">
+    <button
+      type="button"
+      class="bqp-head bqp-collapse-toggle"
+      onclick={() => buildQueueCollapse.toggle()}
+      aria-expanded={!buildQueueCollapse.collapsed}
+      aria-controls={contentId}
+      aria-label={buildQueueCollapse.collapsed
+        ? m.buildqueue_expand_aria()
+        : m.buildqueue_collapse_aria()}
+      title={buildQueueCollapse.collapsed
+        ? m.buildqueue_expand_aria()
+        : m.buildqueue_collapse_aria()}
+      use:coachTarget={"build-queue-collapse"}
+    >
       <span class="bqp-title">{m.buildqueue_panel_title()}</span>
       {#if approved && steps.length > 0}
         <span class="bqp-approved">{m.buildqueue_approved_header()}</span>
       {/if}
-      <button
-        type="button"
-        class="bqp-btn bqp-collapse-toggle"
-        onclick={() => buildQueueCollapse.toggle()}
-        aria-expanded={!buildQueueCollapse.collapsed}
-        aria-controls={contentId}
-        aria-label={buildQueueCollapse.collapsed
-          ? m.buildqueue_expand_aria()
-          : m.buildqueue_collapse_aria()}
-        title={buildQueueCollapse.collapsed
-          ? m.buildqueue_expand_aria()
-          : m.buildqueue_collapse_aria()}
-        use:coachTarget={"build-queue-collapse"}>{buildQueueCollapse.collapsed ? "▴" : "▾"}</button
+      <span class="bqp-collapse-glyph" aria-hidden="true"
+        >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
       >
-    </div>
+    </button>
 
     <div class="bqp-content" id={contentId} class:collapsed={buildQueueCollapse.collapsed}>
       {#if steps.length === 0}
@@ -282,11 +284,25 @@
     font-size: var(--fs-meta);
   }
 
+  /* The whole header is the collapse toggle (mirrors IntegratedEpicRow's
+     .row-head), so a click anywhere on the bar expands/collapses — not just
+     the ▴/▾ glyph. Button reset; the glyph keeps its boxed look below. */
   .bqp-head {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .bqp-head:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .bqp-title {
@@ -305,8 +321,22 @@
     color: var(--color-amber);
   }
 
-  .bqp-collapse-toggle {
+  /* The ▴/▾ glyph: pushed to the right edge, styled like the boxed toggle it
+     replaced; brightens when the header is hovered/focused. */
+  .bqp-collapse-glyph {
     margin-left: auto;
+    flex: none;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    line-height: 1.4;
+    padding: 1px 5px;
+  }
+  .bqp-head:hover .bqp-collapse-glyph,
+  .bqp-head:focus-visible .bqp-collapse-glyph {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink);
   }
 
   .bqp-content {

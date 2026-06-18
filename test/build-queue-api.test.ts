@@ -384,21 +384,27 @@ test("GET /api/queues returns empty object when no sessions have steps", async (
 });
 
 test("GET /api/queues route does not shadow GET /api/sessions/:id/queue", async () => {
+  // Proof: seed TWO sessions. A handler captured by /:id would only see one session's data;
+  // a genuine bulk handler returns a multi-session map → proves the right route fired.
   const { app, store } = harness();
-  const sess = makeSession(store, repoDir);
-  store.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+  const sess1 = makeSession(store, repoDir);
+  const sess2 = makeSession(store, repoDir);
+  store.replaceBuildQueue(sess1.id, [{ title: "Step A" }]);
+  store.replaceBuildQueue(sess2.id, [{ title: "Step B" }, { title: "Step C" }]);
 
-  // bulk endpoint
+  // bulk endpoint returns BOTH sessions — proves non-capture
   const bulk = await app.fetch(new Request(`http://x/api/queues`));
   expect(bulk.status).toBe(200);
   const bulkBody = (await bulk.json()) as Record<string, { sessionId: string; steps: unknown[] }>;
-  expect(bulkBody[sess.id]).toBeDefined();
-  expect(bulkBody[sess.id]!.steps).toHaveLength(1);
+  expect(bulkBody[sess1.id]).toBeDefined();
+  expect(bulkBody[sess1.id]!.steps).toHaveLength(1);
+  expect(bulkBody[sess2.id]).toBeDefined();
+  expect(bulkBody[sess2.id]!.steps).toHaveLength(2);
 
-  // per-session endpoint still works independently
-  const single = await app.fetch(new Request(`http://x/api/sessions/${sess.id}/queue`));
+  // per-session endpoint still works independently (co-existence)
+  const single = await app.fetch(new Request(`http://x/api/sessions/${sess1.id}/queue`));
   expect(single.status).toBe(200);
   const singleBody = await single.json();
-  expect(singleBody.sessionId).toBe(sess.id);
+  expect(singleBody.sessionId).toBe(sess1.id);
   expect(singleBody.steps).toHaveLength(1);
 });

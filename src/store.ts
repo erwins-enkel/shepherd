@@ -2218,7 +2218,7 @@ export class SessionStore implements CapStore, CreditStore {
     for (const r of rows) {
       let q = map.get(r.sessionId);
       if (!q) {
-        q = { sessionId: r.sessionId, steps: [], approved: r.approved ? !!r.approved : false };
+        q = { sessionId: r.sessionId, steps: [], approved: !!r.approved };
         map.set(r.sessionId, q);
       }
       q.steps.push({

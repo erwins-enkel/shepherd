@@ -83,7 +83,7 @@ not decorative flair, so "Visual Atmosphere" is weighted low by intent.
 | ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Typography               | 3/4       | Consistent `--fs-*` scale, tabular-nums on the meter and designators. Good.                                                                                                    |
 | Color & Theme            | 3/4       | Fully tokenised; semantic hues (green=actionable, amber=attention, red=broken) used correctly. Loses a point because the **most important state (over budget) has no colour**. |
-| Motion & Interaction     | 3/4       | Tasteful fly-in with `prefers-reduced-motion` honoured (line 112); caret rotations. Nothing gratuitous.                                                                        |
+| Motion & Interaction     | 3/4       | Tasteful fly-in with `prefers-reduced-motion` honoured (line 114); caret rotations. Nothing gratuitous.                                                                        |
 | Spatial Composition      | 2/4       | Single flat column; weak grouping; no sticky context; triage targets at the bottom of lists. This is the core problem.                                                         |
 | Visual Atmosphere        | 2/4       | Flat surfaces by design — fine for the tool, but groups need one more layer of depth to read as containers.                                                                    |
 | Information Architecture | 2/4       | No triage/summary layer; budget math offloaded to the operator; destructive action is the only budget remedy.                                                                  |
@@ -96,7 +96,7 @@ not decorative flair, so "Visual Atmosphere" is weighted low by intent.
 1. **Add a triage summary band at the top of the drawer.** Above the repo list, render a compact
    "needs attention" strip: one chip per repo that is over budget and/or has flagged rules, each a
    jump-link that `scrollIntoView`s the repo section (the anchor machinery already exists —
-   `repoAnchorId`, line 14, and the `focusRepo` deep-link effect, line 136). Show the headline number on
+   `repoAnchorId` in `learnings-drawer.ts:14`, and the `focusRepo` deep-link effect, line 136). Show the headline number on
    each chip: `acme-web · 280 over · 2 dropped` / `api · 3 not working`. This collapses Problem 1's
    step 2–5 scan into a single glance + click. Hide the band entirely when nothing needs attention.
 
@@ -139,7 +139,7 @@ z-index: 1; background: var(--color-panel); }` so the repo name stays pinned whi
    parity gate enforced.)
 
 8. **Add an "over budget" filter to match "Not working."** The header already has a flagged-only toggle
-   (lines 157–168). A sibling "Over budget" filter lets the operator isolate exactly the repos/rules that
+   (lines 158–167). A sibling "Over budget" filter lets the operator isolate exactly the repos/rules that
    need trimming — same pattern, same place.
 
 9. **Disambiguate the two destructive/positive action clusters.** Proposed rules show `Dismiss | Approve`;

@@ -222,8 +222,22 @@ export class WorktreeMgr {
     }
 
     // Behind or origin-only: try to bring local branch to st.upstreamSha.
-    const upstreamSha = st.upstreamSha!;
+    base.localFf = await this.fastForwardLocalBase(repoPath, baseBranch, st.upstreamSha!);
+    if (base.localFf === "applied") base.localExists = true;
+    return base;
+  }
 
+  /** Attempt to fast-forward the local `baseBranch` ref to `upstreamSha` in `repoPath`.
+   *  Returns the `localFf` outcome:
+   *  - "applied"                     — ff succeeded (merge --ff-only or branch -f)
+   *  - "skipped-dirty"               — checked out here but tree is dirty (or ff-only failed)
+   *  - "skipped-checked-out-elsewhere" — not checked out here, branch -f refused (other worktree)
+   *  Never throws. */
+  private async fastForwardLocalBase(
+    repoPath: string,
+    baseBranch: string,
+    upstreamSha: string,
+  ): Promise<ResolvedBase["localFf"]> {
     // Is baseBranch currently checked out in repoPath?
     let checkedOutHere = false;
     try {
@@ -251,37 +265,32 @@ export class WorktreeMgr {
         console.warn(
           `[worktree] ensureBaseRef: ${baseBranch} is checked out with a dirty tree — skipping ff`,
         );
-        base.localFf = "skipped-dirty";
-        return base;
+        return "skipped-dirty";
       }
 
       // Clean + checked out → merge --ff-only
       try {
         await execFileAsync("git", ["merge", "--ff-only", upstreamSha], { cwd: repoPath });
-        base.localFf = "applied";
-        base.localExists = true;
+        return "applied";
       } catch (err) {
         console.warn(`[worktree] ensureBaseRef: ff-only merge failed for ${baseBranch}:`, err);
-        base.localFf = "skipped-dirty";
+        return "skipped-dirty";
       }
-      return base;
     }
 
     // Not checked out in repoPath — use `git branch -f` (works for create + ff,
     // fails when the branch is HEAD in another worktree).
     try {
       await execFileAsync("git", ["branch", "-f", baseBranch, upstreamSha], { cwd: repoPath });
-      base.localFf = "applied";
-      base.localExists = true;
+      return "applied";
     } catch (err) {
       // git refuses to move a ref that is HEAD in any worktree → skipped-checked-out-elsewhere
       console.warn(
         `[worktree] ensureBaseRef: branch -f ${baseBranch} failed (checked out elsewhere?):`,
         err,
       );
-      base.localFf = "skipped-checked-out-elsewhere";
+      return "skipped-checked-out-elsewhere";
     }
-    return base;
   }
 
   /** Whether the branch checked out at `worktreePath` is BEHIND `baseBranch` — i.e.

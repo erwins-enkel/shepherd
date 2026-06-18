@@ -253,8 +253,17 @@
             class="triage-chip"
             type="button"
             aria-label={m.learnings_triage_jump_aria({ repo: basename(a.repoPath) })}
-            onclick={() =>
-              document.getElementById(repoAnchorId(a.repoPath))?.scrollIntoView({ block: "start" })}
+            onclick={() => {
+              // Clear both lens filters so the target repo is guaranteed to be in the DOM,
+              // then scroll on the next frame after Svelte has updated displayGroups.
+              flaggedOnly = false;
+              overBudgetOnly = false;
+              requestAnimationFrame(() => {
+                document
+                  .getElementById(repoAnchorId(a.repoPath))
+                  ?.scrollIntoView({ block: "start" });
+              });
+            }}
           >
             <span class="tc-repo">{basename(a.repoPath)}</span>
             {#if a.droppedCount > 0}<span class="tc-over"
@@ -893,7 +902,7 @@
     align-items: center;
     gap: 6px;
   }
-  /* Change 9: de-emphasised Dismiss on active/promoted rules — muted + gap from Promote */
+  /* Change 9: de-emphasised Dismiss on active rules — muted + gap from Promote */
   .dismiss-muted {
     color: var(--color-muted);
     border-color: var(--color-line);

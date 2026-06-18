@@ -167,11 +167,12 @@ export function visibleInjectableRules(
 ): (Learning & { injected: boolean })[] {
   if (!repo) return [];
   if (!lenses.flaggedOnly && !lenses.overBudgetOnly) return repo.rules;
+  const overBudget = isOverBudget(repo);
   const ids = new Set<string>();
   const result: (Learning & { injected: boolean })[] = [];
   for (const r of repo.rules) {
     const wantFlagged = lenses.flaggedOnly && r.ineffectiveCount > 0;
-    const wantDropped = lenses.overBudgetOnly && !r.injected && isOverBudget(repo);
+    const wantDropped = lenses.overBudgetOnly && !r.injected && overBudget;
     if ((wantFlagged || wantDropped) && !ids.has(r.id)) {
       ids.add(r.id);
       result.push(r);

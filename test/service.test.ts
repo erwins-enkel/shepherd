@@ -28,6 +28,7 @@ import {
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
+import { stubBaseRef } from "./helpers/base-ref";
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
   const store = new SessionStore(":memory:");
@@ -856,6 +857,50 @@ test("createSession: defaults auto=false and issueNumber=null when not provided"
   expect(store.get(s.id)?.issueNumber).toBeNull();
 });
 
+test("createSession: worktree.create receives resolved baseRef (sha), persisted baseBranch stays logical name", async () => {
+  const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+  const store = new SessionStore(":memory:");
+  let createBase: string | undefined;
+  const service = new SessionService({
+    store,
+    namer: async () => "resolved-base",
+    worktree: {
+      ensureBaseRef: async () => stubBaseRef({ baseRef: sha, behind: 3, hasUpstream: true }),
+      create: (_r: string, base: string, name: string) => {
+        createBase = base;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({
+        terminalId: "term_z",
+        cwd: "/wt/resolved-base",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do work",
+    model: null,
+    images: [],
+  });
+
+  // worktree.create got the sha, not the logical name
+  expect(createBase).toBe(sha);
+  // persisted session still has the logical branch name
+  expect(s.baseBranch).toBe("main");
+  expect(store.get(s.id)?.baseBranch).toBe("main");
+});
+
 test("createSession: rolls back the worktree when the agent fails to start", async () => {
   const store = new SessionStore(":memory:");
   const removed: { path: string; opts: any }[] = [];
@@ -1064,7 +1109,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => stubBaseRef(),
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1106,7 +1151,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => stubBaseRef(),
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1150,7 +1195,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => stubBaseRef(),
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -1192,7 +1237,7 @@ test("archive with no reap keys never calls the reaper", async () => {
     store,
     namer: async () => "x",
     worktree: {
-      ensureBaseRef: async () => {},
+      ensureBaseRef: async () => stubBaseRef(),
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,

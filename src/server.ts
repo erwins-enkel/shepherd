@@ -109,6 +109,7 @@ import {
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
 import { fingerprintDiffCount } from "./rundown-core";
 import { quotaBlockReason } from "./blocked";
+import { upstreamStatus } from "./upstream-status";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -2614,6 +2615,82 @@ function handleBranches({ req, parts, url }: Ctx): Response | null {
   return null;
 }
 
+// ── /api/branch-status ────────────────────────────────────────────────────────
+// NOTE: Each call performs a bounded network git fetch (writes objects + the
+// refs/remotes/origin/<branch> tracking ref). This is intended-non-idempotent,
+// bounded, and rate-limited by the TTL cache below + client debounce (Task 5).
+
+const BRANCH_STATUS_TTL_MS = 10_000;
+// Single long-running server loop: bound the cache so it never grows without
+// limit. On each write: prune expired entries first, then evict oldest (Map
+// preserves insertion order) if the cap is still exceeded.
+const BRANCH_STATUS_CACHE_MAX = 256;
+type BranchStatusValue = {
+  behind: number;
+  ahead: number;
+  diverged: boolean;
+  hasUpstream: boolean;
+  localExists: boolean;
+};
+const branchStatusCache = new Map<string, { at: number; value: BranchStatusValue }>();
+// Coalesce concurrent cache misses for the same (repo, branch): each would otherwise
+// spawn its own bounded git fetch against the same tracking ref. In-flight requests
+// share ONE promise; the entry clears once it settles (success or failure).
+const branchStatusInflight = new Map<string, Promise<BranchStatusValue>>();
+
+/** Clear the in-memory branch-status cache — for use in tests only. */
+export function clearBranchStatusCacheForTests(): void {
+  branchStatusCache.clear();
+  branchStatusInflight.clear();
+}
+
+export async function branchStatusCached(
+  repoPath: string,
+  branch: string,
+): Promise<BranchStatusValue> {
+  const key = `${repoPath}\0${branch}`;
+  const hit = branchStatusCache.get(key);
+  if (hit && Date.now() - hit.at < BRANCH_STATUS_TTL_MS) return hit.value;
+  // A miss already in flight for this key: join it instead of fetching again.
+  const inflight = branchStatusInflight.get(key);
+  if (inflight) return inflight;
+  const p = (async () => {
+    const st = await upstreamStatus(repoPath, branch);
+    const value: BranchStatusValue = {
+      behind: st.behind,
+      ahead: st.ahead,
+      diverged: st.diverged,
+      hasUpstream: st.hasUpstream,
+      localExists: st.localExists,
+    };
+    const now = Date.now();
+    // Prune expired entries before writing, then cap by evicting oldest.
+    for (const [k, v] of branchStatusCache) {
+      if (now - v.at >= BRANCH_STATUS_TTL_MS) branchStatusCache.delete(k);
+    }
+    while (branchStatusCache.size >= BRANCH_STATUS_CACHE_MAX) {
+      branchStatusCache.delete(branchStatusCache.keys().next().value!);
+    }
+    branchStatusCache.set(key, { at: now, value });
+    return value;
+  })().finally(() => branchStatusInflight.delete(key));
+  branchStatusInflight.set(key, p);
+  return p;
+}
+
+async function handleBranchStatus({ req, parts, url }: Ctx): Promise<Response | null> {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "branch-status" && !parts[2]) {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    const branch = url.searchParams.get("branch") ?? "";
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch))
+      return json({ error: "invalid branch" }, 400);
+    const st = await branchStatusCached(dir, branch);
+    return json(st);
+  }
+  return null;
+}
+
 async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
@@ -3843,6 +3920,7 @@ const ROUTE_HANDLERS = [
   handleHalt,
   handleFsDirs,
   handleBranches,
+  handleBranchStatus,
   handleIssues,
   handleIssueCreate,
   handlePrsList,

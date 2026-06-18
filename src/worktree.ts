@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
 import { ensureShepherdExclude } from "./shepherd-exclude";
 import { removeWorktreeScratch } from "./tmp-sweep";
+import { upstreamStatus } from "./upstream-status";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,6 +14,35 @@ export interface WorktreeResult {
   worktreePath: string;
   branch: string | null;
   isolated: boolean;
+}
+
+export interface ResolvedBase {
+  /** The ref or sha to pass to `worktree.create()` as the base commit. For a
+   *  non-diverged branch with an upstream, this is the upstream sha (so the new
+   *  task always starts fresh even when the local fast-forward was skipped due to
+   *  a dirty tree or a worktree checkout elsewhere). For diverged / no-upstream
+   *  branches it falls back to the branch name. */
+  baseRef: string;
+  behind: number;
+  ahead: number;
+  diverged: boolean;
+  hasUpstream: boolean;
+  localExists: boolean;
+  /** What happened to the local branch during the fast-forward attempt:
+   *  - "applied"                    — local branch was moved to the upstream sha
+   *  - "skipped-dirty"              — checked-out branch, working tree had changes
+   *  - "skipped-diverged"           — local branch has commits not on upstream
+   *  - "skipped-checked-out-elsewhere" — branch is HEAD in another worktree
+   *  - "not-needed"                 — local was already at the upstream sha
+   *  - "none"                       — no upstream to freshen toward
+   */
+  localFf:
+    | "applied"
+    | "skipped-dirty"
+    | "skipped-diverged"
+    | "skipped-checked-out-elsewhere"
+    | "not-needed"
+    | "none";
 }
 
 export class WorktreeMgr {
@@ -113,30 +143,153 @@ export class WorktreeMgr {
     }
   }
 
-  /** Ensure `baseBranch` resolves locally AND is current before a worktree bases on it.
-   *  Skips the fetch only for the main clone's checked-out branch (git refuses to fetch into
-   *  it; the default branch is normally HEAD, so regular spawns keep basing on the local tip
-   *  as before — no new network hit). For any other base (e.g. an epic integration branch that
-   *  advances on the remote as siblings merge), `git fetch origin <b>:<b>` creates-or-FFs the
-   *  local branch so the worktree bases on the latest tip. Best-effort + async (never sync on
-   *  the server loop): a failure warns and the subsequent worktree.create surfaces a real error
-   *  if the base is genuinely unresolvable. */
-  async ensureBaseRef(repoPath: string, baseBranch: string): Promise<void> {
-    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return;
+  /** Freshen `baseBranch` from upstream at task-launch time, then return a `ResolvedBase`
+   *  the caller uses to base the new worktree on.
+   *
+   *  Contract:
+   *  1. Validates `baseBranch` — fails closed (no git calls) on an invalid refname.
+   *  2. Calls `upstreamStatus()` to fetch and evaluate the branch against origin.
+   *  3. Computes `baseRef`:
+   *     - Non-diverged branch with an upstream → upstream sha (the new worktree starts fresh
+   *       even when the local fast-forward below is skipped).
+   *     - Diverged or no upstream → branch name (fall back to whatever is local).
+   *  4. Best-effort local fast-forward (never throws, never blocks):
+   *     - No upstream              → `localFf = "none"`.
+   *     - Diverged                 → warn, `localFf = "skipped-diverged"`, local untouched.
+   *     - Already up-to-date       → `localFf = "not-needed"`.
+   *     - Behind / origin-only     → determine if `baseBranch` is HEAD in `repoPath`:
+   *       - Checked out here (clean tree) → `git merge --ff-only <sha>` → "applied".
+   *       - Checked out here (dirty tree) → skip, `localFf = "skipped-dirty"` (warn).
+   *       - Not checked out here → `git branch -f <branch> <sha>` (creates or ff's the local
+   *         ref without touching any working tree). Fails when the branch is HEAD in ANOTHER
+   *         worktree → `localFf = "skipped-checked-out-elsewhere"` (warn). `baseRef` is
+   *         unaffected — the new task still starts at the upstream sha.
+   *
+   *  All git calls are async (no sync I/O on the server loop) and individually try/caught.
+   *  `ensureBaseRef` never throws. */
+  async ensureBaseRef(repoPath: string, baseBranch: string): Promise<ResolvedBase> {
+    const FAIL_CLOSED: ResolvedBase = {
+      baseRef: baseBranch,
+      behind: 0,
+      ahead: 0,
+      diverged: false,
+      hasUpstream: false,
+      localExists: false,
+      localFf: "none",
+    };
+
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return FAIL_CLOSED;
+
+    let st;
+    try {
+      st = await upstreamStatus(repoPath, baseBranch);
+    } catch {
+      return FAIL_CLOSED;
+    }
+
+    // Compute baseRef: prefer the upstream sha for a clean fast-forwardable branch so
+    // the new worktree starts fresh even when the local ff below is skipped.
+    const baseRef = st.hasUpstream && !st.diverged && st.upstreamSha ? st.upstreamSha : baseBranch;
+
+    const base: ResolvedBase = {
+      baseRef,
+      behind: st.behind,
+      ahead: st.ahead,
+      diverged: st.diverged,
+      hasUpstream: st.hasUpstream,
+      localExists: st.localExists,
+      localFf: "none",
+    };
+
+    // Fast-forward logic — best-effort, each step individually try/caught.
+    if (!st.hasUpstream) {
+      base.localFf = "none";
+      return base;
+    }
+
+    if (st.diverged) {
+      console.warn(
+        `[worktree] ensureBaseRef: ${baseBranch} has diverged from upstream — skipping local ff`,
+      );
+      base.localFf = "skipped-diverged";
+      return base;
+    }
+
+    // Up to date?
+    if (st.localExists && st.behind === 0) {
+      base.localFf = "not-needed";
+      return base;
+    }
+
+    // Behind or origin-only: try to bring local branch to st.upstreamSha.
+    base.localFf = await this.fastForwardLocalBase(repoPath, baseBranch, st.upstreamSha!);
+    if (base.localFf === "applied") base.localExists = true;
+    return base;
+  }
+
+  /** Attempt to fast-forward the local `baseBranch` ref to `upstreamSha` in `repoPath`.
+   *  Returns the `localFf` outcome:
+   *  - "applied"                     — ff succeeded (merge --ff-only or branch -f)
+   *  - "skipped-dirty"               — checked out here but tree is dirty (or ff-only failed)
+   *  - "skipped-checked-out-elsewhere" — not checked out here, branch -f refused (other worktree)
+   *  Never throws. */
+  private async fastForwardLocalBase(
+    repoPath: string,
+    baseBranch: string,
+    upstreamSha: string,
+  ): Promise<ResolvedBase["localFf"]> {
+    // Is baseBranch currently checked out in repoPath?
+    let checkedOutHere = false;
     try {
       const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
         cwd: repoPath,
       });
-      if (stdout.trim() === baseBranch) return; // checked-out branch — can't/needn't fetch
+      checkedOutHere = stdout.trim() === baseBranch;
     } catch {
-      // detached HEAD or error — fall through and attempt the fetch
+      // detached HEAD or error → treat as not checked out here
     }
+
+    if (checkedOutHere) {
+      // Check working tree cleanliness — treat any error as dirty (safe default).
+      let dirty = true;
+      try {
+        const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+          cwd: repoPath,
+        });
+        dirty = stdout.trim().length > 0;
+      } catch {
+        // can't determine → treat as dirty (safe)
+      }
+
+      if (dirty) {
+        console.warn(
+          `[worktree] ensureBaseRef: ${baseBranch} is checked out with a dirty tree — skipping ff`,
+        );
+        return "skipped-dirty";
+      }
+
+      // Clean + checked out → merge --ff-only
+      try {
+        await execFileAsync("git", ["merge", "--ff-only", upstreamSha], { cwd: repoPath });
+        return "applied";
+      } catch (err) {
+        console.warn(`[worktree] ensureBaseRef: ff-only merge failed for ${baseBranch}:`, err);
+        return "skipped-dirty";
+      }
+    }
+
+    // Not checked out in repoPath — use `git branch -f` (works for create + ff,
+    // fails when the branch is HEAD in another worktree).
     try {
-      await execFileAsync("git", ["fetch", "origin", `${baseBranch}:${baseBranch}`], {
-        cwd: repoPath,
-      });
+      await execFileAsync("git", ["branch", "-f", baseBranch, upstreamSha], { cwd: repoPath });
+      return "applied";
     } catch (err) {
-      console.warn(`[worktree] ensureBaseRef fetch ${baseBranch} failed:`, err);
+      // git refuses to move a ref that is HEAD in any worktree → skipped-checked-out-elsewhere
+      console.warn(
+        `[worktree] ensureBaseRef: branch -f ${baseBranch} failed (checked out elsewhere?):`,
+        err,
+      );
+      return "skipped-checked-out-elsewhere";
     }
   }
 

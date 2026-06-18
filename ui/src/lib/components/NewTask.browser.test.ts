@@ -4,7 +4,15 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getTodo, listBranches, getRepoConfig, listRepos } from "$lib/api";
+import {
+  listIssues,
+  getEpics,
+  getTodo,
+  listBranches,
+  getRepoConfig,
+  listRepos,
+  branchStatus,
+} from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -17,6 +25,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     listBranches: vi.fn(),
     getRepoConfig: vi.fn(),
     listRepos: vi.fn(),
+    branchStatus: vi.fn(),
   };
 });
 
@@ -28,6 +37,7 @@ const mockGetTodo = vi.mocked(getTodo);
 const mockListBranches = vi.mocked(listBranches);
 const mockGetRepoConfig = vi.mocked(getRepoConfig);
 const mockListRepos = vi.mocked(listRepos);
+const mockBranchStatus = vi.mocked(branchStatus);
 
 // A full RepoConfig with the plan gate flag overridable; the composer only reads
 // planGateEnabled but the store ingests the whole shape.
@@ -59,6 +69,7 @@ beforeEach(() => {
   mockListBranches.mockReset();
   mockGetRepoConfig.mockReset();
   mockListRepos.mockReset();
+  mockBranchStatus.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
@@ -67,6 +78,14 @@ beforeEach(() => {
   mockListBranches.mockResolvedValue({ current: "main", branches: ["main"] });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+  // Default: up to date — no hint rendered
+  mockBranchStatus.mockResolvedValue({
+    behind: 0,
+    ahead: 0,
+    diverged: false,
+    hasUpstream: true,
+    localExists: true,
+  });
 });
 
 afterEach(() => {
@@ -629,5 +648,54 @@ describe("NewTask repo shortcuts", () => {
     press("BracketRight", { altKey: false });
     // label must remain unchanged
     expect(triggerLabel()).toBe(repoA.name);
+  });
+});
+
+describe("NewTask upstream status hint", () => {
+  it("renders behind hint when branch is behind origin and not diverged", async () => {
+    mockBranchStatus.mockResolvedValue({
+      behind: 4,
+      ahead: 0,
+      diverged: false,
+      hasUpstream: true,
+      localExists: true,
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/upstream-behind" }) });
+    // The effect debounces 300ms then resolves; poll until the hint appears
+    await expect
+      .poll(() => document.querySelector(".nt-upstream")?.textContent, { timeout: 2000 })
+      .toContain("4");
+    expect(document.querySelector(".nt-upstream-warn")).toBeNull();
+  });
+
+  it("renders diverged hint (with warn styling) when branch has diverged", async () => {
+    mockBranchStatus.mockResolvedValue({
+      behind: 2,
+      ahead: 3,
+      diverged: true,
+      hasUpstream: true,
+      localExists: true,
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/upstream-diverged" }) });
+    await expect
+      .poll(() => document.querySelector(".nt-upstream-warn")?.textContent, { timeout: 2000 })
+      .toBeTruthy();
+    const hint = document.querySelector(".nt-upstream-warn")!;
+    expect(hint.textContent).toContain("2");
+    expect(hint.textContent).toContain("3");
+  });
+
+  it("renders nothing when branch is up to date (behind:0, diverged:false)", async () => {
+    mockBranchStatus.mockResolvedValue({
+      behind: 0,
+      ahead: 0,
+      diverged: false,
+      hasUpstream: true,
+      localExists: true,
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/upstream-utd" }) });
+    // Give the debounce time to fire and resolve
+    await new Promise((r) => setTimeout(r, 600));
+    expect(document.querySelector(".nt-upstream")).toBeNull();
   });
 });

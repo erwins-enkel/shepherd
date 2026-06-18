@@ -374,6 +374,23 @@ export async function listBranches(
   return r.json();
 }
 
+export async function branchStatus(
+  repoPath: string,
+  branch: string,
+): Promise<{
+  behind: number;
+  ahead: number;
+  diverged: boolean;
+  hasUpstream: boolean;
+  localExists: boolean;
+}> {
+  const r = await fetch(
+    `/api/branch-status?repo=${encodeURIComponent(repoPath)}&branch=${encodeURIComponent(branch)}`,
+  );
+  if (!r.ok) throw await failed(r, "branch status");
+  return r.json();
+}
+
 export async function getTodo(repoPath: string): Promise<{ exists: boolean; content: string }> {
   const r = await fetch(`/api/todo?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "todo get");

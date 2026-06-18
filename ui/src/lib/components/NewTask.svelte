@@ -3,6 +3,7 @@
   import {
     listRepos,
     listBranches,
+    branchStatus,
     getCommands,
     getEpics,
     uploadImage,
@@ -140,6 +141,14 @@
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);
+  let upstream = $state<{
+    behind: number;
+    ahead: number;
+    diverged: boolean;
+    hasUpstream: boolean;
+    localExists: boolean;
+  } | null>(null);
+  let upstreamLoading = $state(false);
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let images = $state<{ path: string; name: string }[]>(initialImages ? [...initialImages] : []);
@@ -235,6 +244,40 @@
       .catch(() => {
         branches = [];
       });
+  });
+
+  // Fetch upstream status for the selected base branch; debounced 300 ms with a
+  // stale-request guard so in-flight requests from a previous (repo, branch) pair
+  // are silently dropped.
+  $effect(() => {
+    const rp = repoPath,
+      b = baseBranch;
+    upstream = null;
+    if (!rp || !b) {
+      upstreamLoading = false;
+      return;
+    }
+    upstreamLoading = true;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      branchStatus(rp, b)
+        .then((s) => {
+          if (!cancelled && rp === repoPath && b === baseBranch) {
+            upstream = s;
+            upstreamLoading = false;
+          }
+        })
+        .catch(() => {
+          if (!cancelled && rp === repoPath && b === baseBranch) {
+            upstream = null;
+            upstreamLoading = false;
+          }
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   });
 
   // Seed the plan-gate checkbox from the selected repo's stored default. ensure()
@@ -692,6 +735,19 @@
     {:else}
       <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
     {/if}
+    {#if upstreamLoading}
+      <span class="nt-upstream micro">{m.newtask_upstream_checking()}</span>
+    {:else if upstream?.diverged}
+      <span class="nt-upstream micro nt-upstream-warn">
+        {m.newtask_upstream_diverged({
+          behind: upstream.behind,
+          ahead: upstream.ahead,
+          base: baseBranch,
+        })}
+      </span>
+    {:else if upstream && upstream.behind > 0}
+      <span class="nt-upstream micro">{m.newtask_upstream_behind({ count: upstream.behind })}</span>
+    {/if}
 
     <!-- Per-task run settings. Plan gate gets its own full-width row so its explainer
          reads on one line; Model + Sandbox share a 50/50 row beneath. -->
@@ -904,6 +960,19 @@
     text-transform: uppercase;
     color: var(--color-muted);
     margin-top: 6px;
+  }
+  .nt-upstream {
+    display: block;
+    margin-top: 4px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+  }
+  .nt-upstream-warn {
+    /* Blue = informational accent; amber is reserved for --status-running (armed/active),
+       and red/blocked would be too alarming for a heads-up "task will start from local". */
+    color: var(--color-blue);
   }
   .prompt-wrap {
     position: relative;

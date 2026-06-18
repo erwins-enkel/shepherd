@@ -1233,12 +1233,19 @@ export class SessionService {
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug);
-    // Resolve the base locally first: an epic integration branch exists only on origin, so
-    // worktree.create (which resolves baseBranch from LOCAL refs) would otherwise fail and
-    // silently drop the child into the non-isolated main checkout. The default-branch path
-    // already exists locally and early-returns, so regular spawns are unaffected.
-    await this.deps.worktree.ensureBaseRef(input.repoPath, input.baseBranch);
-    const wt = this.deps.worktree.create(input.repoPath, input.baseBranch, name);
+    // Freshen the base ref: fetch the upstream tip so the new worktree always starts at the
+    // latest upstream commit. For non-diverged branches with an upstream, resolved.baseRef is
+    // the upstream sha; for diverged / no-upstream branches it falls back to the branch name.
+    // Epic integration branches that exist only on origin are also resolved here.
+    const resolved = await this.deps.worktree.ensureBaseRef(input.repoPath, input.baseBranch);
+    // resolved.baseRef is the fresh upstream tip (a sha) when the base was behind, else the
+    // local branch name (diverged / no upstream / up to date). Fall back to the named branch
+    // if a (mock/partial) impl returns nothing — fail-safe, never undefined.
+    const baseRef = resolved?.baseRef ?? input.baseBranch;
+    console.info(
+      `[create] base ${input.baseBranch}: behind ${resolved?.behind ?? 0}, ff ${resolved?.localFf ?? "none"}, basing on ${baseRef}`,
+    );
+    const wt = this.deps.worktree.create(input.repoPath, baseRef, name);
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
     // worktree with no session row. Roll it back so a failed create leaves nothing.

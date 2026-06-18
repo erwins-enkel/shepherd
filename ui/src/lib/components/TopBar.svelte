@@ -18,6 +18,7 @@
   import { REPO_URL, version } from "$lib/build-info";
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
+  import { portal } from "$lib/portal";
 
   const reduceMotion =
     typeof window !== "undefined" &&
@@ -960,220 +961,226 @@
 
 <!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
      and the herd recedes. Rendered outside .gear-wrap so outside-click detection fires on it.
-     onclick also wires close explicitly to complement the window-level handler. -->
+     onclick also wires close explicitly to complement the window-level handler.
+     The portal wrapper re-parents both children to <body> so position:fixed resolves
+     against the viewport, not the will-change:transform chrome header. The wrapper itself
+     is display:contents with no transform/filter/will-change so it establishes no
+     containing block of its own. -->
 {#if menuOpen && mobile}
-  <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
-  <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
-       provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
-       NOT role="menuitem" (that role is invalid inside a dialog). -->
-  <div
-    class="gear-sheet"
-    role="dialog"
-    aria-modal="true"
-    aria-label={m.topbar_sheet_title()}
-    use:dialog={{ onclose: closeMenu }}
-    transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
-  >
-    <!-- Grab handle + title row -->
-    <div class="sheet-handle-row" aria-hidden="true">
-      <div class="sheet-handle"></div>
-    </div>
-    <div class="sheet-title-row">
-      <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
-      <button
-        type="button"
-        class="sheet-close"
-        onclick={() => closeMenu()}
-        aria-label={m.common_close()}>✕</button
-      >
-    </div>
-
-    <!-- Quick appearance: dark/light theme + high-contrast toggle -->
-    <div class="quick">
-      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-        {#each QUICK_THEMES as t (t.pref)}
-          <button
-            type="button"
-            class="t-opt"
-            class:on={theme.resolved === t.pref}
-            aria-pressed={theme.resolved === t.pref}
-            aria-label={m.actionbar_theme_option({ label: t.label() })}
-            onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
-          >
-        {/each}
-      </div>
-      <button
-        type="button"
-        class="contrast-toggle"
-        class:on={theme.contrast}
-        aria-pressed={theme.contrast}
-        aria-label={m.actionbar_contrast_toggle()}
-        onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
-      >
-    </div>
-    <div class="sheet-sep"></div>
-
-    <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
-    {#if gauges.length || credits || subscriptionOnly}
-      <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
-      {#if subscriptionOnly}
-        <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
-      {:else}
-        <div class="sheet-gauges" class:stale={limits?.stale}>
-          {#each gauges as g (g.label)}
-            <div class="sheet-gauge-row">
-              <div class="sheet-gauge-head">
-                <span class="gp-period">{periodLabel(g.label)}</span>
-                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-              </div>
-              <span class="g-bar g-bar-wide"
-                ><span
-                  class="g-fill"
-                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                    100});background:{gaugeColor(g.w.pct)}"
-                ></span></span
-              >
-              <div class="gauge-pop-reset micro">
-                {m.topbar_gauge_reset_rel({
-                  rel: formatResetIn(g.w.resetAt, nowMs),
-                  abs: formatReset(g.w.resetAt, nowMs),
-                })}
-              </div>
-            </div>
-          {/each}
-          {@render creditDetail()}
-        </div>
-      {/if}
-      <div class="sheet-sep"></div>
-    {/if}
-
-    <!-- Diagnose row: only when health is not ok -->
-    {#if diagnosticsOverall !== "ok"}
-      <button
-        type="button"
-        class="sheet-item"
-        class:alert={diagnosticsOverall === "error"}
-        onclick={() => {
-          closeMenu();
-          ondiagnose?.();
-        }}
-        aria-label={m.diagnostics_pip_label()}
-      >
-        <span class="sheet-glyph" aria-hidden="true"
-          >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
-        >
-        <span class="sheet-label">{m.diagnostics_pip_label()}</span>
-      </button>
-    {/if}
-
-    <!-- Update row: when shepherd update is available -->
-    {#if updateAvailable}
-      <button
-        type="button"
-        class="sheet-item sheet-update"
-        onclick={() => {
-          closeMenu();
-          onupdate?.();
-        }}
-        aria-label={m.topbar_update_badge()}
-      >
-        <span class="sheet-glyph" aria-hidden="true">▲</span>
-        <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
-      </button>
-    {/if}
-
-    <!-- Herdr update row: when herdr update is available -->
-    {#if herdrUpdateAvailable}
-      <button
-        type="button"
-        class="sheet-item sheet-update"
-        onclick={() => {
-          closeMenu();
-          onherdrupdate?.();
-        }}
-        aria-label={m.topbar_herdr_update_badge()}
-      >
-        <span class="sheet-glyph" aria-hidden="true">▲</span>
-        <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
-      </button>
-    {/if}
-
-    <!-- What's New row -->
-    {#if whatsNew}
-      <button
-        type="button"
-        class="sheet-item"
-        onclick={() => {
-          closeMenu();
-          onwhatsnew?.();
-        }}
-        aria-label={m.whatsnew_topbar_aria()}
-      >
-        <span class="sheet-glyph" aria-hidden="true">●</span>
-        <span class="sheet-label">{m.whatsnew_open()}</span>
-      </button>
-    {/if}
-
-    <!-- Learnings row: review proposed house rules across all repos -->
-    {#if learningsPresent}
-      <button
-        type="button"
-        class="sheet-item"
-        onclick={() => {
-          closeMenu();
-          onlearnings?.();
-        }}
-        aria-label={learnings > 0
-          ? m.learnings_open_aria({ count: learnings })
-          : m.learnings_open_curate_aria({ count: learningsCurate })}
-      >
-        <span class="sheet-glyph" aria-hidden="true">✦</span>
-        <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
-      </button>
-    {/if}
-
-    <div class="sheet-sep"></div>
-
-    <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
-    {#if haltable > 0}
-      <button
-        class="sheet-item halt-item"
-        class:armed
-        type="button"
-        onclick={clickHalt}
-        aria-label={armed
-          ? m.halt_arm_aria({ count: haltable })
-          : m.halt_all_aria({ count: haltable })}
-      >
-        <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-        </svg>
-        <span class="sheet-label"
-          >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
-        >
-      </button>
-      <div class="sheet-sep"></div>
-    {/if}
-
-    <!-- Settings -->
-    <button type="button" class="sheet-item" onclick={chooseSettings}>
-      <span class="sheet-glyph" aria-hidden="true">⚙</span>
-      <span class="sheet-label">{m.settings_title()}</span>
-    </button>
-
-    <!-- Docs + version footer -->
-    <div class="sheet-sep"></div>
-    <a
-      class="sheet-item"
-      href={REPO_URL}
-      target="_blank"
-      rel="external noreferrer noopener"
-      onclick={() => closeMenu()}
+  <div class="gear-sheet-portal" use:portal>
+    <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
+    <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
+         provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
+         NOT role="menuitem" (that role is invalid inside a dialog). -->
+    <div
+      class="gear-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label={m.topbar_sheet_title()}
+      use:dialog={{ onclose: closeMenu }}
+      transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
     >
-      <span class="sheet-glyph" aria-hidden="true">↗</span>
-      <span class="sheet-label">{m.topbar_menu_docs()}</span>
-    </a>
-    <div class="sheet-foot micro">v{version}</div>
+      <!-- Grab handle + title row -->
+      <div class="sheet-handle-row" aria-hidden="true">
+        <div class="sheet-handle"></div>
+      </div>
+      <div class="sheet-title-row">
+        <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
+        <button
+          type="button"
+          class="sheet-close"
+          onclick={() => closeMenu()}
+          aria-label={m.common_close()}>✕</button
+        >
+      </div>
+
+      <!-- Quick appearance: dark/light theme + high-contrast toggle -->
+      <div class="quick">
+        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+          {#each QUICK_THEMES as t (t.pref)}
+            <button
+              type="button"
+              class="t-opt"
+              class:on={theme.resolved === t.pref}
+              aria-pressed={theme.resolved === t.pref}
+              aria-label={m.actionbar_theme_option({ label: t.label() })}
+              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+            >
+          {/each}
+        </div>
+        <button
+          type="button"
+          class="contrast-toggle"
+          class:on={theme.contrast}
+          aria-pressed={theme.contrast}
+          aria-label={m.actionbar_contrast_toggle()}
+          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+        >
+      </div>
+      <div class="sheet-sep"></div>
+
+      <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
+      {#if gauges.length || credits || subscriptionOnly}
+        <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
+        {#if subscriptionOnly}
+          <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
+        {:else}
+          <div class="sheet-gauges" class:stale={limits?.stale}>
+            {#each gauges as g (g.label)}
+              <div class="sheet-gauge-row">
+                <div class="sheet-gauge-head">
+                  <span class="gp-period">{periodLabel(g.label)}</span>
+                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                </div>
+                <span class="g-bar g-bar-wide"
+                  ><span
+                    class="g-fill"
+                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                      100});background:{gaugeColor(g.w.pct)}"
+                  ></span></span
+                >
+                <div class="gauge-pop-reset micro">
+                  {m.topbar_gauge_reset_rel({
+                    rel: formatResetIn(g.w.resetAt, nowMs),
+                    abs: formatReset(g.w.resetAt, nowMs),
+                  })}
+                </div>
+              </div>
+            {/each}
+            {@render creditDetail()}
+          </div>
+        {/if}
+        <div class="sheet-sep"></div>
+      {/if}
+
+      <!-- Diagnose row: only when health is not ok -->
+      {#if diagnosticsOverall !== "ok"}
+        <button
+          type="button"
+          class="sheet-item"
+          class:alert={diagnosticsOverall === "error"}
+          onclick={() => {
+            closeMenu();
+            ondiagnose?.();
+          }}
+          aria-label={m.diagnostics_pip_label()}
+        >
+          <span class="sheet-glyph" aria-hidden="true"
+            >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
+          >
+          <span class="sheet-label">{m.diagnostics_pip_label()}</span>
+        </button>
+      {/if}
+
+      <!-- Update row: when shepherd update is available -->
+      {#if updateAvailable}
+        <button
+          type="button"
+          class="sheet-item sheet-update"
+          onclick={() => {
+            closeMenu();
+            onupdate?.();
+          }}
+          aria-label={m.topbar_update_badge()}
+        >
+          <span class="sheet-glyph" aria-hidden="true">▲</span>
+          <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
+        </button>
+      {/if}
+
+      <!-- Herdr update row: when herdr update is available -->
+      {#if herdrUpdateAvailable}
+        <button
+          type="button"
+          class="sheet-item sheet-update"
+          onclick={() => {
+            closeMenu();
+            onherdrupdate?.();
+          }}
+          aria-label={m.topbar_herdr_update_badge()}
+        >
+          <span class="sheet-glyph" aria-hidden="true">▲</span>
+          <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
+        </button>
+      {/if}
+
+      <!-- What's New row -->
+      {#if whatsNew}
+        <button
+          type="button"
+          class="sheet-item"
+          onclick={() => {
+            closeMenu();
+            onwhatsnew?.();
+          }}
+          aria-label={m.whatsnew_topbar_aria()}
+        >
+          <span class="sheet-glyph" aria-hidden="true">●</span>
+          <span class="sheet-label">{m.whatsnew_open()}</span>
+        </button>
+      {/if}
+
+      <!-- Learnings row: review proposed house rules across all repos -->
+      {#if learningsPresent}
+        <button
+          type="button"
+          class="sheet-item"
+          onclick={() => {
+            closeMenu();
+            onlearnings?.();
+          }}
+          aria-label={learnings > 0
+            ? m.learnings_open_aria({ count: learnings })
+            : m.learnings_open_curate_aria({ count: learningsCurate })}
+        >
+          <span class="sheet-glyph" aria-hidden="true">✦</span>
+          <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
+        </button>
+      {/if}
+
+      <div class="sheet-sep"></div>
+
+      <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
+      {#if haltable > 0}
+        <button
+          class="sheet-item halt-item"
+          class:armed
+          type="button"
+          onclick={clickHalt}
+          aria-label={armed
+            ? m.halt_arm_aria({ count: haltable })
+            : m.halt_all_aria({ count: haltable })}
+        >
+          <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
+          </svg>
+          <span class="sheet-label"
+            >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
+          >
+        </button>
+        <div class="sheet-sep"></div>
+      {/if}
+
+      <!-- Settings -->
+      <button type="button" class="sheet-item" onclick={chooseSettings}>
+        <span class="sheet-glyph" aria-hidden="true">⚙</span>
+        <span class="sheet-label">{m.settings_title()}</span>
+      </button>
+
+      <!-- Docs + version footer -->
+      <div class="sheet-sep"></div>
+      <a
+        class="sheet-item"
+        href={REPO_URL}
+        target="_blank"
+        rel="external noreferrer noopener"
+        onclick={() => closeMenu()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">↗</span>
+        <span class="sheet-label">{m.topbar_menu_docs()}</span>
+      </a>
+      <div class="sheet-foot micro">v{version}</div>
+    </div>
   </div>
 {/if}
 
@@ -1408,6 +1415,13 @@
     color: var(--color-amber);
     background: var(--color-inset);
     border-color: var(--color-amber);
+  }
+  /* Portal wrapper: re-parents scrim + sheet to <body> so position:fixed resolves
+     against the viewport, not the will-change:transform chrome header (see portal.ts).
+     display:contents collapses the wrapper in the layout — it establishes NO containing
+     block of its own (no transform, filter, will-change, or contain). */
+  .gear-sheet-portal {
+    display: contents;
   }
   /* Scrim: sits below the mobile bottom sheet (z 49) but above app content.
      Uses the canonical .scrim primitive (dim + blur) from app.css. */

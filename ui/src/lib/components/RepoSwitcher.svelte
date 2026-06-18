@@ -270,7 +270,7 @@
               <span class="rs-paused-dot" aria-hidden="true">●</span>
             {/if}
             {#if chip.insights > 0 || chip.curate > 0}
-              <span class="rs-learn-mark" aria-hidden="true"
+              <span class="rs-learn-mark" title={m.learnings_badge_tip()} aria-hidden="true"
                 >✦{#if chip.insights > 0}<span class="rs-learn-n">{chip.insights}</span>{/if}</span
               >
             {/if}

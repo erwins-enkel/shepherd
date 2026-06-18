@@ -404,7 +404,7 @@
   "triage_open_console": "Konsole",
   "triage_open_console_aria": "Volle Konsole von {desig} öffnen",
   "learnings_title": "Erkenntnisse",
-  "learnings_badge_tip": "Was Shepherd aus deinen Agenten-Sitzungen lernt: vorgeschlagene Hausregeln aus deinen Korrekturen, Review-Funden, Blocks und Stalls; nur für dieses Repo, nicht global.",
+  "learnings_badge_tip": "Was Shepherd aus deinen Agenten-Sitzungen lernt: vorgeschlagene Hausregeln aus deinen Korrekturen, Review-Funden, Blocks und Stalls; nur für dieses Repo, nicht global. Eine angezeigte Zahl gibt an, wie viele Vorschläge auf deine Prüfung warten.",
   "learnings_about_toggle": "Was ist das?",
   "learnings_about_lead": "Erkenntnisse sind Hausregeln, die Shepherd aus deinen Agenten-Sitzungen lernt: aus deinen Korrekturen, Code-Review-Funden, Blocks und Stalls.",
   "learnings_about_scope": "Sie gelten pro Repository, nicht global.",

@@ -404,7 +404,7 @@
   "triage_open_console": "Console",
   "triage_open_console_aria": "Open the full console for {desig}",
   "learnings_title": "Learnings",
-  "learnings_badge_tip": "What Shepherd learns from your agent sessions: proposed house rules from your corrections, review findings, blocks, and stalls; for this repo only, not global.",
+  "learnings_badge_tip": "What Shepherd learns from your agent sessions: proposed house rules from your corrections, review findings, blocks, and stalls; for this repo only, not global. Any number shown is how many proposals are awaiting your review.",
   "learnings_about_toggle": "What is this?",
   "learnings_about_lead": "Learnings are house rules Shepherd distils from your agent sessions: from your corrections, code-review findings, blocks, and stalls.",
   "learnings_about_scope": "They apply per repository, not globally.",

@@ -4,6 +4,8 @@
  */
 import type { ActivityEntry } from "./activity";
 import type { Recap, RecapVerdict } from "./types";
+import { parseVisualBlocks } from "./visual-blocks";
+import type { VisualBlock } from "./visual-blocks";
 
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
 export const RECAP_HEADLINE_MAX = 100;
@@ -11,10 +13,15 @@ export const RECAP_DIGEST_MAX_CHARS = 4000;
 
 /** Parse + validate the raw .shepherd-recap.json the spawn wrote. Returns null when the
  *  shape is invalid (caller fails closed). Clamps headline to RECAP_HEADLINE_MAX, coerces
- *  openItems to a string[] (drops non-strings), requires verdict ∈ RECAP_VERDICTS. */
-export function parseRecapVerdict(
-  raw: unknown,
-): { verdict: RecapVerdict; headline: string; body: string; openItems: string[] } | null {
+ *  openItems to a string[] (drops non-strings), requires verdict ∈ RECAP_VERDICTS.
+ *  blocks is additive — parsed tolerantly via parseVisualBlocks ([] on missing/garbage). */
+export function parseRecapVerdict(raw: unknown): {
+  verdict: RecapVerdict;
+  headline: string;
+  body: string;
+  openItems: string[];
+  blocks: VisualBlock[];
+} | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
 
@@ -27,8 +34,9 @@ export function parseRecapVerdict(
   const openItems = Array.isArray(rawItems)
     ? rawItems.filter((x): x is string => typeof x === "string")
     : [];
+  const blocks = parseVisualBlocks(r.blocks);
 
-  return { verdict: verdict as RecapVerdict, headline, body, openItems };
+  return { verdict: verdict as RecapVerdict, headline, body, openItems, blocks };
 }
 
 /** Build a bounded digest of what the agent did from parsed transcript entries
@@ -99,8 +107,30 @@ export function buildRecapPrompt(input: {
     "- body: concise markdown covering what changed, key decisions made, and merge-readiness",
     "- openItems: string[] of anything left to do or worth noting for the next session ([] if none)",
     "",
+    "Optionally, include a `blocks` array to render the recap as a scannable visual document instead",
+    "of plain markdown. Omit `blocks` entirely if plain `body` suffices — blocks are not required.",
+    "",
+    "Block types (Phase 1):",
+    '- rich-text: {"type":"rich-text","id":"<unique>","markdown":"<prose>"} — narrative / the why.',
+    '- callout:   {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."} — a toned note for a decision, risk, or assumption.',
+    '- file-tree: {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<real path>","change":"added|modified|removed|renamed","note?":"<short>"}]} — the change footprint. Use real changed paths only.',
+    '- diff:      {"type":"diff","id":"...","path":"<real changed path>","summary":"<one line>","annotations?":[{"label?":"<short>","note":"<prose>"}]} — feature a specific changed file.',
+    "",
+    "Rules for blocks:",
+    "- Every block must have a unique string `id`.",
+    '- Grounding: only reference files that ACTUALLY changed — use paths from the "Files changed in',
+    '  this session" list above verbatim. Never invent a path, a field, or a change.',
+    "- diff blocks: emit only `path`, `summary`, and prose `annotations`. Do NOT include diff hunks",
+    "  or a `file` field — the server attaches the real diff content. Annotations are short prose",
+    "  notes about the change, NOT line numbers or line ranges.",
+    "- Feature a few load-bearing files as `diff` blocks (curated highlight, not every file); the",
+    "  full footprint belongs in a `file-tree` block.",
+    "- Redact secrets (API keys, tokens, passwords) in any summary/markdown/annotation — use",
+    "  placeholders like `sk-•••` / `<redacted>`.",
+    "",
     `Write the result as JSON to the file \`.shepherd-recap.json\` in your CWD with EXACTLY this shape:`,
-    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...]}`,
+    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...], "blocks": [ ... ]  // blocks optional, omit if not useful`,
+    `}`,
     "Write the file as your final action, then stop.",
   );
 

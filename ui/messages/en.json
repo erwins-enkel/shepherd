@@ -404,6 +404,7 @@
   "triage_open_console": "Console",
   "triage_open_console_aria": "Open the full console for {desig}",
   "learnings_title": "Learnings",
+  "learnings_trim_title": "Trim",
   "learnings_badge_tip": "What Shepherd learns from your agent sessions: proposed house rules from your corrections, review findings, blocks, and stalls; for this repo only, not global. Any number shown is how many proposals are awaiting your review.",
   "learnings_about_toggle": "What is this?",
   "learnings_about_lead": "Learnings are house rules Shepherd distils from your agent sessions: from your corrections, code-review findings, blocks, and stalls.",
@@ -1457,5 +1458,6 @@
   "newtask_upstream_diverged": "Diverged from origin ({behind} behind, {ahead} ahead) — task will start from local {base}",
   "feat_base_freshen_title": "Base branch freshens from upstream",
   "feat_base_freshen_body": "New tasks now start from the latest upstream tip of the base branch — Shepherd fetches and fast-forwards at launch, so you no longer fold in upstream changes by hand when the task is done. The New Task dialog flags when your base is behind or has diverged from origin.",
-  "topbar_learnings_tip": "Review proposed house rules across all your repos"
+  "topbar_learnings_tip": "Review proposed house rules across all your repos",
+  "topbar_learnings_curate_tip": "Already-approved rules that don't fit the injection budget — trim some so the rest reach new agents"
 }

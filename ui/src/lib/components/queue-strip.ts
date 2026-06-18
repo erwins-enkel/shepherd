@@ -113,6 +113,13 @@ export function globalLearningsCounts(
   };
 }
 
+/** The repoPath of the first injectable repo with ≥1 over-budget ("curate")
+ *  rule, or null. Used to deep-link the global learnings chip straight to the
+ *  rules that need trimming when there's nothing to approve. */
+export function firstCurateRepo(injectable: RepoInjectable[]): string | null {
+  return injectable.find((r) => overBudgetCount(r) > 0)?.repoPath ?? null;
+}
+
 /** Whether the `queued` indicator is an interactive trigger (opens the queue
  *  popover) rather than inert text — true only when something is actually queued. */
 export function queueOpenable(d: DrainStatus): boolean {

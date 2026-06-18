@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { generateName, normalize, slugifyManual } from "../src/namer";
+import {
+  generateName,
+  normalize,
+  slugifyManual,
+  selectWords,
+  isHeuristicNameStrong,
+} from "../src/namer";
 
 test("normalize keeps the topical words, dropping common ones, up to 4", () => {
   // direct command: subject leads, every word is specific → kept in order
@@ -125,4 +131,63 @@ test("normalize drops new stopwords ob, bis, denn", () => {
   // no prefix strip; tokenize → [laeuft, das, bis, morgen, denn]
   // drop stopwords (das, bis, denn); meaningful: [laeuft, morgen]
   expect(normalize("läuft das bis morgen denn")).toBe("laeuft-morgen");
+});
+
+// --- selectWords + isHeuristicNameStrong tests ---
+
+test("selectWords returns kept + usedSpecific for a strong prompt", () => {
+  const { kept, usedSpecific } = selectWords("the mobile footer needs settings export");
+  expect(usedSpecific).toBe(true);
+  // "mobile", "footer", "settings", "export" are specific (not in STOPWORDS or COMMON)
+  expect(kept).toEqual(["mobile", "footer", "settings", "export"]);
+});
+
+test("selectWords returns usedSpecific=false for an all-common fallback prompt", () => {
+  const { kept, usedSpecific } = selectWords("please can you do it");
+  expect(usedSpecific).toBe(false);
+  expect(kept.length).toBeGreaterThan(0);
+});
+
+test("isHeuristicNameStrong truth table", () => {
+  // strong: ≥2 distinctive words
+  expect(isHeuristicNameStrong("the mobile footer needs settings export")).toBe(true);
+  // weak: all stopwords — falls back to raw words but usedSpecific=false
+  expect(isHeuristicNameStrong("please can you do it")).toBe(false);
+  // weak: only-COMMON survivors (button, nice are COMMON)
+  expect(isHeuristicNameStrong("make the button nice")).toBe(false);
+  // weak: single specific word (kept.length < 2)
+  expect(isHeuristicNameStrong("export")).toBe(false);
+});
+
+test("no-drift pinning: normalize and isHeuristicNameStrong derive from selectWords", () => {
+  // Corpus covers: strong multi-word, single-specific-word, only-COMMON fallback,
+  // all-stopword/fallback, and various prose prompts.
+  const corpus = [
+    "the mobile footer needs settings export", // strong: multi-word specific
+    "export", // single specific word → not strong, no "-"
+    "make the button nice", // only-COMMON survivors → not strong
+    "und der die", // all-stopword fallback → not strong
+    "please can you do it",
+    "Add status lights to cards",
+    "Refactor parser tokenizer lexer evaluator",
+    "I was wondering if maybe we could make the export button a little more obvious",
+    "There's a weird thing where the diff viewport scrolls to the top on every keystroke",
+    "läuft das bis morgen denn",
+    "!!! ??? ...",
+    "Even with the two recent PRs...",
+    "p",
+  ];
+  for (const p of corpus) {
+    const { kept } = selectWords(p);
+
+    // load-bearing: the built name's words ARE the kept words
+    expect(normalize(p)).toBe(kept.join("-"));
+    expect(normalize(p).split("-").filter(Boolean)).toEqual(kept);
+
+    // load-bearing: when strong, the built name must contain "-" (≥2 words);
+    // lowering the threshold to >= 1 would break this
+    if (isHeuristicNameStrong(p)) {
+      expect(normalize(p)).toContain("-");
+    }
+  }
 });

@@ -386,6 +386,28 @@ export function slugifyManual(input: string): string {
 const COMMAND_PREFIX_RE =
   /^(?:pruefe[,\s]+ob|gib[,\s]+mir|kannst[,\s]+du(?:[,\s]+(?:mal|bitte))?|lass[,\s]+uns|ich[,\s]+(?:moechte|will)|schau[,\s]+dir)[,\s]*/;
 
+/** The word-selection at the heart of {@link normalize}, exposed so the namer's
+ *  "is this name strong?" judgment derives from the SAME logic that builds the name
+ *  (no drift). `usedSpecific` is true when distinctive (non-COMMON) words drove the
+ *  pick; `kept` is the final, deduped, ≤4-word list that normalize joins. */
+export function selectWords(s: string): { kept: string[]; usedSpecific: boolean } {
+  const words = transliterate(s)
+    .toLowerCase()
+    .replace(COMMAND_PREFIX_RE, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const survivors = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
+  if (!survivors.length) return { kept: words.slice(0, 4), usedSpecific: false };
+  const specific = survivors.filter((w) => !COMMON.has(w));
+  const usedSpecific = specific.length > 0;
+  const base = usedSpecific ? specific : survivors;
+  const seen = new Set<string>();
+  const unique = base.filter((w) => (seen.has(w) ? false : (seen.add(w), true)));
+  return { kept: unique.slice(0, 4), usedSpecific };
+}
+
 /**
  * Turn arbitrary prompt text into a short, human-readable kebab-case slug.
  * Transliterates accents, drops stopwords, then selects by *specificity* rather
@@ -399,27 +421,15 @@ const COMMAND_PREFIX_RE =
  * the same slug; uniqueName() in service.ts suffixes any clash.
  */
 export function normalize(s: string): string {
-  const words = transliterate(s)
-    .toLowerCase()
-    .replace(COMMAND_PREFIX_RE, "") // strip leading imperative boilerplate before tokenizing
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const survivors = words.filter((w) => w.length > 1 && !STOPWORDS.has(w));
-  // Nothing topical survived (a prompt made entirely of stopwords) — keep the raw
-  // opening words rather than emit an empty slug.
-  if (!survivors.length) return words.slice(0, 4).join("-");
-  // Prefer specific words; drop the merely-common ones unless they're all we have.
-  const specific = survivors.filter((w) => !COMMON.has(w));
-  const kept = specific.length ? specific : survivors;
-  const seen = new Set<string>();
-  const unique = kept.filter((w) => {
-    if (seen.has(w)) return false;
-    seen.add(w);
-    return true;
-  });
-  return unique.slice(0, 4).join("-");
+  return selectWords(s).kept.join("-");
+}
+
+/** True when the heuristic name already latched a distinctive multi-word subject —
+ *  the deterministic name is good enough that the background Haiku refine can be skipped.
+ *  Bounded quality trade, not zero-loss: a strong name may still be improvable. */
+export function isHeuristicNameStrong(prompt: string): boolean {
+  const { kept, usedSpecific } = selectWords(prompt);
+  return usedSpecific && kept.length >= 2;
 }
 
 /**

@@ -18,7 +18,7 @@ import {
   uploadFilename,
   worktreeUploadsDir,
 } from "./uploads";
-import { slugifyManual } from "./namer";
+import { slugifyManual, isHeuristicNameStrong } from "./namer";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -1518,6 +1518,10 @@ export class SessionService {
   /** Kick off the background name refine without blocking create(). No-op when disabled. */
   private scheduleRefine(session: Session, herd?: string): void {
     if (!config.llmNaming || !this.deps.refineName) return;
+    // Deterministic-first (issue #692): when the heuristic already latched a distinctive
+    // multi-word subject, the name is good enough — skip the background Haiku refine. A
+    // bounded quality trade (strong ≠ provably optimal), not zero-loss; weaker names still refine.
+    if (isHeuristicNameStrong(session.prompt)) return;
     void this.refineNameInBackground(session, herd).catch((err) =>
       console.warn(`[namer] refine failed for ${session.id}:`, err),
     );

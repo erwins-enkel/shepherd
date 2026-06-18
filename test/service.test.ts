@@ -1659,10 +1659,12 @@ function svcDeps(over: any = {}) {
 test("create schedules a refine that renames session, branch, and herdr tab", async () => {
   const { store, events, relabelled, renamedBranches, deps } = svcDeps();
   const svc = new SessionService(deps);
+  // Use a weak prompt (all-COMMON survivors) so isHeuristicNameStrong=false and the refine fires.
+  // Before: "Even with the two recent PRs..." (strong → gate skips refine after #692).
   const s = await svc.create({
     repoPath: "/repo",
     baseBranch: "main",
-    prompt: "Even with the two recent PRs...",
+    prompt: "make the button nice",
     model: null,
     images: [],
   });
@@ -1782,6 +1784,48 @@ test("refine skipped entirely when refineName dep is absent", async () => {
   await new Promise((r) => setTimeout(r, 10));
   expect(store.get(s.id)?.name).toBe("even-two-recent-prs");
   expect(events.emitted.some((x: any) => x.e === "session:renamed")).toBe(false);
+});
+
+test("refine skipped (gate) when the heuristic name is already strong", async () => {
+  // "the mobile footer needs settings export" → isHeuristicNameStrong=true → refineName never called
+  let refineCallCount = 0;
+  const { deps } = svcDeps({
+    refineName: async () => {
+      refineCallCount++;
+      return "refined-name";
+    },
+  });
+  const svc = new SessionService(deps);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "the mobile footer needs settings export",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(refineCallCount).toBe(0);
+});
+
+test("refine fires when the heuristic name is weak", async () => {
+  // "make the button nice" → isHeuristicNameStrong=false → refineName IS called
+  let refineCallCount = 0;
+  const { deps } = svcDeps({
+    refineName: async () => {
+      refineCallCount++;
+      return "refined-name";
+    },
+  });
+  const svc = new SessionService(deps);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "make the button nice",
+    model: null,
+    images: [],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(refineCallCount).toBe(1);
 });
 
 test("archiveMany clears each session, reaping all its leftovers", async () => {

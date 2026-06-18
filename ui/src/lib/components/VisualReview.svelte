@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Component } from "svelte";
   import type { VisualBlock } from "$lib/types";
   import RichTextBlock from "./blocks/RichTextBlock.svelte";
   import CalloutBlock from "./blocks/CalloutBlock.svelte";
@@ -15,36 +16,34 @@
 
   let { blocks }: { blocks: VisualBlock[] } = $props();
 
+  // Dispatch table — block.type → its renderer. Each block component narrows `block`
+  // to its own variant internally; the map is typed loosely here because a dispatcher
+  // is inherently heterogeneous.
+  const COMPONENTS: Record<VisualBlock["type"], Component<{ block: VisualBlock }>> = {
+    "rich-text": RichTextBlock,
+    callout: CalloutBlock,
+    "file-tree": FileTreeBlock,
+    diff: DiffBlock,
+    code: CodeBlock,
+    "annotated-code": AnnotatedCodeBlock,
+    "data-model": DataModelBlock,
+    "api-endpoint": ApiEndpointBlock,
+    table: TableBlock,
+    checklist: ChecklistBlock,
+    mermaid: MermaidBlock,
+  } as unknown as Record<VisualBlock["type"], Component<{ block: VisualBlock }>>;
+
   const firstDiffIndex = $derived(blocks.findIndex((b) => b.type === "diff"));
 </script>
 
 <div class="visual-review">
   {#each blocks as block, i (block.id)}
-    {#if block.type === "rich-text"}
-      <RichTextBlock {block} />
-    {:else if block.type === "callout"}
-      <CalloutBlock {block} />
-    {:else if block.type === "file-tree"}
-      <FileTreeBlock {block} />
-    {:else if block.type === "diff"}
-      {#if i === firstDiffIndex}
-        <h4 class="vr-highlight-head">{m.vblock_diff_highlighted_heading()}</h4>
-      {/if}
-      <DiffBlock {block} />
-    {:else if block.type === "code"}
-      <CodeBlock {block} />
-    {:else if block.type === "annotated-code"}
-      <AnnotatedCodeBlock {block} />
-    {:else if block.type === "data-model"}
-      <DataModelBlock {block} />
-    {:else if block.type === "api-endpoint"}
-      <ApiEndpointBlock {block} />
-    {:else if block.type === "table"}
-      <TableBlock {block} />
-    {:else if block.type === "checklist"}
-      <ChecklistBlock {block} />
-    {:else if block.type === "mermaid"}
-      <MermaidBlock {block} />
+    {#if block.type === "diff" && i === firstDiffIndex}
+      <h4 class="vr-highlight-head">{m.vblock_diff_highlighted_heading()}</h4>
+    {/if}
+    {@const Block = COMPONENTS[block.type]}
+    {#if Block}
+      <Block {block} />
     {/if}
   {/each}
 </div>

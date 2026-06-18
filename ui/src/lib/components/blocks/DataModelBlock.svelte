@@ -14,11 +14,11 @@
 </script>
 
 <div class="dm-block">
-  <div class="dm-header">
-    {#if block.inferred}
+  {#if block.inferred}
+    <div class="dm-header">
       <InferredBadge />
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   {#each block.entities as entity (entity.id)}
     <div class="dm-entity">
@@ -77,9 +77,6 @@
     align-items: center;
     gap: 6px;
     min-height: 0;
-  }
-  .dm-header:empty {
-    display: none;
   }
   .dm-entity {
     background: var(--color-inset);

@@ -50,7 +50,8 @@
           themeVariables: Object.keys(themeVariables).length > 0 ? themeVariables : undefined,
         });
 
-        const id = `mm-${block.id}-${++renderCounter}`;
+        const safeId = block.id.replace(/[^a-zA-Z0-9_-]/g, "-");
+        const id = `mm-${safeId}-${++renderCounter}`;
         const result = await mermaid.render(id, source);
 
         if (alive) {

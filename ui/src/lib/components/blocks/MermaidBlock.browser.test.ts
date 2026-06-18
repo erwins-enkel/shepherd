@@ -3,10 +3,13 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 
+// Capture the last render id so tests can assert slug correctness.
+let lastRenderId = "";
 vi.mock("mermaid", () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn(async (_id: string, src: string) => {
+    render: vi.fn(async (id: string, src: string) => {
+      lastRenderId = id;
       if (src.includes("BOOM")) throw new Error("parse error");
       return { svg: "<svg data-testid='mmsvg'></svg>" };
     }),
@@ -44,5 +47,19 @@ describe("MermaidBlock", () => {
     await expect.element(page.getByText("graph TD; BOOM")).toBeInTheDocument();
     // No svg injected.
     expect(document.querySelector("[data-testid='mmsvg']")).toBeNull();
+  });
+
+  it("dirty id: block.id with whitespace and special chars renders success (no error fallback)", async () => {
+    // "a b.c#d" contains whitespace, dot and hash — unsafe as a DOM id.
+    // After slugging these become dashes, so mermaid.render() gets a safe id.
+    render(MermaidBlock, {
+      block: { type: "mermaid", id: "a b.c#d", source: "graph TD; A-->B" },
+    });
+    // SVG must appear — the dirty id must NOT cause the error fallback.
+    await expect.element(page.getByTestId("mmsvg")).toBeInTheDocument();
+    // Error fallback must be absent.
+    expect(document.querySelector(".mb-error")).toBeNull();
+    // The render id passed to mermaid must only contain safe chars (mm- prefix + safe chars + counter).
+    expect(lastRenderId).toMatch(/^mm-[a-zA-Z0-9_-]+-\d+$/);
   });
 });

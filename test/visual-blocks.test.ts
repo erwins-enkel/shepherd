@@ -1840,6 +1840,111 @@ describe("validateWireframe (type=wireframe)", () => {
   });
 });
 
+// ── validateWireframe: svg fill/stroke presentation color rejects ─────────────
+
+describe("validateWireframe fill/stroke presentation color rejects", () => {
+  // DROP cases
+  it("drops block with hex color in fill= attribute (double-quoted)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<svg><rect fill="#f00"/></svg>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with rgb() in stroke= attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<svg><circle stroke="rgb(0,0,0)" r="5"/></svg>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with hex color in unquoted fill= attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: "<svg><rect fill=#abcdef/></svg>",
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  // KEEP cases
+  it("keeps block with fill=currentColor", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<svg><path fill="currentColor" d="M0 0"/></svg>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("keeps block with fill=none", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<svg><rect fill="none" width="10" height="10"/></svg>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("keeps block with fill=var(--wf-ink)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<svg><path fill="var(--wf-ink)" d="M0 0"/></svg>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("keeps block with no svg (no fill/stroke attrs at all)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div class="wf-card"><p>Hello</p></div>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  // Regression: #789-in-text KEEP case still passes
+  it("keeps block where #789 appears in text (existing regression)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="background:var(--wf-card)"><p>see #789</p><p>also #1234</p></div>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.html).toContain("#789");
+  });
+});
+
 // ── groundBlocks: wireframe pass-through ──────────────────────────────────────
 
 describe("groundBlocks wireframe pass-through", () => {

@@ -459,12 +459,31 @@ function wireframeStylesImpure(html: string): boolean {
   return false;
 }
 
+/** Returns true when a fill= or stroke= attribute value carries a raw color. */
+function presentationColorImpure(value: string): boolean {
+  if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
+  if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
+  return false;
+}
+
+/** Returns true when any fill= or stroke= attribute value contains a raw color. */
+function wireframePresentationColorsImpure(html: string): boolean {
+  const presentationAttr = /(?:fill|stroke)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>][^>]*))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = presentationAttr.exec(html)) !== null) {
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (presentationColorImpure(value)) return true;
+  }
+  return false;
+}
+
 function validateWireframe(r: Record<string, unknown>, id: string): VisualBlock | null {
   if (!WIREFRAME_SURFACES.includes(r.surface as "browser")) return null;
   if (typeof r.html !== "string" || r.html === "") return null;
   if (r.html.length > WIREFRAME_HTML_MAX_CHARS) return null; // DROP — truncated HTML is malformed
   if (wireframeHtmlHasUnsafeStructure(r.html)) return null;
   if (wireframeStylesImpure(r.html)) return null;
+  if (wireframePresentationColorsImpure(r.html)) return null;
   const block: VisualBlock & { type: "wireframe" } = {
     type: "wireframe",
     id,

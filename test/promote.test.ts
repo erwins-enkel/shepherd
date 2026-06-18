@@ -99,15 +99,11 @@ test("Promoter.promote falls back to the local base ref when origin/<base> is un
     store,
     worktree: {
       // origin/main unavailable (offline); local main works — mirrors worktree.create
-      // returning isolated:false on an unresolvable base rather than throwing.
+      // now throwing on an unresolvable base ref rather than returning isolated:false.
       create: (_repo: string, baseRef: string) => {
         baseRefs.push(baseRef);
-        const ok = baseRef === "main";
-        return {
-          worktreePath: ok ? wtDir : "/r",
-          branch: ok ? "shepherd/fallback" : null,
-          isolated: ok,
-        };
+        if (baseRef !== "main") throw new Error(`invalid reference: ${baseRef}`);
+        return { worktreePath: wtDir, branch: "shepherd/fallback", isolated: true };
       },
       remove: () => {},
     },

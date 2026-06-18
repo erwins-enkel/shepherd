@@ -55,7 +55,7 @@
 
 <style>
   .callout {
-    border-left: 3px solid var(--color-amber);
+    border-left: 3px solid var(--color-amber); /* overridden per-tone via style:border-left-color */
     background: var(--color-inset);
     padding: 8px 12px;
     display: flex;

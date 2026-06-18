@@ -6,13 +6,15 @@ import RichTextBlock from "./RichTextBlock.svelte";
 
 describe("RichTextBlock", () => {
   it("renders bold markdown as a <strong> element", async () => {
-    render(RichTextBlock, {
+    const { container } = render(RichTextBlock, {
       block: { type: "rich-text", id: "r1", markdown: "**bold**" },
     });
-    const strong = page.getByText("bold");
-    await expect.element(strong).toBeInTheDocument();
-    // the element wrapping it must be a <strong>
-    await expect.element(strong).toBeVisible();
+    // wait for async dynamic-import render to settle
+    await expect.element(page.getByText("bold")).toBeInTheDocument();
+    // the element wrapping "bold" must be a <strong>, not raw **bold** leaking as text
+    const strongEl = container.querySelector("strong");
+    expect(strongEl).not.toBeNull();
+    expect(strongEl?.textContent).toBe("bold");
   });
 
   it("renders nothing when markdown is empty", async () => {

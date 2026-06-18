@@ -19,6 +19,18 @@ describe("CalloutBlock", () => {
     await expect.element(page.getByText("Danger ahead.")).toBeInTheDocument();
   });
 
+  it("renders bold markdown inside callout as a <strong> element", async () => {
+    const { container } = render(CalloutBlock, {
+      block: { type: "callout", id: "c7", tone: "risk", markdown: "**critical**" },
+    });
+    // wait for async dynamic-import (marked + dompurify) to settle
+    await expect.element(page.getByText("critical")).toBeInTheDocument();
+    // the sanitized-markdown pipeline must produce a <strong>, not raw **critical** as text
+    const strongEl = container.querySelector("strong");
+    expect(strongEl).not.toBeNull();
+    expect(strongEl?.textContent).toBe("critical");
+  });
+
   it("shows 'Info' label for info tone", async () => {
     render(CalloutBlock, {
       block: { type: "callout", id: "c3", tone: "info", markdown: "Just so you know." },

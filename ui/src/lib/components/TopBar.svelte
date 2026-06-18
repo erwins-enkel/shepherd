@@ -112,6 +112,7 @@
     herdrUpdateAvailable,
     needsYou,
     whatsNew,
+    learnings: 0,
   });
   const plan = $derived(topBarPlan(mode, chrome));
 

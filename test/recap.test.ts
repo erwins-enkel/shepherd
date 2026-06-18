@@ -1136,7 +1136,8 @@ test("finalize: broadcast NO-LEAK — onChange receives no pendingDiff key", asy
   await svc.tick();
 
   expect(broadcastRow).not.toBeNull();
-  expect("pendingDiff" in (broadcastRow as object)).toBe(false);
+  const broadcastRowNonNull = broadcastRow!;
+  expect("pendingDiff" in (broadcastRowNonNull as unknown as object)).toBe(false);
   const persisted = store.getRecap("s1");
   expect(persisted).not.toBeNull();
   expect("pendingDiff" in (persisted as object)).toBe(false);

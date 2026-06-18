@@ -1,5 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import type { DiffFile } from "./types";
+import type { DiffFile } from "../src/types";
+import type { VisualBlock } from "../src/visual-blocks";
+
+function asBlock<T extends VisualBlock["type"]>(
+  b: VisualBlock | undefined,
+  t: T,
+): Extract<VisualBlock, { type: T }> {
+  expect(b?.type).toBe(t);
+  return b as Extract<VisualBlock, { type: T }>;
+}
 import {
   CALLOUT_TONES,
   DIFF_BLOCK_MAX_LINES,
@@ -92,12 +101,9 @@ describe("parseVisualBlocks", () => {
       },
     ]);
     expect(result).toHaveLength(1);
-    const block = result[0];
-    expect(block.type).toBe("file-tree");
-    if (block.type === "file-tree") {
-      expect(block.entries).toHaveLength(1);
-      expect(block.title).toBe("Changed files");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries).toHaveLength(1);
+    expect(block.title).toBe("Changed files");
   });
 
   it("drops file-tree with all-invalid entries", () => {
@@ -128,12 +134,10 @@ describe("parseVisualBlocks", () => {
       },
     ]);
     expect(result).toHaveLength(1);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries).toHaveLength(2);
-      expect(block.entries[0].path).toBe("good.ts");
-      expect(block.entries[1].path).toBe("also-good.ts");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries).toHaveLength(2);
+    expect(block.entries[0]!.path).toBe("good.ts");
+    expect(block.entries[1]!.path).toBe("also-good.ts");
   });
 
   it("coerces optional note in file-tree entry when string", () => {
@@ -144,10 +148,8 @@ describe("parseVisualBlocks", () => {
         entries: [{ path: "src/foo.ts", change: "added", note: "important" }],
       },
     ]);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries[0].note).toBe("important");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries[0]!.note).toBe("important");
   });
 
   it("drops note from file-tree entry when not a string", () => {
@@ -158,10 +160,8 @@ describe("parseVisualBlocks", () => {
         entries: [{ path: "src/foo.ts", change: "added", note: 123 }],
       },
     ]);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries[0].note).toBeUndefined();
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries[0]!.note).toBeUndefined();
   });
 
   it("drops title from file-tree when not a string", () => {
@@ -173,10 +173,8 @@ describe("parseVisualBlocks", () => {
         entries: [{ path: "src/foo.ts", change: "added" }],
       },
     ]);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.title).toBeUndefined();
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.title).toBeUndefined();
   });
 
   it("accepts valid diff block", () => {
@@ -233,11 +231,9 @@ describe("parseVisualBlocks", () => {
         annotations: [{ label: "A", note: "good" }, { label: "B" }],
       },
     ]);
-    const block = result[0];
-    if (block.type === "diff") {
-      expect(block.annotations).toHaveLength(1);
-      expect(block.annotations![0].note).toBe("good");
-    }
+    const block = asBlock(result[0], "diff");
+    expect(block.annotations).toHaveLength(1);
+    expect(block.annotations![0]!.note).toBe("good");
   });
 
   it("strips lines/side keys from annotations", () => {
@@ -250,14 +246,12 @@ describe("parseVisualBlocks", () => {
         annotations: [{ note: "prose", lines: [1, 2], side: "left", label: "L" }],
       },
     ]);
-    const block = result[0];
-    if (block.type === "diff") {
-      const ann = block.annotations![0] as Record<string, unknown>;
-      expect(ann.lines).toBeUndefined();
-      expect(ann.side).toBeUndefined();
-      expect(ann.note).toBe("prose");
-      expect(ann.label).toBe("L");
-    }
+    const block = asBlock(result[0], "diff");
+    const ann = block.annotations![0] as unknown as Record<string, unknown>;
+    expect(ann.lines).toBeUndefined();
+    expect(ann.side).toBeUndefined();
+    expect(ann.note).toBe("prose");
+    expect(ann.label).toBe("L");
   });
 
   it("preserves input order of surviving blocks", () => {
@@ -296,10 +290,8 @@ describe("joinDiffBlocks", () => {
     ]);
     const result = joinDiffBlocks(blocks, [fooFile, barFile]);
     expect(result).toHaveLength(1);
-    const block = result[0];
-    if (block.type === "diff") {
-      expect(block.file).toBe(fooFile);
-    }
+    const block = asBlock(result[0], "diff");
+    expect(block.file).toBe(fooFile);
   });
 
   it("drops unmatched diff block", () => {
@@ -366,10 +358,8 @@ describe("reconcileFileTree", () => {
       },
     ]);
     const result = reconcileFileTree(blocks, diffFiles);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries[0].change).toBe("modified");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries[0]!.change).toBe("modified");
   });
 
   it("maps deleted DiffFileStatus to removed FileTreeChange", () => {
@@ -381,10 +371,8 @@ describe("reconcileFileTree", () => {
       },
     ]);
     const result = reconcileFileTree(blocks, diffFiles);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries[0].change).toBe("removed");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries[0]!.change).toBe("removed");
   });
 
   it("drops entries whose path is not in diffFiles", () => {
@@ -399,11 +387,9 @@ describe("reconcileFileTree", () => {
       },
     ]);
     const result = reconcileFileTree(blocks, diffFiles);
-    const block = result[0];
-    if (block.type === "file-tree") {
-      expect(block.entries).toHaveLength(1);
-      expect(block.entries[0].path).toBe("src/foo.ts");
-    }
+    const block = asBlock(result[0], "file-tree");
+    expect(block.entries).toHaveLength(1);
+    expect(block.entries[0]!.path).toBe("src/foo.ts");
   });
 
   it("drops whole block when all entries are invented", () => {
@@ -433,12 +419,10 @@ describe("reconcileFileTree", () => {
         entries: [{ path: "src/foo.ts", change: "added" }],
       },
     ]);
-    const originalChange = (blocks[0] as { type: "file-tree"; entries: { change: string }[] })
-      .entries[0].change;
+    const originalBlock = asBlock(blocks[0], "file-tree");
+    const originalChange = originalBlock.entries[0]!.change;
     reconcileFileTree(blocks, diffFiles);
-    expect(
-      (blocks[0] as { type: "file-tree"; entries: { change: string }[] }).entries[0].change,
-    ).toBe(originalChange);
+    expect(asBlock(blocks[0], "file-tree").entries[0]!.change).toBe(originalChange);
   });
 });
 
@@ -547,8 +531,8 @@ describe("groundBlocks", () => {
       ]);
       const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
       expect(result).toHaveLength(1);
-      const blk = result[0];
-      if (blk.type === "diff") expect(blk.file).toBe(fooFile);
+      const blk = asBlock(result[0], "diff");
+      expect(blk.file).toBe(fooFile);
     });
 
     it("unmatched diff block is dropped", () => {
@@ -565,11 +549,9 @@ describe("groundBlocks", () => {
         { type: "diff", id: "d1", path: "src/foo.ts", summary: "big change" },
       ]);
       const result = groundBlocks(blocks, [bigFile], ["src/foo.ts"]);
-      const blk = result[0];
-      if (blk?.type === "diff") {
-        expect(blk.file?.truncated).toBe(true);
-        expect(blk.file?.hunks).toEqual([]);
-      }
+      const blk = asBlock(result[0], "diff");
+      expect(blk.file?.truncated).toBe(true);
+      expect(blk.file?.hunks).toEqual([]);
     });
 
     it("file-tree entries reconciled against real diff statuses", () => {
@@ -586,12 +568,10 @@ describe("groundBlocks", () => {
       ]);
       const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
       expect(result).toHaveLength(1);
-      const blk = result[0];
-      if (blk.type === "file-tree") {
-        expect(blk.entries).toHaveLength(2);
-        expect(blk.entries[0]!.change).toBe("modified");
-        expect(blk.entries[1]!.change).toBe("added");
-      }
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(2);
+      expect(blk.entries[0]!.change).toBe("modified");
+      expect(blk.entries[1]!.change).toBe("added");
     });
   });
 
@@ -617,13 +597,11 @@ describe("groundBlocks", () => {
       ]);
       const result = groundBlocks(blocks, [], ["src/foo.ts"]);
       expect(result).toHaveLength(1);
-      const blk = result[0];
-      if (blk.type === "file-tree") {
-        expect(blk.entries).toHaveLength(1);
-        expect(blk.entries[0]!.path).toBe("src/foo.ts");
-        // authored change preserved (no real diff to reconcile against)
-        expect(blk.entries[0]!.change).toBe("modified");
-      }
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(1);
+      expect(blk.entries[0]!.path).toBe("src/foo.ts");
+      // authored change preserved (no real diff to reconcile against)
+      expect(blk.entries[0]!.change).toBe("modified");
     });
 
     it("file-tree block dropped when no entries are in changedFiles", () => {

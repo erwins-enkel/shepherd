@@ -2625,56 +2625,57 @@ const BRANCH_STATUS_TTL_MS = 10_000;
 // limit. On each write: prune expired entries first, then evict oldest (Map
 // preserves insertion order) if the cap is still exceeded.
 const BRANCH_STATUS_CACHE_MAX = 256;
-const branchStatusCache = new Map<
-  string,
-  {
-    at: number;
-    value: {
-      behind: number;
-      ahead: number;
-      diverged: boolean;
-      hasUpstream: boolean;
-      localExists: boolean;
-    };
-  }
->();
-
-/** Clear the in-memory branch-status cache — for use in tests only. */
-export function clearBranchStatusCacheForTests(): void {
-  branchStatusCache.clear();
-}
-
-async function branchStatusCached(
-  repoPath: string,
-  branch: string,
-): Promise<{
+type BranchStatusValue = {
   behind: number;
   ahead: number;
   diverged: boolean;
   hasUpstream: boolean;
   localExists: boolean;
-}> {
+};
+const branchStatusCache = new Map<string, { at: number; value: BranchStatusValue }>();
+// Coalesce concurrent cache misses for the same (repo, branch): each would otherwise
+// spawn its own bounded git fetch against the same tracking ref. In-flight requests
+// share ONE promise; the entry clears once it settles (success or failure).
+const branchStatusInflight = new Map<string, Promise<BranchStatusValue>>();
+
+/** Clear the in-memory branch-status cache — for use in tests only. */
+export function clearBranchStatusCacheForTests(): void {
+  branchStatusCache.clear();
+  branchStatusInflight.clear();
+}
+
+export async function branchStatusCached(
+  repoPath: string,
+  branch: string,
+): Promise<BranchStatusValue> {
   const key = `${repoPath}\0${branch}`;
   const hit = branchStatusCache.get(key);
-  const now = Date.now();
-  if (hit && now - hit.at < BRANCH_STATUS_TTL_MS) return hit.value;
-  const st = await upstreamStatus(repoPath, branch);
-  const value = {
-    behind: st.behind,
-    ahead: st.ahead,
-    diverged: st.diverged,
-    hasUpstream: st.hasUpstream,
-    localExists: st.localExists,
-  };
-  // Prune expired entries before writing, then cap by evicting oldest.
-  for (const [k, v] of branchStatusCache) {
-    if (now - v.at >= BRANCH_STATUS_TTL_MS) branchStatusCache.delete(k);
-  }
-  while (branchStatusCache.size >= BRANCH_STATUS_CACHE_MAX) {
-    branchStatusCache.delete(branchStatusCache.keys().next().value!);
-  }
-  branchStatusCache.set(key, { at: now, value });
-  return value;
+  if (hit && Date.now() - hit.at < BRANCH_STATUS_TTL_MS) return hit.value;
+  // A miss already in flight for this key: join it instead of fetching again.
+  const inflight = branchStatusInflight.get(key);
+  if (inflight) return inflight;
+  const p = (async () => {
+    const st = await upstreamStatus(repoPath, branch);
+    const value: BranchStatusValue = {
+      behind: st.behind,
+      ahead: st.ahead,
+      diverged: st.diverged,
+      hasUpstream: st.hasUpstream,
+      localExists: st.localExists,
+    };
+    const now = Date.now();
+    // Prune expired entries before writing, then cap by evicting oldest.
+    for (const [k, v] of branchStatusCache) {
+      if (now - v.at >= BRANCH_STATUS_TTL_MS) branchStatusCache.delete(k);
+    }
+    while (branchStatusCache.size >= BRANCH_STATUS_CACHE_MAX) {
+      branchStatusCache.delete(branchStatusCache.keys().next().value!);
+    }
+    branchStatusCache.set(key, { at: now, value });
+    return value;
+  })().finally(() => branchStatusInflight.delete(key));
+  branchStatusInflight.set(key, p);
+  return p;
 }
 
 async function handleBranchStatus({ req, parts, url }: Ctx): Promise<Response | null> {

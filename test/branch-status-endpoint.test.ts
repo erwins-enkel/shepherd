@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { makeApp, clearBranchStatusCacheForTests, type AppDeps } from "../src/server";
+import {
+  makeApp,
+  branchStatusCached,
+  clearBranchStatusCacheForTests,
+  type AppDeps,
+} from "../src/server";
 import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
@@ -170,4 +175,19 @@ test("GET /api/branch-status: TTL cache — second call returns cached value (sk
   expect(res2.status).toBe(200);
   const body2 = await res2.json();
   expect(body2.behind).toBe(cachedBehind); // stale cache — new commit not reflected
+});
+
+test("branchStatusCached: concurrent misses coalesce into ONE shared fetch", async () => {
+  clearBranchStatusCacheForTests(); // ensure both calls are misses
+  advanceOrigin(origin);
+
+  // Two concurrent misses for the same (repo, branch). Coalescing means they await the
+  // same in-flight promise and therefore resolve to the SAME value object — without it,
+  // each would run its own fetch and produce a distinct object.
+  const [a, b] = await Promise.all([
+    branchStatusCached(repo, "main"),
+    branchStatusCached(repo, "main"),
+  ]);
+  expect(a).toBe(b); // same reference → single shared fetch
+  expect(a.behind).toBeGreaterThan(0);
 });

@@ -899,12 +899,19 @@
     inset: 0;
     background: var(--color-scrim);
     display: flex;
-    align-items: center;
-    justify-content: center;
+    /* Scroll (not center-clip) when the card outgrows the viewport, so a long
+       auto-grown prompt can never push the Run button out of reach. Centering
+       is done by the card's `margin: auto` rather than align/justify-center:
+       auto margins center when there's room yet still let an over-tall card
+       scroll, sidestepping the flexbox "can't scroll to the top" bug. */
+    overflow-y: auto;
+    padding: 24px;
+    box-sizing: border-box;
     z-index: 20;
   }
   .card {
     position: relative;
+    margin: auto;
     width: min(520px, 92vw);
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
@@ -1152,6 +1159,9 @@
     .overlay {
       align-items: stretch;
       justify-content: stretch;
+      /* Full-bleed sheet: drop the desktop breathing-room padding so the
+         100dvh card fills the screen edge-to-edge. */
+      padding: 0;
     }
     .card {
       width: 100%;

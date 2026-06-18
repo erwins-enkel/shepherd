@@ -1,0 +1,48 @@
+import { describe, it, expect, vi } from "vitest";
+import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import "../../../app.css";
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async (_id: string, src: string) => {
+      if (src.includes("BOOM")) throw new Error("parse error");
+      return { svg: "<svg data-testid='mmsvg'></svg>" };
+    }),
+  },
+}));
+
+import MermaidBlock from "./MermaidBlock.svelte";
+
+describe("MermaidBlock", () => {
+  it("renders without throwing when source is present", () => {
+    expect(() =>
+      render(MermaidBlock, {
+        block: { type: "mermaid", id: "m1", source: "graph TD; A-->B" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("success path: renders mocked svg and inferred badge", async () => {
+    render(MermaidBlock, {
+      block: { type: "mermaid", id: "m2", source: "graph TD; A-->B" },
+    });
+    // The inferred badge should be present immediately (synchronous markup).
+    await expect.element(page.getByText("inferred")).toBeInTheDocument();
+    // The async effect injects the mocked svg — wait for it.
+    await expect.element(page.getByTestId("mmsvg")).toBeInTheDocument();
+  });
+
+  it("error path: BOOM source renders error message and raw source, not the svg", async () => {
+    render(MermaidBlock, {
+      block: { type: "mermaid", id: "m3", source: "graph TD; BOOM" },
+    });
+    // Error message via i18n key.
+    await expect.element(page.getByText("Diagram could not be rendered")).toBeInTheDocument();
+    // Raw source in a <pre> element.
+    await expect.element(page.getByText("graph TD; BOOM")).toBeInTheDocument();
+    // No svg injected.
+    expect(document.querySelector("[data-testid='mmsvg']")).toBeNull();
+  });
+});

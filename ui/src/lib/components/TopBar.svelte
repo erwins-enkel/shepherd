@@ -8,7 +8,7 @@
   } from "$lib/types";
   import { formatReset, formatResetIn, relativeAge } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
+  import { gaugeList, hotterGauge, overspending, gaugeColor, type GaugeKey } from "./usage-gauges";
   import { refreshUsage } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
@@ -234,12 +234,9 @@
     connected ? m.topbar_clock_tip_connected() : m.topbar_clock_tip_disconnected(),
   );
 
-  // Two-step ladder: neutral muted fill at rest, amber once the window runs hot.
-  // Usage level is telemetry, not agent state — red stays reserved for "blocked,
-  // needs you" and green for "ready to ship" (Four-Light Rule, DESIGN.md).
-  function gaugeColor(pct: number): string {
-    return pct >= 90 ? "var(--color-amber)" : "var(--color-muted)";
-  }
+  // Three-step ladder (usage-gauges.ts): muted at rest, amber 75–90 (warming),
+  // red >90 (approaching cap). Red is a documented Four-Light exception — gauge
+  // bar-fill/text only (no halo/pip), so blocked pip stays the loudest red on screen.
 
   const periodLabel = (k: GaugeKey) =>
     k === "5H" ? m.topbar_gauge_period_5h() : m.topbar_gauge_period_weekly();
@@ -278,9 +275,10 @@
       ? `${credits.currency}${credits.spent.toFixed(2)} / ${credits.currency}${credits.cap.toFixed(2)}`
       : "",
   );
-  // Alert hue: amber is the design system's caution token (reused by the usage
-  // gauges' hot state + the update badge). pct is 0 here so gaugeColor(pct) can't
-  // drive it — overspend keys off real spend instead. Stale → muted; idle → neutral.
+  // Alert hue: amber is the design system's caution token (also used by the update
+  // badge). The usage gauges now go red >90 (see gaugeColor); amber is their 75–90
+  // warning tier. pct is 0 here so gaugeColor(pct) can't drive it — overspend keys
+  // off real spend instead. Stale → muted; idle → neutral.
   const creditColor = $derived(
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
   );

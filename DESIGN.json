@@ -235,7 +235,7 @@
     "rules": [
       {
         "name": "The Four-Light Rule",
-        "body": "Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state; no decorative element may borrow a status color.",
+        "body": "Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state; no decorative element may borrow a status color. Narrow exception: the usage-limit gauge may go red when pct > 90 as a bar-fill/text-only signal (no halo, no status pip), so a blocked agent's red pip remains the loudest red on screen.",
         "section": "colors"
       },
       {
@@ -266,11 +266,11 @@
     ],
     "dos": [
       "Do keep everything in Berkeley Mono. Build hierarchy from size, weight, case, and ink brightness (Faint Moss -> Muted Sage -> Phosphor Ink -> Bright Phosphor).",
-      "Do reserve the four status colors (amber / green / red / slate) strictly for agent state.",
+      "Do reserve the four status colors (amber / green / red / slate) strictly for agent state. Exception: the usage-limit gauge may show red when pct > 90 as a bar-fill/text-only signal (see Four-Light Rule).",
       "Do build depth with tonal layering and 1px hairlines (inset < panel-2 < panel < head).",
       "Do keep structural panels square (0 radius) and reserve the 2px radius for buttons and chips; 12px is only for rising bottom sheets.",
       "Do use tabular figures for any number that updates in place.",
-      "Do keep the screen calm at rest and make the blocked (red) state the loudest thing on it.",
+      "Do keep the screen calm at rest and make the blocked (red) state the loudest thing on it. The usage-gauge red (bar-fill/text-only, no halo/pip) is subordinate — a blocked pip stays the loudest red on screen.",
       "Do pair every status color with a non-color cue (position, pulse, check glyph, or label), and keep touch targets thumb-reachable; phone steering is first-class."
     ],
     "donts": [

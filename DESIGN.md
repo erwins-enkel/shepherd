@@ -141,7 +141,7 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 
 ### Named Rules
 
-**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (ready / actionable-complete), red (blocked), slate (idle / parked, including a WAITING agent awaiting its next steer). These hues are reserved for state. No decorative element may borrow a status color, or it dilutes the only signal that must never be missed. Green is spent only on a ready-to-ship session, never on a merely finished turn — so a parked agent reads quiet, not "done, ignore me."
+**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (ready / actionable-complete), red (blocked), slate (idle / parked, including a WAITING agent awaiting its next steer). These hues are reserved for state. No decorative element may borrow a status color, or it dilutes the only signal that must never be missed. Green is spent only on a ready-to-ship session, never on a merely finished turn — so a parked agent reads quiet, not "done, ignore me." **Narrow exception — usage gauge:** the usage-limit bar may go red when `pct > 90` (approaching cap) as a bar-fill/text-only signal; it carries no halo or status pip, so a blocked agent's red pip remains the loudest red on screen. Red stays fully reserved for blocked agent state in all other UI elements.
 
 **The Quiet Ground Rule.** The surface is desaturated green-black; visible chroma stays at or below ~10% of any screen, spent on status lights and the one amber action. If the screen looks colorful at rest, color has leaked out of its lane.
 
@@ -233,11 +233,11 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 ### Do:
 
 - **Do** keep everything in Berkeley Mono. Build hierarchy from size, weight, case, and ink brightness (Faint Moss -> Muted Sage -> Phosphor Ink -> Bright Phosphor).
-- **Do** reserve the four status colors (amber / green / red / slate) strictly for agent state. The Four-Light Rule is the most important rule in the system.
+- **Do** reserve the four status colors (amber / green / red / slate) strictly for agent state. The Four-Light Rule is the most important rule in the system. Exception: the usage-limit gauge may show red when `pct > 90` as a bar-fill/text-only signal (see Four-Light Rule above).
 - **Do** build depth with tonal layering and 1px hairlines (inset < panel-2 < panel < head). If a panel needs separation, step the value or brighten the hairline.
 - **Do** keep structural panels square (0 radius) and reserve the 2px radius for buttons and chips; 12px is only for rising bottom sheets.
 - **Do** use tabular figures for any number that updates in place.
-- **Do** keep the screen calm at rest and make the blocked (red) state the loudest thing on it. Spend attention only on what is actionable.
+- **Do** keep the screen calm at rest and make the blocked (red) state the loudest thing on it. The usage-gauge red (bar-fill/text-only, no halo/pip) is subordinate to this — a blocked pip remains the loudest red on screen. Spend attention only on what is actionable.
 - **Do** pair every status color with a non-color cue (position, pulse, check glyph, or label), and keep touch targets thumb-reachable; phone steering is first-class.
 
 ### Don't:

@@ -2,18 +2,14 @@
   import type { VisualBlock } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { highlightLines } from "$lib/highlight";
+  import { theme } from "$lib/theme.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "code" }> } = $props();
-
-  // Theme detection via data-theme attribute on root html element.
-  function getTheme(): "dark" | "light" {
-    if (typeof document === "undefined") return "dark";
-    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
-  }
 
   let highlightedLines = $state<string[] | null>(null);
 
   $effect(() => {
+    const resolved = theme.resolved;
     const code = block.code;
     if (!code) {
       highlightedLines = null;
@@ -21,7 +17,7 @@
     }
     let alive = true;
     const lines = code.split("\n");
-    highlightLines(lines, block.filename, getTheme())
+    highlightLines(lines, block.filename, resolved)
       .then((result) => {
         if (alive) highlightedLines = result;
       })

@@ -65,7 +65,7 @@
     font-weight: 600;
     color: var(--color-ink);
     border-bottom: 1px solid var(--color-line);
-    background: var(--color-surface);
+    background: var(--color-bg);
   }
   .dm-table {
     width: 100%;
@@ -101,16 +101,16 @@
     font-size: var(--fs-micro);
     border-radius: 2px;
     vertical-align: middle;
-    font-family: var(--font-sans, inherit);
+    font-family: inherit;
     font-weight: 600;
   }
   :global(.dm-pk) {
     background: var(--color-amber);
-    color: var(--color-surface);
+    color: var(--color-bg);
   }
   :global(.dm-fk) {
     background: var(--color-blue);
-    color: var(--color-surface);
+    color: var(--color-bg);
   }
   :global(.dm-nn) {
     border: 1px solid var(--color-line-bright);

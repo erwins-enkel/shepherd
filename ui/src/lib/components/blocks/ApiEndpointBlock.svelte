@@ -166,7 +166,7 @@
     margin-left: 4px;
     font-size: var(--fs-micro);
     color: var(--color-red);
-    font-family: var(--font-sans, inherit);
+    font-family: inherit;
   }
   :global(.ae-resp-status) {
     color: var(--color-ink);

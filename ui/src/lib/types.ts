@@ -315,7 +315,14 @@ export type VisualBlock =
       id: string;
       items: { id: string; label: string; note?: string; checked?: boolean }[];
     }
-  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean };
+  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean }
+  | {
+      type: "wireframe";
+      id: string;
+      surface: "browser" | "desktop" | "mobile" | "popover" | "panel";
+      html: string;
+      caption?: string;
+    };
 
 // ── session recap ────────────────────────────────────────────────────────────
 // mirrors server Recap / RecapState / RecapVerdict

@@ -13,6 +13,8 @@ import {
   CALLOUT_TONES,
   DIFF_BLOCK_MAX_LINES,
   MERMAID_SOURCE_MAX_CHARS,
+  WIREFRAME_HTML_MAX_CHARS,
+  WIREFRAME_SURFACES,
   FILE_TREE_CHANGES,
   capDiffBlock,
   groundBlocks,
@@ -1533,5 +1535,291 @@ describe("groundBlocks Phase-2", () => {
       expect(block.source).toBe("sequenceDiagram\n  A->>B: Hello");
       expect(block.inferred).toBe(true);
     });
+  });
+});
+
+// ── validateWireframe ─────────────────────────────────────────────────────────
+
+describe("validateWireframe (type=wireframe)", () => {
+  const validHtml = '<div class="wf-card"><p>Hello</p></div>';
+
+  it("WIREFRAME_HTML_MAX_CHARS is 20000", () => {
+    expect(WIREFRAME_HTML_MAX_CHARS).toBe(20000);
+  });
+
+  it("WIREFRAME_SURFACES contains all expected values", () => {
+    expect(WIREFRAME_SURFACES).toContain("browser");
+    expect(WIREFRAME_SURFACES).toContain("desktop");
+    expect(WIREFRAME_SURFACES).toContain("mobile");
+    expect(WIREFRAME_SURFACES).toContain("popover");
+    expect(WIREFRAME_SURFACES).toContain("panel");
+    expect(WIREFRAME_SURFACES).toHaveLength(5);
+  });
+
+  it("accepts valid wireframe with surface and html", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "browser", html: validHtml },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.surface).toBe("browser");
+    expect(block.html).toBe(validHtml);
+    expect(block.caption).toBeUndefined();
+  });
+
+  it("accepts all valid surfaces", () => {
+    for (const surface of WIREFRAME_SURFACES) {
+      const result = parseVisualBlocks([
+        { type: "wireframe", id: "wf1", surface, html: validHtml },
+      ]);
+      expect(result).toHaveLength(1);
+    }
+  });
+
+  it("keeps caption when present and a string", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "mobile", html: validHtml, caption: "My screen" },
+    ]);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.caption).toBe("My screen");
+  });
+
+  it("drops caption when not a string", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "mobile", html: validHtml, caption: 42 },
+    ]);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.caption).toBeUndefined();
+  });
+
+  it("drops block with invalid surface", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "tablet", html: validHtml },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with missing surface", () => {
+    const result = parseVisualBlocks([{ type: "wireframe", id: "wf1", html: validHtml }]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with missing html", () => {
+    const result = parseVisualBlocks([{ type: "wireframe", id: "wf1", surface: "browser" }]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with empty html string", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "browser", html: "" },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with non-string html", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "browser", html: 123 },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block when html exceeds WIREFRAME_HTML_MAX_CHARS", () => {
+    const html = "x".repeat(WIREFRAME_HTML_MAX_CHARS + 1);
+    const result = parseVisualBlocks([{ type: "wireframe", id: "wf1", surface: "browser", html }]);
+    expect(result).toEqual([]);
+  });
+
+  it("accepts block when html is exactly WIREFRAME_HTML_MAX_CHARS", () => {
+    const html = "x".repeat(WIREFRAME_HTML_MAX_CHARS);
+    const result = parseVisualBlocks([{ type: "wireframe", id: "wf1", surface: "browser", html }]);
+    expect(result).toHaveLength(1);
+  });
+
+  // structural rejects
+  it("drops block containing <script>", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: "<div><script>alert(1)</script></div>",
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block containing <SCRIPT> (case insensitive)", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "browser", html: "<SCRIPT>bad()</SCRIPT>" },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block containing <style>", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: "<style>.x{color:red}</style><div/>",
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block containing inline event handler onclick=", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div onclick="bad()">click</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block containing inline event handler onerror=", () => {
+    const result = parseVisualBlocks([
+      { type: "wireframe", id: "wf1", surface: "browser", html: '<img onerror="bad()" src="x">' },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block containing href=", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<a href="https://evil.com">click</a>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  // style-purity rejects (scoped to style= attribute values)
+  it("drops block with hex color in style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="color:#fff">text</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with rgb() in style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="color:rgb(0,0,0)">text</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with hsl() in style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="color:hsl(0,0%,0%)">text</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with font-family in style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="font-family:serif">text</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with box-shadow in style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="box-shadow:0 0 0">text</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  // NOT dropped: text content with issue refs
+  it("keeps block where #789 appears in text content (not a style attr)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div style="background:var(--wf-card)"><p>see #789</p><p>also #1234</p></div>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.html).toContain("#789");
+  });
+
+  it("keeps block with token-based style values (var(...))", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "desktop",
+        html: '<div style="background:var(--wf-surface);color:var(--wf-text)"><p>content</p></div>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+});
+
+// ── groundBlocks: wireframe pass-through ──────────────────────────────────────
+
+describe("groundBlocks wireframe pass-through", () => {
+  const fooFile: DiffFile = {
+    path: "src/foo.ts",
+    status: "modified",
+    additions: 5,
+    deletions: 2,
+    binary: false,
+    hunks: [],
+  };
+  const validWireframe = {
+    type: "wireframe" as const,
+    id: "wf1",
+    surface: "browser",
+    html: '<div class="wf-card"><p>UI mockup</p></div>',
+  };
+
+  it("wireframe survives carrier-present branch unchanged (no inferred field)", () => {
+    const blocks = parseVisualBlocks([validWireframe]);
+    const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.html).toBe(validWireframe.html);
+    expect((block as unknown as Record<string, unknown>).inferred).toBeUndefined();
+  });
+
+  it("wireframe survives carrier-empty branch unchanged (no inferred field)", () => {
+    const blocks = parseVisualBlocks([validWireframe]);
+    const result = groundBlocks(blocks, [], []);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.html).toBe(validWireframe.html);
+    expect((block as unknown as Record<string, unknown>).inferred).toBeUndefined();
   });
 });

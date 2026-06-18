@@ -130,6 +130,7 @@ export function buildRecapPrompt(input: {
     "",
     "Block types (Phase 3):",
     '- mermaid:        {"type":"mermaid","id":"...","source":"<mermaid diagram source>","caption?":"..."} — an architecture or flow diagram (flowchart/sequence/etc). Use for genuine architecture/flow shifts only. Will be tagged inferred automatically.',
+    '- wireframe:      {"type":"wireframe","id":"...","surface":"browser|desktop|mobile|popover|panel","html":"<themed HTML mockup>","caption?":"..."} — a UI mockup of a screen. Use ONLY for UI changes. Author with the wf helper classes + class-based color; NEVER inline hex/rgb()/hsl()/color()/font-family/box-shadow, and never <script>/<style>/event handlers/href.',
     "",
     "Rules for blocks:",
     "- Every block must have a unique string `id`.",

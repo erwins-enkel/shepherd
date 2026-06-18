@@ -92,7 +92,14 @@ export type VisualBlock =
       id: string;
       items: { id: string; label: string; note?: string; checked?: boolean }[];
     }
-  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean };
+  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean }
+  | {
+      type: "wireframe";
+      id: string;
+      surface: "browser" | "desktop" | "mobile" | "popover" | "panel";
+      html: string;
+      caption?: string;
+    };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -113,6 +120,15 @@ export const FILE_TREE_CHANGES: readonly FileTreeChange[] = [
 
 export const DIFF_BLOCK_MAX_LINES = 600;
 export const MERMAID_SOURCE_MAX_CHARS = 8000;
+export const WIREFRAME_HTML_MAX_CHARS = 20000;
+
+export const WIREFRAME_SURFACES: readonly (
+  | "browser"
+  | "desktop"
+  | "mobile"
+  | "popover"
+  | "panel"
+)[] = ["browser", "desktop", "mobile", "popover", "panel"];
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
@@ -414,6 +430,45 @@ function validateMermaid(r: Record<string, unknown>, id: string): VisualBlock | 
   return block;
 }
 
+/** Returns true when the html contains structural elements that must be rejected. */
+function wireframeHtmlHasUnsafeStructure(html: string): boolean {
+  if (/<script/i.test(html)) return true;
+  if (/<style/i.test(html)) return true;
+  if (/\son[a-z]+\s*=/i.test(html)) return true;
+  if (/href\s*=/i.test(html)) return true;
+  return false;
+}
+
+/** Returns true when any style= attribute value contains raw colors or disallowed properties. */
+function wireframeStylesImpure(html: string): boolean {
+  const styleAttr = /style\s*=\s*("([^"]*)"|'([^']*)')/gi;
+  let match: RegExpExecArray | null;
+  while ((match = styleAttr.exec(html)) !== null) {
+    const value = match[2] ?? match[3] ?? "";
+    if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
+    if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
+    if (/font-family/i.test(value)) return true;
+    if (/box-shadow/i.test(value)) return true;
+  }
+  return false;
+}
+
+function validateWireframe(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!WIREFRAME_SURFACES.includes(r.surface as "browser")) return null;
+  if (typeof r.html !== "string" || r.html === "") return null;
+  if (r.html.length > WIREFRAME_HTML_MAX_CHARS) return null; // DROP — truncated HTML is malformed
+  if (wireframeHtmlHasUnsafeStructure(r.html)) return null;
+  if (wireframeStylesImpure(r.html)) return null;
+  const block: VisualBlock & { type: "wireframe" } = {
+    type: "wireframe",
+    id,
+    surface: r.surface as "browser" | "desktop" | "mobile" | "popover" | "panel",
+    html: r.html,
+  };
+  if (typeof r.caption === "string") block.caption = r.caption;
+  return block;
+}
+
 type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
 
 const VALIDATORS: Record<string, BlockValidator> = {
@@ -428,6 +483,7 @@ const VALIDATORS: Record<string, BlockValidator> = {
   table: validateTable,
   checklist: validateChecklist,
   mermaid: validateMermaid,
+  wireframe: validateWireframe,
 };
 
 /** Validate a single raw element into a typed VisualBlock, or null when malformed. */

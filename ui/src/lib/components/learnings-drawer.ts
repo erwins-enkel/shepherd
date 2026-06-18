@@ -97,6 +97,89 @@ export function totalFlagged(injectable: RepoInjectable[]): number {
   return injectable.reduce((n, r) => n + flaggedCount(r), 0);
 }
 
+// ─── triage helpers ───────────────────────────────────────────────────────────
+
+/** Count of rules the planner dropped (didn't fit budget) for an enabled repo.
+ *  Null repo → 0. Disabled repo → 0 (rules are uninjected because injection is
+ *  off, NOT budget pressure — the single authoritative "over budget" predicate). */
+export function droppedCount(repo: RepoInjectable | null): number {
+  return repo && repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0;
+}
+
+/** True when the repo has ≥1 rule the planner dropped due to budget pressure. */
+export function isOverBudget(repo: RepoInjectable | null): boolean {
+  return droppedCount(repo) > 0;
+}
+
+/** Sort a repo-group array into triage order (new array, input not mutated):
+ *  tier 0 = over-budget, tier 1 = flagged-only, tier 2 = everything else.
+ *  Within each tier the original (first-seen) order is preserved (stable). */
+export function sortGroupsForTriage(groups: RepoGroup[]): RepoGroup[] {
+  function tier(g: RepoGroup): number {
+    if (isOverBudget(g.injectable)) return 0;
+    if (flaggedCount(g.injectable) > 0) return 1;
+    return 2;
+  }
+  return groups
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => tier(a.g) - tier(b.g) || a.i - b.i)
+    .map(({ g }) => g);
+}
+
+/** Split a repo's rules into dropped vs injected subsets for over-budget display.
+ *  Only splits when `isOverBudget(repo)` is true — disabled repos and repos
+ *  without dropped rules are returned unsplit (all rules in `injected`) so the
+ *  drawer doesn't mislabel a disabled repo's rules as "not injected". */
+export function splitDropped(repo: RepoInjectable | null): {
+  dropped: (Learning & { injected: boolean })[];
+  injected: (Learning & { injected: boolean })[];
+} {
+  if (!repo) return { dropped: [], injected: [] };
+  if (!isOverBudget(repo)) return { dropped: [], injected: repo.rules };
+  return {
+    dropped: repo.rules.filter((r) => !r.injected),
+    injected: repo.rules.filter((r) => r.injected),
+  };
+}
+
+/** Repos that need operator attention (over-budget OR flagged), in triage order.
+ *  Returns one entry per qualifying group with its dropped/flagged counts. */
+export function reposNeedingAttention(
+  groups: RepoGroup[],
+): { repoPath: string; droppedCount: number; flaggedCount: number }[] {
+  return sortGroupsForTriage(groups)
+    .filter((g) => isOverBudget(g.injectable) || flaggedCount(g.injectable) > 0)
+    .map((g) => ({
+      repoPath: g.repoPath,
+      droppedCount: droppedCount(g.injectable),
+      flaggedCount: flaggedCount(g.injectable),
+    }));
+}
+
+/** Rules visible under the active lens combination for a repo.
+ *  No lens → all rules (caller handles dropped-first ordering via splitDropped).
+ *  A lens active → union (deduped by id, preserving repo.rules order) of:
+ *    flaggedOnly  → rules with ineffectiveCount > 0
+ *    overBudgetOnly → dropped rules (only when repo is actually over-budget) */
+export function visibleInjectableRules(
+  repo: RepoInjectable | null,
+  lenses: { flaggedOnly: boolean; overBudgetOnly: boolean },
+): (Learning & { injected: boolean })[] {
+  if (!repo) return [];
+  if (!lenses.flaggedOnly && !lenses.overBudgetOnly) return repo.rules;
+  const ids = new Set<string>();
+  const result: (Learning & { injected: boolean })[] = [];
+  for (const r of repo.rules) {
+    const wantFlagged = lenses.flaggedOnly && r.ineffectiveCount > 0;
+    const wantDropped = lenses.overBudgetOnly && !r.injected && isOverBudget(repo);
+    if ((wantFlagged || wantDropped) && !ids.has(r.id)) {
+      ids.add(r.id);
+      result.push(r);
+    }
+  }
+  return result;
+}
+
 /** Stable display order for the evidence breakdown: most operator-meaningful
  *  source first (a correction you gave) down to passive ones (a stall). */
 const KIND_ORDER: SignalKind[] = ["reply", "critic", "block", "stall"];

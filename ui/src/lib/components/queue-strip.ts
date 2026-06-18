@@ -1,17 +1,12 @@
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 import { m } from "$lib/paraglide/messages";
+import { droppedCount } from "./learnings-drawer";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
   return Object.values(drain)
     .filter((d) => d.enabled)
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
-}
-
-/** Count of an injectable repo's active rules that didn't fit its budget — only
- *  meaningful when injection is enabled (pruning can free room; disabled → 0). */
-function overBudgetCount(repo: RepoInjectable): number {
-  return repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0;
 }
 
 /** Shared map-building for insights (Learning counts per repo) and curate
@@ -25,7 +20,7 @@ function buildInsightsCurateMaps(
 
   const curateByRepo = new Map<string, number>();
   for (const r of injectable) {
-    const n = overBudgetCount(r);
+    const n = droppedCount(r);
     if (n > 0) curateByRepo.set(r.repoPath, n);
   }
   return { insightsByRepo, curateByRepo };
@@ -109,7 +104,7 @@ export function globalLearningsCounts(
 ): { proposed: number; curate: number } {
   return {
     proposed: items.length,
-    curate: injectable.reduce((sum, r) => sum + overBudgetCount(r), 0),
+    curate: injectable.reduce((sum, r) => sum + droppedCount(r), 0),
   };
 }
 
@@ -117,7 +112,7 @@ export function globalLearningsCounts(
  *  rule, or null. Used to deep-link the global learnings chip straight to the
  *  rules that need trimming when there's nothing to approve. */
 export function firstCurateRepo(injectable: RepoInjectable[]): string | null {
-  return injectable.find((r) => overBudgetCount(r) > 0)?.repoPath ?? null;
+  return injectable.find((r) => droppedCount(r) > 0)?.repoPath ?? null;
 }
 
 /** Whether the `queued` indicator is an interactive trigger (opens the queue

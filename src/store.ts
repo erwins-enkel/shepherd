@@ -5,6 +5,7 @@ import type {
   ReviewVerdict,
   PlanGate,
   Recap,
+  DiffFile,
   Signal,
   SignalKind,
   Learning,
@@ -18,6 +19,7 @@ import type {
   HerdDigest,
   RundownItem,
 } from "./types";
+import { parseVisualBlocks, type VisualBlock } from "./visual-blocks";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
@@ -348,11 +350,19 @@ export class SessionStore implements CapStore, CreditStore {
       model TEXT,
       spawnedAt INTEGER NOT NULL,
       generatedAt INTEGER,
-      updatedAt INTEGER NOT NULL)`);
+      updatedAt INTEGER NOT NULL,
+      blocks TEXT NOT NULL DEFAULT '[]',
+      pendingDiff TEXT NOT NULL DEFAULT '[]')`);
     // migrate recaps that predate the changedFiles column (existing rows default to none)
     const recapCols = this.db.query(`PRAGMA table_info(recaps)`).all() as { name: string }[];
     if (!recapCols.some((c) => c.name === "changedFiles")) {
       this.db.run(`ALTER TABLE recaps ADD COLUMN changedFiles TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!recapCols.some((c) => c.name === "blocks")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN blocks TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!recapCols.some((c) => c.name === "pendingDiff")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN pendingDiff TEXT NOT NULL DEFAULT '[]'`);
     }
     // Herd Rundown: one synthesized cross-session attention digest per calendar day.
     // Same lifecycle as recaps (generating → ready/failed); verdict columns empty until ready.
@@ -1405,6 +1415,12 @@ export class SessionStore implements CapStore, CreditStore {
     } catch {
       changedFiles = [];
     }
+    let blocks: VisualBlock[];
+    try {
+      blocks = parseVisualBlocks(JSON.parse(r.blocks));
+    } catch {
+      blocks = [];
+    }
     return {
       sessionId: r.sessionId,
       state: r.state,
@@ -1414,6 +1430,7 @@ export class SessionStore implements CapStore, CreditStore {
       body: r.body ?? "",
       openItems,
       changedFiles,
+      blocks,
       spawnSessionId: r.spawnSessionId ?? "",
       cwd: r.cwd ?? "",
       model: r.model ?? null,
@@ -1423,10 +1440,19 @@ export class SessionStore implements CapStore, CreditStore {
     } as Recap;
   }
 
+  private parsePendingDiff(raw: unknown): DiffFile[] {
+    try {
+      const p = JSON.parse(raw as string);
+      return Array.isArray(p) ? (p as DiffFile[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
   getRecap(sessionId: string): Recap | null {
     const r = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
@@ -1437,11 +1463,12 @@ export class SessionStore implements CapStore, CreditStore {
   putRecap(recap: Recap): void {
     this.db.run(
       `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
-         spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         blocks, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
          verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
          openItems=excluded.openItems, changedFiles=excluded.changedFiles,
+         blocks=excluded.blocks,
          spawnSessionId=excluded.spawnSessionId,
          cwd=excluded.cwd, model=excluded.model, spawnedAt=excluded.spawnedAt,
          generatedAt=excluded.generatedAt, updatedAt=excluded.updatedAt`,
@@ -1454,6 +1481,7 @@ export class SessionStore implements CapStore, CreditStore {
         recap.body ?? "",
         JSON.stringify(recap.openItems ?? []),
         JSON.stringify(recap.changedFiles ?? []),
+        JSON.stringify(recap.blocks ?? []),
         recap.spawnSessionId ?? "",
         recap.cwd ?? "",
         recap.model ?? null,
@@ -1468,7 +1496,7 @@ export class SessionStore implements CapStore, CreditStore {
   snapshotRecaps(): Record<string, Recap> {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state != 'empty'`,
       )
@@ -1482,12 +1510,24 @@ export class SessionStore implements CapStore, CreditStore {
   generatingRecaps(): Recap[] {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
-                spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
+        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
+                pendingDiff, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )
       .all() as any[];
-    return rows.map((r) => this.hydrateRecap(r));
+    return rows.map((r) => ({
+      ...this.hydrateRecap(r),
+      pendingDiff: this.parsePendingDiff(r.pendingDiff),
+    }));
+  }
+
+  /** Set/clear the transient diff carrier used by finalize's block-join. Server-only — never read by
+   *  the client-facing getRecap/snapshotRecaps paths. Pass [] to clear. */
+  setRecapPendingDiff(sessionId: string, files: DiffFile[]): void {
+    this.db.run(`UPDATE recaps SET pendingDiff = ? WHERE sessionId = ?`, [
+      JSON.stringify(files ?? []),
+      sessionId,
+    ]);
   }
 
   dropRecap(sessionId: string): void {

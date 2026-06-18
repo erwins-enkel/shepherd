@@ -28,7 +28,7 @@ Walk the current path when an operator is told "you're over budget":
 injected`. The operator must **mentally compare `used` vs `budget`** to notice it's over, and **subtract
    `injected` from `total`** to learn 2 rules were dropped.
 4. Find the over-budget repo's section, then scroll to the **bottom** of its injected list — the planner
-   returns `injected` first, `dropped` last (`server.ts:907`), so the rules that actually need attention
+   returns `injected` first, `dropped` last (`server.ts:910`), so the rules that actually need attention
    are the least visible.
 5. Spot the `⊘ Over budget` badges (`LearningsDrawer.svelte:329`).
 6. Decide what to cut — with no signal about which rule costs the most chars, and no action other than
@@ -113,7 +113,7 @@ not decorative flair, so "Visual Atmosphere" is weighted low by intent.
 
 4. **Surface the dropped rules, don't bury them.** Within an over-budget repo, render the `dropped`
    (over-budget) rules **first** under a clear sub-label ("Not injected — over budget"), or pin them above
-   the injected ones. Right now they're last (`server.ts:907`), i.e. the rules you came to fix are the
+   the injected ones. Right now they're last (`server.ts:910`), i.e. the rules you came to fix are the
    furthest to scroll.
 
 5. **Give the budget remedy a non-destructive path + a confirm.** Dismiss permanently deletes with no

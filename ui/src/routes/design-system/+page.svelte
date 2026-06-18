@@ -232,6 +232,12 @@ input, select, textarea {
   </svg>
 </button>
 
+<!-- Unicode-glyph child (e.g. a standalone fold chevron): the recipe only sizes
+     SVG glyphs, so a text glyph needs its own font-size (matches .vp-fold) -->
+<button type="button" class="icon-btn" style="font-size: var(--fs-base)" aria-label="Fold">
+  <span aria-hidden="true">▾</span>
+</button>
+
 /* canonical recipe — all sizes/colors via tokens, never raw px/hex */
 .icon-btn {
   flex-shrink: 0;
@@ -254,6 +260,8 @@ input, select, textarea {
 .icon-btn:disabled { cursor: default; opacity: .6; }
 .icon-btn.compact { width: var(--mobile-actionbar-hit); height: var(--mobile-actionbar-hit); } /* 44px touch target */
 .icon-btn svg { width: var(--icon-btn-glyph); height: var(--icon-btn-glyph); display: block; } /* 18px glyph */
+/* the recipe sizes SVG glyphs only — a Unicode text-glyph child needs its own
+   font-size on the button (e.g. .vp-fold sets font-size: var(--fs-base)) */
 
 /* .spin marks a busy/loading glyph (reduced-motion guarded) */
 .spin { animation: icon-btn-spin 0.8s linear infinite; }
@@ -399,7 +407,10 @@ input, select, textarea {
       glyph recognisable at a distance — e.g. the Viewport header's resume, decommission, redraw
       (wrench), and fold controls. Desktop hit area is <code>--icon-btn-hit</code> (28px); add
       <code>.compact</code> for the <code>--mobile-actionbar-hit</code> (44px) touch target. Use a
-      <code>.spin</code> class on the glyph for a busy/loading state (reduced-motion safe).
+      <code>.spin</code> class on the glyph for a busy/loading state (reduced-motion safe). The
+      recipe sizes <code>svg</code> glyphs (18px) — a Unicode text-glyph child (e.g. a standalone
+      fold chevron) needs its own <code>font-size</code> on the button, as <code>.vp-fold</code>
+      does.
       <strong>When not:</strong> a control with a visible text label uses <code>.gbtn</code>
       (icon + word), not <code>.icon-btn</code>; a decorative disclosure caret inside an
       already-clickable labeled pill (e.g. the git-actions caret) is just a Unicode
@@ -524,6 +535,7 @@ input, select, textarea {
       <button
         type="button"
         class="icon-btn"
+        style="font-size: var(--fs-base)"
         aria-label="Fold (Unicode chevron — standalone fold control, not a labeled-pill caret)"
         ><span aria-hidden="true">▾</span></button
       >

@@ -335,12 +335,14 @@ describe("buildMembraneFlags", () => {
 
   test("tmpfs over /tmp and home", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
-    const ti = f.indexOf("--tmpfs");
-    expect(ti).toBeGreaterThanOrEqual(0);
-    expect(f).toContain("/tmp");
-    // home tmpfs
-    const idx = f.lastIndexOf("--tmpfs");
-    expect([f[ti + 1], f[idx + 1]]).toContain("/home/me");
+    // collect all --tmpfs targets
+    const tmpfsTargets: string[] = [];
+    for (let i = 0; i + 1 < f.length; i++) {
+      const target = f[i + 1];
+      if (f[i] === "--tmpfs" && target) tmpfsTargets.push(target);
+    }
+    expect(tmpfsTargets).toContain("/tmp");
+    expect(tmpfsTargets).toContain("/home/me");
   });
 
   test("proc + dev present", () => {
@@ -561,6 +563,82 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
   });
 
+  test("session-env tmpfs carve-out present in subscription mode", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    const claudeDir = "/home/me/.claude";
+    // --tmpfs <claudeDir>/session-env must be present
+    let found = false;
+    for (let i = 0; i + 1 < f.length; i++) {
+      if (f[i] === "--tmpfs" && f[i + 1] === `${claudeDir}/session-env`) {
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  test("session-env tmpfs appears AFTER the claudeDir RO base bind (overrides it)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    const claudeDir = "/home/me/.claude";
+    // find index of the whole-dir RO base bind (subscription mode)
+    let baseBindIdx = -1;
+    for (let i = 0; i + 2 < f.length; i++) {
+      if (f[i] === "--ro-bind" && f[i + 1] === claudeDir && f[i + 2] === claudeDir) {
+        baseBindIdx = i;
+        break;
+      }
+    }
+    expect(baseBindIdx).toBeGreaterThanOrEqual(0);
+    // find index of the session-env tmpfs
+    let sessionEnvIdx = -1;
+    for (let i = 0; i + 1 < f.length; i++) {
+      if (f[i] === "--tmpfs" && f[i + 1] === `${claudeDir}/session-env`) {
+        sessionEnvIdx = i;
+        break;
+      }
+    }
+    expect(sessionEnvIdx).toBeGreaterThan(baseBindIdx);
+  });
+
+  test("maskCredentials: session-env tmpfs still present and after per-child RO bind-try of session-env", () => {
+    const f = buildMembraneFlags(fakeMembrane({ maskCredentials: true }), {
+      ...detDeps,
+      readdir: () => [
+        ".credentials.json",
+        "skills",
+        "settings.json",
+        "projects",
+        "statsig",
+        "session-env",
+      ],
+    });
+    const claudeDir = "/home/me/.claude";
+    // session-env tmpfs must still be present
+    let tmpfsIdx = -1;
+    for (let i = 0; i + 1 < f.length; i++) {
+      if (f[i] === "--tmpfs" && f[i + 1] === `${claudeDir}/session-env`) {
+        tmpfsIdx = i;
+        break;
+      }
+    }
+    expect(tmpfsIdx).toBeGreaterThanOrEqual(0);
+    // per-child RO bind-try for session-env emitted by maskedClaudeDirBinds
+    let perChildIdx = -1;
+    for (let i = 0; i + 2 < f.length; i++) {
+      if (
+        f[i] === "--ro-bind-try" &&
+        f[i + 1] === `${claudeDir}/session-env` &&
+        f[i + 2] === `${claudeDir}/session-env`
+      ) {
+        perChildIdx = i;
+        break;
+      }
+    }
+    expect(perChildIdx).toBeGreaterThanOrEqual(0);
+    // tmpfs must come AFTER the per-child bind so it overrides the RO bind
+    expect(tmpfsIdx).toBeGreaterThan(perChildIdx);
+  });
+
   test("apiKeyHelperPath empty/whitespace-guard: empty string => no helper bind", () => {
     const f = buildMembraneFlags(fakeMembrane({ apiKeyHelperPath: "" }), detDeps);
     expect(f.some((x) => x === "")).toBe(false);
@@ -685,6 +763,28 @@ describe("detectBackend (injected run)", () => {
     resetBackendCache();
     detectBackend(deps);
     expect(calls).toBeGreaterThan(after);
+  });
+
+  test("probe argv includes session-env mkdir (exercises the carve-out)", () => {
+    let probeArgs: string[] = [];
+    const deps = {
+      run: (cmd: string, args: string[]) => {
+        if (cmd === "bwrap" && args[0] === "--version") return { status: 0 };
+        probeArgs = args;
+        return { status: 0 };
+      },
+      exists: () => false,
+      home: "/home/me",
+      claudeDir: "/home/me/.claude",
+      nodeBinReal: "/usr/bin/node",
+    };
+    detectBackend(deps);
+    // The /bin/sh -c string must contain both "session-env" and "mkdir"
+    const shCmdIdx = probeArgs.indexOf("-c");
+    expect(shCmdIdx).toBeGreaterThanOrEqual(0);
+    const shCmd = probeArgs[shCmdIdx + 1];
+    expect(shCmd).toContain("session-env");
+    expect(shCmd).toContain("mkdir");
   });
 
   // Regression (#294): with no nodeBinReal dep the default resolves a REAL node

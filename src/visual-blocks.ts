@@ -200,6 +200,44 @@ export function reconcileFileTree(blocks: VisualBlock[], diffFiles: DiffFile[]):
   return result;
 }
 
+// ── groundBlocks ──────────────────────────────────────────────────────────────
+
+/**
+ * Ground LLM-emitted blocks against the real diff.
+ *  - Carrier present (pendingDiff non-empty): join diff blocks to real DiffFiles (drop unmatched),
+ *    cap each joined file's hunks, and reconcile file-tree entries against the real diff.
+ *  - Carrier empty (e.g. a server bounce lost it before finalize): FAIL CLOSED — drop all `diff`
+ *    blocks (no real hunks to show), keep `file-tree` entries whose path is in `changedFiles`
+ *    (paths survive teardown; status does not, so the authored `change` is kept as-is), and pass
+ *    `rich-text`/`callout` through untouched.
+ */
+export function groundBlocks(
+  blocks: VisualBlock[],
+  pendingDiff: DiffFile[],
+  changedFiles: string[],
+): VisualBlock[] {
+  if (pendingDiff.length > 0) {
+    let b = joinDiffBlocks(blocks, pendingDiff); // diff blocks → .file set, unmatched dropped
+    b = b.map((blk) =>
+      blk.type === "diff" && blk.file ? { ...blk, file: capDiffBlock(blk.file) } : blk,
+    );
+    return reconcileFileTree(b, pendingDiff);
+  }
+  // carrier miss — fail closed
+  const paths = new Set(changedFiles);
+  const out: VisualBlock[] = [];
+  for (const blk of blocks) {
+    if (blk.type === "diff") continue; // no real hunks → drop
+    if (blk.type === "file-tree") {
+      const entries = blk.entries.filter((e) => paths.has(e.path));
+      if (entries.length > 0) out.push({ ...blk, entries });
+      continue;
+    }
+    out.push(blk);
+  }
+  return out;
+}
+
 // ── capDiffBlock ──────────────────────────────────────────────────────────────
 
 /** Bounds a DiffFile so persisted blocks JSON can't balloon.

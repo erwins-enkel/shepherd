@@ -111,6 +111,7 @@ type FakeStore = {
   reviewerSpawns: any[];
   completedSpawns: any[];
   sessions: Session[];
+  pendingDiffs: Record<string, any[]>;
   getRecap: (id: string) => Recap | null;
   putRecap: (r: Recap) => void;
   snapshotRecaps: () => Record<string, Recap>;
@@ -120,6 +121,7 @@ type FakeStore = {
   recordReviewerSpawn: (r: any) => void;
   completeReviewerSpawn: (id: string, u: any, at: number) => void;
   list: (opts?: { activeOnly?: boolean }) => Session[];
+  setRecapPendingDiff: (sessionId: string, files: any[]) => void;
 };
 
 function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
@@ -132,13 +134,18 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
     reviewerSpawns: [] as any[],
     completedSpawns: [] as any[],
     sessions,
+    pendingDiffs: {},
     getRecap: (id) => store.recaps[id] ?? null,
     putRecap: (r) => {
       store.recaps[r.sessionId] = r;
       store.generatingRows = Object.values(store.recaps).filter((x) => x.state === "generating");
     },
     snapshotRecaps: () => ({ ...store.recaps }),
-    generatingRecaps: () => store.generatingRows,
+    generatingRecaps: () =>
+      store.generatingRows.map((r) => ({
+        ...r,
+        pendingDiff: store.pendingDiffs[r.sessionId] ?? [],
+      })),
     dropRecap: (id) => {
       delete store.recaps[id];
       store.generatingRows = store.generatingRows.filter((r) => r.sessionId !== id);
@@ -148,6 +155,9 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
     completeReviewerSpawn: (id: string, u: any, at: number) =>
       store.completedSpawns.push({ id, u, at }),
     list: () => store.sessions,
+    setRecapPendingDiff: (sessionId, files) => {
+      store.pendingDiffs[sessionId] = files;
+    },
   };
   return store;
 }
@@ -1016,4 +1026,206 @@ test("considerSession: headSha failure leaves fired=false so next sweep retries"
   t = 400_000;
   await svc.sweep(); // retries headSha (fired was not burned) → spawns
   expect(herdr.started.length).toBe(1);
+});
+
+// ── visual block grounding (Task 4) ──────────────────────────────────────────
+
+const VERDICT_WITH_BLOCKS = {
+  verdict: "ready",
+  headline: "All done",
+  body: "## Summary\nFixed it.",
+  openItems: [],
+  blocks: [
+    { type: "diff", id: "d1", path: "src/foo.ts", summary: "updated foo" },
+    {
+      type: "file-tree",
+      id: "ft1",
+      entries: [
+        { path: "src/foo.ts", change: "modified" },
+        { path: "invented.ts", change: "added" }, // not in diff → dropped by reconcile
+      ],
+    },
+    { type: "callout", id: "c1", tone: "info", markdown: "note" },
+  ],
+};
+
+test("generate: stashes pendingDiff after spawn", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    makeTmpDir: () => "/tmp/recap-stash",
+  });
+
+  const result = await svc.regenerate(s);
+  expect(result).toBe("started");
+  // setRecapPendingDiff called with the diff's files (non-empty)
+  expect(store.pendingDiffs["s1"]).toEqual(NON_EMPTY_DIFF.files);
+});
+
+test("finalize: joins + persists grounded blocks (carrier present)", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-ground",
+    spawnSessionId: "sp1",
+    spawnedAt: 100_000,
+    changedFiles: ["src/foo.ts"],
+  });
+  const store = makeStore([], [rec]);
+  // Simulate carrier stashed by generate
+  store.pendingDiffs["s1"] = NON_EMPTY_DIFF.files;
+
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-ground", terminalId: "t1" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: VERDICT_WITH_BLOCKS,
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("ready");
+  const blocks = r?.blocks ?? [];
+  // diff block joined with real file
+  const diffBlk = blocks.find((b) => b.type === "diff");
+  expect(diffBlk).toBeDefined();
+  if (diffBlk?.type === "diff") expect(diffBlk.file).toBeDefined();
+  // file-tree reconciled: invented.ts dropped, src/foo.ts kept
+  const ftBlk = blocks.find((b) => b.type === "file-tree");
+  expect(ftBlk).toBeDefined();
+  if (ftBlk?.type === "file-tree") {
+    expect(ftBlk.entries.every((e) => e.path !== "invented.ts")).toBe(true);
+    expect(ftBlk.entries.some((e) => e.path === "src/foo.ts")).toBe(true);
+  }
+  // callout present
+  expect(blocks.some((b) => b.type === "callout")).toBe(true);
+});
+
+test("finalize: broadcast NO-LEAK — onChange receives no pendingDiff key", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-noleak",
+    spawnSessionId: "sp2",
+    spawnedAt: 100_000,
+    changedFiles: ["src/foo.ts"],
+  });
+  const store = makeStore([], [rec]);
+  store.pendingDiffs["s1"] = NON_EMPTY_DIFF.files;
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-noleak", terminalId: "t2" }]);
+
+  let broadcastRow: Recap | null = null;
+  const svc = buildSvc({
+    store,
+    herdr,
+    onChange: (_id, r) => {
+      broadcastRow = r;
+    },
+    nowFn: () => 200_000,
+    verdictJson: VERDICT_WITH_BLOCKS,
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+
+  expect(broadcastRow).not.toBeNull();
+  expect("pendingDiff" in (broadcastRow as object)).toBe(false);
+  const persisted = store.getRecap("s1");
+  expect(persisted).not.toBeNull();
+  expect("pendingDiff" in (persisted as object)).toBe(false);
+});
+
+test("finalize: carrier cleared on ready path", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-clear-ready",
+    spawnSessionId: "sp3",
+    spawnedAt: 100_000,
+    changedFiles: ["src/foo.ts"],
+  });
+  const store = makeStore([], [rec]);
+  store.pendingDiffs["s1"] = NON_EMPTY_DIFF.files;
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-clear-ready", terminalId: "t3" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: VERDICT_WITH_BLOCKS,
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+  expect(store.pendingDiffs["s1"]).toEqual([]);
+});
+
+test("finalize: carrier cleared on failed path", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-clear-fail",
+    spawnSessionId: "sp4",
+    spawnedAt: 100_000,
+    changedFiles: ["src/foo.ts"],
+  });
+  const store = makeStore([], [rec]);
+  store.pendingDiffs["s1"] = NON_EMPTY_DIFF.files;
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-clear-fail", terminalId: "t4" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: { verdict: "not-valid", headline: 42 }, // unparseable
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("failed");
+  expect(store.pendingDiffs["s1"]).toEqual([]);
+});
+
+test("finalize: empty carrier fail-closed — diff dropped, file-tree filtered, callout kept", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-failclosed",
+    spawnSessionId: "sp5",
+    spawnedAt: 100_000,
+    changedFiles: ["src/foo.ts"],
+  });
+  const store = makeStore([], [rec]);
+  // Carrier empty (simulates server bounce before finalize)
+  store.pendingDiffs["s1"] = [];
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-failclosed", terminalId: "t5" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: VERDICT_WITH_BLOCKS,
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("ready");
+  const blocks = r?.blocks ?? [];
+  // diff dropped (no real hunks)
+  expect(blocks.some((b) => b.type === "diff")).toBe(false);
+  // file-tree kept: src/foo.ts is in changedFiles; invented.ts filtered out
+  const ftBlk = blocks.find((b) => b.type === "file-tree");
+  expect(ftBlk).toBeDefined();
+  if (ftBlk?.type === "file-tree") {
+    expect(ftBlk.entries.every((e) => e.path !== "invented.ts")).toBe(true);
+    expect(ftBlk.entries.some((e) => e.path === "src/foo.ts")).toBe(true);
+  }
+  // callout passes through
+  expect(blocks.some((b) => b.type === "callout")).toBe(true);
 });

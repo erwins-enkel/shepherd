@@ -5,6 +5,7 @@ import {
   DIFF_BLOCK_MAX_LINES,
   FILE_TREE_CHANGES,
   capDiffBlock,
+  groundBlocks,
   joinDiffBlocks,
   parseVisualBlocks,
   reconcileFileTree,
@@ -498,6 +499,160 @@ describe("capDiffBlock", () => {
     const file = makeDiffFile([50]);
     const result = capDiffBlock(file, 30);
     expect(result.truncated).toBe(true);
+  });
+});
+
+// ── groundBlocks ─────────────────────────────────────────────────────────────
+
+describe("groundBlocks", () => {
+  const fooFile: DiffFile = {
+    path: "src/foo.ts",
+    status: "modified",
+    additions: 5,
+    deletions: 2,
+    binary: false,
+    hunks: [],
+  };
+  const barFile: DiffFile = {
+    path: "src/bar.ts",
+    status: "added",
+    additions: 10,
+    deletions: 0,
+    binary: false,
+    hunks: [],
+  };
+
+  const makeHunkFile = (path: string, lineCount: number): DiffFile => ({
+    path,
+    status: "modified",
+    additions: lineCount,
+    deletions: 0,
+    binary: false,
+    hunks: [
+      {
+        header: "@@ -1,1 +1,1 @@",
+        lines: Array.from({ length: lineCount }, (_, i) => ({
+          kind: "add" as const,
+          content: `line ${i}`,
+          newNo: i + 1,
+        })),
+      },
+    ],
+  });
+
+  describe("carrier present (pendingDiff non-empty)", () => {
+    it("diff block matched to pendingDiff gets .file attached", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "changed foo" },
+      ]);
+      const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = result[0];
+      if (blk.type === "diff") expect(blk.file).toBe(fooFile);
+    });
+
+    it("unmatched diff block is dropped", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/missing.ts", summary: "invented" },
+      ]);
+      const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("over-cap diff file is truncated", () => {
+      const bigFile = makeHunkFile("src/foo.ts", DIFF_BLOCK_MAX_LINES + 1);
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "big change" },
+      ]);
+      const result = groundBlocks(blocks, [bigFile], ["src/foo.ts"]);
+      const blk = result[0];
+      if (blk?.type === "diff") {
+        expect(blk.file?.truncated).toBe(true);
+        expect(blk.file?.hunks).toEqual([]);
+      }
+    });
+
+    it("file-tree entries reconciled against real diff statuses", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "added" }, // wrong: real is "modified"
+            { path: "src/bar.ts", change: "modified" }, // wrong: real is "added"
+            { path: "invented.ts", change: "added" }, // not in diff → dropped
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = result[0];
+      if (blk.type === "file-tree") {
+        expect(blk.entries).toHaveLength(2);
+        expect(blk.entries[0]!.change).toBe("modified");
+        expect(blk.entries[1]!.change).toBe("added");
+      }
+    });
+  });
+
+  describe("carrier empty (pendingDiff = [])", () => {
+    it("diff blocks are dropped", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "x" },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("file-tree keeps only entries whose path is in changedFiles", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "modified" },
+            { path: "src/unknown.ts", change: "added" },
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = result[0];
+      if (blk.type === "file-tree") {
+        expect(blk.entries).toHaveLength(1);
+        expect(blk.entries[0]!.path).toBe("src/foo.ts");
+        // authored change preserved (no real diff to reconcile against)
+        expect(blk.entries[0]!.change).toBe("modified");
+      }
+    });
+
+    it("file-tree block dropped when no entries are in changedFiles", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [{ path: "not-in-changed.ts", change: "added" }],
+        },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("rich-text passes through untouched", () => {
+      const blocks = parseVisualBlocks([{ type: "rich-text", id: "r1", markdown: "summary text" }]);
+      const result = groundBlocks(blocks, [], []);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual(blocks[0]);
+    });
+
+    it("callout passes through untouched", () => {
+      const blocks = parseVisualBlocks([
+        { type: "callout", id: "c1", tone: "info", markdown: "a note" },
+      ]);
+      const result = groundBlocks(blocks, [], []);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual(blocks[0]);
+    });
   });
 });
 

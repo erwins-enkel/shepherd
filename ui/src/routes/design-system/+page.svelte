@@ -206,6 +206,67 @@ input, select, textarea {
   box-shadow: inset 0 0 0 1px var(--color-amber);
 }`;
 
+  const iconBtnMarkup = `<!-- Default (28px hit area) -->
+<button type="button" class="icon-btn" aria-label="Refresh">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+    <path d="M21 3v5h-5"/>
+  </svg>
+</button>
+
+<!-- Busy/loading: .spin on the glyph (reduced-motion safe) -->
+<button type="button" class="icon-btn" aria-label="Loading">
+  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+    <path d="M21 3v5h-5"/>
+  </svg>
+</button>
+
+<!-- Compact (44px touch target) -->
+<button type="button" class="icon-btn compact" aria-label="Close">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M18 6 6 18"/><path d="M6 6l12 12"/>
+  </svg>
+</button>
+
+<!-- Unicode-glyph child (e.g. a standalone fold chevron): the recipe only sizes
+     SVG glyphs, so a text glyph needs its own font-size (matches .vp-fold) -->
+<button type="button" class="icon-btn" style="font-size: var(--fs-base)" aria-label="Fold">
+  <span aria-hidden="true">▾</span>
+</button>
+
+/* canonical recipe — all sizes/colors via tokens, never raw px/hex */
+.icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px; /* for the armed decom "?" adornment beside the SVG */
+  width: var(--icon-btn-hit);    /* 28px — desktop square hit area */
+  height: var(--icon-btn-hit);
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--color-faint);     /* quiet resting default */
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.icon-btn:hover { color: var(--color-ink-bright); border-color: var(--color-line-bright); }
+.icon-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--color-amber); }
+.icon-btn:disabled { cursor: default; opacity: .6; }
+.icon-btn.compact { width: var(--mobile-actionbar-hit); height: var(--mobile-actionbar-hit); } /* 44px touch target */
+.icon-btn svg { width: var(--icon-btn-glyph); height: var(--icon-btn-glyph); display: block; } /* 18px glyph */
+/* the recipe sizes SVG glyphs only — a Unicode text-glyph child needs its own
+   font-size on the button (e.g. .vp-fold sets font-size: var(--fs-base)) */
+
+/* .spin marks a busy/loading glyph (reduced-motion guarded) */
+.spin { animation: icon-btn-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }`;
+
   const scrimMarkup = `<div class="scrim"><!-- dialog --></div>
 
 /* .scrim lives in app.css — one canonical backdrop for every dialog/drawer.
@@ -337,6 +398,149 @@ input, select, textarea {
       <button class="gbtn" disabled>Disabled</button>
     </div>
     <pre><code>{btnMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Icon buttons</h2>
+    <p class="when">
+      <strong>When:</strong> an icon-only chrome control that needs a clear square hit target and a
+      glyph recognisable at a distance — e.g. the Viewport header's resume, decommission, redraw
+      (wrench), and fold controls. Desktop hit area is <code>--icon-btn-hit</code> (28px); add
+      <code>.compact</code> for the <code>--mobile-actionbar-hit</code> (44px) touch target. Use a
+      <code>.spin</code> class on the glyph for a busy/loading state (reduced-motion safe). The
+      recipe sizes <code>svg</code> glyphs (18px) — a Unicode text-glyph child (e.g. a standalone
+      fold chevron) needs its own <code>font-size</code> on the button, as <code>.vp-fold</code>
+      does.
+      <strong>When not:</strong> a control with a visible text label uses <code>.gbtn</code>
+      (icon + word), not <code>.icon-btn</code>; a decorative disclosure caret inside an
+      already-clickable labeled pill (e.g. the git-actions caret) is just a Unicode
+      <code>▾</code>/<code>▴</code> and gets no hit area of its own; destructive actions still need their
+      red treatment + confirm.
+    </p>
+    <div class="demo">
+      <button type="button" class="icon-btn" aria-label="Refresh">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" />
+        </svg>
+      </button>
+      <button type="button" class="icon-btn" aria-label="Loading (spinning)">
+        <svg
+          class="spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" />
+        </svg>
+      </button>
+      <button type="button" class="icon-btn" aria-label="Close">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 6 6 18" /><path d="M6 6l12 12" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Decommission (confirm)"
+        style="color: var(--color-red)"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 6 6 18" /><path d="M6 6l12 12" />
+        </svg><span aria-hidden="true" style="font-size: var(--fs-meta); line-height: 1">?</span>
+      </button>
+      <button type="button" class="icon-btn" aria-label="Upload">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path
+            d="M12 3v12"
+          />
+        </svg>
+      </button>
+      <button type="button" class="icon-btn" aria-label="Alert">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path
+            d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+          /><path d="M12 9v4" /><path d="M12 17h.01" />
+        </svg>
+      </button>
+      <button type="button" class="icon-btn" aria-label="Disabled example" disabled>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M18 6 6 18" /><path d="M6 6l12 12" />
+        </svg>
+      </button>
+      <button type="button" class="icon-btn compact" aria-label="Compact (44px touch target)">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        style="font-size: var(--fs-base)"
+        aria-label="Fold (Unicode chevron — standalone fold control, not a labeled-pill caret)"
+        ><span aria-hidden="true">▾</span></button
+      >
+    </div>
+    <pre><code>{iconBtnMarkup}</code></pre>
   </section>
 
   <section class="panel">

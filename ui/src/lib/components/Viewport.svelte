@@ -2212,7 +2212,7 @@
         <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
              terminal claims the freed height. State persists across sessions. -->
         <button
-          class="vp-fold"
+          class="vp-fold icon-btn compact"
           type="button"
           aria-expanded={!headerCollapsed}
           aria-controls={foldRegionId}
@@ -2236,7 +2236,7 @@
            button unmounting also drops redrawBtnEl, which closes an open menu). -->
       {#if tab === "term"}
         <button
-          class="vp-redraw"
+          class="vp-redraw icon-btn"
           class:compact
           bind:this={redrawBtnEl}
           type="button"
@@ -2277,13 +2277,27 @@
              exited to a shell after a herdr restart. Forces a fresh claude --resume. -->
         <button
           class="vp-resume"
+          class:icon-btn={compact}
+          class:compact
           type="button"
           onclick={() => resumeSession(true)}
           disabled={resuming}
           title={m.viewport_resume_title()}
           aria-label={m.viewport_resume_title()}
         >
-          <span class="vp-resume-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
+          <svg
+            class:spin={resuming}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path
+              d="M21 3v5h-5"
+            /></svg
+          >
           {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
         </button>
       {/if}
@@ -2296,6 +2310,8 @@
           class="decom"
           class:armed
           class:ready={!armed}
+          class:icon-btn={compact}
+          class:compact
           type="button"
           onclick={decommission}
           title={m.viewport_decommission_ready_title()}
@@ -2304,7 +2320,16 @@
           {#if compact}
             <!-- armed = destructive confirm: stay red + interrogative. Never ✓ —
                  that glyph means READY/actionable-complete elsewhere in the HUD. -->
-            {armed ? "✕?" : "✕"}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+            >
+            {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
           {:else}
             {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
           {/if}
@@ -2315,14 +2340,23 @@
              Compact layouts show the same icon-only ✕ in the git strip instead.
              Same glyph rule as above: armed = red ✕?, never ✓. -->
         <button
-          class="decom quiet"
+          class="decom quiet icon-btn"
           class:armed
           type="button"
           onclick={decommission}
           title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
           aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
         >
-          {armed ? "✕?" : "✕"}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+          >
+          {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
         </button>
       {/if}
     </div>
@@ -2376,14 +2410,23 @@
                ready nudge. Desktop always renders decommission inline in the
                actions cluster, so it never duplicates here. -->
           <button
-            class="decom"
+            class="decom icon-btn compact"
             class:armed
             type="button"
             onclick={decommission}
             title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
             aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
           >
-            {armed ? "✕?" : "✕"}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+            >
+            {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
           </button>
         {/if}
       </span>
@@ -2566,7 +2609,47 @@
         onclick={() => fileInput?.click()}
         aria-label={m.viewport_attach_image()}
       >
-        {uploading ? "⟳" : uploadFailed ? "⚠" : "↥"}
+        {#if uploading}
+          <svg
+            class="spin"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path
+              d="M21 3v5h-5"
+            /></svg
+          >
+        {:else if uploadFailed}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path
+              d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+            /><path d="M12 9v4" /><path d="M12 17h.01" /></svg
+          >
+        {:else}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path
+              d="M12 3v12"
+            /></svg
+          >
+        {/if}
       </button>
       {#if speechSupported}
         <button
@@ -2845,28 +2928,12 @@
     display: contents;
   }
 
-  /* mobile fold toggle: a bare chevron in the trailing actions cluster that
-     hides/shows the secondary header chrome. Mirrors the .decom ghost styling
-     so the two trailing controls read as a set. */
+  /* mobile fold toggle: now an .icon-btn.compact — ghost/sizing/hover from recipe.
+     Keep only the Unicode-chevron legibility bits the recipe doesn't provide. */
   .vp-fold {
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-faint);
     font-family: var(--font-mono);
     font-size: var(--fs-base);
     line-height: 1;
-    padding: 2px 7px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s,
-      background 0.12s;
-  }
-  .vp-fold:hover {
-    color: var(--color-ink);
-    border-color: var(--color-line-bright);
   }
   /* folded tabs are display:none rather than removed from the DOM so the active
      tab + terminal mount survive the toggle (no remount, no PTY teardown) */
@@ -2935,7 +3002,7 @@
   }
   .gt-caret {
     color: var(--color-faint);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     line-height: 1;
   }
   .git-toggle.open .gt-caret,
@@ -3113,50 +3180,32 @@
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-faint);
-    font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 2px 7px;
     cursor: pointer;
     transition:
       color 0.12s,
       border-color 0.12s,
       background 0.12s;
   }
+  /* text-pill-only declarations — not applied when icon-btn form is used */
+  .decom:not(.icon-btn) {
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+  }
+  /* ? adornment inherits the armed red via currentColor; centered by recipe flex + gap */
+  .decom-confirm {
+    color: currentColor;
+    font-size: var(--fs-meta);
+    line-height: 1;
+  }
 
   /* Resume: the primary action of a parked session, so it stays on the identity
      row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
      → no green/red), brightening to ink on hover. */
-  /* redraw-variants toggle: icon-only wrench, ghost styling matching the
-     trailing header controls cluster; compact class enlarges to touch target */
-  .vp-redraw {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-faint);
-    padding: 0;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-  .vp-redraw.compact {
-    width: var(--mobile-actionbar-hit);
-    height: var(--mobile-actionbar-hit);
-  }
-  .vp-redraw svg {
-    width: 18px;
-    height: 18px;
-    display: block;
-  }
-  .vp-redraw:hover,
+  /* redraw-variants toggle: now an .icon-btn; only the open-state highlight
+     is kept here (hover is handled by the global recipe). */
   .vp-redraw[aria-expanded="true"] {
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
@@ -3166,20 +3215,32 @@
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-ink);
+    cursor: pointer;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+  /* text-pill-only declarations — not applied when compact icon-btn form is used */
+  .vp-resume:not(.icon-btn) {
+    gap: 5px;
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     padding: 2px 7px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
+  }
+  /* desktop labeled form sizes its SVG text-scaled (beside the uppercase label);
+     the compact icon-only form has no label and sizes via the global
+     .icon-btn svg (18px) instead. Without this the labeled SVG has no sizing
+     rule and falls back to the replaced-element default (~300×150). */
+  .vp-resume:not(.icon-btn) svg {
+    width: var(--fs-base);
+    height: var(--fs-base);
+    display: block;
   }
   .vp-resume:hover {
     color: var(--color-ink-bright);
@@ -3188,9 +3249,6 @@
   .vp-resume:disabled {
     cursor: default;
     opacity: 0.6;
-  }
-  .vp-resume-icon {
-    font-size: var(--fs-meta);
   }
 
   /* PR delivered → the work is done. The decommission control graduates from its
@@ -3240,17 +3298,8 @@
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
 
-  /* quiet variant: the pre-PR desktop inline ✕. Rest ink stays the base .decom
-     faint; hover/armed inherit the red destructive treatment above. Glyph-only,
-     so drop the word-mark letter-spacing and size it like the neighboring
-     rename ✎ — the class stays on while armed so arming keeps the same metrics
-     (only .decom.armed's colors take over). */
-  .decom.quiet {
-    font-size: var(--fs-meta);
-    letter-spacing: 0;
-    line-height: 1;
-    padding: 2px 6px;
-  }
+  /* quiet variant: pre-PR desktop inline ✕. Now an .icon-btn — sizing/padding
+     handled by the global recipe. Color/hover/armed states still apply below. */
 
   /* rename: inline editor that takes the title's own slot in place (double-tap/
      dblclick the title to open it); the post-rename note sits in the trailing
@@ -3656,8 +3705,7 @@
   }
   /* the strip's GitRail always renders its ≥44px touch variant — match it so the
      cluster doesn't sit half-height beside the rail buttons */
-  .strip-controls .ap-toggle,
-  .strip-controls .decom {
+  .strip-controls .ap-toggle {
     min-height: 44px;
     padding: 6px 9px;
   }
@@ -3748,9 +3796,7 @@
   }
   /* finger-sized header controls on touch layouts (≥44px) */
   .vp-head.mobile .back,
-  .vp-head.mobile .next-yu,
-  .vp-head.mobile .vp-fold,
-  .vp-head.mobile .decom {
+  .vp-head.mobile .next-yu {
     min-height: 44px;
     padding: 8px 12px;
     font-size: var(--fs-base);
@@ -4035,6 +4081,16 @@
   .ctrl-row .attach.failed {
     border-color: var(--color-red);
     color: var(--color-red);
+  }
+  .ctrl-row .attach {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ctrl-row .attach svg {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+    display: block;
   }
   /* Enter — primary affirmative action. Amber outline-ghost (transparent fill,
      amber border + text, inset amber glow) per the design-system primary recipe.

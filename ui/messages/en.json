@@ -1455,5 +1455,7 @@
   "feat_repo_shortcuts_body": "In the New Task pane you can now switch repositories from the keyboard without leaving the prompt: Alt+[ and Alt+] step through every repo, Alt+1–3 jump to your recent repos, and Alt+R opens the repo picker. On macOS use the Option (⌥) key.",
   "newtask_upstream_checking": "Checking upstream…",
   "newtask_upstream_behind": "{count} behind origin — task will start from latest",
-  "newtask_upstream_diverged": "Diverged from origin ({behind} behind, {ahead} ahead) — task will start from local {base}"
+  "newtask_upstream_diverged": "Diverged from origin ({behind} behind, {ahead} ahead) — task will start from local {base}",
+  "feat_base_freshen_title": "Base branch freshens from upstream",
+  "feat_base_freshen_body": "New tasks now start from the latest upstream tip of the base branch — Shepherd fetches and fast-forwards at launch, so you no longer fold in upstream changes by hand when the task is done. The New Task dialog flags when your base is behind or has diverged from origin."
 }

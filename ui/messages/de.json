@@ -1455,5 +1455,7 @@
   "feat_repo_shortcuts_body": "Im Bereich „Neue Aufgabe“ kannst du das Repository jetzt per Tastatur wechseln, ohne das Eingabefeld zu verlassen: Alt+[ und Alt+] blättern durch alle Repos, Alt+1–3 springen zu deinen zuletzt genutzten Repos und Alt+R öffnet die Repo-Auswahl. Auf dem Mac die Wahltaste (⌥) verwenden.",
   "newtask_upstream_checking": "Upstream wird geprüft…",
   "newtask_upstream_behind": "{count} hinter origin — Aufgabe startet vom neuesten Stand",
-  "newtask_upstream_diverged": "Von origin abgewichen ({behind} hinter, {ahead} voraus) — Aufgabe startet von lokal {base}"
+  "newtask_upstream_diverged": "Von origin abgewichen ({behind} hinter, {ahead} voraus) — Aufgabe startet von lokal {base}",
+  "feat_base_freshen_title": "Basis-Branch wird vom Upstream aktualisiert",
+  "feat_base_freshen_body": "Neue Aufgaben starten jetzt vom neuesten Upstream-Stand des Basis-Branches — Shepherd holt und spult beim Start vor (fast-forward), sodass du Upstream-Änderungen nach Abschluss nicht mehr von Hand einpflegen musst. Der New-Task-Dialog weist darauf hin, wenn deine Basis zurückliegt oder von origin abgewichen ist."
 }

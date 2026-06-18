@@ -7,7 +7,10 @@ export const RECENT_LIMIT = 3;
  *  positive recentAgentCount, ranked by count desc, then most-recently-used, then
  *  name. Single source of truth for the RepoSelect pinned group AND the New Task
  *  pane's Alt+digit repo shortcuts. */
-export function recentRepos(repos: RepoEntry[], limit: number = RECENT_LIMIT): RepoEntry[] {
+export function recentRepos(
+  repos: readonly RepoEntry[],
+  limit: number = RECENT_LIMIT,
+): RepoEntry[] {
   return repos
     .filter((r) => (r.recentAgentCount ?? 0) > 0)
     .sort(

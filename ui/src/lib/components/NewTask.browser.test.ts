@@ -516,8 +516,10 @@ describe("NewTask repo shortcuts", () => {
   // Three repos in list order: alpha, bravo, charlie.
   // bravo has the highest recentAgentCount → recents[0]
   // charlie has lower count but a more recent lastUsedAt → recents[1]
-  // alpha has no recent activity → recents[2] (not in recents at all at limit=3 since only 2 have counts)
-  // So recentRepos order is: bravo, charlie (only 2 with positive counts)
+  // alpha has no recent activity → excluded from recents entirely
+  // So recentRepos order is: bravo, charlie (only 2 have positive counts).
+  // Note charlie is list-index 2 but recents-index 1 — proves the digit jump
+  // reads the recents ranking, not the list order.
   const repoA: RepoEntry = { name: "alpha", path: "/repo/alpha", display: "alpha" };
   const repoB: RepoEntry = {
     name: "bravo",

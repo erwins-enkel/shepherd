@@ -139,7 +139,6 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--color-muted);
-    font-family: var(--font-sans, inherit);
   }
   .ft-row {
     display: flex;

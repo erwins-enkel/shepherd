@@ -393,8 +393,7 @@ test("buildRecapPrompt: states diff hunks/file are server-supplied", () => {
     digest: "",
     context: "",
   });
-  expect(p).toContain("server");
-  expect(p).toContain("file");
+  expect(p).toContain("the server attaches the real diff content");
 });
 
 test("buildRecapPrompt: includes redact-secrets instruction", () => {

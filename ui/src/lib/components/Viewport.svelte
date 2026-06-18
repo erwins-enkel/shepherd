@@ -2229,7 +2229,7 @@
         </button>
       {/if}
       <!-- squished-history repair variants under field test (see redrawNudge etc.
-           above) — a quiet ↔ toggle opening an anchored popover with the four
+           above) — a quiet icon-only wrench toggle opening an anchored popover with the four
            candidates. The losing variants get removed after testing. Terminal-tab
            only: every variant acts on the terminal, so the control can't issue a
            silent nudge/fullscreen against a hidden mount from another tab (the

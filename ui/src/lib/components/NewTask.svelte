@@ -971,9 +971,8 @@
     color: var(--color-muted);
   }
   .nt-upstream-warn {
-    /* Blue = informational accent; amber is reserved for --status-running (armed/active),
-       and red/blocked would be too alarming for a heads-up "task will start from local". */
-    color: var(--color-blue);
+    /* Warn (caution) — the diverged base is a heads-up: not an error (red) and not running (amber); more honest than informational blue for "task will start from local". */
+    color: var(--status-warn);
   }
   .prompt-wrap {
     position: relative;

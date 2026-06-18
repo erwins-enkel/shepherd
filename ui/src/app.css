@@ -23,6 +23,7 @@
   --color-red: var(--red);
   --color-blue: var(--blue);
   --color-slate: var(--slate);
+  --color-warn: var(--warn);
   --color-scrim: var(--scrim);
   --color-term-fg: var(--term-fg);
   --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -55,6 +56,7 @@
   --red: #e5484d;
   --blue: #4a90d9;
   --slate: #566460;
+  --warn: #e8730c;
 
   --scrim: rgba(3, 6, 5, 0.66);
   --term-fg: #c4d0cb;
@@ -94,6 +96,8 @@
      (genuinely actionable-complete), applied directly at the callsites. */
   --status-done: var(--color-slate);
   --status-blocked: var(--color-red);
+  /* Caution / heads-up — NOT running (amber) and NOT blocked/error (red). */
+  --status-warn: var(--color-warn);
   --status-idle: var(--color-slate);
 
   /* Header wash for an alert-by-exception (blocked / parked) session. On the
@@ -131,6 +135,7 @@
   --red: #c2363b;
   --blue: #2f6fb0;
   --slate: #6b7873;
+  --warn: #b5560a;
 
   --scrim: rgba(20, 28, 25, 0.42);
   --term-fg: #2b3633;
@@ -171,10 +176,12 @@
   /* Status/info hues are read as text & borders for meaning (ready/blocked/info),
      so they must clear AAA too. Brighter, more-luminous siblings of the base
      accents — kept in the green-tinted family — on the near-black --bg #0a0d0c:
-     green ~12.6:1, red ~7.8:1, blue ~9.7:1. */
+     green ~12.6:1, red ~7.8:1, blue ~9.7:1.
+     warn (orange caution) brightened to a luminous sibling that clears AA on the near-black --bg. */
   --green: #7ee3b4;
   --red: #ff7a7e;
   --blue: #7fbdf0;
+  --warn: #ff9a4d;
 }
 [data-theme="light"][data-contrast="high"] {
   --line: #9aa8a2;
@@ -191,10 +198,12 @@
 
   /* Darker siblings of the base accents — same green-tinted family — so the
      status/info text & borders clear AAA on the near-white --panel #f7f9f8:
-     green ~7.4:1, red ~7.5:1, blue ~7.2:1. */
+     green ~7.4:1, red ~7.5:1, blue ~7.2:1.
+     warn (orange caution) darkened to a deeper sibling clearing contrast on near-white --panel. */
   --green: #0c5e3a;
   --red: #9a2429;
   --blue: #1c5590;
+  --warn: #8a3f00;
 }
 
 html,

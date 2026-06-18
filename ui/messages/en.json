@@ -1491,5 +1491,20 @@
   "vblock_filetree_renamed": "Renamed",
   "vblock_diff_highlighted_heading": "Highlighted changes",
   "feat_visual_recap_title": "Visual recaps",
-  "feat_visual_recap_body": "A finished session's recap now renders as a scannable document — a tree of what changed, the real annotated diff, and toned callouts — instead of flat text. Expand a recap to see it."
+  "feat_visual_recap_body": "A finished session's recap now renders as a scannable document — a tree of what changed, the real annotated diff, and toned callouts — instead of flat text. Expand a recap to see it.",
+  "vblock_inferred": "inferred",
+  "vblock_code_truncated": "truncated",
+  "vblock_apiendpoint_params": "Parameters",
+  "vblock_apiendpoint_responses": "Responses",
+  "vblock_apiendpoint_required": "required",
+  "vblock_apiendpoint_deprecated": "deprecated",
+  "vblock_datamodel_relations": "Relations",
+  "vblock_datamodel_pk": "PK",
+  "vblock_datamodel_fk": "FK",
+  "vblock_datamodel_nullable": "NOT NULL",
+  "vblock_datamodel_was": "was: {was}",
+  "gloss_inferred_term": "inferred",
+  "gloss_inferred_def": "Derived by the recap model from the code — not verified against the real diff. Treat it as a hint, not ground truth.",
+  "feat_visual_recap_cards_title": "Schema & API recap cards",
+  "feat_visual_recap_cards_body": "Recaps now render schema changes, API endpoints, code excerpts, tables, and checklists as typed cards — not just flat text. Data-model and API cards are marked \"inferred\" to signal they were extracted by the model, not verified."
 }

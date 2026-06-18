@@ -1491,5 +1491,20 @@
   "vblock_filetree_renamed": "Umbenannt",
   "vblock_diff_highlighted_heading": "Hervorgehobene Änderungen",
   "feat_visual_recap_title": "Visuelle Zusammenfassungen",
-  "feat_visual_recap_body": "Die Zusammenfassung einer abgeschlossenen Sitzung wird jetzt als übersichtliches Dokument dargestellt — ein Baum der Änderungen, das echte annotierte Diff und farbige Hinweise — statt als reiner Text. Erweitere eine Zusammenfassung, um sie zu sehen."
+  "feat_visual_recap_body": "Die Zusammenfassung einer abgeschlossenen Sitzung wird jetzt als übersichtliches Dokument dargestellt — ein Baum der Änderungen, das echte annotierte Diff und farbige Hinweise — statt als reiner Text. Erweitere eine Zusammenfassung, um sie zu sehen.",
+  "vblock_inferred": "abgeleitet",
+  "vblock_code_truncated": "abgeschnitten",
+  "vblock_apiendpoint_params": "Parameter",
+  "vblock_apiendpoint_responses": "Antworten",
+  "vblock_apiendpoint_required": "erforderlich",
+  "vblock_apiendpoint_deprecated": "veraltet",
+  "vblock_datamodel_relations": "Beziehungen",
+  "vblock_datamodel_pk": "PK",
+  "vblock_datamodel_fk": "FK",
+  "vblock_datamodel_nullable": "NOT NULL",
+  "vblock_datamodel_was": "war: {was}",
+  "gloss_inferred_term": "abgeleitet",
+  "gloss_inferred_def": "Vom Recap-Modell aus dem Code abgeleitet — nicht gegen das echte Diff verifiziert. Als Hinweis behandeln, nicht als gesicherte Information.",
+  "feat_visual_recap_cards_title": "Schema- und API-Recap-Karten",
+  "feat_visual_recap_cards_body": "Zusammenfassungen zeigen Schemaänderungen, API-Endpunkte, Code-Ausschnitte, Tabellen und Checklisten jetzt als typisierte Karten — nicht mehr nur als reinen Text. Datenmodell- und API-Karten sind als „abgeleitet“ markiert, um anzuzeigen, dass sie vom Modell extrahiert und nicht verifiziert wurden."
 }

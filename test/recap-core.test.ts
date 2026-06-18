@@ -251,7 +251,10 @@ test("buildRecapPrompt: injects changedFiles", () => {
   const p = buildRecapPrompt({
     taskPrompt: "t",
     plan: "",
-    changedFiles: ["src/store.ts", "src/types.ts"],
+    changedFiles: [
+      { path: "src/store.ts", status: "modified" },
+      { path: "src/types.ts", status: "modified" },
+    ],
     digest: "",
     context: "",
   });
@@ -420,4 +423,70 @@ test("buildRecapPrompt: includes redact-secrets instruction", () => {
   });
   expect(p).toContain("Redact secrets");
   expect(p).toContain("redacted");
+});
+
+// ── buildRecapPrompt Phase-2: changedFiles with status ───────────────────────
+
+test("buildRecapPrompt: renders changedFiles with (status) suffix", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [
+      { path: "src/new.ts", status: "added" },
+      { path: "src/old.ts", status: "modified" },
+    ],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("src/new.ts (added)");
+  expect(p).toContain("src/old.ts (modified)");
+});
+
+test("buildRecapPrompt: Phase-2 block type names in docs", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("code");
+  expect(p).toContain("annotated-code");
+  expect(p).toContain("data-model");
+  expect(p).toContain("api-endpoint");
+  expect(p).toContain("table");
+  expect(p).toContain("checklist");
+});
+
+test("buildRecapPrompt: code block doc says only (added) files", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("(added)");
+});
+
+test("buildRecapPrompt: code block doc says never type the code body", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toMatch(/never.*code body|never.*body.*code/i);
+});
+
+test("buildRecapPrompt: data-model/api-endpoint doc mentions redaction", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("redact");
 });

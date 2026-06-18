@@ -234,7 +234,7 @@ export interface PlanGate {
 }
 
 // ── visual recap blocks ──────────────────────────────────────────────────────
-// mirrors server VisualBlock union (Phase 1: rich-text + callout; file-tree + diff Task 6)
+// mirrors server VisualBlock union (Phase 1: rich-text + callout; file-tree + diff; Phase 2: code + more)
 export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";
 export type FileTreeChange = "added" | "modified" | "removed" | "renamed";
 export interface FileTreeEntry {
@@ -257,6 +257,63 @@ export type VisualBlock =
       summary: string;
       annotations?: DiffAnnotation[];
       file?: DiffFile;
+    }
+  | {
+      type: "code";
+      id: string;
+      filename: string;
+      /** Server-populated from DiffFile — never from LLM input. */
+      code?: string;
+      truncated?: boolean;
+    }
+  | {
+      type: "annotated-code";
+      id: string;
+      filename: string;
+      /** Prose-only annotations — no line anchors (decision #4). */
+      annotations?: DiffAnnotation[];
+      /** Server-populated from DiffFile — never from LLM input. */
+      code?: string;
+      truncated?: boolean;
+    }
+  | {
+      type: "data-model";
+      id: string;
+      /** Server-forced to true — never trusted from LLM input. */
+      inferred?: boolean;
+      entities: {
+        id: string;
+        name: string;
+        fields: {
+          name: string;
+          type: string;
+          pk?: boolean;
+          fk?: string;
+          nullable?: boolean;
+          change?: FileTreeChange;
+          was?: string;
+        }[];
+      }[];
+      relations?: { from: string; to: string; kind: string }[];
+    }
+  | {
+      type: "api-endpoint";
+      id: string;
+      method: string;
+      path: string;
+      summary?: string;
+      change?: string;
+      deprecated?: boolean;
+      /** Server-forced to true — never trusted from LLM input. */
+      inferred?: boolean;
+      params?: { name: string; in: string; type: string; required?: boolean; note?: string }[];
+      responses?: { status: number; description?: string; example?: string }[];
+    }
+  | { type: "table"; id: string; columns: string[]; rows: string[][] }
+  | {
+      type: "checklist";
+      id: string;
+      items: { id: string; label: string; note?: string; checked?: boolean }[];
     };
 
 // ── session recap ────────────────────────────────────────────────────────────

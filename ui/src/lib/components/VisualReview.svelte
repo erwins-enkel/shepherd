@@ -4,6 +4,12 @@
   import CalloutBlock from "./blocks/CalloutBlock.svelte";
   import FileTreeBlock from "./blocks/FileTreeBlock.svelte";
   import DiffBlock from "./blocks/DiffBlock.svelte";
+  import CodeBlock from "./blocks/CodeBlock.svelte";
+  import AnnotatedCodeBlock from "./blocks/AnnotatedCodeBlock.svelte";
+  import DataModelBlock from "./blocks/DataModelBlock.svelte";
+  import ApiEndpointBlock from "./blocks/ApiEndpointBlock.svelte";
+  import TableBlock from "./blocks/TableBlock.svelte";
+  import ChecklistBlock from "./blocks/ChecklistBlock.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { blocks }: { blocks: VisualBlock[] } = $props();
@@ -24,6 +30,18 @@
         <h4 class="vr-highlight-head">{m.vblock_diff_highlighted_heading()}</h4>
       {/if}
       <DiffBlock {block} />
+    {:else if block.type === "code"}
+      <CodeBlock {block} />
+    {:else if block.type === "annotated-code"}
+      <AnnotatedCodeBlock {block} />
+    {:else if block.type === "data-model"}
+      <DataModelBlock {block} />
+    {:else if block.type === "api-endpoint"}
+      <ApiEndpointBlock {block} />
+    {:else if block.type === "table"}
+      <TableBlock {block} />
+    {:else if block.type === "checklist"}
+      <ChecklistBlock {block} />
     {/if}
   {/each}
 </div>

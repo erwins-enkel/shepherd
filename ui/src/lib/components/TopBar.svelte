@@ -348,18 +348,22 @@
   // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
   // opens Settings directly; only a haltable herd turns it into a menu button.
   const gearOpensMenu = $derived(mobile || haltable > 0);
-  // Mobile sheet pip: quiet indicator on the gear when the bottom sheet holds an
-  // actionable item — update available, health not ok, or what's new. Keeps moved
-  // badges discoverable when they no longer render in the top-bar right cluster.
-  // Composed alongside the halt-pip (.halt-pip) — the two use different corners
-  // (.sheet-pip sits bottom-left; .halt-pip owns top-right; .gear-dot owns top/bottom-right).
-  const sheetPip = $derived(
-    mobile &&
-      (updateAvailable ||
-        herdrUpdateAvailable ||
-        diagnosticsOverall !== "ok" ||
-        whatsNew ||
-        learningsPresent),
+  // Mobile only: every gear-area signal collapses into ONE dot, colored by the
+  // most serious active tier (red > orange > yellow > blue). Desktop keeps its
+  // halt-pip + dedicated badges, so this stays null off-mobile.
+  type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
+  const gearPipTier = $derived<GearPipTier>(
+    !mobile
+      ? null
+      : blocked > 0 || diagnosticsOverall === "error"
+        ? "red"
+        : haltable > 0 || updateAvailable
+          ? "orange"
+          : diagnosticsOverall === "warning"
+            ? "yellow"
+            : herdrUpdateAvailable || whatsNew || learningsPresent
+              ? "blue"
+              : null,
   );
   function clickGear() {
     if (!gearOpensMenu) {
@@ -850,8 +854,8 @@
     {/if}
     <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok" AND not mobile
          (on mobile it moves into the gear bottom sheet).
-         Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right)
-         or the herdr blue gear-dot. Color: slate ring with state-colored core —
+         Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right).
+         Color: slate ring with state-colored core —
          warn for warning, red for error — distinct from both the halt-pip identity
          and the herdr blue. Token choice: --status-warn / --color-red for the core,
          --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
@@ -904,13 +908,13 @@
         aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
         aria-expanded={gearOpensMenu ? menuOpen : undefined}
         aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-        >⚙{#if haltable > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
-          ></span>{/if}{#if herdrUpdateAvailable && mobile}<span
-            class="gear-dot"
-            class:shift={haltable > 0}
+        >⚙{#if !mobile && haltable > 0}<span
+            class="halt-pip"
+            class:alert={blocked > 0}
             aria-hidden="true"
-          ></span>{/if}{#if sheetPip && !herdrUpdateAvailable}<span
-            class="sheet-pip"
+          ></span>{/if}{#if mobile && gearPipTier}<span
+            class="gear-pip"
+            data-tier={gearPipTier}
             aria-hidden="true"
           ></span>{/if}</button
       >
@@ -1575,18 +1579,6 @@
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
   }
-  /* Sheet pip on the gear: quiet actionable-item indicator. Bottom-left corner so it
-     composes cleanly with .halt-pip (top-right) and .gear-dot (top/bottom-right). */
-  .sheet-pip {
-    position: absolute;
-    bottom: 3px;
-    left: 3px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
   .menu-item {
     display: flex;
     align-items: center;
@@ -1685,24 +1677,28 @@
   .gear:hover {
     color: var(--color-amber);
   }
-  /* phone-only: the folded HERDR-update cue — a blue pip on the gear that mirrors
-     the calm informational blue of the desktop badge and rings against the panel
-     to stay legible */
-  .gear-dot {
+  /* Mobile only: single severity dot on the gear — red > orange > yellow > blue.
+     One dot replaces the old three-pip "measles" layout on mobile. */
+  .gear-pip {
     position: absolute;
-    top: 3px;
-    right: 3px;
+    top: 2px;
+    right: 2px;
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--color-blue);
     box-shadow: 0 0 0 2px var(--color-panel);
   }
-  /* When the red halt pip owns the top-right corner, the blue herdr dot drops to the
-     bottom-right so the two cues never overlap. */
-  .gear-dot.shift {
-    top: auto;
-    bottom: 3px;
+  .gear-pip[data-tier="red"] {
+    background: var(--color-red);
+  }
+  .gear-pip[data-tier="orange"] {
+    background: var(--color-warn);
+  }
+  .gear-pip[data-tier="yellow"] {
+    background: var(--color-amber);
+  }
+  .gear-pip[data-tier="blue"] {
+    background: var(--color-blue);
   }
   /* Health pip: a standalone button placed left of the gear-wrap in .rightside.
      Visible only when diagnosticsOverall !== "ok" (hidden-when-OK via {#if}).
@@ -1759,7 +1755,7 @@
   .whatsnew-badge .wn-dot {
     font-size: var(--fs-micro);
   }
-  /* Phone-only: bare pip button, no label — mirrors .gear-dot folded pattern. */
+  /* Phone-only: bare pip button, no label. */
   .whatsnew-dot-btn {
     position: relative;
     background: transparent;

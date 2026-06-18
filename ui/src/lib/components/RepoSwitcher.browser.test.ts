@@ -109,6 +109,7 @@ describe("RepoSwitcher — filter rail", () => {
     const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
     expect(mark, "✦ learnings marker").not.toBeNull();
     expect(mark!.getAttribute("aria-hidden")).toBe("true");
+    expect(mark!.getAttribute("title")).toBe(m.learnings_badge_tip());
     expect(mark!.textContent).toContain("✦");
     expect(mark!.querySelector(".rs-learn-n")?.textContent).toBe("3");
     // aria parity: the chip BUTTON's label appends the learnings clause
@@ -126,6 +127,7 @@ describe("RepoSwitcher — filter rail", () => {
     });
     const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
     expect(mark, "✦ learnings marker").not.toBeNull();
+    expect(mark!.getAttribute("title")).toBe(m.learnings_badge_tip());
     expect(mark!.textContent).toContain("✦");
     // curate-only → bare glyph, no count span
     expect(mark!.querySelector(".rs-learn-n"), "no count for curate-only").toBeNull();

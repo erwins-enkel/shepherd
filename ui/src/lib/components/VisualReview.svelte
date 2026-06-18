@@ -10,6 +10,7 @@
   import ApiEndpointBlock from "./blocks/ApiEndpointBlock.svelte";
   import TableBlock from "./blocks/TableBlock.svelte";
   import ChecklistBlock from "./blocks/ChecklistBlock.svelte";
+  import MermaidBlock from "./blocks/MermaidBlock.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { blocks }: { blocks: VisualBlock[] } = $props();
@@ -42,6 +43,8 @@
       <TableBlock {block} />
     {:else if block.type === "checklist"}
       <ChecklistBlock {block} />
+    {:else if block.type === "mermaid"}
+      <MermaidBlock {block} />
     {/if}
   {/each}
 </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { gaugeList, hotterGauge, overspending } from "./usage-gauges";
+import { gaugeList, hotterGauge, overspending, gaugeColor } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
 function w(pct: number, resetAt = 0): LimitWindow {
@@ -64,6 +64,27 @@ describe("hotterGauge", () => {
   it("returns the only present window", () => {
     expect(hotterGauge(limits({ session5h: w(40) }))?.label).toBe("5H");
     expect(hotterGauge(limits({ week: w(40) }))?.label).toBe("WK");
+  });
+});
+
+describe("gaugeColor", () => {
+  it("0 → muted", () => {
+    expect(gaugeColor(0)).toBe("var(--color-muted)");
+  });
+  it("74 → muted", () => {
+    expect(gaugeColor(74)).toBe("var(--color-muted)");
+  });
+  it("75 → amber", () => {
+    expect(gaugeColor(75)).toBe("var(--color-amber)");
+  });
+  it("90 → amber", () => {
+    expect(gaugeColor(90)).toBe("var(--color-amber)");
+  });
+  it("91 → red", () => {
+    expect(gaugeColor(91)).toBe("var(--color-red)");
+  });
+  it("100 → red", () => {
+    expect(gaugeColor(100)).toBe("var(--color-red)");
   });
 });
 

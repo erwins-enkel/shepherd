@@ -16,7 +16,7 @@
   import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { projectIcons } from "$lib/projectIcons.svelte";
-  import { hotterGauge } from "./usage-gauges";
+  import { hotterGauge, gaugeColor } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { tick } from "svelte";
@@ -387,12 +387,9 @@
     const h = hotterGauge(limits);
     return h && h.w.pct >= 70 ? h : null;
   });
-  // Two-step ladder shared with TopBar: neutral muted fill at rest, amber once
-  // the window runs hot — usage is telemetry, so red/green stay status-only
-  // (Four-Light Rule, DESIGN.md).
-  function gaugeColor(pct: number): string {
-    return pct >= 90 ? "var(--color-amber)" : "var(--color-muted)";
-  }
+  // Three-step ladder shared with TopBar (usage-gauges.ts): muted at rest, amber
+  // 75–90 (warming), red >90 (approaching cap). Documented Four-Light exception —
+  // bar-fill/text only (no halo/pip), blocked pip stays the loudest red on screen.
 
   // "needs you" queue paging: only on compact layouts (the list isn't visible there),
   // and only when more than one session waits. Wraps around so ‹/› always advance.

@@ -91,6 +91,14 @@ export type VisualBlock =
       type: "checklist";
       id: string;
       items: { id: string; label: string; note?: string; checked?: boolean }[];
+    }
+  | { type: "mermaid"; id: string; source: string; caption?: string; inferred?: boolean }
+  | {
+      type: "wireframe";
+      id: string;
+      surface: "browser" | "desktop" | "mobile" | "popover" | "panel";
+      html: string;
+      caption?: string;
     };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -111,6 +119,16 @@ export const FILE_TREE_CHANGES: readonly FileTreeChange[] = [
 ];
 
 export const DIFF_BLOCK_MAX_LINES = 600;
+export const MERMAID_SOURCE_MAX_CHARS = 8000;
+export const WIREFRAME_HTML_MAX_CHARS = 20000;
+
+export const WIREFRAME_SURFACES: readonly (
+  | "browser"
+  | "desktop"
+  | "mobile"
+  | "popover"
+  | "panel"
+)[] = ["browser", "desktop", "mobile", "popover", "panel"];
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
@@ -403,6 +421,79 @@ function validateChecklist(r: Record<string, unknown>, id: string): VisualBlock 
   return { type: "checklist", id, items };
 }
 
+function validateMermaid(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (typeof r.source !== "string" || r.source === "") return null;
+  if (r.source.length > MERMAID_SOURCE_MAX_CHARS) return null; // DROP — truncating breaks diagram grammar
+  const block: VisualBlock & { type: "mermaid" } = { type: "mermaid", id, source: r.source };
+  // inferred intentionally NOT copied — server forces it
+  if (typeof r.caption === "string") block.caption = r.caption;
+  return block;
+}
+
+/** Returns true when the html contains structural elements that must be rejected. */
+function wireframeHtmlHasUnsafeStructure(html: string): boolean {
+  if (/<script/i.test(html)) return true;
+  if (/<style/i.test(html)) return true;
+  if (/(^|[\s/])on[a-z]+\s*=/i.test(html)) return true;
+  if (/href\s*=/i.test(html)) return true;
+  return false;
+}
+
+/** Returns true when a style attribute value contains raw colors or disallowed properties. */
+function styleValueImpure(value: string): boolean {
+  if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
+  if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
+  if (/font-family/i.test(value)) return true;
+  if (/box-shadow/i.test(value)) return true;
+  return false;
+}
+
+/** Returns true when any style= attribute value contains raw colors or disallowed properties. */
+function wireframeStylesImpure(html: string): boolean {
+  const styleAttr = /style\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>][^>]*))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = styleAttr.exec(html)) !== null) {
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (styleValueImpure(value)) return true;
+  }
+  return false;
+}
+
+/** Returns true when a fill= or stroke= attribute value carries a raw color. */
+function presentationColorImpure(value: string): boolean {
+  if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
+  if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
+  return false;
+}
+
+/** Returns true when any fill= or stroke= attribute value contains a raw color. */
+function wireframePresentationColorsImpure(html: string): boolean {
+  const presentationAttr = /(?:fill|stroke)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>][^>]*))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = presentationAttr.exec(html)) !== null) {
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (presentationColorImpure(value)) return true;
+  }
+  return false;
+}
+
+function validateWireframe(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!WIREFRAME_SURFACES.includes(r.surface as "browser")) return null;
+  if (typeof r.html !== "string" || r.html === "") return null;
+  if (r.html.length > WIREFRAME_HTML_MAX_CHARS) return null; // DROP — truncated HTML is malformed
+  if (wireframeHtmlHasUnsafeStructure(r.html)) return null;
+  if (wireframeStylesImpure(r.html)) return null;
+  if (wireframePresentationColorsImpure(r.html)) return null;
+  const block: VisualBlock & { type: "wireframe" } = {
+    type: "wireframe",
+    id,
+    surface: r.surface as "browser" | "desktop" | "mobile" | "popover" | "panel",
+    html: r.html,
+  };
+  if (typeof r.caption === "string") block.caption = r.caption;
+  return block;
+}
+
 type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
 
 const VALIDATORS: Record<string, BlockValidator> = {
@@ -416,6 +507,8 @@ const VALIDATORS: Record<string, BlockValidator> = {
   "api-endpoint": validateApiEndpoint,
   table: validateTable,
   checklist: validateChecklist,
+  mermaid: validateMermaid,
+  wireframe: validateWireframe,
 };
 
 /** Validate a single raw element into a typed VisualBlock, or null when malformed. */
@@ -553,11 +646,11 @@ export function joinCodeBlocks(blocks: VisualBlock[], diffFiles: DiffFile[]): Vi
 
 // ── markInferred ──────────────────────────────────────────────────────────────
 
-/** Force inferred:true on every data-model/api-endpoint block.
+/** Force inferred:true on every data-model/api-endpoint/mermaid block.
  *  Other block types are returned as-is. Returns a new array; inputs not mutated. */
 export function markInferred(blocks: VisualBlock[]): VisualBlock[] {
   return blocks.map((blk) => {
-    if (blk.type === "data-model" || blk.type === "api-endpoint") {
+    if (blk.type === "data-model" || blk.type === "api-endpoint" || blk.type === "mermaid") {
       return { ...blk, inferred: true };
     }
     return blk;

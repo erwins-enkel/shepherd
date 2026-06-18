@@ -1506,5 +1506,16 @@
   "gloss_inferred_term": "inferred",
   "gloss_inferred_def": "Derived by the recap model from the code — not verified against the real diff. Treat it as a hint, not ground truth.",
   "feat_visual_recap_cards_title": "Schema & API recap cards",
-  "feat_visual_recap_cards_body": "Recaps now render schema changes, API endpoints, code excerpts, tables, and checklists as typed cards — not just flat text. Data-model and API cards are marked \"inferred\" to signal they were extracted by the model, not verified."
+  "feat_visual_recap_cards_body": "Recaps now render schema changes, API endpoints, code excerpts, tables, and checklists as typed cards — not just flat text. Data-model and API cards are marked \"inferred\" to signal they were extracted by the model, not verified.",
+  "vblock_mermaid_error": "Diagram could not be rendered",
+  "feat_visual_recap_diagrams_title": "Architecture diagrams in recaps",
+  "feat_visual_recap_diagrams_body": "Recaps can now include rendered architecture and flow diagrams (Mermaid). They're marked \"inferred\" — extracted by the model, not verified against the diff.",
+  "vblock_wireframe_mockup_label": "Illustrative mockup — not generated from code",
+  "vblock_wireframe_surface_browser": "Browser mockup",
+  "vblock_wireframe_surface_desktop": "Desktop mockup",
+  "vblock_wireframe_surface_mobile": "Mobile mockup",
+  "vblock_wireframe_surface_popover": "Popover mockup",
+  "vblock_wireframe_surface_panel": "Panel mockup",
+  "feat_visual_recap_wireframes_title": "UI mockups in recaps",
+  "feat_visual_recap_wireframes_body": "Recaps of UI work can now include rendered, themed mockups of the affected screens — clearly labelled as illustrative, not screenshots."
 }

@@ -45,6 +45,79 @@ export class Promoter {
     this.writeClaudeMd = deps.writeClaudeMd ?? ((p, c) => writeFileSync(p, c));
   }
 
+  async resyncPromoted(repoPath: string): Promise<PromoteResult> {
+    // Claim inflight slot synchronously — repo path can't collide with a learning id.
+    if (this.inflight.has(repoPath)) {
+      return { ok: false, error: "resync already in progress", status: 409 };
+    }
+    this.inflight.add(repoPath);
+    try {
+      const promoted = this.deps.store.listLearnings(repoPath, { status: "promoted" });
+      // Empty block sync is a no-op: nothing to write and git commit would error on empty diff.
+      if (promoted.length === 0) return { ok: true, url: "" };
+
+      const forge = this.deps.resolveForge(repoPath);
+      if (!forge) return { ok: false, error: "no forge configured for repo", status: 400 };
+
+      let base: string;
+      try {
+        base = await forge.defaultBranch();
+      } catch {
+        return { ok: false, error: "could not resolve default branch", status: 502 };
+      }
+      try {
+        await this.git(repoPath, ["fetch", "origin", "--", base]);
+      } catch {
+        /* offline / no origin — createPromoteWorktree falls back to the local base ref */
+      }
+
+      const name = `learnings-resync-${randomUUID().slice(0, 8)}`;
+      const wt = this.createPromoteWorktree(repoPath, base, name);
+      if (!wt.isolated || !wt.branch) {
+        if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
+        return { ok: false, error: "worktree creation failed", status: 500 };
+      }
+      try {
+        const rules = [...new Set(promoted.map((l) => l.rule))];
+        const claudePath = join(wt.worktreePath, "CLAUDE.md");
+        const current = this.readClaudeMd(claudePath);
+        const next = upsertLearningsBlock(current, rules);
+        // Content-compare guard: skip commit/push/PR if block is already current.
+        // Avoids a spurious git-commit error on an empty diff.
+        if (next === current) return { ok: true, url: "" };
+
+        this.writeClaudeMd(claudePath, next);
+        await this.git(wt.worktreePath, ["add", "CLAUDE.md"]);
+        await this.git(wt.worktreePath, [
+          "commit",
+          "-m",
+          "chore(learnings): sync optimized house rule to CLAUDE.md",
+        ]);
+        await this.git(wt.worktreePath, ["push", "-u", "origin", wt.branch]);
+
+        const body = [
+          "Syncing optimized Shepherd house rules into CLAUDE.md:\n",
+          ...rules.map((r) => `> ${r}`),
+        ].join("\n");
+        const status = await forge.openPr({
+          head: wt.branch,
+          base,
+          title: "chore(learnings): sync optimized house rules",
+          body,
+        });
+        if (!status.url) return { ok: false, error: "PR opened but no url returned", status: 502 };
+        return { ok: true, url: status.url };
+      } catch (err) {
+        console.warn(`[resync] failed for ${repoPath}:`, err);
+        return { ok: false, error: "resync failed", status: 500 };
+      } finally {
+        await this.cleanup(repoPath, wt.worktreePath, wt.branch);
+      }
+    } finally {
+      this.inflight.delete(repoPath);
+    }
+  }
+
   async promote(id: string): Promise<PromoteResult> {
     // Claim the in-flight slot synchronously, before any await, so a second click
     // landing mid-promote is rejected rather than racing the status transition.

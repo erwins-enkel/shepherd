@@ -207,3 +207,172 @@ test("Promoter.promote rejects a concurrent double-click with 409", async () => 
   const firstRes = await first;
   expect(firstRes.ok).toBe(true);
 });
+
+// --- resyncPromoted tests ---
+
+test("Promoter.resyncPromoted rebuilds block and opens a PR", async () => {
+  const store = new SessionStore(":memory:");
+  const l1 = store.addLearning({
+    repoPath: "/repo",
+    rule: "rule one",
+    rationale: "",
+    evidence: [],
+  });
+  const l2 = store.addLearning({
+    repoPath: "/repo",
+    rule: "rule two",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(l1.id, "active");
+  store.setLearningStatus(l1.id, "promoted");
+  store.setLearningStatus(l2.id, "active");
+  store.setLearningStatus(l2.id, "promoted");
+
+  const wtDir = mkdtempSync(join(tmpdir(), "resync-test-"));
+  const gitCalls: string[][] = [];
+  const removed: string[] = [];
+  let prOpened = false;
+
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "learnings-resync-abcd1234", isolated: true }),
+      remove: (path: string) => removed.push(path),
+    },
+    resolveForge: () =>
+      fakeForge({
+        openPr: async () => {
+          prOpened = true;
+          return {
+            state: "open",
+            number: 8,
+            url: "https://pr/8",
+            checks: "none",
+            deployConfigured: false,
+          };
+        },
+      }),
+    git: async (_cwd, args) => {
+      gitCalls.push(args);
+    },
+    // start with stale CLAUDE.md (no learnings block)
+    readClaudeMd: () => "# Repo\n\nsome existing content\n",
+    writeClaudeMd: () => {},
+  });
+
+  const res = await p.resyncPromoted("/repo");
+  expect(res).toEqual({ ok: true, url: "https://pr/8" });
+  expect(prOpened).toBe(true);
+  expect(gitCalls.some((a) => a[0] === "commit")).toBe(true);
+  expect(gitCalls.some((a) => a[0] === "push")).toBe(true);
+  // no DB status transition — rules stay promoted
+  expect(store.getLearning(l1.id)!.status).toBe("promoted");
+  expect(store.getLearning(l2.id)!.status).toBe("promoted");
+  // cleanup ran
+  expect(removed).toContain(wtDir);
+});
+
+test("Promoter.resyncPromoted is a no-op when CLAUDE.md already has the current block", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({
+    repoPath: "/repo2",
+    rule: "stay linear",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(l.id, "active");
+  store.setLearningStatus(l.id, "promoted");
+
+  const gitCalls: string[][] = [];
+  let prOpened = false;
+
+  // Precompute what the block should look like
+  const { upsertLearningsBlock: ulb } = await import("../src/promote");
+  const upToDate = ulb("# Repo\n\n", ["stay linear"]);
+
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: "/wt2", branch: "learnings-resync-xyz", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () =>
+      fakeForge({
+        openPr: async () => {
+          prOpened = true;
+          return {
+            state: "open",
+            number: 9,
+            url: "https://pr/9",
+            checks: "none",
+            deployConfigured: false,
+          };
+        },
+      }),
+    git: async (_cwd, args) => {
+      gitCalls.push(args);
+    },
+    readClaudeMd: () => upToDate,
+    writeClaudeMd: () => {},
+  });
+
+  const res = await p.resyncPromoted("/repo2");
+  expect(res).toEqual({ ok: true, url: "" });
+  expect(prOpened).toBe(false);
+  expect(gitCalls.some((a) => a[0] === "commit")).toBe(false);
+});
+
+test("Promoter.resyncPromoted returns no-op when no promoted rules exist", async () => {
+  const store = new SessionStore(":memory:");
+  // no learnings added for /repo3
+  let worktreeCreated = false;
+
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => {
+        worktreeCreated = true;
+        return { worktreePath: "/wt3", branch: "b", isolated: true };
+      },
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge(),
+    git: async () => {},
+  });
+
+  const res = await p.resyncPromoted("/repo3");
+  expect(res).toEqual({ ok: true, url: "" });
+  expect(worktreeCreated).toBe(false);
+});
+
+test("Promoter.resyncPromoted rejects a concurrent call for the same repo with 409", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/repo4", rule: "rule x", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  store.setLearningStatus(l.id, "promoted");
+
+  const wtDir = mkdtempSync(join(tmpdir(), "resync-race-"));
+  let releaseForge: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (releaseForge = resolve));
+
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "learnings-resync-racetest", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge({ defaultBranch: async () => (await gate, "main") }),
+    git: async () => {},
+    readClaudeMd: () => "",
+    writeClaudeMd: () => {},
+  });
+
+  const first = p.resyncPromoted("/repo4");
+  const second = await p.resyncPromoted("/repo4"); // inflight → 409
+  expect(second.ok).toBe(false);
+  if (!second.ok) expect(second.status).toBe(409);
+  releaseForge();
+  const firstRes = await first;
+  expect(firstRes.ok).toBe(true);
+});

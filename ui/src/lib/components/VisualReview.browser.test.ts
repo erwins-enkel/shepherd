@@ -145,4 +145,77 @@ describe("VisualReview dispatcher", () => {
     const { container } = render(VisualReview, { blocks });
     expect(container.querySelector(".vr-highlight-head")).toBeNull();
   });
+
+  // ── Phase 2 block types ──────────────────────────────────────────────────────
+
+  it("renders a code block (dispatches to CodeBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      { type: "code", id: "cb1", filename: "src/main.ts", code: "const x = 1;" },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("src/main.ts")).toBeInTheDocument();
+  });
+
+  it("renders an annotated-code block (dispatches to AnnotatedCodeBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "annotated-code",
+        id: "acb1",
+        filename: "src/handler.ts",
+        annotations: [{ label: "Note:", note: "Entry point" }],
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("src/handler.ts")).toBeInTheDocument();
+    await expect.element(page.getByText("Entry point")).toBeInTheDocument();
+  });
+
+  it("renders a data-model block (dispatches to DataModelBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "data-model",
+        id: "dm1",
+        inferred: true,
+        entities: [{ id: "e1", name: "Order", fields: [{ name: "id", type: "uuid", pk: true }] }],
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("Order")).toBeInTheDocument();
+  });
+
+  it("renders an api-endpoint block (dispatches to ApiEndpointBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      { type: "api-endpoint", id: "ep1", method: "POST", path: "/api/orders", inferred: true },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("POST")).toBeInTheDocument();
+    await expect.element(page.getByText("/api/orders")).toBeInTheDocument();
+  });
+
+  it("renders a table block (dispatches to TableBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "table",
+        id: "tb1",
+        columns: ["ConfigKey", "ConfigValue"],
+        rows: [["db_host", "localhost"]],
+      },
+    ];
+    const { container } = render(VisualReview, { blocks });
+    await expect.element(page.getByText("ConfigKey")).toBeInTheDocument();
+    const cells = Array.from(container.querySelectorAll(".tb-td"));
+    expect(cells.some((c) => c.textContent?.includes("db_host"))).toBe(true);
+  });
+
+  it("renders a checklist block (dispatches to ChecklistBlock)", async () => {
+    const blocks: VisualBlock[] = [
+      {
+        type: "checklist",
+        id: "ck1",
+        items: [{ id: "i1", label: "Fix the bug", checked: false }],
+      },
+    ];
+    render(VisualReview, { blocks });
+    await expect.element(page.getByText("Fix the bug")).toBeInTheDocument();
+  });
 });

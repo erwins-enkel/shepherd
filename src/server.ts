@@ -268,6 +268,18 @@ export interface AppDeps {
       lastFailure: { reason: string; at: number; repoPath: string } | null;
     };
   };
+  /** Learning optimizer — operator-triggered LLM rewrite pass over flagged ("not working")
+   *  rules. Optional so tests that don't wire it still type-check; routes no-op when absent.
+   *  Wired to the real OptimizerService in index.ts. */
+  optimizer?: {
+    optimizeOne: (id: string) => void;
+    optimizeAllFlagged: (repoPath: string) => void;
+    health?: () => {
+      ok: boolean;
+      consecutiveFailures: number;
+      lastFailure: { reason: string; at: number; repoPath: string } | null;
+    };
+  };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
@@ -906,12 +918,10 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
 
   // GET /api/learnings/health — distiller health (fail-safe: safe default when absent)
   if (parts[2] === "health") {
-    const h = deps.distiller?.health?.() ?? {
-      ok: true,
-      consecutiveFailures: 0,
-      lastFailure: null,
-    };
-    return json(h);
+    const safe = { ok: true, consecutiveFailures: 0, lastFailure: null };
+    const distiller = deps.distiller?.health?.() ?? safe;
+    const optimizer = deps.optimizer?.health?.() ?? safe;
+    return json({ ...distiller, optimizer });
   }
 
   // GET /api/learnings?repo=&status=
@@ -936,6 +946,14 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
     return json({ ok: true });
   }
 
+  // POST /api/learnings/optimize?repo= — optimize ALL flagged rules in a repo (checked before :id)
+  if (parts[2] === "optimize") {
+    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    deps.optimizer?.optimizeAllFlagged(dir);
+    return json({ ok: true });
+  }
+
   // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
   if (parts[2] && parts[3] === "promote") {
     if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
@@ -943,6 +961,12 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
     if (!res.ok) return json({ error: res.error }, res.status);
     deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
     return json({ url: res.url });
+  }
+
+  // POST /api/learnings/:id/optimize — optimize a single flagged rule
+  if (parts[2] && parts[3] === "optimize") {
+    deps.optimizer?.optimizeOne(parts[2]);
+    return json({ ok: true });
   }
 
   // POST /api/learnings/:id/approve  |  /:id/dismiss

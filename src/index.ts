@@ -66,6 +66,7 @@ import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees }
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
+import { OptimizerService } from "./optimizer";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
@@ -1062,6 +1063,17 @@ setInterval(() => {
   void distiller.tick();
 }, 30_000);
 const promoter = new Promoter({ store, worktree, resolveForge });
+const optimizer = new OptimizerService({
+  store,
+  herdr,
+  scratch: defaultScratch,
+  promoter,
+  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+});
+setInterval(() => {
+  if (maintenance.active) return;
+  void optimizer.tick();
+}, 30_000);
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
@@ -1272,6 +1284,7 @@ const appDeps: AppDeps = {
     await broadcastBacklog();
   },
   distiller,
+  optimizer,
   promoter,
   gitignoreAdopter,
   drain: {

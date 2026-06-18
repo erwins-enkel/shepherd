@@ -1449,5 +1449,8 @@
   "feat_mobile_header_title": "Aufgeräumterer mobiler Kopf",
   "feat_mobile_header_body": "Der Statusfilter in der Herd-Kopfzeile ist auf dem Handy jetzt ein kompaktes Segmented-Control — ein Tippen wechselt die Ansicht, Symbole entfallen, und die Leiste bleibt einzeilig auf jeder Handybreite.",
   "topbar_sheet_title": "Steuerung",
-  "topbar_sheet_usage": "Auslastung"
+  "topbar_sheet_usage": "Auslastung",
+  "newtask_repo_shortcuts_hint": "{mod}[ / {mod}] Repo wechseln · {mod}1–3 zuletzt · {mod}R filtern",
+  "feat_repo_shortcuts_title": "Repo-Wechsel per Tastatur",
+  "feat_repo_shortcuts_body": "Im Bereich „Neue Aufgabe“ kannst du das Repository jetzt per Tastatur wechseln, ohne das Eingabefeld zu verlassen: Alt+[ und Alt+] blättern durch alle Repos, Alt+1–3 springen zu deinen zuletzt genutzten Repos und Alt+R öffnet die Repo-Auswahl. Auf dem Mac die Wahltaste (⌥) verwenden."
 }

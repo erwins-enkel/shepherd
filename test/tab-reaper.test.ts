@@ -8,6 +8,7 @@ import {
 } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
 import { DISTILL_LABEL } from "../src/distiller";
+import { OPTIMIZE_LABEL } from "../src/optimizer";
 import type { HerdrPane } from "../src/herdr";
 
 function pane(paneId: string, tabId: string, label: string): HerdrPane {
@@ -186,6 +187,8 @@ describe("isShepherdHelperLabel", () => {
     [PROBE_NAME, "usage probe (underscore marker)"],
     [DISTILL_LABEL, "distiller bare prefix (underscore marker)"],
     [`${DISTILL_LABEL}a1b2c3d4`, "distiller unique label (prefix + 8hex suffix)"],
+    [OPTIMIZE_LABEL, "optimizer bare prefix (underscore marker)"],
+    [`${OPTIMIZE_LABEL}a1b2c3d4`, "optimizer unique label (prefix + 8hex suffix)"],
     ["review TASK-09", "critic/code-review"],
     ["name TASK-09", "background namer"],
     // new helpers (#721)
@@ -209,6 +212,7 @@ describe("isShepherdHelperLabel", () => {
     ["my-feature", "ordinary user session slug"],
     ["usage-probe", "slug form of PROBE_NAME — must NOT be reaped"],
     ["distill", "slug form of DISTILL_LABEL — must NOT be reaped"],
+    ["optimize", "slug form of OPTIMIZE_LABEL — must NOT be reaped"],
     ["my-feature-branch", "ordinary user slug (no underscores)"],
     ["reviewing-pr", "starts with 'review' but no trailing space"],
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],

@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
+import { OPTIMIZE_LABEL } from "./optimizer";
 
 export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
 
@@ -15,22 +16,24 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  user slug. It is safe only because `reapOrphanTabs` never reaps a tab that has a live
  *  backing agent; a running user "rundown" session is therefore never touched.
  *
- *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME} and
- *  {@link DISTILL_LABEL} contain underscores; every other helper uses a space-prefixed
+ *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME},
+ *  {@link DISTILL_LABEL} and {@link OPTIMIZE_LABEL} contain underscores; every other helper uses a space-prefixed
  *  label (`"review "`, `"name "`, `"plan-review "`, `"pr-critic "`, `"recap "`,
  *  `"autopilot "`) or a multi-word exact phrase (`"verify api key"`). User sessions use
  *  prompt-derived `[a-z0-9-]` slugs — no spaces, no underscores — so none of these labels
  *  is reachable by a slug. Exception: `"rundown"` (exact, no space) relies on the
  *  liveness gate instead.
  *
- *  The distiller now spawns under a UNIQUE per-run name of the form
- *  `__distill__<8hex>` (prefix `DISTILL_LABEL`), matched here by prefix. The prefix ends
- *  in `__`, which `[a-z0-9-]` slugs can never produce, so the prefix match stays
- *  collision-proof. The per-pane liveness check remains the actual safety gate.
+ *  The distiller and optimizer each spawn under a UNIQUE per-run name of the form
+ *  `__distill__<8hex>` / `__optimize__<8hex>` (prefixes `DISTILL_LABEL` / `OPTIMIZE_LABEL`),
+ *  matched here by prefix. The prefix ends in `__`, which `[a-z0-9-]` slugs can never
+ *  produce, so the prefix match stays collision-proof. The per-pane liveness check remains
+ *  the actual safety gate.
  *
  *  Helpers covered:
  *  - `__usage_probe__`   — usage probe (PROBE_NAME)
  *  - `__distill__<hex>`  — distiller (DISTILL_LABEL prefix, unique per run)
+ *  - `__optimize__<hex>` — rule optimizer (OPTIMIZE_LABEL prefix, unique per run)
  *  - `review <desig>`    — critic / code-review spawns
  *  - `name <desig>`      — background LLM namer
  *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
@@ -43,6 +46,7 @@ export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
     label.startsWith(DISTILL_LABEL) ||
+    label.startsWith(OPTIMIZE_LABEL) ||
     label === "rundown" ||
     label === "verify api key" ||
     label.startsWith("review ") ||

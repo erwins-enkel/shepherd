@@ -640,6 +640,30 @@ describe("NewTask repo shortcuts", () => {
       .toBe(true);
   });
 
+  it("Escape in open picker closes dropdown but not the modal, refocuses prompt", async () => {
+    const onclose = vi.fn();
+    render(NewTask, { props: base({ initialRepoPath: repoA.path, onclose }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    // Open the picker via Alt+R
+    press("KeyR");
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeTruthy();
+
+    // Dispatch Escape from inside .rs-root (mirroring real focus on the filter input)
+    const filter = document.querySelector<HTMLInputElement>(".rs-filter")!;
+    filter.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+
+    // Dropdown closes
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeFalsy();
+    // Modal stays mounted (onclose did NOT fire)
+    expect(document.querySelector("#nt-prompt")).toBeTruthy();
+    expect(onclose).not.toHaveBeenCalled();
+    // Prompt is refocused
+    expect(document.activeElement).toBe(document.querySelector("#nt-prompt"));
+  });
+
   it("bare ] without Alt does NOT change the selected repo", async () => {
     render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
     await expect.poll(() => triggerLabel()).toBe(repoA.name);

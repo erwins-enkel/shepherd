@@ -17,6 +17,7 @@
     onnewproject,
     onsync,
     windowDays,
+    onescape,
   }: {
     repos: RepoEntry[];
     value: string;
@@ -29,6 +30,9 @@
     onsync?: (repo: RepoEntry) => Promise<void> | void;
     /** Day count the server computed recentAgentCount over — named in the per-row label. */
     windowDays: number;
+    /** Invoked when an open panel is dismissed via Escape, so the parent can restore
+     *  focus — e.g. NewTask refocuses its prompt. */
+    onescape?: () => void;
   } = $props();
 
   let open = $state(false);
@@ -145,7 +149,7 @@
         if (r) pick(r.path);
         break;
       }
-      // Escape falls through to the window handler that closes the panel.
+      // Escape is handled by the root-node keydown listener below, which closes the panel.
     }
   }
 
@@ -157,24 +161,29 @@
   }
 
   $effect(() => {
+    const node: HTMLElement | null = root;
+    if (!node) return;
+    // Re-alias after the guard: TS drops the $state null-narrowing inside the closures below.
+    const n = node;
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape" && open) {
-        open = false;
-        pickerFor = null;
-        filter = "";
-      }
+      if (e.key !== "Escape" || !open || e.defaultPrevented) return;
+      e.preventDefault();
+      open = false;
+      pickerFor = null;
+      filter = "";
+      onescape?.();
     }
     function onClick(e: MouseEvent) {
-      if (open && root && !root.contains(e.target as Node)) {
+      if (open && !n.contains(e.target as Node)) {
         open = false;
         pickerFor = null;
         filter = "";
       }
     }
-    window.addEventListener("keydown", onKeydown);
+    n.addEventListener("keydown", onKeydown);
     window.addEventListener("click", onClick, true);
     return () => {
-      window.removeEventListener("keydown", onKeydown);
+      n.removeEventListener("keydown", onKeydown);
       window.removeEventListener("click", onClick, true);
     };
   });

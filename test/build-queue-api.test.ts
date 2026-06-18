@@ -326,3 +326,79 @@ test("POST queue/approve for unknown session → 404", async () => {
   );
   expect(res.status).toBe(404);
 });
+
+// ── GET /api/queues — bulk snapshot ──────────────────────────────────────────
+
+test("GET /api/queues returns keyed map of sessions with steps, approved flag", async () => {
+  const { app, store } = harness();
+  const sess1 = makeSession(store, repoDir);
+  const sess2 = makeSession(store, repoDir);
+
+  store.replaceBuildQueue(sess1.id, [{ title: "Step A" }, { title: "Step B" }]);
+  store.setBuildQueueApproved(sess1.id, true);
+  store.replaceBuildQueue(sess2.id, [{ title: "Step C" }]);
+  // sess2 approved defaults to false
+
+  const res = await app.fetch(new Request(`http://x/api/queues`));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<
+    string,
+    { sessionId: string; steps: unknown[]; approved: boolean }
+  >;
+
+  // sess1: 2 steps, approved=true
+  expect(body[sess1.id]).toBeDefined();
+  expect(body[sess1.id]!.sessionId).toBe(sess1.id);
+  expect(body[sess1.id]!.steps).toHaveLength(2);
+  expect(body[sess1.id]!.approved).toBe(true);
+
+  // sess2: 1 step, approved=false
+  expect(body[sess2.id]).toBeDefined();
+  expect(body[sess2.id]!.sessionId).toBe(sess2.id);
+  expect(body[sess2.id]!.steps).toHaveLength(1);
+  expect(body[sess2.id]!.approved).toBe(false);
+});
+
+test("GET /api/queues omits sessions with no steps", async () => {
+  const { app, store } = harness();
+  const withSteps = makeSession(store, repoDir);
+  const noSteps = makeSession(store, repoDir);
+
+  store.replaceBuildQueue(withSteps.id, [{ title: "Step A" }]);
+  // noSteps has no queue entries
+
+  const res = await app.fetch(new Request(`http://x/api/queues`));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, unknown>;
+
+  expect(body[withSteps.id]).toBeDefined();
+  expect(body[noSteps.id]).toBeUndefined();
+});
+
+test("GET /api/queues returns empty object when no sessions have steps", async () => {
+  const { app } = harness();
+  const res = await app.fetch(new Request(`http://x/api/queues`));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toEqual({});
+});
+
+test("GET /api/queues route does not shadow GET /api/sessions/:id/queue", async () => {
+  const { app, store } = harness();
+  const sess = makeSession(store, repoDir);
+  store.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+
+  // bulk endpoint
+  const bulk = await app.fetch(new Request(`http://x/api/queues`));
+  expect(bulk.status).toBe(200);
+  const bulkBody = (await bulk.json()) as Record<string, { sessionId: string; steps: unknown[] }>;
+  expect(bulkBody[sess.id]).toBeDefined();
+  expect(bulkBody[sess.id]!.steps).toHaveLength(1);
+
+  // per-session endpoint still works independently
+  const single = await app.fetch(new Request(`http://x/api/sessions/${sess.id}/queue`));
+  expect(single.status).toBe(200);
+  const singleBody = await single.json();
+  expect(singleBody.sessionId).toBe(sess.id);
+  expect(singleBody.steps).toHaveLength(1);
+});

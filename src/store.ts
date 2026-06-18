@@ -2195,6 +2195,43 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  /** Return one BuildQueue per session that has ≥1 step, via a single JOIN.
+   *  Sessions with no steps are omitted entirely. */
+  listBuildQueues(): BuildQueue[] {
+    const rows = this.db
+      .query(
+        `SELECT s.id AS stepId, s.sessionId, s.position, s.title, s.detail, s.status, st.approved
+         FROM build_queue_steps s
+         LEFT JOIN build_queue_state st ON st.sessionId = s.sessionId
+         ORDER BY s.sessionId, s.position`,
+      )
+      .all() as {
+      stepId: string;
+      sessionId: string;
+      position: number;
+      title: string;
+      detail: string;
+      status: string;
+      approved: number | null;
+    }[];
+    const map = new Map<string, BuildQueue>();
+    for (const r of rows) {
+      let q = map.get(r.sessionId);
+      if (!q) {
+        q = { sessionId: r.sessionId, steps: [], approved: r.approved ? !!r.approved : false };
+        map.set(r.sessionId, q);
+      }
+      q.steps.push({
+        id: r.stepId,
+        title: r.title,
+        detail: r.detail,
+        status: r.status as BuildStepStatus,
+        position: r.position,
+      });
+    }
+    return [...map.values()];
+  }
+
   // ── standalone repo-level PR reviews ─────────────────────────────────────
   getPrReview(repoPath: string, prNumber: number): PrReview | null {
     const r = this.db

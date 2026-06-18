@@ -1151,6 +1151,14 @@ export async function promoteLearning(id: string): Promise<{ url: string }> {
   return r.json();
 }
 
+/** Snapshot of every session's build queue that has ≥1 step, keyed by session
+ *  id (for the Herd list overview). Sessions with no steps are absent. */
+export async function getBuildQueues(): Promise<Record<string, BuildQueue>> {
+  const r = await fetch("/api/queues");
+  if (!r.ok) throw await failed(r, "build queues");
+  return r.json();
+}
+
 export async function getBuildQueue(sessionId: string): Promise<BuildQueue> {
   return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, "build-queue");
 }

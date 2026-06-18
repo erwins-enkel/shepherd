@@ -937,22 +937,21 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
   return null;
 }
 
-async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  // POST /api/learnings/distill?repo= — checked BEFORE :id so "distill" isn't an id
-  if (parts[2] === "distill") {
-    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-    if (!dir) return json({ error: "invalid repo" }, 400);
-    deps.distiller?.distillNow(dir);
-    return json({ ok: true });
-  }
+/** POST /api/learnings/{distill,optimize}?repo= — the two repo-scoped learning triggers
+ *  (matched before :id). Returns null when `parts[2]` is neither. */
+function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps): Response | null {
+  if (parts[2] !== "distill" && parts[2] !== "optimize") return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (parts[2] === "distill") deps.distiller?.distillNow(dir);
+  else deps.optimizer?.optimizeAllFlagged(dir);
+  return json({ ok: true });
+}
 
-  // POST /api/learnings/optimize?repo= — optimize ALL flagged rules in a repo (checked before :id)
-  if (parts[2] === "optimize") {
-    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-    if (!dir) return json({ error: "invalid repo" }, 400);
-    deps.optimizer?.optimizeAllFlagged(dir);
-    return json({ ok: true });
-  }
+async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  // POST /api/learnings/{distill,optimize}?repo= — checked BEFORE :id so they aren't ids
+  const repoScoped = handleRepoScopedLearningPost(parts, url, deps);
+  if (repoScoped) return repoScoped;
 
   // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
   if (parts[2] && parts[3] === "promote") {

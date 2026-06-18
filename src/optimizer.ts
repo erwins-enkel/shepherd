@@ -158,17 +158,13 @@ export class OptimizerService {
     }
   }
 
-  private begin(repoPath: string, ids: string[]): void {
-    const { dir } = this.deps.scratch.create();
-    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
-      console.warn(
-        "[optimize] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
-      );
-      this.deps.scratch.remove(dir);
-      return;
-    }
-    // Resolve targets: only rules still active/promoted AND still flagged survive.
+  /** Resolve the target rules for a run: only rules still active/promoted AND still flagged
+   *  survive. Returns the agent-input targets plus the id-guard sets. */
+  private resolveTargets(ids: string[]): {
+    targets: OptimizerTarget[];
+    targetIds: Set<string>;
+    promotedIds: Set<string>;
+  } {
     const targets: OptimizerTarget[] = [];
     const targetIds = new Set<string>();
     const promotedIds = new Set<string>();
@@ -187,26 +183,16 @@ export class OptimizerService {
       targetIds.add(l.id);
       if (l.status === "promoted") promotedIds.add(l.id);
     }
-    if (targets.length === 0) {
-      this.deps.scratch.remove(dir);
-      return;
-    }
-    try {
-      this.writeInput(dir, targets);
-    } catch (err) {
-      console.warn(`[optimize] write input failed for ${repoPath}:`, err);
-      this.deps.scratch.remove(dir);
-      this.recordHealthFailure(repoPath, "write");
-      return;
-    }
-    // Read-only optimizer — same hard-won spawn contract as the critic/distiller
-    // (src/review.ts:begin, src/distiller.ts:begin). NOT --dangerously-skip-permissions:
-    // it reads untrusted agent/repo text. dontAsk MUST be last (after the variadic
-    // --allowedTools) so the trailing prompt isn't swallowed. Bare Write only.
-    // Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
-    // apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR.
-    const sessionId = randomUUID();
-    const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
+    return { targets, targetIds, promotedIds };
+  }
+
+  /** Build the read-only claude argv (same hard-won contract as the critic/distiller).
+   *  Read-only optimizer (src/review.ts:begin, src/distiller.ts:begin). NOT
+   *  --dangerously-skip-permissions: it reads untrusted agent/repo text. dontAsk MUST be
+   *  last (after the variadic --allowedTools) so the trailing prompt isn't swallowed. Bare
+   *  Write only. Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
+   *  apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR. */
+  private buildArgv(sessionId: string): string[] {
     const argv = [
       "claude",
       "--session-id",
@@ -224,6 +210,35 @@ export class OptimizerService {
     if (this.deps.model) argv.push("--model", this.deps.model);
     argv.push("--permission-mode", "dontAsk");
     argv.push(optimizePrompt());
+    return argv;
+  }
+
+  private begin(repoPath: string, ids: string[]): void {
+    const { dir } = this.deps.scratch.create();
+    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
+    if (isApiKeyMode() && !isApiKeyConfigured()) {
+      console.warn(
+        "[optimize] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
+      );
+      this.deps.scratch.remove(dir);
+      return;
+    }
+    const { targets, targetIds, promotedIds } = this.resolveTargets(ids);
+    if (targets.length === 0) {
+      this.deps.scratch.remove(dir);
+      return;
+    }
+    try {
+      this.writeInput(dir, targets);
+    } catch (err) {
+      console.warn(`[optimize] write input failed for ${repoPath}:`, err);
+      this.deps.scratch.remove(dir);
+      this.recordHealthFailure(repoPath, "write");
+      return;
+    }
+    const sessionId = randomUUID();
+    const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
+    const argv = this.buildArgv(sessionId);
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -301,17 +316,28 @@ export class OptimizerService {
     let revised = 0;
     let promotedRevised = false;
     for (const e of entries) {
-      const id = typeof e?.id === "string" ? e.id : undefined;
-      if (!id || !f.targetIds.has(id)) continue;
-      if (typeof e.rule !== "string" || !e.rule.trim()) continue;
-      const rationale = typeof e.rationale === "string" ? e.rationale : undefined;
-      if (this.deps.store.reviseLearning(id, e.rule, rationale)) {
+      const r = coerceRevision(e);
+      if (!r || !f.targetIds.has(r.id)) continue;
+      if (this.deps.store.reviseLearning(r.id, r.rule, r.rationale)) {
         revised++;
-        if (f.promotedIds.has(id)) promotedRevised = true;
+        if (f.promotedIds.has(r.id)) promotedRevised = true;
       }
     }
     return { revised, promotedRevised };
   }
+}
+
+/** Validate one raw revision entry → {id, rule, rationale} or null (bad shape / blank rule). */
+function coerceRevision(e: {
+  id?: unknown;
+  rule?: unknown;
+  rationale?: unknown;
+}): { id: string; rule: string; rationale?: string } | null {
+  const id = typeof e?.id === "string" ? e.id : undefined;
+  if (!id) return null;
+  if (typeof e.rule !== "string" || !e.rule.trim()) return null;
+  const rationale = typeof e.rationale === "string" ? e.rationale : undefined;
+  return { id, rule: e.rule, rationale };
 }
 
 function optimizePrompt(): string {

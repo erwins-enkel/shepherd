@@ -1,3 +1,8 @@
+<script module lang="ts">
+  // Module-level counter: globally unique render ids across all MermaidBlock instances.
+  let renderCounter = 0;
+</script>
+
 <script lang="ts">
   import type { VisualBlock } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -9,11 +14,9 @@
   let svg = $state<string | null>(null);
   let error = $state<boolean>(false);
 
-  // Monotonic counter to guarantee unique mermaid render ids.
-  let renderCounter = 0;
-
   $effect(() => {
     // Read reactive deps at top so the effect re-runs on theme/contrast change.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reactive dep
     const resolved = theme.resolved;
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     theme.contrast;
@@ -43,7 +46,7 @@
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: resolved === "dark" ? "dark" : "base",
+          theme: "base",
           themeVariables: Object.keys(themeVariables).length > 0 ? themeVariables : undefined,
         });
 

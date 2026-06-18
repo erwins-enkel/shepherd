@@ -318,6 +318,7 @@
         class:active={statusFilter == null && filter === "rundown"}
         title={m.herd_rundown_title()}
         aria-pressed={statusFilter == null && filter === "rundown"}
+        use:coachTarget={"herd-rundown"}
         onclick={() => {
           filter = "rundown";
           onstatusfilter?.(null);

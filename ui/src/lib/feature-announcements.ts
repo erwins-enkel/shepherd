@@ -950,9 +950,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_diagnose_doc_links_body",
   },
   {
-    // targetId "herd-rundown" anchors the coachmark on the ☰ RUNDOWN control in the
-    // TopBar, which is always mounted. 1.31.0 is the latest released tag, so this
-    // ships in 1.32.0.
+    // targetId "herd-rundown" anchors the coachmark on the left-list RUNDOWN filter
+    // tab (Herd.svelte desktop fbtn). The tab is unmounted when the sidebar is
+    // collapsed, so the coachmark degrades to drawer-only in that case. 1.31.0 is
+    // the latest released tag, so this ships in 1.32.0.
     id: "herd-rundown",
     sinceVersion: "1.32.0",
     titleKey: "feat_herd_rundown_title",

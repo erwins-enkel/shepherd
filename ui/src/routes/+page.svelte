@@ -713,21 +713,6 @@
     if (mobile.current) mobileScreen = "detail";
   }
 
-  // ☰ RUNDOWN: toggle the herd rail's Rundown lens. Re-clicking while it's already
-  // open closes it back to the "all" list — the button is the only obvious return
-  // path, so it must be a toggle, not a one-way door. Opening ensures a digest is
-  // loaded (best-effort; live herd:digest pushes also keep it fresh) and clears the
-  // status filter, mirroring the lens tabs, which are mutually exclusive with it.
-  function openRundown() {
-    if (herdFilter === "rundown") {
-      herdFilter = "all";
-      return;
-    }
-    statusFilter = null;
-    herdFilter = "rundown";
-    void herdDigest.load();
-  }
-
   // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens
   // (back to the full list so the session row is visible) and select it via the same
   // selectUnit a rail click uses.
@@ -1522,8 +1507,6 @@
         onhalt={haltHerd}
         needsYou={blockedEntries.length}
         ontriage={() => (showTriage = true)}
-        onrundown={openRundown}
-        rundownActive={herdFilter === "rundown"}
         update={store.update}
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}

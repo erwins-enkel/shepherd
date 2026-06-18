@@ -8,7 +8,7 @@ import {
   joinDiffBlocks,
   parseVisualBlocks,
   reconcileFileTree,
-} from "./visual-blocks";
+} from "../src/visual-blocks";
 
 // ── parseVisualBlocks ────────────────────────────────────────────────────────
 

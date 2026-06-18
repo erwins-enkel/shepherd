@@ -1489,5 +1489,7 @@
   "vblock_filetree_modified": "Geändert",
   "vblock_filetree_removed": "Entfernt",
   "vblock_filetree_renamed": "Umbenannt",
-  "vblock_diff_highlighted_heading": "Hervorgehobene Änderungen"
+  "vblock_diff_highlighted_heading": "Hervorgehobene Änderungen",
+  "feat_visual_recap_title": "Visuelle Zusammenfassungen",
+  "feat_visual_recap_body": "Die Zusammenfassung einer abgeschlossenen Sitzung wird jetzt als übersichtliches Dokument dargestellt — ein Baum der Änderungen, das echte annotierte Diff und farbige Hinweise — statt als reiner Text. Erweitere eine Zusammenfassung, um sie zu sehen."
 }

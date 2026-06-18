@@ -1489,5 +1489,7 @@
   "vblock_filetree_modified": "Modified",
   "vblock_filetree_removed": "Removed",
   "vblock_filetree_renamed": "Renamed",
-  "vblock_diff_highlighted_heading": "Highlighted changes"
+  "vblock_diff_highlighted_heading": "Highlighted changes",
+  "feat_visual_recap_title": "Visual recaps",
+  "feat_visual_recap_body": "A finished session's recap now renders as a scannable document — a tree of what changed, the real annotated diff, and toned callouts — instead of flat text. Expand a recap to see it."
 }

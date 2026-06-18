@@ -3233,6 +3233,15 @@
     text-transform: uppercase;
     padding: 2px 7px;
   }
+  /* desktop labeled form sizes its SVG text-scaled (beside the uppercase label);
+     the compact icon-only form has no label and sizes via the global
+     .icon-btn svg (18px) instead. Without this the labeled SVG has no sizing
+     rule and falls back to the replaced-element default (~300×150). */
+  .vp-resume:not(.icon-btn) svg {
+    width: var(--fs-base);
+    height: var(--fs-base);
+    display: block;
+  }
   .vp-resume:hover {
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);

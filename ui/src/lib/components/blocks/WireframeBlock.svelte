@@ -5,6 +5,10 @@
 
   let { block }: { block: Extract<VisualBlock, { type: "wireframe" }> } = $props();
 
+  // SECURITY INVARIANT: the svg/path/rect/… primitives below are inert ONLY because the
+  // render iframe carries no `allow-scripts` and a `default-src 'none'` CSP (see the iframe
+  // below). If either is ever relaxed, this SVG allowlist (and `use`/`foreignObject`/`animate`,
+  // deliberately omitted) must be revisited — vector markup becomes a live script/exfil surface.
   const DOMPURIFY_CONFIG = {
     ALLOWED_TAGS: [
       "div",
@@ -192,6 +196,9 @@ button.primary,[data-primary]{ background:var(--wf-accent); color:var(--wf-accen
     <span class="wf-honesty-badge">{m.vblock_wireframe_mockup_label()}</span>
   </div>
   <div class="wf-frame-wrap" style="--surface-width: {surfaceWidth}">
+    <!-- SECURITY INVARIANT: sandbox is `allow-same-origin` (needed only to read contentDocument
+         height) and MUST NEVER gain `allow-scripts` — without scripts, same-origin grants no real
+         capability and the DOMPurify allowlist + CSP above are the trust boundary for block.html. -->
     <iframe
       class="wf-frame"
       sandbox="allow-same-origin"

@@ -572,6 +572,7 @@
         {onfork}
         {onnewproject}
         onsync={handleSync}
+        onescape={() => promptInput?.focus()}
       />
     </div>
 

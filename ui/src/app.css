@@ -349,7 +349,6 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px; /* for the armed decom "?" adornment beside the SVG */
   width: var(--icon-btn-hit);
   height: var(--icon-btn-hit);
   padding: 0;

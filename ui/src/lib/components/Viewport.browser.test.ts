@@ -427,3 +427,91 @@ describe("Viewport mobile page-swipe scoping", () => {
     expect(onnavigate).not.toHaveBeenCalled();
   });
 });
+
+// ── Armed decommission icon-only: solid red fill, no "?" adornment (#776 fix) ──
+// Regression guard: the three icon-only decom buttons must NOT render a
+// .decom-confirm child when armed, and the armed button must have a solid red
+// background (not the faint tint of .decom.armed, which is overridden by
+// .decom.icon-btn.armed for the icon-only forms).
+describe("Viewport armed decommission icon-only rendering", () => {
+  it("armed compact decom button has no .decom-confirm child and has solid red background", async () => {
+    // mobile=true + readyToMerge=false → the git-strip icon-only decom button renders.
+    // Viewport.svelte CSS is scoped; app.css (imported at test top) provides tokens.
+    const { container } = render(Viewport, {
+      session: session({ id: "dc-compact", readyToMerge: false }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    // Find the compact decom button
+    const decomBtn = container.querySelector<HTMLButtonElement>("button.decom.icon-btn.compact");
+    expect(decomBtn, "compact decom button should render").not.toBeNull();
+
+    // Pre-arm: no .decom-confirm child
+    expect(decomBtn!.querySelector(".decom-confirm"), "no .decom-confirm before arming").toBeNull();
+
+    // Arm it: direct DOM click (same pattern as stop-preview test above)
+    decomBtn!.click();
+
+    // Wait for Svelte reactivity to settle and the .armed class to appear
+    await vi.waitFor(() =>
+      expect(decomBtn!.classList.contains("armed"), "button gains .armed class after click").toBe(
+        true,
+      ),
+    );
+
+    // After arming: still no .decom-confirm child (the "?" adornment must not exist)
+    expect(decomBtn!.querySelector(".decom-confirm"), "no .decom-confirm after arming").toBeNull();
+
+    // Armed state CSS: background resolves to --color-red (solid fill).
+    // Resolve the token value by probing a temp element with color: var(--color-red).
+    const probe = document.createElement("div");
+    probe.style.color = "var(--color-red)";
+    document.body.appendChild(probe);
+    const expectedRgb = getComputedStyle(probe).color;
+    document.body.removeChild(probe);
+
+    // Assert the token actually resolved — fail loudly if the test environment is
+    // misconfigured (rather than silently skipping the solid-fill assertion).
+    expect(
+      expectedRgb && expectedRgb !== "rgba(0, 0, 0, 0)" && expectedRgb !== "",
+      "--color-red must resolve to a real color in the test environment",
+    ).toBe(true);
+    // Wait for the 0.12s CSS transition to complete before sampling the computed style.
+    await vi.waitFor(
+      () => {
+        const bg = getComputedStyle(decomBtn!).backgroundColor;
+        expect(bg, "armed icon-btn decom background is solid --color-red").toBe(expectedRgb);
+      },
+      { timeout: 500 },
+    );
+  });
+
+  it("armed quiet desktop decom button has no .decom-confirm child", async () => {
+    // compact=false + readyToMerge=false → the desktop quiet icon-only decom button
+    const { container } = render(Viewport, {
+      session: session({ id: "dc-quiet", readyToMerge: false }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const decomBtn = container.querySelector<HTMLButtonElement>("button.decom.quiet.icon-btn");
+    expect(decomBtn, "quiet decom button should render").not.toBeNull();
+
+    // Arm it
+    decomBtn!.click();
+
+    // Wait for .armed class
+    await vi.waitFor(() =>
+      expect(decomBtn!.classList.contains("armed"), "quiet button gains .armed after click").toBe(
+        true,
+      ),
+    );
+
+    expect(
+      decomBtn!.querySelector(".decom-confirm"),
+      "no .decom-confirm after arming quiet form",
+    ).toBeNull();
+  });
+});

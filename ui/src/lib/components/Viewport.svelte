@@ -2314,12 +2314,14 @@
           class:compact
           type="button"
           onclick={decommission}
-          title={m.viewport_decommission_ready_title()}
-          aria-label={m.viewport_decommission_ready_aria()}
+          title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_ready_title()}
+          aria-label={armed
+            ? m.viewport_confirm_decommission()
+            : m.viewport_decommission_ready_aria()}
         >
           {#if compact}
-            <!-- armed = destructive confirm: stay red + interrogative. Never ✓ —
-                 that glyph means READY/actionable-complete elsewhere in the HUD. -->
+            <!-- armed = destructive confirm: the square fills solid red (no glyph
+                 swap). Never ✓ — that glyph means READY/actionable-complete in the HUD. -->
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -2329,7 +2331,6 @@
               stroke-linejoin="round"
               aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
             >
-            {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
           {:else}
             {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
           {/if}
@@ -2338,7 +2339,8 @@
         <!-- no PR yet → desktop still keeps decommission one click away, but quiet:
              a faint icon-only ✕ (the green nudge is earned by delivering a PR).
              Compact layouts show the same icon-only ✕ in the git strip instead.
-             Same glyph rule as above: armed = red ✕?, never ✓. -->
+             Same armed treatment as above: the square fills solid red (no glyph
+             swap). Never ✓ — that glyph means READY/actionable-complete. -->
         <button
           class="decom quiet icon-btn"
           class:armed
@@ -2356,7 +2358,6 @@
             stroke-linejoin="round"
             aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
           >
-          {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
         </button>
       {/if}
     </div>
@@ -2426,7 +2427,6 @@
               stroke-linejoin="round"
               aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
             >
-            {#if armed}<span class="decom-confirm" aria-hidden="true">?</span>{/if}
           </button>
         {/if}
       </span>
@@ -3194,13 +3194,6 @@
     text-transform: uppercase;
     padding: 2px 7px;
   }
-  /* ? adornment inherits the armed red via currentColor; centered by recipe flex + gap */
-  .decom-confirm {
-    color: currentColor;
-    font-size: var(--fs-meta);
-    line-height: 1;
-  }
-
   /* Resume: the primary action of a parked session, so it stays on the identity
      row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
      → no green/red), brightening to ink on hover. */
@@ -3296,6 +3289,17 @@
     color: var(--color-red);
     border-color: var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  }
+
+  /* Icon-only armed decom: no "?" adornment (the square has no room for it); the
+     armed/destructive-confirm state reads as a solid red fill instead. Scoped to
+     .icon-btn so the labeled "confirm ✕" text form keeps its faint-red treatment. */
+  .decom.icon-btn.armed {
+    background: var(--color-red);
+    border-color: var(--color-red);
+    /* knockout ✕ in the surface color — clears WCAG ≥3:1 non-text contrast on the
+       red fill in all four themes (ink-bright fails the high-contrast themes). */
+    color: var(--color-bg);
   }
 
   /* quiet variant: pre-PR desktop inline ✕. Now an .icon-btn — sizing/padding

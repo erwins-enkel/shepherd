@@ -4073,6 +4073,11 @@
     border-color: var(--color-red);
     color: var(--color-red);
   }
+  .ctrl-row .attach {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
   .ctrl-row .attach svg {
     width: var(--fs-lg);
     height: var(--fs-lg);

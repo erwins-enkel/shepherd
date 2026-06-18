@@ -463,7 +463,7 @@ input, select, textarea {
           aria-hidden="true"
         >
           <path d="M18 6 6 18" /><path d="M6 6l12 12" />
-        </svg><span>?</span>
+        </svg><span aria-hidden="true" style="font-size: var(--fs-meta); line-height: 1">?</span>
       </button>
       <button type="button" class="icon-btn" aria-label="Upload">
         <svg

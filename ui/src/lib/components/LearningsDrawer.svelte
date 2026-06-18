@@ -707,13 +707,13 @@
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
   }
-  /* Per-repo "Optimize all flagged" — token-outlined small action, mirrors .distill. */
+  /* Per-repo "Optimize all flagged" — token-outlined small action, mirrors .optimize (amber, not green). */
   .optimize-all {
     margin-left: auto;
     font-size: var(--fs-meta);
     background: none;
-    border: 1px solid var(--color-green);
-    color: var(--color-green);
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
     padding: 3px 8px;
     cursor: pointer;
   }

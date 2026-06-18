@@ -511,3 +511,121 @@ describe("NewTask research toggle", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ research: false });
   });
 });
+
+describe("NewTask repo shortcuts", () => {
+  // Three repos in list order: alpha, bravo, charlie.
+  // bravo has the highest recentAgentCount → recents[0]
+  // charlie has lower count but a more recent lastUsedAt → recents[1]
+  // alpha has no recent activity → recents[2] (not in recents at all at limit=3 since only 2 have counts)
+  // So recentRepos order is: bravo, charlie (only 2 with positive counts)
+  const repoA: RepoEntry = { name: "alpha", path: "/repo/alpha", display: "alpha" };
+  const repoB: RepoEntry = {
+    name: "bravo",
+    path: "/repo/bravo",
+    display: "bravo",
+    recentAgentCount: 5,
+    lastUsedAt: 1000,
+  };
+  const repoC: RepoEntry = {
+    name: "charlie",
+    path: "/repo/charlie",
+    display: "charlie",
+    recentAgentCount: 2,
+    lastUsedAt: 2000,
+  };
+  const repos = [repoA, repoB, repoC];
+
+  function triggerLabel() {
+    return document.querySelector<HTMLElement>(".rs-trigger b")?.textContent ?? null;
+  }
+
+  function press(code: string, opts: KeyboardEventInit = {}) {
+    const ta = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    ta.focus();
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...opts,
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    mockListRepos.mockResolvedValue({ repos, recentWindowDays: 30 });
+  });
+
+  it("Alt+] advances to the next repo; wraps from last to first", async () => {
+    // start at alpha (index 0); ] → bravo (index 1)
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("BracketRight");
+    await expect.poll(() => triggerLabel()).toBe(repoB.name);
+
+    // advance to charlie (index 2)
+    press("BracketRight");
+    await expect.poll(() => triggerLabel()).toBe(repoC.name);
+
+    // wrap from last → first
+    press("BracketRight");
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+  });
+
+  it("Alt+[ moves to the previous repo; wraps from first to last", async () => {
+    // start at alpha (index 0); [ → wrap to charlie (index 2)
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("BracketLeft");
+    await expect.poll(() => triggerLabel()).toBe(repoC.name);
+
+    // previous from charlie → bravo
+    press("BracketLeft");
+    await expect.poll(() => triggerLabel()).toBe(repoB.name);
+  });
+
+  it("Alt+2 selects the 2nd recent repo (charlie, differs from list order)", async () => {
+    // list order: alpha, bravo, charlie
+    // recents order: bravo (count=5), charlie (count=2, more recent lastUsedAt)
+    // Digit2 → charlie (index 1 in recents)
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("Digit2");
+    await expect.poll(() => triggerLabel()).toBe(repoC.name);
+  });
+
+  it("Alt+3 is a silent no-op when only 2 recents exist", async () => {
+    // only repoB and repoC have recentAgentCount > 0, so recents has 2 entries
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("Digit3");
+    // label stays unchanged
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+  });
+
+  it("Alt+R opens the picker and focuses the filter input", async () => {
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("KeyR");
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeTruthy();
+    await expect
+      .poll(() => document.activeElement === document.querySelector(".rs-filter"))
+      .toBe(true);
+  });
+
+  it("bare ] without Alt does NOT change the selected repo", async () => {
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    // fire without altKey
+    press("BracketRight", { altKey: false });
+    // label must remain unchanged
+    expect(triggerLabel()).toBe(repoA.name);
+  });
+});

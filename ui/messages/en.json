@@ -1450,5 +1450,8 @@
   "feat_mobile_header_title": "Tidier mobile header",
   "feat_mobile_header_body": "The status filter in the Herd header is now a compact segmented control on mobile — one tap switches lens, glyphs are gone, and the bar stays single-line at any phone width.",
   "topbar_sheet_title": "Controls",
-  "topbar_sheet_usage": "Usage"
+  "topbar_sheet_usage": "Usage",
+  "newtask_repo_shortcuts_hint": "{mod}[ / {mod}] switch repo · {mod}1–3 recent · {mod}R filter",
+  "feat_repo_shortcuts_title": "Keyboard repo switching",
+  "feat_repo_shortcuts_body": "In the New Task pane you can now switch repositories from the keyboard without leaving the prompt: Alt+[ and Alt+] step through every repo, Alt+1–3 jump to your recent repos, and Alt+R opens the repo picker. On macOS use the Option (⌥) key."
 }

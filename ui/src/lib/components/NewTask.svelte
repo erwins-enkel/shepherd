@@ -29,6 +29,7 @@
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { recentRepos } from "$lib/recentRepos";
 
   let {
     onsubmit,
@@ -146,6 +147,7 @@
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
   let promptInput = $state<HTMLTextAreaElement>();
+  let repoSelect: RepoSelect | undefined = $state();
   let isMac = $state(false);
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
@@ -432,6 +434,48 @@
     }
   }
 
+  function cycleRepo(dir: 1 | -1) {
+    const n = repos.length;
+    if (n === 0) return;
+    const cur = repos.findIndex((r) => r.path === repoPath);
+    const i = cur === -1 ? 0 : cur;
+    repoPath = repos[(i + dir + n) % n]!.path;
+  }
+
+  // Alt-tier repo switchers, keyed on physical e.code so they work on any layout
+  // (DE brackets need AltGr; macOS Option+key types glyphs) and while the prompt
+  // textarea holds focus — keydown bubbles from the textarea to the dialog <form>.
+  // Mirrors +page.svelte's handleAltCombo guard. Matched combos are swallowed
+  // (preventDefault + stopPropagation) so no browser default fires and no glyph is
+  // inserted into the prompt; the global Alt tier is already dormant while a modal
+  // is open (anyOverlayOpen), so stopPropagation is belt-and-suspenders.
+  function onRepoShortcut(e: KeyboardEvent) {
+    if (e.repeat || e.isComposing) return;
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    switch (e.code) {
+      case "BracketLeft":
+        cycleRepo(-1);
+        break;
+      case "BracketRight":
+        cycleRepo(1);
+        break;
+      case "Digit1":
+      case "Digit2":
+      case "Digit3": {
+        const target = recentRepos(repos)[Number(e.code.slice(5)) - 1];
+        if (target) repoPath = target.path; // out of range → no selection change
+        break; // still swallow the chord below
+      }
+      case "KeyR":
+        repoSelect?.openPanel();
+        break;
+      default:
+        return; // not ours — let it through untouched
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
@@ -495,6 +539,7 @@
     aria-label={heading}
     use:dialog={{ onclose: () => onclose?.() }}
     onsubmit={submit}
+    onkeydown={onRepoShortcut}
     ondragover={(e) => {
       e.preventDefault();
       dragging = true;
@@ -518,6 +563,7 @@
     <div class="repo-field" use:coachTarget={"nt-repo"}>
       <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
       <RepoSelect
+        bind:this={repoSelect}
         {repos}
         windowDays={recentRepoWindowDays}
         value={repoPath}
@@ -528,6 +574,10 @@
         onsync={handleSync}
       />
     </div>
+
+    <span class="hint repo-shortcuts-hint">
+      {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
+    </span>
 
     {#if relaunch}
       <div class="relaunch-note">
@@ -1133,6 +1183,16 @@
   .hint {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  .repo-shortcuts-hint {
+    display: block;
+    margin-top: 4px;
+  }
+  /* keyboard-only affordance — irrelevant on the phone sheet (mobile-declutter) */
+  @media (max-width: 768px) {
+    .repo-shortcuts-hint {
+      display: none;
+    }
   }
   .attach-relaunch-note {
     display: block;

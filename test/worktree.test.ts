@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { WorktreeMgr } from "../src/worktree";
 
@@ -359,6 +359,81 @@ test("createDetached: a fork head only reachable via pullRef is fetched and chec
   rmSync(seed, { recursive: true, force: true });
   rmSync(base, { recursive: true, force: true });
 });
+
+// ── Task A: four new tests for the reworked create() failure path ────────────
+
+const gitEnvBasic = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@t",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@t",
+};
+
+test("create: invalid base ref throws with stderr in message", () => {
+  const wt = new WorktreeMgr();
+  expect(() => wt.create(repo, "no-such-base", "x")).toThrow(/invalid reference/i);
+});
+
+test("create: non-git directory returns non-isolated, no throw", () => {
+  const nonGitDir = mkdtempSync(join(tmpdir(), "shepherd-nongit-"));
+  try {
+    const wt = new WorktreeMgr();
+    const r = wt.create(nonGitDir, "main", "x");
+    expect(r.isolated).toBe(false);
+    expect(r.branch).toBeNull();
+    expect(r.worktreePath).toBe(nonGitDir);
+  } finally {
+    rmSync(nonGitDir, { recursive: true, force: true });
+  }
+});
+
+test("create: branch-exists collision → retry → abort, branch + commit preserved", () => {
+  // Pre-create shepherd/dup with an extra commit not on main
+  execFileSync("git", ["checkout", "-b", "shepherd/dup"], { cwd: repo });
+  execFileSync("git", ["commit", "--allow-empty", "-m", "dup-extra"], {
+    cwd: repo,
+    env: gitEnvBasic,
+  });
+  const dupSha = execFileSync("git", ["rev-parse", "shepherd/dup"], { cwd: repo })
+    .toString()
+    .trim();
+  execFileSync("git", ["checkout", "main"], { cwd: repo });
+
+  const wt = new WorktreeMgr();
+  expect(() => wt.create(repo, "main", "dup")).toThrow(/already exists/i);
+
+  // shepherd/dup still points at the extra commit (branch -D was NOT run)
+  const shaAfter = execFileSync("git", ["rev-parse", "shepherd/dup"], { cwd: repo })
+    .toString()
+    .trim();
+  expect(shaAfter).toBe(dupSha);
+  // The extra commit is NOT on main → branch genuinely preserved
+  expect(() =>
+    execFileSync("git", ["merge-base", "--is-ancestor", "shepherd/dup", "main"], {
+      cwd: repo,
+      stdio: "pipe",
+    }),
+  ).toThrow();
+});
+
+test("create: cleanupPartial removes leftover dir → retry succeeds", () => {
+  // Pre-create a non-empty directory at the exact path create() will use
+  const parent = join(dirname(repo), ".shepherd-worktrees");
+  const worktreePath = join(parent, `${basename(repo)}-recover`);
+  mkdirSync(parent, { recursive: true });
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "leftover.txt"), "stale");
+
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "recover");
+  expect(r.isolated).toBe(true);
+  expect(r.branch).toBe("shepherd/recover");
+  expect(existsSync(r.worktreePath)).toBe(true);
+  wt.remove(r.worktreePath);
+});
+
+// ── end Task A tests ──────────────────────────────────────────────────────────
 
 test("behindBase: false when up-to-date, true when base advanced", async () => {
   const dir = mkdtempSync(join(tmpdir(), "wt-"));

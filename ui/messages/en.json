@@ -1475,7 +1475,6 @@
   "learnings_optimize_started": "Optimizing flagged rules…",
   "learnings_optimize_failed": "Couldn’t start optimization",
   "learnings_filter_flagged": "Not working ({count})",
-  "learnings_filter_all": "Show all",
   "learnings_optimizer_stalled_title": "Optimizer stalled",
   "learnings_optimizer_stalled_body": "The rule optimizer failed {count} times in a row. Check the server logs.",
   "feat_optimize_learnings_title": "Fix ‘not working’ house rules in one click",

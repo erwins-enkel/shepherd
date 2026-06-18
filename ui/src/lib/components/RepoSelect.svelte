@@ -3,6 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { RepoEntry } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { recentRepos } from "$lib/recentRepos";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -61,9 +62,6 @@
     }
   }
 
-  // How many repos to pin in the "recently worked on" shortcut group at the top.
-  const RECENT_LIMIT = 3;
-
   /** Pluralized "{count} agents run here in the last {days} days" label for a pinned row. */
   function recentAgentsLabel(count: number): string {
     return count === 1
@@ -80,19 +78,7 @@
   // The top few repos we've run the most agents on lately (desc by count, then by
   // most-recently-used). Only shown when the list isn't being filtered — once the
   // user types, the shortcut just gets in the way of the search they asked for.
-  const recents = $derived(
-    filter.trim() === ""
-      ? repos
-          .filter((r) => (r.recentAgentCount ?? 0) > 0)
-          .sort(
-            (a, b) =>
-              (b.recentAgentCount ?? 0) - (a.recentAgentCount ?? 0) ||
-              (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0) ||
-              a.name.localeCompare(b.name),
-          )
-          .slice(0, RECENT_LIMIT)
-      : [],
-  );
+  const recents = $derived(filter.trim() === "" ? recentRepos(repos) : []);
 
   // Single option sequence the keyboard cursor walks: pinned recents first, then the
   // full list. Pinned repos intentionally re-appear below — the group is a shortcut,
@@ -102,16 +88,19 @@
     ...filtered.map((r) => ({ repo: r, pinned: false })),
   ]);
 
+  export function openPanel() {
+    open = true;
+    filter = "";
+    const idx = shown.findIndex((row) => row.repo.path === value);
+    activeIdx = idx >= 0 ? idx : 0;
+    tick().then(scrollActiveIntoView);
+  }
+
   async function toggle() {
-    open = !open;
     if (open) {
-      filter = "";
-      // Point the keyboard cursor at the currently-selected repo (its first
-      // occurrence — the pinned one if it's a recent), not row 0.
-      const idx = shown.findIndex((row) => row.repo.path === value);
-      activeIdx = idx >= 0 ? idx : 0;
-      await tick();
-      scrollActiveIntoView();
+      open = false;
+    } else {
+      openPanel();
     }
   }
 

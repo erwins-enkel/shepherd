@@ -2621,6 +2621,10 @@ function handleBranches({ req, parts, url }: Ctx): Response | null {
 // bounded, and rate-limited by the TTL cache below + client debounce (Task 5).
 
 const BRANCH_STATUS_TTL_MS = 10_000;
+// Single long-running server loop: bound the cache so it never grows without
+// limit. On each write: prune expired entries first, then evict oldest (Map
+// preserves insertion order) if the cap is still exceeded.
+const BRANCH_STATUS_CACHE_MAX = 256;
 const branchStatusCache = new Map<
   string,
   {
@@ -2662,6 +2666,13 @@ async function branchStatusCached(
     hasUpstream: st.hasUpstream,
     localExists: st.localExists,
   };
+  // Prune expired entries before writing, then cap by evicting oldest.
+  for (const [k, v] of branchStatusCache) {
+    if (now - v.at >= BRANCH_STATUS_TTL_MS) branchStatusCache.delete(k);
+  }
+  while (branchStatusCache.size >= BRANCH_STATUS_CACHE_MAX) {
+    branchStatusCache.delete(branchStatusCache.keys().next().value!);
+  }
   branchStatusCache.set(key, { at: now, value });
   return value;
 }

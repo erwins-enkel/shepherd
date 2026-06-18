@@ -1785,6 +1785,59 @@ describe("validateWireframe (type=wireframe)", () => {
     ]);
     expect(result).toHaveLength(1);
   });
+
+  // Fix 1: unquoted style= attribute bypass
+  it("drops block with hex color in unquoted style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: "<div style=color:#ff0000>text</div>",
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("drops block with font-family in unquoted style attribute", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: "<div style=font-family:serif>text</div>",
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  // Fix 2: event handler after slash
+  it("drops block with event handler after slash (<div/onclick=>)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<div/onclick="x()">click</div>',
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  // Regression: issue ref in text + quoted style still KEPT
+  it("keeps block with issue ref in text and quoted style= (no false drop)", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "wireframe",
+        id: "wf1",
+        surface: "browser",
+        html: '<p style="background:var(--wf-card)">see #789</p>',
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "wireframe");
+    expect(block.html).toContain("#789");
+  });
 });
 
 // ── groundBlocks: wireframe pass-through ──────────────────────────────────────

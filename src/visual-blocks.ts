@@ -434,21 +434,27 @@ function validateMermaid(r: Record<string, unknown>, id: string): VisualBlock | 
 function wireframeHtmlHasUnsafeStructure(html: string): boolean {
   if (/<script/i.test(html)) return true;
   if (/<style/i.test(html)) return true;
-  if (/\son[a-z]+\s*=/i.test(html)) return true;
+  if (/(^|[\s/])on[a-z]+\s*=/i.test(html)) return true;
   if (/href\s*=/i.test(html)) return true;
+  return false;
+}
+
+/** Returns true when a style attribute value contains raw colors or disallowed properties. */
+function styleValueImpure(value: string): boolean {
+  if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
+  if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
+  if (/font-family/i.test(value)) return true;
+  if (/box-shadow/i.test(value)) return true;
   return false;
 }
 
 /** Returns true when any style= attribute value contains raw colors or disallowed properties. */
 function wireframeStylesImpure(html: string): boolean {
-  const styleAttr = /style\s*=\s*("([^"]*)"|'([^']*)')/gi;
+  const styleAttr = /style\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>][^>]*))/gi;
   let match: RegExpExecArray | null;
   while ((match = styleAttr.exec(html)) !== null) {
-    const value = match[2] ?? match[3] ?? "";
-    if (/#[0-9a-fA-F]{3,8}/.test(value)) return true;
-    if (/\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\s*\(/i.test(value)) return true;
-    if (/font-family/i.test(value)) return true;
-    if (/box-shadow/i.test(value)) return true;
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (styleValueImpure(value)) return true;
   }
   return false;
 }

@@ -1479,5 +1479,17 @@
   "learnings_optimizer_stalled_title": "Optimizer stalled",
   "learnings_optimizer_stalled_body": "The rule optimizer failed {count} times in a row. Check the server logs.",
   "feat_optimize_learnings_title": "Fix ‘not working’ house rules in one click",
-  "feat_optimize_learnings_body": "When a house rule stops preventing mistakes, filter to the flagged ones and let Shepherd reword them from the failures — individually or all at once."
+  "feat_optimize_learnings_body": "When a house rule stops preventing mistakes, filter to the flagged ones and let Shepherd reword them from the failures — individually or all at once.",
+  "vblock_callout_info": "Info",
+  "vblock_callout_decision": "Decision",
+  "vblock_callout_risk": "Risk",
+  "vblock_callout_warning": "Warning",
+  "vblock_callout_success": "Success",
+  "vblock_filetree_added": "Added",
+  "vblock_filetree_modified": "Modified",
+  "vblock_filetree_removed": "Removed",
+  "vblock_filetree_renamed": "Renamed",
+  "vblock_diff_highlighted_heading": "Highlighted changes",
+  "feat_visual_recap_title": "Visual recaps",
+  "feat_visual_recap_body": "A finished session's recap now renders as a scannable document — a tree of what changed, the real annotated diff, and toned callouts — instead of flat text. Expand a recap to see it."
 }

@@ -233,6 +233,32 @@ export interface PlanGate {
   updatedAt: number;
 }
 
+// ── visual recap blocks ──────────────────────────────────────────────────────
+// mirrors server VisualBlock union (Phase 1: rich-text + callout; file-tree + diff Task 6)
+export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";
+export type FileTreeChange = "added" | "modified" | "removed" | "renamed";
+export interface FileTreeEntry {
+  path: string;
+  change: FileTreeChange;
+  note?: string;
+}
+export interface DiffAnnotation {
+  label?: string;
+  note: string;
+}
+export type VisualBlock =
+  | { type: "rich-text"; id: string; markdown: string }
+  | { type: "callout"; id: string; tone: CalloutTone; markdown: string }
+  | { type: "file-tree"; id: string; title?: string; entries: FileTreeEntry[] }
+  | {
+      type: "diff";
+      id: string;
+      path: string;
+      summary: string;
+      annotations?: DiffAnnotation[];
+      file?: DiffFile;
+    };
+
 // ── session recap ────────────────────────────────────────────────────────────
 // mirrors server Recap / RecapState / RecapVerdict
 export type RecapState = "generating" | "ready" | "failed" | "empty";
@@ -252,6 +278,7 @@ export interface Recap {
   spawnedAt: number;
   generatedAt: number | null;
   updatedAt: number;
+  blocks?: VisualBlock[]; // arrives over session:recap WS payload; optional for back-compat
 }
 
 // mirrors server HerdDigest / RundownItem / HerdDigestState

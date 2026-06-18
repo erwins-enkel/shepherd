@@ -280,3 +280,144 @@ test("buildRecapPrompt: skips plan section when plan is empty", () => {
   });
   expect(p).not.toContain("Plan that was executed");
 });
+
+// ── parseRecapVerdict — blocks ────────────────────────────────────────────────
+
+test("parseRecapVerdict: returns blocks:[] when JSON has no blocks field (back-compat)", () => {
+  const result = parseRecapVerdict({ verdict: "ready", headline: "x", body: "", openItems: [] });
+  expect(result).not.toBeNull();
+  expect(result?.blocks).toEqual([]);
+});
+
+test("parseRecapVerdict: returns parsed blocks when valid blocks are present", () => {
+  const raw = {
+    verdict: "ready",
+    headline: "x",
+    body: "",
+    openItems: [],
+    blocks: [
+      { type: "rich-text", id: "r1", markdown: "## Why\nContext." },
+      {
+        type: "diff",
+        id: "d1",
+        path: "src/foo.ts",
+        summary: "Added helper",
+        annotations: [{ note: "Extracted from main loop" }],
+      },
+    ],
+  };
+  const result = parseRecapVerdict(raw);
+  expect(result).not.toBeNull();
+  expect(result?.blocks).toHaveLength(2);
+  expect(result?.blocks[0]).toMatchObject({ type: "rich-text", id: "r1" });
+  expect(result?.blocks[1]).toMatchObject({ type: "diff", id: "d1", path: "src/foo.ts" });
+});
+
+test("parseRecapVerdict: garbage blocks returns blocks:[] but verdict still valid", () => {
+  const withString = parseRecapVerdict({
+    verdict: "ready",
+    headline: "x",
+    body: "",
+    openItems: [],
+    blocks: "nope",
+  });
+  expect(withString).not.toBeNull();
+  expect(withString?.blocks).toEqual([]);
+
+  const withJunk = parseRecapVerdict({
+    verdict: "ready",
+    headline: "x",
+    body: "",
+    openItems: [],
+    blocks: [{ junk: true }],
+  });
+  expect(withJunk).not.toBeNull();
+  expect(withJunk?.blocks).toEqual([]);
+});
+
+test("parseRecapVerdict: invalid verdict returns null even when blocks are present", () => {
+  const result = parseRecapVerdict({
+    verdict: "approve",
+    headline: "x",
+    body: "",
+    openItems: [],
+    blocks: [{ type: "rich-text", id: "r1", markdown: "hello" }],
+  });
+  expect(result).toBeNull();
+});
+
+// ── buildRecapPrompt — blocks guidance ───────────────────────────────────────
+
+test("buildRecapPrompt: mentions blocks in output", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("blocks");
+});
+
+test("buildRecapPrompt: includes all four block type names", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("rich-text");
+  expect(p).toContain("callout");
+  expect(p).toContain("file-tree");
+  expect(p).toContain("diff");
+});
+
+test("buildRecapPrompt: describes annotations as prose not line numbers", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("prose");
+  expect(p).toContain("NOT line numbers");
+});
+
+test("buildRecapPrompt: states diff hunks/file are server-supplied", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("the server attaches the real diff content");
+});
+
+test("buildRecapPrompt: JSON shape example carries no inline comment (strict JSON.parse safety)", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  // An inline `//` comment inside the shape's {...} literal would be echoed into
+  // .shepherd-recap.json and break strict JSON.parse — the optional-blocks note lives in prose.
+  expect(p).not.toContain("// blocks");
+  expect(p).toContain("no comments");
+});
+
+test("buildRecapPrompt: includes redact-secrets instruction", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain("Redact secrets");
+  expect(p).toContain("redacted");
+});

@@ -5,6 +5,7 @@
   import { regenerateRecap } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import VisualReview from "./VisualReview.svelte";
 
   let { session }: { session: Session } = $props();
 
@@ -64,6 +65,7 @@
   }
 </script>
 
+<!-- fallow-ignore-next-line complexity -->
 {#if recap && recap.state !== "empty"}
   <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
   <div class="recap-card panel" use:coachTarget={"session-recap"}>
@@ -93,7 +95,9 @@
       </button>
       {#if expanded}
         <div class="recap-body">
-          {#if renderedBody}
+          {#if recap.blocks && recap.blocks.length > 0}
+            <VisualReview blocks={recap.blocks} />
+          {:else if renderedBody}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
             <div class="recap-md">{@html renderedBody}</div>
           {/if}

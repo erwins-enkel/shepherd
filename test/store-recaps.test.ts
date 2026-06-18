@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { SessionStore } from "../src/store";
-import type { Recap } from "../src/types";
+import type { Recap, DiffFile } from "../src/types";
+import type { VisualBlock } from "../src/visual-blocks";
 
 const r = (over: Partial<Recap> = {}): Recap => ({
   sessionId: "s1",
@@ -156,4 +157,115 @@ test("recaps: snapshotRecaps returns hydrated Recap objects", () => {
   const snap = s.snapshotRecaps();
   expect(snap["s1"]?.openItems).toEqual(["fix CI"]);
   expect(snap["s1"]?.verdict).toBe("needs_attention");
+});
+
+// ── blocks + pendingDiff (Task 2) ─────────────────────────────────────────────
+
+const sampleBlocks: VisualBlock[] = [
+  { type: "rich-text", id: "b1", markdown: "# Summary\nAll good." },
+  { type: "callout", id: "b2", tone: "info", markdown: "Note this." },
+];
+
+const sampleDiffFile: DiffFile = {
+  path: "src/store.ts",
+  status: "modified",
+  additions: 10,
+  deletions: 2,
+  binary: false,
+  hunks: [],
+};
+
+test("recaps: blocks round-trip via put→get / snapshot / generatingRecaps", () => {
+  const s = new SessionStore(":memory:");
+  // generating row (also appears in generatingRecaps)
+  s.putRecap(r({ sessionId: "s1", state: "generating", blocks: sampleBlocks }));
+  // ready row (appears in snapshot)
+  s.putRecap(
+    r({
+      sessionId: "s2",
+      state: "ready",
+      verdict: "ready",
+      headline: "done",
+      blocks: sampleBlocks,
+    }),
+  );
+
+  // getRecap
+  expect(s.getRecap("s1")?.blocks).toEqual(sampleBlocks);
+  expect(s.getRecap("s2")?.blocks).toEqual(sampleBlocks);
+
+  // snapshotRecaps
+  expect(s.snapshotRecaps()["s2"]?.blocks).toEqual(sampleBlocks);
+
+  // generatingRecaps
+  const gen = s.generatingRecaps();
+  expect(gen.find((x) => x.sessionId === "s1")?.blocks).toEqual(sampleBlocks);
+});
+
+test("recaps: diff block keeps its server-grounded `file` through put→get / snapshot / generatingRecaps", () => {
+  const s = new SessionStore(":memory:");
+  const diffBlock: VisualBlock = {
+    type: "diff",
+    id: "d1",
+    path: "src/store.ts",
+    summary: "tweak",
+    file: sampleDiffFile,
+  };
+  s.putRecap(r({ sessionId: "s1", state: "generating", blocks: [diffBlock] }));
+  s.putRecap(
+    r({ sessionId: "s2", state: "ready", verdict: "ready", headline: "done", blocks: [diffBlock] }),
+  );
+
+  // hydrateRecap must NOT re-run parseVisualBlocks (the LLM-input trust boundary, which strips the
+  // server-attached `file` off diff blocks): the persisted real DiffFile must survive every DB read.
+  const got = s.getRecap("s2")?.blocks?.[0];
+  expect(got).toBeDefined();
+  if (got?.type !== "diff") throw new Error("expected a diff block");
+  expect(got.file).toEqual(sampleDiffFile);
+  expect(s.snapshotRecaps()["s2"]?.blocks?.[0]).toEqual(diffBlock);
+  expect(s.generatingRecaps().find((x) => x.sessionId === "s1")?.blocks?.[0]).toEqual(diffBlock);
+});
+
+test("recaps: blocks back-compat — absent blocks hydrates to []", () => {
+  const s = new SessionStore(":memory:");
+  s.putRecap(r({ sessionId: "s1", state: "ready", verdict: "ready", headline: "h" }));
+  expect(s.getRecap("s1")?.blocks).toEqual([]);
+});
+
+test("recaps: blocks bad JSON in DB defaults to []", () => {
+  const s = new SessionStore(":memory:");
+  s.putRecap(r({ sessionId: "s1", state: "ready", verdict: "ready", headline: "h" }));
+  s["db"].run(`UPDATE recaps SET blocks='not json' WHERE sessionId='s1'`);
+  expect(s.getRecap("s1")?.blocks).toEqual([]);
+});
+
+test("recaps: pendingDiff carrier round-trip via setRecapPendingDiff / generatingRecaps", () => {
+  const s = new SessionStore(":memory:");
+  s.putRecap(r({ sessionId: "s1", state: "generating" }));
+
+  s.setRecapPendingDiff("s1", [sampleDiffFile]);
+  const gen1 = s.generatingRecaps();
+  expect(gen1.find((x) => x.sessionId === "s1")?.pendingDiff).toEqual([sampleDiffFile]);
+
+  // clear
+  s.setRecapPendingDiff("s1", []);
+  const gen2 = s.generatingRecaps();
+  expect(gen2.find((x) => x.sessionId === "s1")?.pendingDiff).toEqual([]);
+});
+
+test("recaps: pendingDiff NO-LEAK — absent from getRecap and snapshotRecaps", () => {
+  const s = new SessionStore(":memory:");
+  s.putRecap(r({ sessionId: "s1", state: "generating" }));
+  s.setRecapPendingDiff("s1", [sampleDiffFile]);
+
+  // getRecap must NOT expose pendingDiff
+  const got = s.getRecap("s1")!;
+  expect("pendingDiff" in got).toBe(false);
+
+  // snapshotRecaps must NOT expose pendingDiff
+  s.putRecap(r({ sessionId: "s2", state: "ready", verdict: "ready", headline: "h" }));
+  s.setRecapPendingDiff("s2", [sampleDiffFile]);
+  const snap = s.snapshotRecaps();
+  expect("pendingDiff" in snap["s2"]!).toBe(false);
+  expect("pendingDiff" in snap["s1"]!).toBe(false);
 });

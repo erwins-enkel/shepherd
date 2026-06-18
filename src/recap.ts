@@ -39,6 +39,7 @@ import {
   isSettledIdle,
   needsRecap,
 } from "./recap-core";
+import { groundBlocks } from "./visual-blocks";
 
 const execFileAsync = promisify(execFile);
 
@@ -148,6 +149,7 @@ export interface RecapServiceDeps {
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "list"
+    | "setRecapPendingDiff"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
   onChange: (id: string, recap: Recap | null) => void;
@@ -469,6 +471,7 @@ export class RecapService {
       };
       this.deps.store.putRecap(row);
       this.deps.onChange(id, row);
+      this.deps.store.setRecapPendingDiff(id, diff.files);
 
       return "started";
     } finally {
@@ -501,26 +504,31 @@ export class RecapService {
 
   private async finalize(r: Recap, raw: unknown | null): Promise<void> {
     const t = this.now();
+    // Strip the server-only carrier so it never reaches putRecap or onChange.
+    const { pendingDiff = [], ...rBase } = r;
     let newRow: Recap;
     try {
       const parsed = raw ? parseRecapVerdict(raw) : null;
       if (parsed) {
+        const grounded = groundBlocks(parsed.blocks, pendingDiff, rBase.changedFiles);
         newRow = {
-          ...r,
+          ...rBase,
           state: "ready",
           verdict: parsed.verdict,
           headline: parsed.headline,
           body: parsed.body,
           openItems: parsed.openItems,
+          blocks: grounded,
           generatedAt: t,
           updatedAt: t,
         };
       } else {
         // timeout or unparseable — fail closed, never fake a ready
-        newRow = { ...r, state: "failed", generatedAt: t, updatedAt: t };
+        newRow = { ...rBase, state: "failed", blocks: [], generatedAt: t, updatedAt: t };
       }
       this.deps.store.putRecap(newRow);
       this.deps.onChange(r.sessionId, newRow);
+      this.deps.store.setRecapPendingDiff(r.sessionId, []);
 
       // Best-effort usage capture.
       try {

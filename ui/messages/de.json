@@ -1479,5 +1479,17 @@
   "learnings_optimizer_stalled_title": "Optimierer blockiert",
   "learnings_optimizer_stalled_body": "Der Regel-Optimierer ist {count}-mal in Folge fehlgeschlagen. Prüfe die Server-Logs.",
   "feat_optimize_learnings_title": "„Wirkungslose“ Hausregeln mit einem Klick reparieren",
-  "feat_optimize_learnings_body": "Wenn eine Hausregel Fehler nicht mehr verhindert, filtere auf die markierten Regeln und lass Shepherd sie aus den Fehlern neu formulieren – einzeln oder alle auf einmal."
+  "feat_optimize_learnings_body": "Wenn eine Hausregel Fehler nicht mehr verhindert, filtere auf die markierten Regeln und lass Shepherd sie aus den Fehlern neu formulieren – einzeln oder alle auf einmal.",
+  "vblock_callout_info": "Info",
+  "vblock_callout_decision": "Entscheidung",
+  "vblock_callout_risk": "Risiko",
+  "vblock_callout_warning": "Warnung",
+  "vblock_callout_success": "Erfolg",
+  "vblock_filetree_added": "Hinzugefügt",
+  "vblock_filetree_modified": "Geändert",
+  "vblock_filetree_removed": "Entfernt",
+  "vblock_filetree_renamed": "Umbenannt",
+  "vblock_diff_highlighted_heading": "Hervorgehobene Änderungen",
+  "feat_visual_recap_title": "Visuelle Zusammenfassungen",
+  "feat_visual_recap_body": "Die Zusammenfassung einer abgeschlossenen Sitzung wird jetzt als übersichtliches Dokument dargestellt — ein Baum der Änderungen, das echte annotierte Diff und farbige Hinweise — statt als reiner Text. Erweitere eine Zusammenfassung, um sie zu sehen."
 }

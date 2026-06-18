@@ -1,4 +1,5 @@
 import type { SandboxProfile } from "./sandbox";
+import type { VisualBlock } from "./visual-blocks";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -303,6 +304,9 @@ export interface Recap {
   spawnedAt: number;
   generatedAt: number | null; // set when finalized (ready/failed/empty)
   updatedAt: number;
+  blocks?: VisualBlock[]; // optional typed visual blocks; absent → render flat markdown body (back-compat)
+  pendingDiff?: DiffFile[]; // SERVER-ONLY transient carrier: populated ONLY by generatingRecaps() for
+  // finalize's diff-join; never serialized to the client, never set via putRecap
 }
 
 // ── herd rundown (cross-session attention digest, keyed by calendar day) ──────

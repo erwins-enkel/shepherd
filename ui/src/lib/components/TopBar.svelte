@@ -16,6 +16,12 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { REPO_URL, version } from "$lib/build-info";
+  import { fly } from "svelte/transition";
+  import { dialog } from "$lib/a11yDialog";
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   type TallyStatus = "running" | "idle" | "blocked";
 
@@ -331,6 +337,14 @@
   // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
   // opens Settings directly; only a haltable herd turns it into a menu button.
   const gearOpensMenu = $derived(mobile || haltable > 0);
+  // Mobile sheet pip: quiet indicator on the gear when the bottom sheet holds an
+  // actionable item — update available, health not ok, or what's new. Keeps moved
+  // badges discoverable when they no longer render in the top-bar right cluster.
+  // Composed alongside the halt-pip (.halt-pip) — the two use different corners
+  // (.sheet-pip sits bottom-left; .halt-pip owns top-right; .gear-dot owns top/bottom-right).
+  const sheetPip = $derived(
+    mobile && (updateAvailable || herdrUpdateAvailable || diagnosticsOverall !== "ok" || whatsNew),
+  );
   function clickGear() {
     if (!gearOpensMenu) {
       onsettings?.();
@@ -400,7 +414,11 @@
   }
   function dismissOnOutside(e: MouseEvent) {
     if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
-    if (menuOpen && gearWrap && !gearWrap.contains(e.target as Node)) closeMenu();
+    // On mobile the sheet's own `.menu-scrim` backdrop (onclick={() => closeMenu()}) handles
+    // outside-tap and `use:dialog` handles Esc — so we MUST NOT gate on gearWrap containment
+    // here, or every in-sheet click (which bubbles to <svelte:window>) wrongly dismisses the
+    // sheet.  Desktop keeps the original outside-click behaviour unchanged.
+    if (menuOpen && !mobile && gearWrap && !gearWrap.contains(e.target as Node)) closeMenu();
   }
 </script>
 
@@ -603,75 +621,133 @@
         {/if}
       </button>
     {/if}
-    {#if subscriptionOnly}
-      <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
-    {:else if touch}
-      {#if hotter || credits}
-        <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
-             only signal); tap for the full breakdown. The collapsed button carries an
-             alert state while extra credits are being spent. -->
-        <div class="gauge-wrap" bind:this={gaugeWrap}>
-          {#if hotter}
-            <button
-              class="gauge gauge-btn"
-              class:stale={limits?.stale}
-              class:alert={overspend}
-              type="button"
-              aria-haspopup="dialog"
-              aria-expanded={popoverOpen}
-              aria-label={m.topbar_gauge_toggle_aria({
-                period: periodLabel(hotter.label),
-                pct: hotter.w.pct,
-              })}
-              onclick={() => (popoverOpen = !popoverOpen)}
-            >
-              <span class="g-label micro">{hotter.label}</span>
-              <span class="g-bar"
-                ><span
-                  class="g-fill"
-                  style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
-                    100});background:{gaugeColor(hotter.w.pct)}"
-                ></span></span
+    {#if !mobile}
+      {#if subscriptionOnly}
+        <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
+      {:else if touch}
+        {#if hotter || credits}
+          <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
+               only signal); tap for the full breakdown. The collapsed button carries an
+               alert state while extra credits are being spent. -->
+          <div class="gauge-wrap" bind:this={gaugeWrap}>
+            {#if hotter}
+              <button
+                class="gauge gauge-btn"
+                class:stale={limits?.stale}
+                class:alert={overspend}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={popoverOpen}
+                aria-label={m.topbar_gauge_toggle_aria({
+                  period: periodLabel(hotter.label),
+                  pct: hotter.w.pct,
+                })}
+                onclick={() => (popoverOpen = !popoverOpen)}
               >
-              <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
-            </button>
-          {:else}
-            <!-- credits-only: no usage windows scraped, but extra spend exists -->
-            <button
-              class="gauge gauge-btn"
-              class:stale={credits?.stale}
-              class:alert={overspend}
-              type="button"
-              aria-haspopup="dialog"
-              aria-expanded={popoverOpen}
-              aria-label={overspend
-                ? m.topbar_credits_alert_aria({ amount: creditAmount })
-                : `${m.topbar_credits_period()} · ${creditAmount}`}
-              onclick={() => (popoverOpen = !popoverOpen)}
-            >
-              <span class="g-label micro">CR</span>
-              <span class="g-bar"
-                ><span
-                  class="g-fill"
-                  style="transform:scaleX({creditFill});background:{creditColor}"
-                ></span></span
+                <span class="g-label micro">{hotter.label}</span>
+                <span class="g-bar"
+                  ><span
+                    class="g-fill"
+                    style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
+                      100});background:{gaugeColor(hotter.w.pct)}"
+                  ></span></span
+                >
+                <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
+              </button>
+            {:else}
+              <!-- credits-only: no usage windows scraped, but extra spend exists -->
+              <button
+                class="gauge gauge-btn"
+                class:stale={credits?.stale}
+                class:alert={overspend}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={popoverOpen}
+                aria-label={overspend
+                  ? m.topbar_credits_alert_aria({ amount: creditAmount })
+                  : `${m.topbar_credits_period()} · ${creditAmount}`}
+                onclick={() => (popoverOpen = !popoverOpen)}
               >
-              <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-            </button>
-          {/if}
-          {#if popoverOpen}
-            <div
-              class="gauge-pop"
-              role="dialog"
-              aria-label={m.topbar_gauge_popover_title()}
-              class:stale={limits?.stale}
-            >
+                <span class="g-label micro">CR</span>
+                <span class="g-bar"
+                  ><span
+                    class="g-fill"
+                    style="transform:scaleX({creditFill});background:{creditColor}"
+                  ></span></span
+                >
+                <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
+              </button>
+            {/if}
+            {#if popoverOpen}
+              <div
+                class="gauge-pop"
+                role="dialog"
+                aria-label={m.topbar_gauge_popover_title()}
+                class:stale={limits?.stale}
+              >
+                <div class="gauge-pop-title micro">
+                  {m.topbar_gauge_popover_title()}{limits?.stale
+                    ? m.topbar_gauge_stale_suffix()
+                    : ""}
+                </div>
+                {#each gauges as g (g.label)}
+                  <div class="gauge-pop-row">
+                    <span class="g-label micro">{g.label}</span>
+                    <span class="g-bar g-bar-wide"
+                      ><span
+                        class="g-fill"
+                        style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                          100});background:{gaugeColor(g.w.pct)}"
+                      ></span></span
+                    >
+                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                  </div>
+                  <div class="gauge-pop-reset micro">
+                    {m.topbar_gauge_reset_rel({
+                      rel: formatResetIn(g.w.resetAt, nowMs),
+                      abs: formatReset(g.w.resetAt, nowMs),
+                    })}
+                  </div>
+                {/each}
+                {@render creditDetail()}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      {:else if gauges.length || credits}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="gauges-wrap"
+          onmouseenter={() => (detailOpen = true)}
+          onmouseleave={() => (detailOpen = false)}
+        >
+          <div class="gauges" class:stale={limits?.stale}>
+            {#each gauges as g (g.label)}
+              <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
+                <span class="g-label micro">{g.label}</span>
+                <span class="g-bar"
+                  ><span
+                    class="g-fill"
+                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                      100});background:{gaugeColor(g.w.pct)}"
+                  ></span></span
+                >
+                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              </div>
+            {/each}
+            {@render creditGauge()}
+          </div>
+          {#if detailOpen}
+            <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
               <div class="gauge-pop-title micro">
                 {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
               </div>
               {#each gauges as g (g.label)}
-                <div class="gauge-pop-row">
-                  <span class="g-label micro">{g.label}</span>
+                <div class="gp-window">
+                  <div class="gp-head">
+                    <span class="gp-period">{periodLabel(g.label)}</span>
+                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                  </div>
                   <span class="g-bar g-bar-wide"
                     ><span
                       class="g-fill"
@@ -679,97 +755,42 @@
                         100});background:{gaugeColor(g.w.pct)}"
                     ></span></span
                   >
-                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                </div>
-                <div class="gauge-pop-reset micro">
-                  {m.topbar_gauge_reset_rel({
-                    rel: formatResetIn(g.w.resetAt, nowMs),
-                    abs: formatReset(g.w.resetAt, nowMs),
-                  })}
+                  <div class="gauge-pop-reset micro">
+                    {m.topbar_gauge_reset_rel({
+                      rel: formatResetIn(g.w.resetAt, nowMs),
+                      abs: formatReset(g.w.resetAt, nowMs),
+                    })}
+                  </div>
                 </div>
               {/each}
-              {@render creditDetail()}
+              {#if credits}
+                <div class="gp-window">
+                  {@render creditDetail()}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
       {/if}
-    {:else if gauges.length || credits}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="gauges-wrap"
-        onmouseenter={() => (detailOpen = true)}
-        onmouseleave={() => (detailOpen = false)}
-      >
-        <div class="gauges" class:stale={limits?.stale}>
-          {#each gauges as g (g.label)}
-            <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
-              <span class="g-label micro">{g.label}</span>
-              <span class="g-bar"
-                ><span
-                  class="g-fill"
-                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                    100});background:{gaugeColor(g.w.pct)}"
-                ></span></span
-              >
-              <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-            </div>
-          {/each}
-          {@render creditGauge()}
-        </div>
-        {#if detailOpen}
-          <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
-            <div class="gauge-pop-title micro">
-              {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
-            </div>
-            {#each gauges as g (g.label)}
-              <div class="gp-window">
-                <div class="gp-head">
-                  <span class="gp-period">{periodLabel(g.label)}</span>
-                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                </div>
-                <span class="g-bar g-bar-wide"
-                  ><span
-                    class="g-fill"
-                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                      100});background:{gaugeColor(g.w.pct)}"
-                  ></span></span
-                >
-                <div class="gauge-pop-reset micro">
-                  {m.topbar_gauge_reset_rel({
-                    rel: formatResetIn(g.w.resetAt, nowMs),
-                    abs: formatReset(g.w.resetAt, nowMs),
-                  })}
-                </div>
-              </div>
-            {/each}
-            {#if credits}
-              <div class="gp-window">
-                {@render creditDetail()}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
     {/if}
     <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
     </div>
-    {#if updateAvailable}
+    {#if !mobile && updateAvailable}
       <button
         class="update-badge"
-        class:mobile
         onclick={() => onupdate?.()}
         title="{update!.behind} {update!.behind === 1
           ? m.updatemodal_commits_one()
           : m.updatemodal_commits_other()}"
       >
         <span class="up-dot">▲</span>
-        {#if !mobile && !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
+        {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
         <span class="up-n">{update!.behind}</span>
       </button>
     {/if}
     <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         (blue dot below) to free a slot in the single-row control cluster. The
+         bottom sheet to free a slot in the single-row control cluster. The
          touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
          it named) so two stacked update badges still fit. -->
     {#if herdrUpdateAvailable && !mobile}
@@ -786,11 +807,11 @@
         {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
       </button>
     {/if}
-    {#if whatsNew}
-      <!-- Desktop: labelled button with hover-tip; Mobile (and the touch-desktop
-           multi-badge crunch) collapse to dot-only to avoid crowding the
-           single-row control cluster (mirrors .gear-dot pattern). -->
-      {#if !mobile && !compactBadges}
+    {#if whatsNew && !mobile}
+      <!-- Desktop: labelled button with hover-tip; touch-desktop multi-badge crunch
+           collapses to dot-only to avoid crowding the control cluster. On mobile,
+           What's New moves into the gear bottom sheet. -->
+      {#if !compactBadges}
         <button
           class="whatsnew-badge tip"
           type="button"
@@ -811,13 +832,14 @@
         >
       {/if}
     {/if}
-    <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok".
+    <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok" AND not mobile
+         (on mobile it moves into the gear bottom sheet).
          Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right)
          or the herdr blue gear-dot. Color: slate ring with state-colored core —
          amber for warning, red for error — distinct from both the halt-pip identity
          and the herdr blue. Token choice: --color-amber / --color-red for the core,
          --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
-    {#if diagnosticsOverall !== "ok"}
+    {#if diagnosticsOverall !== "ok" && !mobile}
       <button
         class="health-pip tip"
         class:alert={diagnosticsOverall === "error"}
@@ -831,22 +853,24 @@
       </button>
     {/if}
     <!-- ☰ RUNDOWN: opens the daily Herd Rundown digest lens. Sits just left of the
-         settings cog. Compact (icon + label dropped to a glyph) on phones and the
-         touch-desktop badge crunch, mirroring the NEEDS YOU badge's compact pattern. -->
-    <button
-      class="rundown-btn"
-      class:compact={mobile || compactBadges}
-      class:active={rundownActive}
-      type="button"
-      onclick={() => onrundown?.()}
-      title={m.topbar_rundown()}
-      aria-label={m.topbar_rundown()}
-      aria-pressed={rundownActive}
-      use:coachTarget={"herd-rundown"}
-    >
-      <span class="rd-glyph" aria-hidden="true">☰</span>
-      {#if !(mobile || compactBadges)}<span class="rd-label">{m.topbar_rundown()}</span>{/if}
-    </button>
+         settings cog. On mobile, Rundown is now a segment in the herd filter so the
+         button is dropped (keep the props intact for desktop). -->
+    {#if !mobile}
+      <button
+        class="rundown-btn"
+        class:compact={compactBadges}
+        class:active={rundownActive}
+        type="button"
+        onclick={() => onrundown?.()}
+        title={m.topbar_rundown()}
+        aria-label={m.topbar_rundown()}
+        aria-pressed={rundownActive}
+        use:coachTarget={"herd-rundown"}
+      >
+        <span class="rd-glyph" aria-hidden="true">☰</span>
+        {#if !compactBadges}<span class="rd-label">{m.topbar_rundown()}</span>{/if}
+      </button>
+    {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. A pip on the gear is the only at-rest cue that there's a
@@ -861,7 +885,7 @@
         type="button"
         onclick={clickGear}
         data-tip={gearOpensMenu ? m.topbar_menu_aria() : m.settings_title()}
-        aria-haspopup={gearOpensMenu ? "menu" : undefined}
+        aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
         aria-expanded={gearOpensMenu ? menuOpen : undefined}
         aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
         >⚙{#if haltable > 0}<span class="halt-pip" class:alert={blocked > 0} aria-hidden="true"
@@ -869,46 +893,21 @@
             class="gear-dot"
             class:shift={haltable > 0}
             aria-hidden="true"
+          ></span>{/if}{#if sheetPip && !herdrUpdateAvailable}<span
+            class="sheet-pip"
+            aria-hidden="true"
           ></span>{/if}</button
       >
-      {#if menuOpen}
+      {#if menuOpen && !mobile}
+        <!-- Desktop dropdown: role=menu/menuitem + arrow-key cycling. Zero change vs before. -->
         <div
           class="gear-menu"
-          class:mobile
           role="menu"
           tabindex="-1"
           aria-label={m.topbar_menu_label()}
           bind:this={menuEl}
           onkeydown={onMenuKey}
         >
-          {#if mobile}
-            <!-- Quick appearance controls, surfaced directly (not buried in Settings):
-                 dark/light theme + the high-contrast readability lift. Mirrors the
-                 desktop ActionBar recipe, sized up for touch. -->
-            <div class="quick">
-              <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-                {#each QUICK_THEMES as t (t.pref)}
-                  <button
-                    type="button"
-                    class="t-opt"
-                    class:on={theme.resolved === t.pref}
-                    aria-pressed={theme.resolved === t.pref}
-                    aria-label={m.actionbar_theme_option({ label: t.label() })}
-                    onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
-                  >
-                {/each}
-              </div>
-              <button
-                type="button"
-                class="contrast-toggle"
-                class:on={theme.contrast}
-                aria-pressed={theme.contrast}
-                aria-label={m.actionbar_contrast_toggle()}
-                onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
-              >
-            </div>
-            <div class="menu-sep" role="separator"></div>
-          {/if}
           {#if haltable > 0}
             <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
                  Full intent stays in the aria-label. -->
@@ -937,35 +936,211 @@
             <span class="menu-glyph" aria-hidden="true">⚙</span>
             <span class="menu-label">{m.settings_title()}</span>
           </button>
-          {#if mobile}
-            <!-- Mobile footer: a jump to Shepherd's home (the repo's README + docs) and the
-                 running build version. Desktop surfaces these in the ActionBar footer +
-                 Settings → About instead, so they're folded into the gear menu only here. -->
-            <div class="menu-sep" role="separator"></div>
-            <a
-              class="menu-item"
-              href={REPO_URL}
-              target="_blank"
-              rel="external noreferrer noopener"
-              role="menuitem"
-              onclick={() => closeMenu()}
-            >
-              <span class="menu-glyph" aria-hidden="true">↗</span>
-              <span class="menu-label">{m.topbar_menu_docs()}</span>
-            </a>
-            <div class="menu-foot micro" role="none">v{version}</div>
-          {/if}
         </div>
       {/if}
     </div>
   </div>
 </div>
 
-<!-- Blur backdrop behind the opened mobile menu, so the panel reads as the focus and the
-     herd recedes. Decorative only — the window-level outside-click handler closes the menu.
-     Rendered outside .gear-wrap so that outside-click detection still fires on it. -->
+<!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
+     and the herd recedes. Rendered outside .gear-wrap so outside-click detection fires on it.
+     onclick also wires close explicitly to complement the window-level handler. -->
 {#if menuOpen && mobile}
-  <div class="menu-scrim scrim" aria-hidden="true"></div>
+  <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
+  <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
+       provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
+       NOT role="menuitem" (that role is invalid inside a dialog). -->
+  <div
+    class="gear-sheet"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.topbar_sheet_title()}
+    use:dialog={{ onclose: closeMenu }}
+    transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
+  >
+    <!-- Grab handle + title row -->
+    <div class="sheet-handle-row" aria-hidden="true">
+      <div class="sheet-handle"></div>
+    </div>
+    <div class="sheet-title-row">
+      <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
+      <button
+        type="button"
+        class="sheet-close"
+        onclick={() => closeMenu()}
+        aria-label={m.common_close()}>✕</button
+      >
+    </div>
+
+    <!-- Quick appearance: dark/light theme + high-contrast toggle -->
+    <div class="quick">
+      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+        {#each QUICK_THEMES as t (t.pref)}
+          <button
+            type="button"
+            class="t-opt"
+            class:on={theme.resolved === t.pref}
+            aria-pressed={theme.resolved === t.pref}
+            aria-label={m.actionbar_theme_option({ label: t.label() })}
+            onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+          >
+        {/each}
+      </div>
+      <button
+        type="button"
+        class="contrast-toggle"
+        class:on={theme.contrast}
+        aria-pressed={theme.contrast}
+        aria-label={m.actionbar_contrast_toggle()}
+        onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+      >
+    </div>
+    <div class="sheet-sep"></div>
+
+    <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
+    {#if gauges.length || credits || subscriptionOnly}
+      <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
+      {#if subscriptionOnly}
+        <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
+      {:else}
+        <div class="sheet-gauges" class:stale={limits?.stale}>
+          {#each gauges as g (g.label)}
+            <div class="sheet-gauge-row">
+              <div class="sheet-gauge-head">
+                <span class="gp-period">{periodLabel(g.label)}</span>
+                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              </div>
+              <span class="g-bar g-bar-wide"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                    100});background:{gaugeColor(g.w.pct)}"
+                ></span></span
+              >
+              <div class="gauge-pop-reset micro">
+                {m.topbar_gauge_reset_rel({
+                  rel: formatResetIn(g.w.resetAt, nowMs),
+                  abs: formatReset(g.w.resetAt, nowMs),
+                })}
+              </div>
+            </div>
+          {/each}
+          {@render creditDetail()}
+        </div>
+      {/if}
+      <div class="sheet-sep"></div>
+    {/if}
+
+    <!-- Diagnose row: only when health is not ok -->
+    {#if diagnosticsOverall !== "ok"}
+      <button
+        type="button"
+        class="sheet-item"
+        class:alert={diagnosticsOverall === "error"}
+        onclick={() => {
+          closeMenu();
+          ondiagnose?.();
+        }}
+        aria-label={m.diagnostics_pip_label()}
+      >
+        <span class="sheet-glyph" aria-hidden="true"
+          >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
+        >
+        <span class="sheet-label">{m.diagnostics_pip_label()}</span>
+      </button>
+    {/if}
+
+    <!-- Update row: when shepherd update is available -->
+    {#if updateAvailable}
+      <button
+        type="button"
+        class="sheet-item sheet-update"
+        onclick={() => {
+          closeMenu();
+          onupdate?.();
+        }}
+        aria-label={m.topbar_update_badge()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
+      </button>
+    {/if}
+
+    <!-- Herdr update row: when herdr update is available -->
+    {#if herdrUpdateAvailable}
+      <button
+        type="button"
+        class="sheet-item sheet-update"
+        onclick={() => {
+          closeMenu();
+          onherdrupdate?.();
+        }}
+        aria-label={m.topbar_herdr_update_badge()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
+      </button>
+    {/if}
+
+    <!-- What's New row -->
+    {#if whatsNew}
+      <button
+        type="button"
+        class="sheet-item"
+        onclick={() => {
+          closeMenu();
+          onwhatsnew?.();
+        }}
+        aria-label={m.whatsnew_topbar_aria()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">●</span>
+        <span class="sheet-label">{m.whatsnew_open()}</span>
+      </button>
+    {/if}
+
+    <div class="sheet-sep"></div>
+
+    <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
+    {#if haltable > 0}
+      <button
+        class="sheet-item halt-item"
+        class:armed
+        type="button"
+        onclick={clickHalt}
+        aria-label={armed
+          ? m.halt_arm_aria({ count: haltable })
+          : m.halt_all_aria({ count: haltable })}
+      >
+        <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
+        </svg>
+        <span class="sheet-label"
+          >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
+        >
+      </button>
+      <div class="sheet-sep"></div>
+    {/if}
+
+    <!-- Settings -->
+    <button type="button" class="sheet-item" onclick={chooseSettings}>
+      <span class="sheet-glyph" aria-hidden="true">⚙</span>
+      <span class="sheet-label">{m.settings_title()}</span>
+    </button>
+
+    <!-- Docs + version footer -->
+    <div class="sheet-sep"></div>
+    <a
+      class="sheet-item"
+      href={REPO_URL}
+      target="_blank"
+      rel="external noreferrer noopener"
+      onclick={() => closeMenu()}
+    >
+      <span class="sheet-glyph" aria-hidden="true">↗</span>
+      <span class="sheet-label">{m.topbar_menu_docs()}</span>
+    </a>
+    <div class="sheet-foot micro">v{version}</div>
+  </div>
 {/if}
 
 <style>
@@ -1135,22 +1310,6 @@
     border-radius: 3px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   }
-  /* Mobile: the menu is a real control panel (quick theme/contrast + halt + Settings),
-     so it sits flush against the screen's right edge and reads larger and more evenly
-     spaced. The -8px pulls its right edge out past the bar's 16px content gutter to an
-     8px screen margin; min-width + roomier padding give it deliberate presence. */
-  .gear-menu.mobile {
-    right: -8px;
-    min-width: 240px;
-    gap: 4px;
-    padding: 8px;
-    border-radius: 4px;
-  }
-  .gear-menu.mobile .menu-item {
-    padding: 12px;
-    font-size: var(--fs-lg);
-    gap: 12px;
-  }
   /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
      desktop ActionBar but sized up for touch (44px tap targets). */
   .quick {
@@ -1220,10 +1379,183 @@
     background: var(--color-inset);
     border-color: var(--color-amber);
   }
-  /* Sits below the menu (z 30) but above app content, so the herd blurs while the
-     panel stays crisp. Uses the canonical .scrim primitive (dim + blur) from app.css. */
+  /* Scrim: sits below the mobile bottom sheet (z 49) but above app content.
+     Uses the canonical .scrim primitive (dim + blur) from app.css. */
   .menu-scrim {
-    z-index: 25;
+    z-index: 49;
+  }
+
+  /* Mobile bottom sheet: slides up from the bottom. Fixed to left/right/bottom edges,
+     tall enough to hold all sections without viewport overflow. The sheet itself is
+     opaque panel chrome — the .scrim behind it dims+blurs the herd content. */
+  .gear-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    background: var(--color-panel);
+    border-top: 1px solid var(--color-line-bright);
+    border-radius: 10px 10px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px 12px;
+    /* safe-area bottom for notched phones */
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+  .sheet-handle-row {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+  }
+  .sheet-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-line-bright);
+  }
+  .sheet-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 4px 6px;
+  }
+  .sheet-title {
+    color: var(--color-muted);
+  }
+  .sheet-close {
+    background: none;
+    border: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: var(--fs-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sheet-sep {
+    height: 1px;
+    margin: 5px 4px;
+    background: var(--color-line);
+  }
+  .sheet-section-label {
+    padding: 6px 8px 2px;
+    color: var(--color-muted);
+  }
+  .sheet-row-text {
+    padding: 6px 8px;
+    color: var(--color-muted);
+  }
+  /* Full gauge breakdown in the sheet — one row per window, wider bars. */
+  .sheet-gauges {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 8px 4px;
+  }
+  .sheet-gauges.stale {
+    opacity: 0.5;
+  }
+  .sheet-gauge-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .sheet-gauge-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Sheet action rows: ≥44px targets, token-driven, no role=menuitem (invalid in dialog). */
+  .sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-lg);
+    text-align: left;
+    padding: 10px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .sheet-item:hover,
+  .sheet-item:focus-visible {
+    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
+    outline: none;
+  }
+  .sheet-item.alert {
+    color: var(--color-amber);
+  }
+  .sheet-item.alert:hover,
+  .sheet-item.alert:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  }
+  /* Update rows: amber accent (same semantic hue as the inline update badge). */
+  .sheet-item.sheet-update {
+    color: var(--color-amber);
+  }
+  .sheet-item.sheet-update:hover,
+  .sheet-item.sheet-update:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  }
+  /* e-stop row in the sheet — same muted-then-red pattern as the desktop menu. */
+  .sheet-item.halt-item {
+    color: var(--color-muted);
+  }
+  .sheet-item.halt-item:hover,
+  .sheet-item.halt-item:focus-visible {
+    background: color-mix(in srgb, var(--color-red) 14%, transparent);
+    color: var(--color-red);
+  }
+  .sheet-item.halt-item.armed {
+    background: color-mix(in srgb, var(--color-red) 22%, transparent);
+    border-color: var(--color-red);
+    color: var(--color-red);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: var(--fs-meta);
+  }
+  .sheet-item.halt-item.armed .menu-icon {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+  }
+  .sheet-glyph {
+    width: var(--fs-lg);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .sheet-label {
+    font-variant-numeric: tabular-nums;
+  }
+  .sheet-foot {
+    padding: 6px 12px 2px;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Sheet pip on the gear: quiet actionable-item indicator. Bottom-left corner so it
+     composes cleanly with .halt-pip (top-right) and .gear-dot (top/bottom-right). */
+  .sheet-pip {
+    position: absolute;
+    bottom: 3px;
+    left: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    box-shadow: 0 0 0 2px var(--color-panel);
   }
   .menu-item {
     display: flex;
@@ -1287,13 +1619,6 @@
     height: 1px;
     margin: 3px 2px;
     background: var(--color-line);
-  }
-  /* Build-version footer under the mobile menu's docs link — a quiet, non-interactive
-     line, so it stays understated next to the tappable rows above it. */
-  .menu-foot {
-    padding: 6px 12px 2px;
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
   }
   /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
      agents merely work; red (.alert) only when something is blocked, so red stays
@@ -1630,6 +1955,13 @@
     width: 100%;
     height: 6px;
   }
+  .sheet-gauge-row .g-bar-wide {
+    width: 100%;
+    height: 6px;
+  }
+  .sheet-gauge-row .gauge-pop-reset {
+    margin: 0;
+  }
   .gauge-pop-desk .gauge-pop-reset {
     margin: 0;
   }
@@ -1655,11 +1987,6 @@
   .update-badge .up-n {
     font-variant-numeric: tabular-nums;
     font-weight: 700;
-  }
-  .update-badge.mobile {
-    padding: 4px 8px;
-    gap: 4px;
-    letter-spacing: 0.08em;
   }
   /* herdr badge: informational (operator updates manually), so it reads as calm
      blue — the informational accent — and doesn't pulse like the actionable
@@ -1828,9 +2155,6 @@
   }
   .needsyou.compact .ny-n {
     font-weight: 600;
-  }
-  .hud.mobile .update-badge {
-    min-height: 44px;
   }
 
   /* Coarse pointers (touch, any layout width): the secondary icon buttons are

@@ -12,6 +12,7 @@
     repoFilter,
     onrepofilter,
     onlearnings,
+    mobile = false,
   }: {
     chips: RepoChip[];
     // active repo full path, or null when showing every repo
@@ -20,6 +21,9 @@
     onrepofilter: (repoPath: string | null) => void;
     // open the learnings drawer for a repo
     onlearnings?: (repoPath: string) => void;
+    // true when rendered on a phone-sized viewport — suppresses the lone-repo
+    // telemetry band (collapses into the selected-state subline instead)
+    mobile?: boolean;
   } = $props();
 
   // ── render branch selection ────────────────────────────────────────────────
@@ -279,7 +283,7 @@
       {@render telemetry(activeChip)}
     {/if}
   </div>
-{:else if loneChip}
+{:else if loneChip && !mobile}
   <div class="rs">
     {@render telemetry(loneChip)}
   </div>
@@ -309,6 +313,11 @@
     /* a fixed single-line height so the rail never wraps */
     padding: 2px 0;
     scrollbar-width: none;
+    /* peek cue: the visible at-rest peek comes from the .rs-track's trailing
+       padding-right plus the narrow right-edge fade, which together guarantee the
+       next chip's leading edge protrudes into view. scroll-padding-right keeps
+       keyboard-focus scrollIntoView clear of the faded edge. */
+    scroll-padding-right: 20px;
   }
   .rs-scroller::-webkit-scrollbar {
     display: none;
@@ -321,21 +330,28 @@
     gap: 4px;
     width: fit-content;
     white-space: nowrap;
+    /* trailing padding: ensures the right-most chip is never fully hidden behind
+       the fade — it protrudes into the padding, giving the eye a real partial chip
+       (the peek) even at scroll position 0. */
+    padding-right: 20px;
   }
   /* tonal edge-fade affordance: fade whichever edge hides content. No colored
-     element — a mask over the scroller's own pixels. */
+     element — a mask over the scroller's own pixels.
+     Right fade is intentionally narrower (12px vs 24px left) so the partial
+     chip behind it still reads as a chip — the fade is a secondary cue, the
+     peeking chip shape is the primary one. */
   .rs-scroller.fade-left {
     mask-image: linear-gradient(to right, transparent 0, #000 24px);
   }
   .rs-scroller.fade-right {
-    mask-image: linear-gradient(to left, transparent 0, #000 24px);
+    mask-image: linear-gradient(to left, transparent 0, #000 12px);
   }
   .rs-scroller.fade-left.fade-right {
     mask-image: linear-gradient(
       to right,
       transparent 0,
       #000 24px,
-      #000 calc(100% - 24px),
+      #000 calc(100% - 12px),
       transparent 100%
     );
   }

@@ -155,6 +155,52 @@ input, select, textarea {
 }
 /* recessed child surface (input wells, terminals): var(--color-inset) */`;
 
+  const segCtrlMarkup = `<div class="seg-row">
+  <button class="seg-btn" class:seg-active={active === "a"} aria-pressed={active === "a"}
+    onclick={() => active = "a"}>A</button>
+  <button class="seg-btn" class:seg-active={active === "b"} aria-pressed={active === "b"}
+    onclick={() => active = "b"}>B</button>
+  <button class="seg-btn" class:seg-active={active === "c"} aria-pressed={active === "c"}
+    onclick={() => active = "c"}>C</button>
+</div>
+
+/* Segmented control (mobile flow mode). If placed inside a horizontally-padded
+   parent, add margin-inline: calc(-1 * var(--mobile-shell-pad)) to escape that
+   padding; not needed when the parent is already full-bleed (e.g. .panel.flow). */
+.seg-row {
+  display: flex;
+  border-bottom: 1px solid var(--color-line);
+}
+.seg-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-right: 1px solid var(--color-line);
+  background: none;
+  font-family: inherit;
+  font-size: var(--fs-base);
+  cursor: pointer;
+  padding: 0 2px;
+  /* Inactive labels use --color-muted for ≥4.5:1 contrast; active uses --color-amber */
+  color: var(--color-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seg-btn:last-child { border-right: 0; }
+.seg-btn:hover { color: var(--color-ink); }
+.seg-btn.seg-active {
+  color: var(--color-amber);
+  background: var(--color-inset);
+  box-shadow: inset 0 -2px 0 var(--color-amber);
+}
+.seg-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-amber);
+}`;
+
   const scrimMarkup = `<div class="scrim"><!-- dialog --></div>
 
 /* .scrim lives in app.css — one canonical backdrop for every dialog/drawer.
@@ -358,6 +404,31 @@ input, select, textarea {
       </div>
     </div>
     <pre><code>{panelMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Segmented control</h2>
+    <p class="when">
+      <strong>When:</strong> a single-select view switch with ≤5 equal options that must all be
+      visible at once (e.g. the Herd status filter on mobile). Prefer scrollable chips when there
+      are more than 5 options or labels vary widely in length. Equal-width segments via
+      <code>flex:1; min-width:0</code>; 44 px touch target (<code>min-height:44px</code>);
+      <code>--fs-base</code> (13 px) labels; no uppercase, no letter-spacing (monospace). Active
+      state: <code>--color-amber</code> text + <code>--color-inset</code> fill + amber 2 px bottom
+      inset. Inactive: <code>--color-muted</code> (≥4.5:1 contrast — not the lower-contrast
+      <code>--color-faint</code>). Full-bleed on mobile via
+      <code>margin-inline: calc(-1 * var(--mobile-shell-pad))</code>.
+    </p>
+    <div class="demo">
+      <div class="seg-row-demo">
+        <button class="seg-btn-demo seg-active-demo" aria-pressed="true">All</button>
+        <button class="seg-btn-demo" aria-pressed="false">Ready</button>
+        <button class="seg-btn-demo" aria-pressed="false">Research</button>
+        <button class="seg-btn-demo" aria-pressed="false">Done</button>
+        <button class="seg-btn-demo" aria-pressed="false">Rundown</button>
+      </div>
+    </div>
+    <pre><code>{segCtrlMarkup}</code></pre>
   </section>
 
   <section class="panel">
@@ -630,6 +701,41 @@ input, select, textarea {
     position: relative;
     z-index: 1;
     background: var(--color-panel);
+  }
+
+  /* segmented control demo */
+  .seg-row-demo {
+    display: flex;
+    width: 100%;
+    max-width: 390px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .seg-btn-demo {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-base);
+    cursor: pointer;
+    padding: 0 2px;
+    color: var(--color-muted);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .seg-btn-demo:last-child {
+    border-right: 0;
+  }
+  .seg-active-demo {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    box-shadow: inset 0 -2px 0 var(--color-amber);
   }
 
   /* glossary term — dashed underline trigger (mirrors GlossaryTerm.svelte) */

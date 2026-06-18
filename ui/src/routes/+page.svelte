@@ -616,6 +616,56 @@
   }
 
   let mobileScreen = $state<"list" | "detail">("list");
+  let chromeHidden = $state(false);
+
+  // Scroll-compress the chrome header on mobile list: hide on scroll-down, restore
+  // on scroll-up or at/near top. Window (document) scroll only — the mobile list
+  // screen is a document-scroll app-shell; inner regions don't scroll.
+  $effect(() => {
+    const active = mobile.current && mobileScreen === "list";
+    if (!active) {
+      chromeHidden = false;
+      return;
+    }
+
+    // Delta threshold to avoid jitter from sub-pixel bounces.
+    const THRESHOLD = 7;
+    // Always restore when within this many px of the top.
+    const TOP_SNAP = 60;
+
+    let lastY = window.scrollY;
+    let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
+
+    function onScroll() {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const y = window.scrollY;
+        if (y < TOP_SNAP) {
+          chromeHidden = false;
+        } else {
+          const delta = y - lastY;
+          if (delta > THRESHOLD) {
+            chromeHidden = true;
+          } else if (delta < -THRESHOLD) {
+            chromeHidden = false;
+          }
+        }
+        lastY = y;
+      });
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      chromeHidden = false;
+    };
+  });
+
   let showBacklog = $state(false);
 
   // EPIC badge → open the backlog targeted at that session's repo + epic issue
@@ -1457,7 +1507,7 @@
        viewport's merged header (repo · session + back + status tint), so it's
        hidden there; settings + global chrome stay on the herd overview. -->
   {#if !(mobile.current && mobileScreen === "detail")}
-    <header class="chrome">
+    <header class="chrome" class:chrome-hidden={chromeHidden}>
       <TopBar
         sessions={store.sessions}
         {nowMs}
@@ -1492,6 +1542,7 @@
       <RepoSwitcher
         chips={repoChips}
         {repoFilter}
+        mobile={mobile.current}
         onrepofilter={(repoPath) => (repoFilter = repoPath)}
         onlearnings={(repoPath) => {
           learningsRepo = repoPath;
@@ -2238,6 +2289,18 @@
        top:0, with the opaque background filling the inset area. max(…) keeps
        the prior --mobile-shell-pad breathing room on non-notched devices. */
     padding-top: max(var(--mobile-shell-pad), env(safe-area-inset-top));
+    /* scroll-compression: slide the chrome out above the viewport on scroll-down,
+       slide it back on scroll-up / at top. translateY(-100%) covers the full
+       element box including safe-area padding — no second inset needed. */
+    will-change: transform;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .shell.mobile.list .chrome {
+      transition: transform 0.2s ease;
+    }
+  }
+  .shell.mobile.list .chrome.chrome-hidden {
+    transform: translateY(-100%);
   }
   .shell.mobile.list .main-region,
   .shell.mobile.list .col {

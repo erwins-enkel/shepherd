@@ -1441,5 +1441,14 @@
   "quota_resume_failed": "Couldn't resume — open the session to take over.",
   "quota_resume_cleared": "Already cleared.",
   "feat_quota_needs_you_title": "Stalled sessions now ask for you",
-  "feat_quota_needs_you_body": "When a session hits its rework or review limit it no longer goes quietly idle — it raises a 'needs you' badge and a notification, and Triage lets you resume it, take over, or abandon."
+  "feat_quota_needs_you_body": "When a session hits its rework or review limit it no longer goes quietly idle — it raises a 'needs you' badge and a notification, and Triage lets you resume it, take over, or abandon.",
+  "herd_seg_all": "All",
+  "herd_seg_ready": "Ready",
+  "herd_seg_research": "Research",
+  "herd_seg_done": "Done",
+  "herd_seg_rundown": "Rundown",
+  "feat_mobile_header_title": "Tidier mobile header",
+  "feat_mobile_header_body": "The status filter in the Herd header is now a compact segmented control on mobile — one tap switches lens, glyphs are gone, and the bar stays single-line at any phone width.",
+  "topbar_sheet_title": "Controls",
+  "topbar_sheet_usage": "Usage"
 }

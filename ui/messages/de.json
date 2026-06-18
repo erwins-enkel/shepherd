@@ -404,6 +404,7 @@
   "triage_open_console": "Konsole",
   "triage_open_console_aria": "Volle Konsole von {desig} öffnen",
   "learnings_title": "Erkenntnisse",
+  "learnings_trim_title": "Kürzen",
   "learnings_badge_tip": "Was Shepherd aus deinen Agenten-Sitzungen lernt: vorgeschlagene Hausregeln aus deinen Korrekturen, Review-Funden, Blocks und Stalls; nur für dieses Repo, nicht global. Eine angezeigte Zahl gibt an, wie viele Vorschläge auf deine Prüfung warten.",
   "learnings_about_toggle": "Was ist das?",
   "learnings_about_lead": "Erkenntnisse sind Hausregeln, die Shepherd aus deinen Agenten-Sitzungen lernt: aus deinen Korrekturen, Code-Review-Funden, Blocks und Stalls.",
@@ -1457,5 +1458,6 @@
   "newtask_upstream_diverged": "Von origin abgewichen ({behind} hinter, {ahead} voraus) — Aufgabe startet von lokal {base}",
   "feat_base_freshen_title": "Basis-Branch wird vom Upstream aktualisiert",
   "feat_base_freshen_body": "Neue Aufgaben starten jetzt vom neuesten Upstream-Stand des Basis-Branches — Shepherd holt und spult beim Start vor (fast-forward), sodass du Upstream-Änderungen nach Abschluss nicht mehr von Hand einpflegen musst. Der New-Task-Dialog weist darauf hin, wenn deine Basis zurückliegt oder von origin abgewichen ist.",
-  "topbar_learnings_tip": "Vorgeschlagene Hausregeln über alle deine Repos prüfen"
+  "topbar_learnings_tip": "Vorgeschlagene Hausregeln über alle deine Repos prüfen",
+  "topbar_learnings_curate_tip": "Bereits genehmigte Regeln, die nicht ins Injektions-Budget passen — kürze einige, damit die übrigen neue Agents erreichen"
 }

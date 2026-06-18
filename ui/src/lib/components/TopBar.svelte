@@ -119,6 +119,10 @@
   const learningsPresent = $derived(learnings > 0 || learningsCurate > 0);
   // Badge shows proposed count when any proposed, else the curate count
   const learningsCount = $derived(learnings > 0 ? learnings : learningsCurate);
+  const learningsLabel = $derived(learnings > 0 ? m.learnings_title() : m.learnings_trim_title());
+  const learningsTip = $derived(
+    learnings > 0 ? m.topbar_learnings_tip() : m.topbar_learnings_curate_tip(),
+  );
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
@@ -873,13 +877,13 @@
         class:compact={compactBadges}
         type="button"
         onclick={() => onlearnings?.()}
-        title={m.topbar_learnings_tip()}
+        title={learningsTip}
         aria-label={learnings > 0
           ? m.learnings_open_aria({ count: learnings })
           : m.learnings_open_curate_aria({ count: learningsCurate })}
       >
         <span class="learn-glyph" aria-hidden="true">✦</span>
-        {#if !compactBadges}<span class="learn-label">{m.learnings_title()}</span>{/if}
+        {#if !compactBadges}<span class="learn-label">{learningsLabel}</span>{/if}
         <span class="learn-n">{learningsCount}</span>
       </button>
     {/if}
@@ -1124,7 +1128,7 @@
           : m.learnings_open_curate_aria({ count: learningsCurate })}
       >
         <span class="sheet-glyph" aria-hidden="true">✦</span>
-        <span class="sheet-label">{m.learnings_title()} · {learningsCount}</span>
+        <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
       </button>
     {/if}
 

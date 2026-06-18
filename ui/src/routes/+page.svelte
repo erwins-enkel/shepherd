@@ -99,6 +99,7 @@
   import QueueStrip from "$lib/components/QueueStrip.svelte";
   import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
   import {
+    firstCurateRepo,
     globalLearningsCounts,
     repoChipRows,
     shouldClearRepoFilter,
@@ -1521,7 +1522,8 @@
         learnings={learningsCounts.proposed}
         learningsCurate={learningsCounts.curate}
         onlearnings={() => {
-          learningsRepo = null;
+          learningsRepo =
+            learningsCounts.proposed > 0 ? null : firstCurateRepo(learnings.injectable);
           showLearnings = true;
         }}
         {statusFilter}

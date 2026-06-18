@@ -1076,3 +1076,66 @@ describe("TopBar — global learnings button", () => {
     expect(onlearnings).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("TopBar — learnings chip label switches between proposed and curate-only mode", () => {
+  // At 1436px wide desktop, the chip is NOT compacted (confirmed by the
+  // "wide desktop keeps full labels" suite), so .learn-label renders.
+  const desktopBase = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    ...FLAGS.desktop,
+    ...sessionsProp(0),
+    limits: null as UsageLimits | null,
+  };
+
+  it("curate-only: chip reads TRIM with curate tooltip and curate aria-label", async () => {
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    render(TopBar, { ...desktopBase, learnings: 0, learningsCurate: 5 });
+
+    await nextFrame();
+    await nextFrame();
+
+    const btn = document.querySelector<HTMLElement>(".learnings-btn");
+    expect(btn, ".learnings-btn rendered").not.toBeNull();
+
+    const label = btn!.querySelector<HTMLElement>(".learn-label");
+    expect(label, ".learn-label rendered (not compacted at 1436px)").not.toBeNull();
+    expect(label!.textContent, "chip label is TRIM in curate-only mode").toBe(
+      m.learnings_trim_title(),
+    );
+
+    const countEl = btn!.querySelector<HTMLElement>(".learn-n");
+    expect(countEl, ".learn-n rendered").not.toBeNull();
+    expect(countEl!.textContent, "chip count is curate count").toBe("5");
+
+    expect(btn!.getAttribute("title"), "tooltip is curate tip").toBe(
+      m.topbar_learnings_curate_tip(),
+    );
+    expect(btn!.getAttribute("aria-label"), "aria-label is curate aria").toBe(
+      m.learnings_open_curate_aria({ count: 5 }),
+    );
+  });
+
+  it("proposed: chip reads LEARNINGS with proposed aria-label", async () => {
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    render(TopBar, { ...desktopBase, learnings: 5, learningsCurate: 0 });
+
+    await nextFrame();
+    await nextFrame();
+
+    const btn = document.querySelector<HTMLElement>(".learnings-btn");
+    expect(btn, ".learnings-btn rendered").not.toBeNull();
+
+    const label = btn!.querySelector<HTMLElement>(".learn-label");
+    expect(label, ".learn-label rendered (not compacted at 1436px)").not.toBeNull();
+    expect(label!.textContent, "chip label is LEARNINGS in proposed mode").toBe(
+      m.learnings_title(),
+    );
+
+    expect(btn!.getAttribute("aria-label"), "aria-label is proposed aria").toBe(
+      m.learnings_open_aria({ count: 5 }),
+    );
+  });
+});

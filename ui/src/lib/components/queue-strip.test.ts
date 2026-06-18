@@ -4,6 +4,7 @@ import {
   chipHasTelemetry,
   chipRailVisible,
   enabledDrains,
+  firstCurateRepo,
   globalLearningsCounts,
   mergeTrainIsAttention,
   mergeTrainLabel,
@@ -496,5 +497,45 @@ describe("globalLearningsCounts", () => {
     const items = [learning({ id: "l1" }), learning({ id: "l2" })];
     const injectables = [injectable({ rules: [rule(false)] })];
     expect(globalLearningsCounts(items, injectables)).toEqual({ proposed: 2, curate: 1 });
+  });
+});
+
+// ─── firstCurateRepo ──────────────────────────────────────────────────────────
+
+describe("firstCurateRepo", () => {
+  it("returns null for empty list", () => {
+    expect(firstCurateRepo([])).toBeNull();
+  });
+
+  it("returns null when no repo has over-budget rules", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(true)] }),
+      injectable({ repoPath: "/repos/b", rules: [rule(true)] }),
+    ];
+    expect(firstCurateRepo(injectables)).toBeNull();
+  });
+
+  it("returns the repoPath of the first repo with ≥1 over-budget rule", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", rules: [rule(true)] }), // all injected
+      injectable({ repoPath: "/repos/b", rules: [rule(true), rule(false)] }), // 1 over-budget
+      injectable({ repoPath: "/repos/c", rules: [rule(false), rule(false)] }), // 2 over-budget
+    ];
+    expect(firstCurateRepo(injectables)).toBe("/repos/b");
+  });
+
+  it("returns null when the only over-budget repo is disabled", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] }),
+    ];
+    expect(firstCurateRepo(injectables)).toBeNull();
+  });
+
+  it("skips disabled repos and returns the first enabled over-budget repo", () => {
+    const injectables = [
+      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] }), // disabled → skip
+      injectable({ repoPath: "/repos/b", enabled: true, rules: [rule(false)] }), // enabled → match
+    ];
+    expect(firstCurateRepo(injectables)).toBe("/repos/b");
   });
 });

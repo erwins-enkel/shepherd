@@ -67,7 +67,6 @@ export class WorktreeMgr {
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
     const worktreePath = join(parent, `${basename(repoPath)}-${name}`);
 
-    // First attempt
     try {
       mkdirSync(parent, { recursive: true });
       execFileSync("git", ["worktree", "add", "-b", branch, worktreePath, baseBranch], {
@@ -76,66 +75,90 @@ export class WorktreeMgr {
       });
       return { worktreePath, branch, isolated: true };
     } catch (err) {
-      const stderr =
-        String((err as { stderr?: unknown }).stderr ?? "").trim() ||
-        (err instanceof Error ? err.message : String(err));
+      return this.recoverFromAddFailure(repoPath, baseBranch, branch, worktreePath, err);
+    }
+  }
 
-      // Fast-fail: invalid base ref — git created nothing, no cleanup needed
-      if (/invalid reference|not a valid object name|unknown revision/i.test(stderr)) {
-        console.error(
-          `[worktree] create: invalid base ref — worktreePath=${worktreePath} branch=${branch} stderr=${stderr}`,
-        );
-        throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr}`, {
-          cause: err,
-        });
-      }
+  private gitStderr(err: unknown): string {
+    return (
+      String((err as { stderr?: unknown }).stderr ?? "").trim() ||
+      (err instanceof Error ? err.message : String(err))
+    );
+  }
 
-      // Transient-looking failure: cleanup + retry
-      console.warn(
-        `[worktree] create: first worktree add failed, will cleanup+retry — branch=${branch} worktreePath=${worktreePath} stderr=${stderr}`,
+  private recoverFromAddFailure(
+    repoPath: string,
+    baseBranch: string,
+    branch: string,
+    worktreePath: string,
+    err: unknown,
+  ): WorktreeResult {
+    const stderr = this.gitStderr(err);
+
+    // Fast-fail: invalid base ref — git created nothing, no cleanup needed
+    if (/invalid reference|not a valid object name|unknown revision/i.test(stderr)) {
+      console.error(
+        `[worktree] create: invalid base ref — worktreePath=${worktreePath} branch=${branch} stderr=${stderr}`,
       );
+      throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr}`, {
+        cause: err,
+      });
+    }
+
+    // Transient-looking failure: cleanup + retry
+    console.warn(
+      `[worktree] create: first worktree add failed, will cleanup+retry — branch=${branch} worktreePath=${worktreePath} stderr=${stderr}`,
+    );
+    this.cleanupPartial(repoPath, worktreePath);
+    return this.retryWorktreeAdd(repoPath, baseBranch, branch, worktreePath, err, stderr);
+  }
+
+  private retryWorktreeAdd(
+    repoPath: string,
+    baseBranch: string,
+    branch: string,
+    worktreePath: string,
+    firstErr: unknown,
+    firstStderr: string,
+  ): WorktreeResult {
+    // If git auto-created the branch before dying (e.g. dir already existed), it
+    // sits at baseBranch with no extra commits — safe to reuse.
+    // If the branch pre-existed with unmerged commits, abort to preserve that work.
+    const branchAhead = this.branchExists(repoPath, branch)
+      ? this.commitsAhead(repoPath, baseBranch, branch)
+      : -1; // -1 = branch does not exist
+
+    if (branchAhead > 0) {
+      // Pre-existing branch has unmerged work → abort, no cleanup (preserve the branch)
+      console.error(
+        `[worktree] create: branch ${branch} has ${branchAhead} unmerged commit(s), refusing shared checkout — worktreePath=${worktreePath}`,
+      );
+      throw new Error(
+        `worktree isolation failed for ${branch} at ${worktreePath}: ${firstStderr}`,
+        { cause: firstErr },
+      );
+    }
+
+    const retryArgs =
+      branchAhead === 0
+        ? ["worktree", "add", worktreePath, branch] // reuse orphaned branch at baseBranch
+        : ["worktree", "add", "-b", branch, worktreePath, baseBranch]; // fresh branch
+
+    try {
+      execFileSync("git", retryArgs, { cwd: repoPath, stdio: "pipe" });
+      console.info(
+        `[worktree] create: retry succeeded — branch=${branch} worktreePath=${worktreePath}`,
+      );
+      return { worktreePath, branch, isolated: true };
+    } catch (err2) {
+      const stderr2 = this.gitStderr(err2);
       this.cleanupPartial(repoPath, worktreePath);
-
-      // If git auto-created the branch before dying (e.g. dir already existed), it
-      // sits at baseBranch with no extra commits — safe to reuse.
-      // If the branch pre-existed with unmerged commits, abort to preserve that work.
-      const branchAhead = this.branchExists(repoPath, branch)
-        ? this.commitsAhead(repoPath, baseBranch, branch)
-        : -1; // -1 = branch does not exist
-
-      if (branchAhead > 0) {
-        // Pre-existing branch has unmerged work → abort, no cleanup (preserve the branch)
-        console.error(
-          `[worktree] create: branch ${branch} has ${branchAhead} unmerged commit(s), refusing shared checkout — worktreePath=${worktreePath}`,
-        );
-        throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr}`, {
-          cause: err,
-        });
-      }
-
-      const retryArgs =
-        branchAhead === 0
-          ? ["worktree", "add", worktreePath, branch] // reuse orphaned branch at baseBranch
-          : ["worktree", "add", "-b", branch, worktreePath, baseBranch]; // fresh branch
-
-      try {
-        execFileSync("git", retryArgs, { cwd: repoPath, stdio: "pipe" });
-        console.info(
-          `[worktree] create: retry succeeded — branch=${branch} worktreePath=${worktreePath}`,
-        );
-        return { worktreePath, branch, isolated: true };
-      } catch (err2) {
-        const stderr2 =
-          String((err2 as { stderr?: unknown }).stderr ?? "").trim() ||
-          (err2 instanceof Error ? err2.message : String(err2));
-        this.cleanupPartial(repoPath, worktreePath);
-        console.error(
-          `[worktree] create: retry also failed, refusing shared checkout — worktreePath=${worktreePath} branch=${branch} stderr=${stderr2}`,
-        );
-        throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr2}`, {
-          cause: err2,
-        });
-      }
+      console.error(
+        `[worktree] create: retry also failed, refusing shared checkout — worktreePath=${worktreePath} branch=${branch} stderr=${stderr2}`,
+      );
+      throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr2}`, {
+        cause: err2,
+      });
     }
   }
 

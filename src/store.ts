@@ -2078,6 +2078,36 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getLearning(id);
   }
 
+  /** Replace a flagged rule's text (and optionally rationale) and clear the visible
+   *  ineffective flag. Only operates on active/promoted rules; no-ops for
+   *  proposed/dismissed/missing. Blank rewrites are rejected (returns null).
+   *  PRESERVES `ineffectiveSignalIds` so the dedup set survives the revision — only
+   *  genuinely new failure signals can re-raise the flag after an optimization. */
+  reviseLearning(id: string, rule: string, rationale?: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
+    const text = rule.trim().slice(0, 240);
+    if (!text) return null;
+    const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
+    this.db.run(
+      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0, updatedAt = ? WHERE id = ?`,
+      [text, resolvedRationale, Date.now(), id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** Resolve the stored `ineffectiveSignalIds` for a rule to full Signal rows.
+   *  Server-side only — `ineffectiveSignalIds` is intentionally absent from the
+   *  Learning type and hydrateLearning. Returns [] for missing/unflagged rules. */
+  ineffectiveSignalsFor(id: string): Signal[] {
+    const row = this.db
+      .query(`SELECT ineffectiveSignalIds FROM learnings WHERE id = ?`)
+      .get(id) as { ineffectiveSignalIds?: string } | null;
+    if (!row) return [];
+    const ids = parseFindings(row.ineffectiveSignalIds);
+    return this.getSignalsByIds(ids);
+  }
+
   /** active → promoted, recording the CLAUDE.md PR url (spec §4b). Returns null
    *  when the rule is missing or not in a state that allows promotion. */
   promoteLearning(id: string, prUrl: string): Learning | null {

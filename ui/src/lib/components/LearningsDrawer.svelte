@@ -339,37 +339,39 @@
                     </span>
                   {/if}
                   <span class="spacer"></span>
-                  {#if showIneffective(r)}
-                    <button
-                      class="optimize"
-                      type="button"
-                      onclick={() => onoptimize(r.id)}
-                      aria-label={m.learnings_optimize_aria()}
-                    >
-                      {m.learnings_optimize()}
-                    </button>
-                  {/if}
-                  {#if r.status === "active"}
-                    <button class="dismiss" onclick={() => ondismiss(r.id)}>
-                      {m.learnings_dismiss()}
-                    </button>
-                    <button
-                      class="promote"
-                      onclick={() => onpromote(r.id)}
-                      aria-label={m.learnings_promote_aria()}
-                    >
-                      {m.learnings_promote()}
-                    </button>
-                  {:else if r.status === "promoted" && r.promotedPrUrl}
-                    <a
-                      class="prlink"
-                      href={r.promotedPrUrl}
-                      target="_blank"
-                      rel="noopener external"
-                    >
-                      {m.learnings_promoted_pr()}
-                    </a>
-                  {/if}
+                  <div class="iactions">
+                    {#if showIneffective(r)}
+                      <button
+                        class="optimize"
+                        type="button"
+                        onclick={() => onoptimize(r.id)}
+                        aria-label={m.learnings_optimize_aria()}
+                      >
+                        {m.learnings_optimize()}
+                      </button>
+                    {/if}
+                    {#if r.status === "active"}
+                      <button class="dismiss" onclick={() => ondismiss(r.id)}>
+                        {m.learnings_dismiss()}
+                      </button>
+                      <button
+                        class="promote"
+                        onclick={() => onpromote(r.id)}
+                        aria-label={m.learnings_promote_aria()}
+                      >
+                        {m.learnings_promote()}
+                      </button>
+                    {:else if r.status === "promoted" && r.promotedPrUrl}
+                      <a
+                        class="prlink"
+                        href={r.promotedPrUrl}
+                        target="_blank"
+                        rel="noopener external"
+                      >
+                        {m.learnings_promoted_pr()}
+                      </a>
+                    {/if}
+                  </div>
                 </div>
               </article>
             {/each}
@@ -404,6 +406,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
   }
   .title {
     letter-spacing: 0.14em;
@@ -730,6 +733,15 @@
     line-height: 1.5;
   }
   .ifoot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  /* Action group stays together as one flex item so it wraps as a unit
+     (never fragmenting Optimize/Dismiss/Promote across lines) when the
+     badge row runs out of room in the narrow drawer. */
+  .iactions {
     display: flex;
     align-items: center;
     gap: 6px;

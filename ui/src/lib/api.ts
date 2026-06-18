@@ -1159,6 +1159,22 @@ export async function getBuildQueues(): Promise<Record<string, BuildQueue>> {
   return r.json();
 }
 
+/** Optimize a single flagged ("not working") rule via the LLM rewrite pass. Fire-and-forget;
+ *  the WS learnings:update event refreshes the drawer when the run finalizes. */
+export async function optimizeLearning(id: string): Promise<void> {
+  const r = await fetch(`/api/learnings/${id}/optimize`, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) throw await failed(r, "optimize");
+}
+
+/** Optimize ALL flagged rules in a repo. Fire-and-forget (see optimizeLearning). */
+export async function optimizeRepoFlagged(repoPath: string): Promise<void> {
+  const r = await fetch(`/api/learnings/optimize?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "optimize");
+}
+
 export async function getBuildQueue(sessionId: string): Promise<BuildQueue> {
   return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, "build-queue");
 }

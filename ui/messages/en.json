@@ -1468,5 +1468,16 @@
   "queuebadge_title": "Build queue: {resolved} of {total} steps done",
   "queuebadge_aria": "Build queue: {resolved} of {total} steps done",
   "feat_build_queue_progress_title": "Build queue progress at a glance",
-  "feat_build_queue_progress_body": "Session cards now show a small amber badge with a progress meter when an approved build queue is active — see resolved / total steps without opening the panel."
+  "feat_build_queue_progress_body": "Session cards now show a small amber badge with a progress meter when an approved build queue is active — see resolved / total steps without opening the panel.",
+  "learnings_optimize": "Optimize",
+  "learnings_optimize_aria": "Optimize this rule",
+  "learnings_optimize_all": "Optimize all flagged ({count})",
+  "learnings_optimize_started": "Optimizing flagged rules…",
+  "learnings_optimize_failed": "Couldn’t start optimization",
+  "learnings_filter_flagged": "Not working ({count})",
+  "learnings_filter_all": "Show all",
+  "learnings_optimizer_stalled_title": "Optimizer stalled",
+  "learnings_optimizer_stalled_body": "The rule optimizer failed {count} times in a row. Check the server logs.",
+  "feat_optimize_learnings_title": "Fix ‘not working’ house rules in one click",
+  "feat_optimize_learnings_body": "When a house rule stops preventing mistakes, filter to the flagged ones and let Shepherd reword them from the failures — individually or all at once."
 }

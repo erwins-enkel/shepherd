@@ -912,6 +912,13 @@ export interface DistillerHealth {
   ok: boolean;
   consecutiveFailures: number;
   lastFailure: { reason: string; at: number; repoPath: string } | null;
+  // Additive sub-object: health of the rule optimizer (same shape as the
+  // distiller's). Present once the server has run/recorded an optimize pass.
+  optimizer?: {
+    ok: boolean;
+    consecutiveFailures: number;
+    lastFailure: { reason: string; at: number; repoPath: string } | null;
+  };
 }
 
 // ── leftover subprocesses surfaced at session close ─────────────────────────

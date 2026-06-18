@@ -1463,5 +1463,10 @@
   "buildqueue_collapse_aria": "Collapse build queue",
   "buildqueue_expand_aria": "Expand build queue",
   "feat_build_queue_collapse_title": "Collapse the build queue",
-  "feat_build_queue_collapse_body": "The build queue can now be collapsed to a single bar so it no longer covers the terminal. Click the chevron in its header to fold or unfold it."
+  "feat_build_queue_collapse_body": "The build queue can now be collapsed to a single bar so it no longer covers the terminal. Click the chevron in its header to fold or unfold it.",
+  "queuebadge_label": "{resolved}/{total}",
+  "queuebadge_title": "Build queue: {resolved} of {total} steps done",
+  "queuebadge_aria": "Build queue: {resolved} of {total} steps done",
+  "feat_build_queue_progress_title": "Build queue progress at a glance",
+  "feat_build_queue_progress_body": "Session cards now show a small amber badge with a progress meter when an approved build queue is active — see resolved / total steps without opening the panel."
 }

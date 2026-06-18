@@ -1463,5 +1463,10 @@
   "buildqueue_collapse_aria": "Build-Queue einklappen",
   "buildqueue_expand_aria": "Build-Queue ausklappen",
   "feat_build_queue_collapse_title": "Build-Queue einklappen",
-  "feat_build_queue_collapse_body": "Die Build-Queue kann jetzt zu einer einzelnen Leiste eingeklappt werden, damit sie das Terminal nicht mehr verdeckt. Klicke auf den Pfeil in der Kopfzeile, um sie ein- oder auszuklappen."
+  "feat_build_queue_collapse_body": "Die Build-Queue kann jetzt zu einer einzelnen Leiste eingeklappt werden, damit sie das Terminal nicht mehr verdeckt. Klicke auf den Pfeil in der Kopfzeile, um sie ein- oder auszuklappen.",
+  "queuebadge_label": "{resolved}/{total}",
+  "queuebadge_title": "Build-Queue: {resolved} von {total} Schritten erledigt",
+  "queuebadge_aria": "Build-Queue: {resolved} von {total} Schritten erledigt",
+  "feat_build_queue_progress_title": "Build-Queue-Fortschritt auf einen Blick",
+  "feat_build_queue_progress_body": "Session-Karten zeigen jetzt ein kleines bernsteinfarbenes Badge mit Fortschrittsbalken, wenn eine genehmigte Build-Queue aktiv ist — erledigte / Gesamtschritte ohne Öffnen des Panels einsehbar."
 }

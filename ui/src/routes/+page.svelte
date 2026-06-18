@@ -41,6 +41,7 @@
     halt as apiHalt,
     resumeQuota,
     dismissQuota,
+    getBuildQueues,
   } from "$lib/api";
   import type {
     CompletedEpic,
@@ -430,6 +431,9 @@
       .catch(() => {});
     getBacklog()
       .then((p) => (backlog = p))
+      .catch(() => {});
+    getBuildQueues()
+      .then((m) => store.setBuildQueues(m))
       .catch(() => {});
     // Reconcile critic + plan-gate verdicts and their reviewing latches from the
     // server snapshot (both self-handle errors). load() re-fetches the /inflight

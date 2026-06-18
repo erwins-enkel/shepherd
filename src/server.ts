@@ -384,6 +384,16 @@ function handleSubagentsSnapshot({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
+function handleQueuesSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "queues" && !parts[2]) {
+    const queues = deps.store.listBuildQueues();
+    const map: Record<string, (typeof queues)[number]> = {};
+    for (const q of queues) map[q.sessionId] = q;
+    return json(map);
+  }
+  return null;
+}
+
 function handlePreviewSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "preview" && !parts[2]) {
     const preview = deps.preview?.snapshot() ?? {};
@@ -3878,6 +3888,7 @@ const ROUTE_HANDLERS = [
   handleWorkingBlockedSnapshot,
   handleSubagentsSnapshot,
   handlePreviewSnapshot,
+  handleQueuesSnapshot,
   handleReviews,
   handlePlanGates,
   handleRecaps,

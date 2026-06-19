@@ -13,16 +13,6 @@ import type { RepoCounts } from "./backlog";
  */
 export class BacklogPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
-  /**
-   * Memoised "is this repo forge-backed?" per path for non-local forges.
-   * `resolveForge` shells out to `git remote get-url` for forge repos — uncached
-   * it would block the event loop on N git subprocesses every tick.
-   *
-   * Local forges (`kind === "local"`) are NOT cached here: repoMode can be
-   * toggled at runtime, so we recompute the backed verdict per tick for them.
-   * Forge repos are immutably backed once detected.
-   */
-  private readonly forgeBackedCache = new Map<string, boolean>();
 
   constructor(
     private listRepos: () => Array<{ path: string }>,
@@ -46,19 +36,12 @@ export class BacklogPoller {
   }
 
   private isForgeBacked(path: string): boolean {
+    // Not forge-backed: no forge, or a local forge (no remote issues/PRs to count).
+    // Computed per tick with no local cache so a repoMode flip propagates without a
+    // restart; the underlying `git remote get-url` shell-out is memoized upstream in
+    // the production `resolveForge` (makeForgeResolver), so this stays cheap.
     const forge = this.resolveForge(path);
-    // Local forge is not considered forge-backed (no remote issues/PRs to count).
-    // Recompute each time so a repoMode flip propagates without a restart.
-    if (forge?.kind === "local") return false;
-    if (forge === null || forge === undefined) return false;
-
-    // Genuine remote forge: memoize to avoid repeated git shell-outs.
-    let cached = this.forgeBackedCache.get(path);
-    if (cached === undefined) {
-      cached = true; // forge != null && kind !== "local"
-      this.forgeBackedCache.set(path, cached);
-    }
-    return cached;
+    return forge != null && forge.kind !== "local";
   }
 
   start(): void {

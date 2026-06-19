@@ -176,13 +176,7 @@
 </script>
 
 <!-- info/detail snippets are declared at the bottom of this file (Svelte hoists
-     top-level snippets) so the first markup node here is the main settings template,
-     keeping the fallow complexity-ignore anchored to a single, stable line. -->
-
-<!-- Intentional single cohesive settings panel: one row per per-repo toggle/field.
-     The template "complexity" is just the row count — extracted verbatim from the
-     former AutomationPanel body, not new logic. -->
-<!-- fallow-ignore-next-line complexity -->
+     top-level snippets), keeping the main settings template first. -->
 {#if showHeader}
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>

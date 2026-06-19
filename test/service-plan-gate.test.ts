@@ -75,6 +75,6 @@ test("planBlockInstructions instructs against diff and code blocks (no-diff-bloc
     // must say not to use diff/code blocks
     expect(t.toLowerCase()).toContain("do not use");
     expect(t).toContain("diff");
-    expect(t).toContain("code");
+    expect(t).toContain("annotated-code");
   }
 });

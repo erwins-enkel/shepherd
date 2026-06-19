@@ -2228,7 +2228,7 @@ describe("groundPlanBlocks", () => {
     expect(ft.entries[1]!.change).toBe("modified");
   });
 
-  it("data-model and mermaid come back with inferred:true", () => {
+  it("data-model, mermaid, and api-endpoint come back with inferred:true", () => {
     const blocks = parseVisualBlocks([
       {
         type: "data-model",
@@ -2236,13 +2236,16 @@ describe("groundPlanBlocks", () => {
         entities: [{ id: "e1", name: "User", fields: [{ name: "id", type: "uuid" }] }],
       },
       { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+      { type: "api-endpoint", id: "ep1", method: "GET", path: "/x" },
     ]);
 
     const result = groundPlanBlocks(blocks);
     const dm = asBlock(result[0], "data-model");
     const mm = asBlock(result[1], "mermaid");
+    const ep = asBlock(result[2], "api-endpoint");
     expect(dm.inferred).toBe(true);
     expect(mm.inferred).toBe(true);
+    expect(ep.inferred).toBe(true);
   });
 
   it("returns a new array (input not mutated)", () => {

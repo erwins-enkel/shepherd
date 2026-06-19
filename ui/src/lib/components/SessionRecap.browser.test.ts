@@ -112,3 +112,41 @@ describe("SessionRecap VisualReview blocks", () => {
     await expect.element(page.getByText("body", { exact: false })).toBeInTheDocument();
   });
 });
+
+describe("SessionRecap inline mode", () => {
+  it("inline: body visible without click, no collapse toggle (no aria-expanded)", async () => {
+    recaps.map = {
+      sr3: recap({
+        sessionId: "sr3",
+        blocks: [{ type: "callout", id: "c2", tone: "info", markdown: "Inline callout content." }],
+      }),
+    };
+    render(SessionRecap, { session: session({ id: "sr3" }), inline: true });
+
+    // VisualReview content visible immediately, no click needed
+    await expect.element(page.getByText("Inline callout content.")).toBeInTheDocument();
+
+    // no collapse toggle — no element with aria-expanded
+    expect(document.querySelector("[aria-expanded]")).toBeNull();
+  });
+
+  it("default (non-inline): body hidden until header clicked", async () => {
+    recaps.map = {
+      sr4: recap({
+        sessionId: "sr4",
+        blocks: [{ type: "callout", id: "c3", tone: "info", markdown: "Default callout content." }],
+      }),
+    };
+    render(SessionRecap, { session: session({ id: "sr4" }) });
+
+    // body not visible before click
+    expect(document.querySelector(".recap-body")).toBeNull();
+
+    // click the toggle
+    const header = page.getByRole("button", { expanded: false });
+    await header.click();
+
+    // now body is visible
+    await expect.element(page.getByText("Default callout content.")).toBeInTheDocument();
+  });
+});

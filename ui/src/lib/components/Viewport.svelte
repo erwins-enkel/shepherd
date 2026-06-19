@@ -49,11 +49,13 @@
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
   import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "$lib/components/PlanGateBadge.svelte";
   import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
+  import { recaps } from "$lib/recaps.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import RedrawMenu from "$lib/components/RedrawMenu.svelte";
@@ -165,6 +167,12 @@
 
   // Display-side status for every header/status render below (see display-status.ts).
   const dStatus = $derived(displayStatus(session, workingBlocked));
+
+  const activityRecap = $derived(recaps.map[session.id]);
+  // settled = the session has stopped working; a recap survives re-activation
+  // (src/recap.ts), so a resumed (running) session must fall back to the live feed.
+  const recapSettled = $derived(session.status === "idle" || session.status === "done");
+  const showInlineRecap = $derived(activityRecap?.state === "ready" && recapSettled);
 
   let el: HTMLDivElement | undefined = $state();
   // root element + live signed offset (px) for the phone horizontal swipe gesture:
@@ -2047,6 +2055,7 @@
           id={tabId("activity")}
           aria-selected={tab === "activity"}
           aria-controls={vpBodyId}
+          use:coachTarget={"activity-tab"}
           onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
         >
         <button
@@ -2508,9 +2517,19 @@
     {#if tab === "activity"}
       <div class="panel-wrap activity-wrap">
         <SubagentFanout sessionId={session.id} {subagents} />
-        <div class="activity-feed-fill">
-          <ActivityFeed sessionId={session.id} />
-        </div>
+        {#if showInlineRecap}
+          <div class="activity-recap-fill">
+            <SessionRecap {session} inline />
+          </div>
+        {:else}
+          {#if activityRecap?.state === "failed"}
+            <!-- compact retry strip: inline SessionRecap renders only the failed+retry row here -->
+            <SessionRecap {session} inline />
+          {/if}
+          <div class="activity-feed-fill">
+            <ActivityFeed sessionId={session.id} />
+          </div>
+        {/if}
       </div>
     {/if}
     {#if tab === "diff"}
@@ -2693,7 +2712,9 @@
     />
   {/if}
 
-  <SessionRecap {session} />
+  {#if tab !== "activity"}
+    <SessionRecap {session} />
+  {/if}
 
   <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware
        keyboard). Any coarse-pointer device (phone OR unfolded foldable) has no
@@ -3866,6 +3887,12 @@
   .activity-feed-fill {
     flex: 1 1 auto;
     min-height: 0;
+  }
+  .activity-recap-fill {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 10px;
   }
 
   /* live preview pane: the iframe fills the body; a thin footer carries the

@@ -21,9 +21,11 @@ const { default: Viewport } = await import("./Viewport.svelte");
 // Dynamic import AFTER the $lib/api mock: reviews.svelte imports $lib/api, so a static
 // (hoisted) import would pull the real module in before the mock registers and break it.
 const { reviews } = await import("$lib/reviews.svelte");
+// Dynamic import for same reason: recaps.svelte imports $lib/api via getRecaps.
+const { recaps } = await import("$lib/recaps.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
-import type { Session, BuildQueue } from "$lib/types";
+import type { Session, BuildQueue, Recap } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -512,6 +514,89 @@ describe("Viewport armed decommission icon-only rendering", () => {
     expect(
       decomBtn!.querySelector(".decom-confirm"),
       "no .decom-confirm after arming quiet form",
+    ).toBeNull();
+  });
+});
+
+// ── Activity tab A/B switch: live feed vs inline recap ────────────────────────
+// The Activity tab shows ActivityFeed while the session is running (even if a
+// recap exists), and switches to the inline SessionRecap once the session is
+// settled (idle/done) AND the recap state is "ready". The bottom SessionRecap
+// card is suppressed on the Activity tab so the recap never shows twice.
+describe("Viewport Activity tab A/B switch", () => {
+  const readyRecap = (sessionId: string): Recap => ({
+    sessionId,
+    state: "ready",
+    headSha: "abc123",
+    verdict: "ready",
+    headline: "Inline recap body",
+    body: "recap body text",
+    openItems: [],
+    changedFiles: [],
+    spawnSessionId: "sp1",
+    cwd: "/repo/a",
+    model: null,
+    spawnedAt: 0,
+    generatedAt: 1000,
+    updatedAt: 1000,
+    blocks: [],
+  });
+
+  beforeEach(() => {
+    // clear the recaps store between tests
+    recaps.map = {};
+  });
+
+  it("settled (idle) + ready recap: shows inline recap, bottom card suppressed", async () => {
+    const id = "ar-idle";
+    recaps.map = { [id]: readyRecap(id) };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "idle" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    // Click the Activity tab
+    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
+    await expect.element(activityTab).toBeInTheDocument();
+    await activityTab.click();
+    await expect.element(activityTab).toHaveClass(/active/);
+
+    // Inline recap headline must appear
+    await expect.element(page.getByText("Inline recap body")).toBeInTheDocument();
+
+    // Bottom collapsed-card toggle must NOT exist on the Activity tab:
+    // the non-inline SessionRecap renders a button.recap-header; it must be absent.
+    const bottomCard = container.querySelector("button.recap-header");
+    expect(bottomCard, "bottom recap card toggle absent on Activity tab").toBeNull();
+  });
+
+  it("running + ready recap: shows live feed, NOT the inline recap", async () => {
+    const id = "ar-running";
+    recaps.map = { [id]: readyRecap(id) };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    // Click the Activity tab
+    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
+    await activityTab.click();
+    await expect.element(activityTab).toHaveClass(/active/);
+
+    // The live feed must be present (.activity-feed-fill wrapper)
+    await vi.waitFor(() => {
+      const feedEl = container.querySelector(".activity-feed-fill");
+      expect(feedEl, "activity-feed-fill should render while running").not.toBeNull();
+    });
+
+    // The inline recap headline must NOT appear
+    expect(
+      container.querySelector(".activity-recap-fill"),
+      "activity-recap-fill absent while running",
     ).toBeNull();
   });
 });

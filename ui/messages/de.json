@@ -500,6 +500,15 @@
   "diff_empty": "Keine Änderungen ggü. {base}",
   "diff_stale": "Basis-Fetch fehlgeschlagen; Vergleich mit lokalem {base}",
   "activity_empty": "Noch keine Aktivität.",
+  "activity_files_changed": "Geänderte Dateien",
+  "activity_kind_edit": "Bearbeitungen",
+  "activity_kind_read": "Gelesen",
+  "activity_kind_search": "Suchen",
+  "activity_kind_exec": "Befehle",
+  "activity_kind_tasks": "Aufgaben",
+  "activity_kind_agent": "Agenten",
+  "activity_kind_web": "Web",
+  "activity_kind_other": "Sonstiges",
   "subagents_section_title": "Sub-Agenten",
   "subagents_live_count": "{count} aktiv",
   "subagent_status_live": "aktiv",
@@ -1541,5 +1550,7 @@
   "feat_visual_plan_title": "Visuelle Pläne",
   "feat_visual_plan_body": "Plan-Gate-Pläne können jetzt als übersichtliches visuelles Dokument dargestellt werden — Dateibäume, Diagramme, Datenmodelle und mehr — oberhalb des Plantextes, sofern der Planungs-Agent sie ausgibt.",
   "feat_plan_question_answers_title": "Planfragen direkt in der App beantworten",
-  "feat_plan_question_answers_body": "Wenn ein Plan offene Fragen stellt, kannst du sie jetzt direkt in der Planansicht beantworten — Optionen auswählen oder eine Antwort eingeben und direkt an den Planungs-Agenten zurücksenden, um den Plan zu verfeinern."
+  "feat_plan_question_answers_body": "Wenn ein Plan offene Fragen stellt, kannst du sie jetzt direkt in der Planansicht beantworten — Optionen auswählen oder eine Antwort eingeben und direkt an den Planungs-Agenten zurücksenden, um den Plan zu verfeinern.",
+  "feat_activity_visual_feed_title": "Aktivität ist jetzt ein visueller Feed",
+  "feat_activity_visual_feed_body": "Der Aktivitäts-Tab zeigt während der Arbeit einen Live-Baum der geänderten Dateien und einen gruppierten Tool-Verlauf und wechselt nach Abschluss der Sitzung zur vollständigen visuellen Zusammenfassung."
 }

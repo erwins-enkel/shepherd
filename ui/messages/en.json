@@ -500,6 +500,15 @@
   "diff_empty": "No changes vs {base}",
   "diff_stale": "Base fetch failed; comparing local {base}",
   "activity_empty": "No activity yet.",
+  "activity_files_changed": "Files changed",
+  "activity_kind_edit": "Edits",
+  "activity_kind_read": "Reads",
+  "activity_kind_search": "Searches",
+  "activity_kind_exec": "Commands",
+  "activity_kind_tasks": "Tasks",
+  "activity_kind_agent": "Agents",
+  "activity_kind_web": "Web",
+  "activity_kind_other": "Other",
   "subagents_section_title": "Sub-agents",
   "subagents_live_count": "{count} live",
   "subagent_status_live": "live",
@@ -1541,5 +1550,7 @@
   "feat_visual_plan_title": "Visual plans",
   "feat_visual_plan_body": "Plan-gate plans can now render as a scannable visual document — file trees, diagrams, data models and more — shown above the plan text when the planning agent emits them.",
   "feat_plan_question_answers_title": "Answer plan questions in-app",
-  "feat_plan_question_answers_body": "When a plan asks you open questions, you can now answer them right in the plan view — pick options or type a response and send them straight back to the planning agent to refine the plan."
+  "feat_plan_question_answers_body": "When a plan asks you open questions, you can now answer them right in the plan view — pick options or type a response and send them straight back to the planning agent to refine the plan.",
+  "feat_activity_visual_feed_title": "Activity is now a visual feed",
+  "feat_activity_visual_feed_body": "The Activity tab shows a live tree of changed files and a grouped tool stream while the agent works, then graduates to the full visual recap once the session settles."
 }

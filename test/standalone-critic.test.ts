@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { StandalonePrCriticService } from "../src/standalone-critic";
-import { CRITIC_THINKING_TOKENS } from "../src/critic-core";
+import { CRITIC_THINKING_TOKENS, type RawVerdict } from "../src/critic-core";
+import type { VerdictRead } from "../src/json-tolerant";
 import { CRITIC_REVIEW_MARKER } from "../src/forge/types";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -202,13 +203,6 @@ function makeDeps(
     concurrency: opts.concurrency,
     now: () => 1000,
     log: (msg: string) => spies.logs.push(msg),
-    // default: a request-changes verdict with one finding
-    readVerdict: () => ({
-      decision: "request-changes",
-      summary: "1 issue",
-      body: "## findings",
-      findings: ["feat/x: a bug"],
-    }),
     // no real git: keep base unknown so the scope backstop is skipped (findings pass through)
     computePatchId: async () => ({ patchId: "p1", baseSha: null, files: [] }),
     readUsage: async () => null,
@@ -221,6 +215,23 @@ function makeDeps(
       nodeBinReal: "/fake/bin/node",
     }),
     ...over,
+    // Adapt the legacy `() => RawVerdict | null` reader (default or `over.readVerdict`) into the
+    // 3-way VerdictRead the service now consumes — placed AFTER `...over` so the wrap always wins.
+    // (default: a request-changes verdict with one finding.)
+    readVerdict: ((): ((wt: string) => VerdictRead<RawVerdict>) => {
+      const legacy: () => RawVerdict | null =
+        over.readVerdict ??
+        (() => ({
+          decision: "request-changes",
+          summary: "1 issue",
+          body: "## findings",
+          findings: ["feat/x: a bug"],
+        }));
+      return () => {
+        const v = legacy();
+        return v == null ? { status: "absent" } : { status: "parsed", value: v, repaired: false };
+      };
+    })(),
   };
   return { deps, spies, reviews };
 }

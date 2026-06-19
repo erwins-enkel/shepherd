@@ -1,4 +1,7 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
@@ -9,7 +12,56 @@ import {
   RECAP_HEADLINE_MAX,
   RECAP_DIGEST_MAX_CHARS,
 } from "../src/recap-core";
+import { defaultReadVerdict } from "../src/recap";
 import type { Recap } from "../src/types";
+
+// ── #822 regression: malformed-JSON read path (defaultReadVerdict → parseRecapVerdict) ──────────
+//
+// The recap spawn occasionally writes a bare unescaped `"` inside a string value, which strict
+// JSON.parse rejects — pre-fix this finalized as a `failed` recap with an empty body after the full
+// 5-minute timeout, even though the agent produced a complete, correct summary. The captured
+// TASK-561 fixture reproduces the exact shape (15 blocks, verdict "ready", inner-quoted phrases in
+// `body` and a block `markdown`). These tests FAIL on pre-fix code (strict parse → null).
+
+test("#822 read path: malformed TASK-561 recap recovers to verdict=ready with all 15 blocks", () => {
+  const fixture = readFileSync(join(import.meta.dir, "fixtures", "recap-task561.json"), "utf8");
+  // pre-condition: the fixture is genuinely strict-invalid (a real malformed file, not a soft case).
+  expect(() => JSON.parse(fixture)).toThrow();
+
+  const dir = mkdtempSync(join(tmpdir(), "recap-822-"));
+  writeFileSync(join(dir, ".shepherd-recap.json"), fixture);
+
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  expect(read.repaired).toBe(true); // recovered via jsonrepair, not strict
+
+  const parsed = parseRecapVerdict(read.value);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.verdict).toBe("ready");
+  expect(parsed!.blocks).toHaveLength(15);
+});
+
+test("#822 content fidelity: inner-quoted phrase survives repair verbatim (not truncated/mangled)", () => {
+  // Guards LOSSY repair: a parseable-but-corrupted recovery would keep the 15-block count (blocks
+  // validate independently) yet silently drop the string content at the offending inner quote.
+  const fixture = readFileSync(join(import.meta.dir, "fixtures", "recap-task561.json"), "utf8");
+  const dir = mkdtempSync(join(tmpdir(), "recap-822-fidelity-"));
+  writeFileSync(join(dir, ".shepherd-recap.json"), fixture);
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  const parsed = parseRecapVerdict(read.value)!;
+
+  // The exact phrase (with its inner double-quotes) must survive in the body…
+  expect(parsed.body).toContain('"Open for merge"');
+  // …and in the block whose markdown carried the malformed inner quotes.
+  const carrier = parsed.blocks.find(
+    (b) => "markdown" in b && (b as { markdown: string }).markdown.includes("Open for merge"),
+  );
+  expect(carrier).toBeDefined();
+  expect((carrier as { markdown: string }).markdown).toContain('"Open for merge"');
+});
 
 // ── parseRecapVerdict ────────────────────────────────────────────────────────
 

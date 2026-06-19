@@ -40,6 +40,8 @@ import {
   needsRecap,
 } from "./recap-core";
 import { groundBlocks } from "./visual-blocks";
+import { tolerantParseJson, isSpawnWorking, decideVerdictAction } from "./json-tolerant";
+import type { VerdictRead } from "./json-tolerant";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,14 +84,25 @@ function defaultReadPlan(worktreePath: string): string {
   }
 }
 
-function defaultReadVerdict(cwd: string): unknown | null {
+/**
+ * Read the recap verdict file as a 3-way result. `absent` (not yet written) is distinct from
+ * `unparseable` (present but unrecoverable even after repair) so tick() can fail fast on the latter
+ * without waiting out the timeout. A repaired parse carries `repaired: true` so it is trusted only
+ * once the spawn has finished (see RecapService.tick). Exported for the read-path regression test.
+ */
+export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
   const p = join(cwd, RECAP_VERDICT_FILE);
-  if (!existsSync(p)) return null;
+  if (!existsSync(p)) return { status: "absent" };
+  let text: string;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as unknown;
+    text = readFileSync(p, "utf8");
   } catch {
-    return null; // partial write; retry next tick
+    return { status: "absent" }; // unreadable mid-write — treat as not-yet-written, retry next tick
   }
+  const r = tolerantParseJson(text);
+  return r.status === "ok"
+    ? { status: "parsed", value: r.value, repaired: r.repaired }
+    : { status: "unparseable" };
 }
 
 function defaultMakeTmpDir(): string {
@@ -162,7 +175,7 @@ export interface RecapServiceDeps {
   headSha?: (worktreePath: string) => Promise<string>;
   readTranscript?: (worktreePath: string, claudeSessionId: string) => ActivityEntry[];
   readPlan?: (worktreePath: string) => string;
-  readVerdict?: (cwd: string) => unknown | null;
+  readVerdict?: (cwd: string) => VerdictRead<unknown>;
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
   makeTmpDir?: () => string;
   cleanup?: (cwd: string) => void;
@@ -191,7 +204,7 @@ export class RecapService {
   private _headSha: (worktreePath: string) => Promise<string>;
   private _readTranscript: (worktreePath: string, claudeSessionId: string) => ActivityEntry[];
   private _readPlan: (worktreePath: string) => string;
-  private _readVerdict: (cwd: string) => unknown | null;
+  private _readVerdict: (cwd: string) => VerdictRead<unknown>;
   private _readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
   private _makeTmpDir: () => string;
   private _cleanup: (cwd: string) => void;
@@ -225,6 +238,16 @@ export class RecapService {
   /** Find a recap spawn's live terminal by its tmpdir cwd. "" when gone; herdr.stop("") is a no-op. */
   private resolveTerminal(cwd: string): string {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
+  }
+
+  /**
+   * Has the recap spawn at `cwd` finished producing output? True when its herdr agent is gone or no
+   * longer "working" — used to gate acting on a repaired/unparseable verdict (don't trust/fail on a
+   * file that may still be mid-write). See isSpawnWorking for the residual-flicker race; the hard
+   * timeout in tick() is the true backstop.
+   */
+  private spawnFinished(cwd: string): boolean {
+    return !isSpawnWorking(this.deps.herdr.list(), cwd);
   }
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
@@ -490,9 +513,12 @@ export class RecapService {
     for (const r of this.deps.store.generatingRecaps()) {
       if (this.finalizing.has(r.sessionId)) continue;
 
-      const raw = this._readVerdict(r.cwd);
+      const read = this._readVerdict(r.cwd);
       const timedOut = this.now() - r.spawnedAt > this.timeoutMs;
-      if (!raw && !timedOut) continue;
+      const action = decideVerdictAction(read, this.spawnFinished(r.cwd), timedOut);
+      if (action === "wait") continue; // not-yet-written / repaired-or-unparseable while still working
+      // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
+      const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
 
       this.finalizing.add(r.sessionId);
       try {

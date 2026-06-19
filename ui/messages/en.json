@@ -1529,5 +1529,6 @@
   "feat_learnings_triage_body": "The Learnings drawer now floats over-budget and not-working repos to the top, pins each repo's header while you scroll, marks over-budget repos in amber, and adds a 'needs attention' jump bar — so you can see what to act on at a glance.",
   "qform_kind_single": "Select one",
   "qform_kind_multi": "Select all that apply",
-  "qform_kind_freeform": "Free response"
+  "qform_kind_freeform": "Free response",
+  "planpanel_proposed_caption": "Proposed — not yet built · the plan text below is authoritative"
 }

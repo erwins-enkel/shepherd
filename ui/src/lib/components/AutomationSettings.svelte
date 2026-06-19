@@ -6,6 +6,7 @@
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { MODELS } from "$lib/types";
+  import { modelLabel } from "$lib/model-label";
   import type { Session, RepoRoles, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
@@ -528,7 +529,7 @@
       <option value="auto">{m.settings_default_model_auto()}</option>
       <option value="default">{m.newtask_model_default()}</option>
       {#each MODELS as mdl (mdl)}
-        <option value={mdl}>{mdl}</option>
+        <option value={mdl}>{modelLabel(mdl)}</option>
       {/each}
     </select>
   </label>

@@ -31,6 +31,7 @@
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { modelLabel } from "$lib/model-label";
   import { recentRepos } from "$lib/recentRepos";
 
   let {
@@ -844,12 +845,12 @@
       </div>
 
       <div class="run-config">
-        <div class="model-field">
+        <div class="model-field" use:coachTarget={"model-1m-context"}>
           <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
           <select id="nt-model" bind:value={model} onchange={() => (modelTouched = true)}>
             <option value="default">{m.newtask_model_default()}</option>
             {#each MODELS as mdl (mdl)}
-              <option value={mdl}>{mdl}</option>
+              <option value={mdl}>{modelLabel(mdl)}</option>
             {/each}
           </select>
         </div>

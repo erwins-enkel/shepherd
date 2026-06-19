@@ -17,6 +17,7 @@
     fixDiagnostic,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
+  import { modelLabel } from "$lib/model-label";
   import {
     MODELS,
     PREMIUM_MODELS,
@@ -155,6 +156,9 @@
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
+  // 1M-context variants ("opus[1m]"/"sonnet[1m]") carry an extra per-turn cost the
+  // generic premium warning doesn't convey, so they surface an additional note.
+  const is1mModel = $derived(defaultModel.endsWith("[1m]"));
   let authMode = $state("subscription"); // how spawned agents authenticate
   let authModeSaved = "subscription"; // last server-confirmed value, for revert on failure
   let authBusy = $state(false);
@@ -767,11 +771,14 @@
           <option value="auto">{m.settings_default_model_auto()}</option>
           <option value="default">{m.newtask_model_default()}</option>
           {#each MODELS as mdl (mdl)}
-            <option value={mdl}>{mdl}</option>
+            <option value={mdl}>{modelLabel(mdl)}</option>
           {/each}
         </select>
         {#if isPremiumModel}
           <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
+        {/if}
+        {#if is1mModel}
+          <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
         {/if}
       </div>
       <div class="rc">

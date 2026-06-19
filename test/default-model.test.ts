@@ -71,6 +71,16 @@ describe("drainSpawnModel", () => {
   test("'haiku' → 'haiku'", () => {
     expect(drainSpawnModel("haiku")).toBe("haiku");
   });
+
+  test("1M aliases round-trip unchanged into the spawn flag", () => {
+    // The drain/autopilot default-model setting space must accept and pass through
+    // the bracketed 1M aliases so an operator can set 1M Opus/Sonnet as an unattended
+    // default. Fails on pre-fix code (the aliases weren't in MODELS/SETTING_VALUES).
+    expect(normalizeDefaultModelSetting("opus[1m]")).toBe("opus[1m]");
+    expect(normalizeDefaultModelSetting("sonnet[1m]")).toBe("sonnet[1m]");
+    expect(drainSpawnModel("opus[1m]")).toBe("opus[1m]");
+    expect(drainSpawnModel("sonnet[1m]")).toBe("sonnet[1m]");
+  });
 });
 
 describe("normalizeRepoDefaultModelSetting", () => {

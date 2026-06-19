@@ -41,6 +41,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { modelLabel } from "$lib/model-label";
   import AutopilotBadge from "./AutopilotBadge.svelte";
   import PlanGateBadge from "./PlanGateBadge.svelte";
   import ResearchBadge from "./ResearchBadge.svelte";
@@ -533,8 +534,9 @@
 
     <span class="meta">
       <span class="meta-text"
-        ><span class="desig">{session.desig}</span> · {session.model ??
-          m.newtask_model_default()}</span
+        ><span class="desig">{session.desig}</span> · {session.model
+          ? modelLabel(session.model)
+          : m.newtask_model_default()}</span
       >
       {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">

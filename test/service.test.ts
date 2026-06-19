@@ -4542,3 +4542,144 @@ test("createSession: fable available → argv uses fable directly", async () => 
     config.fableAvailable = prev;
   }
 });
+
+// ── learnings lifecycle: spawn recording + archive reward ─────────────────────
+
+function learningsArchiveService(store: SessionStore) {
+  return new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: { start: () => ({}), list: () => [], stop: () => {} } as any,
+  });
+}
+
+test("learnings: spawn records injected set; injectedCount stays 0 until archive", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
+  store.setLearningStatus(a.id, "active");
+  const b = store.addLearning({
+    repoPath: "/repo",
+    rule: "Prefer TS",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(b.id, "active");
+
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+
+  // System prompt carries the house-rules block (rules were injected).
+  expect(sysPrompt(captured.argv!)).toContain(`<${HOUSE_RULES_TAG}>`);
+
+  // Counters not bumped at spawn time.
+  expect(store.getLearning(a.id)!.injectedCount).toBe(0);
+  expect(store.getLearning(b.id)!.injectedCount).toBe(0);
+
+  // Join rows are present (consume them to verify).
+  const ids = store.takeSessionInjectedLearnings(s.id);
+  expect(ids.sort()).toEqual([a.id, b.id].sort());
+});
+
+test("learnings: archive good outcome → pull + help for every injected rule", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
+  store.setLearningStatus(a.id, "active");
+
+  // Create session row + record injected set directly (avoids full spawn scaffolding).
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t1",
+  });
+  store.recordInjectedLearnings(s.id, [a.id]);
+
+  // No review + no blocking signals → good outcome.
+  const svc = learningsArchiveService(store);
+  await svc.archive(s.id);
+
+  const after = store.getLearning(a.id)!;
+  expect(after.injectedCount).toBe(1);
+  expect(after.helpfulCount).toBe(1);
+  // Join rows consumed.
+  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
+});
+
+test("learnings: archive bad outcome (blocking signal) → pull only, no help", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
+  store.setLearningStatus(a.id, "active");
+
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t1",
+  });
+  store.recordInjectedLearnings(s.id, [a.id]);
+
+  // Add a blocking signal → bad outcome.
+  store.addSignal({ repoPath: "/r", sessionId: s.id, kind: "block", payload: "stuck" });
+
+  const svc = learningsArchiveService(store);
+  await svc.archive(s.id);
+
+  const after = store.getLearning(a.id)!;
+  expect(after.injectedCount).toBe(1);
+  expect(after.helpfulCount).toBe(0);
+  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
+});
+
+test("learnings: disabled repo records nothing and archive is a reward no-op", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
+  store.setLearningStatus(a.id, "active");
+  store.setRepoConfig("/repo", {
+    ...store.getRepoConfig("/repo"),
+    learningsEnabled: false,
+  });
+
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+
+  // No injected rows recorded.
+  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
+
+  // Archive via a fresh minimal service for the same session (already created above).
+  const archiveSvc = learningsArchiveService(store);
+  await archiveSvc.archive(s.id);
+
+  // Counters untouched.
+  expect(store.getLearning(a.id)!.injectedCount).toBe(0);
+  expect(store.getLearning(a.id)!.helpfulCount).toBe(0);
+});

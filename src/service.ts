@@ -30,6 +30,7 @@ import {
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { MAX_IMAGES } from "./validate";
 import {
@@ -1234,14 +1235,19 @@ export class SessionService {
     return outcome;
   }
 
-  /** Active+promoted rules for the repo as an XML-wrapped block, or null when
-   *  none / learnings disabled. Injected into every new agent's system prompt
-   *  (via composeSystemPrompt), not the human turn. */
-  private houseRules(repoPath: string): string | null {
+  /** Active+promoted rules for the repo as an XML-wrapped block, or null when none /
+   *  learnings disabled. Records the injected rule ids against the session (join rows
+   *  only — counters are advanced symmetrically with the reward at archive, never here).
+   *  Injected into every new agent's system prompt via composeSystemPrompt. */
+  private recordInjectedHouseRules(sessionId: string, repoPath: string): string | null {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
     const { injected } = planHouseRulesInjection(
       this.deps.store.listActiveLearnings(repoPath),
       config.houseRulesBudgetChars,
+    );
+    this.deps.store.recordInjectedLearnings(
+      sessionId,
+      injected.map((r) => r.id),
     );
     return renderHouseRulesBlock(injected);
   }
@@ -1274,7 +1280,7 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const houseRules = this.houseRules(input.repoPath);
+    const houseRules = this.recordInjectedHouseRules(sessionId, input.repoPath);
     const autopilotActive = repoConfig.autopilotEnabled;
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
@@ -2438,6 +2444,25 @@ export class SessionService {
     return this.deps.reaper.detect(s);
   }
 
+  /** Attribute the effectiveness reward for a terminating session: every rule injected
+   *  into it counts as one "pull" (injectedCount++ / lastUsedAt), and a terminal-good
+   *  outcome additionally counts as a help (helpfulCount++). Counting both here keeps the
+   *  help-rate numerator and denominator on the same population (only sessions that reached
+   *  a terminal outcome). Best-effort: must never throw past teardown. */
+  private attributeLearningReward(s: Session): void {
+    try {
+      const ids = this.deps.store.takeSessionInjectedLearnings(s.id);
+      if (ids.length === 0) return;
+      const good = isGoodOutcome(
+        this.deps.store.getReview(s.id),
+        this.deps.store.countSessionBlockingSignals(s.id),
+      );
+      this.deps.store.attributeInjected(ids, { good });
+    } catch (err) {
+      console.warn(`[learnings] reward attribution failed for ${s.id}:`, err);
+    }
+  }
+
   /**
    * Close a session: optionally terminate selected leftovers first, then stop the
    * agent, remove the worktree, and archive the row. `reapKeys` are leftover keys
@@ -2479,6 +2504,7 @@ export class SessionService {
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
+    this.attributeLearningReward(s);
     this.deps.store.archive(id);
     return reaped;
   }

@@ -25,6 +25,7 @@
     getBacklog,
     getSettings,
     listBranches,
+    pickBaseBranch,
     approveLearning,
     dismissLearning,
     distillRepo,
@@ -515,7 +516,7 @@
       return;
     }
     const br = await listBranches(repoPath).catch(() => null);
-    const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+    const baseBranch = pickBaseBranch(br);
     try {
       const s = await createSession({
         repoPath,
@@ -563,7 +564,7 @@
       otherRepoCount,
       run: async () => {
         const br = await listBranches(repoPath).catch(() => null);
-        const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+        const baseBranch = pickBaseBranch(br);
         try {
           const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
           selectedId = s.id;
@@ -592,7 +593,7 @@
       otherRepoCount: 0,
       run: async () => {
         const br = await listBranches(repoPath).catch(() => null);
-        const baseBranch = br?.current ?? br?.branches[0] ?? "main";
+        const baseBranch = pickBaseBranch(br);
         try {
           const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
           selectedId = s.id;

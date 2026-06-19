@@ -3,6 +3,7 @@
   import {
     listRepos,
     listBranches,
+    pickBaseBranch,
     branchStatus,
     getCommands,
     getEpics,
@@ -234,11 +235,11 @@
         if (rp !== repoPath) return;
         branches = b.branches;
         // Preserve a relaunch-seeded base on the initial repo's first load;
-        // once consumed (or on any other repo) use the repo's current branch.
+        // once consumed (or on any other repo) prefer the repo's default branch.
         if (seededBase && rp === initialRepoPath) {
           seededBase = false;
         } else {
-          baseBranch = b.current ?? b.branches[0] ?? "main";
+          baseBranch = pickBaseBranch(b);
         }
       })
       .catch(() => {

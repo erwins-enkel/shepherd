@@ -209,7 +209,7 @@ test("error takes precedence over rework when both conditions met", () => {
 
 // 9. Plan gate: decision changes_requested, round === cap → quotaKind "plan".
 test("plan gate exhausted → quotaKind plan with gate findings as tail", () => {
-  const session = makeSession("idle");
+  const session = { ...makeSession("idle"), planPhase: "planning" as const };
   const findings = ["address concern X"];
   const gate = makeGate({ decision: "changes_requested", round: 5, cap: 5, findings });
   const result = quotaBlockReason(session, null, gate, NOW);

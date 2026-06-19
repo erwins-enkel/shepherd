@@ -177,7 +177,9 @@ test("quota/resume, plan kind → calls planGate.resume, status:resumed when it 
     },
     dismiss: () => {},
   };
-  const app = makeApp(makeDeps({ gate: PLAN_GATE, planGate }));
+  const app = makeApp(
+    makeDeps({ session: { ...SESSION, planPhase: "planning" }, gate: PLAN_GATE, planGate }),
+  );
   const res = await app.fetch(post("/api/sessions/s1/quota/resume"));
   expect(res.status).toBe(202);
   expect(await res.json()).toEqual({ ok: true, status: "resumed" });
@@ -191,7 +193,9 @@ test("quota/resume, plan kind → status:unreachable when planGate.resume return
     resume: () => false,
     dismiss: () => {},
   };
-  const app = makeApp(makeDeps({ gate: PLAN_GATE, planGate }));
+  const app = makeApp(
+    makeDeps({ session: { ...SESSION, planPhase: "planning" }, gate: PLAN_GATE, planGate }),
+  );
   const res = await app.fetch(post("/api/sessions/s1/quota/resume"));
   expect(res.status).toBe(202);
   expect(await res.json()).toEqual({ ok: true, status: "unreachable" });
@@ -324,7 +328,9 @@ test("quota/dismiss, plan kind → calls planGate.dismiss, status:dismissed", as
       dismissed.push(s);
     },
   };
-  const app = makeApp(makeDeps({ gate: PLAN_GATE, planGate }));
+  const app = makeApp(
+    makeDeps({ session: { ...SESSION, planPhase: "planning" }, gate: PLAN_GATE, planGate }),
+  );
   const res = await app.fetch(post("/api/sessions/s1/quota/dismiss"));
   expect(res.status).toBe(202);
   expect(await res.json()).toEqual({ ok: true, status: "dismissed" });

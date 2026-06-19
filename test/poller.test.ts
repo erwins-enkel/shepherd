@@ -2757,6 +2757,7 @@ test("quota: blocked session goes through maybeClassify, not the quota branch", 
 // Property 5: plan kind emits quotaKind "plan"
 test("quota: idle session with exhausted plan gate (no review) emits quotaKind 'plan'", () => {
   const { store, s, blocks, poller } = idleQuotaHarness();
+  store.setPlanPhase(s.id, "planning");
   store.putPlanGate(makeExhaustedGate(s.id));
 
   poller.tick();

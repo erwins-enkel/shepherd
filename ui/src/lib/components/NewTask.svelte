@@ -3,6 +3,7 @@
   import {
     listRepos,
     listBranches,
+    pickBaseBranch,
     branchStatus,
     getCommands,
     getEpics,
@@ -141,6 +142,10 @@
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
   let branches = $state<string[]>([]);
+  // The base selected by pickBaseBranch (the repo default / origin/HEAD) need not be a
+  // LOCAL branch — a fresh clone may have `dev` only as `origin/dev`. Surface it as an
+  // option so the dropdown's shown value matches the base actually submitted.
+  let baseOptions = $derived(branches.includes(baseBranch) ? branches : [baseBranch, ...branches]);
   let upstream = $state<{
     behind: number;
     ahead: number;
@@ -234,11 +239,11 @@
         if (rp !== repoPath) return;
         branches = b.branches;
         // Preserve a relaunch-seeded base on the initial repo's first load;
-        // once consumed (or on any other repo) use the repo's current branch.
+        // once consumed (or on any other repo) prefer the repo's default branch.
         if (seededBase && rp === initialRepoPath) {
           seededBase = false;
         } else {
-          baseBranch = b.current ?? b.branches[0] ?? "main";
+          baseBranch = pickBaseBranch(b);
         }
       })
       .catch(() => {
@@ -729,7 +734,7 @@
     <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
     {#if branches.length > 0}
       <select id="nt-base" bind:value={baseBranch}>
-        {#each branches as b (b)}
+        {#each baseOptions as b (b)}
           <option value={b}>{b}</option>
         {/each}
       </select>

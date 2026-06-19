@@ -367,12 +367,26 @@ export async function listDirs(path?: string): Promise<DirListing> {
   return r.json();
 }
 
-export async function listBranches(
-  repoPath: string,
-): Promise<{ branches: string[]; current: string | null }> {
+export interface BranchList {
+  branches: string[];
+  current: string | null;
+  /** Repo default branch (`origin/HEAD`); null when unset. */
+  default: string | null;
+}
+
+export async function listBranches(repoPath: string): Promise<BranchList> {
   const r = await fetch(`/api/branches?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "branches");
   return r.json();
+}
+
+/**
+ * The base branch a new task should default to: the repo default branch (origin/HEAD),
+ * falling back to the current checkout, then the most-recent branch, then "main".
+ * Single source for every New Task / quick-launch / merge-train spawn site.
+ */
+export function pickBaseBranch(b: BranchList | null | undefined): string {
+  return b?.default ?? b?.current ?? b?.branches?.[0] ?? "main";
 }
 
 export async function branchStatus(

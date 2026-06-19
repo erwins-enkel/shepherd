@@ -54,3 +54,19 @@ test("non-git dir → empty list, null current", () => {
     rmSync(plain, { recursive: true, force: true });
   }
 });
+
+test("resolves the repo default branch from the origin/HEAD symref", () => {
+  // Point origin/HEAD at a non-current branch (target ref need not exist to be read).
+  execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/dev"], {
+    cwd: repo,
+    env: GIT_ENV,
+  });
+  const r = listBranches(repo);
+  expect(r.default).toBe("dev");
+  expect(r.current).toBe("main");
+});
+
+test("default is null when origin/HEAD is unset", () => {
+  const r = listBranches(repo);
+  expect(r.default).toBeNull();
+});

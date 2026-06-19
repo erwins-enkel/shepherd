@@ -76,7 +76,7 @@ beforeEach(() => {
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
   mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
   mockGetEpics.mockResolvedValue([]);
-  mockListBranches.mockResolvedValue({ current: "main", branches: ["main"] });
+  mockListBranches.mockResolvedValue({ current: "main", branches: ["main"], default: null });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
   // Default: up to date — no hint rendered
@@ -724,5 +724,58 @@ describe("NewTask upstream status hint", () => {
     // Give the debounce time to fire and resolve
     await new Promise((r) => setTimeout(r, 600));
     expect(document.querySelector(".nt-upstream")).toBeNull();
+  });
+});
+
+describe("NewTask base branch default", () => {
+  const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
+  const baseSelect = () => document.querySelector<HTMLSelectElement>("#nt-base")!;
+
+  async function fillAndSubmit() {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => submitBtn().disabled).toBe(false);
+    submitBtn().click();
+  }
+
+  // Regression: the base must prefer the repo default branch (origin/HEAD) over the
+  // currently-checked-out branch. flowagent sits on `main` but defaults to `dev`; basing
+  // on `main` is what made the plan reviewer ground on a stale branch (TASK-581).
+  it("preselects the repo default branch over the current checkout", async () => {
+    mockListBranches.mockResolvedValue({
+      current: "main",
+      branches: ["main", "dev"],
+      default: "dev",
+    });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/default-pref" } });
+
+    await expect.poll(() => baseSelect().value).toBe("dev");
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
+  });
+
+  // The default branch (origin/HEAD) need not exist locally — surface it as an option so
+  // the dropdown's shown value matches the submitted base (not a silently-mismatched first
+  // option). Here `dev` is the default but only `main` exists locally.
+  it("includes a non-local default branch as a selectable option", async () => {
+    mockListBranches.mockResolvedValue({
+      current: "main",
+      branches: ["main"],
+      default: "dev",
+    });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/nonlocal-default" } });
+
+    await expect.poll(() => baseSelect().value).toBe("dev");
+    const options = Array.from(baseSelect().options).map((o) => o.value);
+    expect(options).toContain("dev");
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
   });
 });

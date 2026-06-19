@@ -159,9 +159,9 @@ export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
 
   for (const repoPath of store.listRepoPathsWithInjectableLearnings()) {
     const injected = store.listActiveLearnings(repoPath); // active + promoted
-    const retired = store.listRetiredLearnings(repoPath);
+    const retiredList = store.listRetiredLearnings(repoPath);
 
-    const base = repoBaseRate([...injected, ...retired], baseRateOpts);
+    const base = repoBaseRate([...injected, ...retiredList], baseRateOpts);
 
     // Candidates: active only (not promoted)
     const candidates = injected
@@ -182,8 +182,8 @@ export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
         // Enqueue rewrite; do not retire yet, do not consume budget
         optimizer.optimizeOne(rule.id);
       } else if (retiredThisSweep < maxRetirePerSweep) {
-        const retired = store.retireLearning(rule.id, AUTO_RETIRE_REASON);
-        if (retired !== null) {
+        const retiredRow = store.retireLearning(rule.id, AUTO_RETIRE_REASON);
+        if (retiredRow !== null) {
           results.push({
             repoPath,
             id: rule.id,

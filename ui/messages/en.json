@@ -1563,5 +1563,10 @@
   "gloss_lightweight_repo_term": "lightweight repo",
   "gloss_lightweight_repo_def": "A repo Shepherd drives with local git only — no Forge, no GitHub, no PRs, no remote. When a task finishes, the agent's branch is squash-merged into the base branch locally; the operator pushes to a remote when they choose.",
   "feat_lightweight_repo_title": "Lightweight (local-only) mode",
-  "feat_lightweight_repo_body": "Repos without a GitHub remote can now run in [[lightweight_repo|lightweight]] mode: Shepherd drives local git only — no PRs, no Forge. Enable it in the automation panel; the agent's branch is squash-merged locally at completion."
+  "feat_lightweight_repo_body": "Repos without a GitHub remote can now run in [[lightweight_repo|lightweight]] mode: Shepherd drives local git only — no PRs, no Forge. Enable it in the automation panel; the agent's branch is squash-merged locally at completion.",
+  "gitrail_open_for_merge": "↟ Open for merge",
+  "gitrail_merge_locally": "Merge locally",
+  "gitrail_confirm_merge_locally": "confirm ✓",
+  "gitrail_merged_locally": "merged locally ✓",
+  "gitrail_ready_to_merge": "ready to merge"
 }

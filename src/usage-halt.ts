@@ -40,19 +40,20 @@ export function matchesUsageLimit(tail: string): boolean {
  * Each retained entry is serialized whole so the phrasing is found wherever it sits (content
  * blocks, system text, error fields). The token-accounting `message.usage` object never trips
  * the patterns (they require "usage limit", "weekly limit", "limit reached … reset", etc.).
- * Falls back to the raw tail when it isn't parseable JSONL, so a non-JSONL transcript source
- * still gets matched.
+ *
+ * Fail-closed: when nothing parses (empty/garbled tail) or every entry is user-authored, this
+ * returns an empty string — never the raw tail. Transcripts are always JSONL, so a raw-tail
+ * fallback would only ever leak unparsed (possibly user-authored) text back into the match and
+ * re-open the false positive this filter exists to close.
  */
 export function assistantSideText(rawJsonl: string): string {
   const parts: string[] = [];
-  let parsedAny = false;
   for (const obj of eachJsonlObject(rawJsonl)) {
-    parsedAny = true;
     const role = obj?.message?.role ?? obj?.role ?? obj?.type;
     if (role === "user") continue;
     parts.push(JSON.stringify(obj));
   }
-  return parsedAny ? parts.join("\n") : rawJsonl;
+  return parts.join("\n");
 }
 
 /**

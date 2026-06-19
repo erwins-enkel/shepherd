@@ -136,10 +136,20 @@ test("assistantSideText: token-usage object alone does not match", () => {
   expect(matchesUsageLimit(assistantSideText(assistantBenign))).toBe(false);
 });
 
-test("assistantSideText falls back to raw text for non-JSONL input", () => {
+test("assistantSideText fails closed (empty, no match) on unparseable / non-JSONL input", () => {
+  // A raw-tail fallback here would leak unparsed (possibly user-authored) text back into the
+  // match and re-open the degrade-path false positive — so an unparseable tail yields no match.
+  expect(assistantSideText("Claude usage limit reached — resets soon")).toBe("");
   expect(matchesUsageLimit(assistantSideText("Claude usage limit reached — resets soon"))).toBe(
-    true,
+    false,
   );
+  expect(assistantSideText("")).toBe("");
+});
+
+test("assistantSideText returns empty when every entry is user-authored", () => {
+  const text = assistantSideText(userLine);
+  expect(text).toBe("");
+  expect(matchesUsageLimit(text)).toBe(false);
 });
 
 test("classifyHalt: user-only mention on the UNCALIBRATED degrade path is NOT a halt", () => {

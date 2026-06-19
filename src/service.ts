@@ -545,6 +545,68 @@ function buildQueueDirective(args: {
  * unattended (drain) and just writes the plan. English, not i18n'd — agent-facing prompt text,
  * same precedent as AUTOPILOT_DIRECTIVE.
  */
+/**
+ * Returns agent-facing instructions for optionally emitting a `.shepherd-plan-blocks.json`
+ * sidecar alongside `.shepherd-plan.md`. Not i18n'd — same precedent as the directives.
+ * When `allowQuestionForm` is false (interactive), the `question-form` block type is omitted
+ * entirely and the agent is told to ask questions live, not park them in the sidecar.
+ */
+export function planBlockInstructions(opts: { allowQuestionForm: boolean }): string {
+  const lines: string[] = [
+    "## Optional visual-plan sidecar",
+    "",
+    "Emitting blocks is OPTIONAL. The authoritative plan is `.shepherd-plan.md`; " +
+      "`.shepherd-plan-blocks.json` is purely a visual-rendering aid for that plan. " +
+      "It is NOT a place to park decisions or open questions.",
+    "",
+    "**Sidecar contract:** write a JSON ARRAY of blocks to `.shepherd-plan-blocks.json` " +
+      "in the repo root (same directory as `.shepherd-plan.md`). Strict valid JSON, no comments.",
+    "",
+    "**Same-turn write coupling (critical):** write/update `.shepherd-plan-blocks.json` " +
+      "in the same turn as — and before you stop after — writing/updating `.shepherd-plan.md`. " +
+      "Re-write the sidecar on EVERY plan revision. " +
+      "(The server captures blocks when it reviews the plan; a sidecar written after the plan text is missed.)",
+    "",
+    "**No diff at plan time:** a plan is built TOWARD a change, so there is NO diff yet. Therefore: " +
+      "do not use `diff`, `code`, or `annotated-code` blocks (the server drops them — there is no real content to show). " +
+      "`file-tree` lists the paths the plan INTENDS to touch (intended, not yet changed). " +
+      '`data-model`/`api-endpoint`/`mermaid` describe PROPOSED designs and will be tagged "inferred" automatically.',
+    "",
+    "**Block catalog (plan-relevant subset):**",
+    '- rich-text:    {"type":"rich-text","id":"<unique>","markdown":"<prose>"} — narrative / the why.',
+    '- callout:      {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."} — toned note for a decision, risk, or assumption.',
+    '- file-tree:    {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<intended path>","change":"added|modified|removed|renamed","note?":"<short>"}]} — paths the plan INTENDS to touch.',
+    '- data-model:   {"type":"data-model","id":"...","entities":[{"id":"...","name":"...","fields":[{"name":"...","type":"...","pk?":true,"fk?":"<ref>","nullable?":true}]}],"relations?":[{"from":"...","to":"...","kind":"..."}]} — proposed ERD. Will be tagged inferred automatically.',
+    '- api-endpoint: {"type":"api-endpoint","id":"...","method":"GET|POST|...","path":"<route>","summary?":"...","params?":[{"name":"...","in":"path|query|body","type":"...","required?":true}],"responses?":[{"status":200,"description?":"..."}]} — proposed route. Will be tagged inferred automatically.',
+    '- table:        {"type":"table","id":"...","columns":["A","B"],"rows":[["a","b"]]} — columnar comparison or summary. Redact secrets.',
+    '- checklist:    {"type":"checklist","id":"...","items":[{"id":"...","label":"...","note?":"...","checked?":false}]} — task list or step checklist.',
+    '- mermaid:      {"type":"mermaid","id":"...","source":"<mermaid diagram source>","caption?":"..."} — proposed architecture or flow diagram. Will be tagged inferred automatically.',
+    '- wireframe:    {"type":"wireframe","id":"...","surface":"browser|desktop|mobile|popover|panel","html":"<themed HTML mockup>","caption?":"..."} — ONLY for intended UI. ' +
+      "Author with the wf helper classes + class-based color; NEVER inline hex/rgb()/hsl()/color()/font-family/box-shadow, and never <script>/<style>/event handlers/href.",
+  ];
+
+  if (opts.allowQuestionForm) {
+    lines.push(
+      '- question-form: {"type":"question-form","id":"...","questions":[{"id":"...","prompt":"...","kind":"single|multi|freeform","options?":["..."]}]} ' +
+        "— for surfacing genuinely-undecidable-without-a-human questions when running unattended. Use sparingly: only for questions that cannot be resolved by reading the codebase.",
+    );
+  } else {
+    lines.push(
+      "In interactive mode you must ask questions live — never park them in the plan or sidecar. " +
+        "Ask questions live in the conversation (or via AskUserQuestion for choices); the sidecar carries only rendering blocks.",
+    );
+  }
+
+  lines.push(
+    "",
+    "**Rules:**",
+    "- Every block must have a unique string `id`.",
+    "- Redact secrets (API keys, tokens, passwords) in any summary/markdown/annotation — use placeholders like `sk-•••` / `<redacted>`.",
+  );
+
+  return lines.join("\n");
+}
+
 const PLAN_GATE_DIRECTIVE_INTERACTIVE =
   "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
   "1. Research the codebase enough to plan confidently.\n" +
@@ -557,13 +619,15 @@ const PLAN_GATE_DIRECTIVE_INTERACTIVE =
   "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
   "assumptions and resolved decisions.\n" +
   "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
-  "Begin implementing ONLY after the plan is approved and you are told to execute.";
+  "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
+  planBlockInstructions({ allowQuestionForm: false });
 const PLAN_GATE_DIRECTIVE_AUTO =
   "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
   "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
   "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
   "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
-  "are told the plan is approved.";
+  "are told the plan is approved.\n\n" +
+  planBlockInstructions({ allowQuestionForm: true });
 export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
 
 /**

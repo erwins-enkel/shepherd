@@ -88,6 +88,7 @@ import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { verifyApiKey } from "./verify-key";
+import { releaseHeldTasks } from "./held-release";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,6 +165,15 @@ const savedEcc = store.getSetting("extra_credits_drain_ceiling");
 if (savedEcc !== null) {
   const n = Number(savedEcc);
   if (Number.isFinite(n) && n >= 0) config.extraCreditsDrainCeiling = n;
+}
+
+// Usage-aware task holding: restore persisted operator overrides on restart.
+const savedUhe = store.getSetting("usageHoldEnabled");
+if (savedUhe !== null) config.usageHoldEnabled = savedUhe === "1";
+const savedUhp = store.getSetting("usageHoldPct");
+if (savedUhp !== null) {
+  const n = Number(savedUhp);
+  if (Number.isFinite(n)) config.usageHoldPct = Math.min(100, Math.max(0, Math.floor(n)));
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────
@@ -1130,9 +1140,26 @@ setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 // recompute live limit % from local JSONL ~every 30s; push to clients
 attachUsagePush(events, store, push);
 attachCreditsPush(events, store, push);
+// Re-entrancy guard: a release can still be awaiting service.create() when the next
+// 30s tick fires; without this a second tick re-reads the not-yet-removed head task and
+// double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
+let releasingHeld = false;
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
   events.emit("usage:limits", usageLimits.limits(Date.now()));
+  if (releasingHeld) return; // prior release still draining — skip this tick's release
+  releasingHeld = true;
+  try {
+    await releaseHeldTasks(
+      { store, service, usageLimits, events },
+      { enabled: config.usageHoldEnabled, holdPct: config.usageHoldPct },
+      Date.now(),
+    );
+  } catch (e) {
+    console.warn("[held] release failed:", e);
+  } finally {
+    releasingHeld = false;
+  }
 }, 30_000);
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`.

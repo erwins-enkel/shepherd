@@ -445,6 +445,14 @@ export const config = {
   // 0/unset = disabled. Suggested when enabled: 1800000 (30 min). No auto-wake; the
   // operator/agent restarts the dev server manually afterward.
   previewIdleStopMs: Math.max(0, Number(process.env.SHEPHERD_PREVIEW_IDLE_STOP_MS ?? 0) || 0),
+  // Usage-aware task holding: when usage is at or above holdPct, newly submitted tasks
+  // are queued in held_tasks rather than spawned immediately. Released by the 30s sweeper
+  // once usage drops back below the threshold. Default ON; set SHEPHERD_USAGE_HOLD_ENABLED=0
+  // to disable. holdPct: [0,100], default 80.
+  usageHoldEnabled: !["0", "false"].includes(
+    (process.env.SHEPHERD_USAGE_HOLD_ENABLED ?? "").toLowerCase(),
+  ),
+  usageHoldPct: clampCap(Number(process.env.SHEPHERD_USAGE_HOLD_PCT ?? 80), 0, 100, 80),
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

@@ -18,6 +18,8 @@ import type {
   PrReview,
   HerdDigest,
   RundownItem,
+  HeldTask,
+  CreateSessionInput,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
@@ -334,6 +336,12 @@ export class SessionStore implements CapStore, CreditStore {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       spent REAL NOT NULL, cap REAL NOT NULL, currency TEXT NOT NULL,
       pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS held_tasks (
+      id TEXT PRIMARY KEY,
+      repoPath TEXT NOT NULL,
+      input TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    )`);
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -2527,5 +2535,45 @@ export class SessionStore implements CapStore, CreditStore {
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),
       mergingPrNumber: r.mergingPrNumber ?? null,
     } as Session;
+  }
+
+  // ── held tasks (usage-aware task holding) ──────────────────────────────────
+
+  addHeldTask(row: {
+    id: string;
+    repoPath: string;
+    input: CreateSessionInput;
+    createdAt: number;
+  }): void {
+    this.db.run(`INSERT INTO held_tasks (id, repoPath, input, createdAt) VALUES (?, ?, ?, ?)`, [
+      row.id,
+      row.repoPath,
+      JSON.stringify(row.input),
+      row.createdAt,
+    ]);
+  }
+
+  listHeldTasks(): HeldTask[] {
+    const rows = this.db
+      .query(`SELECT id, repoPath, input, createdAt FROM held_tasks ORDER BY createdAt ASC`)
+      .all() as { id: string; repoPath: string; input: string; createdAt: number }[];
+    return rows.map((r) => ({ ...r, input: JSON.parse(r.input) as CreateSessionInput }));
+  }
+
+  getHeldTask(id: string): HeldTask | null {
+    const r = this.db
+      .query(`SELECT id, repoPath, input, createdAt FROM held_tasks WHERE id = ?`)
+      .get(id) as { id: string; repoPath: string; input: string; createdAt: number } | null;
+    if (!r) return null;
+    return { ...r, input: JSON.parse(r.input) as CreateSessionInput };
+  }
+
+  removeHeldTask(id: string): void {
+    this.db.run(`DELETE FROM held_tasks WHERE id = ?`, [id]);
+  }
+
+  countHeldTasks(): number {
+    const row = this.db.query(`SELECT COUNT(*) AS n FROM held_tasks`).get() as { n: number };
+    return row.n;
   }
 }

@@ -503,3 +503,12 @@ export interface Learning {
   /** URL of the CLAUDE.md promote PR, set when status becomes `promoted`. */
   promotedPrUrl: string | null;
 }
+
+/** A manually-submitted task held in the queue pending usage headroom. */
+export interface HeldTask {
+  id: string;
+  repoPath: string;
+  /** The original CreateSessionInput, replayed through service.create() when released. */
+  input: CreateSessionInput;
+  createdAt: number;
+}

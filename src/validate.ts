@@ -42,6 +42,7 @@ const ALLOWED_KEYS = new Set([
   "sandboxProfile",
   "research",
   "mergeTrainPrs",
+  "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
 /** Max staged images per spawn. Bounds the attach list (and the relaunch merge of

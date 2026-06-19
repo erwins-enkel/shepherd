@@ -1,5 +1,6 @@
 import type { SessionStore, RepoConfig } from "./store";
 import type { SessionService } from "./service";
+import type { CreateSessionInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import {
@@ -113,6 +114,8 @@ import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-i
 import { fingerprintDiffCount } from "./rundown-core";
 import { quotaBlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
+import { shouldHold } from "./usage-hold";
+import { randomUUID } from "node:crypto";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -1127,6 +1130,47 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
   }
 }
 
+/** Map a service.create() error to the appropriate Response.
+ *  SandboxAutoRefused → 403; agent_name_taken → 409; anything else → 502. */
+function createErrorResponse(e: unknown): Response {
+  if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
+  const msg = e instanceof Error ? e.message : "create failed";
+  const taken = /agent_name_taken/.test(msg);
+  return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+}
+
+/** Check hold gate; if triggered, persist the held task and return the 200 response.
+ *  Returns null when the task should proceed to normal creation. */
+function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps): Response | null {
+  const force = !!(
+    body &&
+    typeof body === "object" &&
+    (body as Record<string, unknown>).force === true
+  );
+  const lim = deps.usageLimits.limits(Date.now());
+  const s5h = lim.session5h?.pct ?? 0;
+  const week = lim.week?.pct ?? 0;
+  const running = deps.store
+    .list({ activeOnly: true })
+    .filter((x) => x.status === "running").length;
+  if (
+    !shouldHold({
+      enabled: config.usageHoldEnabled,
+      holdPct: config.usageHoldPct,
+      session5hPct: s5h,
+      weekPct: week,
+      activeSessionCount: running,
+      force,
+    })
+  )
+    return null;
+  const id = randomUUID();
+  const createdAt = Date.now();
+  deps.store.addHeldTask({ id, repoPath: value.repoPath, input: value, createdAt });
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+}
+
 // POST /api/sessions — create a session.
 async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && !parts[2])) return null;
@@ -1135,20 +1179,18 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   const body = await req.json().catch(() => null);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
+
+  // ── usage-aware hold gate ──────────────────────────────────────────────────
+  const held = tryHoldNewTask(body, result.value, deps);
+  if (held) return held;
+
   let s;
   try {
     s = await deps.service.create(result.value);
   } catch (e) {
-    // A sandbox auto-gate refusal is a POLICY decision, not infra failure — return 403
-    // with the hold reason so the dialog shows "auto requires the autonomous profile"
-    // rather than a misleading 502.
-    if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
     // create shells out to herdr (and git); surface the real reason instead of a
-    // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
-    // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).
-    const msg = e instanceof Error ? e.message : "create failed";
-    const taken = /agent_name_taken/.test(msg);
-    return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+    // bare 500 so the New Task dialog can show it.
+    return createErrorResponse(e);
   }
   deps.events.emit("session:new", s);
   // A human linked an issue: stamp the drain claim so the board reflects it's being
@@ -2531,6 +2573,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       authMode: config.authMode,
       // whether an apiKeyHelper script is configured; NEVER expose the key or path.
       hasApiKey: config.authApiKeyHelperPath !== null,
+      // usage-aware task holding
+      usageHoldEnabled: config.usageHoldEnabled,
+      usageHoldPct: config.usageHoldPct,
     });
   }
   if (req.method === "PUT") {
@@ -2558,6 +2603,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["anthropicApiKey", putAnthropicApiKey],
+  ["usageHoldEnabled", putUsageHoldEnabled],
+  ["usageHoldPct", putUsageHoldPct],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -2653,6 +2700,25 @@ function putAnthropicApiKey(value: unknown, deps: Ctx["deps"]): Response {
   }
 }
 
+function putUsageHoldEnabled(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "usageHoldEnabled must be a boolean" }, 400);
+  }
+  config.usageHoldEnabled = value;
+  deps.store.setSetting("usageHoldEnabled", value ? "1" : "0");
+  return json({ usageHoldEnabled: config.usageHoldEnabled });
+}
+
+function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "usageHoldPct must be a number" }, 400);
+  }
+  const n = Math.min(100, Math.max(0, Math.floor(value)));
+  config.usageHoldPct = n;
+  deps.store.setSetting("usageHoldPct", String(n));
+  return json({ usageHoldPct: config.usageHoldPct });
+}
+
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
   const root = validateRoot(value, config.rootCeiling);
   if (!root) {
@@ -2710,6 +2776,48 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
       return json(deps.service.broadcast(parsed.ids, parsed.text));
     }
   }
+  return null;
+}
+
+// ── /api/held — usage-hold queue management ──────────────────────────────────
+
+function heldList(deps: AppDeps): Response {
+  return json(deps.store.listHeldTasks());
+}
+
+async function heldSpawn(id: string, deps: AppDeps): Promise<Response> {
+  const h = deps.store.getHeldTask(id);
+  if (!h) return json({ error: "not found" }, 404);
+  let s;
+  try {
+    s = await deps.service.create(h.input);
+  } catch (e) {
+    return createErrorResponse(e);
+  }
+  deps.store.removeHeldTask(h.id);
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json(s, 201);
+}
+
+function heldDiscard(id: string, deps: AppDeps): Response {
+  deps.store.removeHeldTask(id);
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json({ ok: true });
+}
+
+async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "held") return null;
+
+  // GET /api/held — list held tasks FIFO
+  if (req.method === "GET" && !parts[2]) return heldList(deps);
+
+  // POST /api/held/:id/spawn — release one held task immediately
+  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4])
+    return heldSpawn(parts[2], deps);
+
+  // DELETE /api/held/:id — discard a held task
+  if (req.method === "DELETE" && parts[2] && !parts[3]) return heldDiscard(parts[2], deps);
+
   return null;
 }
 
@@ -4059,6 +4167,7 @@ const ROUTE_HANDLERS = [
   handleSteers,
   handleProjectIcons,
   handleBroadcast,
+  handleHeld,
   handleHalt,
   handleFsDirs,
   handleBranches,

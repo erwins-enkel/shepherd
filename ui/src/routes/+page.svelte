@@ -45,6 +45,7 @@
     resumeQuota,
     dismissQuota,
     getBuildQueues,
+    listHeld,
   } from "$lib/api";
   import type {
     CompletedEpic,
@@ -379,16 +380,34 @@
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
+  // Usage hold settings — extracted from the settings object for the holdLikely derived.
+  let usageHoldEnabled = $state(false);
+  let usageHoldPct = $state(80);
   // First-run nudge: backlog quick-launch buttons are invisible until at least one
   // issue-scoped steer exists. The steers store updates live on editor save, so a
   // just-added action dismisses the hint without a reload.
   const issueActionsUnset = $derived(steers.loaded && !steers.list.some((s) => s.onIssues));
 
+  // Mirror of the server's shouldHold gate — predicts whether submitting a new task
+  // will result in it being held, so NewTask can offer the dual "Hold for reset" /
+  // "Submit anyway" buttons before the round-trip. usageLimits is null until the first
+  // snapshot lands, so the prediction is conservatively false until data is available.
+  const holdLikely = $derived(
+    usageHoldEnabled &&
+      Math.max(store.usageLimits?.session5h?.pct ?? 0, store.usageLimits?.week?.pct ?? 0) >=
+        usageHoldPct &&
+      store.sessions.filter((s) => s.status === "running").length >= 1,
+  );
+
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
   function loadSettings() {
     getSettings()
-      .then((s) => (settings = s))
+      .then((s) => {
+        settings = s;
+        usageHoldEnabled = s.usageHoldEnabled;
+        usageHoldPct = s.usageHoldPct;
+      })
       .catch(() => {});
   }
 
@@ -518,11 +537,12 @@
     const br = await listBranches(repoPath).catch(() => null);
     const baseBranch = pickBaseBranch(br);
     try {
-      const s = await createSession({
+      const r = await createSession({
         repoPath,
         baseBranch,
         prompt: cmd,
         model: null,
+        force: true,
         issueRef: {
           number: issue.number,
           url: issue.url,
@@ -530,7 +550,8 @@
           body: issue.body,
         },
       });
-      selectedId = s.id;
+      if ("held" in r) return;
+      selectedId = r.id;
       showBacklog = false;
       if (mobile.current) mobileScreen = "detail";
     } catch {
@@ -566,8 +587,12 @@
         const br = await listBranches(repoPath).catch(() => null);
         const baseBranch = pickBaseBranch(br);
         try {
-          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
-          selectedId = s.id;
+          const r = await createSession({
+            ...mergeTrainCreateInput(repoPath, baseBranch, prs),
+            force: true,
+          });
+          if ("held" in r) return;
+          selectedId = r.id;
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {
@@ -595,8 +620,12 @@
         const br = await listBranches(repoPath).catch(() => null);
         const baseBranch = pickBaseBranch(br);
         try {
-          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
-          selectedId = s.id;
+          const r = await createSession({
+            ...mergeTrainCreateInput(repoPath, baseBranch, prs, true),
+            force: true,
+          });
+          if ("held" in r) return;
+          selectedId = r.id;
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {
@@ -1038,6 +1067,9 @@
     recaps.load();
     herdDigest.load();
     learnings.load();
+    listHeld()
+      .then((arr) => (store.heldCount = arr.length))
+      .catch(() => {});
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().
     // hydrate() reads localStorage; version + featureAnnouncements are compile-time constants.
@@ -1213,11 +1245,20 @@
     autopilotEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
     research: boolean;
+    force?: boolean;
   }) {
     // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
-    const s = await createSession(input);
-    selectedId = s.id;
+    const r = await createSession(input);
+    if ("held" in r) {
+      // Held tasks are queued (visible via the TopBar badge); close the composer like a
+      // normal submit so the populated prompt can't be re-clicked into a duplicate hold.
+      toasts.info(m.toast_task_held());
+      showNew = false;
+      resetCompose();
+      return;
+    }
+    selectedId = r.id;
     showNew = false;
     resetCompose();
   }
@@ -1547,6 +1588,7 @@
           settingsTab = "diagnose";
           showSettings = true;
         }}
+        heldCount={store.heldCount}
       />
       <RepoSwitcher
         chips={repoChips}
@@ -1974,6 +2016,7 @@
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
     defaultModel={settings?.defaultModel}
+    holdLikely={relaunchOriginalId === null ? holdLikely : false}
     onclose={() => {
       showNew = false;
       resetCompose();

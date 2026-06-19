@@ -69,6 +69,8 @@ export interface Settings {
   usageHoldEnabled: boolean;
   /** Usage percentage at or above which new tasks are held (0–100). */
   usageHoldPct: number;
+  /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
+  fableAvailable: boolean;
 }
 
 export interface DirEntry {

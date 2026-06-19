@@ -779,3 +779,53 @@ describe("NewTask base branch default", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
   });
 });
+
+describe("NewTask fableAvailable prop", () => {
+  const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
+
+  it("hides the fable option and does not preselect it when fableAvailable=false", async () => {
+    render(NewTask, { props: base({ fableAvailable: false }) });
+
+    // fable option must not be present in the select
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).not.toContain("fable");
+
+    // selected value must not be "fable"
+    expect(modelSelect().value).not.toBe("fable");
+  });
+
+  it("shows the fable option when fableAvailable=true (default)", async () => {
+    render(NewTask, { props: base({ fableAvailable: true }) });
+
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).toContain("fable");
+  });
+
+  it("shows the fable option when fableAvailable is omitted (defaults to true)", async () => {
+    render(NewTask, { props: base() });
+
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).toContain("fable");
+  });
+
+  it("falls back from fable to default when initialModel=fable and fableAvailable=false", async () => {
+    render(NewTask, { props: base({ initialModel: "fable", fableAvailable: false }) });
+
+    expect(modelSelect().value).toBe("default");
+  });
+
+  it("shows the unavailability hint when fableAvailable=false", async () => {
+    render(NewTask, { props: base({ fableAvailable: false }) });
+
+    // The hint is a <p class="micro"> inside .model-field, distinct from the <label class="micro">
+    const hint = document.querySelector(".model-field p.micro");
+    expect(hint?.textContent).toContain("Fable is temporarily unavailable");
+  });
+
+  it("does not show the unavailability hint when fableAvailable=true", async () => {
+    render(NewTask, { props: base({ fableAvailable: true }) });
+
+    // No <p class="micro"> inside .model-field should render when fable is available
+    expect(document.querySelector(".model-field p.micro")).toBeNull();
+  });
+});

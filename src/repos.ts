@@ -9,6 +9,15 @@ import {
   mkdirSync,
   rmSync,
 } from "node:fs";
+
+/** Shape of Node child_process exec errors (code / signal / killed / stderr). */
+interface ExecLikeError {
+  code?: string | number;
+  signal?: string;
+  killed?: boolean;
+  stderr?: string | Buffer;
+  message?: string;
+}
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
@@ -149,8 +158,9 @@ export function cloneRepo(
 }
 
 export function classifyCloneError(e: unknown): string {
-  if ((e as any).killed && (e as any).signal === "SIGTERM") return "clonerepo_failed_timeout";
-  const stderr = String((e as any).stderr ?? "").toLowerCase();
+  const err = e as ExecLikeError;
+  if (err.killed && err.signal === "SIGTERM") return "clonerepo_failed_timeout";
+  const stderr = String(err.stderr ?? "").toLowerCase();
   if (
     stderr.includes("authentication failed") ||
     stderr.includes("could not read username") ||
@@ -299,14 +309,15 @@ export async function listGithubRepos(
   for (const line of out.split("\n")) {
     const t = line.trim();
     if (!t) continue;
-    let o: any;
+    let raw: unknown;
     try {
-      o = JSON.parse(t);
+      raw = JSON.parse(t);
     } catch {
       continue; // skip a malformed jq line rather than failing the whole list
     }
+    if (!raw || typeof raw !== "object") continue;
+    const o = raw as Record<string, unknown>;
     if (
-      !o ||
       typeof o.nameWithOwner !== "string" ||
       typeof o.url !== "string" ||
       typeof o.owner !== "string" ||
@@ -366,12 +377,15 @@ function gitIdentityPresent(): boolean {
 type ProjectErrorPredicate = (e: unknown, stderr: string) => boolean;
 const PROJECT_ERROR_TABLE: Array<[ProjectErrorPredicate, string]> = [
   // Explicit timeout code set by the default runner
-  [(e) => (e as any).code === "_timeout", "newproject_failed_timeout"],
+  [(e) => (e as ExecLikeError).code === "_timeout", "newproject_failed_timeout"],
   // killed by SIGTERM (e.g. from execFileSync timeout option)
-  [(e) => !!(e as any).killed && (e as any).signal === "SIGTERM", "newproject_failed_timeout"],
+  [
+    (e) => !!(e as ExecLikeError).killed && (e as ExecLikeError).signal === "SIGTERM",
+    "newproject_failed_timeout",
+  ],
   // gh not installed
   [
-    (e, s) => (e as any).code === "ENOENT" || s.includes("command not found"),
+    (e, s) => (e as ExecLikeError).code === "ENOENT" || s.includes("command not found"),
     "newproject_failed_gh_missing",
   ],
   // gh auth failures
@@ -409,7 +423,8 @@ const PROJECT_ERROR_TABLE: Array<[ProjectErrorPredicate, string]> = [
  * Mirrors classifyCloneError in style — lowercase stderr before matching.
  */
 export function classifyProjectError(e: unknown): string {
-  const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+  const err = e as ExecLikeError;
+  const stderr = String(err.stderr ?? err.message ?? "").toLowerCase();
   for (const [predicate, code] of PROJECT_ERROR_TABLE) {
     if (predicate(e, stderr)) return code;
   }
@@ -584,12 +599,15 @@ const defaultForkRunner: GhRunner = async (args) => {
 type ForkErrorPredicate = (e: unknown, stderr: string) => boolean;
 const FORK_ERROR_TABLE: Array<[ForkErrorPredicate, string]> = [
   // Explicit timeout code set by the default runner
-  [(e) => (e as any).code === "_timeout", "forkrepo_failed_timeout"],
+  [(e) => (e as ExecLikeError).code === "_timeout", "forkrepo_failed_timeout"],
   // killed by SIGTERM (e.g. from an execFileSync timeout option)
-  [(e) => !!(e as any).killed && (e as any).signal === "SIGTERM", "forkrepo_failed_timeout"],
+  [
+    (e) => !!(e as ExecLikeError).killed && (e as ExecLikeError).signal === "SIGTERM",
+    "forkrepo_failed_timeout",
+  ],
   // gh not installed
   [
-    (e, s) => (e as any).code === "ENOENT" || s.includes("command not found"),
+    (e, s) => (e as ExecLikeError).code === "ENOENT" || s.includes("command not found"),
     "forkrepo_failed_gh_missing",
   ],
   // gh auth failures / insufficient permission to fork
@@ -621,7 +639,8 @@ const FORK_ERROR_TABLE: Array<[ForkErrorPredicate, string]> = [
  * Mirrors classifyProjectError / classifyCloneError — lowercase stderr first.
  */
 export function classifyForkError(e: unknown): string {
-  const stderr = String((e as any).stderr ?? (e as any).message ?? "").toLowerCase();
+  const err = e as ExecLikeError;
+  const stderr = String(err.stderr ?? err.message ?? "").toLowerCase();
   for (const [predicate, code] of FORK_ERROR_TABLE) {
     if (predicate(e, stderr)) return code;
   }

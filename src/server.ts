@@ -1,5 +1,6 @@
 import type { SessionStore, RepoConfig } from "./store";
 import type { SessionService } from "./service";
+import type { CreateSessionInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import {
@@ -1129,16 +1130,18 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
   }
 }
 
-// POST /api/sessions — create a session.
-async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (!(req.method === "POST" && !parts[2])) return null;
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
-  const result = validateCreate(body, config.repoRoot);
-  if (!result.ok) return json({ error: result.error }, 400);
+/** Map a service.create() error to the appropriate Response.
+ *  SandboxAutoRefused → 403; agent_name_taken → 409; anything else → 502. */
+function createErrorResponse(e: unknown): Response {
+  if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
+  const msg = e instanceof Error ? e.message : "create failed";
+  const taken = /agent_name_taken/.test(msg);
+  return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+}
 
-  // ── usage-aware hold gate ──────────────────────────────────────────────────
+/** Check hold gate; if triggered, persist the held task and return the 200 response.
+ *  Returns null when the task should proceed to normal creation. */
+function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps): Response | null {
   const force = !!(
     body &&
     typeof body === "object" &&
@@ -1151,7 +1154,7 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
     .list({ activeOnly: true })
     .filter((x) => x.status === "running").length;
   if (
-    shouldHold({
+    !shouldHold({
       enabled: config.usageHoldEnabled,
       holdPct: config.usageHoldPct,
       session5hPct: s5h,
@@ -1159,28 +1162,35 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
       activeSessionCount: running,
       force,
     })
-  ) {
-    const id = randomUUID();
-    const createdAt = Date.now();
-    deps.store.addHeldTask({ id, repoPath: result.value.repoPath, input: result.value, createdAt });
-    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-    return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
-  }
+  )
+    return null;
+  const id = randomUUID();
+  const createdAt = Date.now();
+  deps.store.addHeldTask({ id, repoPath: value.repoPath, input: value, createdAt });
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+}
+
+// POST /api/sessions — create a session.
+async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && !parts[2])) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const result = validateCreate(body, config.repoRoot);
+  if (!result.ok) return json({ error: result.error }, 400);
+
+  // ── usage-aware hold gate ──────────────────────────────────────────────────
+  const held = tryHoldNewTask(body, result.value, deps);
+  if (held) return held;
 
   let s;
   try {
     s = await deps.service.create(result.value);
   } catch (e) {
-    // A sandbox auto-gate refusal is a POLICY decision, not infra failure — return 403
-    // with the hold reason so the dialog shows "auto requires the autonomous profile"
-    // rather than a misleading 502.
-    if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
     // create shells out to herdr (and git); surface the real reason instead of a
-    // bare 500 so the New Task dialog can show it. 409 ⇒ a name still collided
-    // (a slip past uniqueName under a race), anything else ⇒ 502 (herdr/git failed).
-    const msg = e instanceof Error ? e.message : "create failed";
-    const taken = /agent_name_taken/.test(msg);
-    return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+    // bare 500 so the New Task dialog can show it.
+    return createErrorResponse(e);
   }
   deps.events.emit("session:new", s);
   // A human linked an issue: stamp the drain claim so the board reflects it's being
@@ -2770,38 +2780,43 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
 }
 
 // ── /api/held — usage-hold queue management ──────────────────────────────────
+
+function heldList(deps: AppDeps): Response {
+  return json(deps.store.listHeldTasks());
+}
+
+async function heldSpawn(id: string, deps: AppDeps): Promise<Response> {
+  const h = deps.store.getHeldTask(id);
+  if (!h) return json({ error: "not found" }, 404);
+  let s;
+  try {
+    s = await deps.service.create(h.input);
+  } catch (e) {
+    return createErrorResponse(e);
+  }
+  deps.store.removeHeldTask(h.id);
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json(s, 201);
+}
+
+function heldDiscard(id: string, deps: AppDeps): Response {
+  deps.store.removeHeldTask(id);
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json({ ok: true });
+}
+
 async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "held") return null;
 
   // GET /api/held — list held tasks FIFO
-  if (req.method === "GET" && !parts[2]) {
-    return json(deps.store.listHeldTasks());
-  }
+  if (req.method === "GET" && !parts[2]) return heldList(deps);
 
   // POST /api/held/:id/spawn — release one held task immediately
-  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
-    const h = deps.store.getHeldTask(parts[2]);
-    if (!h) return json({ error: "not found" }, 404);
-    let s;
-    try {
-      s = await deps.service.create(h.input);
-    } catch (e) {
-      if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
-      const msg = e instanceof Error ? e.message : "create failed";
-      const taken = /agent_name_taken/.test(msg);
-      return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
-    }
-    deps.store.removeHeldTask(h.id);
-    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-    return json(s, 201);
-  }
+  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4])
+    return heldSpawn(parts[2], deps);
 
   // DELETE /api/held/:id — discard a held task
-  if (req.method === "DELETE" && parts[2] && !parts[3]) {
-    deps.store.removeHeldTask(parts[2]);
-    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-    return json({ ok: true });
-  }
+  if (req.method === "DELETE" && parts[2] && !parts[3]) return heldDiscard(parts[2], deps);
 
   return null;
 }

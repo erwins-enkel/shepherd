@@ -13,6 +13,7 @@
   import ChecklistBlock from "./blocks/ChecklistBlock.svelte";
   import MermaidBlock from "./blocks/MermaidBlock.svelte";
   import WireframeBlock from "./blocks/WireframeBlock.svelte";
+  import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let { blocks }: { blocks: VisualBlock[] } = $props();
@@ -32,6 +33,7 @@
     checklist: ChecklistBlock,
     mermaid: MermaidBlock,
     wireframe: WireframeBlock,
+    "question-form": QuestionFormBlock,
   } satisfies Record<VisualBlock["type"], unknown>;
 
   const firstDiffIndex = $derived(blocks.findIndex((b) => b.type === "diff"));

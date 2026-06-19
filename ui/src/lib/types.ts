@@ -230,6 +230,7 @@ export interface PlanGate {
   cap: number; // the round cap this run used — the badge reads it instead of mirroring
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored); absent → flat markdown
   updatedAt: number;
 }
 
@@ -322,6 +323,16 @@ export type VisualBlock =
       surface: "browser" | "desktop" | "mobile" | "popover" | "panel";
       html: string;
       caption?: string;
+    }
+  | {
+      type: "question-form";
+      id: string;
+      questions: {
+        id: string;
+        prompt: string;
+        kind: "single" | "multi" | "freeform";
+        options?: string[];
+      }[];
     };
 
 // ── session recap ────────────────────────────────────────────────────────────

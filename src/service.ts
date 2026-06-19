@@ -437,6 +437,43 @@ const AUTOPILOT_DIRECTIVE =
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
+ * The one-session-one-PR invariant (issue #839). Shepherd tracks ONE branch per session and
+ * resolves its PR on demand — there is no per-session list of PRs. When one session opens a second
+ * PR on a different branch (e.g. the #830/#835 "Part A / Part B" split out of #825), that PR is
+ * invisible to the session entirely: never reviewed, never merge-tracked, never recapped, never
+ * landed. The critic, pr-poller, review, merge-train, epic, and recap wiring are all
+ * session → single-tracked-PR by design.
+ *
+ * Wording is deliberately CONDITIONAL ("when you open a pull request…"), not an absolute "this
+ * session opens exactly one PR." It rides the same `!opts.research` path as non-research
+ * issue-creation / triage spawns; an absolute form would mandate a PR and contradict
+ * AUTOPILOT_DIRECTIVE's deliberately-conditional framing (see above — "for a code change that means
+ * an open PR…"), pushing those spawns toward a meaningless PR.
+ *
+ * Escape hatch (a) is worded honestly: epic drain is operator/drain-driven (server
+ * `/api/epic/approve-next` → drain.approveEpicNext + drain.tick), so an agent CANNOT self-trigger
+ * Shepherd to drain an epic — it sets the epic up and STOPS. Hatch (b) (one PR + follow-up issue)
+ * is the always-safe default.
+ *
+ * Advisory only — there is no enforcement. The data layer cannot see a second PR on another branch,
+ * so recurrence stays possible; the deferred detection guardrail (split-marker scan) is the
+ * enforcement path if guidance proves insufficient. Agent-facing prompt text (not operator UI), so
+ * fixed English — same precedent as AUTOPILOT_DIRECTIVE and the other spawn-constant directives.
+ */
+const SINGLE_PR_INVARIANT =
+  'When you open a pull request, open exactly one — never a second, and never label work "PR 1 of ' +
+  'N." This holds even when the task or its issue describes multiple parts, phases, or "Part A / ' +
+  'Part B." If the work is genuinely too large for one cohesive PR, pick ONE of:\n' +
+  "- (a) Promote to an epic: convert the issue into an epic — add one sub-issue per intended PR " +
+  "(and an `epic-dag` fence if you map dependencies) — open NO pull request yourself, then STOP " +
+  "and tell the operator the epic is ready to drain. Shepherd drains each sub-issue as its own " +
+  "session and its own PR, but that drain is operator-started — you cannot trigger it yourself.\n" +
+  "- (b) Ship one PR + file a follow-up: complete and open a single cohesive PR for the slice you " +
+  "can finish, then `gh issue create` a follow-up issue capturing the remainder for a later agent, " +
+  "and reference it from the PR body. This is the always-safe default.\n" +
+  "Never split the work across two PRs from this one session.";
+
+/**
  * Injected as the highest-priority directive for an attended RESEARCH task (`research: true`).
  * A research session does open-ended web research with sub-agents and delivers a report-only PR
  * OR a GitHub issue — never code. It SUPPRESSES the plan-gate, autopilot, and build-queue
@@ -690,7 +727,9 @@ export function planGoSteer(draftMode: boolean): string {
  * so the agent can cleanly separate persistent guidance from the task in its human turn.
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
- * always ride. `autopilotActive` appends the autopilot directive (see above), UNLESS `opts.planGate`
+ * always ride. The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
+ * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
+ * `autopilotActive` appends the autopilot directive (see above), UNLESS `opts.planGate`
  * is set: the plan gate and autopilot are mutually exclusive. During the planning phase the matching
  * plan-gate directive (interactive/auto) is appended INSTEAD of the autopilot directive, even when
  * `autopilotActive` is true — planning must suppress autopilot so the agent stops to plan/grill
@@ -724,6 +763,12 @@ export function composeSystemPrompt(
   const blocks = houseRules
     ? [posture, research, houseRules, branchNotice]
     : [posture, research, branchNotice];
+  // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed only for a
+  // research session — which already caps at exactly one report-PR / issue, so the block is
+  // redundant there and would muddy that deliverable.
+  if (!opts.research) {
+    blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
+  }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
   // directive (none of those fit a report-PR/issue deliverable).
   if (opts.research) {

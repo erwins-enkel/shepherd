@@ -2424,6 +2424,35 @@ test("composeSystemPrompt always injects the research-first notice, with or with
   expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");
 });
 
+test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {
+  // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (with/without
+  // house rules, autopilot on, plan-gate variants) but be suppressed for a research session, which
+  // already caps at one report-PR / issue.
+  const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
+  const codeSpawns = [
+    composeSystemPrompt(null),
+    composeSystemPrompt(withRules),
+    composeSystemPrompt(null, true),
+    composeSystemPrompt(null, true, { planGate: "interactive" }),
+    composeSystemPrompt(null, true, { planGate: "auto" }),
+  ];
+  for (const sp of codeSpawns) {
+    // Anchor on the STABLE tag + DURABLE phrasing (not incidental wording like "always-safe default").
+    expect(sp).toContain("<single-pr-invariant>");
+    expect(sp).toContain("</single-pr-invariant>");
+    expect(sp).toContain("Part A / Part B");
+    expect(sp).toContain("Never split the work across two PRs");
+    // Phrasing must stay CONDITIONAL — it binds "exactly one" to WHEN a PR is opened and must NOT
+    // flatly mandate opening one (which would contradict AUTOPILOT_DIRECTIVE's conditional framing).
+    expect(sp).toContain("When you open a pull request");
+    expect(sp).not.toContain("This session opens exactly one pull request");
+  }
+  // Suppressed for a research deliverable.
+  expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
+    "<single-pr-invariant>",
+  );
+});
+
 test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", async () => {
   const store = new SessionStore(":memory:");
   let startCalls = 0;

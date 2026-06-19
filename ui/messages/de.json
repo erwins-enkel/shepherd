@@ -1553,5 +1553,7 @@
   "feat_plan_question_answers_body": "Wenn ein Plan offene Fragen stellt, kannst du sie jetzt direkt in der Planansicht beantworten — Optionen auswählen oder eine Antwort eingeben und direkt an den Planungs-Agenten zurücksenden, um den Plan zu verfeinern.",
   "feat_activity_visual_feed_title": "Aktivität ist jetzt ein visueller Feed",
   "feat_activity_visual_feed_body": "Der Aktivitäts-Tab zeigt während der Arbeit einen Live-Baum der geänderten Dateien und einen gruppierten Tool-Verlauf und wechselt nach Abschluss der Sitzung zur vollständigen visuellen Zusammenfassung.",
-  "plangate_view": "PLAN"
+  "plangate_view": "PLAN",
+  "feat_plan_reopen_title": "Plan jederzeit erneut öffnen",
+  "feat_plan_reopen_body": "Dein freigegebener Plan bleibt während der Ausführung erreichbar. Tippe bei einer laufenden Session auf den PLAN-Chip — in Zeile, Kachel oder Viewport — um ihn schreibgeschützt anzusehen, am Desktop oder mobil."
 }

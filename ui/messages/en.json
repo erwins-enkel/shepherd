@@ -1553,5 +1553,7 @@
   "feat_plan_question_answers_body": "When a plan asks you open questions, you can now answer them right in the plan view — pick options or type a response and send them straight back to the planning agent to refine the plan.",
   "feat_activity_visual_feed_title": "Activity is now a visual feed",
   "feat_activity_visual_feed_body": "The Activity tab shows a live tree of changed files and a grouped tool stream while the agent works, then graduates to the full visual recap once the session settles.",
-  "plangate_view": "PLAN"
+  "plangate_view": "PLAN",
+  "feat_plan_reopen_title": "Reopen your plan anytime",
+  "feat_plan_reopen_body": "Your signed-off plan stays reachable while work runs. Tap the PLAN chip on any executing session — row, tile, or viewport — to view it read-only, on desktop or mobile."
 }

@@ -1,4 +1,4 @@
-import type { DiffFile } from "./types";
+import type { DiffFile, FileTreeEntry } from "./types";
 
 const EXT_LANG: Record<string, string> = {
   ts: "typescript",
@@ -42,4 +42,17 @@ export function diffTotals(files: DiffFile[]): {
     deletions += f.deletions;
   }
   return { files: files.length, additions, deletions };
+}
+
+/** Map diff files to file-tree entries for the recap's FileTreeBlock.
+ *  Translates `deleted` status to `removed` change; other statuses pass through.
+ *  Sets `note` to `+N −M` (using U+2212 minus) when either N or M > 0; omits it
+ *  when both are zero (e.g. binary files, pure renames). */
+export function diffToFileTree(files: DiffFile[]): FileTreeEntry[] {
+  return files.map((f) => {
+    const change = f.status === "deleted" ? "removed" : f.status;
+    const note =
+      f.additions === 0 && f.deletions === 0 ? undefined : `+${f.additions} −${f.deletions}`;
+    return { path: f.path, change, note };
+  });
 }

@@ -107,10 +107,12 @@ jobs:
         # Only new findings introduced by the PR block — inherited issues don't.
         # Skip on direct pushes to main: there's no base branch to diff against.
         # Version pinned (not @latest) so analyzer changes are adopted deliberately,
-        # not on a random CI run. 2.97.0 is the last release before the synthetic
-        # Svelte <template> complexity metric, whose unnamed entry breaks fallow's
-        # inherited-vs-introduced attribution on line shifts (#756). A future bump to
-        # 2.98+ must intentionally adopt a <template> config (thresholdOverrides /
-        # health.ignore). Keep this in sync with .husky/pre-push and CONTRIBUTING.md.
+        # not on a random CI run. The synthetic Svelte <template> complexity metric
+        # (fallow 2.98+) is adopted via health.thresholdOverrides in .fallowrc.jsonc
+        # (#851) — a Svelte-appropriate bar so new components aren't churned against the
+        # library-default 20/15. The #756 line-shift mis-attribution that forced the old
+        # 2.97 pin was re-tested against 2.100 and does NOT reproduce (inherited template
+        # findings now attribute correctly across line shifts). Keep this version in sync
+        # with .husky/pre-push and CONTRIBUTING.md.
         if: github.event_name == 'pull_request'
-        run: bunx fallow@2.97.0 audit --base origin/${{ github.base_ref }} --fail-on-issues
+        run: bunx fallow@2.100.0 audit --base origin/${{ github.base_ref }} --fail-on-issues

@@ -34,3 +34,6 @@ onboarding-gap-report.md
 # (the global `.env.*` rule above would otherwise swallow .env.example).
 ci/self-hosted-runner/.env
 !ci/self-hosted-runner/.env.example
+
+# fallow analyzer cache
+.fallow/

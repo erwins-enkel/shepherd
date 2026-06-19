@@ -82,21 +82,30 @@ The `pre-push` hook runs the **same checks as CI** so failures surface before a 
 8. `bun test ./test` (core tests)
 9. `cd ui && bun run test` (ui tests)
 10. `cd ui && bun run build` (ui build)
-11. `bunx fallow@2.97.0 audit --base origin/main --fail-on-issues` (delta dead-code/complexity
+11. `bunx fallow@2.100.0 audit --base origin/main --fail-on-issues` (delta dead-code/complexity
     audit vs `origin/main`; version pinned — see note below)
 
 > Lint and typecheck are separate gates: eslint catches lint rules, `tsc` catches
 > type errors. Bun runs `.ts` by stripping types, so it never type-checks — only
 > `tsc` does.
 
-> **fallow is pinned to `2.97.0`** (not `@latest`) so analyzer changes are adopted
-> deliberately, not on a random run. 2.97.0 is the last release before the synthetic
-> Svelte `<template>` complexity metric, whose unnamed entry breaks fallow's
-> inherited-vs-introduced attribution on line shifts and trips the gate on any PR
-> touching a large UI file ([#756](https://github.com/erwins-enkel/shepherd/issues/756)).
-> A future bump to 2.98+ must intentionally adopt a `<template>` config
-> (`health.thresholdOverrides` or `health.ignore`). Keep the version in sync with
-> `.github/workflows/ci.yml` and `.husky/pre-push`.
+> **fallow is pinned to `2.100.0`** (not `@latest`) so analyzer changes are adopted
+> deliberately, not on a random run. The synthetic Svelte `<template>` complexity metric
+> (fallow 2.98+) is adopted via `health.thresholdOverrides` in `.fallowrc.jsonc`
+> ([#851](https://github.com/erwins-enkel/shepherd/issues/851)) — a Tier-1 global bar
+> (40 cyclomatic / 60 cognitive) plus per-file grandfathers for the known-large
+> components. The bar exists because a template aggregates many conditional regions, so
+> the library-default 20/15 fires on essentially every non-trivial Svelte component (a
+> fresh ~25-conditional component trips at 20/15, passes at 40/60).
+>
+> **On [#756](https://github.com/erwins-enkel/shepherd/issues/756):** the line-shift
+> mis-attribution that forced the old 2.97 pin (an inherited `<template>` finding scored
+> as _introduced_ after lines moved) was re-tested against 2.100 and **does not
+> reproduce** — fallow attributes inherited template findings correctly across line
+> shifts and complexity changes; the audit's new-only gate fires only when a template is
+> a finding in HEAD that was not one in the base. A genuinely new oversized template will
+> still trip as _introduced_ (the gate working) — fix or grandfather it. Keep the version
+> in sync with `.github/workflows/ci.yml` and `.husky/pre-push`.
 
 Run any of these manually at any time:
 
@@ -109,7 +118,7 @@ cd ui && bun run check       # svelte-check (ui types)
 cd ui && bun run check:i18n  # locale-catalog parity (en ↔ de)
 cd ui && bun run test        # ui test suite (vitest)
 cd ui && bun run build       # ui production build
-bunx fallow@2.97.0 audit --base origin/main --fail-on-issues  # delta dead-code/complexity audit (version pinned)
+bunx fallow@2.100.0 audit --base origin/main --fail-on-issues  # delta dead-code/complexity audit (version pinned)
 ```
 
 ## Tests

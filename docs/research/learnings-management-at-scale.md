@@ -16,8 +16,9 @@ distinct pains, all currently manual:
    one-click **Optimize** (by design, the optimizer "NEVER runs on a timer"). A rule that keeps failing
    sits flagged until a human notices.
 3. **Cap / trim pressure** — the 4000-char injection budget silently drops the lowest-priority rules
-   ("OVER BY N · M dropped"), but nothing ever **retires** a rule, so the dropped set grows forever and
-   the cap keeps biting. There is no decay, no expiry, no merge.
+   (the drawer flags this per repo — `learnings_budget_over` = "Over budget · {dropped} not injected"),
+   but nothing ever **retires** a rule, so the dropped set grows forever and the cap keeps biting. There
+   is no decay, no expiry, no merge.
 
 **Bottom line.** Shepherd already has the _plumbing_ (signals → distiller → learnings FSM → budgeted
 injection → optimizer → promoter). What it lacks is a **lifecycle**: every rule, once `active`, lives

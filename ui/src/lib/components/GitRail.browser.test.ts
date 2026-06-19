@@ -58,6 +58,9 @@ vi.mock("$lib/toasts.svelte", () => ({
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
+// Test-only wrapper that flips ONLY autopilotOn (sessionId stable) — see the
+// "Open PR hidden under autopilot" describe for why rerender() can't do this.
+const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHarness.svelte");
 // The plan-gate reviewing store drives the auto-pill pulse for plan reviews,
 // mirroring the critic (reviews) store. Imported from the same module the
 // component reads so toggling it reactively updates the rendered pill.
@@ -1190,5 +1193,78 @@ describe("GitRail — manual plan-review trigger", () => {
     const next = { ...repoConfig.enabled };
     delete next[baseProps.repoPath];
     repoConfig.enabled = next;
+  });
+});
+
+// The strip always mounts GitRail with mobile=true (Viewport.svelte), so the autopilot
+// gating is asserted on that shipped path. Pre-fix, the Open PR button always rendered
+// under state:none and the compose popover ignored autopilot — both cases below fail
+// against pre-fix code.
+describe("GitRail — Open PR hidden under autopilot", () => {
+  const noneState: GitState = {
+    kind: "github",
+    state: "none",
+    checks: "none",
+    deployConfigured: false,
+  };
+
+  // find the Open PR trigger by its label text (↟ Open PR), or null when absent
+  function openPrBtn(h: HTMLElement): HTMLButtonElement | null {
+    return (
+      [...h.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+        /Open PR/i.test(b.textContent ?? ""),
+      ) ?? null
+    );
+  }
+
+  it("shows Open PR when autopilot is off (state:none)", async () => {
+    gitStateFn.mockResolvedValue(noneState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: false } });
+    await vi.waitFor(() =>
+      expect(openPrBtn(h), "Open PR button present when AP off").not.toBeNull(),
+    );
+  });
+
+  it("hides Open PR when autopilot is on (state:none)", async () => {
+    gitStateFn.mockResolvedValue(noneState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    // repoPath present → the automation pill still renders, so only the Open-PR slot
+    // is empty, not the rail. Wait for the pill, then assert Open PR is absent.
+    render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
+    await vi.waitFor(() =>
+      expect(h.querySelector(".auto-pill"), "automation pill renders").not.toBeNull(),
+    );
+    expect(openPrBtn(h), "Open PR button hidden when AP on").toBeNull();
+  });
+
+  // Uses the harness (NOT rerender): the live app flips autopilot via a session:autopilot
+  // WS event with the SAME sessionId, so only the autopilotOn prop changes. rerender()
+  // would swap the whole prop bag and incidentally re-run GitRail's sessionId-keyed
+  // session-reset effect, closing the popover regardless of the fix (vacuous). The harness
+  // flips ONLY autopilotOn, so this fails against pre-fix code (popover would dangle).
+  it("closes the compose popover when autopilot flips on (sessionId stable)", async () => {
+    gitStateFn.mockResolvedValue(noneState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    const { component } = render(GitRailAutopilotHarness, {
+      target: h,
+      props: { ...baseProps, mobile: true },
+    });
+    // open the popover (autopilot starts off)
+    const btn = await vi.waitFor(() => {
+      const b = openPrBtn(h);
+      expect(b, "Open PR button present").not.toBeNull();
+      return b!;
+    });
+    btn.click();
+    await vi.waitFor(() => expect(h.querySelector(".pr-pop"), "popover open").not.toBeNull());
+    // autopilot flips on (WS event) → popover must close, no submit path left
+    component.setAutopilot(true);
+    await vi.waitFor(() =>
+      expect(h.querySelector(".pr-pop"), "popover closed after AP flips on").toBeNull(),
+    );
   });
 });

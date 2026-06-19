@@ -36,6 +36,7 @@
     isolated = false,
     baseBranch = "",
     drain = null,
+    autopilotOn = false,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -50,6 +51,9 @@
     baseBranch?: string;
     /** Live drain status for this session's repo; passed through to AutomationPanel. */
     drain?: DrainStatus | null;
+    /** Effective autopilot state. When on, the agent opens the PR itself, so the manual
+        Open-PR button is redundant noise and is hidden. */
+    autopilotOn?: boolean;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -113,6 +117,13 @@
     if (!awaitingPlanReview) return;
     const t = setTimeout(() => (awaitingPlanReview = false), 4000);
     return () => clearTimeout(t);
+  });
+
+  // Close the Open-PR compose popover if autopilot flips on while it's open (toggle, or a
+  // WS session:autopilot event): the trigger button is gated on !autopilotOn, but the
+  // popover renders on its own showPr flag — without this it could dangle and still submit.
+  $effect(() => {
+    if (autopilotOn) showPr = false;
   });
 
   $effect(() => {
@@ -538,9 +549,17 @@
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile use:edgeFades={mobile}>
       {#if git.state === "none"}
-        <button class="gbtn" type="button" disabled={busy} onclick={startPr}
-          >{m.gitrail_open_pr()}</button
-        >
+        <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
+             so the manual button is redundant. This stays hidden even while autopilot is
+             PAUSED (autopilotPaused): a paused autopilot is still on and will resume and
+             open the PR; the human escape hatch is the AP toggle in the same strip.
+             autopilotPaused is surfaced separately via AutopilotBadge — not a signal to
+             re-show this button. -->
+        {#if !autopilotOn}
+          <button class="gbtn" type="button" disabled={busy} onclick={startPr}
+            >{m.gitrail_open_pr()}</button
+          >
+        {/if}
       {:else if git.state === "open"}
         {#if git.url}
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->

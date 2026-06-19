@@ -67,7 +67,8 @@ export interface Settings {
   previewHost: string | null;
   /** Whether usage-aware task holding is enabled (new tasks paused when usage is high). */
   usageHoldEnabled: boolean;
-  /** Usage percentage at or above which new tasks are held (0–100). */
+  /** Usage percentage at or above which new tasks are held (0–100); also the threshold
+   *  below which the usage-halt retry trigger becomes available. */
   usageHoldPct: number;
 }
 
@@ -862,6 +863,10 @@ export type WsEvent =
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
+  | {
+      event: "session:halt";
+      data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };
+    }
   | { event: "session:git"; data: { id: string; git: GitState } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }

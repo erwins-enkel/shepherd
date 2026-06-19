@@ -1605,5 +1605,15 @@
   "topbar_held_title": "Zurückgehaltene Aufgaben",
   "topbar_held_spawn_now": "Jetzt starten",
   "topbar_held_discard": "Verwerfen",
-  "topbar_held_empty": "Keine zurückgehaltenen Aufgaben"
+  "topbar_held_empty": "Keine zurückgehaltenen Aufgaben",
+  "retry_title": "HALTED WIEDERHOLEN",
+  "retry_confirm": "{count} Sitzungen wiederholen",
+  "retry_arm": "Wiederholen bestätigen ({count})?",
+  "retry_continue_steer": "Bitte fortfahren — dein Nutzungslimit sollte zurückgesetzt sein.",
+  "retry_failed": "Wiederholung fehlgeschlagen: keine Sessions fortgesetzt. Ziele prüfen, dann erneut versuchen.",
+  "toast_retry_done": "Wiederholen gesendet · {resumed} fortgesetzt · {steered} gesteuert / {total}",
+  "retry_halted_badge": "gestoppt",
+  "retry_empty": "Keine Sitzungen zum Wiederholen",
+  "feat_usage_halt_retry_title": "Halted Sitzungen mit einem Klick wiederholen",
+  "feat_usage_halt_retry_body": "Wenn Sitzungen stoppen, weil dein Claude-Nutzungslimit erreicht wurde, erscheint nach dem Reset ein ⟳-Schaltfläche — sie setzt alle gestoppten Sitzungen fort und steuert sie in einem Klick weiter."
 }

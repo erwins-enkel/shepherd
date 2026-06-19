@@ -1605,5 +1605,15 @@
   "topbar_held_title": "Held tasks",
   "topbar_held_spawn_now": "Spawn now",
   "topbar_held_discard": "Discard",
-  "topbar_held_empty": "No held tasks"
+  "topbar_held_empty": "No held tasks",
+  "retry_title": "RETRY HALTED",
+  "retry_confirm": "Retry {count} sessions",
+  "retry_arm": "Confirm retry {count}?",
+  "retry_continue_steer": "Please continue — your usage limit should have reset.",
+  "retry_failed": "Retry failed: no sessions resumed. Check the targets, then try again.",
+  "toast_retry_done": "Retry sent · {resumed} resumed · {steered} steered / {total}",
+  "retry_halted_badge": "halted",
+  "retry_empty": "No sessions to retry",
+  "feat_usage_halt_retry_title": "One-click retry for usage-halted sessions",
+  "feat_usage_halt_retry_body": "When sessions stop because your Claude usage limit was reached, a ⟳ Retry button appears once usage resets — it resumes all halted sessions and steers them to continue in one click."
 }

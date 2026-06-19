@@ -326,6 +326,12 @@ export class HerdStore {
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
         break;
+      case "session:halt":
+        this.patchSession(ev.data.id, {
+          haltReason: ev.data.haltReason,
+          haltedAt: ev.data.haltedAt,
+        });
+        break;
       case "session:egress-drop":
         toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
           key: "egress-drop-" + ev.data.id,

@@ -335,7 +335,12 @@ export class SessionStore implements CapStore, CreditStore {
       decision TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
-      plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL)`);
+      plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL,
+      blocks TEXT NOT NULL DEFAULT '[]')`);
+    const planGateCols = this.db.query(`PRAGMA table_info(plan_gates)`).all() as { name: string }[];
+    if (!planGateCols.some((c) => c.name === "blocks")) {
+      this.db.run(`ALTER TABLE plan_gates ADD COLUMN blocks TEXT NOT NULL DEFAULT '[]'`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
       sessionId TEXT PRIMARY KEY,
       state TEXT NOT NULL,
@@ -1333,6 +1338,17 @@ export class SessionStore implements CapStore, CreditStore {
 
   // ── pre-execution plan gates ─────────────────────────────────────────────────
   private hydratePlanGate(r: any): PlanGate {
+    // Persisted blocks were already validated + server-grounded at gate finalization. Parse as
+    // trusted data — do NOT re-run parseVisualBlocks, the LLM-input trust boundary, which would
+    // strip the server-forced `inferred` flag off data-model/api-endpoint/mermaid blocks.
+    // parseVisualBlocks runs only on fresh spawn output, never on DB reads.
+    let blocks: VisualBlock[] = [];
+    try {
+      const parsed = JSON.parse(r.blocks);
+      if (Array.isArray(parsed)) blocks = parsed as VisualBlock[];
+    } catch {
+      blocks = [];
+    }
     return {
       sessionId: r.sessionId,
       planHash: r.planHash ?? "",
@@ -1345,13 +1361,14 @@ export class SessionStore implements CapStore, CreditStore {
       approved: !!r.approved,
       plan: r.plan ?? "",
       updatedAt: r.updatedAt,
+      blocks,
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as any;
@@ -1360,12 +1377,12 @@ export class SessionStore implements CapStore, CreditStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
-         plan=excluded.plan, updatedAt=excluded.updatedAt`,
+         plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -1378,6 +1395,7 @@ export class SessionStore implements CapStore, CreditStore {
         g.approved ? 1 : 0,
         g.plan ?? "",
         g.updatedAt,
+        JSON.stringify(g.blocks ?? []),
       ],
     );
   }
@@ -1389,7 +1407,7 @@ export class SessionStore implements CapStore, CreditStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks FROM plan_gates`,
       )
       .all() as any[];
     const out: Record<string, PlanGate> = {};

@@ -2295,7 +2295,14 @@ export class SessionStore implements CapStore, CreditStore {
    *  ineffective flag. Only operates on active/promoted rules; no-ops for
    *  proposed/dismissed/missing. Blank rewrites are rejected (returns null).
    *  PRESERVES `ineffectiveSignalIds` so the dedup set survives the revision — only
-   *  genuinely new failure signals can re-raise the flag after an optimization. */
+   *  genuinely new failure signals can re-raise the flag after an optimization.
+   *  RESETS the effectiveness baseline (`helpfulCount`/`injectedCount`/`lastUsedAt`)
+   *  to zero: the rule's help-rate measures CURRENT text, so a rewrite is a fresh
+   *  artifact that must re-earn its record. Without this, an auto-optimized rule
+   *  would inherit the old text's poor help-rate and `shouldRetire` would re-trip on
+   *  the cumulative Wilson bound at the first fresh ineffective signal — hollowing
+   *  out the "second chance" the auto-optimize flag promises (the n_min gate also
+   *  re-applies, so the rewrite must accrue fresh injections before it can retire). */
   reviseLearning(id: string, rule: string, rationale?: string): Learning | null {
     const cur = this.getLearning(id);
     if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
@@ -2304,7 +2311,9 @@ export class SessionStore implements CapStore, CreditStore {
     const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
     const now = Date.now();
     this.db.run(
-      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0, autoOptimizedAt = ?, updatedAt = ? WHERE id = ?`,
+      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0,
+         helpfulCount = 0, injectedCount = 0, lastUsedAt = NULL,
+         autoOptimizedAt = ?, updatedAt = ? WHERE id = ?`,
       [text, resolvedRationale, now, now, id],
     );
     return this.getLearning(id);

@@ -210,6 +210,29 @@ test("reviseLearning: active rule — text + rationale updated, ineffectiveCount
   expect(updated.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
 });
 
+test("reviseLearning: resets the effectiveness baseline (helpfulCount/injectedCount/lastUsedAt) so a rewrite re-earns its record", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "old rule", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  // Accumulate a poor history on the OLD text: many injections, few helps, plus a flag.
+  s.attributeInjected([l.id], { good: false });
+  s.attributeInjected([l.id], { good: false });
+  s.attributeInjected([l.id], { good: true });
+  s.incrementLearningIneffective(l.id, ["s1"]);
+  const before = s.getLearning(l.id)!;
+  expect(before.injectedCount).toBe(3);
+  expect(before.helpfulCount).toBe(1);
+  expect(before.lastUsedAt).not.toBeNull();
+
+  const updated = s.reviseLearning(l.id, "new rule")!;
+  // Fresh artifact → fresh baseline (otherwise the rewrite inherits the old poor
+  // help-rate and shouldRetire re-trips at the first new ineffective signal).
+  expect(updated.helpfulCount).toBe(0);
+  expect(updated.injectedCount).toBe(0);
+  expect(updated.lastUsedAt).toBeNull();
+  expect(updated.ineffectiveCount).toBe(0);
+});
+
 test("reviseLearning: promoted rule is allowed", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({ repoPath: "/r", rule: "old", rationale: "", evidence: [] });

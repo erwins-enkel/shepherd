@@ -42,6 +42,31 @@ export function drainSpawnModel(setting: string): string | null {
 }
 
 /**
+ * Spawn-time fallback: when fable is globally unavailable, an explicit
+ * `fable` request runs Opus with 1M context instead. Capability-faithful
+ * substitute (fable is for the longest-horizon work; plain opus caps at 200K).
+ * Pure — callers do the logging.
+ */
+export function spawnModelForAvailability(
+  model: string | null,
+  fableAvailable: boolean,
+): string | null {
+  return model === "fable" && !fableAvailable ? "opus[1m]" : model;
+}
+
+/**
+ * Normalize a fableAvailable setting value (env string, store string, or boolean)
+ * to a boolean, or null if unrecognized. Accepts: true/"true"/"1" → true;
+ * false/"false"/"0" → false; anything else → null.
+ */
+export function normalizeFableAvailable(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  return null;
+}
+
+/**
  * Normalize a per-repo default-model override to a valid REPO SETTING string,
  * or null if unrecognised. Accepted: "inherit" plus everything the global
  * setting accepts ("auto", "default", each MODELS alias). "inherit" (the

@@ -102,7 +102,11 @@ import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
-import { normalizeDefaultModelSetting, normalizeRepoDefaultModelSetting } from "./default-model";
+import {
+  normalizeDefaultModelSetting,
+  normalizeFableAvailable,
+  normalizeRepoDefaultModelSetting,
+} from "./default-model";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import {
   type SandboxProfile,
@@ -2576,6 +2580,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // usage-aware task holding
       usageHoldEnabled: config.usageHoldEnabled,
       usageHoldPct: config.usageHoldPct,
+      // global fable availability flag; false = fable spawns reroute to opus[1m].
+      fableAvailable: config.fableAvailable,
     });
   }
   if (req.method === "PUT") {
@@ -2605,6 +2611,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["anthropicApiKey", putAnthropicApiKey],
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
+  ["fableAvailable", putFableAvailable],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -2717,6 +2724,14 @@ function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {
   config.usageHoldPct = n;
   deps.store.setSetting("usageHoldPct", String(n));
   return json({ usageHoldPct: config.usageHoldPct });
+}
+
+function putFableAvailable(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeFableAvailable(value);
+  if (v === null) return json({ error: "fableAvailable must be a boolean" }, 400);
+  config.fableAvailable = v; // live: next spawn picks it up
+  deps.store.setSetting("fableAvailable", String(v)); // persist across restarts
+  return json({ fableAvailable: config.fableAvailable });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

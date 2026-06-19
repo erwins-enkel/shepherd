@@ -19,6 +19,7 @@ import {
   worktreeUploadsDir,
 } from "./uploads";
 import { slugifyManual, isHeuristicNameStrong } from "./namer";
+import { spawnModelForAvailability } from "./default-model";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -1254,7 +1255,11 @@ export class SessionService {
         trimmed: trim.trimmed,
       }),
     );
-    if (input.model) argv.push("--model", input.model);
+    const spawnModel = spawnModelForAvailability(input.model, config.fableAvailable);
+    if (input.model === "fable" && spawnModel !== "fable") {
+      console.info(`model: fable unavailable — spawning on ${spawnModel} instead`);
+    }
+    if (spawnModel) argv.push("--model", spawnModel);
     argv.push(promptArg);
     return argv;
   }
@@ -1748,7 +1753,11 @@ export class SessionService {
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     );
-    if (s.model) innerArgv.push("--model", s.model);
+    const resumeModel = spawnModelForAvailability(s.model, config.fableAvailable);
+    if (s.model === "fable" && resumeModel !== "fable") {
+      console.info(`model: fable unavailable — spawning on ${resumeModel} instead`);
+    }
+    if (resumeModel) innerArgv.push("--model", resumeModel);
     const outcome = this.prepareSpawn(innerArgv, {
       sessionId: s.id,
       name: s.name,

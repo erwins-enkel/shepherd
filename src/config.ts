@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
-import { normalizeDefaultModelSetting } from "./default-model";
+import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
@@ -399,6 +399,11 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Global fable availability flag. When false, any spawn requesting --model fable is
+  // transparently rerouted to opus[1m] at argv-assembly time without rewriting the
+  // stored session model (so cost accounting + fable intent survive for later replay).
+  // Persisted + UI-configurable; SHEPHERD_FABLE_AVAILABLE=0/false seeds it off.
+  fableAvailable: normalizeFableAvailable(process.env.SHEPHERD_FABLE_AVAILABLE) ?? true,
   // Operator auth footing for spawned agents. 'subscription' (default) = subscription OAuth;
   // 'api-key' = bill against an Anthropic API key. Persisted + UI-configurable; env seeds a fresh DB.
   authMode: normalizeAuthModeSetting(process.env.SHEPHERD_AUTH_MODE) ?? "subscription",

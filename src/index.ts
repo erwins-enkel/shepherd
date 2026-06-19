@@ -78,7 +78,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
-import { normalizeDefaultModelSetting } from "./default-model";
+import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
@@ -143,6 +143,12 @@ const savedDm = store.getSetting("defaultModel");
 if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
+}
+// a UI-set fableAvailable flag (persisted) overrides the env seed; absent or unrecognised → keep default.
+const savedFa = store.getSetting("fableAvailable");
+if (savedFa !== null) {
+  const v = normalizeFableAvailable(savedFa);
+  if (v !== null) config.fableAvailable = v;
 }
 // a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedAm = store.getSetting("authMode");

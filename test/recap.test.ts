@@ -479,6 +479,49 @@ test("tick: generating row + valid verdict → state 'ready' + usage + stop + cl
   expect(cleaned).toContain("/tmp/recap-s1");
 });
 
+// TASK-561 follow-up: the #822 failsafe still left recap generation failing on retry. A chatty
+// agent wraps the JSON in prose, jsonrepair rescues it into an ARRAY (["Here is the recap:", {…}]),
+// and the OLD finalize → parseRecapVerdict rejected arrays → `failed`. The fix unwraps the recap
+// object from that array, so the full tick→finalize path now finalizes `ready` end-to-end.
+test("TASK-561 tick: prose-wrapped (jsonrepair array) verdict → state 'ready', not 'failed'", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-prose", spawnedAt: 100_000 });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-prose", terminalId: "t-prose" }]);
+  const cleaned: string[] = [];
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    timeoutMs: 300_000,
+    // The array shape jsonrepair produces from prose-wrapped output (strict parse already finalizes,
+    // so the read reports repaired:false here — the array recovery lives in parseRecapVerdict).
+    verdictJson: [
+      "Here is the session recap:",
+      {
+        verdict: "needs-attention", // also exercises hyphen→underscore normalization
+        headline: "Lightweight repo mode",
+        body: 'Operator clicks "Open for merge".',
+        openItems: ["Document the mode"],
+        blocks: [{ type: "rich-text", id: "b1", markdown: "Local-only git." }],
+      },
+      "Let me know if you need anything else.",
+    ],
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.tick();
+
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("ready");
+  expect(r?.verdict).toBe("needs_attention");
+  expect(r?.headline).toBe("Lightweight repo mode");
+  expect(r?.body).toContain('"Open for merge"');
+  expect(r?.openItems).toEqual(["Document the mode"]);
+  expect(r?.blocks).toHaveLength(1);
+  expect(cleaned).toContain("/tmp/recap-prose");
+});
+
 test("tick timeout: generating row, no verdict, past timeout → state 'failed', reaped", async () => {
   const rec = makeRecap({
     state: "generating",

@@ -11,9 +11,38 @@ export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "need
 export const RECAP_HEADLINE_MAX = 100;
 export const RECAP_DIGEST_MAX_CHARS = 4000;
 
+/** Recover the recap object from a parse that an unattended agent's chatty output mangled.
+ *  jsonrepair turns prose-wrapped JSON ("Here is the recap:\n{…}" or "{…}\nDone.") into an
+ *  ARRAY (e.g. `["Here is the recap:", {…}]`); pull the first recap-shaped element back out so a
+ *  preamble/epilogue doesn't sink an otherwise-complete verdict. A bare object passes through. */
+function unwrapRecapObject(raw: unknown): Record<string, unknown> | null {
+  if (Array.isArray(raw)) {
+    const found = raw.find(
+      (e) => !!e && typeof e === "object" && !Array.isArray(e) && "verdict" in (e as object),
+    );
+    return (found as Record<string, unknown>) ?? null;
+  }
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  return null;
+}
+
+/** Normalize a verdict to the enum, tolerating formatting variance (case, surrounding
+ *  whitespace, hyphen/space separators) — e.g. "Needs-Attention" / " READY " → enum value.
+ *  Returns null for anything that is not one of RECAP_VERDICTS after normalization (no synonym
+ *  guessing: "complete"/"approve" stay rejected — we never invent the agent's intent). */
+function normalizeVerdict(v: unknown): RecapVerdict | null {
+  if (typeof v !== "string") return null;
+  const n = v
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return (RECAP_VERDICTS as readonly string[]).includes(n) ? (n as RecapVerdict) : null;
+}
+
 /** Parse + validate the raw .shepherd-recap.json the spawn wrote. Returns null when the
  *  shape is invalid (caller fails closed). Clamps headline to RECAP_HEADLINE_MAX, coerces
- *  openItems to a string[] (drops non-strings), requires verdict ∈ RECAP_VERDICTS.
+ *  openItems to a string[] (drops non-strings), requires verdict ∈ RECAP_VERDICTS (normalized).
+ *  Unwraps a prose-wrapped array (see unwrapRecapObject) so a chatty agent doesn't fail the recap.
  *  blocks is additive — parsed tolerantly via parseVisualBlocks ([] on missing/garbage). */
 export function parseRecapVerdict(raw: unknown): {
   verdict: RecapVerdict;
@@ -22,11 +51,11 @@ export function parseRecapVerdict(raw: unknown): {
   openItems: string[];
   blocks: VisualBlock[];
 } | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const r = raw as Record<string, unknown>;
+  const r = unwrapRecapObject(raw);
+  if (!r) return null;
 
-  const verdict = r.verdict;
-  if (!RECAP_VERDICTS.includes(verdict as RecapVerdict)) return null;
+  const verdict = normalizeVerdict(r.verdict);
+  if (!verdict) return null;
 
   const headline = typeof r.headline === "string" ? r.headline.slice(0, RECAP_HEADLINE_MAX) : "";
   const body = typeof r.body === "string" ? r.body : "";
@@ -36,7 +65,7 @@ export function parseRecapVerdict(raw: unknown): {
     : [];
   const blocks = parseVisualBlocks(r.blocks);
 
-  return { verdict: verdict as RecapVerdict, headline, body, openItems, blocks };
+  return { verdict, headline, body, openItems, blocks };
 }
 
 /** Build a bounded digest of what the agent did from parsed transcript entries

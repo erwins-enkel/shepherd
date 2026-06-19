@@ -49,7 +49,7 @@ export function tolerantParseJson(text: string): TolerantParse {
 export type VerdictRead<T> =
   | { status: "absent" }
   | { status: "parsed"; value: T; repaired: boolean }
-  | { status: "unparseable" };
+  | { status: "unparseable"; raw?: string };
 
 /**
  * Is the verdict spawn at `cwd` still actively producing output? Only `agentStatus === "working"`

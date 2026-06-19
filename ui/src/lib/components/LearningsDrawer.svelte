@@ -21,6 +21,10 @@
     splitDropped,
     reposNeedingAttention,
     visibleInjectableRules,
+    retiredRules,
+    retiredCount,
+    unseenRetiredCount,
+    helpRate,
   } from "./learnings-drawer";
 
   // Human label for an evidence source kind. Mirrors the server SignalKind set;
@@ -97,6 +101,8 @@
     onpromote,
     onoptimize,
     onoptimizeall,
+    onrestore,
+    onseenretired,
     onclose,
   }: {
     items: Learning[];
@@ -108,6 +114,8 @@
     onpromote: (id: string) => void;
     onoptimize: (id: string) => void;
     onoptimizeall: (repoPath: string) => void;
+    onrestore: (id: string) => void;
+    onseenretired: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
 
@@ -302,6 +310,12 @@
             ⚠ {m.learnings_ineffective_badge({ count: r.ineffectiveCount })}
           </span>
         {/if}
+        {#if helpRate(r) !== null}
+          {@const hr = helpRate(r)!}
+          <span class="help-rate"
+            >{m.learnings_help_rate({ helped: hr.helped, pulls: hr.pulls })}</span
+          >
+        {/if}
         <span class="spacer"></span>
         <div class="iactions">
           {#if showIneffective(r)}
@@ -353,6 +367,19 @@
             {m.learnings_distill()}
           </button>
         </div>
+
+        {#if unseenRetiredCount(group.injectable) > 0}
+          <div class="health-warn" role="status">
+            <strong class="hw-title"
+              >{m.learnings_auto_retired_banner({
+                count: unseenRetiredCount(group.injectable),
+              })}</strong
+            >
+            <button class="hw-review" type="button" onclick={() => onseenretired(group.repoPath)}>
+              {m.learnings_auto_retired_review()}
+            </button>
+          </div>
+        {/if}
 
         <!-- Change 7: hide proposals under either active lens -->
         {#each flaggedOnly || overBudgetOnly ? [] : group.proposed as l (l.id)}
@@ -466,6 +493,39 @@
               {/if}
               {#each split.injected as r (r.id)}{@render irule(r, inj.enabled)}{/each}
             {/if}
+          </div>
+        {/if}
+
+        {#if retiredCount(group.injectable) > 0}
+          <div class="retired-section">
+            <div class="retired-head">
+              <span class="retired-title"
+                >{m.learnings_retired_heading({ count: retiredCount(group.injectable) })}</span
+              >
+            </div>
+            {#each retiredRules(group.injectable) as r (r.id)}
+              <article class="retired-rule">
+                <p class="retired-text">{r.rule}</p>
+                <p class="retired-reason">
+                  {m.learnings_retired_reason({
+                    helped: r.helpfulCount,
+                    pulls: r.injectedCount,
+                    flagged: r.ineffectiveCount,
+                  })}
+                </p>
+                <div class="retired-foot">
+                  <span class="spacer"></span>
+                  <button
+                    class="restore"
+                    type="button"
+                    aria-label={m.learnings_restore_aria()}
+                    onclick={() => onrestore(r.id)}
+                  >
+                    {m.learnings_restore()}
+                  </button>
+                </div>
+              </article>
+            {/each}
           </div>
         {/if}
       </section>
@@ -953,5 +1013,73 @@
   }
   .badge.off {
     color: var(--color-muted);
+  }
+  .help-rate {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+  }
+  .hw-review {
+    align-self: flex-start;
+    font-size: var(--fs-meta);
+    background: none;
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    padding: 3px 8px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .retired-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+    border-top: 1px solid var(--color-line);
+    padding-top: 6px;
+  }
+  .retired-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .retired-title {
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+  }
+  .retired-rule {
+    border: 1px solid var(--color-line);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    opacity: 0.7;
+  }
+  .retired-text {
+    font-size: var(--fs-base);
+    color: var(--status-done);
+    line-height: 1.5;
+  }
+  .retired-reason {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.45;
+  }
+  .retired-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .restore {
+    font-size: var(--fs-base);
+    padding: 4px 10px;
+    cursor: pointer;
+    border: 1px solid var(--color-line-bright);
+    background: none;
+    color: var(--color-muted);
+  }
+  .restore:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink-bright);
   }
 </style>

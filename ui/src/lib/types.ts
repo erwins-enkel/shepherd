@@ -449,6 +449,8 @@ export interface RepoConfig {
   usageCeilingPct: number;
   /** Whether this repo uses a forge (GitHub/Gitea) or lightweight local-only mode. */
   repoMode: "forge" | "lightweight";
+  /** When a rule starts failing, rewrite it once automatically before auto-retirement eligibility. */
+  autoOptimizeFlagged: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -1013,7 +1015,7 @@ export interface DiffResult {
   files: DiffFile[];
 }
 
-export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
+export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed" | "retired";
 
 /** What an evidence signal was captured from (mirrors server `SignalKind`):
  *  reply = an operator correction, critic = a code-review finding,
@@ -1044,6 +1046,11 @@ export interface Learning {
   // The resolved evidence signals (kind + source session + excerpt), newest first.
   evidenceDetail?: EvidenceItem[];
   ineffectiveCount: number;
+  helpfulCount: number;
+  injectedCount: number;
+  lastUsedAt: number | null;
+  retiredAt: number | null;
+  retiredReason: string | null;
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
@@ -1060,6 +1067,8 @@ export interface RepoInjectable {
   budgetChars: number;
   usedChars: number;
   rules: (Learning & { injected: boolean })[];
+  retired: Learning[];
+  unseenRetired: number;
 }
 
 export interface DistillerHealth {

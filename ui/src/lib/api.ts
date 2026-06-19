@@ -1112,6 +1112,7 @@ export async function putRepoConfig(
       | "autoLabel"
       | "usageCeilingPct"
       | "repoMode"
+      | "autoOptimizeFlagged"
     >
   >,
 ): Promise<RepoConfig> {
@@ -1252,6 +1253,22 @@ export async function getBuildQueues(): Promise<Record<string, BuildQueue>> {
 export async function optimizeLearning(id: string): Promise<void> {
   const r = await fetch(`/api/learnings/${id}/optimize`, { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) throw await failed(r, "optimize");
+}
+
+/** Restore a retired learning rule back to active. */
+export async function restoreLearning(id: string): Promise<Learning> {
+  const r = await fetch(`/api/learnings/${id}/restore`, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) throw await failed(r, "restore");
+  return r.json();
+}
+
+/** Mark retired learnings as seen for a repo (clears the unseen banner). */
+export async function markRetiredSeen(repoPath: string): Promise<void> {
+  const r = await fetch(`/api/learnings/seen-retired?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "seen-retired");
 }
 
 /** Optimize ALL flagged rules in a repo. Fire-and-forget (see optimizeLearning). */

@@ -41,6 +41,11 @@ function learning(over: Partial<Learning>): Learning {
     status: "proposed",
     evidenceCount: 0,
     ineffectiveCount: 0,
+    helpfulCount: 0,
+    injectedCount: 0,
+    lastUsedAt: null,
+    retiredAt: null,
+    retiredReason: null,
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
@@ -60,6 +65,8 @@ function injectable(over: Partial<RepoInjectable>): RepoInjectable {
     budgetChars: 100,
     usedChars: 0,
     rules: [],
+    retired: [],
+    unseenRetired: 0,
     ...over,
   };
 }

@@ -161,6 +161,7 @@ class RepoConfigStore {
   autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
   autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
+  autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
@@ -185,6 +186,7 @@ class RepoConfigStore {
     this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
     this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
     this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
+    this.autoOptimize = { ...this.autoOptimize, [repoPath]: c.autoOptimizeFlagged };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
@@ -240,6 +242,7 @@ class RepoConfigStore {
         | "autoDrainEnabled"
         | "autoMergeEnabled"
         | "buildQueueEnabled"
+        | "autoOptimizeFlagged"
         | "planGateEnabled"
         | "draftMode"
         | "signoffAuthority"
@@ -389,6 +392,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleAutoOptimize(repoPath: string) {
+    const prev = this.autoOptimize[repoPath];
+    const next = !this.autoOptimizeOn(repoPath);
+    this.autoOptimize = { ...this.autoOptimize, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { autoOptimizeFlagged: next }, () => {
+      this.autoOptimize = { ...this.autoOptimize, [repoPath]: prev };
+    });
+  }
+
   async togglePlanGate(repoPath: string) {
     const prev = this.planGate[repoPath];
     const next = !this.isPlanGateEnabled(repoPath);
@@ -452,6 +464,10 @@ class RepoConfigStore {
 
   isBuildQueueEnabled(repoPath: string): boolean {
     return this.buildQueue[repoPath] ?? false;
+  }
+
+  autoOptimizeOn(repoPath: string): boolean {
+    return this.autoOptimize[repoPath] ?? false;
   }
 
   isPlanGateEnabled(repoPath: string): boolean {

@@ -181,6 +181,33 @@ export function visibleInjectableRules(
   return result;
 }
 
+// ─── retired-rule helpers ─────────────────────────────────────────────────────
+
+/** Retired rules for a repo (auto-retired by effectiveness loop). */
+export function retiredRules(repo: RepoInjectable | null): Learning[] {
+  return repo?.retired ?? [];
+}
+
+/** Count of retired rules in a repo. */
+export function retiredCount(repo: RepoInjectable | null): number {
+  return retiredRules(repo).length;
+}
+
+/** Count of unseen retired rules (drives the new-retired banner). */
+export function unseenRetiredCount(repo: RepoInjectable | null): number {
+  return repo?.unseenRetired ?? 0;
+}
+
+/** Help-rate stat for a rule: null when never injected (avoids division by zero).
+ *  Returns { helped, pulls } counts so the caller formats the display. */
+export function helpRate(rule: {
+  helpfulCount: number;
+  injectedCount: number;
+}): { helped: number; pulls: number } | null {
+  if (rule.injectedCount === 0) return null;
+  return { helped: rule.helpfulCount, pulls: rule.injectedCount };
+}
+
 /** Stable display order for the evidence breakdown: most operator-meaningful
  *  source first (a correction you gave) down to passive ones (a stall). */
 const KIND_ORDER: SignalKind[] = ["reply", "critic", "block", "stall"];

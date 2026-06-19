@@ -276,7 +276,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
-    repoMode: r?.repoMode === "lightweight" ? "lightweight" : "forge",
+    repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
   };
 }
 

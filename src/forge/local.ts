@@ -2,7 +2,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import type { SessionStore } from "../store";
-import type { GitForge, Issue, MergeMethod, OpenPrInput, PrStatus, PullRequest } from "./types";
+import {
+  EmptyDiffError,
+  type GitForge,
+  type Issue,
+  type MergeMethod,
+  type OpenPrInput,
+  type PrStatus,
+  type PullRequest,
+} from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -335,6 +343,14 @@ export class LocalForge implements GitForge {
   }
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {
+    // No commits ahead of base ⇒ nothing to open a pseudo-PR for (and a later squash
+    // would be an empty commit). Forge-agnostic signal: callers resolve "nothing to land".
+    const ahead = await gitOrThrow(
+      this.repoPath,
+      ["rev-list", "--count", `${o.base}..${o.head}`],
+      GIT_READ_TIMEOUT_MS,
+    );
+    if (Number(ahead) === 0) throw new EmptyDiffError(o.head, o.base);
     const row = this.store.ensureLocalPr(this.repoPath, o.head, o.base);
     return {
       state: "open",

@@ -13,6 +13,7 @@ import {
   BaseCheckoutBusyError,
   MergeConflictError,
 } from "../src/forge/local";
+import { EmptyDiffError } from "../src/forge/types";
 
 const ENV = {
   ...process.env,
@@ -116,6 +117,48 @@ test("openPr then prStatus → open, positive number, mergeable:true, headSha=ti
     expect(st.mergeable).toBe(true);
     expect(st.headSha).toBe(tip);
     expect(st.createdAt).toBeGreaterThan(0);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("openPr throws EmptyDiffError when the branch has no commits ahead of base", async () => {
+  const repo = mkRepo();
+  try {
+    // a branch off main with NO further commits → nothing to open a PR for
+    git(repo, "checkout", "-q", "-b", "feature/empty");
+    git(repo, "checkout", "-q", "main");
+    const store = new SessionStore(":memory:");
+    const forge = new LocalForge(repo, store);
+    let threw: unknown;
+    try {
+      await forge.openPr({ head: "feature/empty", base: "main", title: "t", body: "b" });
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeInstanceOf(EmptyDiffError);
+    // no pseudo-PR row registered
+    expect(store.getLocalPr(repo, "feature/empty")).toBeNull();
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("openPr succeeds for a branch with commits ahead of base", async () => {
+  const repo = mkRepo();
+  try {
+    featureBranch(repo, "feature/has-commits", 1);
+    git(repo, "checkout", "-q", "main");
+    const store = new SessionStore(":memory:");
+    const forge = new LocalForge(repo, store);
+    const opened = await forge.openPr({
+      head: "feature/has-commits",
+      base: "main",
+      title: "t",
+      body: "b",
+    });
+    expect(opened.state).toBe("open");
+    expect(opened.number).toBeGreaterThan(0);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

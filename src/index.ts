@@ -29,6 +29,8 @@ import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { makeProductionForgeResolver } from "./forge/resolve";
+import { EmptyDiffError, type GitState } from "./forge/types";
+import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
@@ -795,6 +797,31 @@ const autopilot = new AutopilotService({
   hasPr: (id) => {
     const st = prPoller.snapshot()[id]?.state;
     return st !== undefined && st !== "none";
+  },
+  // Lightweight completion barrier (#807): mirror forgeOpenPr server-side (no Request) so an
+  // agent with no `gh` still registers its pseudo-PR. Self-guarding: an EmptyDiff is a clean
+  // "nothing to open" no-op and any other failure is logged, never rejected — so the awaiting
+  // autopilot tick can't crash (house rule: no unguarded await on a fallible async).
+  openLocalPr: async (id) => {
+    try {
+      const s = store.get(id);
+      if (!s || !s.branch) return;
+      const forge = resolveForge(s.repoPath);
+      if (!forge || forge.kind !== "local") return; // defensive: only the local forge has no host
+      const status = await forge.openPr({
+        head: s.branch,
+        base: s.baseBranch,
+        title: s.name,
+        body: s.prompt,
+      });
+      const me = (await forge.currentUser?.()) ?? null;
+      const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, s.repoPath, me);
+      prPoller.set(s.id, git);
+      events.emit("session:git", { id: s.id, git });
+    } catch (err) {
+      if (err instanceof EmptyDiffError) return; // nothing to open — clean no-op
+      console.warn("[autopilot] openLocalPr:", err);
+    }
   },
   prGit: (id) => prPoller.snapshot()[id] ?? null,
   fullAuto: (id) => {

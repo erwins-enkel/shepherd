@@ -74,8 +74,9 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
-import type { GitForge, GitState, MergeMethod, WorkflowRun } from "./forge/types";
-import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
+import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
+import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
+import { settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
@@ -1981,13 +1982,20 @@ async function forgeOpenPr(
   const head = session.branch ?? "";
   const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
   const cfg = deps.store.getRepoConfig(session.repoPath);
-  const status = await forge.openPr({
-    head,
-    base: session.baseBranch,
-    title: body.title?.trim() || session.name,
-    body: body.body ?? session.prompt,
-    draft: cfg.draftMode,
-  });
+  let status: PrStatus;
+  try {
+    status = await forge.openPr({
+      head,
+      base: session.baseBranch,
+      title: body.title?.trim() || session.name,
+      body: body.body ?? session.prompt,
+      draft: cfg.draftMode,
+    });
+  } catch (err) {
+    // Nothing to open a PR for (no net diff vs base) → a clean 409, not a 500.
+    if (err instanceof EmptyDiffError) return json({ error: "no commits to merge" }, 409);
+    throw err;
+  }
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
   deps.prCache?.set(session.id, git);
@@ -2014,6 +2022,20 @@ async function forgeMerge(
     method: body.method ?? forge.mergeMethod,
     deleteBranch: body.deleteBranch ?? true,
   });
+  // Lightweight (local) merge happened in-tree — nobody else tears the session down (no host
+  // poller path, no merge train), so the worktree/branch would leak. Settle it here, mirroring
+  // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human
+  // merges on the host and the poller-driven archive path handles teardown.
+  if (forge.kind === "local") {
+    await settleMergedSession(session, {
+      resolveForge: (repoPath) => deps.resolveForge?.(repoPath) ?? null,
+      archive: (id) => deps.service.archive(id),
+      dropPrCache: (id) => deps.prCache?.drop(id),
+      emitArchived: (id) => deps.events.emit("session:archived", { id }),
+      retainClaim: (id) => deps.drain?.retainClaim(id),
+    });
+    return json({ ...cur, state: "merged" as const });
+  }
   const status = await forge.prStatus(head);
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);

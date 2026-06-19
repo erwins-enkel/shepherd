@@ -79,6 +79,11 @@ export interface AutopilotDeps {
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
+  /** Register a lightweight (local) session's pseudo-PR server-side. Replaces the forge-mode
+   *  open-a-PR steer for a `lightweight` repo: the agent has no `gh`, so the deliberate
+   *  completion barrier runs here instead of being typed into the PTY. Best-effort — the
+   *  wiring guards a rejection so a failure never crashes the autopilot tick. */
+  openLocalPr: (id: string) => Promise<void>;
   /** The cached PR snapshot for a session (the PR poller's last poll), or null when there is
    *  none. The recurring tick reads this directly — NOT off a `session:git` emit — so it can
    *  re-engage an idle agent stuck on an UNCHANGED open+red head, the case the event-driven
@@ -204,6 +209,12 @@ export class AutopilotService {
         if (s.research) {
           // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
           this.markComplete(s, v.summary || COMPLETE_MESSAGE);
+          return;
+        }
+        if (this.deps.store.getRepoConfig(s.repoPath).repoMode === "lightweight") {
+          // Lightweight repo: the agent has no `gh`, so register the pseudo-PR server-side
+          // (the deliberate completion barrier) instead of steering `gh pr create`.
+          await this.deps.openLocalPr(s.id);
           return;
         }
         await this.driveSteer(

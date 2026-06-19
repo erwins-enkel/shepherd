@@ -17,6 +17,7 @@ function issue(number: number, over: Partial<Issue> = {}): Issue {
     url: `https://x/${number}`,
     labels: ["shepherd:auto"],
     createdAt: number,
+    assignees: [],
     ...over,
   };
 }
@@ -206,6 +207,7 @@ describe("epic-child spawns base on the integration branch", () => {
       url: `https://x/${PARENT}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
     const h = makeHarness({
       listIssuesImpl: async () => [],
@@ -244,6 +246,7 @@ describe("epic-child spawns base on the integration branch", () => {
       url: `https://x/${PARENT}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
     const h = makeHarness({
       noEnsureBranch: true,

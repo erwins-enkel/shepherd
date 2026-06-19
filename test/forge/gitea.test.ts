@@ -285,6 +285,16 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
           html_url: "https://git.example.com/team/proj/issues/3",
           labels: [{ name: "bug" }, { name: "p1" }],
           created_at: GITEA_ISSUE_CREATED_AT,
+          assignees: [{ login: "alice" }, { login: "bob" }],
+        },
+        {
+          number: 4,
+          title: "Unassigned",
+          body: "",
+          html_url: "https://git.example.com/team/proj/issues/4",
+          labels: [],
+          created_at: GITEA_ISSUE_CREATED_AT,
+          assignees: null,
         },
       ],
     },
@@ -299,9 +309,36 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
       url: "https://git.example.com/team/proj/issues/3",
       labels: ["bug", "p1"],
       createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
+      assignees: ["alice", "bob"],
+    },
+    {
+      number: 4,
+      title: "Unassigned",
+      body: "",
+      url: "https://git.example.com/team/proj/issues/4",
+      labels: [],
+      createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
+      assignees: [],
     },
   ]);
   expect(calls[0]!.headers.get("Authorization")).toBe("token secret");
+});
+
+test("GiteaForge.currentUser: returns the authenticated login (#824)", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/user": { json: { login: "octogit" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.currentUser()).toBe("octogit");
+  // Cached: a second call must not hit the API again.
+  expect(await forge.currentUser()).toBe("octogit");
+  expect(calls.filter((c) => c.url.endsWith("/api/v1/user")).length).toBe(1);
+});
+
+test("GiteaForge.currentUser: null when the host can't resolve a user", async () => {
+  const { fn } = fakeFetch({ "GET /api/v1/user": { status: 401 } });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.currentUser()).toBeNull();
 });
 
 test("GiteaForge.prStatus: open PR + success status → mapped", async () => {

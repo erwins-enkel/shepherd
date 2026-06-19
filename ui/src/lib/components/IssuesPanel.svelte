@@ -6,7 +6,9 @@
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { filterIssues } from "./issues-panel";
+  import { filterIssues, hideOthers } from "./issues-panel";
+  import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import EpicPanel from "./EpicPanel.svelte";
   import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
@@ -47,9 +49,18 @@
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);
   let repoUrl = $state<string | null>(null);
+  let viewer = $state<string | null>(null);
   let loading = $state(true);
   let filter = $state("");
-  let visibleIssues = $derived(filterIssues(issues, filter));
+  // Compose the assignee filter (#824) with the text filter. The chip only shows
+  // when `viewer` is known, so hideOthers is a no-op identity otherwise (fail open).
+  let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
+  let visibleIssues = $derived(filterIssues(assigneeFiltered, filter));
+  // True when there ARE open issues but the assignee filter hid them all — drives
+  // the distinct "all assigned to others" empty state (vs the text no-match state).
+  let allHiddenByAssignee = $derived(
+    issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
+  );
 
   // Epic summaries for this repo: number → EpicSummary.
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
@@ -71,6 +82,7 @@
         slug = r.slug;
         repoUrl = r.webUrl;
         issues = r.issues;
+        viewer = r.viewer;
         loading = false;
       })
       .catch(() => {
@@ -153,14 +165,31 @@
     {:else if issues.length === 0}
       <div class="muted">{m.common_no_open_issues()}</div>
     {:else}
-      <input
-        class="issue-filter"
-        type="search"
-        bind:value={filter}
-        placeholder={m.issuespanel_filter_placeholder()}
-        aria-label={m.issuespanel_filter_placeholder()}
-      />
-      {#if visibleIssues.length === 0}
+      <div class="filter-bar">
+        <input
+          class="issue-filter"
+          type="search"
+          bind:value={filter}
+          placeholder={m.issuespanel_filter_placeholder()}
+          aria-label={m.issuespanel_filter_placeholder()}
+        />
+        {#if viewer != null}
+          <button
+            class="filter-chip"
+            class:active={issuesFilter.hideOthers}
+            type="button"
+            aria-pressed={issuesFilter.hideOthers}
+            title={m.issues_filter_mine_title()}
+            onclick={() => issuesFilter.toggle()}
+            use:coachTarget={"issues-filter-toggle"}
+          >
+            {m.issues_filter_mine_label()}
+          </button>
+        {/if}
+      </div>
+      {#if allHiddenByAssignee}
+        <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+      {:else if visibleIssues.length === 0}
         <div class="muted">{m.issuespanel_no_match()}</div>
       {/if}
       {#each visibleIssues as issue (issue.number)}
@@ -311,13 +340,22 @@
     border-radius: 2px;
   }
 
-  /* Search field pinned above the scrolling rows — same recipe as the
-     command filter in PromptSources (.cmd-filter). */
-  .issue-filter {
+  /* Search field + "mine & unassigned" chip pinned above the scrolling rows. */
+  .filter-bar {
     position: sticky;
     top: 0;
     z-index: 1;
     flex-shrink: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    background: var(--color-inset);
+  }
+
+  /* Search field — same recipe as the command filter in PromptSources (.cmd-filter). */
+  .issue-filter {
+    flex: 1;
+    min-width: 0;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
@@ -330,6 +368,34 @@
   .issue-filter:focus {
     outline: none;
     border-color: var(--color-line-bright);
+  }
+
+  /* "Mine & unassigned" toggle — the .filter-chip recipe from ProjectBacklogList. */
+  .filter-chip {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.1em;
+    padding: 0 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+
+  .filter-chip:hover {
+    color: var(--color-ink);
+  }
+
+  .filter-chip.active {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-inset);
   }
 
   .issue-row {

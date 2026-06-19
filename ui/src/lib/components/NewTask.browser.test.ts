@@ -74,7 +74,7 @@ beforeEach(() => {
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
-  mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [] });
+  mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
   mockGetEpics.mockResolvedValue([]);
   mockListBranches.mockResolvedValue({ current: "main", branches: ["main"] });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
@@ -147,6 +147,7 @@ describe("NewTask issue picker epic-parent rows", () => {
       url: `https://example.com/i/${number}`,
       labels,
       createdAt: 0,
+      assignees: [],
     };
   }
 
@@ -155,6 +156,7 @@ describe("NewTask issue picker epic-parent rows", () => {
       slug: "owner/repo",
       webUrl: null,
       issues: [issue(30, "Epic parent", ["shepherd:active"]), issue(31, "Plain issue")],
+      viewer: null,
     });
     mockGetEpics.mockResolvedValue([
       {

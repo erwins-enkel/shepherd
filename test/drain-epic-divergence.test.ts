@@ -46,6 +46,7 @@ function fakeForge(branchesRef: BranchesRef): GitForge {
             url: `https://x/${PARENT}`,
             labels: [],
             createdAt: 0,
+            assignees: [],
           }
         : null,
     listSubIssues: async (n: number): Promise<SubIssueRef[]> =>

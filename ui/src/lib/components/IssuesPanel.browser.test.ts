@@ -6,6 +6,7 @@ import type { Issue, EpicSummary, Epic, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
+import { issuesFilter } from "$lib/issues-filter.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -46,6 +47,7 @@ describe("IssuesPanel repo slug link", () => {
       slug: "owner/repo",
       webUrl: "https://github.com/owner/repo",
       issues: [],
+      viewer: null,
     });
     mockGetEpics.mockResolvedValue([]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
@@ -63,6 +65,7 @@ describe("IssuesPanel repo slug link", () => {
       slug: "owner/repo",
       webUrl: null,
       issues: [],
+      viewer: null,
     });
     mockGetEpics.mockResolvedValue([]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
@@ -85,6 +88,7 @@ describe("IssuesPanel epic badge", () => {
       labels: [],
       body: "",
       createdAt: 0,
+      assignees: [],
     };
   }
 
@@ -105,7 +109,7 @@ describe("IssuesPanel epic badge", () => {
   }
 
   function seed(issues: Issue[], epics: EpicSummary[] = [], slug = "owner/repo") {
-    mockListIssues.mockResolvedValue({ slug, webUrl: null, issues });
+    mockListIssues.mockResolvedValue({ slug, webUrl: null, issues, viewer: null });
     mockGetEpics.mockResolvedValue(epics);
   }
 
@@ -204,6 +208,7 @@ describe("IssuesPanel expandEpic", () => {
       url: `https://example.com/i/${number}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
   }
 
@@ -235,6 +240,7 @@ describe("IssuesPanel expandEpic", () => {
       slug: "acme/repo",
       webUrl: null,
       issues: [issue(327), issue(400)],
+      viewer: null,
     });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
@@ -256,6 +262,7 @@ describe("IssuesPanel expandEpic", () => {
       slug: "acme/repo",
       webUrl: null,
       issues: [issue(327), issue(400)],
+      viewer: null,
     });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
@@ -281,7 +288,12 @@ describe("IssuesPanel expandEpic", () => {
   });
 
   it("does NOT auto-expand any epic when expandEpic is null", async () => {
-    mockIssues.mockResolvedValue({ slug: "acme/repo", webUrl: null, issues: [issue(327)] });
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(327)],
+      viewer: null,
+    });
     mockEpics.mockResolvedValue([summary(327)]);
     mockEpic.mockResolvedValue(epic(327));
 
@@ -291,5 +303,72 @@ describe("IssuesPanel expandEpic", () => {
     // Badge stays collapsed; no targeted fetch.
     expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("false");
     expect(mockEpic).not.toHaveBeenCalled();
+  });
+});
+
+describe("IssuesPanel mine & unassigned filter (#824)", () => {
+  // The toggle store is a localStorage-backed singleton shared across tests;
+  // reset it to the default (on) before each case so order can't leak state.
+  beforeEach(() => issuesFilter.set(true));
+  afterEach(() => issuesFilter.set(true));
+
+  function withAssignees(number: number, title: string, assignees: string[]): Issue {
+    return {
+      number,
+      title,
+      body: "",
+      url: `https://example.com/i/${number}`,
+      labels: [],
+      createdAt: 0,
+      assignees,
+    };
+  }
+
+  function seedMixed(viewer: string | null) {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer,
+      issues: [
+        withAssignees(1, "Unassigned issue", []),
+        withAssignees(2, "Mine issue", ["octocat"]),
+        withAssignees(3, "Theirs issue", ["someone-else"]),
+      ],
+    });
+    mockGetEpics.mockResolvedValue([]);
+  }
+
+  const titles = () =>
+    [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim());
+
+  it("hides others' issues by default and shows the toggle when viewer is known", async () => {
+    seedMixed("octocat");
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+    expect(titles()).toEqual(["Unassigned issue", "Mine issue"]);
+    expect(titles()).not.toContain("Theirs issue");
+  });
+
+  it("toggling the chip off reveals every issue", async () => {
+    seedMixed("octocat");
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+
+    (document.querySelector(".filter-chip") as HTMLButtonElement).click();
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
+    expect(titles()).toContain("Theirs issue");
+  });
+
+  it("hides the chip and shows all issues when the viewer is unknown (fail open)", async () => {
+    seedMixed(null);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
+    expect(document.querySelector(".filter-chip")).toBeNull();
   });
 });

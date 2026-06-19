@@ -19,6 +19,9 @@ export interface Issue {
   url: string;
   labels: string[];
   createdAt: number;
+  /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
+   *  UI's "mine & unassigned" filter (#824); filtering is purely client-side. */
+  assignees: string[];
 }
 
 export type ForgeKind = "github" | "gitea" | "local";

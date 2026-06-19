@@ -96,6 +96,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
             url: `https://x/${PARENT}`,
             labels: [],
             createdAt: 0,
+            assignees: [],
           }
         : null,
     listSubIssues: async (n) => (n === PARENT ? subIssues : []),

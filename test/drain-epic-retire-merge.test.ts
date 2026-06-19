@@ -57,6 +57,7 @@ function fakeForge(rec: ForgeRec, opts: { merge?: () => Promise<void> } = {}): G
             url: `https://x/${PARENT}`,
             labels: [],
             createdAt: 0,
+            assignees: [],
           }
         : null,
     // No sub-issues: the running epic spawns nothing new, leaving the drain free to retire the

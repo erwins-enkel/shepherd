@@ -596,6 +596,7 @@ function issue(number: number): Issue {
     url: `https://x/${number}`,
     labels: ["shepherd:auto"],
     createdAt: number,
+    assignees: [],
   };
 }
 

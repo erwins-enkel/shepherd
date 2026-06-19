@@ -24,6 +24,7 @@ function issue(number: number, over: Partial<Issue> = {}): Issue {
     url: `https://x/${number}`,
     labels: ["shepherd:auto"],
     createdAt: number,
+    assignees: [],
     ...over,
   };
 }
@@ -1196,6 +1197,7 @@ describe("drain epic mode", () => {
       url: `https://x/${PARENT}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
     const h = makeHarness({
       // listIssues returns [] — epic native mode must NOT rely on it
@@ -1307,6 +1309,7 @@ describe("drain epic mode", () => {
       url: `https://x/${PARENT}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
     const h = makeHarness({
       listIssuesImpl: async () => [],
@@ -1349,6 +1352,7 @@ describe("drain epic mode", () => {
       url: `https://x/${PARENT}`,
       labels: [],
       createdAt: 0,
+      assignees: [],
     };
     const h = makeHarness({
       autoDrainEnabled: false, // label-drain OFF — no follow-up pump will fire

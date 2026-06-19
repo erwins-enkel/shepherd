@@ -25,6 +25,7 @@ const ISSUE: Issue = {
   url: "u1",
   labels: ["bug"],
   createdAt: 1_700_000_000_000,
+  assignees: [],
 };
 
 function fakeForge(over: Partial<GitForge> = {}): GitForge {
@@ -72,7 +73,7 @@ test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async 
   const app = makeApp(makeDeps(() => null));
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: null, webUrl: null, issues: [] });
+  expect(await res.json()).toEqual({ slug: null, webUrl: null, issues: [], viewer: null });
 });
 
 test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => {
@@ -87,7 +88,26 @@ test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => 
   );
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, issues: [] });
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    webUrl: null,
+    issues: [],
+    viewer: null,
+  });
+});
+
+test("GET /api/issues includes the operator login as viewer (#824)", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ currentUser: async () => "octocat" })));
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  expect((await res.json()).viewer).toBe("octocat");
+});
+
+test("GET /api/issues viewer is null when the forge cannot resolve a user", async () => {
+  // fakeForge has no currentUser → forge.currentUser?.() is undefined → fail open.
+  const app = makeApp(makeDeps(() => fakeForge()));
+  const res = await app.fetch(req(repoDir));
+  expect((await res.json()).viewer).toBeNull();
 });
 
 test("GET /api/issues includes forge webUrl in response", async () => {

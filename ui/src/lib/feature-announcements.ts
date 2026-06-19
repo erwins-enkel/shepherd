@@ -1158,4 +1158,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_lightweight_repo_body",
     targetId: "lightweight-repo",
   },
+  {
+    // targetId "issues-filter-toggle" matches use:coachTarget on the "mine & unassigned"
+    // chip in IssuesPanel; the coachmark hides silently when that anchor is unmounted
+    // (Backlog view, repo with open issues). v1.34.0 is the latest released tag → ships in 1.35.0.
+    id: "issues-filter-mine",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_issues_filter_mine_title",
+    bodyKey: "feat_issues_filter_mine_body",
+    targetId: "issues-filter-toggle",
+  },
 ];

@@ -49,6 +49,7 @@
     initialBaseBranch,
     relaunchIssueNumber,
     initialImages,
+    holdLikely = false,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -61,6 +62,7 @@
       autopilotEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
       research: boolean;
+      force?: boolean;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -75,6 +77,7 @@
     initialBaseBranch?: string;
     relaunchIssueNumber?: number | null;
     initialImages?: { path: string; name: string }[];
+    holdLikely?: boolean;
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -525,7 +528,7 @@
     e.stopPropagation();
   }
 
-  async function submit(e: Event) {
+  async function submit(e: Event, force = false) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
     submitting = true;
@@ -550,6 +553,7 @@
         autopilotEnabled: autopilotTouched ? autopilot : null,
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
         research,
+        force: force || undefined,
       });
     } catch (err) {
       if (isPreviewBlocked(err)) {
@@ -879,23 +883,44 @@
       </div>
     {/if}
 
-    <button
-      class="run"
-      type="submit"
-      disabled={submitting}
-      title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
-    >
-      <span
-        >{submitting
-          ? m.newtask_spawning()
-          : selectedRepoName
-            ? m.newtask_submit_in_repo({ repo: selectedRepoName })
-            : m.newtask_submit()}</span
+    {#if holdLikely}
+      <div class="run-dual">
+        <button
+          class="run run-hold"
+          type="button"
+          disabled={submitting}
+          onclick={(e) => submit(e, false)}
+        >
+          <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
+        </button>
+        <button
+          class="run run-anyway"
+          type="button"
+          disabled={submitting}
+          onclick={(e) => submit(e, true)}
+        >
+          <span>{m.newtask_submit_anyway()}</span>
+        </button>
+      </div>
+    {:else}
+      <button
+        class="run"
+        type="submit"
+        disabled={submitting}
+        title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
       >
-      {#if !submitting}
-        <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
-      {/if}
-    </button>
+        <span
+          >{submitting
+            ? m.newtask_spawning()
+            : selectedRepoName
+              ? m.newtask_submit_in_repo({ repo: selectedRepoName })
+              : m.newtask_submit()}</span
+        >
+        {#if !submitting}
+          <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
+        {/if}
+      </button>
+    {/if}
   </form>
 </div>
 
@@ -1147,6 +1172,30 @@
     color: var(--color-faint);
     border-color: var(--color-line);
     box-shadow: none;
+  }
+  /* Dual-submit row shown when a hold is likely */
+  .run-dual {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+  }
+  .run-dual .run {
+    margin-top: 0;
+    flex: 1;
+  }
+  /* "Hold for reset" is the primary (amber, full glow) */
+  .run-hold {
+    flex: 2 !important;
+  }
+  /* "Submit anyway" is the secondary (muted, no glow) */
+  .run-anyway {
+    border-color: var(--color-line-bright);
+    color: var(--color-ink);
+    box-shadow: none;
+  }
+  .run-anyway:not(:disabled):hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
   .kbd {
     flex-shrink: 0;

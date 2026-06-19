@@ -9,7 +9,8 @@
   import { formatReset, formatResetIn, relativeAge } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, gaugeColor, type GaugeKey } from "./usage-gauges";
-  import { refreshUsage } from "$lib/api";
+  import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
+  import type { HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -64,6 +65,7 @@
     learnings = 0,
     learningsCurate = 0,
     onlearnings,
+    heldCount = 0,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -97,6 +99,8 @@
     learningsCurate?: number;
     /** Opens the global learnings drawer. */
     onlearnings?: () => void;
+    /** Number of held tasks; updated live by held:changed WS events. */
+    heldCount?: number;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -309,6 +313,112 @@
   // The inline bars stay for the at-a-glance read; the card is the detail view.
   let detailOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
+
+  // ── Held-tasks popover ────────────────────────────────────────────────────
+  // Non-modal anchored popover (design-system "small anchored popover" exemption:
+  // not aria-modal on desktop, no scrim). Cloned from AutomationPanel's .auto-pop.
+  let heldPopOpen = $state(false);
+  let heldPopEl = $state<HTMLDivElement | null>(null);
+  let heldBadgeBtn = $state<HTMLButtonElement | null>(null);
+  let heldPopFlipUp = $state(false);
+  let heldItems = $state<HeldTask[]>([]);
+  let heldLoading = $state(false);
+
+  async function loadHeld() {
+    heldLoading = true;
+    try {
+      heldItems = await listHeld();
+    } catch {
+      // best-effort; count stays live via WS
+    } finally {
+      heldLoading = false;
+    }
+  }
+
+  function openHeldPop() {
+    heldPopOpen = true;
+    loadHeld();
+  }
+
+  function closeHeldPop(returnFocus = false) {
+    heldPopOpen = false;
+    if (returnFocus) heldBadgeBtn?.focus();
+  }
+
+  function toggleHeldPop() {
+    if (heldPopOpen) closeHeldPop();
+    else openHeldPop();
+  }
+
+  async function doSpawnHeld(id: string) {
+    try {
+      await spawnHeld(id);
+      await loadHeld();
+    } catch {
+      // ignore; WS will update count
+    }
+  }
+
+  async function doDiscardHeld(id: string) {
+    try {
+      await discardHeld(id);
+      await loadHeld();
+    } catch {
+      // ignore
+    }
+  }
+
+  // Flip-up + height clamp for held popover — mirrors AutomationPanel's $effect.
+  const MIN_HEIGHT_HELD = 120;
+  const EDGE_GAP_HELD = 12;
+  const ANCHOR_GAP_HELD = 4;
+  $effect(() => {
+    const el = heldPopEl;
+    if (!el) return;
+    const clamp = () => {
+      if (window.matchMedia("(pointer: coarse)").matches) {
+        el.style.maxHeight = "";
+        heldPopFlipUp = false;
+        return;
+      }
+      const anchor = el.offsetParent;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - ANCHOR_GAP_HELD - EDGE_GAP_HELD;
+      const above = rect.top - ANCHOR_GAP_HELD - EDGE_GAP_HELD;
+      heldPopFlipUp = below < MIN_HEIGHT_HELD && above > below;
+      el.style.maxHeight = `${Math.max(MIN_HEIGHT_HELD, heldPopFlipUp ? above : below)}px`;
+    };
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        clamp();
+      });
+    };
+    clamp();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    const ro = new ResizeObserver(schedule);
+    if (el.offsetParent) ro.observe(el.offsetParent);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      ro.disconnect();
+    };
+  });
+
+  // Auto-close held popover when count drops to 0 while open.
+  $effect(() => {
+    if (heldPopOpen && (heldCount ?? 0) === 0) closeHeldPop();
+  });
+  // Refresh held list when the WS count changes while the popover is open.
+  $effect(() => {
+    void heldCount;
+    if (heldPopOpen) loadHeld();
+  });
   $effect(() => {
     // close the popover when it can no longer be opened (no gauge AND no credit, or off touch)
     if (!touch || (!hotter && !credits)) popoverOpen = false;
@@ -429,10 +539,23 @@
   function dismissOnEscape(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
     if (popoverOpen) popoverOpen = false;
+    if (heldPopOpen) {
+      closeHeldPop(true);
+      return;
+    }
     if (menuOpen) closeMenu(true);
   }
   function dismissOnOutside(e: MouseEvent) {
     if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
+    if (
+      heldPopOpen &&
+      heldBadgeBtn &&
+      heldPopEl &&
+      !heldBadgeBtn.contains(e.target as Node) &&
+      !heldPopEl.contains(e.target as Node)
+    ) {
+      closeHeldPop();
+    }
     // On mobile the sheet's own `.menu-scrim` backdrop (onclick={() => closeMenu()}) handles
     // outside-tap and `use:dialog` handles Esc — so we MUST NOT gate on gearWrap containment
     // here, or every in-sheet click (which bubbles to <svelte:window>) wrongly dismisses the
@@ -639,6 +762,71 @@
           {m.common_needs_you({ count: needsYou })}
         {/if}
       </button>
+    {/if}
+    {#if (heldCount ?? 0) > 0}
+      <!-- Held-tasks badge: non-modal anchored popover (design-system exemption). -->
+      <div class="held-wrap">
+        <button
+          bind:this={heldBadgeBtn}
+          class="held-badge"
+          class:compact={mobile || compactBadges}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={heldPopOpen}
+          aria-label={m.topbar_held_badge({ count: heldCount ?? 0 })}
+          onclick={toggleHeldPop}
+        >
+          {#if mobile || compactBadges}
+            <span class="held-n">{heldCount}</span>
+          {:else}
+            <span>{m.topbar_held_badge({ count: heldCount ?? 0 })}</span>
+            {#if hotter?.w.resetAt}
+              <span class="held-reset"
+                >{m.topbar_held_resets({ time: formatResetIn(hotter.w.resetAt, nowMs) })}</span
+              >
+            {/if}
+          {/if}
+        </button>
+        {#if heldPopOpen}
+          <div
+            bind:this={heldPopEl}
+            class={["held-pop", { "flip-up": heldPopFlipUp }]}
+            role="dialog"
+            aria-label={m.topbar_held_title()}
+            tabindex="-1"
+          >
+            <div class="held-pop-head">{m.topbar_held_title()}</div>
+            {#if heldLoading}
+              <div class="held-pop-empty">{m.common_loading()}</div>
+            {:else if heldItems.length === 0}
+              <div class="held-pop-empty">{m.topbar_held_empty()}</div>
+            {:else}
+              {#each heldItems as task (task.id)}
+                <div class="held-row">
+                  <div class="held-row-info">
+                    <span class="held-row-prompt">{task.input.prompt}</span>
+                    <span class="held-row-repo"
+                      >{task.repoPath.split("/").at(-1) ?? task.repoPath}</span
+                    >
+                  </div>
+                  <div class="held-row-actions">
+                    <button
+                      type="button"
+                      class="held-action held-spawn"
+                      onclick={() => doSpawnHeld(task.id)}>{m.topbar_held_spawn_now()}</button
+                    >
+                    <button
+                      type="button"
+                      class="held-action held-discard"
+                      onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
+                    >
+                  </div>
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      </div>
     {/if}
     {#if !mobile}
       {#if subscriptionOnly}
@@ -2253,5 +2441,150 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  /* ── Held-tasks badge + popover ──────────────────────────────────────────── */
+  .held-wrap {
+    position: relative;
+  }
+  .held-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .held-badge:hover {
+    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+  }
+  .held-badge .held-n {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .held-badge .held-reset {
+    color: color-mix(in srgb, var(--color-amber) 70%, transparent);
+    font-size: var(--fs-micro);
+  }
+  /* Anchored popover — mirrors .auto-pop from AutomationPanel */
+  .held-pop {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 20;
+    margin-top: 4px;
+    width: 300px;
+    max-width: 90vw;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    color: var(--color-ink);
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .held-pop.flip-up {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
+  }
+  @media (pointer: coarse) {
+    .held-pop {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      right: auto;
+      bottom: auto;
+      transform: translate(-50%, -50%);
+      margin: 0;
+      width: min(420px, 92vw);
+      max-width: none;
+      max-height: 85vh;
+      z-index: 51;
+    }
+    .held-badge {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+  .held-pop-head {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    padding: 10px 12px 6px;
+  }
+  .held-pop-empty {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    padding: 6px 12px 10px;
+  }
+  .held-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--color-line);
+  }
+  .held-row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .held-row-prompt {
+    font-size: var(--fs-meta);
+    color: var(--color-ink-bright);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 22ch;
+  }
+  .held-row-repo {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .held-row-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .held-action {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    font: inherit;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  .held-action:hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .held-spawn {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .held-spawn:hover {
+    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
 </style>

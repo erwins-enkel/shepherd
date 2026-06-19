@@ -1597,5 +1597,13 @@
   "settings_usage_hold_pct_field_label": "Zurückhalten ab Nutzung ≥",
   "settings_usage_hold_pct_save_failed": "Schwellenwert für Nutzungsrückhalt konnte nicht geändert werden. Erneut versuchen.",
   "feat_usage_aware_holding_title": "Aufgaben pausieren automatisch bei hoher Nutzung",
-  "feat_usage_aware_holding_body": "Neue Aufgaben werden jetzt automatisch pausiert, wenn Ihre Claude-Nutzung hoch ist und bereits eine Sitzung läuft — sie starten von selbst, wenn die Nutzung zurückgesetzt wird. Trotzdem einreichen zum Überschreiben oder in Einstellungen → Sitzung deaktivieren."
+  "feat_usage_aware_holding_body": "Neue Aufgaben werden jetzt automatisch pausiert, wenn Ihre Claude-Nutzung hoch ist und bereits eine Sitzung läuft — sie starten von selbst, wenn die Nutzung zurückgesetzt wird. Trotzdem einreichen zum Überschreiben oder in Einstellungen → Sitzung deaktivieren.",
+  "newtask_hold_for_reset": "Bis zum Reset zurückhalten",
+  "newtask_submit_anyway": "Trotzdem einreichen",
+  "topbar_held_badge": "{count} zurückgehalten",
+  "topbar_held_resets": "· Reset {time}",
+  "topbar_held_title": "Zurückgehaltene Aufgaben",
+  "topbar_held_spawn_now": "Jetzt starten",
+  "topbar_held_discard": "Verwerfen",
+  "topbar_held_empty": "Keine zurückgehaltenen Aufgaben"
 }

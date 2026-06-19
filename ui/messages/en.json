@@ -1597,5 +1597,13 @@
   "settings_usage_hold_pct_field_label": "Hold at usage ≥",
   "settings_usage_hold_pct_save_failed": "Couldn't change the usage hold threshold. Retry.",
   "feat_usage_aware_holding_title": "Tasks pause automatically when usage is high",
-  "feat_usage_aware_holding_body": "New tasks now pause automatically when your Claude usage is high and a session is already running — they start on their own when usage resets. Submit anyway to override, or turn it off in Settings → Session."
+  "feat_usage_aware_holding_body": "New tasks now pause automatically when your Claude usage is high and a session is already running — they start on their own when usage resets. Submit anyway to override, or turn it off in Settings → Session.",
+  "newtask_hold_for_reset": "Hold for reset",
+  "newtask_submit_anyway": "Submit anyway",
+  "topbar_held_badge": "{count} held",
+  "topbar_held_resets": "· resets {time}",
+  "topbar_held_title": "Held tasks",
+  "topbar_held_spawn_now": "Spawn now",
+  "topbar_held_discard": "Discard",
+  "topbar_held_empty": "No held tasks"
 }

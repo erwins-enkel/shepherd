@@ -158,6 +158,8 @@ type NewSession = Omit<
   | "egressApplied"
   | "egressDegraded"
   | "research"
+  | "haltReason"
+  | "haltedAt"
 > & {
   id?: string;
   model?: string | null;
@@ -182,7 +184,8 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research,
-  createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber`;
+  createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
+  haltReason, haltedAt`;
 
 // ── repo_config row type + helpers ────────────────────────────────────────────
 
@@ -1064,6 +1067,8 @@ export class SessionStore implements CapStore, CreditStore {
       mergingTrainId: null,
       mergeTrainPrs: input.mergeTrainPrs ?? null,
       mergingPrNumber: null,
+      haltReason: null,
+      haltedAt: null,
     };
   }
 
@@ -1073,7 +1078,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1115,6 +1120,8 @@ export class SessionStore implements CapStore, CreditStore {
           s.mergingTrainId,
           s.mergeTrainPrs !== null ? JSON.stringify(s.mergeTrainPrs) : null,
           null, // mergingPrNumber — always null at create
+          null, // haltReason — always null at create
+          null, // haltedAt — always null at create
         ],
       );
       return s;
@@ -1792,6 +1799,15 @@ export class SessionStore implements CapStore, CreditStore {
     ]);
   }
 
+  setHaltReason(id: string, reason: Session["haltReason"], haltedAt: number | null): void {
+    this.db.run(`UPDATE sessions SET haltReason = ?, haltedAt = ?, updatedAt = ? WHERE id = ?`, [
+      reason,
+      haltedAt,
+      Date.now(),
+      id,
+    ]);
+  }
+
   // ── reviewer spawn cost attribution ──────────────────────────────────────────
   /** Record a freshly-spawned reviewer session. Token/completed columns stay NULL until
    *  finalize (`completeReviewerSpawn`). A plain INSERT is correct — every spawn forces a
@@ -1997,6 +2013,9 @@ export class SessionStore implements CapStore, CreditStore {
     add("research", `research INTEGER NOT NULL DEFAULT 0`);
     add("mergeTrainPrs", `mergeTrainPrs TEXT`);
     add("mergingPrNumber", `mergingPrNumber INTEGER`);
+    // halt detection: reason + timestamp; nullable, no default (null = not halted).
+    add("haltReason", `haltReason TEXT`);
+    add("haltedAt", `haltedAt INTEGER`);
   }
 
   // migrate repo_config that predates these opt-in columns. auto-address defaults
@@ -2534,6 +2553,8 @@ export class SessionStore implements CapStore, CreditStore {
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),
       mergingPrNumber: r.mergingPrNumber ?? null,
+      haltReason: r.haltReason ?? null,
+      haltedAt: r.haltedAt ?? null,
     } as Session;
   }
 

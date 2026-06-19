@@ -42,6 +42,8 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     createdAt: 0,
     updatedAt: 0,
     archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
   };
 }
 

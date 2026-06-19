@@ -51,6 +51,8 @@ const SESSION: Session = {
   createdAt: 0,
   updatedAt: 0,
   archivedAt: null,
+  haltReason: null,
+  haltedAt: null,
 };
 
 /** A ReviewVerdict that triggers the "rework" quota kind (addressRound >= addressCap, no pending). */

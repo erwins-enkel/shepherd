@@ -74,6 +74,10 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  /** Reason the session halted mid-run; null when not halted. */
+  haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
+  /** Epoch ms when haltReason was set; null when not halted. */
+  haltedAt: number | null;
 }
 
 /**

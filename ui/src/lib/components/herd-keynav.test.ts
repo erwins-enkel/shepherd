@@ -55,6 +55,8 @@ function session(
     createdAt: 0,
     updatedAt: 0,
     archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
   };
 }
 

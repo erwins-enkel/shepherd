@@ -45,6 +45,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
     createdAt: 0,
     updatedAt: 1000,
     archivedAt: Date.now() - 60_000,
+    haltReason: null,
+    haltedAt: null,
     ...partial,
   };
 }

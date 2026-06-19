@@ -296,7 +296,7 @@
     <ResearchBadge {session} />
     <PrBadge {git} />
     <CriticBadge sessionId={session.id} />
-    <PlanGateBadge {session} />
+    <PlanGateBadge {session} allowView={false} />
     <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
     {#if !reviewing}<AutopilotBadge {session} />{/if}
     <AutoPip {session} />

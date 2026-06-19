@@ -5,11 +5,14 @@
   import PlanPanel from "./PlanPanel.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  let { session }: { session: Session } = $props();
+  // allowView (default true): whether to surface the read-only "view"/PLAN chip during
+  // execution. The dense session-list surfaces (UnitRow/UnitTile) pass false so this chip
+  // lives only in the per-session top bar (issue #809); see plan-gate-badge.ts.
+  let { session, allowView = true }: { session: Session; allowView?: boolean } = $props();
 
   const gate = $derived(planGates.map[session.id]);
   const reviewing = $derived(planGates.isReviewing(session.id));
-  const chip = $derived(planGateChip(session, gate, reviewing));
+  const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
 
   let open = $state(false);
 
@@ -75,6 +78,19 @@
   }
   .pg-error {
     color: var(--color-faint);
+  }
+  /* read-only re-open of the signed-off plan during execution (issue #809). Lives only in
+     the per-session top bar (the dense list cards opt out via allowView=false), so it can
+     afford to read as a real control rather than a whisper: legible ink + a visible resting
+     border. Stays NEUTRAL — green is reserved for READY, amber for in-flight; a parked,
+     read-only plan is passive, so it must not borrow a semantic hue. */
+  .pg-view {
+    color: var(--color-ink);
+    border-color: var(--color-line-bright);
+    font-weight: 500;
+  }
+  .pg-view:hover {
+    color: var(--color-ink-bright);
   }
   /* plan reviewer running now: amber outline + pulsing dot (mirrors CriticBadge) */
   .pg-reviewing {

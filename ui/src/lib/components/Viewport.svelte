@@ -2164,9 +2164,12 @@
         aria-label={statusLabel(dStatus)}>{statusMark}</span
       >
     {/if}
-    <!-- plan-gate state in the focused view (PLANNING / REWORK / READY / REVIEW ERR);
-         self-hides outside the plan phase. Both layouts — the Review-plan trigger on
-         the git rail acts on this state. -->
+    <!-- plan-gate state in the focused view: the pre-execution lifecycle (PLANNING /
+         REWORK / READY / REVIEW ERR; the Review-plan trigger on the git rail acts on this
+         state), and during execution the legible read-only PLAN re-open of the signed-off
+         plan (issue #809). Self-hides outside the plan phase. Unlike the session-list cards
+         (UnitRow/UnitTile, which pass allowView={false}), the focused view surfaces the
+         executing read-only chip — it is its home. -->
     <PlanGateBadge {session} />
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)

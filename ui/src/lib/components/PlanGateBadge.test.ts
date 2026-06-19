@@ -40,6 +40,41 @@ describe("planGateChip", () => {
 
   it("hides when executing with no gate", () => {
     expect(planGateChip(sess("executing"), undefined, false)).toEqual({ kind: "none" });
+    // ...regardless of allowView — there's nothing to view.
+    expect(planGateChip(sess("executing"), undefined, false, { allowView: false })).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("suppresses the executing view chip when allowView is false (dense list surfaces)", () => {
+    // UnitRow/UnitTile pass allowView:false so the read-only PLAN chip stays off the
+    // crowded session cards; it then lives only in the per-session top bar.
+    expect(
+      planGateChip(sess("executing"), gate({ approved: true }), false, { allowView: false }),
+    ).toEqual({ kind: "none" });
+    // explicit allowView:true matches the default (top-bar) behavior.
+    expect(
+      planGateChip(sess("executing"), gate({ approved: true }), false, { allowView: true }),
+    ).toEqual({ kind: "view" });
+  });
+
+  it("allowView only affects the executing view chip, not lifecycle states", () => {
+    // A list surface still shows pre-execution lifecycle states even with allowView:false.
+    expect(
+      planGateChip(sess("planning"), gate({ approved: true, decision: "approved" }), false, {
+        allowView: false,
+      }).kind,
+    ).toBe("ready");
+    expect(
+      planGateChip(
+        sess("planning"),
+        gate({ decision: "changes_requested", round: 1, cap: 3 }),
+        false,
+        {
+          allowView: false,
+        },
+      ).kind,
+    ).toBe("changes");
   });
 
   it("reviewing wins over a stale verdict", () => {

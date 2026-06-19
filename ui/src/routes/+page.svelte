@@ -382,7 +382,7 @@
   let settings = $state<Settings_ | null>(null);
   // Usage hold settings — extracted from the settings object for the holdLikely derived.
   let usageHoldEnabled = $state(false);
-  let usageHoldPct = $state(75);
+  let usageHoldPct = $state(80);
   // First-run nudge: backlog quick-launch buttons are invisible until at least one
   // issue-scoped steer exists. The steers store updates live on editor save, so a
   // just-added action dismisses the hint without a reload.
@@ -1251,7 +1251,11 @@
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
     const r = await createSession(input);
     if ("held" in r) {
+      // Held tasks are queued (visible via the TopBar badge); close the composer like a
+      // normal submit so the populated prompt can't be re-clicked into a duplicate hold.
       toasts.info(m.toast_task_held());
+      showNew = false;
+      resetCompose();
       return;
     }
     selectedId = r.id;

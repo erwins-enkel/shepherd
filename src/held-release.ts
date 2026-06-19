@@ -11,7 +11,7 @@ import type { CreateSessionInput } from "./types";
 import type { UsageLimits } from "./usage-limits";
 
 export interface HeldReleaseDeps {
-  store: Pick<SessionStore, "listHeldTasks" | "removeHeldTask" | "countHeldTasks" | "list">;
+  store: Pick<SessionStore, "listHeldTasks" | "removeHeldTask" | "countHeldTasks">;
   service: { create(input: CreateSessionInput): Promise<unknown> };
   usageLimits: { limits(now: number): UsageLimits };
   events: { emit(event: string, data: unknown): void };

@@ -43,7 +43,6 @@ function makeDeps(
         if (i !== -1) rows.splice(i, 1);
       },
       countHeldTasks: () => rows.length,
-      list: () => [],
     },
     service: {
       async create(input: CreateSessionInput): Promise<unknown> {

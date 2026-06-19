@@ -176,8 +176,8 @@
   // Usage hold — pause new tasks when usage is high and a session is already running.
   let usageHoldEnabled = $state(true);
   let usageHoldBusy = $state(false);
-  let usageHoldPct = $state(90); // threshold percentage (0–100)
-  let usageHoldPctSaved = 90;
+  let usageHoldPct = $state(80); // threshold percentage (0–100); matches server default
+  let usageHoldPctSaved = 80;
   let usageHoldPctBusy = $state(false);
 
   // Diagnose tab — local checks + re-run state.

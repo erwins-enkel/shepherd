@@ -1140,14 +1140,26 @@ setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 // recompute live limit % from local JSONL ~every 30s; push to clients
 attachUsagePush(events, store, push);
 attachCreditsPush(events, store, push);
+// Re-entrancy guard: a release can still be awaiting service.create() when the next
+// 30s tick fires; without this a second tick re-reads the not-yet-removed head task and
+// double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
+let releasingHeld = false;
 setInterval(async () => {
   await accountIndex.refresh(Date.now());
   events.emit("usage:limits", usageLimits.limits(Date.now()));
-  await releaseHeldTasks(
-    { store, service, usageLimits, events },
-    { enabled: config.usageHoldEnabled, holdPct: config.usageHoldPct },
-    Date.now(),
-  ).catch((e) => console.warn("[held] release failed:", e));
+  if (releasingHeld) return; // prior release still draining — skip this tick's release
+  releasingHeld = true;
+  try {
+    await releaseHeldTasks(
+      { store, service, usageLimits, events },
+      { enabled: config.usageHoldEnabled, holdPct: config.usageHoldPct },
+      Date.now(),
+    );
+  } catch (e) {
+    console.warn("[held] release failed:", e);
+  } finally {
+    releasingHeld = false;
+  }
 }, 30_000);
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`.

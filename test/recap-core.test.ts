@@ -13,6 +13,7 @@ import {
   RECAP_DIGEST_MAX_CHARS,
 } from "../src/recap-core";
 import { defaultReadVerdict } from "../src/recap";
+import { tolerantParseJson } from "../src/json-tolerant";
 import type { Recap } from "../src/types";
 
 // ── #822 regression: malformed-JSON read path (defaultReadVerdict → parseRecapVerdict) ──────────
@@ -61,6 +62,97 @@ test("#822 content fidelity: inner-quoted phrase survives repair verbatim (not t
   );
   expect(carrier).toBeDefined();
   expect((carrier as { markdown: string }).markdown).toContain('"Open for merge"');
+});
+
+// ── TASK-561 follow-up: intermittent retry failures the #822 failsafe did NOT cover ────────────
+//
+// #822 added jsonrepair, yet TASK-561 kept failing recap generation on retry. Live capture +
+// probing showed the residual failure modes were NOT "unparseable JSON" but jsonrepair-survivable
+// output that then fails parseRecapVerdict's shape check:
+//   1. A chatty agent wrapping the JSON in prose ("Here is the recap:\n{…}" / "{…}\nDone.") —
+//      jsonrepair rescues this into an ARRAY (["Here is the recap:", {…}]), which parseRecapVerdict
+//      rejected outright (arrays → null), discarding a complete verdict.
+//   2. Verdict formatting variance (hyphen / case): "needs-attention", " READY ".
+// Both deterministically produced a `failed` recap with an empty body. These tests FAIL on pre-fix
+// code (strict array reject / strict enum membership).
+
+test("TASK-561: prose-wrapped recap (jsonrepair array shape) recovers verdict + blocks", () => {
+  // The EXACT transform production sees: agent prepends prose, JSON.parse fails, jsonrepair wraps
+  // the prose + object into an array. Build it through the real jsonrepair path, not by hand.
+  const wrapped = `Here is the session recap:\n${JSON.stringify({
+    verdict: "ready",
+    headline: "Lightweight repo mode",
+    body: 'Operator clicks "Open for merge".',
+    openItems: [],
+    blocks: [
+      { type: "rich-text", id: "b1", markdown: "Local-only git." },
+      { type: "callout", id: "b2", tone: "decision", markdown: "Merge is local." },
+    ],
+  })}\nLet me know if you need anything else.`;
+
+  const tp = tolerantParseJson(wrapped);
+  expect(tp.status).toBe("ok");
+  if (tp.status !== "ok") throw new Error("unreachable");
+  expect(Array.isArray(tp.value)).toBe(true); // jsonrepair produced the array shape we recover from
+
+  const parsed = parseRecapVerdict(tp.value);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.verdict).toBe("ready");
+  expect(parsed!.headline).toBe("Lightweight repo mode");
+  expect(parsed!.body).toContain('"Open for merge"');
+  expect(parsed!.blocks).toHaveLength(2);
+});
+
+test("TASK-561: parseRecapVerdict unwraps a recap object from a prose-wrapped array directly", () => {
+  const parsed = parseRecapVerdict([
+    "Here is the recap:",
+    { verdict: "needs_attention", headline: "x", body: "b", openItems: ["fix CI"] },
+    "Done.",
+  ]);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.verdict).toBe("needs_attention");
+  expect(parsed!.openItems).toEqual(["fix CI"]);
+});
+
+test("TASK-561: array with no recap-shaped element still returns null", () => {
+  expect(parseRecapVerdict(["just", "prose", 42])).toBeNull();
+  expect(parseRecapVerdict([])).toBeNull();
+});
+
+test("TASK-561: verdict formatting variance (hyphen / case / whitespace) normalizes to enum", () => {
+  expect(
+    parseRecapVerdict({ verdict: "needs-attention", headline: "x", body: "", openItems: [] })
+      ?.verdict,
+  ).toBe("needs_attention");
+  expect(
+    parseRecapVerdict({ verdict: " READY ", headline: "x", body: "", openItems: [] })?.verdict,
+  ).toBe("ready");
+  expect(
+    parseRecapVerdict({ verdict: "Parked", headline: "x", body: "", openItems: [] })?.verdict,
+  ).toBe("parked");
+});
+
+test("TASK-561: verdict synonyms are NOT guessed (only formatting variance normalizes)", () => {
+  // "complete"/"approve" are real words the agent could emit but we must not invent intent for.
+  expect(
+    parseRecapVerdict({ verdict: "complete", headline: "x", body: "", openItems: [] }),
+  ).toBeNull();
+  expect(
+    parseRecapVerdict({ verdict: "approve", headline: "x", body: "", openItems: [] }),
+  ).toBeNull();
+});
+
+test("TASK-561: defaultReadVerdict carries raw bytes on unparseable (for failure logging)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-561-unparse-"));
+  // jsonrepair is aggressive (it closes up most truncations), so the genuinely-irreparable class is
+  // a written-but-empty/whitespace file (agent opened the file then bailed). Its bytes must survive
+  // to the read so tick() can log them instead of failing silently.
+  const garbage = "   \n  ";
+  writeFileSync(join(dir, ".shepherd-recap.json"), garbage);
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("unparseable");
+  if (read.status !== "unparseable") throw new Error("unreachable");
+  expect(read.raw).toBe(garbage);
 });
 
 // ── parseRecapVerdict ────────────────────────────────────────────────────────

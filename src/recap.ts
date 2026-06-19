@@ -102,7 +102,15 @@ export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
   const r = tolerantParseJson(text);
   return r.status === "ok"
     ? { status: "parsed", value: r.value, repaired: r.repaired }
-    : { status: "unparseable" };
+    : { status: "unparseable", raw: text }; // carry bytes so tick() can log WHY it failed
+}
+
+/** Bounded, single-line snippet of a raw verdict for diagnostic logs (recap content is agent
+ *  summaries, redacted by prompt — never secrets). Keeps server logs grep-able without dumping 20KB. */
+function recapSnippet(s: string | undefined, max = 300): string {
+  if (!s) return "<empty>";
+  const oneLine = s.replace(/\s+/g, " ").trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 
 function defaultMakeTmpDir(): string {
@@ -520,6 +528,20 @@ export class RecapService {
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
 
+      // Observability: a `failed` recap used to be a black hole (no log, raw discarded), so an
+      // intermittent malformed write was undiagnosable. Surface WHY before finalizing.
+      if (action === "finalize-null") {
+        if (read.status === "unparseable") {
+          console.warn(
+            `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
+          );
+        } else {
+          console.warn(
+            `[recap] ${r.sessionId}: no verdict file after ${Math.round(this.timeoutMs / 1000)}s — agent produced nothing.`,
+          );
+        }
+      }
+
       this.finalizing.add(r.sessionId);
       try {
         await this.finalize(r, raw);
@@ -550,7 +572,15 @@ export class RecapService {
           updatedAt: t,
         };
       } else {
-        // timeout or unparseable — fail closed, never fake a ready
+        // timeout or unparseable — fail closed, never fake a ready. When raw was non-null the JSON
+        // parsed but failed recap-shape validation (bad verdict, unrecoverable structure); log it
+        // so the otherwise-silent failure is diagnosable (tick() already logged the raw==null cases).
+        if (raw != null) {
+          const v = (raw as { verdict?: unknown })?.verdict;
+          console.warn(
+            `[recap] ${r.sessionId}: verdict parsed as JSON but failed recap-shape validation (verdict=${JSON.stringify(v)}) — failing. snippet: ${recapSnippet(JSON.stringify(raw))}`,
+          );
+        }
         newRow = { ...rBase, state: "failed", blocks: [], generatedAt: t, updatedAt: t };
       }
       this.deps.store.putRecap(newRow);

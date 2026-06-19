@@ -26,6 +26,8 @@
   const epicActive = $derived(drain?.epicParent != null);
 
   const flags = $derived(repoConfig.flags(repoPath));
+  /** True when this repo is configured for local-only (lightweight) mode. */
+  const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const planReviewing = $derived(planGates.isReviewing(sessionId));
 
@@ -299,6 +301,28 @@
     <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={openDetail !== id}>{text}</p>
   {/snippet}
 
+  <!-- Repo mode: lightweight (local-only) vs forge (GitHub/PRs) -->
+  <div class="auto-row" use:coachTarget={"lightweight-repo"}>
+    <div class="auto-meta">
+      <div class="auto-name">
+        ⊙ {m.automation_lightweight_name()}
+        {@render info("lightweight", m.automation_lightweight_name())}
+      </div>
+      <div class="auto-desc">{m.automation_lightweight_desc()}</div>
+      {@render detail("lightweight", m.automation_lightweight_detail())}
+    </div>
+    <button
+      class={["sw", { on: lightweight }]}
+      type="button"
+      role="switch"
+      aria-checked={lightweight}
+      aria-label={m.automation_lightweight_name()}
+      onclick={() => repoConfig.setRepoMode(repoPath, lightweight ? "forge" : "lightweight")}
+    >
+      <span class="knob"></span>
+    </button>
+  </div>
+
   <!-- Code review -->
   <div class="auto-group">{m.automation_group_review()}</div>
   <div class="auto-row">
@@ -322,7 +346,7 @@
       <span class="knob"></span>
     </button>
   </div>
-  <div class="auto-row">
+  <div class={["auto-row", { disabled: lightweight }]}>
     <div class="auto-meta">
       <div class="auto-name">
         ⌗ {m.automation_allprs_name()}
@@ -332,12 +356,14 @@
       {@render detail("critic-all-prs", m.automation_allprs_detail())}
     </div>
     <button
-      class={["sw", { on: flags.criticAllPrs }]}
+      class={["sw", { on: flags.criticAllPrs && !lightweight }]}
       type="button"
       role="switch"
-      aria-checked={flags.criticAllPrs}
+      aria-checked={flags.criticAllPrs && !lightweight}
+      disabled={lightweight}
+      title={lightweight ? m.automation_lightweight_unavailable() : undefined}
       aria-label={m.automation_allprs_name()}
-      onclick={() => repoConfig.toggleAllPrs(repoPath)}
+      onclick={() => !lightweight && repoConfig.toggleAllPrs(repoPath)}
     >
       <span class="knob"></span>
     </button>
@@ -440,7 +466,7 @@
       ◈ {m.epic_mode_active({ parent: drain!.epicParent! })}
     </div>
   {/if}
-  <div class={["auto-row", { disabled: epicActive }]}>
+  <div class={["auto-row", { disabled: epicActive || lightweight }]}>
     <div class="auto-meta">
       <div class="auto-name">
         ▽ {m.automation_autodrain_name()}
@@ -450,14 +476,18 @@
       {@render detail("auto-drain", m.automation_autodrain_detail())}
     </div>
     <button
-      class={["sw", { on: flags.autoDrain && !epicActive }]}
+      class={["sw", { on: flags.autoDrain && !epicActive && !lightweight }]}
       type="button"
       role="switch"
-      aria-checked={flags.autoDrain && !epicActive}
-      disabled={epicActive}
-      title={epicActive ? m.epic_mode_active({ parent: drain!.epicParent! }) : undefined}
+      aria-checked={flags.autoDrain && !epicActive && !lightweight}
+      disabled={epicActive || lightweight}
+      title={lightweight
+        ? m.automation_lightweight_unavailable()
+        : epicActive
+          ? m.epic_mode_active({ parent: drain!.epicParent! })
+          : undefined}
       aria-label={m.automation_autodrain_name()}
-      onclick={() => repoConfig.toggleAutoDrain(repoPath)}
+      onclick={() => !(epicActive || lightweight) && repoConfig.toggleAutoDrain(repoPath)}
     >
       <span class="knob"></span>
     </button>
@@ -508,7 +538,10 @@
       <span class="knob"></span>
     </button>
   </div>
-  <div class={["auto-row", { disabled: flags.autoMerge }]} use:coachTarget={"draft-mode"}>
+  <div
+    class={["auto-row", { disabled: flags.autoMerge || lightweight }]}
+    use:coachTarget={"draft-mode"}
+  >
     <div class="auto-meta">
       <div class="auto-name">□ {m.automation_draftmode_name()}</div>
       <div class="auto-desc">
@@ -518,14 +551,18 @@
       </div>
     </div>
     <button
-      class={["sw", { on: flags.draftMode && !flags.autoMerge }]}
+      class={["sw", { on: flags.draftMode && !flags.autoMerge && !lightweight }]}
       type="button"
       role="switch"
-      aria-checked={flags.draftMode && !flags.autoMerge}
-      disabled={flags.autoMerge}
-      title={flags.autoMerge ? m.automation_draftmode_excludes_automerge() : undefined}
+      aria-checked={flags.draftMode && !flags.autoMerge && !lightweight}
+      disabled={flags.autoMerge || lightweight}
+      title={lightweight
+        ? m.automation_lightweight_unavailable()
+        : flags.autoMerge
+          ? m.automation_draftmode_excludes_automerge()
+          : undefined}
       aria-label={m.automation_draftmode_name()}
-      onclick={() => repoConfig.toggleDraftMode(repoPath)}
+      onclick={() => !(flags.autoMerge || lightweight) && repoConfig.toggleDraftMode(repoPath)}
     >
       <span class="knob"></span>
     </button>

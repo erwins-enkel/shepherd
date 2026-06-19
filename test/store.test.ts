@@ -76,6 +76,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -95,6 +96,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -114,6 +116,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -133,6 +136,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -152,6 +156,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 });
 
@@ -183,6 +188,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,

@@ -40,7 +40,11 @@ test("a rejecting warm does not sink the tick or sibling repos", async () => {
   expect(warmed.sort()).toEqual(["/bad", "/good"]);
 });
 
-test("resolves forge once per path, even across ticks (no per-tick git I/O)", async () => {
+test("resolveForge is called per tick so repoMode flips propagate", async () => {
+  // resolveForge is called per isForgeBacked call — BacklogPoller no longer
+  // permanently caches the verdict so a repoMode toggle takes effect immediately.
+  // The git shell-out avoidance is now the responsibility of makeForgeResolver
+  // (which memoizes detectForge for forge repos internally).
   const resolveCalls: string[] = [];
   const poller = new BacklogPoller(
     () => [{ path: "/a" }, { path: "/no-forge" }],
@@ -53,10 +57,10 @@ test("resolves forge once per path, even across ticks (no per-tick git I/O)", as
 
   await poller.tick();
   await poller.tick();
-  await poller.tick();
 
-  // each path resolved exactly once despite three ticks
-  expect(resolveCalls.sort()).toEqual(["/a", "/no-forge"]);
+  // resolveForge is called every tick (twice per path across 2 ticks)
+  expect(resolveCalls.filter((p) => p === "/a").length).toBe(2);
+  expect(resolveCalls.filter((p) => p === "/no-forge").length).toBe(2);
 });
 
 test("empty repo list is a no-op", async () => {
@@ -119,4 +123,59 @@ test("start/stop manage the interval timer without throwing", () => {
   poller.start();
   poller.stop();
   expect(true).toBe(true);
+});
+
+// ── mode-aware forge-backed tests ─────────────────────────────────────────────
+
+test("local forge (kind=local) is NOT forge-backed — not warmed", async () => {
+  const warmed: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/local-repo" }, { path: "/github-repo" }],
+    (p) => (p === "/local-repo" ? { kind: "local" } : { kind: "github", slug: "o/r" }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+  );
+
+  await poller.tick();
+
+  // local-repo must NOT be warmed; only the github-repo should be
+  expect(warmed).toEqual(["/github-repo"]);
+});
+
+test("github forge (kind=github) is forge-backed", async () => {
+  const warmed: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/gh" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 0, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+  );
+
+  await poller.tick();
+  expect(warmed).toEqual(["/gh"]);
+});
+
+test("repoMode flip propagates: local→github → repo starts being warmed", async () => {
+  let forgeKind: "local" | "github" = "local";
+  const warmed: string[] = [];
+
+  const poller = new BacklogPoller(
+    () => [{ path: "/flip" }],
+    () => ({ kind: forgeKind }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 0, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+  );
+
+  await poller.tick(); // kind=local → not warmed
+  expect(warmed).toEqual([]);
+
+  forgeKind = "github"; // flip
+  await poller.tick(); // kind=github → warmed
+  expect(warmed).toEqual(["/flip"]);
 });

@@ -287,6 +287,140 @@ describe("DiagnosticsService probes", () => {
   });
 });
 
+// ── gh probe: repo-mode-aware downgrade ──────────────────────────────────────
+describe("DiagnosticsService gh probe repo-mode awareness", () => {
+  it("gh failure + anyForgeRepo=false → warning + not_required hint", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw new Error("not authenticated");
+      },
+      anyForgeRepo: () => false,
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_required");
+    assertPure(c);
+  });
+
+  it("gh ENOENT + anyForgeRepo=false → warning + not_required hint", async () => {
+    const enoent = Object.assign(new Error("gh not found"), { code: "ENOENT" });
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw enoent;
+      },
+      anyForgeRepo: () => false,
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_required");
+    assertPure(c);
+  });
+
+  it("gh ENOENT + anyForgeRepo=true → error + gh_missing hint (unchanged)", async () => {
+    const enoent = Object.assign(new Error("gh not found"), { code: "ENOENT" });
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw enoent;
+      },
+      anyForgeRepo: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_missing");
+    assertPure(c);
+  });
+
+  it("gh auth failure + anyForgeRepo=true → error (unchanged behavior)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw new Error("not logged in");
+      },
+      anyForgeRepo: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_authenticated");
+    assertPure(c);
+  });
+});
+
+// ── git_mergetree capability check ───────────────────────────────────────────
+describe("DiagnosticsService git_mergetree capability check", () => {
+  it("git_mergetree absent when no lightweight repos (default)", async () => {
+    const svc = new DiagnosticsService(healthyDeps());
+    const snap = await svc.check(0);
+    expect(snap.checks.find((c) => c.id === "git_mergetree")).toBeUndefined();
+  });
+
+  it("git_mergetree absent when anyLightweightRepo=false", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      anyLightweightRepo: () => false,
+    });
+    const snap = await svc.check(0);
+    expect(snap.checks.find((c) => c.id === "git_mergetree")).toBeUndefined();
+  });
+
+  it("git_mergetree ok for git 2.40.0 with lightweight repo", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, git: "git version 2.40.0" }),
+      anyLightweightRepo: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "git_mergetree");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_gitcap_ok");
+    assertPure(c);
+  });
+
+  it("git_mergetree warning for git 2.37.0 with lightweight repo", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, git: "git version 2.37.0" }),
+      anyLightweightRepo: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "git_mergetree");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_gitcap_old");
+    assertPure(c);
+  });
+
+  it("git_mergetree ok at exactly git 2.38 (boundary)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, git: "git version 2.38.0" }),
+      anyLightweightRepo: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "git_mergetree");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_gitcap_ok");
+  });
+
+  it("git_mergetree check appears in overall snapshot with lightweight repos", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, git: "git version 2.40.0" }),
+      anyLightweightRepo: () => true,
+    });
+    const snap = await svc.check(0);
+    expect(snap.checks).toHaveLength(8);
+    expect(snap.checks.map((c) => c.id).sort()).toEqual([
+      "bun",
+      "claude",
+      "gh",
+      "git",
+      "git_mergetree",
+      "herdr",
+      "node",
+      "tailscale",
+    ]);
+  });
+});
+
 describe("DiagnosticsService timeout discipline", () => {
   it("a never-resolving probe still settles the batch to its non-OK fallback", async () => {
     // herdr's runVersion hangs forever — simulate by rejecting after the wrapper

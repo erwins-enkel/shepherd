@@ -100,6 +100,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   store.setEpicRun({
     repoPath: REPO,

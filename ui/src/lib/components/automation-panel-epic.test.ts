@@ -22,6 +22,11 @@ function makeDrain(epicParent: number | null): DrainStatus {
   };
 }
 
+// Pure helper mirroring the `lightweight` derived in AutomationPanel.
+function isLightweight(repoMode: "forge" | "lightweight" | undefined): boolean {
+  return (repoMode ?? "forge") === "lightweight";
+}
+
 describe("AutomationPanel epic-mode precedence indicator", () => {
   it("epicActive is true when epicParent is set", () => {
     expect(isEpicActive(makeDrain(42))).toBe(true);
@@ -41,5 +46,19 @@ describe("AutomationPanel epic-mode precedence indicator", () => {
 
   it("epicActive is false when drain is undefined", () => {
     expect(isEpicActive(undefined)).toBe(false);
+  });
+});
+
+describe("AutomationPanel lightweight-mode derived", () => {
+  it("isLightweight is true when repoMode is 'lightweight'", () => {
+    expect(isLightweight("lightweight")).toBe(true);
+  });
+
+  it("isLightweight is false when repoMode is 'forge'", () => {
+    expect(isLightweight("forge")).toBe(false);
+  });
+
+  it("isLightweight defaults to false (forge) when repoMode is undefined", () => {
+    expect(isLightweight(undefined)).toBe(false);
   });
 });

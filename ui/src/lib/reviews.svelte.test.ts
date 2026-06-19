@@ -29,6 +29,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,
+  repoMode: "forge",
   ...overrides,
 });
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   repoConfig.draftMode = {};
   repoConfig.allPrs = {};
   repoConfig.signoffAuthority = {};
+  repoConfig.repoMode = {};
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
   repoConfig.usageCeiling = {};
@@ -459,4 +461,30 @@ test("repoConfig.setSignoffAuthority reverts on error", async () => {
   repoConfig.signoffAuthority = { "/repo": "human" };
   await repoConfig.setSignoffAuthority("/repo", "critic");
   expect(repoConfig.signoffAuthorityFor("/repo")).toBe("human"); // reverted
+});
+
+// ── repoMode ───────────────────────────────────────────────────────────────
+
+test("repoConfig.repoModeFor defaults to forge for unknown repo", () => {
+  expect(repoConfig.repoModeFor("/unknown")).toBe("forge");
+});
+
+test("repoConfig.setRepoMode updates the value optimistically", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ repoMode: "lightweight" }));
+  await repoConfig.setRepoMode("/repo", "lightweight");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { repoMode: "lightweight" });
+  expect(repoConfig.repoModeFor("/repo")).toBe("lightweight");
+});
+
+test("repoConfig.setRepoMode reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.repoMode = { "/repo": "forge" };
+  await repoConfig.setRepoMode("/repo", "lightweight");
+  expect(repoConfig.repoModeFor("/repo")).toBe("forge"); // reverted
+});
+
+test("repoConfig.ensure caches repoMode", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue(rc({ repoMode: "lightweight" }));
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.repoModeFor("/repo")).toBe("lightweight");
 });

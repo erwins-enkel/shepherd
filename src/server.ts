@@ -74,8 +74,10 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
-import type { GitForge, GitState, MergeMethod, WorkflowRun } from "./forge/types";
-import { DEPENDABOT_REBASE_COMMAND } from "./forge/types";
+import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
+import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
+import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
+import { settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
@@ -528,6 +530,15 @@ function parseSignoffAuthority(v: unknown): "human" | "critic" | "either" | { er
   return v as "human" | "critic" | "either";
 }
 
+// repoMode: "forge" | "lightweight"
+const REPO_MODE_VALUES = ["forge", "lightweight"] as const;
+function parseRepoMode(v: unknown): "forge" | "lightweight" | { error: string } {
+  if (!REPO_MODE_VALUES.includes(v as (typeof REPO_MODE_VALUES)[number])) {
+    return { error: `repoMode must be one of: ${REPO_MODE_VALUES.join(", ")}` };
+  }
+  return v as "forge" | "lightweight";
+}
+
 // sandboxProfile: one of the three valid profile values
 function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
   if (!isSandboxProfile(v)) {
@@ -576,6 +587,7 @@ type RepoCfgBody = {
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
+  repoMode?: unknown;
 };
 
 // true when any present boolean field is not actually a boolean
@@ -594,6 +606,7 @@ type RepoCfgScalars = {
   sandboxProfile?: SandboxProfile;
   defaultModel?: string;
   egressExtraHosts?: string[];
+  repoMode?: "forge" | "lightweight";
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -613,6 +626,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["sandboxProfile", parseSandboxProfile],
   ["defaultModel", parseRepoDefaultModel],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
+  ["repoMode", parseRepoMode],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -648,6 +662,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
+      repoMode?: "forge" | "lightweight";
     }
   | Response
 > {
@@ -671,6 +686,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sandboxProfile,
     defaultModel,
     egressExtraHosts,
+    repoMode,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -680,12 +696,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority !== undefined ||
     sandboxProfile !== undefined ||
     defaultModel !== undefined ||
-    egressExtraHosts !== undefined;
+    egressExtraHosts !== undefined ||
+    repoMode !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode",
       },
       400,
     );
@@ -708,6 +725,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     maxAuto,
     autoLabel,
     usageCeilingPct,
+    repoMode,
   };
 }
 
@@ -1965,13 +1983,20 @@ async function forgeOpenPr(
   const head = session.branch ?? "";
   const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
   const cfg = deps.store.getRepoConfig(session.repoPath);
-  const status = await forge.openPr({
-    head,
-    base: session.baseBranch,
-    title: body.title?.trim() || session.name,
-    body: body.body ?? session.prompt,
-    draft: cfg.draftMode,
-  });
+  let status: PrStatus;
+  try {
+    status = await forge.openPr({
+      head,
+      base: session.baseBranch,
+      title: body.title?.trim() || session.name,
+      body: body.body ?? session.prompt,
+      draft: cfg.draftMode,
+    });
+  } catch (err) {
+    // Nothing to open a PR for (no net diff vs base) → a clean 409, not a 500.
+    if (err instanceof EmptyDiffError) return json({ error: "no commits to merge" }, 409);
+    throw err;
+  }
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
   deps.prCache?.set(session.id, git);
@@ -1994,10 +2019,35 @@ async function forgeMerge(
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR to merge" }, 409);
   }
-  await forge.merge(cur.number, {
-    method: body.method ?? forge.mergeMethod,
-    deleteBranch: body.deleteBranch ?? true,
-  });
+  try {
+    await forge.merge(cur.number, {
+      method: body.method ?? forge.mergeMethod,
+      deleteBranch: body.deleteBranch ?? true,
+    });
+  } catch (err) {
+    if (err instanceof MergeConflictError)
+      return json({ error: "merge conflict — resolve manually before merging" }, 409);
+    if (err instanceof BaseCheckoutBusyError)
+      return json(
+        { error: "base branch checkout has uncommitted changes or moved — commit/stash and retry" },
+        409,
+      );
+    throw err;
+  }
+  // Lightweight (local) merge happened in-tree — nobody else tears the session down (no host
+  // poller path, no merge train), so the worktree/branch would leak. Settle it here, mirroring
+  // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human
+  // merges on the host and the poller-driven archive path handles teardown.
+  if (forge.kind === "local") {
+    await settleMergedSession(session, {
+      resolveForge: (repoPath) => deps.resolveForge?.(repoPath) ?? null,
+      archive: (id) => deps.service.archive(id),
+      dropPrCache: (id) => deps.prCache?.drop(id),
+      emitArchived: (id) => deps.events.emit("session:archived", { id }),
+      retainClaim: (id) => deps.drain?.retainClaim(id),
+    });
+    return json({ ...cur, state: "merged" as const });
+  }
   const status = await forge.prStatus(head);
   const me = (await forge.currentUser?.()) ?? null;
   const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);

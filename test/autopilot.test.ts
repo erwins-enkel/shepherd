@@ -71,6 +71,7 @@ function harness(opts: {
   verdict?: AutopilotVerdict;
   repoEnabled?: boolean;
   repoDraftMode?: boolean;
+  repoMode?: "forge" | "lightweight";
   openPr?: boolean;
   paneAlive?: boolean;
   resumeOk?: boolean;
@@ -94,6 +95,7 @@ function harness(opts: {
           learningsEnabled: true,
           autopilotEnabled: opts.repoEnabled ?? false,
           draftMode: opts.repoDraftMode ?? false,
+          repoMode: opts.repoMode ?? "forge",
         }) as any,
       setAutopilotState: (
         _id: string,
@@ -142,6 +144,9 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
     hasPr: () => opts.openPr ?? false,
+    openLocalPr: async (id) => {
+      events.push({ openLocalPr: id });
+    },
     prGit: () => opts.prGit ?? null,
     fullAuto: () => opts.fullAuto ?? false,
     refreshPr: (id) => events.push({ refreshPr: id }),
@@ -172,6 +177,30 @@ test("finished verdict → open-PR steer", async () => {
   await h.svc.onBlock("s1", block(["I'm done."]));
   expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
   expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("finished verdict in lightweight repo → openLocalPr, no gh-pr-create steer", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    repoMode: "lightweight",
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ openLocalPr: "s1" });
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  // no PTY steer landed → step count unchanged (server-side barrier, not a steer)
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("finished verdict in forge repo → openPrSteer, never openLocalPr", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    repoMode: "forge",
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+  expect(h.events.some((e) => "openLocalPr" in e)).toBe(false);
 });
 
 test("openPrSteer carries an explicit --base for the session's base branch", () => {
@@ -519,6 +548,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     paneAlive: () => true,
     readTail: () => [],
     hasPr: () => false,
+    openLocalPr: async () => {},
     prGit: () => null,
     fullAuto: () => false,
     onPause: () => {},

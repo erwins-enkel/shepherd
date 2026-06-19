@@ -372,3 +372,73 @@ test("Promoter.resyncPromoted rejects a concurrent call for the same repo with 4
   const firstRes = await first;
   expect(firstRes.ok).toBe(true);
 });
+
+// --- lightweight repo mode guard tests ---
+
+test("Promoter.promote returns 400 with lightweight message for local forge and never calls openPr", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  let openPrCalled = false;
+  const localForge = fakeForge({
+    kind: "local",
+    openPr: async () => {
+      openPrCalled = true;
+      return { state: "open", number: 1, url: "u", checks: "none", deployConfigured: false };
+    },
+  });
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: "/x", branch: "b", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () => localForge,
+    git: async () => {},
+  });
+  const res = await p.promote(l.id);
+  expect(res.ok).toBe(false);
+  if (!res.ok) {
+    expect(res.status).toBe(400);
+    expect(res.error).toBe("learnings promotion is not available in lightweight repo mode");
+  }
+  expect(openPrCalled).toBe(false);
+  // rule stays active (never wedged to promoted without a real PR)
+  expect(store.getLearning(l.id)!.status).toBe("active");
+});
+
+test("Promoter.resyncPromoted returns 400 with lightweight message for local forge and never calls openPr", async () => {
+  const store = new SessionStore(":memory:");
+  const l = store.addLearning({ repoPath: "/repo5", rule: "rule a", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  store.setLearningStatus(l.id, "promoted");
+  let openPrCalled = false;
+  const localForge = fakeForge({
+    kind: "local",
+    openPr: async () => {
+      openPrCalled = true;
+      return { state: "open", number: 2, url: "u", checks: "none", deployConfigured: false };
+    },
+  });
+  let worktreeCreated = false;
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => {
+        worktreeCreated = true;
+        return { worktreePath: "/wt5", branch: "b", isolated: true };
+      },
+      remove: () => {},
+    },
+    resolveForge: () => localForge,
+    git: async () => {},
+  });
+  const res = await p.resyncPromoted("/repo5");
+  expect(res.ok).toBe(false);
+  if (!res.ok) {
+    expect(res.status).toBe(400);
+    expect(res.error).toBe("learnings promotion is not available in lightweight repo mode");
+  }
+  expect(openPrCalled).toBe(false);
+  expect(worktreeCreated).toBe(false);
+});

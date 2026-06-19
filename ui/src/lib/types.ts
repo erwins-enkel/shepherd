@@ -119,7 +119,7 @@ export interface BlockReason {
   quotaKind?: "rework" | "review" | "error" | "plan";
 }
 
-export type ForgeKind = "github" | "gitea";
+export type ForgeKind = "github" | "gitea" | "local";
 export type MergeMethod = "merge" | "squash" | "rebase";
 export type ChecksState = "none" | "pending" | "success" | "failure";
 /** GitHub's mergeStateStatus (mirrors server `MergeStateStatus`); absent for Gitea. */
@@ -437,6 +437,8 @@ export interface RepoConfig {
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
+  /** Whether this repo uses a forge (GitHub/Gitea) or lightweight local-only mode. */
+  repoMode: "forge" | "lightweight";
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -757,7 +759,7 @@ export interface BacklogProject {
   path: string;
   display: string;
   slug: string | null;
-  kind: "github" | "gitea";
+  kind: ForgeKind;
   lastUsedAt?: number;
   /** Agents run on this repo in the server's recent window — same metric the
    *  New Task repo picker pins its "recently worked on" group by. */

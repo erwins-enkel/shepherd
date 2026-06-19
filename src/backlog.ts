@@ -139,6 +139,9 @@ export class CountsService {
     private readonly run: CountsRunner,
     private readonly fetchFn: typeof fetch = fetch,
     maxConcurrency = DEFAULT_MAX_CONCURRENCY,
+    /** Optional: when provided, lightweight repos are treated as not-forge-backed.
+     *  Read per call so a runtime repoMode toggle propagates without a restart. */
+    private readonly getRepoConfig?: (repoPath: string) => { repoMode: string },
   ) {
     this.gate = new Semaphore(maxConcurrency);
   }
@@ -207,6 +210,10 @@ export class CountsService {
   }
 
   private async fetch(repoPath: string): Promise<RepoCounts> {
+    // Lightweight repos have no remote forge — skip counts regardless of origin URL.
+    // Read repoMode per call so a runtime toggle propagates without a restart.
+    if (this.getRepoConfig?.(repoPath)?.repoMode === "lightweight") return NULL_COUNTS;
+
     const forge = this.resolveForge(repoPath);
     if (!forge) return NULL_COUNTS;
 

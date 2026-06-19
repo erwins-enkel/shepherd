@@ -107,6 +107,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 });
 
@@ -156,6 +157,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const get = await app.fetch(new Request(url));
@@ -178,6 +180,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 });
 
@@ -210,6 +213,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 });
 
@@ -242,6 +246,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 });
 
@@ -291,6 +296,39 @@ test("PUT /api/repo-config with repo outside root → 400", async () => {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ criticEnabled: false }),
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+// ── repoMode ──────────────────────────────────────────────────────────────────
+
+test("PUT /api/repo-config repoMode=lightweight persists, GET returns lightweight", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repoMode: "lightweight" }),
+    }),
+  );
+  expect(put.status).toBe(200);
+  expect(((await put.json()) as { repoMode: string }).repoMode).toBe("lightweight");
+
+  const get = await app.fetch(new Request(url));
+  expect(get.status).toBe(200);
+  expect(((await get.json()) as { repoMode: string }).repoMode).toBe("lightweight");
+});
+
+test("PUT /api/repo-config repoMode=bogus → 400", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const res = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repoMode: "bogus" }),
     }),
   );
   expect(res.status).toBe(400);

@@ -164,6 +164,7 @@ class RepoConfigStore {
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
+  repoMode = $state<Record<string, "forge" | "lightweight">>({}); // forge vs lightweight local mode (default "forge")
   sandboxProfile = $state<Record<string, SandboxProfile>>({}); // per-repo sandbox confinement (default "trusted")
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
@@ -187,6 +188,7 @@ class RepoConfigStore {
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
+    this.repoMode = { ...this.repoMode, [repoPath]: c.repoMode };
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
@@ -246,6 +248,7 @@ class RepoConfigStore {
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
+        | "repoMode"
       >
     >,
     revert: () => void,
@@ -353,6 +356,14 @@ class RepoConfigStore {
     });
   }
 
+  async setRepoMode(repoPath: string, mode: "forge" | "lightweight") {
+    const prev = this.repoMode[repoPath];
+    this.repoMode = { ...this.repoMode, [repoPath]: mode }; // optimistic
+    await this.apply(repoPath, { repoMode: mode }, () => {
+      this.repoMode = { ...this.repoMode, [repoPath]: prev };
+    });
+  }
+
   async setSandboxProfile(repoPath: string, profile: SandboxProfile) {
     const prev = this.sandboxProfile[repoPath];
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: profile }; // optimistic
@@ -453,6 +464,10 @@ class RepoConfigStore {
 
   signoffAuthorityFor(repoPath: string): "human" | "critic" | "either" {
     return this.signoffAuthority[repoPath] ?? "human";
+  }
+
+  repoModeFor(repoPath: string): "forge" | "lightweight" {
+    return this.repoMode[repoPath] ?? "forge";
   }
 
   sandboxProfileFor(repoPath: string): SandboxProfile {

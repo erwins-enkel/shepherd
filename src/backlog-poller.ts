@@ -13,17 +13,10 @@ import type { RepoCounts } from "./backlog";
  */
 export class BacklogPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
-  /**
-   * Memoised "is this repo forge-backed?" per path. `resolveForge` (detectForge)
-   * shells out to a synchronous `git remote get-url` — uncached it would block
-   * the event loop on N git subprocesses every tick. Forge↔repo is effectively
-   * immutable, so resolving once per path is safe.
-   */
-  private readonly forgeBacked = new Map<string, boolean>();
 
   constructor(
     private listRepos: () => Array<{ path: string }>,
-    private resolveForge: (repoPath: string) => unknown | null,
+    private resolveForge: (repoPath: string) => { kind?: string } | null,
     private warm: (repoPath: string) => Promise<RepoCounts>,
     private intervalMs = 45_000,
     /**
@@ -43,12 +36,12 @@ export class BacklogPoller {
   }
 
   private isForgeBacked(path: string): boolean {
-    let backed = this.forgeBacked.get(path);
-    if (backed === undefined) {
-      backed = this.resolveForge(path) != null;
-      this.forgeBacked.set(path, backed);
-    }
-    return backed;
+    // Not forge-backed: no forge, or a local forge (no remote issues/PRs to count).
+    // Computed per tick with no local cache so a repoMode flip propagates without a
+    // restart; the underlying `git remote get-url` shell-out is memoized upstream in
+    // the production `resolveForge` (makeForgeResolver), so this stays cheap.
+    const forge = this.resolveForge(path);
+    return forge != null && forge.kind !== "local";
   }
 
   start(): void {

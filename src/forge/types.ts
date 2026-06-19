@@ -21,7 +21,7 @@ export interface Issue {
   createdAt: number;
 }
 
-export type ForgeKind = "github" | "gitea";
+export type ForgeKind = "github" | "gitea" | "local";
 export type MergeMethod = "merge" | "squash" | "rebase";
 
 /** Invisible marker appended to every critic-posted review body so the review

@@ -329,6 +329,8 @@
                     undefined,
   );
 
+  const local = $derived(git?.kind === "local");
+
   const verdict = $derived(reviews.map[sessionId]);
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
@@ -557,21 +559,25 @@
              re-show this button. -->
         {#if !autopilotOn}
           <button class="gbtn" type="button" disabled={busy} onclick={startPr}
-            >{m.gitrail_open_pr()}</button
+            >{local ? m.gitrail_open_for_merge() : m.gitrail_open_pr()}</button
           >
         {/if}
       {:else if git.state === "open"}
-        {#if git.url}
+        {#if local}
+          <span class="prlink">{m.gitrail_ready_to_merge()} #{git.number}</span>
+        {:else if git.url}
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
           <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
         {:else}
           <span class="prlink">PR #{git.number}</span>
         {/if}
-        <span
-          class="dot dot-{git.checks}"
-          title={m.gitrail_ci_status({ status: git.checks })}
-          aria-label={m.gitrail_ci_status({ status: git.checks })}
-        ></span>
+        {#if !local}
+          <span
+            class="dot dot-{git.checks}"
+            title={m.gitrail_ci_status({ status: git.checks })}
+            aria-label={m.gitrail_ci_status({ status: git.checks })}
+          ></span>
+        {/if}
         <button
           class="gbtn"
           class:armed={armed === "merge"}
@@ -580,10 +586,14 @@
           title={mergeBlockedReason}
           onclick={() => doMerge()}
         >
-          {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
+          {#if local}
+            {armed === "merge" ? m.gitrail_confirm_merge_locally() : m.gitrail_merge_locally()}
+          {:else}
+            {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
+          {/if}
         </button>
       {:else if git.state === "merged"}
-        <span class="merged">{m.gitrail_merged()}</span>
+        <span class="merged">{local ? m.gitrail_merged_locally() : m.gitrail_merged()}</span>
         {#if git.deployConfigured}
           <button
             class="gbtn"

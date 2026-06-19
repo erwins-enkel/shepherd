@@ -10,6 +10,7 @@ import {
   config,
   findServedPort,
 } from "./config";
+import { parseGitVersion, gitVersionAtLeast } from "./forge/local";
 import { compareSemver } from "./herdr-update";
 import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
@@ -45,6 +46,12 @@ export interface DiagnosticsDeps {
    *  Resolves on exit 0; rejects on non-zero exit or timeout. Default spawns a
    *  detached process group and SIGKILLs the whole group on timeout. Injected in tests. */
   runRemediation?: (cmd: string) => Promise<void>;
+  /** Returns true when at least one configured repo has repoMode "forge".
+   *  Default `() => true` preserves today's behavior (gh failure = error). */
+  anyForgeRepo?: () => boolean;
+  /** Returns true when at least one configured repo has repoMode "lightweight".
+   *  Default `() => false` (no extra git capability warning unless opted in). */
+  anyLightweightRepo?: () => boolean;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -129,6 +136,8 @@ export class DiagnosticsService {
   private resolveHost: () => Promise<string | null>;
   private runServeStatus: () => Promise<string>;
   private runRemediation: (cmd: string) => Promise<void>;
+  private anyForgeRepo: () => boolean;
+  private anyLightweightRepo: () => boolean;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -162,6 +171,8 @@ export class DiagnosticsService {
         return stdout.toString();
       });
     this.runRemediation = deps.runRemediation ?? defaultRunRemediation;
+    this.anyForgeRepo = deps.anyForgeRepo ?? (() => true);
+    this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
   }
 
   /** Parse a (major.minor.patch) out of arbitrary `--version` output; null if none. */
@@ -218,17 +229,38 @@ export class DiagnosticsService {
 
   /** gh: presence + `gh auth status` exit code (NEVER its stdout). ENOENT ⇒
    *  binary missing; non-zero exit ⇒ not authenticated. Timeout propagates to the
-   *  `probes()` catch which resolves to `diagnostics_hint_gh_not_authenticated`. */
+   *  `probes()` catch which resolves to `diagnostics_hint_gh_not_authenticated`.
+   *  When no forge-mode repos are configured, failures downgrade to warnings — gh
+   *  is optional when all repos are lightweight. */
   private ghProbe = async (): Promise<DiagnosticCheck> => {
     try {
       await this.runGhAuth();
       return { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" };
     } catch (err) {
+      const forgeRequired = this.anyForgeRepo();
       if (err && typeof err === "object" && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        if (!forgeRequired) {
+          return { id: "gh", state: "warning", hintKey: "diagnostics_hint_gh_not_required" };
+        }
         return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_missing" };
+      }
+      if (!forgeRequired) {
+        return { id: "gh", state: "warning", hintKey: "diagnostics_hint_gh_not_required" };
       }
       return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_not_authenticated" };
     }
+  };
+
+  /** git capability check for lightweight mode: requires git ≥ 2.38 for
+   *  `git merge-tree --write-tree`. Only meaningful when at least one lightweight
+   *  repo is configured — otherwise returns ok immediately. */
+  private gitMergetreeProbe = async (): Promise<DiagnosticCheck> => {
+    const out = await this.runVersion("git", ["--version"]);
+    const v = parseGitVersion(out);
+    if (!v || !gitVersionAtLeast(v, 2, 38)) {
+      return { id: "git_mergetree", state: "warning", hintKey: "diagnostics_hint_gitcap_old" };
+    }
+    return { id: "git_mergetree", state: "ok", hintKey: "diagnostics_hint_gitcap_ok" };
   };
 
   /** claude is PRESENCE-ONLY (brief No-Go: no login/auth probe, no ~/.claude
@@ -265,9 +297,11 @@ export class DiagnosticsService {
     return { id: "tailscale", state: "ok", hintKey: "diagnostics_hint_tailscale_ok" };
   };
 
-  /** The 7 probes, each paired with its timed-out non-OK fallback. */
+  /** The probes, each paired with its timed-out non-OK fallback. The
+   *  git_mergetree check is only added when at least one lightweight repo is
+   *  configured — a conditional push so forge-only setups are unaffected. */
   private probes(): Array<{ run: Probe; onTimeout: DiagnosticCheck }> {
-    return [
+    const list: Array<{ run: Probe; onTimeout: DiagnosticCheck }> = [
       {
         run: this.herdrProbe,
         onTimeout: { id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_missing" },
@@ -305,6 +339,17 @@ export class DiagnosticsService {
         onTimeout: { id: "node", state: "error", hintKey: "diagnostics_hint_node_missing" },
       },
     ];
+    if (this.anyLightweightRepo()) {
+      list.push({
+        run: this.gitMergetreeProbe,
+        onTimeout: {
+          id: "git_mergetree",
+          state: "warning",
+          hintKey: "diagnostics_hint_gitcap_old",
+        },
+      });
+    }
+    return list;
   }
 
   /** Force a fresh run of all 7 probes; sets the TTL cache. A probe that throws /

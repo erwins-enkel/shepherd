@@ -1181,7 +1181,12 @@ setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 // a TTL cache and push the snapshot to clients. Like the herdr-update check, a
 // delayed boot kick + a 6h background re-check keep the UI's health pip live with
 // no client polling — the request path otherwise reads the TTL snapshot.
-const diagnostics = new DiagnosticsService();
+const diagnostics = new DiagnosticsService({
+  anyForgeRepo: () =>
+    listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
+  anyLightweightRepo: () =>
+    listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
+});
 const checkDiagnostics = async () =>
   events.emit("diagnostics:status", await diagnostics.check(Date.now()));
 setTimeout(checkDiagnostics, 4_000);

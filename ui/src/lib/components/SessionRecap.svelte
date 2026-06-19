@@ -7,20 +7,21 @@
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import VisualReview from "./VisualReview.svelte";
 
-  let { session }: { session: Session } = $props();
+  let { session, inline = false }: { session: Session; inline?: boolean } = $props();
 
   const recap = $derived(recaps.map[session.id]);
 
   let expanded = $state(false);
+  const showBody = $derived(inline || expanded);
   let regenerating = $state(false);
   let regenFailed = $state(false);
 
   // Render the (LLM-authored) body as sanitized markdown.
   // Dynamically imported so marked/DOMPurify stay off the first-paint critical path;
-  // gated on expanded so the browser-only sanitizer never runs during SSR.
+  // gated on showBody so the browser-only sanitizer never runs during SSR.
   let renderedBody = $state("");
   $effect(() => {
-    const body = expanded ? recap?.body : undefined;
+    const body = showBody ? recap?.body : undefined;
     if (!body) {
       renderedBody = "";
       return;
@@ -67,33 +68,29 @@
 
 <!-- fallow-ignore-next-line complexity -->
 {#if recap && recap.state !== "empty"}
-  <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
-  <div class="recap-card panel" use:coachTarget={"session-recap"}>
-    {#if recap.state === "generating"}
-      <p class="recap-generating">{m.recap_generating()}</p>
-    {:else if recap.state === "failed"}
-      <div class="recap-failed-row">
-        <span class="recap-label">{m.recap_failed()}</span>
-        <button class="gbtn" onclick={handleRegenerate} disabled={regenerating}
-          >{m.recap_retry()}</button
-        >
-      </div>
-      {#if regenFailed}
-        <p class="recap-regen-error">{m.recap_regenerate_failed()}</p>
-      {/if}
-    {:else if recap.state === "ready"}
-      <button class="recap-header" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
-        {#if recap.verdict}
-          <span class="recap-verdict-chip" style:color={VERDICT_COLOR[recap.verdict]}
-            >{verdictLabel(recap.verdict)}</span
+  {#if inline}
+    <div class="recap-card panel inline">
+      {#if recap.state === "generating"}
+        <p class="recap-generating">{m.recap_generating()}</p>
+      {:else if recap.state === "failed"}
+        <div class="recap-failed-row">
+          <span class="recap-label">{m.recap_failed()}</span>
+          <button class="gbtn" onclick={handleRegenerate} disabled={regenerating}
+            >{m.recap_retry()}</button
           >
+        </div>
+        {#if regenFailed}
+          <p class="recap-regen-error">{m.recap_regenerate_failed()}</p>
         {/if}
-        <span class="recap-headline">{recap.headline}</span>
-        <span class="recap-expand-icon" aria-hidden="true"
-          >{expanded ? m.recap_collapse() : m.recap_expand()}</span
-        >
-      </button>
-      {#if expanded}
+      {:else if recap.state === "ready"}
+        <div class="recap-header recap-header-static">
+          {#if recap.verdict}
+            <span class="recap-verdict-chip" style:color={VERDICT_COLOR[recap.verdict]}
+              >{verdictLabel(recap.verdict)}</span
+            >
+          {/if}
+          <span class="recap-headline">{recap.headline}</span>
+        </div>
         <div class="recap-body">
           {#if recap.blocks && recap.blocks.length > 0}
             <VisualReview blocks={recap.blocks} />
@@ -121,8 +118,69 @@
           </div>
         </div>
       {/if}
-    {/if}
-  </div>
+    </div>
+  {:else}
+    <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
+    <div class="recap-card panel" use:coachTarget={"session-recap"}>
+      {#if recap.state === "generating"}
+        <p class="recap-generating">{m.recap_generating()}</p>
+      {:else if recap.state === "failed"}
+        <div class="recap-failed-row">
+          <span class="recap-label">{m.recap_failed()}</span>
+          <button class="gbtn" onclick={handleRegenerate} disabled={regenerating}
+            >{m.recap_retry()}</button
+          >
+        </div>
+        {#if regenFailed}
+          <p class="recap-regen-error">{m.recap_regenerate_failed()}</p>
+        {/if}
+      {:else if recap.state === "ready"}
+        <button
+          class="recap-header"
+          onclick={() => (expanded = !expanded)}
+          aria-expanded={expanded}
+        >
+          {#if recap.verdict}
+            <span class="recap-verdict-chip" style:color={VERDICT_COLOR[recap.verdict]}
+              >{verdictLabel(recap.verdict)}</span
+            >
+          {/if}
+          <span class="recap-headline">{recap.headline}</span>
+          <span class="recap-expand-icon" aria-hidden="true"
+            >{expanded ? m.recap_collapse() : m.recap_expand()}</span
+          >
+        </button>
+        {#if showBody}
+          <div class="recap-body">
+            {#if recap.blocks && recap.blocks.length > 0}
+              <VisualReview blocks={recap.blocks} />
+            {:else if renderedBody}
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+              <div class="recap-md">{@html renderedBody}</div>
+            {/if}
+            {#if recap.openItems.length > 0}
+              <div class="recap-open-items">
+                <p class="recap-open-items-heading">{m.recap_open_items()}</p>
+                <ul>
+                  {#each recap.openItems as item (item)}
+                    <li>{item}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            <div class="recap-actions">
+              <button class="gbtn" onclick={handleRegenerate} disabled={regenerating}
+                >{m.recap_regenerate()}</button
+              >
+              {#if regenFailed}
+                <p class="recap-regen-error">{m.recap_regenerate_failed()}</p>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      {/if}
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -135,6 +193,21 @@
     border-right: none;
     border-radius: 0;
     border-bottom: 1px solid var(--color-line);
+  }
+
+  .recap-card.inline {
+    border: none;
+    padding: 0;
+    background: none;
+  }
+
+  .recap-header-static {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: var(--fs-sm);
+    color: var(--color-text);
+    width: 100%;
   }
 
   .recap-generating {

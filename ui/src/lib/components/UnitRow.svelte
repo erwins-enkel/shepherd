@@ -460,7 +460,7 @@
       {#if !stepperTerminal}<PrBadge {git} />{/if}
       <CriticBadge sessionId={session.id} />
       <BuildQueueBadge sessionId={session.id} />
-      <PlanGateBadge {session} />
+      <PlanGateBadge {session} allowView={false} />
       {#if quotaKind}
         <span
           class="badge quota-stalled"

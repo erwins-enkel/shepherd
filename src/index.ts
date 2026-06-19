@@ -399,9 +399,9 @@ const poller = new StatusPoller(
   // pruneInactive (so they don't grow unbounded by session count).
   (ids) => hookIngest.prune(ids),
   undefined, // onStopWindow — use default logger
-  // onHalt: session reached done with a usage-limit tail → push live so the UI
-  // can surface the RetryDialog without waiting for a full session refresh.
-  (id: string, haltReason: string, haltedAt: number) =>
+  // onHalt: a session's halt flag changed (usage-limit detected, or cleared on resume)
+  // → push live so the UI updates the RetryDialog/chip/badge without a full refresh.
+  (id: string, haltReason: string | null, haltedAt: number | null) =>
     events.emit("session:halt", { id, haltReason, haltedAt }),
   // usageLimits: corroborates the transcript-tail match against measured pct windows.
   usageLimits,

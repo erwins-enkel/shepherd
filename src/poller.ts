@@ -193,8 +193,13 @@ export class StatusPoller {
   private lastClaudeAlive = new Map<string, boolean>();
   /** The resolved liveness wiring (with real defaults filled in). */
   private readonly livenessWiring: LivenessWiring;
-  /** Emitted when a session reaches done with a usage-limit halt detected. */
-  private readonly onHaltCb: (id: string, haltReason: string, haltedAt: number) => void;
+  /** Emitted when a session's halt state changes: a usage-limit halt is detected
+   *  (non-null reason), or the flag is cleared when the session resumes work (null). */
+  private readonly onHaltCb: (
+    id: string,
+    haltReason: Session["haltReason"],
+    haltedAt: number | null,
+  ) => void;
   /** Usage-limits service for corroboration in classifyHalt. */
   private readonly usageLimitsSvc: { limits(now: number): UsageLimits };
 
@@ -271,7 +276,7 @@ export class StatusPoller {
      * Optional (undefined ⇒ no-op) so callers can skip it with a positional
      * `undefined` after `onStopWindow`.
      */
-    onHalt?: (id: string, haltReason: string, haltedAt: number) => void,
+    onHalt?: (id: string, haltReason: Session["haltReason"], haltedAt: number | null) => void,
     /**
      * Usage-limits service — provides the latest window percentages for the
      * corroboration check in `classifyHalt`. Injectable for tests; defaults to
@@ -430,7 +435,7 @@ export class StatusPoller {
     // Observe-only Stop↔herdr-done measurement + usage-halt detection on the done-EDGE.
     // Placed BEFORE the tryHookAwaitingBlock early-return below so a stale
     // `hookAwaitingInput` short-circuit can never swallow the measurement.
-    if (status === "done" && s.status !== "done") this.handleDoneEdge(s);
+    this.handleStatusEdge(s, status);
     this.dropReadyToMergeIfActionable(s, status);
     // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
     // display flag must drop in the SAME tick, not via the throttled probe paths.
@@ -470,6 +475,29 @@ export class StatusPoller {
   private handleDoneEdge(s: Session): void {
     if (config.hooksSignals) this.measureStopWindow(s.id, this.now());
     this.detectUsageHalt(s);
+  }
+
+  /**
+   * Halt-flag transitions at the status edge, dispatched from reconcileAgent (kept as one
+   * call so that method stays under the complexity gate):
+   *  - entering done  → detect a usage-limit halt (+ Stop-window measurement);
+   *  - resuming work (running, by retry / resume() / drain / autopilot) → clear the flag,
+   *    the single authoritative clear so a resumed session stops being badged "halted".
+   */
+  private handleStatusEdge(s: Session, status: Session["status"]): void {
+    if (status === "done" && s.status !== "done") this.handleDoneEdge(s);
+    else if (status === "running" && s.haltReason) this.clearHaltOnResume(s);
+  }
+
+  /**
+   * Clear a session's usage-halt flag once it is working again. Persists null and emits
+   * the clearing onHalt(null) so the delta-driven UI (the ⟳ chip, the "halted" badge,
+   * RetryDialog preselect) drops it live. Gated by `s.haltReason` in the caller, so it
+   * fires once — the next tick reads a null flag.
+   */
+  private clearHaltOnResume(s: Session): void {
+    this.store.setHaltReason(s.id, null, null);
+    this.onHaltCb(s.id, null, null);
   }
 
   /**

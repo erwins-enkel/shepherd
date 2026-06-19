@@ -14,6 +14,7 @@ function makeHarness({
   const sent: { target: string; text: string }[] = [];
   const resumed: string[] = [];
   const setHaltCalls: { id: string; reason: null; at: null }[] = [];
+  const emitted: { event: string; data: any }[] = [];
 
   const origSetHaltReason = store.setHaltReason.bind(store);
   store.setHaltReason = (id, reason, haltedAt) => {
@@ -36,6 +37,7 @@ function makeHarness({
 
   const svc = new SessionService({
     store,
+    events: { emit: (event: string, data: any) => emitted.push({ event, data }) } as any,
     namer: async () => "x",
     worktree: {
       create: () => ({}) as any,
@@ -59,7 +61,7 @@ function makeHarness({
     return resumeResult ? store.get(id) : null;
   };
 
-  return { store, svc, mk, sent, resumed, setHaltCalls };
+  return { store, svc, mk, sent, resumed, setHaltCalls, emitted };
 }
 
 test("retryHalted: live session is steered, not resumed", async () => {
@@ -149,4 +151,35 @@ test("retryHalted: steer text is passed verbatim (no hardcoded English)", async 
   await svc.retryHalted([a.id], "Fortsetzen bitte");
 
   expect(sent.some((s) => s.text.includes("Fortsetzen bitte"))).toBe(true);
+});
+
+test("retryHalted: emits a clearing session:halt(null) on success so the UI updates live", async () => {
+  const { store, svc, mk, emitted } = makeHarness({ liveIds: new Set(["term_a"]) });
+  const a = mk("a", "term_a");
+  store.setHaltReason(a.id, "usage_limit", 1000);
+
+  await svc.retryHalted([a.id], "please continue");
+
+  // Without the emit (pre-fix), the delta-driven UI never learns the clear and the
+  // ⟳ chip / "halted" badge / RetryDialog preselect stay stale until a full reload.
+  expect(
+    emitted.some(
+      (e) =>
+        e.event === "session:halt" &&
+        e.data.id === a.id &&
+        e.data.haltReason === null &&
+        e.data.haltedAt === null,
+    ),
+  ).toBe(true);
+});
+
+test("retryHalted: no clearing event when nothing succeeds", async () => {
+  const { store, svc, mk, emitted } = makeHarness({ liveIds: new Set(), resumeResult: false });
+  const a = mk("a", "term_dead");
+  store.setHaltReason(a.id, "usage_limit", 1000);
+
+  await svc.retryHalted([a.id], "please continue");
+
+  expect(emitted.some((e) => e.event === "session:halt")).toBe(false);
+  expect(store.get(a.id)?.haltReason).toBe("usage_limit");
 });

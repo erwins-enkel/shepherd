@@ -1939,7 +1939,11 @@ export class SessionService {
         }
       }
       if (succeeded) {
+        // Clear immediately AND push it so the ⟳ chip / "halted" badge / RetryDialog
+        // preselect drop at once and a re-fire can't re-steer an already-resumed session
+        // — don't wait for the poller's working-transition clear to catch up.
         this.deps.store.setHaltReason(id, null, null);
+        this.deps.events?.emit("session:halt", { id, haltReason: null, haltedAt: null });
       }
     }
     return { resumed, steered, total: ids.length };

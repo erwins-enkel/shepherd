@@ -1615,5 +1615,5 @@
   "retry_halted_badge": "gestoppt",
   "retry_empty": "Keine Sitzungen zum Wiederholen",
   "feat_usage_halt_retry_title": "Halted Sitzungen mit einem Klick wiederholen",
-  "feat_usage_halt_retry_body": "Wenn Sitzungen stoppen, weil dein Claude-Nutzungslimit erreicht wurde, erscheint nach dem Reset ein ⟳-Schaltfläche — sie setzt alle gestoppten Sitzungen fort und steuert sie in einem Klick weiter."
+  "feat_usage_halt_retry_body": "Wenn Sitzungen stoppen, weil dein Claude-Nutzungslimit erreicht wurde, erscheint nach dem Reset eine ⟳-Schaltfläche — sie setzt alle gestoppten Sitzungen fort und steuert sie in einem Klick weiter."
 }

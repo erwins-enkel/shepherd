@@ -80,6 +80,40 @@ describe("PlanPanel portal", () => {
   });
 });
 
+describe("PlanPanel read-only during execution", () => {
+  it("shows plan content but no Go or Review buttons when planPhase is executing", async () => {
+    const id = "s-executing";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "xyz",
+        decision: "approved",
+        summary: "plan approved",
+        body: "",
+        findings: [],
+        round: 1,
+        cap: 3,
+        approved: true,
+        plan: "# Execution plan",
+        blocks: [{ type: "rich-text", id: "b1", markdown: "Step overview" }],
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id, planPhase: "executing" }), onclose: vi.fn() },
+    });
+
+    // Plan content renders (the blocks caption is visible).
+    await expect
+      .element(page.getByText("Proposed — not yet built · the plan text below is authoritative"))
+      .toBeVisible();
+
+    // Actions block is absent — no Go, no Review.
+    expect(document.querySelector(".actions")).toBeNull();
+  });
+});
+
 describe("PlanPanel visual blocks", () => {
   it("augments: shows caption + VisualReview blocks above plan markdown when blocks present", async () => {
     const id = "s-blocks";

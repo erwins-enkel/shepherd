@@ -1552,5 +1552,6 @@
   "feat_plan_question_answers_title": "Planfragen direkt in der App beantworten",
   "feat_plan_question_answers_body": "Wenn ein Plan offene Fragen stellt, kannst du sie jetzt direkt in der Planansicht beantworten — Optionen auswählen oder eine Antwort eingeben und direkt an den Planungs-Agenten zurücksenden, um den Plan zu verfeinern.",
   "feat_activity_visual_feed_title": "Aktivität ist jetzt ein visueller Feed",
-  "feat_activity_visual_feed_body": "Der Aktivitäts-Tab zeigt während der Arbeit einen Live-Baum der geänderten Dateien und einen gruppierten Tool-Verlauf und wechselt nach Abschluss der Sitzung zur vollständigen visuellen Zusammenfassung."
+  "feat_activity_visual_feed_body": "Der Aktivitäts-Tab zeigt während der Arbeit einen Live-Baum der geänderten Dateien und einen gruppierten Tool-Verlauf und wechselt nach Abschluss der Sitzung zur vollständigen visuellen Zusammenfassung.",
+  "plangate_view": "PLAN"
 }

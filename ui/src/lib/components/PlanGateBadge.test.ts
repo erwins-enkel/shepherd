@@ -23,16 +23,23 @@ describe("planGateChip", () => {
     expect(planGateChip(sess(null), undefined, false).kind).toBe("none");
   });
 
-  it("hides when executing (gate already passed)", () => {
-    expect(planGateChip(sess("executing"), gate({ approved: true }), false).kind).toBe("none");
+  it("shows view chip when executing with a persisted gate (issue #809)", () => {
+    expect(planGateChip(sess("executing"), gate({ approved: true }), false)).toEqual({
+      kind: "view",
+    });
   });
 
-  it("hides when executing even if changes_requested verdict still in gate cache (reconnect scenario)", () => {
+  it("shows view chip when executing even if changes_requested verdict in gate cache (reconnect scenario)", () => {
     // Simulates a client that reconnected after planPhase flipped to "executing":
     // the gate cache is repopulated with a stale changes_requested verdict, but
-    // planPhase is persisted as "executing" — the badge must still be hidden.
+    // planPhase is persisted as "executing" — the signed-off plan is still viewable
+    // read-only (issue #809).
     const staleGate = gate({ decision: "changes_requested", round: 2, cap: 3, approved: false });
-    expect(planGateChip(sess("executing"), staleGate, false)).toEqual({ kind: "none" });
+    expect(planGateChip(sess("executing"), staleGate, false)).toEqual({ kind: "view" });
+  });
+
+  it("hides when executing with no gate", () => {
+    expect(planGateChip(sess("executing"), undefined, false)).toEqual({ kind: "none" });
   });
 
   it("reviewing wins over a stale verdict", () => {

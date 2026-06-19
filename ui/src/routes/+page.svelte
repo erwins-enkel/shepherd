@@ -1495,9 +1495,6 @@
   }
 </script>
 
-<!-- Pre-existing top-level page template; this change only threads a `drain` prop into
-     three existing BacklogView mounts. Complexity is inherent, not introduced here. -->
-<!-- fallow-ignore-next-line complexity -->
 <svelte:window onkeydown={onShortcut} />
 
 <div

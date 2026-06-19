@@ -143,9 +143,6 @@
 </script>
 
 <div class="backlog-view" class:mobile class:flow>
-  <!-- Pre-existing large master/detail template; this change only adds one Automation
-       tab + branch. Complexity is inherent to the multi-tab layout, not introduced here. -->
-  <!-- fallow-ignore-next-line complexity -->
   {#if payload === null}
     <!-- loading state -->
     <div class="state-full">

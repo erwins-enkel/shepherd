@@ -2379,6 +2379,7 @@
         isolated={session.isolated}
         baseBranch={session.baseBranch}
         {drain}
+        autopilotOn={autopilotEffective}
         mobile
       />
       <span class="strip-controls">

@@ -2215,6 +2215,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -2258,6 +2259,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -2953,6 +2955,7 @@ function buildQueueDeps(
       sandboxProfile: "trusted",
       defaultModel: "inherit",
       egressExtraHosts: [],
+      repoMode: "forge",
       ...repoConfig,
     });
   }
@@ -4128,6 +4131,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
@@ -4166,6 +4170,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(sandboxResearchDeps(store, captured) as any);

@@ -100,6 +100,7 @@ function makeHarness(
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   if (opts.epicStatus) {
     store.setEpicRun({

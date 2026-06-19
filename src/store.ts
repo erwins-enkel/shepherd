@@ -87,6 +87,18 @@ export interface RepoConfig {
   defaultModel: string;
   /** Per-repo extra allowlisted hosts appended to the autonomous egress allowlist. */
   egressExtraHosts: string[];
+  /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
+  repoMode: "forge" | "lightweight";
+}
+
+export interface LocalPr {
+  number: number;
+  repoPath: string;
+  branch: string;
+  base: string;
+  state: "open" | "merged";
+  createdAt: number;
+  mergedAt: number | null;
 }
 
 export interface PushSubInput {
@@ -190,6 +202,7 @@ type RepoCfgRow = {
   sandboxProfile: string;
   defaultModel: string;
   egressExtraHosts: string | null;
+  repoMode: string;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -242,6 +255,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       sandboxProfile: "trusted",
       defaultModel: "inherit",
       egressExtraHosts: [],
+      repoMode: "forge",
     };
   }
   return {
@@ -262,6 +276,29 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
+    repoMode: r?.repoMode === "lightweight" ? "lightweight" : "forge",
+  };
+}
+
+type LocalPrRow = {
+  number: number;
+  repoPath: string;
+  branch: string;
+  base: string;
+  state: string;
+  createdAt: number;
+  mergedAt: number | null;
+};
+
+function localPrFromRow(r: LocalPrRow): LocalPr {
+  return {
+    number: r.number,
+    repoPath: r.repoPath,
+    branch: r.branch,
+    base: r.base,
+    state: r.state === "merged" ? "merged" : "open",
+    createdAt: r.createdAt,
+    mergedAt: r.mergedAt ?? null,
   };
 }
 
@@ -309,8 +346,19 @@ export class SessionStore implements CapStore, CreditStore {
       maxAuto INTEGER NOT NULL DEFAULT 1,
       autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto',
       usageCeilingPct INTEGER NOT NULL DEFAULT 80,
+      repoMode TEXT NOT NULL DEFAULT 'forge',
       updatedAt INTEGER NOT NULL)`);
     this.migrateRepoConfigColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
+      number    INTEGER PRIMARY KEY AUTOINCREMENT,
+      repoPath  TEXT NOT NULL,
+      branch    TEXT NOT NULL,
+      base      TEXT NOT NULL,
+      state     TEXT NOT NULL DEFAULT 'open',
+      createdAt INTEGER NOT NULL,
+      mergedAt  INTEGER,
+      UNIQUE(repoPath, branch)
+    )`);
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL,
@@ -516,7 +564,7 @@ export class SessionStore implements CapStore, CreditStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -528,8 +576,8 @@ export class SessionStore implements CapStore, CreditStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -547,6 +595,7 @@ export class SessionStore implements CapStore, CreditStore {
          sandboxProfile = excluded.sandboxProfile,
          defaultModel = excluded.defaultModel,
          egressExtraHosts = excluded.egressExtraHosts,
+         repoMode = excluded.repoMode,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -567,9 +616,50 @@ export class SessionStore implements CapStore, CreditStore {
         cfg.sandboxProfile,
         cfg.defaultModel,
         JSON.stringify(cfg.egressExtraHosts ?? []),
+        cfg.repoMode,
         Date.now(),
       ],
     );
+  }
+
+  // ── local_prs (lightweight-mode pseudo-PRs) ──────────────────────────────
+
+  ensureLocalPr(repoPath: string, branch: string, base: string): LocalPr {
+    const existing = this.getLocalPr(repoPath, branch);
+    if (existing) return existing;
+    this.db.run(
+      `INSERT INTO local_prs (repoPath, branch, base, state, createdAt, mergedAt)
+       VALUES (?, ?, ?, 'open', ?, NULL)`,
+      [repoPath, branch, base, Date.now()],
+    );
+    return this.getLocalPr(repoPath, branch)!;
+  }
+
+  getLocalPr(repoPath: string, branch: string): LocalPr | null {
+    const r = this.db
+      .query(
+        `SELECT number, repoPath, branch, base, state, createdAt, mergedAt
+         FROM local_prs WHERE repoPath = ? AND branch = ?`,
+      )
+      .get(repoPath, branch) as LocalPrRow | null;
+    return r ? localPrFromRow(r) : null;
+  }
+
+  getLocalPrByNumber(number: number): LocalPr | null {
+    const r = this.db
+      .query(
+        `SELECT number, repoPath, branch, base, state, createdAt, mergedAt
+         FROM local_prs WHERE number = ?`,
+      )
+      .get(number) as LocalPrRow | null;
+    return r ? localPrFromRow(r) : null;
+  }
+
+  markLocalPrMerged(number: number): void {
+    this.db.run(`UPDATE local_prs SET state = 'merged', mergedAt = ? WHERE number = ?`, [
+      Date.now(),
+      number,
+    ]);
   }
 
   // ── web push subscriptions ────────────────────────────────────────────────
@@ -1926,6 +2016,8 @@ export class SessionStore implements CapStore, CreditStore {
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
+    // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).
+    add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
   }
 
   private migrateEpicIntegratedColumns(): void {

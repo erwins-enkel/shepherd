@@ -173,6 +173,7 @@ function makeHarness(
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const forgeRec: ForgeRec = {
@@ -733,6 +734,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -752,6 +754,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const forgeRec: ForgeRec = {
@@ -1406,6 +1409,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const candidateIssue = issue(42);

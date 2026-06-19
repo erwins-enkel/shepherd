@@ -126,6 +126,7 @@ function makeHarness(
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };

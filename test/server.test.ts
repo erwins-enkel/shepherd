@@ -1221,6 +1221,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     egressExtraHosts: [],
+    repoMode: "forge",
   });
 
   const res = await app.fetch(new Request("http://x/api/learnings/injectable"));

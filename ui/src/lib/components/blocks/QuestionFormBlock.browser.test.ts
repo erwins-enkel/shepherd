@@ -1,8 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import QuestionFormBlock from "./QuestionFormBlock.svelte";
+
+const answerPlanQuestions = vi.fn<
+  (id: string, answers: unknown[]) => Promise<{ delivered: boolean }>
+>(async () => ({ delivered: true }));
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  return {
+    ...actual,
+    answerPlanQuestions: (...a: unknown[]) =>
+      answerPlanQuestions(...(a as Parameters<typeof answerPlanQuestions>)),
+  };
+});
+
+afterEach(() => answerPlanQuestions.mockClear());
 
 describe("QuestionFormBlock", () => {
   it("renders single-kind prompt, options as radios, and kind hint", async () => {
@@ -97,5 +111,78 @@ describe("QuestionFormBlock", () => {
     for (const input of allInputs) {
       expect(input.disabled).toBe(true);
     }
+  });
+});
+
+describe("QuestionFormBlock — interactive (answerCtx present)", () => {
+  const block = {
+    type: "question-form" as const,
+    id: "qf",
+    questions: [
+      { id: "q1", prompt: "Which approach?", kind: "single" as const, options: ["Reuse", "New"] },
+      { id: "q2", prompt: "Edge cases?", kind: "multi" as const, options: ["Empty", "Huge"] },
+      { id: "q3", prompt: "Notes?", kind: "freeform" as const },
+    ],
+  };
+
+  it("enables inputs when answerCtx is present", async () => {
+    const { container } = render(QuestionFormBlock, {
+      block,
+      answerCtx: { sessionId: "s1", locked: false },
+    });
+    const inputs = container.querySelectorAll("input");
+    expect(inputs.length).toBeGreaterThan(0);
+    for (const input of inputs) expect(input.disabled).toBe(false);
+  });
+
+  it("keeps submit disabled until single + freeform are answered, then submits the payload", async () => {
+    const { container } = render(QuestionFormBlock, {
+      block,
+      answerCtx: { sessionId: "sess-9", locked: false },
+    });
+    const button = page.getByRole("button");
+    await expect.element(button).toBeDisabled();
+
+    // Answer the required single + freeform (multi left empty on purpose).
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[1]!).click(); // "New" → index 1
+    const text = container.querySelector<HTMLInputElement>('input[type="text"]')!;
+    await page.elementLocator(text).fill("keep it minimal");
+
+    await expect.element(button).toBeEnabled();
+    await button.click();
+
+    expect(answerPlanQuestions).toHaveBeenCalledTimes(1);
+    const [sid, answers] = answerPlanQuestions.mock.calls[0]!;
+    expect(sid).toBe("sess-9");
+    expect(answers).toEqual([
+      { blockId: "qf", questionId: "q1", optionIndices: [1] },
+      { blockId: "qf", questionId: "q2", optionIndices: [] },
+      { blockId: "qf", questionId: "q3", text: "keep it minimal" },
+    ]);
+    await expect.element(page.getByText("Answers sent to the planning agent.")).toBeInTheDocument();
+  });
+
+  it("disables submit while a plan review is in flight (locked)", async () => {
+    render(QuestionFormBlock, { block, answerCtx: { sessionId: "s1", locked: true } });
+    await expect.element(page.getByRole("button")).toBeDisabled();
+  });
+
+  it("surfaces an undelivered note when the steer can't reach the agent", async () => {
+    answerPlanQuestions.mockResolvedValueOnce({ delivered: false });
+    const { container } = render(QuestionFormBlock, {
+      block: {
+        type: "question-form" as const,
+        id: "qf",
+        questions: [{ id: "q1", prompt: "Pick", kind: "single" as const, options: ["a", "b"] }],
+      },
+      answerCtx: { sessionId: "s1", locked: false },
+    });
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[0]!).click();
+    await page.getByRole("button").click();
+    await expect
+      .element(page.getByText("Couldn't reach the planning agent — it may have already moved on."))
+      .toBeInTheDocument();
   });
 });

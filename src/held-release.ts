@@ -46,6 +46,10 @@ export async function releaseHeldTasks(
       released++;
     } catch (err) {
       console.warn("[held] spawn failed for task", task.id, err);
+      // Head-of-line blocking: a task whose service.create throws (e.g. repo deleted
+      // between hold and release) stays at the queue head and re-blocks every tick
+      // until the operator explicitly discards it via the TopBar held-tasks popover.
+      // The discard action is the escape hatch — there is no automatic skip.
       break; // on failure, leave the row and stop — don't lose or skip remaining tasks
     }
   }

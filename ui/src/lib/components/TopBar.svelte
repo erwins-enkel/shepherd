@@ -376,11 +376,6 @@
     const el = heldPopEl;
     if (!el) return;
     const clamp = () => {
-      if (window.matchMedia("(pointer: coarse)").matches) {
-        el.style.maxHeight = "";
-        heldPopFlipUp = false;
-        return;
-      }
       const anchor = el.offsetParent;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
@@ -2497,18 +2492,12 @@
     margin-bottom: 4px;
   }
   @media (pointer: coarse) {
+    /* Touch: keep the popover ANCHORED (not fixed-centered) so it stays a small
+       non-blocking popover exempt from the modal scrim rule (CLAUDE.md). The
+       flip-up + height-clamp $effect already handles overflow on coarse-pointer
+       devices. Widen slightly for thumb reach. */
     .held-pop {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      right: auto;
-      bottom: auto;
-      transform: translate(-50%, -50%);
-      margin: 0;
-      width: min(420px, 92vw);
-      max-width: none;
-      max-height: 85vh;
-      z-index: 51;
+      width: min(360px, 92vw);
     }
     .held-badge {
       min-height: 44px;

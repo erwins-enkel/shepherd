@@ -567,6 +567,10 @@
         error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
         retry = () => submit(e);
       }
+    } finally {
+      // Always clear submitting so the dialog stays usable — on the held path the
+      // page returns early (keeping the dialog open) and we must re-enable the
+      // buttons so the operator can still click "Submit anyway".
       submitting = false;
     }
   }

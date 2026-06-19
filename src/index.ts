@@ -768,7 +768,11 @@ setInterval(() => {
   void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
   void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
   void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
-  buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync, never throws)
+  try {
+    buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
+  } catch (err) {
+    console.warn("[build-queue] reminder sweep failed:", err);
+  }
 }, 15_000);
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far

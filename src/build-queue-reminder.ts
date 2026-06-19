@@ -99,7 +99,8 @@ export class BuildQueueReminderService {
 
   /**
    * Periodic auto-fire. For each active session with an approved, non-empty queue, advance the
-   * settled-idle debounce and nudge once per episode when the queue is drifted. Never throws.
+   * settled-idle debounce and nudge once per episode when the queue is drifted. May surface a
+   * synchronous store (SQLite) error; the caller guards it so the timer can't die.
    */
   sweep(): void {
     const now = this.now();

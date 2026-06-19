@@ -12,7 +12,7 @@ import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
-import { classifyHalt } from "./usage-halt";
+import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
 import { scanListeningPortsByWorktree, scanClaudeAliveByWorktree } from "./process-reaper";
@@ -514,8 +514,11 @@ export class StatusPoller {
     if (s.haltReason) return; // already set; skip
     try {
       const tail = readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+      // Match only NON-user transcript content: a user prompt mentioning usage-limit
+      // phrasing must never be read as Claude's own halt notice (false positive on the
+      // uncalibrated degrade path, where the usage corroboration is bypassed).
       const reason = classifyHalt(
-        tail,
+        assistantSideText(tail),
         this.usageLimitsSvc.limits(this.now()),
         config.usageHoldPct,
       );

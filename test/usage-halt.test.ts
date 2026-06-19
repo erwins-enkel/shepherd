@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchesUsageLimit, classifyHalt } from "../src/usage-halt";
+import { matchesUsageLimit, classifyHalt, assistantSideText } from "../src/usage-halt";
 import type { UsageLimits } from "../src/usage-limits";
 
 // NOTE: All positive test strings below are SYNTHETIC — no real captured usage-limit
@@ -90,4 +90,72 @@ test("classifyHalt: match + both windows at exactly holdPct → usage_limit (>= 
 
 test("classifyHalt: match + both windows just below holdPct → null", () => {
   expect(classifyHalt(MATCH, limits(79, 79), 80)).toBeNull();
+});
+
+// ── assistantSideText: drop user-authored content before matching ──────────────
+// Regression for the degrade-path false positive: a user prompt that merely mentions
+// usage-limit phrasing (e.g. a session discussing this very feature) must NOT be read
+// as Claude's own halt notice.
+
+const userLine = JSON.stringify({
+  type: "user",
+  message: {
+    role: "user",
+    content: "Does Shepherd detect when the Claude usage limit reached state happens?",
+  },
+});
+const assistantBenign = JSON.stringify({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: "Yes — it scans the transcript tail.",
+    usage: { input_tokens: 10 },
+  },
+});
+const assistantHalt = JSON.stringify({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: "Claude usage limit reached. Your limit will reset at 3:00pm.",
+  },
+});
+
+test("assistantSideText drops user lines so a user mention does not match", () => {
+  const tail = `${userLine}\n${assistantBenign}`;
+  const text = assistantSideText(tail);
+  expect(text.includes("usage limit reached")).toBe(false);
+  expect(matchesUsageLimit(text)).toBe(false);
+});
+
+test("assistantSideText keeps a real assistant/system halt notice", () => {
+  const tail = `${userLine}\n${assistantHalt}`;
+  expect(matchesUsageLimit(assistantSideText(tail))).toBe(true);
+});
+
+test("assistantSideText: token-usage object alone does not match", () => {
+  expect(matchesUsageLimit(assistantSideText(assistantBenign))).toBe(false);
+});
+
+test("assistantSideText falls back to raw text for non-JSONL input", () => {
+  expect(matchesUsageLimit(assistantSideText("Claude usage limit reached — resets soon"))).toBe(
+    true,
+  );
+});
+
+test("classifyHalt: user-only mention on the UNCALIBRATED degrade path is NOT a halt", () => {
+  const uncalibrated: UsageLimits = {
+    session5h: null,
+    week: null,
+    credits: null,
+    stale: true,
+    calibratedAt: null,
+    subscriptionOnly: false,
+  };
+  // Pre-fix: raw tail matched + usageKnown=false → false "usage_limit". Post-fix: user line dropped → null.
+  const tail = `${userLine}\n${assistantBenign}`;
+  expect(classifyHalt(assistantSideText(tail), uncalibrated, 80)).toBeNull();
+  // A genuine assistant halt on the same degrade path still classifies.
+  expect(classifyHalt(assistantSideText(`${userLine}\n${assistantHalt}`), uncalibrated, 80)).toBe(
+    "usage_limit",
+  );
 });

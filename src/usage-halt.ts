@@ -3,6 +3,7 @@
 // Real-sample calibration is a follow-up once live samples are captured.
 
 import type { UsageLimits } from "./usage-limits";
+import { eachJsonlObject } from "./jsonl";
 
 const USAGE_LIMIT_PATTERNS: RegExp[] = [
   // "claude usage limit" phrase
@@ -26,6 +27,32 @@ const USAGE_LIMIT_PATTERNS: RegExp[] = [
  */
 export function matchesUsageLimit(tail: string): boolean {
   return USAGE_LIMIT_PATTERNS.some((re) => re.test(tail));
+}
+
+/**
+ * Extract the text of NON-user transcript entries (assistant, system, tool, …) from a raw
+ * JSONL tail, dropping user-authored messages. Claude's usage-limit notice is never
+ * user-authored, so excluding user prompts stops a transcript where the *user* merely typed
+ * usage-limit phrasing (e.g. a session discussing this very feature) from being mistaken for a
+ * real halt — the false-positive the corroboration gate cannot catch on the uncalibrated
+ * degrade path.
+ *
+ * Each retained entry is serialized whole so the phrasing is found wherever it sits (content
+ * blocks, system text, error fields). The token-accounting `message.usage` object never trips
+ * the patterns (they require "usage limit", "weekly limit", "limit reached … reset", etc.).
+ * Falls back to the raw tail when it isn't parseable JSONL, so a non-JSONL transcript source
+ * still gets matched.
+ */
+export function assistantSideText(rawJsonl: string): string {
+  const parts: string[] = [];
+  let parsedAny = false;
+  for (const obj of eachJsonlObject(rawJsonl)) {
+    parsedAny = true;
+    const role = obj?.message?.role ?? obj?.role ?? obj?.type;
+    if (role === "user") continue;
+    parts.push(JSON.stringify(obj));
+  }
+  return parsedAny ? parts.join("\n") : rawJsonl;
 }
 
 /**

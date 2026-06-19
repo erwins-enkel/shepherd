@@ -1248,7 +1248,7 @@ export class SessionService {
   async create(input: CreateSessionInput): Promise<Session> {
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
-    const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug);
+    const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug, input.repoPath);
     const baseRef = await this.resolveBaseRef(input);
     const wt = this.deps.worktree.create(input.repoPath, baseRef, name);
     // The worktree is created before the agent can start, so any failure past this
@@ -1499,31 +1499,45 @@ export class SessionService {
    *
    * The composed `base-herd` string is capped at 60 characters (trimming any trailing dash)
    * to keep branch/worktree paths sane, matching the 60-char convention used by slugifyManual.
+   *
+   * When `repoPath` is provided, a candidate is also rejected when its `shepherd/<candidate>`
+   * branch already exists in the repo — not just when a live herdr agent owns the name. The
+   * namer is deterministic, so relaunching a task from the same issue yields the same base; a
+   * prior session's branch persists whenever it wasn't merged (`pruneMergedBranch` deletes only
+   * merged branches). Without the branch check the new worktree would collide on `git worktree
+   * add -b shepherd/<base>` and fail fatally. Pre-empting it here keeps the display name, herdr
+   * agent name, branch, and worktree path all in sync on the suffixed value.
    */
-  private uniqueName(base: string, herd?: string): string {
-    const taken = new Set(
+  private uniqueName(base: string, herd?: string, repoPath?: string): string {
+    const liveNames = new Set(
       this.deps.herdr
         .list()
         .map((a) => a.name)
         .filter(Boolean),
     );
-    if (!taken.has(base)) return base;
+    // A candidate is taken if a live agent owns the name OR (when repoPath is given) the
+    // matching branch already exists. Both are cheap; branchExists is a bounded `git rev-parse`.
+    const isTaken = (candidate: string): boolean =>
+      liveNames.has(candidate) ||
+      (!!repoPath && this.deps.worktree.branchExists(repoPath, `shepherd/${candidate}`));
+
+    if (!isTaken(base)) return base;
 
     if (herd) {
       // Cap at 60 chars (matching slugifyManual's convention). If base is already 59–60 chars
       // the herd may be truncated away entirely; numeric fallback below still produces a valid name.
       const composed = `${base}-${herd}`.slice(0, 60).replace(/-+$/, "");
-      if (!taken.has(composed)) return composed;
+      if (!isTaken(composed)) return composed;
       for (let i = 2; ; i++) {
         const candidate = `${composed}-${i}`;
-        if (!taken.has(candidate)) return candidate;
+        if (!isTaken(candidate)) return candidate;
       }
     }
 
     // No usable herd — fall back to the original numeric scan.
     for (let i = 2; ; i++) {
       const candidate = `${base}-${i}`;
-      if (!taken.has(candidate)) return candidate;
+      if (!isTaken(candidate)) return candidate;
     }
   }
 

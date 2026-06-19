@@ -28,8 +28,8 @@ test("held_tasks: listHeldTasks returns FIFO order", () => {
   });
   const list = s.listHeldTasks();
   expect(list).toHaveLength(2);
-  expect(list[0].id).toBe("h1");
-  expect(list[1].id).toBe("h2");
+  expect(list[0]!.id).toBe("h1");
+  expect(list[1]!.id).toBe("h2");
 });
 
 test("held_tasks: countHeldTasks returns correct count", () => {
@@ -66,5 +66,5 @@ test("held_tasks: removeHeldTask removes row and leaves others intact", () => {
   expect(s.countHeldTasks()).toBe(1);
   expect(s.getHeldTask("h1")).toBeNull();
   expect(s.getHeldTask("h2")).not.toBeNull();
-  expect(s.listHeldTasks()[0].id).toBe("h2");
+  expect(s.listHeldTasks()[0]!.id).toBe("h2");
 });

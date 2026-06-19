@@ -113,6 +113,8 @@ import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-i
 import { fingerprintDiffCount } from "./rundown-core";
 import { quotaBlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
+import { shouldHold } from "./usage-hold";
+import { randomUUID } from "node:crypto";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -1135,6 +1137,36 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   const body = await req.json().catch(() => null);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
+
+  // ── usage-aware hold gate ──────────────────────────────────────────────────
+  const force = !!(
+    body &&
+    typeof body === "object" &&
+    (body as Record<string, unknown>).force === true
+  );
+  const lim = deps.usageLimits.limits(Date.now());
+  const s5h = lim.session5h?.pct ?? 0;
+  const week = lim.week?.pct ?? 0;
+  const running = deps.store
+    .list({ activeOnly: true })
+    .filter((x) => x.status === "running").length;
+  if (
+    shouldHold({
+      enabled: config.usageHoldEnabled,
+      holdPct: config.usageHoldPct,
+      session5hPct: s5h,
+      weekPct: week,
+      activeSessionCount: running,
+      force,
+    })
+  ) {
+    const id = randomUUID();
+    const createdAt = Date.now();
+    deps.store.addHeldTask({ id, repoPath: result.value.repoPath, input: result.value, createdAt });
+    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+    return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+  }
+
   let s;
   try {
     s = await deps.service.create(result.value);
@@ -2531,6 +2563,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       authMode: config.authMode,
       // whether an apiKeyHelper script is configured; NEVER expose the key or path.
       hasApiKey: config.authApiKeyHelperPath !== null,
+      // usage-aware task holding
+      usageHoldEnabled: config.usageHoldEnabled,
+      usageHoldPct: config.usageHoldPct,
     });
   }
   if (req.method === "PUT") {
@@ -2558,6 +2593,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["anthropicApiKey", putAnthropicApiKey],
+  ["usageHoldEnabled", putUsageHoldEnabled],
+  ["usageHoldPct", putUsageHoldPct],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -2653,6 +2690,25 @@ function putAnthropicApiKey(value: unknown, deps: Ctx["deps"]): Response {
   }
 }
 
+function putUsageHoldEnabled(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "usageHoldEnabled must be a boolean" }, 400);
+  }
+  config.usageHoldEnabled = value;
+  deps.store.setSetting("usageHoldEnabled", value ? "1" : "0");
+  return json({ usageHoldEnabled: config.usageHoldEnabled });
+}
+
+function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "usageHoldPct must be a number" }, 400);
+  }
+  const n = Math.min(100, Math.max(0, Math.floor(value)));
+  config.usageHoldPct = n;
+  deps.store.setSetting("usageHoldPct", String(n));
+  return json({ usageHoldPct: config.usageHoldPct });
+}
+
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
   const root = validateRoot(value, config.rootCeiling);
   if (!root) {
@@ -2710,6 +2766,43 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
       return json(deps.service.broadcast(parsed.ids, parsed.text));
     }
   }
+  return null;
+}
+
+// ── /api/held — usage-hold queue management ──────────────────────────────────
+async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "held") return null;
+
+  // GET /api/held — list held tasks FIFO
+  if (req.method === "GET" && !parts[2]) {
+    return json(deps.store.listHeldTasks());
+  }
+
+  // POST /api/held/:id/spawn — release one held task immediately
+  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
+    const h = deps.store.getHeldTask(parts[2]);
+    if (!h) return json({ error: "not found" }, 404);
+    let s;
+    try {
+      s = await deps.service.create(h.input);
+    } catch (e) {
+      if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
+      const msg = e instanceof Error ? e.message : "create failed";
+      const taken = /agent_name_taken/.test(msg);
+      return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
+    }
+    deps.store.removeHeldTask(h.id);
+    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+    return json(s, 201);
+  }
+
+  // DELETE /api/held/:id — discard a held task
+  if (req.method === "DELETE" && parts[2] && !parts[3]) {
+    deps.store.removeHeldTask(parts[2]);
+    deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+    return json({ ok: true });
+  }
+
   return null;
 }
 
@@ -4059,6 +4152,7 @@ const ROUTE_HANDLERS = [
   handleSteers,
   handleProjectIcons,
   handleBroadcast,
+  handleHeld,
   handleHalt,
   handleFsDirs,
   handleBranches,

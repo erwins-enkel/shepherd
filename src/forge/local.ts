@@ -22,8 +22,8 @@ const GIT_TIMEOUT_MS = 60_000;
 /** Lighter bound for the pure-read probes (rev-parse / merge-tree dry run / --version). */
 const GIT_READ_TIMEOUT_MS = 15_000;
 
-const MIN_GIT_MAJOR = 2;
-const MIN_GIT_MINOR = 38;
+export const MIN_GIT_MAJOR = 2;
+export const MIN_GIT_MINOR = 38;
 
 /** Thrown when the squash would conflict (`git merge-tree --write-tree` non-zero).
  *  No refs are touched when this is thrown. */

@@ -76,6 +76,7 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
+import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
@@ -2018,10 +2019,21 @@ async function forgeMerge(
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR to merge" }, 409);
   }
-  await forge.merge(cur.number, {
-    method: body.method ?? forge.mergeMethod,
-    deleteBranch: body.deleteBranch ?? true,
-  });
+  try {
+    await forge.merge(cur.number, {
+      method: body.method ?? forge.mergeMethod,
+      deleteBranch: body.deleteBranch ?? true,
+    });
+  } catch (err) {
+    if (err instanceof MergeConflictError)
+      return json({ error: "merge conflict — resolve manually before merging" }, 409);
+    if (err instanceof BaseCheckoutBusyError)
+      return json(
+        { error: "base branch checkout has uncommitted changes or moved — commit/stash and retry" },
+        409,
+      );
+    throw err;
+  }
   // Lightweight (local) merge happened in-tree — nobody else tears the session down (no host
   // poller path, no merge train), so the worktree/branch would leak. Settle it here, mirroring
   // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human

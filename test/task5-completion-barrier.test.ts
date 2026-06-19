@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { makeApp } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
-import { LocalForge } from "../src/forge/local";
+import { LocalForge, MergeConflictError, BaseCheckoutBusyError } from "../src/forge/local";
 import { computeMerge, type MergeRepoState, type MergeSessionView } from "../src/automerge-core";
 
 const ENV = {
@@ -279,4 +279,108 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     prNumber: 1,
     headSha: "h1",
   });
+});
+
+// ── forgeMerge: local merge errors → 409, session stays "open" ───────────────
+
+test("forgeMerge on a local session returns 409 (not 500) when MergeConflictError thrown, pr row stays open", async () => {
+  const { repo } = mkRepoWithBranch("feature/conflict", 1);
+  try {
+    const store = new SessionStore(":memory:");
+    // Stub LocalForge: openPr succeeds, merge throws MergeConflictError
+    const stubForge = {
+      kind: "local" as const,
+      mergeMethod: "squash" as const,
+      prStatus: async () => ({
+        state: "open" as const,
+        number: 1,
+        checks: "success" as const,
+        deployConfigured: false,
+      }),
+      merge: async () => {
+        throw new MergeConflictError("feature/conflict", "main");
+      },
+      openPr: async () => ({
+        state: "open" as const,
+        number: 1,
+        checks: "success" as const,
+        deployConfigured: false,
+      }),
+      currentUser: async () => null,
+    };
+    const app = makeApp({
+      store,
+      service: { archive: async () => 1 } as any,
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      resolveForge: () => stubForge as any,
+      prCache: { snapshot: () => ({}), get: () => undefined, set: () => {}, drop: () => {} } as any,
+      drain: { retainClaim: () => {} } as any,
+    });
+    const s = mkSession(store, repo, "feature/conflict");
+
+    const res = await app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/git/merge`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/merge conflict/);
+    // session must NOT have been archived (nothing partially settled)
+    expect(store.get(s.id)!.status).not.toBe("archived");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("forgeMerge on a local session returns 409 (not 500) when BaseCheckoutBusyError thrown, pr row stays open", async () => {
+  const { repo } = mkRepoWithBranch("feature/busy", 1);
+  try {
+    const store = new SessionStore(":memory:");
+    const stubForge = {
+      kind: "local" as const,
+      mergeMethod: "squash" as const,
+      prStatus: async () => ({
+        state: "open" as const,
+        number: 1,
+        checks: "success" as const,
+        deployConfigured: false,
+      }),
+      merge: async () => {
+        throw new BaseCheckoutBusyError("main");
+      },
+      openPr: async () => ({
+        state: "open" as const,
+        number: 1,
+        checks: "success" as const,
+        deployConfigured: false,
+      }),
+      currentUser: async () => null,
+    };
+    const app = makeApp({
+      store,
+      service: { archive: async () => 1 } as any,
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      resolveForge: () => stubForge as any,
+      prCache: { snapshot: () => ({}), get: () => undefined, set: () => {}, drop: () => {} } as any,
+      drain: { retainClaim: () => {} } as any,
+    });
+    const s = mkSession(store, repo, "feature/busy");
+
+    const res = await app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/git/merge`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/base branch checkout/);
+    expect(store.get(s.id)!.status).not.toBe("archived");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });

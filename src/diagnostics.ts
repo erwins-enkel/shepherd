@@ -10,7 +10,7 @@ import {
   config,
   findServedPort,
 } from "./config";
-import { parseGitVersion, gitVersionAtLeast } from "./forge/local";
+import { parseGitVersion, gitVersionAtLeast, MIN_GIT_MAJOR, MIN_GIT_MINOR } from "./forge/local";
 import { compareSemver } from "./herdr-update";
 import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
@@ -257,7 +257,7 @@ export class DiagnosticsService {
   private gitMergetreeProbe = async (): Promise<DiagnosticCheck> => {
     const out = await this.runVersion("git", ["--version"]);
     const v = parseGitVersion(out);
-    if (!v || !gitVersionAtLeast(v, 2, 38)) {
+    if (!v || !gitVersionAtLeast(v, MIN_GIT_MAJOR, MIN_GIT_MINOR)) {
       return { id: "git_mergetree", state: "warning", hintKey: "diagnostics_hint_gitcap_old" };
     }
     return { id: "git_mergetree", state: "ok", hintKey: "diagnostics_hint_gitcap_ok" };

@@ -31,7 +31,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Fallow's PR audit diffs against the base branch — needs full history.
           fetch-depth: 0

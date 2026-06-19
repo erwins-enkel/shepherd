@@ -996,19 +996,21 @@ function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps):
   return json({ ok: true });
 }
 
+async function handleLearningPromote(deps: AppDeps, id: string): Promise<Response> {
+  if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
+  const res = await deps.promoter.promote(id);
+  if (!res.ok) return json({ error: res.error }, res.status);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json({ url: res.url });
+}
+
 async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   // POST /api/learnings/{distill,optimize}?repo= — checked BEFORE :id so they aren't ids
   const repoScoped = handleRepoScopedLearningPost(parts, url, deps);
   if (repoScoped) return repoScoped;
 
   // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
-  if (parts[2] && parts[3] === "promote") {
-    if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
-    const res = await deps.promoter.promote(parts[2]);
-    if (!res.ok) return json({ error: res.error }, res.status);
-    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
-    return json({ url: res.url });
-  }
+  if (parts[2] && parts[3] === "promote") return handleLearningPromote(deps, parts[2]);
 
   // POST /api/learnings/:id/optimize — optimize a single flagged rule
   if (parts[2] && parts[3] === "optimize") {

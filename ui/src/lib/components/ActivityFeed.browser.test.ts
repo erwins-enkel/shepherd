@@ -191,6 +191,39 @@ describe("ActivityFeed — sectioned tool stream", () => {
   });
 });
 
+describe("ActivityFeed — interleaved kind-repeating stream", () => {
+  it("renders without duplicate-key crash for interleaved tools (regression: each_key_duplicate)", async () => {
+    // Stream where the same kind appears non-consecutively: read, exec, read, edit, exec
+    // groupActivity only coalesces CONSECUTIVE same-kind entries, so this produces
+    // groups: [read(1), exec(1), read(1), edit(1), exec(1)] — five groups, two with kind "read"
+    // and two with kind "exec". Keying by group.kind alone would throw each_key_duplicate.
+    const entries: ActivityEntry[] = [
+      { ts: 1000, tool: "Read", summary: "read file A", status: "ok" },
+      { ts: 2000, tool: "Bash", summary: "run build", status: "ok" },
+      { ts: 3000, tool: "Read", summary: "read file B", status: "ok" },
+      { ts: 4000, tool: "Edit", summary: "edit foo.ts", status: "ok" },
+      { ts: 5000, tool: "Bash", summary: "run tests", status: "ok" },
+    ];
+    mockGetActivity.mockResolvedValue(entries);
+    mockGetDiff.mockResolvedValue(EMPTY_DIFF);
+
+    // Must not throw — if (group.kind) key is used, Svelte 5 throws each_key_duplicate
+    expect(() => render(ActivityFeed, { sessionId: "s1" })).not.toThrow();
+
+    // All five summaries should render (newest-first after reverse: run tests, edit foo.ts, read file B, run build, read file A)
+    await expect.element(page.getByText("run tests")).toBeInTheDocument();
+    await expect.element(page.getByText("edit foo.ts")).toBeInTheDocument();
+    await expect.element(page.getByText("read file B")).toBeInTheDocument();
+    await expect.element(page.getByText("run build")).toBeInTheDocument();
+    await expect.element(page.getByText("read file A")).toBeInTheDocument();
+
+    // The repeated-kind section headers should both appear (two exec groups, two read groups)
+    const kindHeaders = document.querySelectorAll("li.kind-header");
+    // 5 groups total: exec, edit, read, exec, read (reversed order)
+    expect(kindHeaders.length).toBe(5);
+  });
+});
+
 describe("ActivityFeed — empty state", () => {
   it("renders empty message when no activity and no diff files", async () => {
     mockGetActivity.mockResolvedValue([]);

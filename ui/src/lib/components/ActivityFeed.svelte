@@ -74,7 +74,7 @@
   const groups = $derived(groupActivity(rows));
 
   const hasFiles = $derived((diff?.files?.length ?? 0) > 0);
-  const isEmpty = $derived((loaded || diffLoaded) && rows.length === 0 && !hasFiles);
+  const isEmpty = $derived(loaded && diffLoaded && rows.length === 0 && !hasFiles);
   const isLoading = $derived(!loaded && !diffLoaded);
 </script>
 
@@ -99,11 +99,11 @@
 
     {#if rows.length}
       <ul aria-live="polite">
-        {#each groups as group (group.kind)}
+        {#each groups as group, i (group.kind + ":" + i)}
           <li class="kind-header">
             {kindLabel[group.kind]()}{group.entries.length > 1 ? ` (${group.entries.length})` : ""}
           </li>
-          {#each group.entries as e (e.ts + e.tool + e.summary)}
+          {#each group.entries as e, j (group.kind + ":" + i + ":" + j)}
             <li class:error={e.status === "error"} class:pending={e.status === "pending"}>
               <span class="time">{clock(e.ts)}</span>
               <span class="glyph" aria-hidden="true">{glyph(e.tool)}</span>

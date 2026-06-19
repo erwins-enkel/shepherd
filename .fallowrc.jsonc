@@ -125,6 +125,160 @@
     "maxCyclomatic": 20,
     "maxCognitive": 15,
     "maxCrap": 1000,
+
+    // Svelte <template> complexity (fallow 2.98+, issue #851). fallow scores a
+    // synthetic `<template>` entry per .svelte file — the whole markup block, with
+    // every {#if}/{#each}/{:else} counted as a branch — against the SAME per-function
+    // thresholds (20/15) it uses for real functions. That's a category error for an
+    // aggregate that rolls up what other frameworks split across many render helpers,
+    // so every non-trivial component trips (36 on 2.98 vs 0 on 2.97). These overrides
+    // adopt the metric deliberately instead of either ignoring it or pinning fallow
+    // back. They relax ONLY the synthetic <template> entry; <script>-block functions
+    // in these same files stay gated at the global 20/15.
+    //
+    // WHY OVERRIDES (not just the version bump): a new non-trivial Svelte component
+    // trips the library-default 20/15 as an "introduced" finding (verified — a fresh
+    // ~25-conditional template fails the audit at 20/15 and passes at the Tier-1 40/60).
+    // Without the overrides the 36 existing components also sit in every report as
+    // inherited noise. The bar below adopts the metric at a Svelte-appropriate level.
+    //
+    // ON #756: the line-shift mis-attribution that motivated the old 2.97 pin was
+    // re-tested against 2.100 and does NOT reproduce — fallow attributes inherited
+    // <template> findings correctly across line shifts AND complexity increases (the
+    // audit's new-only gate fires only when a template is a finding in HEAD that was not
+    // one in the base). So these overrides are a deliberate bar + clean adoption, not a
+    // #756 workaround. A brand-new oversized template (or one newly crossing the bar)
+    // will still trip as "introduced" — that's the gate working; fix or grandfather it.
+    //
+    // Tier 1: a real global bar for idiomatic Svelte markup (≈2× cyclo / 4× cognitive
+    //   over the per-function default; cognitive runs higher because markup nests). No
+    //   external convention exists for template thresholds — this is a deliberate
+    //   judgment call. 23 of 36 components clear it; anything over it still trips, so
+    //   the metric stays live for new code.
+    // Tier 2: the 13 giants that exceed Tier 1, each grandfathered just above its
+    //   current cyclo/cog (next multiple of 10) so it can't silently grow. Tracked for
+    //   refactor in #855.
+    // maxCrap is intentionally inert for templates: CRAP for uncovered code is pure
+    //   CC-derived noise bounded by CC²+CC; 20000 sits above the largest template's
+    //   worst case (Viewport CC 136 → ≈18632) so it never becomes the binding
+    //   constraint — the cyclo/cog bars are the real gate. Same spirit as the global
+    //   maxCrap: 1000 above. Every entry sets all three dimensions explicitly (no
+    //   cross-entry inheritance).
+    "thresholdOverrides": [
+      {
+        "files": ["ui/src/**/*.svelte", "extension/src/**/*.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "Tier 1: global Svelte <template> complexity bar (#851; see comment above)."
+      },
+      {
+        "files": ["ui/src/lib/components/Viewport.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 140,
+        "maxCognitive": 200,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/TopBar.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 120,
+        "maxCognitive": 200,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/Herd.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 110,
+        "maxCognitive": 160,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/routes/+page.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 80,
+        "maxCognitive": 100,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/Settings.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 60,
+        "maxCognitive": 70,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/GitRail.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 60,
+        "maxCognitive": 120,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/UnitRow.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 60,
+        "maxCognitive": 90,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/AutomationSettings.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 60,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/NewTask.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 50,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/LearningsDrawer.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 50,
+        "maxCognitive": 110,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/BacklogView.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 80,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/RepoSwitcher.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 70,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      },
+      {
+        "files": ["ui/src/lib/components/IssuesPanel.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 100,
+        "maxCrap": 20000,
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+      }
+    ],
+
     "ignore": [
       "**/src/lib/paraglide/**",
       "**/scripts/**",

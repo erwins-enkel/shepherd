@@ -59,6 +59,7 @@ function repoConfig(planGateEnabled: boolean): RepoConfig {
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     defaultModel: "inherit",
+    repoMode: "forge",
   };
 }
 

@@ -528,6 +528,15 @@ function parseSignoffAuthority(v: unknown): "human" | "critic" | "either" | { er
   return v as "human" | "critic" | "either";
 }
 
+// repoMode: "forge" | "lightweight"
+const REPO_MODE_VALUES = ["forge", "lightweight"] as const;
+function parseRepoMode(v: unknown): "forge" | "lightweight" | { error: string } {
+  if (!REPO_MODE_VALUES.includes(v as (typeof REPO_MODE_VALUES)[number])) {
+    return { error: `repoMode must be one of: ${REPO_MODE_VALUES.join(", ")}` };
+  }
+  return v as "forge" | "lightweight";
+}
+
 // sandboxProfile: one of the three valid profile values
 function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
   if (!isSandboxProfile(v)) {
@@ -576,6 +585,7 @@ type RepoCfgBody = {
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
+  repoMode?: unknown;
 };
 
 // true when any present boolean field is not actually a boolean
@@ -594,6 +604,7 @@ type RepoCfgScalars = {
   sandboxProfile?: SandboxProfile;
   defaultModel?: string;
   egressExtraHosts?: string[];
+  repoMode?: "forge" | "lightweight";
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -613,6 +624,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["sandboxProfile", parseSandboxProfile],
   ["defaultModel", parseRepoDefaultModel],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
+  ["repoMode", parseRepoMode],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -648,6 +660,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
+      repoMode?: "forge" | "lightweight";
     }
   | Response
 > {
@@ -671,6 +684,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sandboxProfile,
     defaultModel,
     egressExtraHosts,
+    repoMode,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -680,12 +694,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority !== undefined ||
     sandboxProfile !== undefined ||
     defaultModel !== undefined ||
-    egressExtraHosts !== undefined;
+    egressExtraHosts !== undefined ||
+    repoMode !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode",
       },
       400,
     );
@@ -708,6 +723,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     maxAuto,
     autoLabel,
     usageCeilingPct,
+    repoMode,
   };
 }
 

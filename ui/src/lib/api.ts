@@ -1039,6 +1039,7 @@ export async function putRepoConfig(
       | "maxAuto"
       | "autoLabel"
       | "usageCeilingPct"
+      | "repoMode"
     >
   >,
 ): Promise<RepoConfig> {

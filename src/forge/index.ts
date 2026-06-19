@@ -21,6 +21,7 @@ export function forgeFor(remoteUrl: string, map: ForgeMap): GitForge | null {
   if (!kind) return null;
   const cfg = map[parsed.host] ?? {};
   if (kind === "github") return new GithubForge(parsed.slug, cfg);
+  if (kind === "local") return null; // local repos have no remote forge
   return new GiteaForge(parsed.slug, cfg);
 }
 

@@ -109,8 +109,14 @@ export function quotaBlockReason(
   // Guard: running session is still working — never fire prematurely.
   if (session.status === "running") return null;
 
-  // Plan gate (pre-execution domain): check first.
-  if (gate !== null && gate.decision === "changes_requested" && gate.round >= gate.cap) {
+  // Plan gate (pre-execution domain): check first. The plan-gate quota is a pre-execution
+  // concern; outside the plan phase the retained gate is inert.
+  if (
+    gate !== null &&
+    session.planPhase === "planning" &&
+    gate.decision === "changes_requested" &&
+    gate.round >= gate.cap
+  ) {
     return { shape: "quota", quotaKind: "plan", options: [], tail: gate.findings };
   }
 

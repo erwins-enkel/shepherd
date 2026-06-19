@@ -680,7 +680,11 @@ export class PlanGateService {
     this.deps.onChange(session.id, reset);
   }
 
-  forget(sessionId: string): void {
+  /** Reap any in-flight plan reviewer for a session WITHOUT dropping its persisted gate.
+   *  Used when a planning session advances to execution (manual-steer-then-PR): the reviewer
+   *  must stop, but the gate's verdict + blocks stay reachable read-only for the life of the
+   *  session. dropPlanGate is deferred to forget() at archive. */
+  reapReviewer(sessionId: string): void {
     // Clear the `starting` tombstone so an archived session can't get a review after
     // forget(). begin() now awaits a best-effort network `getIssue` AFTER allocating its
     // disposable worktree, so (like ReviewService.begin) it re-checks `starting` on resume and
@@ -693,6 +697,10 @@ export class PlanGateService {
       this.inflight.delete(sessionId);
       this.deps.onReviewing?.(sessionId, false);
     }
+  }
+
+  forget(sessionId: string): void {
+    this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
   }
 }

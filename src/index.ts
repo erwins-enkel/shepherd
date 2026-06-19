@@ -732,7 +732,9 @@ events.subscribe((event, data) => {
   // Only reap the plan reviewer when a real transition happened — avoids redundant
   // work and log spam on every subsequent poll tick (mirrors how session:archived
   // gates forget() on the id being present before calling it).
-  if (advanced) planGate.forget(id);
+  // The gate row is intentionally retained for the life of the session (dropped at
+  // archive via forget()) so the UI can re-open the signed-off plan read-only.
+  if (advanced) planGate.reapReviewer(id);
 });
 
 // Workflow protocol on the session's backlog issue: one comment when the PR enters

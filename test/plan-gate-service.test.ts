@@ -713,6 +713,48 @@ test("gcStaleReviewWorktrees reaps only non-inflight plan_gate worktrees", async
   expect(h.removed).not.toContain("/wt-review");
 });
 
+// ── reapReviewer (gate-durability split, issue #809) ─────────────────────────
+
+test("reapReviewer reaps terminal+worktree+inflight but does NOT drop the persisted gate", async () => {
+  // Prove the split: reapReviewer does everything forget() does EXCEPT dropPlanGate.
+  // After consider() sets up an inflight reviewer, reapReviewer() must:
+  //   - reap the terminal and worktree
+  //   - remove the inflight entry (reviewingIds becomes empty)
+  //   - clear the starting tombstone
+  //   - NOT call store.dropPlanGate
+  // While forget() DOES call dropPlanGate.
+  const dropped: string[] = [];
+  const stopped: string[] = [];
+  const h = harness({
+    store: {
+      dropPlanGate(id: string) {
+        dropped.push(id);
+      },
+    },
+    herdr: {
+      start: () => ({ terminalId: "t-rev" }),
+      stop: (id: string) => stopped.push(id),
+      list: () => [],
+    },
+  });
+  // Spin up an inflight reviewer.
+  await h.svc.consider(planningSession() as any);
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+
+  // reapReviewer: terminal reaped, worktree reaped, inflight cleared — gate row untouched.
+  h.svc.reapReviewer("s1");
+  expect(stopped).toContain("t-rev"); // terminal was stopped
+  expect(h.removed).toContain("/wt-detached"); // worktree was reaped
+  expect(h.svc.reviewingIds()).toEqual([]); // inflight entry cleared
+  expect(dropped).toHaveLength(0); // gate row NOT dropped
+
+  // forget(): builds on reapReviewer AND drops the gate row.
+  // Set up fresh inflight for the forget() assertion.
+  await h.svc.consider(planningSession() as any);
+  h.svc.forget("s1");
+  expect(dropped).toEqual(["s1"]); // gate row now dropped exactly once
+});
+
 test("gcStaleReviewWorktrees leaves an inflight plan_gate worktree alone", async () => {
   const adopted = orphanSpawn({ worktreePath: "/wt-detached" });
   const h = harness({

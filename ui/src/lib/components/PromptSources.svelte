@@ -184,14 +184,16 @@
         {/each}
       {/if}
     {:else if tab === "commands"}
-      <input
-        class="cmd-filter"
-        type="text"
-        bind:this={filterInput}
-        bind:value={filter}
-        placeholder={m.promptsources_commands_filter()}
-        aria-label={m.promptsources_commands_filter()}
-      />
+      <div class="ps-filter-bar">
+        <input
+          class="cmd-filter"
+          type="text"
+          bind:this={filterInput}
+          bind:value={filter}
+          placeholder={m.promptsources_commands_filter()}
+          aria-label={m.promptsources_commands_filter()}
+        />
+      </div>
       {#if filteredCommands.length === 0}
         <div class="muted">{m.promptsources_no_commands()}</div>
       {:else}
@@ -287,6 +289,10 @@
     align-items: center;
     gap: 8px;
     padding: 5px 8px 4px;
+    /* Breathing room below the header divider lives here — OUTSIDE the scroll
+       area — not as .ps-body top padding (which would let a scrolled row bleed
+       above the sticky filter bar). */
+    margin-bottom: 4px;
     border-bottom: 1px solid var(--color-line);
   }
 
@@ -336,7 +342,10 @@
   .ps-body {
     max-height: 180px;
     overflow-y: auto;
-    padding: 4px 2px;
+    /* No top padding: it sits inside the scroll area and constrains the sticky
+       filter bar to pin below it, leaving a band where a scrolled row bleeds
+       above the bar. The top gap lives on .ps-head instead. */
+    padding: 0 2px 4px;
     display: flex;
     flex-direction: column;
   }
@@ -401,12 +410,11 @@
     font-size: var(--fs-meta);
   }
 
-  /* Sticky so it stays put while the (potentially long) command list scrolls. */
+  /* Search input fills the sticky .ps-filter-bar wrapper (which provides the
+     sticky behaviour + full-width opaque coverage + 12px inset). */
   .cmd-filter {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    margin: 0 8px 4px;
+    flex: 1;
+    min-width: 0;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
@@ -421,13 +429,19 @@
     border-color: var(--color-line-bright);
   }
 
-  /* "Mine & unassigned" toggle bar above the issue list — sticky like .cmd-filter. */
+  /* Sticky bar pinned above the scrolling rows — hosts the "mine & unassigned"
+     chip (Issues tab) and the search input (Commands tab). It reaches the full
+     scroll width via the flex-column .ps-body's `align-items: stretch` (no
+     explicit width here) — KEEP it a direct flex child of .ps-body, or scrolled
+     rows bleed past its sides. The 0 10px padding (+ .ps-body's 2px) insets the
+     chip/input to 12px, matching the rows' text. */
   .ps-filter-bar {
     position: sticky;
     top: 0;
     z-index: 1;
     display: flex;
-    margin: 0 8px 4px;
+    margin: 0 0 4px;
+    padding: 0 10px;
     background: var(--color-inset);
   }
 

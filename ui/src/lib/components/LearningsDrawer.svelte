@@ -489,7 +489,10 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px;
+    /* No top padding: the sticky group header (.ghead) pins at top:0, so the
+       scroll-container's own top padding would leave a band above it through
+       which scrolling content bleeds. Top spacing is restored on .bar below. */
+    padding: 0 14px 14px;
     overflow-y: auto;
     z-index: 50;
   }
@@ -498,6 +501,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    /* restores the drawer's top breathing room (.bar is always the first child) */
+    padding-top: 14px;
   }
   .title {
     letter-spacing: 0.14em;
@@ -645,7 +650,10 @@
     gap: 8px;
     border-left: 2px solid var(--color-line-bright);
     background: var(--color-head);
-    padding: 6px 8px;
+    /* no top padding: the header (.ghead, always the first child) owns the
+       group's top spacing via its own padding-top, so the resting header gap
+       matches the pinned one instead of stacking on a group pad */
+    padding: 0 8px 6px;
   }
   /* Change 4: sticky repo header — opaque background so scrolled content doesn't bleed */
   .ghead {
@@ -653,6 +661,10 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--color-line);
+    /* single source of the header's top space (group drops its top padding): an
+       opaque buffer so scrolling content disappears cleanly under the pinned
+       header's upper edge, identical at rest and when pinned at top:0 */
+    padding-top: 8px;
     padding-bottom: 4px;
     position: sticky;
     top: 0;

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { Session } from "$lib/types";
+import { planGates } from "$lib/reviews.svelte";
 
 // Mock api so the panel's release/review calls never hit the network, keeping the
 // rest of the module intact (the reviews store imports other api exports).
@@ -61,6 +63,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
 afterEach(() => {
   // The overlay is portaled to <body>, outside the test container, so clean it up.
   document.querySelectorAll(".overlay").forEach((el) => el.remove());
+  // Clean up any seeded plan gate entries.
+  planGates.map = {};
 });
 
 describe("PlanPanel portal", () => {
@@ -73,5 +77,87 @@ describe("PlanPanel portal", () => {
     const overlay = document.querySelector<HTMLElement>(".overlay");
     expect(overlay).not.toBeNull();
     expect(overlay!.parentElement).toBe(document.body);
+  });
+});
+
+describe("PlanPanel visual blocks", () => {
+  it("augments: shows caption + VisualReview blocks above plan markdown when blocks present", async () => {
+    const id = "s-blocks";
+    // Seed the plan gate with blocks AND plan text before render.
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "abc",
+        decision: "approved",
+        summary: "looks good",
+        body: "",
+        findings: [],
+        round: 1,
+        cap: 3,
+        approved: true,
+        plan: "# Real plan markdown",
+        blocks: [
+          { type: "rich-text", id: "b1", markdown: "Approach overview text" },
+          {
+            type: "question-form",
+            id: "b2",
+            questions: [
+              {
+                id: "q1",
+                prompt: "Which database engine?",
+                kind: "single",
+                options: ["pg", "sqlite"],
+              },
+            ],
+          },
+        ],
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    // Caption must be visible.
+    await expect
+      .element(page.getByText("Proposed — not yet built · the plan text below is authoritative"))
+      .toBeVisible();
+
+    // QuestionFormBlock renders the prompt synchronously.
+    await expect.element(page.getByText("Which database engine?")).toBeVisible();
+
+    // The plan markdown renders asynchronously via marked+DOMPurify.
+    await expect.element(page.getByText("Real plan markdown")).toBeVisible();
+  });
+
+  it("markdown only: no caption when gate has no blocks", async () => {
+    const id = "s-no-blocks";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "def",
+        decision: "approved",
+        summary: "ok",
+        body: "",
+        findings: [],
+        round: 1,
+        cap: 3,
+        approved: true,
+        plan: "# Plan without blocks",
+        blocks: [],
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    // Plan markdown renders.
+    await expect.element(page.getByText("Plan without blocks")).toBeVisible();
+
+    // Caption must NOT be present.
+    expect(document.querySelector(".plan-blocks-caption")).toBeNull();
   });
 });

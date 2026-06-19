@@ -8,6 +8,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import type { GitForge } from "./forge/types";
+import { type VisualBlock, parseVisualBlocks, groundPlanBlocks } from "./visual-blocks";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import {
   isApiKeyMode,
@@ -34,6 +35,9 @@ export type PlanReviewTrigger = "started" | "skipped" | "error";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
+
+/** Optional sidecar the planning agent writes next to the plan: a JSON array of visual blocks. */
+const PLAN_BLOCKS_FILE = ".shepherd-plan-blocks.json";
 
 /** The file the adversarial plan reviewer writes its verdict JSON to, in its detached worktree. */
 export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
@@ -141,6 +145,8 @@ export interface PlanGateServiceDeps {
   timeoutMs?: number; // give up waiting on the verdict file
   /** default: read `.shepherd-plan.md` from the live worktree. */
   readPlan?: (worktreePath: string) => string | null;
+  /** default: read + parse + plan-ground `.shepherd-plan-blocks.json` from the live worktree. [] when absent/garbage. */
+  readPlanBlocks?: (worktreePath: string) => VisualBlock[];
   /** default: `existsSync` — whether a reviewer's disposable worktree is still on disk.
    *  adoptOrphans() uses it to tell a true restart-orphan (worktree survives) from an
    *  already-finalized review (finalize reaps the worktree). */
@@ -172,6 +178,7 @@ interface PlanInFlight {
   reviewerSessionId: string; // the reviewer's claude session id → locates its transcript for token totals
   planHash: string;
   plan: string;
+  blocks: VisualBlock[]; // captured at begin, carried into the gate
   priorRound: number; // adversarial rounds already spent on this plan streak
   startedAt: number;
   finalizing?: boolean;
@@ -193,6 +200,7 @@ export class PlanGateService {
     return this.capFn();
   }
   private readPlan: (worktreePath: string) => string | null;
+  private readPlanBlocks: (worktreePath: string) => VisualBlock[];
   private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
@@ -235,6 +243,7 @@ export class PlanGateService {
     const cap = deps.cap;
     this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
     this.readPlan = deps.readPlan ?? defaultReadPlan;
+    this.readPlanBlocks = deps.readPlanBlocks ?? defaultReadPlanBlocks;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultBaseSha;
@@ -365,6 +374,7 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "error";
     }
+    const blocks = this.readPlanBlocks(session.worktreePath);
     this.inflight.set(session.id, {
       sessionId: session.id,
       repoPath: session.repoPath,
@@ -373,6 +383,7 @@ export class PlanGateService {
       reviewerSessionId,
       planHash,
       plan,
+      blocks,
       priorRound: prior?.round ?? 0,
       startedAt: this.now(),
     });
@@ -426,6 +437,7 @@ export class PlanGateService {
         reviewerSessionId: sp.reviewerSessionId,
         planHash: await PlanGateService.hashPlan(plan),
         plan,
+        blocks: this.readPlanBlocks(s.worktreePath),
         priorRound: prior?.round ?? 0,
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });
@@ -615,6 +627,7 @@ export class PlanGateService {
       cap: this.cap, // surface the live cap so the UI badge need not mirror it
       approved: resolved === "approved",
       plan: f.plan,
+      blocks: f.blocks,
       updatedAt: this.now(),
     };
   }
@@ -716,6 +729,19 @@ function normalizeFindings(raw: unknown): string[] {
     .filter((f): f is string => typeof f === "string")
     .map((f) => f.trim())
     .filter(Boolean);
+}
+
+/** Read the live worktree's plan-blocks sidecar, parse it through the LLM trust boundary
+ *  (parseVisualBlocks), then plan-ground it (no diff exists at plan time). [] when the file is
+ *  missing or unparseable — never throws. */
+function defaultReadPlanBlocks(worktreePath: string): VisualBlock[] {
+  const p = join(worktreePath, PLAN_BLOCKS_FILE);
+  if (!existsSync(p)) return [];
+  try {
+    return groundPlanBlocks(parseVisualBlocks(JSON.parse(readFileSync(p, "utf8"))));
+  } catch {
+    return [];
+  }
 }
 
 /** Read the live session worktree's plan text. Null when no plan has been written yet. */

@@ -3,6 +3,7 @@ import {
   composeSystemPrompt,
   PLAN_GATE_DIRECTIVE_INTERACTIVE,
   PLAN_GATE_DIRECTIVE_AUTO,
+  planBlockInstructions,
 } from "../src/service";
 
 test("plan-gate interactive directive replaces autopilot directive", () => {
@@ -32,4 +33,48 @@ test("interactive directive makes the agent ask actively, not park questions in 
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("unresolved");
   // but explicitly still permits stated assumptions / resolved decisions
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("assumption");
+});
+
+// ─── planBlockInstructions helper ───────────────────────────────────────────
+
+test("planBlockInstructions(AUTO) contains question-form and sidecar filename", () => {
+  const t = planBlockInstructions({ allowQuestionForm: true });
+  expect(t).toContain("question-form");
+  expect(t).toContain(".shepherd-plan-blocks.json");
+});
+
+test("planBlockInstructions(INTERACTIVE) has no question-form, has same-turn coupling + no-park phrase", () => {
+  const t = planBlockInstructions({ allowQuestionForm: false });
+  expect(t).not.toContain("question-form");
+  expect(t).toContain(".shepherd-plan-blocks.json");
+  // same-turn write coupling — load-bearing
+  expect(t).toContain("same turn");
+  // questions asked live, not parked
+  expect(t.toLowerCase()).toContain("ask questions live");
+});
+
+test("PLAN_GATE_DIRECTIVE_INTERACTIVE does NOT contain question-form", () => {
+  expect(PLAN_GATE_DIRECTIVE_INTERACTIVE).not.toContain("question-form");
+});
+
+test("PLAN_GATE_DIRECTIVE_AUTO DOES contain question-form", () => {
+  expect(PLAN_GATE_DIRECTIVE_AUTO).toContain("question-form");
+});
+
+test("both directives contain sidecar filename and same-turn coupling phrase", () => {
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).toContain(".shepherd-plan-blocks.json");
+    expect(d).toContain("same turn");
+  }
+});
+
+test("planBlockInstructions instructs against diff and code blocks (no-diff-blocks guard)", () => {
+  // both variants share the same no-diff guidance
+  for (const allowQuestionForm of [true, false]) {
+    const t = planBlockInstructions({ allowQuestionForm });
+    // must say not to use diff/code blocks
+    expect(t.toLowerCase()).toContain("do not use");
+    expect(t).toContain("diff");
+    expect(t).toContain("annotated-code");
+  }
 });

@@ -6,10 +6,12 @@
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
+  import VisualReview from "./VisualReview.svelte";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
 
   const gate = $derived(planGates.map[session.id]);
+  const planBlocks = $derived(gate?.blocks ?? []);
   const reviewing = $derived(planGates.isReviewing(session.id));
   const releasable = $derived(canRelease(session, gate));
   // Manual re-review only makes sense while still planning (not once executing).
@@ -146,6 +148,12 @@
 
     <div class="body">
       <section class="plan">
+        {#if planBlocks.length > 0}
+          <div class="plan-blocks">
+            <span class="micro plan-blocks-caption">{m.planpanel_proposed_caption()}</span>
+            <VisualReview blocks={planBlocks} />
+          </div>
+        {/if}
         {#if planHtml}
           <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
           <div class="md">{@html planHtml}</div>
@@ -299,6 +307,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .plan-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .plan-blocks-caption {
+    color: var(--color-muted);
   }
   .plan,
   .verdict {

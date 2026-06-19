@@ -16,8 +16,10 @@ import {
   WIREFRAME_HTML_MAX_CHARS,
   WIREFRAME_SURFACES,
   FILE_TREE_CHANGES,
+  QUESTION_KINDS,
   capDiffBlock,
   groundBlocks,
+  groundPlanBlocks,
   joinCodeBlocks,
   joinDiffBlocks,
   markInferred,
@@ -1979,5 +1981,295 @@ describe("groundBlocks wireframe pass-through", () => {
     const block = asBlock(result[0], "wireframe");
     expect(block.html).toBe(validWireframe.html);
     expect((block as unknown as Record<string, unknown>).inferred).toBeUndefined();
+  });
+});
+
+// ── QUESTION_KINDS constant ───────────────────────────────────────────────────
+
+describe("QUESTION_KINDS constant", () => {
+  it("contains all expected values", () => {
+    expect(QUESTION_KINDS).toContain("single");
+    expect(QUESTION_KINDS).toContain("multi");
+    expect(QUESTION_KINDS).toContain("freeform");
+    expect(QUESTION_KINDS).toHaveLength(3);
+  });
+});
+
+// ── validateQuestionForm (type=question-form) ─────────────────────────────────
+
+describe("validateQuestionForm (type=question-form)", () => {
+  const singleQ = { id: "q1", prompt: "Pick one", kind: "single", options: ["A", "B"] };
+  const multiQ = { id: "q2", prompt: "Pick many", kind: "multi", options: ["X", "Y", "Z"] };
+  const freeformQ = { id: "q3", prompt: "Describe", kind: "freeform" };
+
+  it("valid form with single/multi/freeform questions — all survive, freeform has no options key", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [singleQ, multiQ, freeformQ] },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "question-form");
+    expect(block.questions).toHaveLength(3);
+    // single
+    expect(block.questions[0]!.id).toBe("q1");
+    expect(block.questions[0]!.kind).toBe("single");
+    expect(block.questions[0]!.options).toEqual(["A", "B"]);
+    // multi
+    expect(block.questions[1]!.id).toBe("q2");
+    expect(block.questions[1]!.kind).toBe("multi");
+    expect(block.questions[1]!.options).toEqual(["X", "Y", "Z"]);
+    // freeform — must NOT have options key
+    expect(block.questions[2]!.id).toBe("q3");
+    expect(block.questions[2]!.kind).toBe("freeform");
+    expect("options" in block.questions[2]!).toBe(false);
+  });
+
+  it("single with empty options array → question dropped", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "P", kind: "single", options: [] }],
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("single with missing options → question dropped", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [{ id: "q1", prompt: "P", kind: "single" }] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("multi with options containing only non-strings → question dropped", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "P", kind: "multi", options: [1, 2, null] }],
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("multi options: filters out non-string/empty entries, keeps non-empty strings", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          { id: "q1", prompt: "P", kind: "multi", options: ["", "good", 42, "also-good", ""] },
+        ],
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "question-form");
+    expect(block.questions[0]!.options).toEqual(["good", "also-good"]);
+  });
+
+  it("freeform: options key NOT copied even if present in raw input", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "P", kind: "freeform", options: ["A"] }],
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "question-form");
+    expect("options" in block.questions[0]!).toBe(false);
+  });
+
+  it("question missing id → dropped", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [{ prompt: "P", kind: "freeform" }] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("question with empty id → dropped", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [{ id: "", prompt: "P", kind: "freeform" }] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("question missing prompt → dropped", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [{ id: "q1", kind: "freeform" }] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("question with empty prompt → dropped", () => {
+    const result = parseVisualBlocks([
+      { type: "question-form", id: "qf1", questions: [{ id: "q1", prompt: "", kind: "freeform" }] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("question with bad kind → dropped", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "P", kind: "checkbox" }],
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("duplicate question ids → later one dropped", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          { id: "q1", prompt: "First", kind: "freeform" },
+          { id: "q1", prompt: "Duplicate", kind: "freeform" },
+          { id: "q2", prompt: "Second", kind: "freeform" },
+        ],
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "question-form");
+    expect(block.questions).toHaveLength(2);
+    expect(block.questions[0]!.prompt).toBe("First"); // first wins
+    expect(block.questions[1]!.prompt).toBe("Second");
+  });
+
+  it("all questions invalid → whole block dropped", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          { id: "q1", kind: "freeform" }, // missing prompt
+          { prompt: "P", kind: "single", options: ["A"] }, // missing id
+        ],
+      },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("questions: [] → whole block dropped", () => {
+    const result = parseVisualBlocks([{ type: "question-form", id: "qf1", questions: [] }]);
+    expect(result).toEqual([]);
+  });
+
+  it("questions: non-array → whole block dropped", () => {
+    const result = parseVisualBlocks([{ type: "question-form", id: "qf1", questions: "bad" }]);
+    expect(result).toEqual([]);
+  });
+
+  it("non-object in questions array → skipped silently", () => {
+    const result = parseVisualBlocks([
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [null, 42, { id: "q1", prompt: "Valid", kind: "freeform" }],
+      },
+    ]);
+    expect(result).toHaveLength(1);
+    const block = asBlock(result[0], "question-form");
+    expect(block.questions).toHaveLength(1);
+    expect(block.questions[0]!.id).toBe("q1");
+  });
+});
+
+// ── groundPlanBlocks ──────────────────────────────────────────────────────────
+
+describe("groundPlanBlocks", () => {
+  it("drops diff, code, annotated-code; keeps file-tree, data-model, mermaid, rich-text", () => {
+    const blocks = parseVisualBlocks([
+      { type: "diff", id: "d1", path: "src/foo.ts", summary: "change" },
+      { type: "code", id: "c1", filename: "src/new.ts" },
+      { type: "annotated-code", id: "ac1", filename: "src/new.ts" },
+      { type: "file-tree", id: "ft1", entries: [{ path: "src/foo.ts", change: "added" }] },
+      {
+        type: "data-model",
+        id: "dm1",
+        entities: [{ id: "e1", name: "User", fields: [{ name: "id", type: "uuid" }] }],
+      },
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+      { type: "rich-text", id: "r1", markdown: "intro" },
+    ]);
+
+    const result = groundPlanBlocks(blocks);
+
+    // diff/code/annotated-code dropped
+    expect(result.some((b) => b.type === "diff")).toBe(false);
+    expect(result.some((b) => b.type === "code")).toBe(false);
+    expect(result.some((b) => b.type === "annotated-code")).toBe(false);
+
+    // file-tree, data-model, mermaid, rich-text kept
+    expect(result.some((b) => b.type === "file-tree")).toBe(true);
+    expect(result.some((b) => b.type === "data-model")).toBe(true);
+    expect(result.some((b) => b.type === "mermaid")).toBe(true);
+    expect(result.some((b) => b.type === "rich-text")).toBe(true);
+  });
+
+  it("file-tree entries pass through with their authored change values intact (NOT reconciled)", () => {
+    const blocks = parseVisualBlocks([
+      {
+        type: "file-tree",
+        id: "ft1",
+        entries: [
+          { path: "src/planned-new.ts", change: "added" },
+          { path: "src/planned-mod.ts", change: "modified" },
+        ],
+      },
+    ]);
+
+    const result = groundPlanBlocks(blocks);
+    const ft = asBlock(result[0], "file-tree");
+    expect(ft.entries).toHaveLength(2);
+    expect(ft.entries[0]!.change).toBe("added");
+    expect(ft.entries[1]!.change).toBe("modified");
+  });
+
+  it("data-model, mermaid, and api-endpoint come back with inferred:true", () => {
+    const blocks = parseVisualBlocks([
+      {
+        type: "data-model",
+        id: "dm1",
+        entities: [{ id: "e1", name: "User", fields: [{ name: "id", type: "uuid" }] }],
+      },
+      { type: "mermaid", id: "m1", source: "flowchart TD\n  A --> B" },
+      { type: "api-endpoint", id: "ep1", method: "GET", path: "/x" },
+    ]);
+
+    const result = groundPlanBlocks(blocks);
+    const dm = asBlock(result[0], "data-model");
+    const mm = asBlock(result[1], "mermaid");
+    const ep = asBlock(result[2], "api-endpoint");
+    expect(dm.inferred).toBe(true);
+    expect(mm.inferred).toBe(true);
+    expect(ep.inferred).toBe(true);
+  });
+
+  it("returns a new array (input not mutated)", () => {
+    const blocks = parseVisualBlocks([
+      { type: "rich-text", id: "r1", markdown: "hello" },
+      { type: "diff", id: "d1", path: "src/foo.ts", summary: "change" },
+    ]);
+    const inputCopy = [...blocks];
+    const result = groundPlanBlocks(blocks);
+
+    // input array unchanged
+    expect(blocks).toHaveLength(inputCopy.length);
+    expect(blocks[0]).toBe(inputCopy[0]);
+
+    // result is a new array
+    expect(result).not.toBe(blocks);
+  });
+
+  it("rich-text passes through untouched (no inferred)", () => {
+    const blocks = parseVisualBlocks([{ type: "rich-text", id: "r1", markdown: "plan intro" }]);
+    const result = groundPlanBlocks(blocks);
+    expect(result).toHaveLength(1);
+    const blk = result[0]!;
+    expect(blk.type).toBe("rich-text");
+    expect((blk as unknown as Record<string, unknown>).inferred).toBeUndefined();
   });
 });

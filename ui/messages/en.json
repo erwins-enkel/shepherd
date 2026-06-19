@@ -1526,5 +1526,12 @@
   "learnings_triage_jump_aria": "Jump to {repo}",
   "learnings_about_budget": "Each repo's approved rules are injected up to a shared character budget; rules over the budget are skipped until you trim them or raise the budget.",
   "feat_learnings_triage_title": "Learnings triage layer",
-  "feat_learnings_triage_body": "The Learnings drawer now floats over-budget and not-working repos to the top, pins each repo's header while you scroll, marks over-budget repos in amber, and adds a 'needs attention' jump bar — so you can see what to act on at a glance."
+  "feat_learnings_triage_body": "The Learnings drawer now floats over-budget and not-working repos to the top, pins each repo's header while you scroll, marks over-budget repos in amber, and adds a 'needs attention' jump bar — so you can see what to act on at a glance.",
+  "qform_kind_single": "Select one",
+  "qform_kind_multi": "Select all that apply",
+  "qform_kind_freeform": "Free response",
+  "qform_freeform_placeholder": "Free-text answer",
+  "planpanel_proposed_caption": "Proposed — not yet built · the plan text below is authoritative",
+  "feat_visual_plan_title": "Visual plans",
+  "feat_visual_plan_body": "Plan-gate plans can now render as a scannable visual document — file trees, diagrams, data models and more — shown above the plan text when the planning agent emits them."
 }

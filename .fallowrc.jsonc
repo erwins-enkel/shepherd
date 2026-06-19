@@ -249,9 +249,9 @@
         "files": ["ui/src/lib/components/LearningsDrawer.svelte"],
         "functions": ["<template>"],
         "maxCyclomatic": 50,
-        "maxCognitive": 110,
+        "maxCognitive": 130,
         "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855. Cognitive bar raised 110→130 in #840: the learnings auto-retire feature added the unseen-retired banner + Retired section + help-rate stat to this component (its own UI home), per the established 'next multiple of 10 above current' convention."
       },
       {
         "files": ["ui/src/lib/components/BacklogView.svelte"],

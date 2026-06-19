@@ -206,3 +206,310 @@ test("GET /api/learnings/health without deps → safe defaults with optimizer su
   expect(body.optimizer).toBeDefined();
   expect(body.optimizer.ok).toBe(true);
 });
+
+// ── POST /api/learnings/:id/restore (Task 5) ─────────────────────────────────
+
+function makeBasicDeps(): AppDeps {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  return {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+}
+
+test("POST /api/learnings/:id/restore restores a retired active rule back to active", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l = deps.store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  deps.store.setLearningStatus(l.id, "active");
+  deps.store.retireLearning(l.id, "stale");
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/restore`, { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("active");
+  expect(body.retiredAt).toBeNull();
+  expect(body.retiredReason).toBeNull();
+});
+
+test("POST /api/learnings/:id/restore restores a retired promoted rule back to promoted", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l = deps.store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  deps.store.setLearningStatus(l.id, "active");
+  deps.store.setLearningStatus(l.id, "promoted");
+  deps.store.retireLearning(l.id, "outdated");
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/restore`, { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("promoted");
+});
+
+test("POST /api/learnings/:id/restore emits learnings:update", async () => {
+  const store = new SessionStore(":memory:");
+  const emitted: Array<[string, unknown]> = [];
+  const events = new EventHub();
+  const origEmit = events.emit.bind(events);
+  events.emit = (event: string, data: unknown) => {
+    emitted.push([event, data]);
+    return origEmit(event, data);
+  };
+  const deps: AppDeps = {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  const app = makeApp(deps);
+
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active");
+  store.retireLearning(l.id, "stale");
+
+  await app.fetch(new Request(`http://x/api/learnings/${l.id}/restore`, { method: "POST" }));
+  expect(emitted.some(([event]) => event === "learnings:update")).toBe(true);
+});
+
+test("POST /api/learnings/:id/restore returns 404 for a non-retired (active) rule", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l = deps.store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  deps.store.setLearningStatus(l.id, "active");
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/restore`, { method: "POST" }),
+  );
+  expect(res.status).toBe(404);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+test("POST /api/learnings/:id/restore returns 404 for unknown id", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/no-such-id/restore", { method: "POST" }),
+  );
+  expect(res.status).toBe(404);
+});
+
+// ── GET /api/learnings/injectable — retired + unseenRetired (Task 5) ──────────
+
+test("GET /api/learnings/injectable includes retired and unseenRetired fields", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l = deps.store.addLearning({
+    repoPath: validRepo,
+    rule: "rule",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(l.id, "active");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.length).toBeGreaterThanOrEqual(1);
+  const entry = body.find((e: any) => e.repoPath === validRepo);
+  expect(entry).toBeDefined();
+  expect(Array.isArray(entry.retired)).toBe(true);
+  expect(typeof entry.unseenRetired).toBe("number");
+});
+
+test("GET /api/learnings/injectable: a repo whose only rules are retired still appears", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l = deps.store.addLearning({
+    repoPath: validRepo,
+    rule: "rule",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(l.id, "active");
+  deps.store.retireLearning(l.id, "stale");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const entry = body.find((e: any) => e.repoPath === validRepo);
+  expect(entry).toBeDefined();
+  expect(entry.retired.length).toBe(1);
+  expect(entry.rules.length).toBe(0); // no active/promoted rules
+});
+
+test("GET /api/learnings/injectable unseenRetired counts retired rules newer than seen marker", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  // Mark as "seen" at a time before any rules are retired
+  const seenTs = Date.now() - 10000;
+  deps.store.markRetiredSeen(validRepo, seenTs);
+
+  const l1 = deps.store.addLearning({
+    repoPath: validRepo,
+    rule: "r1",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(l1.id, "active");
+  deps.store.retireLearning(l1.id, "stale");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  const body = await res.json();
+  const entry = body.find((e: any) => e.repoPath === validRepo);
+  expect(entry.unseenRetired).toBe(1); // retired after seenTs
+});
+
+test("GET /api/learnings/injectable unseenRetired is 0 after POST seen-retired", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const l1 = deps.store.addLearning({
+    repoPath: validRepo,
+    rule: "r1",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(l1.id, "active");
+  deps.store.retireLearning(l1.id, "stale");
+
+  // Without seen marker: unseenRetired = 1
+  const res1 = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  const body1 = await res1.json();
+  const entry1 = body1.find((e: any) => e.repoPath === validRepo);
+  expect(entry1.unseenRetired).toBe(1);
+
+  // POST seen-retired
+  const seenRes = await app.fetch(
+    new Request(`http://x/api/learnings/seen-retired?repo=${encodeURIComponent(validRepo)}`, {
+      method: "POST",
+    }),
+  );
+  expect(seenRes.status).toBe(200);
+  expect(await seenRes.json()).toEqual({ ok: true });
+
+  // Now unseenRetired = 0
+  const res2 = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  const body2 = await res2.json();
+  const entry2 = body2.find((e: any) => e.repoPath === validRepo);
+  expect(entry2.unseenRetired).toBe(0);
+});
+
+test("GET /api/learnings/injectable: disabled repo also has retired + unseenRetired", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  deps.store.setRepoConfig(validRepo, {
+    ...deps.store.getRepoConfig(validRepo),
+    learningsEnabled: false,
+  });
+
+  const l = deps.store.addLearning({
+    repoPath: validRepo,
+    rule: "rule",
+    rationale: "",
+    evidence: [],
+  });
+  deps.store.setLearningStatus(l.id, "active");
+  deps.store.retireLearning(l.id, "stale");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  const body = await res.json();
+  const entry = body.find((e: any) => e.repoPath === validRepo);
+  expect(entry).toBeDefined();
+  expect(Array.isArray(entry.retired)).toBe(true);
+  expect(typeof entry.unseenRetired).toBe("number");
+  expect(entry.enabled).toBe(false);
+});
+
+// ── POST /api/learnings/seen-retired (Task 5) ─────────────────────────────────
+
+test("POST /api/learnings/seen-retired?repo= with missing repo → 400", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/seen-retired?repo=", { method: "POST" }),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+// ── PUT /api/repo-config autoOptimizeFlagged (Task 5) ─────────────────────────
+
+test("PUT /api/repo-config accepts autoOptimizeFlagged:true and GET reflects it", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const putRes = await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoOptimizeFlagged: true }),
+    }),
+  );
+  expect(putRes.status).toBe(200);
+  const putBody = await putRes.json();
+  expect(putBody.autoOptimizeFlagged).toBe(true);
+
+  // GET round-trip
+  const getRes = await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`),
+  );
+  expect(getRes.status).toBe(200);
+  const getBody = await getRes.json();
+  expect(getBody.autoOptimizeFlagged).toBe(true);
+});
+
+test("PUT /api/repo-config with non-boolean autoOptimizeFlagged → 400", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoOptimizeFlagged: "yes" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+test("PUT /api/repo-config autoOptimizeFlagged:false round-trips", async () => {
+  const deps = makeBasicDeps();
+  const app = makeApp(deps);
+
+  // First set to true
+  await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoOptimizeFlagged: true }),
+    }),
+  );
+
+  // Then set to false
+  const putRes = await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoOptimizeFlagged: false }),
+    }),
+  );
+  expect(putRes.status).toBe(200);
+  expect((await putRes.json()).autoOptimizeFlagged).toBe(false);
+});

@@ -575,6 +575,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoMergeEnabled",
   "buildQueueEnabled",
   "draftMode",
+  "autoOptimizeFlagged",
 ] as const;
 
 type RepoCfgBody = {
@@ -588,6 +589,7 @@ type RepoCfgBody = {
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
   draftMode?: unknown;
+  autoOptimizeFlagged?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
@@ -663,6 +665,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoMergeEnabled?: boolean;
       buildQueueEnabled?: boolean;
       draftMode?: boolean;
+      autoOptimizeFlagged?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
@@ -679,7 +682,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged) must be booleans",
       },
       400,
     );
@@ -710,7 +713,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode",
       },
       400,
     );
@@ -726,6 +729,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     draftMode: body.draftMode as boolean | undefined,
+    autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
     defaultModel,
@@ -908,12 +912,22 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
   }
 
   // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).
-  // One entry per repo with ≥1 active/promoted rule; the budget value flows from
-  // here so the UI never hardcodes it. Shares the planner with service.houseRules.
+  // One entry per repo with ≥1 active/promoted or retired rule; the budget value
+  // flows from here so the UI never hardcodes it. Shares the planner with
+  // service.houseRules.
   if (parts[2] === "injectable") {
     const budgetChars = config.houseRulesBudgetChars;
-    const out = deps.store.listRepoPathsWithInjectableLearnings().map((repoPath) => {
+    // Union of repos with injectable (active/promoted) or retired rules — deduped,
+    // injectable-first order (so a retired-only repo still appears for the banner).
+    const injectableRepos = deps.store.listRepoPathsWithInjectableLearnings();
+    const retiredRepos = deps.store.listRepoPathsWithRetiredLearnings();
+    const seen = new Set(injectableRepos);
+    const allRepos = [...injectableRepos, ...retiredRepos.filter((r) => !seen.has(r))];
+    const out = allRepos.map((repoPath) => {
       const rules = deps.store.listActiveLearnings(repoPath);
+      const retired = deps.store.listRetiredLearnings(repoPath);
+      const seenAt = deps.store.getRetiredSeenAt(repoPath);
+      const unseenRetired = retired.filter((r) => (r.retiredAt ?? 0) > seenAt).length;
       const enabled = deps.store.getRepoConfig(repoPath).learningsEnabled;
       if (!enabled) {
         // Injection disabled: skip the planner; every rule uninjected, used 0.
@@ -923,6 +937,8 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
           budgetChars,
           usedChars: 0,
           rules: prioritize(rules).map((r) => ({ ...r, injected: false })),
+          retired,
+          unseenRetired,
         };
       }
       const plan = planHouseRulesInjection(rules, budgetChars);
@@ -938,6 +954,8 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
           ...r,
           injected: injectedIds.has(r.id),
         })),
+        retired,
+        unseenRetired,
       };
     });
     return json(out);
@@ -964,14 +982,17 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
   return null;
 }
 
-/** POST /api/learnings/{distill,optimize}?repo= — the two repo-scoped learning triggers
- *  (matched before :id). Returns null when `parts[2]` is neither. */
+/** POST /api/learnings/{distill,optimize,seen-retired}?repo= — repo-scoped learning
+ *  triggers (matched before :id). Returns null when `parts[2]` is none of these. */
 function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps): Response | null {
-  if (parts[2] !== "distill" && parts[2] !== "optimize") return null;
+  if (parts[2] !== "distill" && parts[2] !== "optimize" && parts[2] !== "seen-retired") return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (parts[2] === "distill") deps.distiller?.distillNow(dir);
-  else deps.optimizer?.optimizeAllFlagged(dir);
+  else if (parts[2] === "optimize") deps.optimizer?.optimizeAllFlagged(dir);
+  else if (parts[2] === "seen-retired") {
+    deps.store.markRetiredSeen(dir, Date.now());
+  }
   return json({ ok: true });
 }
 
@@ -993,6 +1014,14 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
   if (parts[2] && parts[3] === "optimize") {
     deps.optimizer?.optimizeOne(parts[2]);
     return json({ ok: true });
+  }
+
+  // POST /api/learnings/:id/restore — restore a retired rule to its previous status
+  if (parts[2] && parts[3] === "restore") {
+    const updated = deps.store.restoreLearning(parts[2]);
+    if (!updated) return json({ error: "not found" }, 404);
+    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+    return json(updated);
   }
 
   // POST /api/learnings/:id/approve  |  /:id/dismiss

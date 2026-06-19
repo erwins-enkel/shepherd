@@ -592,3 +592,62 @@ test("repo_config.autoOptimizeFlagged defaults false and round-trips through get
   s.setRepoConfig("/r", { ...s.getRepoConfig("/r"), autoOptimizeFlagged: false });
   expect(s.getRepoConfig("/r").autoOptimizeFlagged).toBe(false);
 });
+
+// ── unseen-retired marker (issue #838, Task 5) ────────────────────────────────
+
+test("getRetiredSeenAt defaults to 0 when unset", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.getRetiredSeenAt("/r")).toBe(0);
+});
+
+test("markRetiredSeen round-trips through getRetiredSeenAt", () => {
+  const s = new SessionStore(":memory:");
+  const ts = Date.now();
+  s.markRetiredSeen("/r", ts);
+  expect(s.getRetiredSeenAt("/r")).toBe(ts);
+  // Overwrite with a newer timestamp
+  const ts2 = ts + 1000;
+  s.markRetiredSeen("/r", ts2);
+  expect(s.getRetiredSeenAt("/r")).toBe(ts2);
+});
+
+test("markRetiredSeen is per-repo (different repos don't bleed)", () => {
+  const s = new SessionStore(":memory:");
+  const ts = Date.now();
+  s.markRetiredSeen("/r", ts);
+  expect(s.getRetiredSeenAt("/other")).toBe(0);
+});
+
+test("listRepoPathsWithRetiredLearnings returns repos with retired rules only", () => {
+  const s = new SessionStore(":memory:");
+
+  // Add retired rule for /r
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "reason");
+
+  // Add active rule for /other (should NOT appear)
+  const b = s.addLearning({ repoPath: "/other", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+
+  // Add proposed rule for /third (should NOT appear)
+  s.addLearning({ repoPath: "/third", rule: "c", rationale: "", evidence: [] });
+
+  const repos = s.listRepoPathsWithRetiredLearnings();
+  expect(repos).toEqual(["/r"]);
+});
+
+test("listRepoPathsWithRetiredLearnings returns multiple repos with retired rules", () => {
+  const s = new SessionStore(":memory:");
+
+  const a = s.addLearning({ repoPath: "/r1", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "r1 reason");
+
+  const b = s.addLearning({ repoPath: "/r2", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.retireLearning(b.id, "r2 reason");
+
+  const repos = s.listRepoPathsWithRetiredLearnings().sort();
+  expect(repos).toEqual(["/r1", "/r2"]);
+});

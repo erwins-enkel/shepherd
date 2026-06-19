@@ -2410,6 +2410,27 @@ export class SessionStore implements CapStore, CreditStore {
     return (rows as any[]).map((r) => this.hydrateLearning(r));
   }
 
+  // ── unseen-retired marker ─────────────────────────────────────────────────
+  /** Return the last time the user acknowledged retired rules for a repo (epoch ms).
+   *  Defaults to 0 when never set. */
+  getRetiredSeenAt(repoPath: string): number {
+    return Number(this.getSetting(`learnings:retired-seen:${repoPath}`) ?? 0);
+  }
+
+  /** Record that the user has seen retired rules for a repo up to `ts` (epoch ms). */
+  markRetiredSeen(repoPath: string, ts: number): void {
+    this.setSetting(`learnings:retired-seen:${repoPath}`, String(ts));
+  }
+
+  /** Distinct repoPaths that have ≥1 retired rule, for the cross-repo injectable sweep. */
+  listRepoPathsWithRetiredLearnings(): string[] {
+    return (
+      this.db.query(`SELECT DISTINCT repoPath FROM learnings WHERE status = 'retired'`).all() as {
+        repoPath: string;
+      }[]
+    ).map((r) => r.repoPath);
+  }
+
   /** Delete session_injected_learnings rows whose session no longer exists. */
   pruneOrphanInjectedLearnings(): void {
     this.db.run(

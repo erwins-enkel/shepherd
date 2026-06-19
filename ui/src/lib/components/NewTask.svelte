@@ -568,9 +568,9 @@
         retry = () => submit(e);
       }
     } finally {
-      // Always clear submitting so the dialog stays usable — on the held path the
-      // page returns early (keeping the dialog open) and we must re-enable the
-      // buttons so the operator can still click "Submit anyway".
+      // Clear submitting on every path. This only matters for the error path, where the
+      // dialog stays open showing the error and the buttons must re-enable for a retry;
+      // the success and held paths both close the dialog page-side, so it's harmless there.
       submitting = false;
     }
   }

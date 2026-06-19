@@ -58,6 +58,14 @@ export class Promoter {
 
       const forge = this.deps.resolveForge(repoPath);
       if (!forge) return { ok: false, error: "no forge configured for repo", status: 400 };
+      // Local-commit promotion is a deferred follow-up (#807 out-of-scope v1).
+      if (forge.kind === "local") {
+        return {
+          ok: false,
+          error: "learnings promotion is not available in lightweight repo mode",
+          status: 400,
+        };
+      }
 
       let base: string;
       try {
@@ -140,6 +148,14 @@ export class Promoter {
     }
     const forge = this.deps.resolveForge(learning.repoPath);
     if (!forge) return { ok: false, error: "no forge configured for repo", status: 400 };
+    // Local-commit promotion is a deferred follow-up (#807 out-of-scope v1).
+    if (forge.kind === "local") {
+      return {
+        ok: false,
+        error: "learnings promotion is not available in lightweight repo mode",
+        status: 400,
+      };
+    }
 
     let base: string;
     try {

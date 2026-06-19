@@ -757,4 +757,25 @@ describe("NewTask base branch default", () => {
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
   });
+
+  // The default branch (origin/HEAD) need not exist locally — surface it as an option so
+  // the dropdown's shown value matches the submitted base (not a silently-mismatched first
+  // option). Here `dev` is the default but only `main` exists locally.
+  it("includes a non-local default branch as a selectable option", async () => {
+    mockListBranches.mockResolvedValue({
+      current: "main",
+      branches: ["main"],
+      default: "dev",
+    });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/nonlocal-default" } });
+
+    await expect.poll(() => baseSelect().value).toBe("dev");
+    const options = Array.from(baseSelect().options).map((o) => o.value);
+    expect(options).toContain("dev");
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
+  });
 });

@@ -49,6 +49,7 @@
   import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
   import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import GitRail from "$lib/components/GitRail.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
@@ -2054,6 +2055,7 @@
           id={tabId("activity")}
           aria-selected={tab === "activity"}
           aria-controls={vpBodyId}
+          use:coachTarget={"activity-tab"}
           onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
         >
         <button

@@ -25,7 +25,8 @@ const GIT_READ_TIMEOUT_MS = 15_000;
 export const MIN_GIT_MAJOR = 2;
 export const MIN_GIT_MINOR = 38;
 
-/** Thrown when the squash would conflict (`git merge-tree --write-tree` non-zero).
+/** Thrown when the squash would conflict (`git merge-tree --write-tree` exits 1).
+ *  A higher exit code is a genuine git error and surfaces as a plain Error instead.
  *  No refs are touched when this is thrown. */
 export class MergeConflictError extends Error {
   constructor(
@@ -138,6 +139,26 @@ async function gitOrThrow(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS)
   return r.stdout.trim();
 }
 
+/** Run `git merge-tree --write-tree <base> <branch>`, decoding git's exit codes:
+ *  - exit 0   → clean merge; returns the merged tree OID (first line of stdout).
+ *  - exit 1   → genuine merge CONFLICT (`{ conflict: true }`).
+ *  - exit >1  → a real git failure (bad object, missing ref, etc.) → THROWS with
+ *               stderr, so a genuine error is never misreported as a merge conflict.
+ *  Shared by the merge path and the mergeability dry run. */
+export async function mergeTreeWriteTree(
+  repoPath: string,
+  base: string,
+  branch: string,
+): Promise<{ conflict: boolean; tree?: string }> {
+  const r = await gitRun(repoPath, ["merge-tree", "--write-tree", base, branch]);
+  if (r.code === 0) return { conflict: false, tree: r.stdout.split("\n")[0]?.trim() };
+  if (r.code === 1) return { conflict: true };
+  throw new Error(
+    `git merge-tree --write-tree ${base} ${branch} → exit ${r.code}: ` +
+      `${r.stderr.trim() || r.stdout.trim()}`,
+  );
+}
+
 interface WorktreeEntry {
   path: string;
   head?: string;
@@ -203,11 +224,12 @@ export async function squashMergeLocal(
     GIT_READ_TIMEOUT_MS,
   );
 
-  // 3. Compute the merged tree off the working tree. Non-zero exit ⇒ conflict.
-  //    On success the merged tree OID is the first line of stdout. NO refs touched.
-  const mt = await gitRun(repoPath, ["merge-tree", "--write-tree", base, branch]);
-  if (mt.code !== 0) throw new MergeConflictError(branch, base);
-  const tree = mt.stdout.split("\n")[0]?.trim();
+  // 3. Compute the merged tree off the working tree. Exit 1 ⇒ a real conflict;
+  //    exit >1 ⇒ a genuine git failure (surfaced by mergeTreeWriteTree, NOT
+  //    misreported as a conflict). NO refs touched either way.
+  const mt = await mergeTreeWriteTree(repoPath, base, branch);
+  if (mt.conflict) throw new MergeConflictError(branch, base);
+  const tree = mt.tree;
   if (!tree) {
     throw new Error(`git merge-tree produced no tree OID for ${branch} into ${base}`);
   }
@@ -315,8 +337,10 @@ export class LocalForge implements GitForge {
    *  rather than a silently-wrong boolean. */
   private async dryRunMergeable(branch: string, base: string): Promise<boolean> {
     await assertGitCapable(this.versionProbe);
-    const r = await gitRun(this.repoPath, ["merge-tree", "--write-tree", base, branch]);
-    return r.code === 0;
+    // Exit 1 ⇒ conflict (not mergeable); exit >1 ⇒ a genuine git error, which
+    // mergeTreeWriteTree throws (the poller keeps its last value) rather than
+    // silently reporting a wrong `mergeable: false`.
+    return !(await mergeTreeWriteTree(this.repoPath, base, branch)).conflict;
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

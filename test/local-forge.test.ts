@@ -8,6 +8,7 @@ import { SessionStore } from "../src/store";
 import {
   LocalForge,
   squashMergeLocal,
+  mergeTreeWriteTree,
   parseGitVersion,
   gitVersionAtLeast,
   BaseCheckoutBusyError,
@@ -296,6 +297,55 @@ test("squash merge with a real conflict throws MergeConflictError and moves no r
     expect(store.getLocalPrByNumber(pr.number!)!.state).toBe("open");
   } finally {
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+// ── merge-tree exit-code decoding: clean / conflict / genuine error ─────────
+
+test("mergeTreeWriteTree returns a tree on a clean merge, conflict flag on a conflict", async () => {
+  const repo = mkRepo();
+  try {
+    featureBranch(repo, "feature/clean", 1);
+    git(repo, "checkout", "-q", "--detach");
+    const clean = await mergeTreeWriteTree(repo, "main", "feature/clean");
+    expect(clean.conflict).toBe(false);
+    expect(clean.tree).toMatch(/^[0-9a-f]{40}$/);
+
+    // a real conflict (exit 1) → conflict flag, no throw
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "a.txt"), "base-line\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base edit");
+    git(repo, "checkout", "-q", "-b", "feature/cf", "main~1");
+    writeFileSync(join(repo, "a.txt"), "branch-line\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "branch edit");
+    git(repo, "checkout", "-q", "--detach");
+    const conflict = await mergeTreeWriteTree(repo, "main", "feature/cf");
+    expect(conflict.conflict).toBe(true);
+    expect(conflict.tree).toBeUndefined();
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("mergeTreeWriteTree throws (NOT a conflict) on a genuine git error — exit >1", async () => {
+  // A non-git directory makes `git merge-tree` exit 128 (fatal: not a git repository).
+  // git reserves exit 1 for a real conflict and >1 for genuine failures — the >1 case
+  // must surface as a plain Error, never be decoded as a MergeConflictError (a 409).
+  const nongit = mkdtempSync(join(tmpdir(), "shepherd-lf-nongit-"));
+  try {
+    let threw: unknown;
+    try {
+      await mergeTreeWriteTree(nongit, "main", "x");
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeInstanceOf(Error);
+    expect(threw).not.toBeInstanceOf(MergeConflictError);
+    expect(String((threw as Error).message)).toContain("merge-tree");
+  } finally {
+    rmSync(nongit, { recursive: true, force: true });
   }
 });
 

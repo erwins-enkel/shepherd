@@ -93,6 +93,119 @@ test("setBuildStepStatus: true on hit, false for unknown id, false for wrong ses
   expect(s.getBuildQueue(sess1.id).steps[0]!.status).toBe("active");
 });
 
+test("forward-fill: marking a later step done auto-completes earlier pending steps", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C" },
+    { title: "Step D" },
+  ]);
+  const [a, b, c, d] = q.steps.map((x) => x.id);
+
+  // Agent jumps straight to marking step C done (the screenshot's under-reporting shape).
+  expect(s.setBuildStepStatus(sess.id, c!, "done")).toBe(true);
+
+  const after = s.getBuildQueue(sess.id).steps;
+  expect(after[0]!.status).toBe("done"); // A back-filled
+  expect(after[1]!.status).toBe("done"); // B back-filled
+  expect(after[2]!.status).toBe("done"); // C as posted
+  expect(after[3]!.status).toBe("pending"); // D (later) untouched
+  void a;
+  void b;
+  void d;
+});
+
+test("forward-fill: marking a later step active also back-fills earlier pending", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C" },
+  ]);
+  const c = q.steps[2]!.id;
+  s.setBuildStepStatus(sess.id, c, "active");
+  const after = s.getBuildQueue(sess.id).steps;
+  expect(after.map((x) => x.status)).toEqual(["done", "done", "active"]);
+});
+
+test("forward-fill: an explicitly skipped earlier step is preserved, not flipped to done", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C" },
+  ]);
+  const [a, b, c] = q.steps.map((x) => x.id);
+
+  // Agent explicitly skips B, then advances to C.
+  s.setBuildStepStatus(sess.id, b!, "skipped");
+  s.setBuildStepStatus(sess.id, c!, "done");
+
+  const after = s.getBuildQueue(sess.id).steps;
+  expect(after[0]!.status).toBe("done"); // A back-filled
+  expect(after[1]!.status).toBe("skipped"); // B preserved (terminal state)
+  expect(after[2]!.status).toBe("done"); // C as posted
+  void a;
+});
+
+test("forward-fill: posting skipped or pending does NOT cascade", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C" },
+  ]);
+  const c = q.steps[2]!.id;
+
+  s.setBuildStepStatus(sess.id, c, "skipped");
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual([
+    "pending",
+    "pending",
+    "skipped",
+  ]);
+
+  // Re-asserting pending on the last step must not complete earlier ones either.
+  s.setBuildStepStatus(sess.id, c, "pending");
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual([
+    "pending",
+    "pending",
+    "pending",
+  ]);
+});
+
+test("forward-fill: idempotent and never un-completes; already-done steps unchanged", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C" },
+  ]);
+  const [a, , c] = q.steps.map((x) => x.id);
+
+  s.setBuildStepStatus(sess.id, a!, "done"); // A done, nothing earlier
+  s.setBuildStepStatus(sess.id, c!, "done"); // back-fills B; A already done
+  const first = s.getBuildQueue(sess.id).steps.map((x) => x.status);
+  expect(first).toEqual(["done", "done", "done"]);
+
+  // Re-posting C done changes nothing further.
+  s.setBuildStepStatus(sess.id, c!, "done");
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual(["done", "done", "done"]);
+});
+
+test("forward-fill: a missing target id does not cascade", () => {
+  const s = mk();
+  const sess = s.create(base);
+  s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  expect(s.setBuildStepStatus(sess.id, "no-such-id", "done")).toBe(false);
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual(["pending", "pending"]);
+});
+
 test("replaceBuildQueue leaves approval untouched (self-revision must not re-gate)", () => {
   const s = mk();
   const sess = s.create(base);

@@ -2270,13 +2270,48 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getBuildQueue(sessionId);
   }
 
-  /** Update the status of a single step. Returns true when a row was actually changed. */
+  /**
+   * Update the status of a single step. Returns true when the TARGET row was actually
+   * changed (unchanged contract; the cascade below is additive).
+   *
+   * Monotonic forward-fill: when a step is advanced to `active` or `done`, every EARLIER
+   * step still `pending` is auto-completed to `done`, in the same transaction. The
+   * build-queue contract is ordered execution ("work the steps in order"), so reaching
+   * step N implies steps before it are done — this keeps the displayed status from lagging
+   * actual progress even when the agent under-reports (e.g. marks a later step but never
+   * the earlier ones). Deterministic and server-side: needs zero agent compliance.
+   *
+   * Strictly monotonic + safe: only `pending → done`, only at LOWER positions; never
+   * un-completes a step, never touches later steps, and never overrides `skipped` (an
+   * explicit terminal state the agent sets to drop a step). A step the agent silently
+   * jumped over (left `pending`) is treated as `done` — the reasonable default under the
+   * ordered contract; the agent has the explicit `skipped` status if it means otherwise.
+   * Only fires on `active`/`done`, never on `pending` (un-set) or `skipped`.
+   */
   setBuildStepStatus(sessionId: string, stepId: string, status: BuildStepStatus): boolean {
-    const { changes } = this.db.run(
-      `UPDATE build_queue_steps SET status = ?, updatedAt = ? WHERE id = ? AND sessionId = ?`,
-      [status, Date.now(), stepId, sessionId],
-    );
-    return changes > 0;
+    const now = Date.now();
+    let changed = false;
+    this.db.transaction(() => {
+      const { changes } = this.db.run(
+        `UPDATE build_queue_steps SET status = ?, updatedAt = ? WHERE id = ? AND sessionId = ?`,
+        [status, now, stepId, sessionId],
+      );
+      changed = changes > 0;
+      if (!changed) return;
+      if (status === "active" || status === "done") {
+        const row = this.db
+          .query(`SELECT position FROM build_queue_steps WHERE id = ? AND sessionId = ?`)
+          .get(stepId, sessionId) as { position: number } | null;
+        if (row) {
+          this.db.run(
+            `UPDATE build_queue_steps SET status = 'done', updatedAt = ?
+             WHERE sessionId = ? AND position < ? AND status = 'pending'`,
+            [now, sessionId, row.position],
+          );
+        }
+      }
+    })();
+    return changed;
   }
 
   /** Flip the human-curation gate for a session's queue. */

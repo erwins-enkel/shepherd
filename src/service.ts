@@ -486,7 +486,7 @@ const RESEARCH_DIRECTIVE =
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
  */
-function buildQueueDirective(args: {
+export function buildQueueDirective(args: {
   sessionId: string;
   baseUrl: string;
   token: string | null;
@@ -524,6 +524,12 @@ function buildQueueDirective(args: {
     '     -d \'{"status":"done"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you finish a step\n` +
     '   Use "skipped" if you decide to drop a step.\n\n' +
+    "   Update as you go: mark a step `active` the moment you start it and `done` the moment you " +
+    "finish — never batch the updates at the end. Work the steps IN ORDER; when you advance a step " +
+    "the server automatically completes any earlier steps still pending, so even a single timely " +
+    "update keeps the whole queue accurate. The operator's view of your progress depends entirely " +
+    "on these. If your reported statuses ever fall behind your actual progress you may receive a " +
+    "reminder to reconcile them — do so promptly.\n\n" +
     "3. Inspect the current queue at any time:\n" +
     `   curl -s${authHeader} ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +

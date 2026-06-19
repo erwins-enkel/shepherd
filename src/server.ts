@@ -913,8 +913,8 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
 
   // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).
   // One entry per repo with ≥1 active/promoted or retired rule; the budget value
-  // flows from here so the UI never hardcodes it. Shares the planner with
-  // service.houseRules.
+  // flows from here so the UI never hardcodes it. Shares the planner
+  // (planHouseRulesInjection) with service.recordInjectedHouseRules.
   if (parts[2] === "injectable") {
     const budgetChars = config.houseRulesBudgetChars;
     // Union of repos with injectable (active/promoted) or retired rules — deduped,

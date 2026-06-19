@@ -500,3 +500,56 @@ test("CountsService: Gitea repo → prKinds null", async () => {
   const svc = new CountsService(forges, async () => "", fn);
   expect((await svc.counts(repoDir)).prKinds).toBeNull();
 });
+
+// 18. lightweight mode: even a GitHub-origin repo returns null counts when repoMode=lightweight
+test("CountsService: lightweight repo → null counts regardless of origin", async () => {
+  // GitHub origin — would normally trigger a gh graphql fetch
+  const repoDir = gitInit(join(tmpBase, "lw-repo"), "https://github.com/o/lw");
+  const forges: ForgeMap = {};
+
+  let runnerCalled = false;
+  const run: GhRunner = async () => {
+    runnerCalled = true;
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 99 }, pullRequests: { totalCount: 5 } } },
+    });
+  };
+
+  const svc = new CountsService(forges, run, fetch, undefined, () => ({ repoMode: "lightweight" }));
+
+  const result = await svc.counts(repoDir);
+  expect(result.openIssues).toBeNull();
+  expect(result.openPRs).toBeNull();
+  expect(runnerCalled).toBe(false); // runner must never be invoked
+});
+
+// 19. lightweight toggle: flipping repoMode propagates without restart
+test("CountsService: repoMode toggle propagates — flip lightweight→forge triggers fetch", async () => {
+  const repoDir = gitInit(join(tmpBase, "lw-toggle"), "https://github.com/o/toggle");
+  const forges: ForgeMap = {};
+
+  let repoMode: "forge" | "lightweight" = "lightweight";
+  let runnerCalled = 0;
+  const run: GhRunner = async () => {
+    runnerCalled++;
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 7 }, pullRequests: { totalCount: 2 } } },
+    });
+  };
+
+  const svc = new CountsService(forges, run, fetch, undefined, () => ({ repoMode }));
+
+  // lightweight → null, no runner invocation
+  const r1 = await svc.counts(repoDir);
+  expect(r1.openIssues).toBeNull();
+  expect(runnerCalled).toBe(0);
+
+  // flip to forge — expire the cache entry so the next call re-fetches
+  repoMode = "forge";
+  const entry = (svc as any).cache.get(repoDir);
+  if (entry) entry.at = 0; // force TTL expiry
+
+  const r2 = await svc.counts(repoDir);
+  expect(r2.openIssues).toBe(7);
+  expect(runnerCalled).toBe(1);
+});

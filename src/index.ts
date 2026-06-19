@@ -28,7 +28,7 @@ import { reconcile } from "./reconcile";
 import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
-import { detectForge } from "./forge";
+import { makeProductionForgeResolver } from "./forge/resolve";
 import { AccountUsageIndex } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
@@ -329,20 +329,10 @@ setTimeout(sweepOrphanTabs, 5_000);
 setTimeout(sweepOrphanTabs, 45_000);
 setInterval(sweepOrphanTabs, 60 * 60 * 1000);
 
-// Memoize forge resolution: detectForge shells out to a synchronous
-// `git remote get-url` per repo. forge↔repo is effectively immutable, so resolve
-// once per dir and share the result across the pollers, the critic, and the
-// per-request /api/backlog path — which otherwise re-shells git for every repo
-// on every hit, blocking the event loop even when the counts cache is fully warm.
-const forgeResolutionCache = new Map<string, ReturnType<typeof detectForge>>();
-const resolveForge = (dir: string): ReturnType<typeof detectForge> => {
-  let forge = forgeResolutionCache.get(dir);
-  if (forge === undefined) {
-    forge = detectForge(dir, config.forges);
-    forgeResolutionCache.set(dir, forge);
-  }
-  return forge;
-};
+// Mode-aware forge resolution: lightweight repos get a LocalForge; forge repos
+// get the memoized detectForge result (git shell-out). repoMode is read per call
+// (cheap PK lookup) so a runtime toggle takes effect without a restart.
+const resolveForge = makeProductionForgeResolver(store, config.forges);
 
 const tailscaleServe = new TailscaleServeService({
   base: config.previewPortBase,
@@ -1180,7 +1170,9 @@ const ghRunnerAsync = async (args: string[]): Promise<string> => {
   const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
   return stdout.toString();
 };
-const backlog = new CountsService(config.forges, ghRunnerAsync);
+const backlog = new CountsService(config.forges, ghRunnerAsync, fetch, undefined, (dir) =>
+  store.getRepoConfig(dir),
+);
 
 // gentle "star us on GitHub?" nudge — surfaces once the operator has used Shepherd
 // for a few days, stars erwins-enkel/shepherd through their existing gh auth. The

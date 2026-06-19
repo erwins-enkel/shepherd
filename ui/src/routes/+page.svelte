@@ -97,6 +97,7 @@
   import NewProject from "$lib/components/NewProject.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
+  import RetryDialog from "$lib/components/RetryDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
@@ -183,6 +184,7 @@
   let showFork = $state(false);
   let showNewProject = $state(false);
   let showBroadcast = $state(false);
+  let showRetry = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
@@ -400,6 +402,14 @@
   );
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+
+  // Retry-halted gate: how many sessions are usage-halted, and is usage back below the threshold?
+  const haltedCount = $derived(store.sessions.filter((s) => s.haltReason === "usage_limit").length);
+  const usageBelow = $derived(
+    Math.max(store.usageLimits?.session5h?.pct ?? 0, store.usageLimits?.week?.pct ?? 0) <
+      usageHoldPct,
+  );
+  const retryReady = $derived(haltedCount > 0 && usageBelow);
 
   function loadSettings() {
     getSettings()
@@ -903,6 +913,7 @@
       showSettings ||
       showBacklog ||
       showBroadcast ||
+      showRetry ||
       showTriage ||
       showUpdate ||
       showHerdrUpdate ||
@@ -1716,6 +1727,9 @@
             nextNeedsYou={otherNeedsYou.length}
             onnextneedsyou={jumpNextNeedsYou}
             onbroadcast={() => (showBroadcast = true)}
+            onretry={() => (showRetry = true)}
+            retryHaltedCount={haltedCount}
+            {retryReady}
             onedit={() => {
               settingsTab = "session";
               showSettings = true;
@@ -1852,6 +1866,9 @@
             {onarchive}
             workingBlocked={store.workingBlocked}
             onbroadcast={() => (showBroadcast = true)}
+            onretry={() => (showRetry = true)}
+            retryHaltedCount={haltedCount}
+            {retryReady}
             onedit={() => {
               settingsTab = "session";
               showSettings = true;
@@ -2133,6 +2150,10 @@
 
 {#if showBroadcast}
   <BroadcastDialog sessions={store.sessions} onclose={() => (showBroadcast = false)} />
+{/if}
+
+{#if showRetry}
+  <RetryDialog sessions={store.sessions} onclose={() => (showRetry = false)} />
 {/if}
 
 {#if clearMergedSessions}

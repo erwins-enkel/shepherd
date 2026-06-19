@@ -11,6 +11,9 @@ import {
 import { isStalled, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
+import { readTranscriptTail } from "./activity";
+import { classifyHalt, assistantSideText } from "./usage-halt";
+import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
 import { scanListeningPortsByWorktree, scanClaudeAliveByWorktree } from "./process-reaper";
 import { resolveDevPort } from "./preview";
@@ -190,6 +193,15 @@ export class StatusPoller {
   private lastClaudeAlive = new Map<string, boolean>();
   /** The resolved liveness wiring (with real defaults filled in). */
   private readonly livenessWiring: LivenessWiring;
+  /** Emitted when a session's halt state changes: a usage-limit halt is detected
+   *  (non-null reason), or the flag is cleared when the session resumes work (null). */
+  private readonly onHaltCb: (
+    id: string,
+    haltReason: Session["haltReason"],
+    haltedAt: number | null,
+  ) => void;
+  /** Usage-limits service for corroboration in classifyHalt. */
+  private readonly usageLimitsSvc: { limits(now: number): UsageLimits };
 
   constructor(
     private store: SessionStore,
@@ -250,10 +262,28 @@ export class StatusPoller {
      * horizon). Pure measurement — never mutates status/routing. Defaults to a single
      * greppable `[hooks]` log line; tests inject a capturer.
      */
-    private onStopWindow: (id: string, windowMs: number | null) => void = (id, windowMs) => {
+    private onStopWindow: ((id: string, windowMs: number | null) => void) | undefined = (
+      id,
+      windowMs,
+    ) => {
       const kind = windowMs === null ? "no-stop" : windowMs > 0 ? "stop-wins" : "herdr-wins";
       console.log(`[hooks] stop-window session=${id} windowMs=${windowMs ?? "null"} case=${kind}`);
     },
+    /**
+     * Pushed when a session's transcript signals a usage-limit halt at the
+     * done transition. Wired in src/index.ts to emit `session:halt`.
+     * Defaults to a no-op so existing tests that omit it still compile.
+     * Optional (undefined ⇒ no-op) so callers can skip it with a positional
+     * `undefined` after `onStopWindow`.
+     */
+    onHalt?: (id: string, haltReason: Session["haltReason"], haltedAt: number | null) => void,
+    /**
+     * Usage-limits service — provides the latest window percentages for the
+     * corroboration check in `classifyHalt`. Injectable for tests; defaults to
+     * a stub that returns fully-null limits (uncalibrated fallback).
+     * Optional (undefined ⇒ stub) so callers can skip it.
+     */
+    usageLimits?: { limits(now: number): UsageLimits },
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -274,6 +304,17 @@ export class StatusPoller {
       scan: liveness?.scan ?? ((worktrees) => scanClaudeAliveByWorktree(worktrees)),
       sweepMs: liveness?.sweepMs ?? config.previewSweepMs,
       onChange: liveness?.onChange ?? (() => {}),
+    };
+    this.onHaltCb = onHalt ?? (() => {});
+    this.usageLimitsSvc = usageLimits ?? {
+      limits: () => ({
+        session5h: null,
+        week: null,
+        credits: null,
+        stale: false,
+        calibratedAt: null,
+        subscriptionOnly: false,
+      }),
     };
   }
 
@@ -372,6 +413,7 @@ export class StatusPoller {
     this.pendingStopAt.delete(s.id);
     this.pendingDoneAt.delete(s.id);
     if (s.status !== "done") {
+      this.detectUsageHalt(s);
       this.store.update(s.id, { status: "done", lastState: "done" });
       this.onChange(s.id, "done");
     }
@@ -390,13 +432,10 @@ export class StatusPoller {
       this.onChange(s.id, status); // nudge clients to re-attach the PTY to the fresh terminal
     }
     if (idChanged) s = { ...s, herdrAgentId: agent.terminalId };
-    // Observe-only Stop↔herdr-done measurement (issue #713): on the done-EDGE (status flips
-    // to done; `s.status` holds the PRIOR value) record/pair the window. Placed BEFORE the
-    // tryHookAwaitingBlock early-return below so a stale `hookAwaitingInput` short-circuit
-    // can never swallow the measurement. Pure measurement — does not alter status/routing.
-    if (config.hooksSignals && status === "done" && s.status !== "done") {
-      this.measureStopWindow(s.id, this.now());
-    }
+    // Observe-only Stop↔herdr-done measurement + usage-halt detection on the done-EDGE.
+    // Placed BEFORE the tryHookAwaitingBlock early-return below so a stale
+    // `hookAwaitingInput` short-circuit can never swallow the measurement.
+    this.handleStatusEdge(s, status);
     this.dropReadyToMergeIfActionable(s, status);
     // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
     // display flag must drop in the SAME tick, not via the throttled probe paths.
@@ -425,6 +464,71 @@ export class StatusPoller {
     if ((status === "running" || status === "blocked") && s.readyToMerge) {
       this.store.update(s.id, { readyToMerge: false });
       this.onReady(s.id, false);
+    }
+  }
+
+  /**
+   * On the done-EDGE (prior status ≠ "done", new status === "done") in reconcileAgent:
+   * record the Stop↔herdr-done measurement window (when hooks are enabled) and detect
+   * a usage-limit halt. Extracted to keep reconcileAgent under the complexity gate.
+   */
+  private handleDoneEdge(s: Session): void {
+    if (config.hooksSignals) this.measureStopWindow(s.id, this.now());
+    this.detectUsageHalt(s);
+  }
+
+  /**
+   * Halt-flag transitions at the status edge, dispatched from reconcileAgent (kept as one
+   * call so that method stays under the complexity gate):
+   *  - entering done  → detect a usage-limit halt (+ Stop-window measurement);
+   *  - resuming work (running, by retry / resume() / drain / autopilot) → clear the flag,
+   *    the single authoritative clear so a resumed session stops being badged "halted".
+   */
+  private handleStatusEdge(s: Session, status: Session["status"]): void {
+    if (status === "done" && s.status !== "done") this.handleDoneEdge(s);
+    else if (status === "running" && s.haltReason) this.clearHaltOnResume(s);
+  }
+
+  /**
+   * Clear a session's usage-halt flag once it is working again. Persists null and emits
+   * the clearing onHalt(null) so the delta-driven UI (the ⟳ chip, the "halted" badge,
+   * RetryDialog preselect) drops it live. Gated by `s.haltReason` in the caller, so it
+   * fires once — the next tick reads a null flag.
+   */
+  private clearHaltOnResume(s: Session): void {
+    this.store.setHaltReason(s.id, null, null);
+    this.onHaltCb(s.id, null, null);
+  }
+
+  /**
+   * Detect a usage-limit halt at the done transition.
+   *
+   * Called at BOTH done-entry points (reapGone + reconcileAgent done-edge),
+   * gated by `s.haltReason` being null so it only runs once per session.
+   * Reads the transcript tail synchronously (bounded read — see readTranscriptTail),
+   * wrapped in try/catch so a missing or unreadable file never throws into the
+   * tick loop. On a confirmed halt: persists via setHaltReason and emits
+   * onHalt so the UI can patch the live row.
+   */
+  private detectUsageHalt(s: Session): void {
+    if (s.haltReason) return; // already set; skip
+    try {
+      const tail = readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+      // Match only NON-user transcript content: a user prompt mentioning usage-limit
+      // phrasing must never be read as Claude's own halt notice (false positive on the
+      // uncalibrated degrade path, where the usage corroboration is bypassed).
+      const reason = classifyHalt(
+        assistantSideText(tail),
+        this.usageLimitsSvc.limits(this.now()),
+        config.usageHoldPct,
+      );
+      if (reason) {
+        const haltedAt = this.now();
+        this.store.setHaltReason(s.id, reason, haltedAt);
+        this.onHaltCb(s.id, reason, haltedAt);
+      }
+    } catch {
+      // file may not exist for a never-run session; degrade silently
     }
   }
 
@@ -613,7 +717,7 @@ export class StatusPoller {
     const d = this.pendingDoneAt.get(id);
     if (d !== undefined && stopAt - d <= STOP_WINDOW_MAX_MS) {
       // herdr-wins: the done-flip preceded this Stop (window ≤ 0).
-      this.onStopWindow(id, d - stopAt);
+      this.onStopWindow?.(id, d - stopAt);
       this.pendingDoneAt.delete(id);
     } else {
       this.pendingStopAt.set(id, stopAt);
@@ -634,12 +738,12 @@ export class StatusPoller {
     const st = this.pendingStopAt.get(id);
     if (st !== undefined && doneAt - st <= STOP_WINDOW_MAX_MS) {
       // stop-wins: the Stop preceded this done-flip (window ≥ 0).
-      this.onStopWindow(id, doneAt - st);
+      this.onStopWindow?.(id, doneAt - st);
       this.pendingStopAt.delete(id);
     } else {
       // No pairable Stop. A prior pending done is being superseded by this fresh one and
       // never paired → emit null for it before overwriting.
-      if (this.pendingDoneAt.has(id)) this.onStopWindow(id, null);
+      if (this.pendingDoneAt.has(id)) this.onStopWindow?.(id, null);
       this.pendingDoneAt.set(id, doneAt);
     }
   }
@@ -654,7 +758,7 @@ export class StatusPoller {
     const now = this.now();
     for (const [id, doneAt] of this.pendingDoneAt) {
       if (now - doneAt > STOP_WINDOW_MAX_MS) {
-        this.onStopWindow(id, null);
+        this.onStopWindow?.(id, null);
         this.pendingDoneAt.delete(id);
       }
     }

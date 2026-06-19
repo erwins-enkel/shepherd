@@ -46,6 +46,8 @@ const SESSION: Session = {
   createdAt: 0,
   updatedAt: 0,
   archivedAt: null,
+  haltReason: null,
+  haltedAt: null,
 };
 
 function makeDeps(session: Session | null): AppDeps {

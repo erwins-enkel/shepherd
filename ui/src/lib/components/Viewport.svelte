@@ -77,6 +77,9 @@
     onnextneedsyou,
     nextNeedsYou = 0,
     onbroadcast,
+    onretry,
+    retryHaltedCount = 0,
+    retryReady = false,
     onedit,
     mobile = false,
     touch = false,
@@ -107,6 +110,9 @@
     /** How many *other* sessions are waiting on the operator; gates the button. */
     nextNeedsYou?: number;
     onbroadcast?: () => void;
+    onretry?: () => void;
+    retryHaltedCount?: number;
+    retryReady?: boolean;
     onedit?: () => void;
     mobile?: boolean;
     touch?: boolean;
@@ -2594,6 +2600,9 @@
     <SteerBar
       focusedId={session.id}
       onbroadcast={() => onbroadcast?.()}
+      onretry={() => onretry?.()}
+      {retryHaltedCount}
+      {retryReady}
       onedit={() => onedit?.()}
     />
   {/if}

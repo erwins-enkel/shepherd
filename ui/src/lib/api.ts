@@ -915,6 +915,21 @@ export async function broadcast(
   return r.json();
 }
 
+/** Resume usage-halted sessions. Sends `text` as a steer to each selected session
+ *  (resume) and steers them to continue. Returns counts of resumed/steered/total. */
+export async function retryHalted(
+  ids: string[],
+  text: string,
+): Promise<{ resumed: number; steered: number; total: number }> {
+  const r = await fetch("/api/retry", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ ids, text }),
+  });
+  if (!r.ok) throw await failed(r, "retry");
+  return r.json();
+}
+
 /** Fleet-wide emergency stop: interrupt every live working agent at once. No body —
  *  the server computes the target set. Returns how many panes were halted. */
 export async function halt(): Promise<{ halted: number }> {

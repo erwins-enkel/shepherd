@@ -1907,6 +1907,48 @@ export class SessionService {
     return { result: "stopped", killed };
   }
 
+  /**
+   * Retry a set of usage-halted sessions. For each id:
+   *  - If its pane is live (herdr still lists it) → steer with `continueText` so the
+   *    agent can continue from where it stopped (live idle/blocked state).
+   *  - Otherwise → `resume(id)` spawns a fresh `claude --resume` pane.
+   * On any success the haltReason flag is cleared so the UI badge disappears.
+   * The steer text is supplied by the caller (localized client-side) — the server
+   * stays i18n-agnostic, exactly like broadcast.
+   */
+  async retryHalted(
+    ids: string[],
+    continueText: string,
+  ): Promise<{ resumed: number; steered: number; total: number }> {
+    const live = this.liveTerminalIds();
+    let resumed = 0;
+    let steered = 0;
+    for (const id of ids) {
+      const s = this.deps.store.get(id);
+      if (!s) continue;
+      let succeeded = false;
+      if (live.has(s.herdrAgentId)) {
+        if (this.replyToLive(id, continueText, live)) {
+          steered++;
+          succeeded = true;
+        }
+      } else {
+        if (await this.resume(id)) {
+          resumed++;
+          succeeded = true;
+        }
+      }
+      if (succeeded) {
+        // Clear immediately AND push it so the ⟳ chip / "halted" badge / RetryDialog
+        // preselect drop at once and a re-fire can't re-steer an already-resumed session
+        // — don't wait for the poller's working-transition clear to catch up.
+        this.deps.store.setHaltReason(id, null, null);
+        this.deps.events?.emit("session:halt", { id, haltReason: null, haltedAt: null });
+      }
+    }
+    return { resumed, steered, total: ids.length };
+  }
+
   /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.
    *  Lists herdr's live agents ONCE up front rather than per id, so a wide fan-out
    *  doesn't spawn one blocking `herdr agent list` per target. */

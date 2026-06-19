@@ -242,6 +242,8 @@ function session(over: Partial<Session>): Session {
     createdAt: 0,
     updatedAt: 0,
     archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
     ...over,
   };
 }

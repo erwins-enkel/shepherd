@@ -398,6 +398,13 @@ const poller = new StatusPoller(
   // Phase-1 (issue #704): prune dead sessions' hook ring buffers from the poller's
   // pruneInactive (so they don't grow unbounded by session count).
   (ids) => hookIngest.prune(ids),
+  undefined, // onStopWindow — use default logger
+  // onHalt: a session's halt flag changed (usage-limit detected, or cleared on resume)
+  // → push live so the UI updates the RetryDialog/chip/badge without a full refresh.
+  (id: string, haltReason: string | null, haltedAt: number | null) =>
+    events.emit("session:halt", { id, haltReason, haltedAt }),
+  // usageLimits: corroborates the transcript-tail match against measured pct windows.
+  usageLimits,
 );
 
 // Phase-1 push-hook signal wiring (issue #704): feed received hook events into the

@@ -8,8 +8,18 @@
   let {
     focusedId,
     onbroadcast,
+    onretry,
+    retryHaltedCount = 0,
+    retryReady = false,
     onedit,
-  }: { focusedId: string; onbroadcast: () => void; onedit?: () => void } = $props();
+  }: {
+    focusedId: string;
+    onbroadcast: () => void;
+    onretry?: () => void;
+    retryHaltedCount?: number;
+    retryReady?: boolean;
+    onedit?: () => void;
+  } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
   const chips = $derived(steers.list.filter((s) => s.inSteerBar));
@@ -153,6 +163,18 @@
       aria-label={m.steerbar_broadcast_aria()}
       >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
     >
+    {#if retryReady && retryHaltedCount > 0}
+      <button
+        type="button"
+        class="chip retry-chip"
+        onpointerdown={down}
+        onpointermove={move}
+        onpointercancel={cancel}
+        onpointerup={(e) => tap(e, () => onretry?.())}
+        title={m.retry_title()}
+        aria-label={m.retry_title()}>⟳<span class="bc-label"> {retryHaltedCount}</span></button
+      >
+    {/if}
     {#each chips as s (s.id)}
       <button
         type="button"
@@ -266,6 +288,11 @@
   .chip.bc {
     color: var(--color-amber);
     border-color: var(--color-amber);
+  }
+  .chip.retry-chip {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    opacity: 0.85;
   }
   .bc-label {
     margin-left: 6px;

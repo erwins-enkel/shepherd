@@ -61,6 +61,8 @@ function session(over: Partial<Session> = {}): Session {
     createdAt: NOW - 1000,
     updatedAt: NOW,
     archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
     ...over,
   };
 }

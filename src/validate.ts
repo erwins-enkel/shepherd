@@ -872,3 +872,19 @@ export function validateBroadcast(body: unknown): { text: string; ids: string[] 
   }
   return { text, ids };
 }
+
+/** Validate a POST /api/retry payload. Returns null on any violation. */
+export function validateRetry(body: unknown): { text: string; ids: string[] } | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  if (typeof o.text !== "string") return null;
+  const text = o.text.trim();
+  if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
+  if (!Array.isArray(o.ids)) return null;
+  const ids: string[] = [];
+  for (const id of o.ids) {
+    if (typeof id !== "string" || id.length === 0) return null;
+    ids.push(id);
+  }
+  return { text, ids };
+}

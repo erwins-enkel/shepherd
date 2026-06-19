@@ -324,6 +324,23 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
   expect(calls[0]!.headers.get("Authorization")).toBe("token secret");
 });
 
+test("GiteaForge.currentUser: returns the authenticated login (#824)", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/user": { json: { login: "octogit" } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.currentUser()).toBe("octogit");
+  // Cached: a second call must not hit the API again.
+  expect(await forge.currentUser()).toBe("octogit");
+  expect(calls.filter((c) => c.url.endsWith("/api/v1/user")).length).toBe(1);
+});
+
+test("GiteaForge.currentUser: null when the host can't resolve a user", async () => {
+  const { fn } = fakeFetch({ "GET /api/v1/user": { status: 401 } });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect(await forge.currentUser()).toBeNull();
+});
+
 test("GiteaForge.prStatus: open PR + success status → mapped", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=all&limit=50": {

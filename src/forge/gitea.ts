@@ -160,6 +160,22 @@ export class GiteaForge implements GitForge {
     }
   }
 
+  private cachedUser: string | null | undefined;
+  /** The authenticated Gitea login (`GET /api/v1/user`), cached for the forge's
+   *  lifetime — it never changes mid-session. Drives the "mine & unassigned" issue
+   *  filter (#824) so the chip is live on Gitea too, not just GitHub. Null when it
+   *  can't be resolved (no token / network error) → fail open (show all). */
+  async currentUser(): Promise<string | null> {
+    if (this.cachedUser !== undefined) return this.cachedUser;
+    try {
+      const u = (await this.req("GET", "/api/v1/user")) as { login?: string } | null;
+      this.cachedUser = u?.login || null;
+    } catch {
+      this.cachedUser = null; // unauth / offline → treat as "unknown me"
+    }
+    return this.cachedUser;
+  }
+
   /** One combined-status call yields both the worst-of rollup (top-level `state`)
    *  and the per-context breakdown (`statuses[]`) for the PRs-tab expand view. */
   private async commitChecks(

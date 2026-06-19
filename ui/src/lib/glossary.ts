@@ -66,6 +66,12 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_inferred_term",
     bodyKey: "gloss_inferred_def",
   },
+  {
+    id: "lightweight_repo",
+    kind: "internal",
+    termKey: "gloss_lightweight_repo_term",
+    bodyKey: "gloss_lightweight_repo_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

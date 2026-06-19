@@ -1555,5 +1555,13 @@
   "feat_activity_visual_feed_body": "The Activity tab shows a live tree of changed files and a grouped tool stream while the agent works, then graduates to the full visual recap once the session settles.",
   "plangate_view": "PLAN",
   "feat_plan_reopen_title": "Reopen your plan anytime",
-  "feat_plan_reopen_body": "Your signed-off plan stays reachable while work runs. Tap the PLAN chip on any executing session — row, tile, or viewport — to view it read-only, on desktop or mobile."
+  "feat_plan_reopen_body": "Your signed-off plan stays reachable while work runs. Tap the PLAN chip on any executing session — row, tile, or viewport — to view it read-only, on desktop or mobile.",
+  "automation_lightweight_name": "Lightweight (local-only)",
+  "automation_lightweight_desc": "Local git only — no Forge, no PRs. Branch squash-merged locally at completion.",
+  "automation_lightweight_detail": "In lightweight mode Shepherd drives the repo with local git only: no GitHub, no pull requests, no remote. Auto-Drain, All-PRs Critic and Draft reconcile are unavailable. When the task finishes the agent's branch is squash-merged into the base branch locally; you push when you choose.",
+  "automation_lightweight_unavailable": "Unavailable in lightweight mode",
+  "gloss_lightweight_repo_term": "lightweight repo",
+  "gloss_lightweight_repo_def": "A repo Shepherd drives with local git only — no Forge, no GitHub, no PRs, no remote. When a task finishes, the agent's branch is squash-merged into the base branch locally; the operator pushes to a remote when they choose.",
+  "feat_lightweight_repo_title": "Lightweight (local-only) mode",
+  "feat_lightweight_repo_body": "Repos without a GitHub remote can now run in [[lightweight_repo|lightweight]] mode: Shepherd drives local git only — no PRs, no Forge. Enable it in the automation panel; the agent's branch is squash-merged locally at completion."
 }

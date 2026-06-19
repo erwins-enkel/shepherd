@@ -1555,5 +1555,13 @@
   "feat_activity_visual_feed_body": "Der Aktivitäts-Tab zeigt während der Arbeit einen Live-Baum der geänderten Dateien und einen gruppierten Tool-Verlauf und wechselt nach Abschluss der Sitzung zur vollständigen visuellen Zusammenfassung.",
   "plangate_view": "PLAN",
   "feat_plan_reopen_title": "Plan jederzeit erneut öffnen",
-  "feat_plan_reopen_body": "Dein freigegebener Plan bleibt während der Ausführung erreichbar. Tippe bei einer laufenden Session auf den PLAN-Chip — in Zeile, Kachel oder Viewport — um ihn schreibgeschützt anzusehen, am Desktop oder mobil."
+  "feat_plan_reopen_body": "Dein freigegebener Plan bleibt während der Ausführung erreichbar. Tippe bei einer laufenden Session auf den PLAN-Chip — in Zeile, Kachel oder Viewport — um ihn schreibgeschützt anzusehen, am Desktop oder mobil.",
+  "automation_lightweight_name": "Lightweight (nur lokal)",
+  "automation_lightweight_desc": "Nur lokales Git — kein Forge, keine PRs. Branch wird lokal squash-gemergt bei Abschluss.",
+  "automation_lightweight_detail": "Im Lightweight-Modus steuert Shepherd das Repo ausschließlich mit lokalem Git: kein GitHub, keine Pull Requests, kein Remote. Auto-Drain, Alle-PRs-Kritiker und Entwurfs-Abgleich sind nicht verfügbar. Wenn die Aufgabe abgeschlossen ist, wird der Agent-Branch lokal in den Basis-Branch squash-gemergt; Sie pushen, wann Sie möchten.",
+  "automation_lightweight_unavailable": "Nicht verfügbar im Lightweight-Modus",
+  "gloss_lightweight_repo_term": "Lightweight-Repo",
+  "gloss_lightweight_repo_def": "Ein Repo, das Shepherd ausschließlich mit lokalem Git steuert — kein Forge, kein GitHub, keine PRs, kein Remote. Wenn eine Aufgabe abgeschlossen ist, wird der Agent-Branch lokal in den Basis-Branch squash-gemergt; der Betreiber pusht zu einem Remote nach eigenem Ermessen.",
+  "feat_lightweight_repo_title": "Lightweight-Modus (nur lokal)",
+  "feat_lightweight_repo_body": "Repos ohne GitHub-Remote können jetzt im [[lightweight_repo|Lightweight]]-Modus betrieben werden: Shepherd steuert nur lokales Git — keine PRs, kein Forge. Im Automatisierungsfenster aktivieren; der Agent-Branch wird lokal bei Abschluss squash-gemergt."
 }

@@ -486,7 +486,12 @@ test("tick: generating row + valid verdict → state 'ready' + usage + stop + cl
 test("TASK-561 tick: prose-wrapped (jsonrepair array) verdict → state 'ready', not 'failed'", async () => {
   const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-prose", spawnedAt: 100_000 });
   const store = makeStore([], [rec]);
-  const herdr = makeHerdr([{ cwd: "/tmp/recap-prose", terminalId: "t-prose" }]);
+  // Production: strict JSON.parse FAILS on prose-wrapped output, so the read is recovered via
+  // jsonrepair (repaired:true) into the array shape — and a repaired parse is gated on the spawn
+  // having finished (decideVerdictAction). Model that exactly: agent idle (finished) at the cwd.
+  const herdr = makeHerdr([
+    { cwd: "/tmp/recap-prose", terminalId: "t-prose", agentStatus: "idle" },
+  ]);
   const cleaned: string[] = [];
 
   const svc = buildSvc({
@@ -494,19 +499,24 @@ test("TASK-561 tick: prose-wrapped (jsonrepair array) verdict → state 'ready',
     herdr,
     nowFn: () => 200_000,
     timeoutMs: 300_000,
-    // The array shape jsonrepair produces from prose-wrapped output (strict parse already finalizes,
-    // so the read reports repaired:false here — the array recovery lives in parseRecapVerdict).
-    verdictJson: [
-      "Here is the session recap:",
-      {
-        verdict: "needs-attention", // also exercises hyphen→underscore normalization
-        headline: "Lightweight repo mode",
-        body: 'Operator clicks "Open for merge".',
-        openItems: ["Document the mode"],
-        blocks: [{ type: "rich-text", id: "b1", markdown: "Local-only git." }],
-      },
-      "Let me know if you need anything else.",
-    ],
+    // The array shape jsonrepair produces from prose-wrapped output, surfaced through the real
+    // repaired-gated read path (repaired:true + finished spawn → finalize); the array recovery
+    // itself lives in parseRecapVerdict.
+    verdictRead: {
+      status: "parsed",
+      repaired: true,
+      value: [
+        "Here is the session recap:",
+        {
+          verdict: "needs-attention", // also exercises hyphen→underscore normalization
+          headline: "Lightweight repo mode",
+          body: 'Operator clicks "Open for merge".',
+          openItems: ["Document the mode"],
+          blocks: [{ type: "rich-text", id: "b1", markdown: "Local-only git." }],
+        },
+        "Let me know if you need anything else.",
+      ],
+    },
     cleanup: (d) => cleaned.push(d),
   });
 

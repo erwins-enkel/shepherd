@@ -650,7 +650,10 @@
     gap: 8px;
     border-left: 2px solid var(--color-line-bright);
     background: var(--color-head);
-    padding: 6px 8px;
+    /* no top padding: the header (.ghead, always the first child) owns the
+       group's top spacing via its own padding-top, so the resting header gap
+       matches the pinned one instead of stacking on a group pad */
+    padding: 0 8px 6px;
   }
   /* Change 4: sticky repo header — opaque background so scrolled content doesn't bleed */
   .ghead {
@@ -658,8 +661,9 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--color-line);
-    /* opaque top buffer so scrolling content disappears cleanly under the pinned
-       header's upper edge (drawer drops its top padding for this to read flush) */
+    /* single source of the header's top space (group drops its top padding): an
+       opaque buffer so scrolling content disappears cleanly under the pinned
+       header's upper edge, identical at rest and when pinned at top:0 */
     padding-top: 8px;
     padding-bottom: 4px;
     position: sticky;

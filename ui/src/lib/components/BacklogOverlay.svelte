@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { BacklogPayload, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
   import BacklogView from "./BacklogView.svelte";
@@ -16,6 +16,7 @@
     epics = undefined,
     inTrainPrs = new Set(),
     target = null,
+    drain = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -33,6 +34,10 @@
     /** EPIC-badge target (repo + issue), forwarded to BacklogView to drive
      *  selection + epic expansion. */
     target?: { repoPath: string; issueNumber: number } | null;
+    /** Live drain status keyed by repoPath (store.drain), forwarded to BacklogView →
+     *  Automation tab. This overlay is reachable while tasks run, so without it the
+     *  Automation tab's epic banner + drain-cap would be stale here. */
+    drain?: Record<string, DrainStatus>;
   } = $props();
 </script>
 
@@ -68,6 +73,7 @@
         {epics}
         {inTrainPrs}
         {target}
+        {drain}
       />
     </div>
   </div>

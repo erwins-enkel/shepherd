@@ -17,9 +17,12 @@ const execFileAsync = promisify(execFile);
 /** Per-git-call timeout (ms). Every invocation in this module is bounded — the
  *  ref-writing merge path is NOT exempt (house rule: never label a ref-writing
  *  path read-only/fail-fast). Generous enough for a full off-working-tree squash
- *  + an in-worktree fast-forward checkout on a large repo. */
+ *  + an in-worktree fast-forward checkout on a large repo. Also covers
+ *  `merge-tree --write-tree` (the mergeability dry run AND the squash compute):
+ *  it is a real 3-way merge that writes a tree, not a trivial metadata read. */
 const GIT_TIMEOUT_MS = 60_000;
-/** Lighter bound for the pure-read probes (rev-parse / merge-tree dry run / --version). */
+/** Lighter bound for the trivial metadata reads (rev-parse / status / worktree
+ *  list / --version). */
 const GIT_READ_TIMEOUT_MS = 15_000;
 
 export const MIN_GIT_MAJOR = 2;

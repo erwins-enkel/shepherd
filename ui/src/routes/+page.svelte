@@ -120,6 +120,7 @@
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
   import { featureAnnouncements, FABLE_FEATURE_ID } from "$lib/feature-announcements";
+  import { resolveFableArrival } from "$lib/fable-arrival";
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
@@ -411,7 +412,16 @@
         settings = s;
         usageHoldEnabled = s.usageHoldEnabled;
         usageHoldPct = s.usageHoldPct;
-        if (fableArrivalEligible && s.fableAvailable !== false) showFableArrival = true;
+        // One-shot: loadSettings() also re-fires on tab return, so the eligibility
+        // flag is consumed and `seen` re-checked here — a dismissed (or already-seen)
+        // arrival must never reappear. See resolveFableArrival.
+        const arrival = resolveFableArrival(
+          fableArrivalEligible,
+          featureDiscovery.isSeen(FABLE_FEATURE_ID),
+          s.fableAvailable,
+        );
+        fableArrivalEligible = arrival.eligible;
+        if (arrival.show) showFableArrival = true;
       })
       .catch(() => {});
   }

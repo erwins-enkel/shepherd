@@ -17,6 +17,10 @@ import {
   splitDropped,
   reposNeedingAttention,
   visibleInjectableRules,
+  retiredRules,
+  retiredCount,
+  unseenRetiredCount,
+  helpRate,
 } from "./learnings-drawer";
 import type { Learning, LearningStatus, RepoInjectable } from "../types";
 
@@ -30,6 +34,11 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
     status,
     evidenceCount: 0,
     ineffectiveCount: 0,
+    helpfulCount: 0,
+    injectedCount: 0,
+    lastUsedAt: null,
+    retiredAt: null,
+    retiredReason: null,
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
@@ -52,6 +61,8 @@ function IR(
       injected: r.injected,
       ineffectiveCount: r.ineffectiveCount ?? 0,
     })),
+    retired: [],
+    unseenRetired: 0,
     ...over,
   };
 }
@@ -443,5 +454,60 @@ describe("visibleInjectableRules", () => {
     const rules = visibleInjectableRules(repo, { flaggedOnly: true, overBudgetOnly: true });
     // union: ids 1 (flagged+dropped), 2 (flagged), 3 (dropped); in repo order
     expect(rules.map((r) => r.id)).toEqual(["1", "2", "3"]);
+  });
+});
+
+// ─── retiredRules / retiredCount / unseenRetiredCount ─────────────────────────
+
+describe("retiredRules / retiredCount / unseenRetiredCount", () => {
+  it("null repo → [] / 0 / 0", () => {
+    expect(retiredRules(null)).toEqual([]);
+    expect(retiredCount(null)).toBe(0);
+    expect(unseenRetiredCount(null)).toBe(0);
+  });
+
+  it("repo with no retired rules → [] / 0 / 0", () => {
+    const repo = IR("/a", [{ id: "1", injected: true }]);
+    expect(retiredRules(repo)).toEqual([]);
+    expect(retiredCount(repo)).toBe(0);
+    expect(unseenRetiredCount(repo)).toBe(0);
+  });
+
+  it("repo with retired rules returns them / correct count", () => {
+    const r1 = { ...L("r1", "/a", "retired"), retiredAt: 1 };
+    const r2 = { ...L("r2", "/a", "retired"), retiredAt: 2 };
+    const repo = IR("/a", [{ id: "1", injected: true }], { retired: [r1, r2], unseenRetired: 2 });
+    expect(retiredRules(repo).map((r) => r.id)).toEqual(["r1", "r2"]);
+    expect(retiredCount(repo)).toBe(2);
+    expect(unseenRetiredCount(repo)).toBe(2);
+  });
+
+  it("unseenRetired tracks independently of retired length", () => {
+    const r1 = { ...L("r1", "/a", "retired") };
+    const r2 = { ...L("r2", "/a", "retired") };
+    // 2 retired, but operator already saw 1
+    const repo = IR("/a", [], { retired: [r1, r2], unseenRetired: 1 });
+    expect(retiredCount(repo)).toBe(2);
+    expect(unseenRetiredCount(repo)).toBe(1);
+  });
+});
+
+// ─── helpRate ─────────────────────────────────────────────────────────────────
+
+describe("helpRate", () => {
+  it("returns null when injectedCount is 0 (never injected)", () => {
+    expect(helpRate({ helpfulCount: 0, injectedCount: 0 })).toBeNull();
+  });
+
+  it("returns { helped, pulls } when injectedCount > 0", () => {
+    expect(helpRate({ helpfulCount: 3, injectedCount: 10 })).toEqual({ helped: 3, pulls: 10 });
+  });
+
+  it("helped can be 0 of non-zero pulls", () => {
+    expect(helpRate({ helpfulCount: 0, injectedCount: 5 })).toEqual({ helped: 0, pulls: 5 });
+  });
+
+  it("helped can equal pulls (100% rate)", () => {
+    expect(helpRate({ helpfulCount: 7, injectedCount: 7 })).toEqual({ helped: 7, pulls: 7 });
   });
 });

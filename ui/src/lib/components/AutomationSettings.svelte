@@ -323,6 +323,24 @@
 <div class="auto-row">
   <div class="auto-meta">
     <div class="auto-name">
+      ⟳ {m.settings_auto_optimize_flagged_label()}
+    </div>
+    <div class="auto-desc">{m.settings_auto_optimize_flagged_help()}</div>
+  </div>
+  <button
+    class={["sw", { on: repoConfig.autoOptimizeOn(repoPath) }]}
+    type="button"
+    role="switch"
+    aria-checked={repoConfig.autoOptimizeOn(repoPath)}
+    aria-label={m.settings_auto_optimize_flagged_label()}
+    onclick={() => repoConfig.toggleAutoOptimize(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<div class="auto-row">
+  <div class="auto-meta">
+    <div class="auto-name">
       ▲ {m.automation_autopilot_name()}
       {@render info("autopilot", m.automation_autopilot_name())}
     </div>

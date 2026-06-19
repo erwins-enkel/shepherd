@@ -1619,5 +1619,17 @@
   "retry_halted_badge": "halted",
   "retry_empty": "No sessions to retry",
   "feat_usage_halt_retry_title": "One-click retry for usage-halted sessions",
-  "feat_usage_halt_retry_body": "When sessions stop because your Claude usage limit was reached, a ⟳ Retry button appears once usage resets — it resumes all halted sessions and steers them to continue in one click."
+  "feat_usage_halt_retry_body": "When sessions stop because your Claude usage limit was reached, a ⟳ Retry button appears once usage resets — it resumes all halted sessions and steers them to continue in one click.",
+  "learnings_auto_retired_banner": "{count} rule(s) auto-retired — review",
+  "learnings_auto_retired_review": "Review",
+  "learnings_retired_heading": "Retired ({count})",
+  "learnings_retired_reason": "Auto-retired: helped {helped} of {pulls} sessions, flagged {flagged}×",
+  "learnings_restore": "Restore",
+  "learnings_restore_aria": "Restore this retired rule",
+  "learnings_restore_failed": "Couldn't restore rule",
+  "learnings_help_rate": "helped {helped}/{pulls}",
+  "settings_auto_optimize_flagged_label": "Auto-optimize flagged rules",
+  "settings_auto_optimize_flagged_help": "When a rule starts failing, rewrite it once automatically before it becomes eligible for auto-retirement.",
+  "feat_learnings_auto_retire_title": "Learnings auto-retirement",
+  "feat_learnings_auto_retire_body": "Rules that consistently fail to help agents are now automatically retired. Review them in the Learnings drawer and restore any that were retired by mistake."
 }

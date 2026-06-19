@@ -466,7 +466,7 @@ export interface Signal {
   ts: number;
 }
 
-export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed";
+export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed" | "retired";
 
 /** One resolved evidence signal behind a proposed rule, for the drawer's
  *  "where did this come from" view. `id` is the signal id (stable render key);
@@ -501,6 +501,11 @@ export interface Learning {
   // payload; pruned signals drop out.
   evidenceDetail?: EvidenceItem[];
   ineffectiveCount: number;
+  helpfulCount: number;
+  injectedCount: number;
+  lastUsedAt: number | null;
+  retiredAt: number | null;
+  retiredReason: string | null;
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;

@@ -32,6 +32,8 @@
     promoteLearning,
     optimizeLearning,
     optimizeRepoFlagged,
+    restoreLearning,
+    markRetiredSeen,
     getMergedClearable,
     clearMerged,
     getDrain,
@@ -1956,6 +1958,14 @@
         optimizeRepoFlagged(repoPath)
           .then(() => toasts.info(m.learnings_optimize_started()))
           .catch(() => toasts.info(m.learnings_optimize_failed()))}
+      onrestore={(id) =>
+        restoreLearning(id)
+          .then(() => learnings.load())
+          .catch(() => toasts.info(m.learnings_restore_failed()))}
+      onseenretired={(repoPath) =>
+        markRetiredSeen(repoPath)
+          .then(() => learnings.load())
+          .catch(() => {})}
       onclose={() => {
         showLearnings = false;
         learningsRepo = null;

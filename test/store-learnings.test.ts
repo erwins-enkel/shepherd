@@ -210,6 +210,29 @@ test("reviseLearning: active rule — text + rationale updated, ineffectiveCount
   expect(updated.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
 });
 
+test("reviseLearning: resets the effectiveness baseline (helpfulCount/injectedCount/lastUsedAt) so a rewrite re-earns its record", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "old rule", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  // Accumulate a poor history on the OLD text: many injections, few helps, plus a flag.
+  s.attributeInjected([l.id], { good: false });
+  s.attributeInjected([l.id], { good: false });
+  s.attributeInjected([l.id], { good: true });
+  s.incrementLearningIneffective(l.id, ["s1"]);
+  const before = s.getLearning(l.id)!;
+  expect(before.injectedCount).toBe(3);
+  expect(before.helpfulCount).toBe(1);
+  expect(before.lastUsedAt).not.toBeNull();
+
+  const updated = s.reviseLearning(l.id, "new rule")!;
+  // Fresh artifact → fresh baseline (otherwise the rewrite inherits the old poor
+  // help-rate and shouldRetire re-trips at the first new ineffective signal).
+  expect(updated.helpfulCount).toBe(0);
+  expect(updated.injectedCount).toBe(0);
+  expect(updated.lastUsedAt).toBeNull();
+  expect(updated.ineffectiveCount).toBe(0);
+});
+
 test("reviseLearning: promoted rule is allowed", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({ repoPath: "/r", rule: "old", rationale: "", evidence: [] });
@@ -308,4 +331,346 @@ test("ineffectiveSignalsFor: rule with no ineffective ids → []", () => {
 test("ineffectiveSignalsFor: missing id → []", () => {
   const s = new SessionStore(":memory:");
   expect(s.ineffectiveSignalsFor("no-such-id")).toEqual([]);
+});
+
+// ── effectiveness loop + auto-retire (issue #838) ────────────────────────────
+
+test("new learnings columns exist after migration; old-shape DB migrates cleanly", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  // All five new public fields must exist with correct defaults
+  expect(l.helpfulCount).toBe(0);
+  expect(l.injectedCount).toBe(0);
+  expect(l.lastUsedAt).toBeNull();
+  expect(l.retiredAt).toBeNull();
+  expect(l.retiredReason).toBeNull();
+  // Round-trip via getLearning must preserve them
+  const fetched = s.getLearning(l.id)!;
+  expect(fetched.helpfulCount).toBe(0);
+  expect(fetched.injectedCount).toBe(0);
+  expect(fetched.lastUsedAt).toBeNull();
+  expect(fetched.retiredAt).toBeNull();
+  expect(fetched.retiredReason).toBeNull();
+  // Idempotent: a second store (same :memory: is a fresh one) also migrates OK
+  const s2 = new SessionStore(":memory:");
+  const l2 = s2.addLearning({ repoPath: "/r", rule: "r2", rationale: "", evidence: [] });
+  expect(l2.helpfulCount).toBe(0);
+});
+
+test("FSM: active→retired and promoted→retired succeed", () => {
+  const s = new SessionStore(":memory:");
+
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  const ret = s.retireLearning(a.id, "not useful");
+  expect(ret).not.toBeNull();
+  expect(ret!.status).toBe("retired");
+  expect(ret!.retiredAt).not.toBeNull();
+  expect(ret!.retiredReason).toBe("not useful");
+
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.setLearningStatus(b.id, "promoted");
+  const ret2 = s.retireLearning(b.id, "outdated");
+  expect(ret2).not.toBeNull();
+  expect(ret2!.status).toBe("retired");
+});
+
+test("FSM: retired→active and retired→promoted succeed", () => {
+  const s = new SessionStore(":memory:");
+
+  // active→retired→active
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "x");
+  const restored = s.restoreLearning(a.id);
+  expect(restored).not.toBeNull();
+  expect(restored!.status).toBe("active");
+
+  // promoted→retired→promoted
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.setLearningStatus(b.id, "promoted");
+  s.retireLearning(b.id, "y");
+  const restored2 = s.restoreLearning(b.id);
+  expect(restored2).not.toBeNull();
+  expect(restored2!.status).toBe("promoted");
+});
+
+test("FSM: illegal proposed→retired, dismissed→retired, retired→dismissed return null", () => {
+  const s = new SessionStore(":memory:");
+
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  expect(s.retireLearning(a.id, "x")).toBeNull(); // proposed→retired illegal
+  expect(s.getLearning(a.id)!.status).toBe("proposed");
+
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.setLearningStatus(b.id, "dismissed");
+  expect(s.retireLearning(b.id, "x")).toBeNull(); // dismissed→retired illegal
+
+  // retired→dismissed via setLearningStatus illegal
+  const c = s.addLearning({ repoPath: "/r", rule: "c", rationale: "", evidence: [] });
+  s.setLearningStatus(c.id, "active");
+  s.retireLearning(c.id, "z");
+  expect(s.setLearningStatus(c.id, "dismissed")).toBeNull();
+});
+
+test("recordInjectedLearnings inserts join rows; injectedCount stays 0; duplicate is idempotent", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+
+  s.recordInjectedLearnings("sess1", [l.id]);
+  // No counter bump — injectedCount must still be 0
+  expect(s.getLearning(l.id)!.injectedCount).toBe(0);
+
+  // Duplicate record is idempotent (no error)
+  s.recordInjectedLearnings("sess1", [l.id]);
+  expect(s.getLearning(l.id)!.injectedCount).toBe(0);
+
+  // Empty ids → no-op
+  s.recordInjectedLearnings("sess2", []);
+});
+
+test("attributeInjected({good:true}) bumps injectedCount+lastUsedAt+helpfulCount", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+
+  const before = Date.now();
+  s.attributeInjected([l.id], { good: true });
+  const after = s.getLearning(l.id)!;
+  expect(after.injectedCount).toBe(1);
+  expect(after.helpfulCount).toBe(1);
+  expect(after.lastUsedAt).toBeGreaterThanOrEqual(before);
+});
+
+test("attributeInjected({good:false}) bumps injectedCount+lastUsedAt only; helpfulCount unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+
+  s.attributeInjected([l.id], { good: false });
+  const after = s.getLearning(l.id)!;
+  expect(after.injectedCount).toBe(1);
+  expect(after.helpfulCount).toBe(0); // unchanged
+  expect(after.lastUsedAt).not.toBeNull();
+});
+
+test("takeSessionInjectedLearnings returns recorded ids then empties on second call", () => {
+  const s = new SessionStore(":memory:");
+  const l1 = s.addLearning({ repoPath: "/r", rule: "r1", rationale: "", evidence: [] });
+  const l2 = s.addLearning({ repoPath: "/r", rule: "r2", rationale: "", evidence: [] });
+
+  s.recordInjectedLearnings("sess1", [l1.id, l2.id]);
+  const ids = s.takeSessionInjectedLearnings("sess1");
+  expect(ids.sort()).toEqual([l1.id, l2.id].sort());
+
+  // Second call returns empty
+  const ids2 = s.takeSessionInjectedLearnings("sess1");
+  expect(ids2).toEqual([]);
+});
+
+test("retireLearning then restoreLearning round-trips: retired fields cleared after restore", () => {
+  const s = new SessionStore(":memory:");
+
+  // active round-trip
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  const retired = s.retireLearning(a.id, "stale");
+  expect(retired!.retiredAt).not.toBeNull();
+  expect(retired!.retiredReason).toBe("stale");
+
+  const restored = s.restoreLearning(a.id)!;
+  expect(restored.status).toBe("active");
+  expect(restored.retiredAt).toBeNull();
+  expect(restored.retiredReason).toBeNull();
+
+  // promoted round-trip
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.setLearningStatus(b.id, "promoted");
+  s.retireLearning(b.id, "outdated");
+  const restored2 = s.restoreLearning(b.id)!;
+  expect(restored2.status).toBe("promoted");
+  expect(restored2.retiredAt).toBeNull();
+  expect(restored2.retiredReason).toBeNull();
+});
+
+test("countSessionBlockingSignals counts block/stall/critic only; ignores reply/egress_drop and other sessions", () => {
+  const s = new SessionStore(":memory:");
+  s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "block", payload: "p" });
+  s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "stall", payload: "p" });
+  s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "critic", payload: "p" });
+  s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "p" }); // excluded
+  s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "egress_drop", payload: "p" }); // excluded
+  s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "p" }); // other session
+
+  expect(s.countSessionBlockingSignals("s1")).toBe(3);
+  expect(s.countSessionBlockingSignals("s2")).toBe(1);
+  expect(s.countSessionBlockingSignals("s99")).toBe(0);
+});
+
+test("reviseLearning stamps autoOptimizedAt (getter returns non-null after revise)", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "old", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  s.incrementLearningIneffective(l.id, ["s1"]);
+
+  // Before revise: autoOptimizedAt should be null
+  expect(s.autoOptimizedAt(l.id)).toBeNull();
+
+  const before = Date.now();
+  s.reviseLearning(l.id, "new rule");
+
+  // After revise: ineffectiveCount cleared
+  expect(s.getLearning(l.id)!.ineffectiveCount).toBe(0);
+  // autoOptimizedAt stamped
+  const stamp = s.autoOptimizedAt(l.id);
+  expect(stamp).not.toBeNull();
+  expect(stamp!).toBeGreaterThanOrEqual(before);
+});
+
+test("listRetiredLearnings returns retired rules for a repo, newest-updated first", () => {
+  const s = new SessionStore(":memory:");
+
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "reason a");
+
+  const b = s.addLearning({ repoPath: "/r", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.retireLearning(b.id, "reason b");
+
+  // Active rule not included
+  const c = s.addLearning({ repoPath: "/r", rule: "c", rationale: "", evidence: [] });
+  s.setLearningStatus(c.id, "active");
+
+  // Other repo not included
+  const d = s.addLearning({ repoPath: "/other", rule: "d", rationale: "", evidence: [] });
+  s.setLearningStatus(d.id, "active");
+  s.retireLearning(d.id, "reason d");
+
+  const retired = s.listRetiredLearnings("/r");
+  expect(retired.length).toBe(2);
+  expect(retired.every((r) => r.status === "retired")).toBe(true);
+  expect(retired.map((r) => r.rule).sort()).toEqual(["a", "b"]);
+});
+
+test("pruneOrphanInjectedLearnings deletes rows for absent sessions, keeps rows for present sessions", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+
+  // Insert a live session into the sessions table
+  const now = Date.now();
+  s["db"].run(
+    `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, worktreePath, isolated, herdrSession, herdrAgentId, claudeSessionId, status, lastState, createdAt, updatedAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      "live-sess",
+      "TASK-99",
+      "n",
+      "p",
+      "/r",
+      "main",
+      "/wt",
+      1,
+      "hs",
+      "ha",
+      "",
+      "running",
+      "idle",
+      now,
+      now,
+    ],
+  );
+
+  s.recordInjectedLearnings("live-sess", [l.id]);
+  s.recordInjectedLearnings("dead-sess", [l.id]);
+
+  s.pruneOrphanInjectedLearnings();
+
+  // live-sess row must survive
+  const liveIds = s.takeSessionInjectedLearnings("live-sess");
+  expect(liveIds).toEqual([l.id]);
+
+  // dead-sess row must be gone
+  const deadIds = s.takeSessionInjectedLearnings("dead-sess");
+  expect(deadIds).toEqual([]);
+});
+
+test("repo_config.autoOptimizeFlagged defaults false and round-trips through get/set", () => {
+  const s = new SessionStore(":memory:");
+
+  // Default: not set → false
+  const cfg = s.getRepoConfig("/r");
+  expect(cfg.autoOptimizeFlagged).toBe(false);
+
+  // Round-trip: set true, read back
+  s.setRepoConfig("/r", { ...cfg, autoOptimizeFlagged: true });
+  expect(s.getRepoConfig("/r").autoOptimizeFlagged).toBe(true);
+
+  // Round-trip: set false
+  s.setRepoConfig("/r", { ...s.getRepoConfig("/r"), autoOptimizeFlagged: false });
+  expect(s.getRepoConfig("/r").autoOptimizeFlagged).toBe(false);
+});
+
+// ── unseen-retired marker (issue #838, Task 5) ────────────────────────────────
+
+test("getRetiredSeenAt defaults to 0 when unset", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.getRetiredSeenAt("/r")).toBe(0);
+});
+
+test("markRetiredSeen round-trips through getRetiredSeenAt", () => {
+  const s = new SessionStore(":memory:");
+  const ts = Date.now();
+  s.markRetiredSeen("/r", ts);
+  expect(s.getRetiredSeenAt("/r")).toBe(ts);
+  // Overwrite with a newer timestamp
+  const ts2 = ts + 1000;
+  s.markRetiredSeen("/r", ts2);
+  expect(s.getRetiredSeenAt("/r")).toBe(ts2);
+});
+
+test("markRetiredSeen is per-repo (different repos don't bleed)", () => {
+  const s = new SessionStore(":memory:");
+  const ts = Date.now();
+  s.markRetiredSeen("/r", ts);
+  expect(s.getRetiredSeenAt("/other")).toBe(0);
+});
+
+test("listRepoPathsWithRetiredLearnings returns repos with retired rules only", () => {
+  const s = new SessionStore(":memory:");
+
+  // Add retired rule for /r
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "reason");
+
+  // Add active rule for /other (should NOT appear)
+  const b = s.addLearning({ repoPath: "/other", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+
+  // Add proposed rule for /third (should NOT appear)
+  s.addLearning({ repoPath: "/third", rule: "c", rationale: "", evidence: [] });
+
+  const repos = s.listRepoPathsWithRetiredLearnings();
+  expect(repos).toEqual(["/r"]);
+});
+
+test("listRepoPathsWithRetiredLearnings returns multiple repos with retired rules", () => {
+  const s = new SessionStore(":memory:");
+
+  const a = s.addLearning({ repoPath: "/r1", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  s.retireLearning(a.id, "r1 reason");
+
+  const b = s.addLearning({ repoPath: "/r2", rule: "b", rationale: "", evidence: [] });
+  s.setLearningStatus(b.id, "active");
+  s.retireLearning(b.id, "r2 reason");
+
+  const repos = s.listRepoPathsWithRetiredLearnings().sort();
+  expect(repos).toEqual(["/r1", "/r2"]);
 });

@@ -60,6 +60,7 @@ function repoConfig(planGateEnabled: boolean): RepoConfig {
     usageCeilingPct: 80,
     defaultModel: "inherit",
     repoMode: "forge",
+    autoOptimizeFlagged: false,
   };
 }
 

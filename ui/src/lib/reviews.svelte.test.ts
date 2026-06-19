@@ -30,6 +30,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,
   repoMode: "forge",
+  autoOptimizeFlagged: false,
   ...overrides,
 });
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   repoConfig.autoDrain = {};
   repoConfig.autoMerge = {};
   repoConfig.buildQueue = {};
+  repoConfig.autoOptimize = {};
   repoConfig.planGate = {};
   repoConfig.draftMode = {};
   repoConfig.allPrs = {};
@@ -487,4 +489,36 @@ test("repoConfig.ensure caches repoMode", async () => {
   vi.mocked(getRepoConfig).mockResolvedValue(rc({ repoMode: "lightweight" }));
   await repoConfig.ensure("/repo");
   expect(repoConfig.repoModeFor("/repo")).toBe("lightweight");
+});
+
+// ── autoOptimize ───────────────────────────────────────────────────────────
+
+test("repoConfig.autoOptimizeOn defaults to false for unknown repo", () => {
+  expect(repoConfig.autoOptimizeOn("/unknown")).toBe(false);
+});
+
+test("repoConfig.autoOptimizeOn reflects set value", () => {
+  repoConfig.autoOptimize = { "/repo": true };
+  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
+});
+
+test("repoConfig.ensure caches autoOptimizeFlagged", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue(rc({ autoOptimizeFlagged: true }));
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutoOptimize flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoOptimizeFlagged: true }));
+  repoConfig.autoOptimize = { "/repo": false };
+  await repoConfig.toggleAutoOptimize("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoOptimizeFlagged: true });
+  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleAutoOptimize reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.autoOptimize = { "/repo": true };
+  await repoConfig.toggleAutoOptimize("/repo");
+  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true); // reverted to prev
 });

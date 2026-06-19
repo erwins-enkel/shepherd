@@ -69,6 +69,7 @@ import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
+import { runAutoRetire } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
@@ -1145,6 +1146,15 @@ const runDailySweep = () => {
   // session housekeeping, so they survive an archived task's removal for later usage reports.
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
+  // Auto-retire: soft-retire active rules whose Wilson-bounded help-rate is below the
+  // repo base rate (gated on real harm evidence). Returns the retired set so we only
+  // nudge clients (banner refresh) when something actually changed.
+  const retired = runAutoRetire({ store, optimizer });
+  if (retired.length > 0)
+    events.emit("learnings:update", { pending: store.pendingLearningCount() });
+  // Reclaim session_injected_learnings rows for sessions that vanished without archive()
+  // (force-removed/crashed) — archive() consumes the rest.
+  store.pruneOrphanInjectedLearnings();
   fireTmpSweep("daily");
 };
 setTimeout(runDailySweep, 10_000); // once shortly after boot

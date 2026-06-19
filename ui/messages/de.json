@@ -1619,5 +1619,17 @@
   "retry_halted_badge": "gestoppt",
   "retry_empty": "Keine Sitzungen zum Wiederholen",
   "feat_usage_halt_retry_title": "Halted Sitzungen mit einem Klick wiederholen",
-  "feat_usage_halt_retry_body": "Wenn Sitzungen stoppen, weil dein Claude-Nutzungslimit erreicht wurde, erscheint nach dem Reset eine ⟳-Schaltfläche — sie setzt alle gestoppten Sitzungen fort und steuert sie in einem Klick weiter."
+  "feat_usage_halt_retry_body": "Wenn Sitzungen stoppen, weil dein Claude-Nutzungslimit erreicht wurde, erscheint nach dem Reset eine ⟳-Schaltfläche — sie setzt alle gestoppten Sitzungen fort und steuert sie in einem Klick weiter.",
+  "learnings_auto_retired_banner": "{count} Regel(n) automatisch deaktiviert — prüfen",
+  "learnings_auto_retired_review": "Prüfen",
+  "learnings_retired_heading": "Deaktiviert ({count})",
+  "learnings_retired_reason": "Automatisch deaktiviert: half {helped} von {pulls} Sitzungen, {flagged}× markiert",
+  "learnings_restore": "Wiederherstellen",
+  "learnings_restore_aria": "Diese deaktivierte Regel wiederherstellen",
+  "learnings_restore_failed": "Regel konnte nicht wiederhergestellt werden",
+  "learnings_help_rate": "half {helped}/{pulls}",
+  "settings_auto_optimize_flagged_label": "Markierte Regeln automatisch optimieren",
+  "settings_auto_optimize_flagged_help": "Wenn eine Regel zu scheitern beginnt, wird sie einmalig automatisch neu formuliert, bevor sie für die automatische Deaktivierung infrage kommt.",
+  "feat_learnings_auto_retire_title": "Automatische Deaktivierung von Learnings",
+  "feat_learnings_auto_retire_body": "Regeln, die Agenten konsistent nicht helfen, werden jetzt automatisch deaktiviert. Überprüfe sie in der Learnings-Leiste und stelle fälschlicherweise deaktivierte Regeln wieder her."
 }

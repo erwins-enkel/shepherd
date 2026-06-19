@@ -585,6 +585,7 @@ function defaultRepoConfig() {
     defaultModel: "inherit",
     egressExtraHosts: [] as string[],
     repoMode: "forge" as const,
+    autoOptimizeFlagged: false,
   };
 }
 

@@ -128,6 +128,7 @@ function makeHarness(
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    autoOptimizeFlagged: false,
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };

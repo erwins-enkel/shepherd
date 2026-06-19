@@ -431,7 +431,7 @@
   "learnings_distill_aria": "Run the distiller now for {repo}",
   "learnings_distill_started": "Distiller started for {repo}",
   "learnings_injected_section": "Injected house rules",
-  "learnings_budget_meter": "{used}/{budget} chars · {injected}/{total} injected",
+  "learnings_budget_meter": "{injected} of {total} rules injected · {used}/{budget} chars",
   "learnings_injected_badge": "Injected",
   "learnings_overbudget_badge": "Over budget",
   "learnings_injection_disabled_badge": "Injection disabled",
@@ -1475,7 +1475,6 @@
   "learnings_optimize_started": "Optimizing flagged rules…",
   "learnings_optimize_failed": "Couldn’t start optimization",
   "learnings_filter_flagged": "Not working ({count})",
-  "learnings_filter_all": "Show all",
   "learnings_optimizer_stalled_title": "Optimizer stalled",
   "learnings_optimizer_stalled_body": "The rule optimizer failed {count} times in a row. Check the server logs.",
   "feat_optimize_learnings_title": "Fix ‘not working’ house rules in one click",
@@ -1517,5 +1516,15 @@
   "vblock_wireframe_surface_popover": "Popover mockup",
   "vblock_wireframe_surface_panel": "Panel mockup",
   "feat_visual_recap_wireframes_title": "UI mockups in recaps",
-  "feat_visual_recap_wireframes_body": "Recaps of UI work can now include rendered, themed mockups of the affected screens — clearly labelled as illustrative, not screenshots."
+  "feat_visual_recap_wireframes_body": "Recaps of UI work can now include rendered, themed mockups of the affected screens — clearly labelled as illustrative, not screenshots.",
+  "learnings_budget_over": "Over budget · {dropped} not injected",
+  "learnings_not_injected_label": "Not injected — over budget",
+  "learnings_filter_overbudget": "Over budget ({count})",
+  "learnings_triage_heading": "Needs attention",
+  "learnings_triage_over": "{count} over",
+  "learnings_triage_flagged": "{count} not working",
+  "learnings_triage_jump_aria": "Jump to {repo}",
+  "learnings_about_budget": "Each repo's approved rules are injected up to a shared character budget; rules over the budget are skipped until you trim them or raise the budget.",
+  "feat_learnings_triage_title": "Learnings triage layer",
+  "feat_learnings_triage_body": "The Learnings drawer now floats over-budget and not-working repos to the top, pins each repo's header while you scroll, marks over-budget repos in amber, and adds a 'needs attention' jump bar — so you can see what to act on at a glance."
 }

@@ -630,6 +630,12 @@
   let mobileScreen = $state<"list" | "detail">("list");
   let chromeHidden = $state(false);
 
+  // The fixed mobile ActionBar (+ New Task) is rendered iff this is true (see its
+  // render guard in the mobile list branch below). Single source for "is the action
+  // bar present?", consumed by <Toasts aboveActionBar> so the toast banner insets
+  // above the bar instead of covering it (issue #810).
+  const mobileActionBarPresent = $derived(mobile.current && mobileScreen === "list");
+
   // Scroll-compress the chrome header on mobile list: hide on scroll-down, restore
   // on scroll-up or at/near top. Window (document) scroll only — the mobile list
   // screen is a document-scroll app-shell; inner regions don't scroll.
@@ -1557,6 +1563,9 @@
 
   <main id="main-content" class="main-region">
     {#if mobile.current}
+      <!-- This list branch is the sole place the mobile ActionBar renders; its
+           presence is mirrored by `mobileActionBarPresent` above (feeds Toasts).
+           Keep the two in sync. -->
       {#if mobileScreen === "list"}
         <div class="col">
           <Herd
@@ -2120,7 +2129,7 @@
   <StarPrompt onresolve={(s) => (store.starPrompt = s)} />
 {/if}
 
-<Toasts />
+<Toasts aboveActionBar={mobileActionBarPresent} />
 
 <style>
   /* Visually-hidden utility, scoped here explicitly rather than leaning on

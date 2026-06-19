@@ -1,10 +1,15 @@
 <script lang="ts">
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
+
+  // True only on the mobile list screen, where the fixed ActionBar (+ New Task)
+  // shares the bottom edge with the toast banner. When set, the mobile banner is
+  // inset to float just above the bar so it never covers the button (issue #810).
+  let { aboveActionBar = false }: { aboveActionBar?: boolean } = $props();
 </script>
 
 {#if toasts.items.length}
-  <div class="toasts" aria-live="polite" aria-atomic="false">
+  <div class="toasts" class:above-bar={aboveActionBar} aria-live="polite" aria-atomic="false">
     {#each toasts.items as t (t.id)}
       <!-- hold()/release() pause timed info auto-dismiss while hovered or focused;
            the store no-ops both for undo toasts, so attaching uniformly is safe. -->
@@ -235,6 +240,22 @@
       top: 0;
       bottom: auto;
       height: 3px;
+    }
+    /* On the mobile LIST screen the fixed ActionBar (+ New Task) occupies the
+       bottom edge too; at a higher z-index the toast banner would fully cover it
+       (issue #810). When the action bar is present, inset the banner to float just
+       above it — mirroring the shell's own padding-bottom reserve so the two can't
+       drift. Compound selector (.toasts.above-bar) so it beats the base .toasts
+       rule on specificity, not source order. */
+    .toasts.above-bar {
+      bottom: calc(
+        var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+      );
+    }
+    /* No longer flush to the screen edge, so the home-bar safe-area reserve is the
+       action bar's job — drop the first-child's extra padding to avoid doubling it. */
+    .toasts.above-bar .toast:first-child {
+      padding-bottom: 10px;
     }
   }
 </style>

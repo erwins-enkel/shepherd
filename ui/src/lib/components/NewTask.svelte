@@ -50,6 +50,7 @@
     relaunchIssueNumber,
     initialImages,
     holdLikely = false,
+    fableAvailable = true,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -78,6 +79,7 @@
     relaunchIssueNumber?: number | null;
     initialImages?: { path: string; name: string }[];
     holdLikely?: boolean;
+    fableAvailable?: boolean;
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -107,10 +109,13 @@
   // fresh each open. `modelTouched` pins a manual pick so switching repos / a late repo
   // config load doesn't clobber it.
   function preselectModel(configured: string | undefined): string {
-    return configured && configured !== "auto" ? configured : promoDefaultModel();
+    const pick = configured && configured !== "auto" ? configured : promoDefaultModel();
+    return pick === "fable" && !fableAvailable ? "default" : pick;
   }
   // svelte-ignore state_referenced_locally
-  let model = $state(initialModel ?? preselectModel(defaultModel));
+  const safeInitial = initialModel === "fable" && !fableAvailable ? "default" : initialModel;
+  // svelte-ignore state_referenced_locally
+  let model = $state(safeInitial ?? preselectModel(defaultModel));
   let modelTouched = $state(false);
   // Relaunch reuses this composer with a distinct title + note set.
   const heading = $derived(relaunch ? m.newtask_relaunch_title() : m.newtask_title());
@@ -858,9 +863,14 @@
           <select id="nt-model" bind:value={model} onchange={() => (modelTouched = true)}>
             <option value="default">{m.newtask_model_default()}</option>
             {#each MODELS as mdl (mdl)}
-              <option value={mdl}>{modelLabel(mdl)}</option>
+              {#if mdl !== "fable" || fableAvailable}
+                <option value={mdl}>{modelLabel(mdl)}</option>
+              {/if}
             {/each}
           </select>
+          {#if !fableAvailable}
+            <p class="micro">{m.newtask_fable_unavailable()}</p>
+          {/if}
         </div>
 
         <div class="model-field">

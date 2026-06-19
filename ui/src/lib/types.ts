@@ -70,6 +70,8 @@ export interface Settings {
   /** Usage percentage at or above which new tasks are held (0–100); also the threshold
    *  below which the usage-halt retry trigger becomes available. */
   usageHoldPct: number;
+  /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
+  fableAvailable: boolean;
 }
 
 export interface DirEntry {

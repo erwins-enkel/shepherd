@@ -4,6 +4,8 @@ import {
   normalizeRepoDefaultModelSetting,
   resolveDefaultModelSetting,
   drainSpawnModel,
+  spawnModelForAvailability,
+  normalizeFableAvailable,
 } from "../src/default-model";
 import { MODELS } from "../src/types";
 
@@ -125,4 +127,38 @@ describe("resolveDefaultModelSetting", () => {
     expect(drainSpawnModel(resolveDefaultModelSetting("inherit", "opus"))).toBe("opus");
     expect(drainSpawnModel(resolveDefaultModelSetting("inherit", "auto"))).toBeNull();
   });
+});
+
+describe("spawnModelForAvailability", () => {
+  test("fable unavailable → opus[1m]", () => {
+    expect(spawnModelForAvailability("fable", false)).toBe("opus[1m]");
+  });
+
+  test("fable available → fable", () => {
+    expect(spawnModelForAvailability("fable", true)).toBe("fable");
+  });
+
+  test("non-fable model unaffected when unavailable", () => {
+    expect(spawnModelForAvailability("opus", false)).toBe("opus");
+  });
+
+  test("null model unaffected when unavailable", () => {
+    expect(spawnModelForAvailability(null, false)).toBeNull();
+  });
+
+  test("opus[1m] unaffected when fable unavailable", () => {
+    expect(spawnModelForAvailability("opus[1m]", false)).toBe("opus[1m]");
+  });
+});
+
+describe("normalizeFableAvailable", () => {
+  test("true → true", () => expect(normalizeFableAvailable(true)).toBe(true));
+  test('"true" → true', () => expect(normalizeFableAvailable("true")).toBe(true));
+  test('"1" → true', () => expect(normalizeFableAvailable("1")).toBe(true));
+  test("false → false", () => expect(normalizeFableAvailable(false)).toBe(false));
+  test('"false" → false', () => expect(normalizeFableAvailable("false")).toBe(false));
+  test('"0" → false', () => expect(normalizeFableAvailable("0")).toBe(false));
+  test('"nonsense" → null', () => expect(normalizeFableAvailable("nonsense")).toBeNull());
+  test("undefined → null", () => expect(normalizeFableAvailable(undefined)).toBeNull());
+  test("42 → null", () => expect(normalizeFableAvailable(42)).toBeNull());
 });

@@ -121,6 +121,7 @@
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
   import { featureAnnouncements, FABLE_FEATURE_ID } from "$lib/feature-announcements";
+  import { resolveFableArrival } from "$lib/fable-arrival";
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
@@ -326,7 +327,11 @@
   let whatsNewDotOn = $state(false);
   // One-time Fable 5 launch celebration (gated separately from the What's-New
   // drawer via the persisted seen-set, so it fires exactly once per upgrade).
+  // fableArrivalEligible is set synchronously in onMount if the feature entry is
+  // unseen; the actual showFableArrival flip is deferred to loadSettings().then()
+  // so we can gate on s.fableAvailable — fails closed: no settings ⇒ no hero.
   let showFableArrival = $state(false);
+  let fableArrivalEligible = false;
   // First-run onboarding: a one-screen environment checklist shown only on a
   // genuinely fresh install. The fresh-install branch seeds lastSeenVersion
   // immediately (so update-diffs work), which would flip the null gate false on
@@ -417,6 +422,16 @@
         settings = s;
         usageHoldEnabled = s.usageHoldEnabled;
         usageHoldPct = s.usageHoldPct;
+        // One-shot: loadSettings() also re-fires on tab return, so the eligibility
+        // flag is consumed and `seen` re-checked here — a dismissed (or already-seen)
+        // arrival must never reappear. See resolveFableArrival.
+        const arrival = resolveFableArrival(
+          fableArrivalEligible,
+          featureDiscovery.isSeen(FABLE_FEATURE_ID),
+          s.fableAvailable,
+        );
+        fableArrivalEligible = arrival.eligible;
+        if (arrival.show) showFableArrival = true;
       })
       .catch(() => {});
   }
@@ -1109,7 +1124,7 @@
               entries.some((e) => e.id === FABLE_FEATURE_ID) &&
               !featureDiscovery.isSeen(FABLE_FEATURE_ID)
             ) {
-              showFableArrival = true;
+              fableArrivalEligible = true;
             }
           }
         } catch {
@@ -2033,6 +2048,7 @@
     initialPrompt={composePrompt ?? undefined}
     initialModel={composeModel ?? undefined}
     defaultModel={settings?.defaultModel}
+    fableAvailable={settings?.fableAvailable ?? true}
     holdLikely={relaunchOriginalId === null ? holdLikely : false}
     onclose={() => {
       showNew = false;

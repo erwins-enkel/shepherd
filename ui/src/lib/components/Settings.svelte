@@ -14,6 +14,7 @@
     putExtraCreditsDrainCeiling,
     putUsageHoldEnabled,
     putUsageHoldPct,
+    putFableAvailable,
     listDirs,
     getDiagnostics,
     fixDiagnostic,
@@ -179,6 +180,10 @@
   let usageHoldPct = $state(80); // threshold percentage (0–100); matches server default
   let usageHoldPctSaved = 80;
   let usageHoldPctBusy = $state(false);
+
+  // Fable availability — operator kill-switch while Fable is globally unavailable.
+  let fableAvailable = $state(true);
+  let fableAvailableBusy = $state(false);
 
   // Diagnose tab — local checks + re-run state.
   // untrack: initialDiagnostics is intentionally only read once as the seed value.
@@ -444,6 +449,24 @@
     }
   }
 
+  async function toggleFableAvailable() {
+    if (fableAvailableBusy) return;
+    fableAvailableBusy = true;
+    const next = !fableAvailable;
+    try {
+      const r = await putFableAvailable(next);
+      fableAvailable = r.fableAvailable;
+    } catch {
+      toasts.info(m.settings_fable_available_save_failed(), {
+        key: "fable-available",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      fableAvailableBusy = false;
+    }
+  }
+
   async function saveUsageHoldPct() {
     if (usageHoldPctBusy) return;
     usageHoldPctBusy = true;
@@ -557,6 +580,7 @@
       usageHoldEnabled = s.usageHoldEnabled;
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
+      fableAvailable = s.fableAvailable;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -950,6 +974,23 @@
             onchange={saveUsageHoldPct}
           />
         </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_fable_available_label()}</span>
+        <p class="hint">{m.settings_fable_available_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={fableAvailable}
+          disabled={fableAvailableBusy}
+          onclick={toggleFableAvailable}
+        >
+          <span class="track" class:on={fableAvailable}><span class="knob"></span></span>
+          <span class="state"
+            >{fableAvailable ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
+          >
+        </button>
       </div>
       <div bind:this={steersEl}><SteersEditor /></div>
     </div>

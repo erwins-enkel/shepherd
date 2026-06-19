@@ -161,6 +161,10 @@ export const putUsageHoldEnabled = (enabled: boolean): Promise<{ usageHoldEnable
 export const putUsageHoldPct = (pct: number): Promise<{ usageHoldPct: number }> =>
   patchSettings({ usageHoldPct: pct });
 
+// Toggle whether Fable is globally available; when false, Fable-targeted tasks run on Opus (1M).
+export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boolean }> =>
+  patchSettings<{ fableAvailable: boolean }>({ fableAvailable: value });
+
 /** Upload one image; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
 export async function uploadImage(file: File, sessionId?: string): Promise<string> {

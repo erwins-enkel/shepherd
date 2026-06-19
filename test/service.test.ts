@@ -4442,3 +4442,98 @@ test("baseUrl: trusted (default) → loopback main port, no backend probe requir
     config.hooksIngest = prev;
   }
 });
+
+// Regression guard: when fable is globally unavailable (config.fableAvailable = false),
+// a spawn requesting model:"fable" must use --model opus[1m] in argv while keeping the
+// stored session.model === "fable" (intent preserved; cost accounting reads the runtime
+// usage output, not the stored model). Fails against pre-change code (argv shows fable).
+function makeFableGuardService(calls: { argv?: string[] }) {
+  const store = new SessionStore(":memory:");
+  return {
+    store,
+    service: new SessionService({
+      store,
+      namer: async () => "repo-fable",
+      worktree: {
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        create: () => ({
+          worktreePath: "/wt/repo-fable",
+          branch: "shepherd/repo-fable",
+          isolated: true,
+        }),
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: (_name: string, _cwd: string, argv: string[]) => {
+          calls.argv = argv;
+          return {
+            terminalId: "term_fa",
+            cwd: "/wt/repo-fable",
+            agent: "claude",
+            agentStatus: "working",
+            paneId: "p",
+            tabId: "t",
+            workspaceId: "w",
+          };
+        },
+        list: () => [],
+      } as any,
+    }),
+  };
+}
+
+test("createSession: fable unavailable → argv uses opus[1m], stored model stays fable", async () => {
+  const prev = config.fableAvailable;
+  try {
+    config.fableAvailable = false;
+    const calls: { argv?: string[] } = {};
+    const { store, service } = makeFableGuardService(calls);
+
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "long horizon",
+      model: "fable",
+      images: [],
+    });
+
+    // Stored model MUST remain "fable" (intent preserved)
+    expect(s.model).toBe("fable");
+    expect(store.get(s.id)?.model).toBe("fable");
+
+    // Spawn argv MUST use opus[1m], exactly once
+    const argv: string[] = calls.argv!;
+    const modelFlagIdxs = argv.flatMap((a, i) => (a === "--model" ? [i] : []));
+    expect(modelFlagIdxs).toHaveLength(1);
+    expect(argv[modelFlagIdxs[0]! + 1]).toBe("opus[1m]");
+    expect(argv.includes("fable")).toBe(false);
+  } finally {
+    config.fableAvailable = prev;
+  }
+});
+
+test("createSession: fable available → argv uses fable directly", async () => {
+  const prev = config.fableAvailable;
+  try {
+    config.fableAvailable = true;
+    const calls: { argv?: string[] } = {};
+    const { service } = makeFableGuardService(calls);
+
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "long horizon",
+      model: "fable",
+      images: [],
+    });
+
+    expect(s.model).toBe("fable");
+    const argv: string[] = calls.argv!;
+    const modelFlagIdxs = argv.flatMap((a, i) => (a === "--model" ? [i] : []));
+    expect(modelFlagIdxs).toHaveLength(1);
+    expect(argv[modelFlagIdxs[0]! + 1]).toBe("fable");
+  } finally {
+    config.fableAvailable = prev;
+  }
+});

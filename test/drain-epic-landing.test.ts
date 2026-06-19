@@ -133,6 +133,7 @@ function makeHarness(opts: {
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    autoOptimizeFlagged: false,
   });
   if (!opts.noEpicRun) {
     store.setEpicRun({

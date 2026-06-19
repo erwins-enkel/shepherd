@@ -51,8 +51,9 @@ const DESIG_PREFIX = "TASK-";
 /** Allowed learning status transitions (spec §3). Terminal states have no exits. */
 const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
   proposed: ["active", "dismissed"],
-  active: ["promoted", "dismissed"],
-  promoted: [],
+  active: ["promoted", "dismissed", "retired"],
+  promoted: ["retired"],
+  retired: ["active", "promoted"],
   dismissed: [],
 };
 
@@ -91,6 +92,8 @@ export interface RepoConfig {
   egressExtraHosts: string[];
   /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
   repoMode: "forge" | "lightweight";
+  /** Auto-optimize flagged rules (default OFF — explicit opt-in). */
+  autoOptimizeFlagged: boolean;
 }
 
 export interface LocalPr {
@@ -208,6 +211,7 @@ type RepoCfgRow = {
   defaultModel: string;
   egressExtraHosts: string | null;
   repoMode: string;
+  autoOptimizeFlagged: number;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -261,6 +265,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       defaultModel: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
+      autoOptimizeFlagged: false,
     };
   }
   return {
@@ -282,6 +287,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
+    autoOptimizeFlagged: !!r.autoOptimizeFlagged,
   };
 }
 
@@ -480,6 +486,9 @@ export class SessionStore implements CapStore, CreditStore {
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT,
   ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_injected_learnings (
+      sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
+      PRIMARY KEY (sessionId, learningId))`);
     this.migrateLearningsColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
       id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
@@ -575,7 +584,8 @@ export class SessionStore implements CapStore, CreditStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
+                autoOptimizeFlagged
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -587,8 +597,9 @@ export class SessionStore implements CapStore, CreditStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
+          autoOptimizeFlagged, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -607,6 +618,7 @@ export class SessionStore implements CapStore, CreditStore {
          defaultModel = excluded.defaultModel,
          egressExtraHosts = excluded.egressExtraHosts,
          repoMode = excluded.repoMode,
+         autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -628,6 +640,7 @@ export class SessionStore implements CapStore, CreditStore {
         cfg.defaultModel,
         JSON.stringify(cfg.egressExtraHosts ?? []),
         cfg.repoMode,
+        cfg.autoOptimizeFlagged ? 1 : 0,
         Date.now(),
       ],
     );
@@ -2045,6 +2058,8 @@ export class SessionStore implements CapStore, CreditStore {
     add("egressExtraHosts", `egressExtraHosts TEXT`);
     // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).
     add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
+    // auto-optimize flagged rules: default OFF (explicit opt-in).
+    add("autoOptimizeFlagged", `autoOptimizeFlagged INTEGER NOT NULL DEFAULT 0`);
   }
 
   private migrateEpicIntegratedColumns(): void {
@@ -2115,17 +2130,23 @@ export class SessionStore implements CapStore, CreditStore {
    *  Idempotent: each column is only added when PRAGMA shows it absent. */
   private migrateLearningsColumns(): void {
     const cols = this.db.query(`PRAGMA table_info(learnings)`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === "promotedPrUrl")) {
-      this.db.run(`ALTER TABLE learnings ADD COLUMN promotedPrUrl TEXT`);
-    }
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE learnings ADD COLUMN ${ddl}`);
+    };
+    add("promotedPrUrl", `promotedPrUrl TEXT`);
     // Signal ids already counted toward each rule's ineffectiveCount. Without this
     // the daily re-distill over the rolling 60-day window would re-increment the
     // same rule from the same stale signals every run, inflating "Not working (N)".
-    if (!cols.some((c) => c.name === "ineffectiveSignalIds")) {
-      this.db.run(
-        `ALTER TABLE learnings ADD COLUMN ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]'`,
-      );
-    }
+    add("ineffectiveSignalIds", `ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]'`);
+    // Effectiveness loop + auto-retire columns (#838).
+    add("helpfulCount", `helpfulCount INTEGER NOT NULL DEFAULT 0`);
+    add("injectedCount", `injectedCount INTEGER NOT NULL DEFAULT 0`);
+    add("lastUsedAt", `lastUsedAt INTEGER`);
+    add("retiredAt", `retiredAt INTEGER`);
+    add("retiredReason", `retiredReason TEXT`);
+    add("retiredFromStatus", `retiredFromStatus TEXT`);
+    add("autoOptimizedAt", `autoOptimizedAt INTEGER`);
   }
 
   private hydrateLearning(r: any): Learning {
@@ -2138,6 +2159,11 @@ export class SessionStore implements CapStore, CreditStore {
       status: r.status as LearningStatus,
       evidenceCount: r.evidenceCount,
       ineffectiveCount: r.ineffectiveCount,
+      helpfulCount: r.helpfulCount ?? 0,
+      injectedCount: r.injectedCount ?? 0,
+      lastUsedAt: r.lastUsedAt ?? null,
+      retiredAt: r.retiredAt ?? null,
+      retiredReason: r.retiredReason ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       lastEvidenceAt: r.lastEvidenceAt,
@@ -2161,6 +2187,11 @@ export class SessionStore implements CapStore, CreditStore {
       status: "proposed",
       evidenceCount: input.evidence.length,
       ineffectiveCount: 0,
+      helpfulCount: 0,
+      injectedCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      retiredReason: null,
       createdAt: now,
       updatedAt: now,
       lastEvidenceAt: input.evidence.length ? now : null,
@@ -2271,9 +2302,10 @@ export class SessionStore implements CapStore, CreditStore {
     const text = rule.trim().slice(0, 240);
     if (!text) return null;
     const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
+    const now = Date.now();
     this.db.run(
-      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0, updatedAt = ? WHERE id = ?`,
-      [text, resolvedRationale, Date.now(), id],
+      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0, autoOptimizedAt = ?, updatedAt = ? WHERE id = ?`,
+      [text, resolvedRationale, now, now, id],
     );
     return this.getLearning(id);
   }
@@ -2288,6 +2320,110 @@ export class SessionStore implements CapStore, CreditStore {
     if (!row) return [];
     const ids = parseFindings(row.ineffectiveSignalIds);
     return this.getSignalsByIds(ids);
+  }
+
+  /** Record that a set of learning ids were injected into a session's context.
+   *  INSERT OR IGNORE keeps it idempotent. Empty ids → no-op. No counter bump. */
+  recordInjectedLearnings(sessionId: string, ids: string[]): void {
+    if (ids.length === 0) return;
+    for (const learningId of ids) {
+      this.db.run(
+        `INSERT OR IGNORE INTO session_injected_learnings (sessionId, learningId) VALUES (?, ?)`,
+        [sessionId, learningId],
+      );
+    }
+  }
+
+  /** For each id: bump `injectedCount` + stamp `lastUsedAt`; bump `helpfulCount` only when `good`.
+   *  Empty ids → no-op. */
+  attributeInjected(ids: string[], opts: { good: boolean }): void {
+    if (ids.length === 0) return;
+    const now = Date.now();
+    for (const id of ids) {
+      this.db.run(
+        `UPDATE learnings SET injectedCount = injectedCount + 1, helpfulCount = helpfulCount + ?, lastUsedAt = ?, updatedAt = ? WHERE id = ?`,
+        [opts.good ? 1 : 0, now, now, id],
+      );
+    }
+  }
+
+  /** Return and delete the learningIds recorded for a session. A second call returns []. */
+  takeSessionInjectedLearnings(sessionId: string): string[] {
+    const rows = this.db
+      .query(`SELECT learningId FROM session_injected_learnings WHERE sessionId = ?`)
+      .all(sessionId) as { learningId: string }[];
+    if (rows.length === 0) return [];
+    this.db.run(`DELETE FROM session_injected_learnings WHERE sessionId = ?`, [sessionId]);
+    return rows.map((r) => r.learningId);
+  }
+
+  /** COUNT of blocking signals (block/stall/critic) for a session. */
+  countSessionBlockingSignals(sessionId: string): number {
+    return (
+      this.db
+        .query(
+          `SELECT COUNT(*) AS c FROM signals WHERE sessionId = ? AND kind IN ('block','stall','critic')`,
+        )
+        .get(sessionId) as { c: number }
+    ).c;
+  }
+
+  /** active|promoted → retired; sets retiredAt, retiredReason, retiredFromStatus, updatedAt.
+   *  Returns the updated Learning, or null for illegal source state / missing row. */
+  retireLearning(id: string, reason: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur) return null;
+    if (!LEARNING_TRANSITIONS[cur.status].includes("retired")) return null;
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = ?, retiredFromStatus = ?, updatedAt = ? WHERE id = ?`,
+      [now, reason, cur.status, now, id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** retired → retiredFromStatus (or 'active'); clears retiredAt/retiredReason/retiredFromStatus.
+   *  Returns null when not currently retired or missing. */
+  restoreLearning(id: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.status !== "retired") return null;
+    const row = this.db.query(`SELECT retiredFromStatus FROM learnings WHERE id = ?`).get(id) as {
+      retiredFromStatus?: string | null;
+    } | null;
+    const restoreTo: LearningStatus =
+      (row?.retiredFromStatus as LearningStatus | null | undefined) ?? "active";
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET status = ?, retiredAt = NULL, retiredReason = NULL, retiredFromStatus = NULL, updatedAt = ? WHERE id = ?`,
+      [restoreTo, now, id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** Retired rules for a repo, newest-updated first. */
+  listRetiredLearnings(repoPath: string): Learning[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM learnings WHERE repoPath = ? AND status = 'retired' ORDER BY updatedAt DESC`,
+      )
+      .all(repoPath);
+    return (rows as any[]).map((r) => this.hydrateLearning(r));
+  }
+
+  /** Delete session_injected_learnings rows whose session no longer exists. */
+  pruneOrphanInjectedLearnings(): void {
+    this.db.run(
+      `DELETE FROM session_injected_learnings WHERE sessionId NOT IN (SELECT id FROM sessions)`,
+    );
+  }
+
+  /** Server-internal getter: the timestamp when reviseLearning last ran on this id.
+   *  Exposed so tests can assert the autoOptimizedAt stamp without reaching into private db. */
+  autoOptimizedAt(id: string): number | null {
+    const row = this.db.query(`SELECT autoOptimizedAt FROM learnings WHERE id = ?`).get(id) as {
+      autoOptimizedAt?: number | null;
+    } | null;
+    return row?.autoOptimizedAt ?? null;
   }
 
   /** active → promoted, recording the CLAUDE.md PR url (spec §4b). Returns null

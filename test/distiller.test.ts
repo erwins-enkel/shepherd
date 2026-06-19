@@ -304,6 +304,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    autoOptimizeFlagged: false,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -341,6 +342,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         defaultModel: "inherit",
         egressExtraHosts: [],
         repoMode: "forge",
+        autoOptimizeFlagged: false,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

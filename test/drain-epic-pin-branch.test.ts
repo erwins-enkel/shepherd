@@ -82,6 +82,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    autoOptimizeFlagged: false,
   });
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
 

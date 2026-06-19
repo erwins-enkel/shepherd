@@ -99,7 +99,16 @@ export type VisualBlock =
       surface: "browser" | "desktop" | "mobile" | "popover" | "panel";
       html: string;
       caption?: string;
-    };
+    }
+  | { type: "question-form"; id: string; questions: PlanQuestion[] };
+
+export type QuestionKind = "single" | "multi" | "freeform";
+export interface PlanQuestion {
+  id: string;
+  prompt: string;
+  kind: QuestionKind;
+  options?: string[]; // present (non-empty) only for single/multi
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -129,6 +138,8 @@ export const WIREFRAME_SURFACES: readonly (
   | "popover"
   | "panel"
 )[] = ["browser", "desktop", "mobile", "popover", "panel"];
+
+export const QUESTION_KINDS: readonly QuestionKind[] = ["single", "multi", "freeform"];
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
@@ -494,6 +505,38 @@ function validateWireframe(r: Record<string, unknown>, id: string): VisualBlock 
   return block;
 }
 
+function validatePlanQuestion(raw: unknown): PlanQuestion | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const qr = raw as Record<string, unknown>;
+  if (typeof qr.id !== "string" || qr.id === "") return null;
+  if (typeof qr.prompt !== "string" || qr.prompt === "") return null;
+  if (!QUESTION_KINDS.includes(qr.kind as QuestionKind)) return null;
+  const kind = qr.kind as QuestionKind;
+  if (kind === "freeform") {
+    // options intentionally NOT copied — freeform has no choices
+    return { id: qr.id, prompt: qr.prompt, kind };
+  }
+  // single/multi: options must be array with at least one non-empty string
+  if (!Array.isArray(qr.options)) return null;
+  const options = qr.options.filter((o): o is string => typeof o === "string" && o !== "");
+  if (options.length === 0) return null; // malformed — drop question
+  return { id: qr.id, prompt: qr.prompt, kind, options };
+}
+
+function validateQuestionForm(r: Record<string, unknown>, id: string): VisualBlock | null {
+  if (!Array.isArray(r.questions)) return null;
+  const questions: PlanQuestion[] = [];
+  const seenQuestionIds = new Set<string>();
+  for (const item of r.questions) {
+    const q = validatePlanQuestion(item);
+    if (!q || seenQuestionIds.has(q.id)) continue; // drop invalid + duplicate ids (keyed-each)
+    seenQuestionIds.add(q.id);
+    questions.push(q);
+  }
+  if (questions.length === 0) return null;
+  return { type: "question-form", id, questions };
+}
+
 type BlockValidator = (r: Record<string, unknown>, id: string) => VisualBlock | null;
 
 const VALIDATORS: Record<string, BlockValidator> = {
@@ -509,6 +552,7 @@ const VALIDATORS: Record<string, BlockValidator> = {
   checklist: validateChecklist,
   mermaid: validateMermaid,
   wireframe: validateWireframe,
+  "question-form": validateQuestionForm,
 };
 
 /** Validate a single raw element into a typed VisualBlock, or null when malformed. */
@@ -696,6 +740,25 @@ export function groundBlocks(
     out.push(blk);
   }
   return markInferred(out); // data-model/api-endpoint → inferred:true even without carrier
+}
+
+// ── groundPlanBlocks ──────────────────────────────────────────────────────────
+
+/**
+ * Ground LLM-emitted blocks for a *plan* (pre-change context, no real diff).
+ *  - Drop every `diff`, `code`, and `annotated-code` block (no real content exists to join).
+ *  - Pass every other block type through unchanged (including `file-tree` — its entries are
+ *    intended paths, NOT reconciled against any diff).
+ *  - Force `inferred:true` on `data-model`/`api-endpoint`/`mermaid` via `markInferred`.
+ *  Pure; does not mutate inputs; returns a new array.
+ */
+export function groundPlanBlocks(blocks: VisualBlock[]): VisualBlock[] {
+  const out: VisualBlock[] = [];
+  for (const blk of blocks) {
+    if (blk.type === "diff" || blk.type === "code" || blk.type === "annotated-code") continue;
+    out.push(blk);
+  }
+  return markInferred(out);
 }
 
 // ── capDiffBlock ──────────────────────────────────────────────────────────────

@@ -240,6 +240,7 @@ export interface PlanGate {
   cap: number; // the round cap this run used — surfaced so the UI badge need not mirror it
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored, no diff-join); absent → flat markdown
   updatedAt: number;
 }
 

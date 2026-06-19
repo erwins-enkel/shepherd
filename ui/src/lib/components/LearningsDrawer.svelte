@@ -489,7 +489,10 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px;
+    /* No top padding: the sticky group header (.ghead) pins at top:0, so the
+       scroll-container's own top padding would leave a band above it through
+       which scrolling content bleeds. Top spacing is restored on .bar below. */
+    padding: 0 14px 14px;
     overflow-y: auto;
     z-index: 50;
   }
@@ -498,6 +501,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    /* restores the drawer's top breathing room (.bar is always the first child) */
+    padding-top: 14px;
   }
   .title {
     letter-spacing: 0.14em;
@@ -653,6 +658,9 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--color-line);
+    /* opaque top buffer so scrolling content disappears cleanly under the pinned
+       header's upper edge (drawer drops its top padding for this to read flush) */
+    padding-top: 8px;
     padding-bottom: 4px;
     position: sticky;
     top: 0;

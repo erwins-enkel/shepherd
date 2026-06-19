@@ -66,6 +66,8 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     sessionRetentionDays: 30,
     sessionRetentionKeep: 250,
     previewHost: null,
+    usageHoldEnabled: true,
+    usageHoldPct: 90,
     ...over,
   };
 }

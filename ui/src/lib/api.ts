@@ -1,6 +1,8 @@
 import type {
   Session,
   CreateInput,
+  HeldTask,
+  HeldResult,
   RepoEntry,
   Issue,
   PullRequest,
@@ -118,7 +120,9 @@ export async function listSessions(): Promise<Session[]> {
   return r.json();
 }
 
-export async function createSession(input: CreateInput): Promise<Session> {
+export async function createSession(
+  input: CreateInput & { force?: boolean },
+): Promise<Session | HeldResult> {
   const r = await fetch("/api/sessions", {
     method: "POST",
     headers: JSON_HEADERS,
@@ -127,6 +131,35 @@ export async function createSession(input: CreateInput): Promise<Session> {
   if (!r.ok) throw await failed(r, "create");
   return r.json();
 }
+
+/** List tasks that are currently held (waiting for usage to reset). */
+export async function listHeld(): Promise<HeldTask[]> {
+  const r = await fetch("/api/held");
+  if (!r.ok) throw await failed(r, "list held");
+  return r.json();
+}
+
+/** Spawn a held task now (bypasses the usage hold). */
+export async function spawnHeld(id: string): Promise<Session> {
+  const r = await fetch(`/api/held/${id}/spawn`, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) throw await failed(r, "spawn held");
+  return r.json();
+}
+
+/** Discard a held task without spawning it. */
+export async function discardHeld(id: string): Promise<void> {
+  const r = await fetch(`/api/held/${id}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "discard held");
+}
+
+// Toggle usage-aware task holding (pause new tasks when usage is high and a session is running).
+export const putUsageHoldEnabled = (enabled: boolean): Promise<{ usageHoldEnabled: boolean }> =>
+  patchSettings({ usageHoldEnabled: enabled });
+
+// Persist the usage-hold threshold percentage (0–100). New tasks are held when
+// the primary usage window is at or above this percentage.
+export const putUsageHoldPct = (pct: number): Promise<{ usageHoldPct: number }> =>
+  patchSettings({ usageHoldPct: pct });
 
 /** Upload one image; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */

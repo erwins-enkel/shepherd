@@ -49,6 +49,8 @@ export class HerdStore {
   get diagnosticsOverall(): DiagnosticState {
     return this.diagnostics?.overall ?? "ok";
   }
+  /** Number of tasks currently held (waiting for usage to reset). Updated by `held:changed` WS events. */
+  heldCount = $state(0);
   /** "Star us on GitHub?" nudge state; null until the first GET/push. */
   starPrompt = $state<StarPromptStatus | null>(null);
   git = $state<Record<string, GitState>>({});
@@ -455,6 +457,9 @@ export class HerdStore {
           (e) =>
             e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
         );
+        break;
+      case "held:changed":
+        this.heldCount = ev.data.count;
         break;
       case "halt:done":
         // Fleet-wide stop landed: confirm the reach to EVERY connected operator (the

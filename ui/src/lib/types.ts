@@ -65,6 +65,10 @@ export interface Settings {
    *  when the HUD is fronted on a different host than the node. Null when tailscale is
    *  absent → fall back to the operator's own connection host. */
   previewHost: string | null;
+  /** Whether usage-aware task holding is enabled (new tasks paused when usage is high). */
+  usageHoldEnabled: boolean;
+  /** Usage percentage at or above which new tasks are held (0–100). */
+  usageHoldPct: number;
 }
 
 export interface DirEntry {
@@ -894,7 +898,8 @@ export type WsEvent =
   | { event: "epic:update"; data: Epic }
   | { event: "epic:completed"; data: CompletedEpic }
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
-  | { event: "session:egress-drop"; data: { id: string; host: string } };
+  | { event: "session:egress-drop"; data: { id: string; host: string } }
+  | { event: "held:changed"; data: { count: number } };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {
@@ -918,6 +923,22 @@ export interface CreateInput {
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
+}
+
+/** A task that was held (not immediately spawned) because usage was too high.
+ *  Returned by GET /api/held and the POST /api/sessions held-path. */
+export interface HeldTask {
+  id: string;
+  repoPath: string;
+  input: CreateInput;
+  createdAt: number;
+}
+
+/** Returned by POST /api/sessions when the task is held instead of spawned immediately. */
+export interface HeldResult {
+  held: true;
+  id: string;
+  count: number;
 }
 
 /** Selectable claude model aliases; null = claude's own default.

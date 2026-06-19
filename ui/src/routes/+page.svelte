@@ -518,11 +518,12 @@
     const br = await listBranches(repoPath).catch(() => null);
     const baseBranch = pickBaseBranch(br);
     try {
-      const s = await createSession({
+      const r = await createSession({
         repoPath,
         baseBranch,
         prompt: cmd,
         model: null,
+        force: true,
         issueRef: {
           number: issue.number,
           url: issue.url,
@@ -530,7 +531,8 @@
           body: issue.body,
         },
       });
-      selectedId = s.id;
+      if ("held" in r) return;
+      selectedId = r.id;
       showBacklog = false;
       if (mobile.current) mobileScreen = "detail";
     } catch {
@@ -566,8 +568,12 @@
         const br = await listBranches(repoPath).catch(() => null);
         const baseBranch = pickBaseBranch(br);
         try {
-          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs));
-          selectedId = s.id;
+          const r = await createSession({
+            ...mergeTrainCreateInput(repoPath, baseBranch, prs),
+            force: true,
+          });
+          if ("held" in r) return;
+          selectedId = r.id;
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {
@@ -595,8 +601,12 @@
         const br = await listBranches(repoPath).catch(() => null);
         const baseBranch = pickBaseBranch(br);
         try {
-          const s = await createSession(mergeTrainCreateInput(repoPath, baseBranch, prs, true));
-          selectedId = s.id;
+          const r = await createSession({
+            ...mergeTrainCreateInput(repoPath, baseBranch, prs, true),
+            force: true,
+          });
+          if ("held" in r) return;
+          selectedId = r.id;
           showBacklog = false;
           if (mobile.current) mobileScreen = "detail";
         } catch {
@@ -1216,8 +1226,12 @@
   }) {
     // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
-    const s = await createSession(input);
-    selectedId = s.id;
+    const r = await createSession(input);
+    if ("held" in r) {
+      toasts.info(m.toast_task_held());
+      return;
+    }
+    selectedId = r.id;
     showNew = false;
     resetCompose();
   }

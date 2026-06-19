@@ -1585,5 +1585,17 @@
   "diagnostics_label_git_mergetree": "git merge-tree",
   "backlog_tab_automation": "Automatisierung",
   "feat_repo_settings_backlog_title": "Repo-Einstellungen ohne Task",
-  "feat_repo_settings_backlog_body": "Die Repo-Automatisierungseinstellungen — Kritiker, Plan-Gate, Autopilot, Auto-Drain/Merge, Sandbox-Profil, Standardmodell, Drain-Konfiguration sowie Reviewer-/Merger-Rollen — sind jetzt als Automatisierungs-Tab in der Backlog-Detailansicht verfügbar. Stelle die Vorgaben jedes Repos ein, ohne einen Task zu starten; Änderungen teilen sich eine einzige Quelle der Wahrheit mit dem Task-Panel."
+  "feat_repo_settings_backlog_body": "Die Repo-Automatisierungseinstellungen — Kritiker, Plan-Gate, Autopilot, Auto-Drain/Merge, Sandbox-Profil, Standardmodell, Drain-Konfiguration sowie Reviewer-/Merger-Rollen — sind jetzt als Automatisierungs-Tab in der Backlog-Detailansicht verfügbar. Stelle die Vorgaben jedes Repos ein, ohne einen Task zu starten; Änderungen teilen sich eine einzige Quelle der Wahrheit mit dem Task-Panel.",
+  "toast_task_held": "Aufgabe zurückgehalten — Nutzung ist hoch. Sie startet beim Reset.",
+  "settings_usage_hold_enabled_label": "Neue Aufgaben bei hoher Nutzung zurückhalten",
+  "settings_usage_hold_hint": "Wenn aktiviert, werden neue manuelle Aufgaben pausiert, wenn bereits eine Sitzung läuft und die primäre Nutzung den unten stehenden Schwellenwert erreicht oder überschreitet. Sie starten automatisch, wenn die Nutzung zurückgesetzt wird.",
+  "settings_usage_hold_on": "An",
+  "settings_usage_hold_off": "Aus",
+  "settings_usage_hold_enabled_save_failed": "Einstellung für Nutzungsrückhalt konnte nicht geändert werden. Erneut versuchen.",
+  "settings_usage_hold_pct_label": "Schwellenwert für Nutzungsrückhalt",
+  "settings_usage_hold_pct_hint": "Neue Aufgaben zurückhalten, wenn die primäre Nutzung diesen Prozentsatz erreicht (0–100). Niedrigere Werte halten Aufgaben früher zurück.",
+  "settings_usage_hold_pct_field_label": "Zurückhalten ab Nutzung ≥",
+  "settings_usage_hold_pct_save_failed": "Schwellenwert für Nutzungsrückhalt konnte nicht geändert werden. Erneut versuchen.",
+  "feat_usage_aware_holding_title": "Aufgaben pausieren automatisch bei hoher Nutzung",
+  "feat_usage_aware_holding_body": "Neue Aufgaben werden jetzt automatisch pausiert, wenn Ihre Claude-Nutzung hoch ist und bereits eine Sitzung läuft — sie starten von selbst, wenn die Nutzung zurückgesetzt wird. Trotzdem einreichen zum Überschreiben oder in Einstellungen → Sitzung deaktivieren."
 }

@@ -12,6 +12,8 @@
     putAnthropicApiKey,
     verifyApiKey,
     putExtraCreditsDrainCeiling,
+    putUsageHoldEnabled,
+    putUsageHoldPct,
     listDirs,
     getDiagnostics,
     fixDiagnostic,
@@ -170,6 +172,13 @@
   let extraCreditsCeiling = $state(0); // account-wide extra-credit spend ceiling (0 = pause on any)
   let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
   let extraCreditsBusy = $state(false);
+
+  // Usage hold — pause new tasks when usage is high and a session is already running.
+  let usageHoldEnabled = $state(true);
+  let usageHoldBusy = $state(false);
+  let usageHoldPct = $state(90); // threshold percentage (0–100)
+  let usageHoldPctSaved = 90;
+  let usageHoldPctBusy = $state(false);
 
   // Diagnose tab — local checks + re-run state.
   // untrack: initialDiagnostics is intentionally only read once as the seed value.
@@ -417,6 +426,46 @@
     }
   }
 
+  async function toggleUsageHold() {
+    if (usageHoldBusy) return;
+    usageHoldBusy = true;
+    const next = !usageHoldEnabled;
+    try {
+      const s = await putUsageHoldEnabled(next);
+      usageHoldEnabled = s.usageHoldEnabled;
+    } catch {
+      toasts.info(m.settings_usage_hold_enabled_save_failed(), {
+        key: "usage-hold-enabled",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      usageHoldBusy = false;
+    }
+  }
+
+  async function saveUsageHoldPct() {
+    if (usageHoldPctBusy) return;
+    usageHoldPctBusy = true;
+    const n = Math.round(Number(usageHoldPct));
+    const clamped = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : usageHoldPctSaved;
+    usageHoldPct = clamped;
+    try {
+      const r = await putUsageHoldPct(clamped);
+      usageHoldPct = r.usageHoldPct;
+      usageHoldPctSaved = r.usageHoldPct;
+    } catch {
+      usageHoldPct = usageHoldPctSaved;
+      toasts.info(m.settings_usage_hold_pct_save_failed(), {
+        key: "usage-hold-pct",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      usageHoldPctBusy = false;
+    }
+  }
+
   async function toggleRemoteControl() {
     if (rcBusy) return;
     rcBusy = true;
@@ -505,6 +554,9 @@
       hasApiKey = s.hasApiKey;
       extraCreditsCeiling = s.extraCreditsDrainCeiling;
       extraCreditsCeilingSaved = s.extraCreditsDrainCeiling;
+      usageHoldEnabled = s.usageHoldEnabled;
+      usageHoldPct = s.usageHoldPct;
+      usageHoldPctSaved = s.usageHoldPct;
       await browse(s.repoRoot);
     } catch {
       await browse();
@@ -861,6 +913,41 @@
             bind:value={extraCreditsCeiling}
             aria-label={m.settings_extra_credits_ceiling_title()}
             onchange={saveExtraCreditsCeiling}
+          />
+        </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_usage_hold_enabled_label()}</span>
+        <p class="hint">{m.settings_usage_hold_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={usageHoldEnabled}
+          disabled={usageHoldBusy}
+          onclick={toggleUsageHold}
+        >
+          <span class="track" class:on={usageHoldEnabled}><span class="knob"></span></span>
+          <span class="state"
+            >{usageHoldEnabled ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
+          >
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_usage_hold_pct_label()}</span>
+        <p class="hint">{m.settings_usage_hold_pct_hint()}</p>
+        <label class="cycles">
+          <span class="cycles-label">{m.settings_usage_hold_pct_field_label()}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            disabled={usageHoldPctBusy || !usageHoldEnabled}
+            bind:value={usageHoldPct}
+            aria-label={m.settings_usage_hold_pct_label()}
+            onchange={saveUsageHoldPct}
           />
         </label>
       </div>

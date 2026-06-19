@@ -131,8 +131,12 @@ export interface RelaunchOverrides {
 }
 
 /** Selectable claude model aliases; absent/"default" means no --model flag.
- *  Ordered most- to least-powerful so the picker leads with the top tier. */
-export const MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+ *  Ordered most- to least-powerful so the picker leads with the top tier.
+ *  The "[1m]" suffix is a valid `--model` value that enables Claude Code's
+ *  1M-context-window beta (verified: it adds the context-1m beta header,
+ *  whereas the bare alias does not); it passes straight through to --model
+ *  with no mapping layer. Each 1M variant sits next to its 200K base. */
+export const MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
 
 export interface Steer {
   id: string;

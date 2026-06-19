@@ -64,6 +64,7 @@
   import SessionRecap from "$lib/components/SessionRecap.svelte";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { modelLabel } from "$lib/model-label";
   import { buildPreviewUrl } from "$lib/previewUrl";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
@@ -422,8 +423,11 @@
     onnavigate?.(switchOrder[next]);
   }
 
-  // null model = claude's own default (shepherd passed no --model flag)
-  const modelLabel = $derived(session.model ?? m.newtask_model_default());
+  // null model = claude's own default (shepherd passed no --model flag);
+  // a set alias routes through the shared label so 1M variants don't show the raw token.
+  const modelDisplay = $derived(
+    session.model ? modelLabel(session.model) : m.newtask_model_default(),
+  );
 
   // The `session` prop is re-resolved from the store whenever the sessions
   // state changes, so its reference can churn while the id stays put. Derive
@@ -1796,7 +1800,7 @@
     <span class="desig-pop" role="tooltip">
       <span class="dp-row">
         <span class="dp-k">{m.viewport_profile_label()}</span>
-        <span class="dp-v">{modelLabel}</span>
+        <span class="dp-v">{modelDisplay}</span>
       </span>
       {#if usage && usage.total > 0}
         <span class="dp-row">

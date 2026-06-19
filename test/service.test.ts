@@ -94,6 +94,64 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+// Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the
+// claude CLI as a single, unmodified `--model <alias>` argv pair through the REAL spawn
+// builder. The whole path is array-argv (no shell), so the brackets cannot be glob-expanded
+// or word-split — this pins that. Fails on pre-fix code, where validate rejects the alias
+// before create() is ever reached.
+for (const alias of ["opus[1m]", "sonnet[1m]"] as const) {
+  test(`createSession: 1M alias ${alias} survives the spawn argv as one --model pair`, async () => {
+    const store = new SessionStore(":memory:");
+    const calls: any = {};
+    const service = new SessionService({
+      store,
+      namer: async () => "repo-onem",
+      worktree: {
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        create: () => ({
+          worktreePath: "/wt/repo-onem",
+          branch: "shepherd/repo-onem",
+          isolated: true,
+        }),
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: (name: string, cwd: string, argv: string[]) => {
+          calls.argv = argv;
+          return {
+            terminalId: "term_z",
+            cwd,
+            agent: "claude",
+            agentStatus: "working",
+            paneId: "p",
+            tabId: "t",
+            workspaceId: "w",
+          };
+        },
+        list: () => [],
+      } as any,
+    });
+
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: alias,
+      images: [],
+    });
+
+    expect(s.model).toBe(alias);
+    const argv: string[] = calls.argv;
+    // Exactly one --model flag, and the value is the literal bracketed alias verbatim
+    // (one array element — never two, never de-bracketed, never glob-expanded).
+    const flagIdxs = argv.flatMap((a, i) => (a === "--model" ? [i] : []));
+    expect(flagIdxs).toHaveLength(1);
+    expect(argv[flagIdxs[0]! + 1]).toBe(alias);
+    expect(argv.includes(alias)).toBe(true);
+  });
+}
+
 test("prepareSpawn fail-closed: api-key mode with no helper path refuses create() (never silent subscription fallback)", async () => {
   const prevMode = config.authMode;
   const prevPath = config.authApiKeyHelperPath;

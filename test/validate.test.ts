@@ -67,6 +67,20 @@ test("known model accepted and passed through", () => {
   if (r.ok) expect(r.value.model).toBe("opus");
 });
 
+test("1M-context aliases accepted and passed through verbatim", () => {
+  // Fails on pre-fix code: before opus[1m]/sonnet[1m] were added to MODELS the
+  // validator rejected them as "unknown model". The bracketed token must pass
+  // through unchanged so it reaches --model intact.
+  for (const alias of ["opus[1m]", "sonnet[1m]"]) {
+    const r = validateCreate(
+      { repoPath: validRepo, baseBranch: "main", prompt: "go", model: alias },
+      root,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.model).toBe(alias);
+  }
+});
+
 test('model "default" normalizes to null', () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "default" },

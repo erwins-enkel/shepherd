@@ -1530,6 +1530,7 @@
   "qform_kind_single": "Eine Option wählen",
   "qform_kind_multi": "Alle zutreffenden auswählen",
   "qform_kind_freeform": "Freie Antwort",
+  "qform_freeform_placeholder": "Freitextantwort",
   "planpanel_proposed_caption": "Vorschlag — noch nicht umgesetzt · der Plantext unten ist maßgeblich",
   "feat_visual_plan_title": "Visuelle Pläne",
   "feat_visual_plan_body": "Plan-Gate-Pläne können jetzt als übersichtliches visuelles Dokument dargestellt werden — Dateibäume, Diagramme, Datenmodelle und mehr — oberhalb des Plantextes, sofern der Planungs-Agent sie ausgibt."

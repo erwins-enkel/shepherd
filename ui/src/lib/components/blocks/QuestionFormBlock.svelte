@@ -40,7 +40,12 @@
         </ul>
       {:else if q.kind === "freeform"}
         <div class="qf-freeform">
-          <input type="text" class="qf-freeform-input" disabled placeholder="…" />
+          <input
+            type="text"
+            class="qf-freeform-input"
+            disabled
+            placeholder={m.qform_freeform_placeholder()}
+          />
         </div>
       {/if}
     </div>

@@ -1606,7 +1606,7 @@
   "topbar_held_spawn_now": "Jetzt starten",
   "topbar_held_discard": "Verwerfen",
   "topbar_held_empty": "Keine zurückgehaltenen Aufgaben",
-  "retry_title": "HALTED WIEDERHOLEN",
+  "retry_title": "Halted wiederholen",
   "retry_confirm": "{count} Sitzungen wiederholen",
   "retry_arm": "Wiederholen bestätigen ({count})?",
   "retry_continue_steer": "Bitte fortfahren — dein Nutzungslimit sollte zurückgesetzt sein.",

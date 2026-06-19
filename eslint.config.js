@@ -7,7 +7,12 @@ export default [
   ...ts.configs.recommended,
   ...svelte.configs.recommended,
   ...svelte.configs.prettier,
-  { rules: { "@typescript-eslint/no-explicit-any": "off" } },
+  // Test code legitimately uses `any` for mocks / `as any` casts on test doubles; keep the
+  // rule on for production but relax it for test files (incl. colocated *.test.ts under src/ & ui/src).
+  {
+    files: ["test/**/*", "**/*.test.ts", "**/*.spec.ts"],
+    rules: { "@typescript-eslint/no-explicit-any": "off" },
+  },
   // .mjs files run under Node — needs Node globals
   {
     files: ["src/pty-attach.mjs", "test/fixtures/*.mjs"],

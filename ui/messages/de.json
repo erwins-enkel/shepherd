@@ -1570,7 +1570,7 @@
   "gitrail_merged_locally": "lokal gemergt ✓",
   "gitrail_ready_to_merge": "bereit zum Mergen",
   "diagnostics_hint_gitcap_ok": "git unterstützt Lightweight-Merge (≥ 2.38).",
-  "diagnostics_hint_gitcap_old": "git < 2.38 erkannt — der Lightweight-Repo-Modus benötigt git merge-tree --write-tree (git ≥ 2.38). Aktualisiere git, um Lightweight-Repos zu nutzen.",
+  "diagnostics_hint_gitcap_old": "git ≥ 2.38 nicht verfügbar — der Lightweight-Repo-Modus benötigt git merge-tree --write-tree (git ≥ 2.38) für lokale Merges. git fehlt möglicherweise (siehe git-Prüfung) oder ist zu alt; installiere oder aktualisiere es, um Lightweight-Repos zu nutzen.",
   "diagnostics_hint_gh_not_required": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden.",
   "diagnostics_label_git_mergetree": "git merge-tree"
 }

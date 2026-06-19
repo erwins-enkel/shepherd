@@ -398,6 +398,13 @@ const poller = new StatusPoller(
   // Phase-1 (issue #704): prune dead sessions' hook ring buffers from the poller's
   // pruneInactive (so they don't grow unbounded by session count).
   (ids) => hookIngest.prune(ids),
+  undefined, // onStopWindow — use default logger
+  // onHalt: session reached done with a usage-limit tail → push live so the UI
+  // can surface the RetryDialog without waiting for a full session refresh.
+  (id: string, haltReason: string, haltedAt: number) =>
+    events.emit("session:halt", { id, haltReason, haltedAt }),
+  // usageLimits: corroborates the transcript-tail match against measured pct windows.
+  usageLimits,
 );
 
 // Phase-1 push-hook signal wiring (issue #704): feed received hook events into the

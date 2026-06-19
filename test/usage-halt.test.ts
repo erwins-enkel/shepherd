@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { matchesUsageLimit } from "../src/usage-halt";
+import { matchesUsageLimit, classifyHalt } from "../src/usage-halt";
+import type { UsageLimits } from "../src/usage-limits";
 
 // NOTE: All positive test strings below are SYNTHETIC — no real captured usage-limit
 // output from Claude Code was available at authoring time. Real-sample calibration is
@@ -45,4 +46,48 @@ test("no false positive: benign rate limit mention", () => {
 
 test("no false positive: partial keyword without context", () => {
   expect(matchesUsageLimit("You should limit your requests per second.")).toBe(false);
+});
+
+// ── classifyHalt ──────────────────────────────────────────────────────────────
+
+const MATCH = "Claude usage limit reached. Your limit will reset at 3:00pm.";
+const NO_MATCH = "I finished the task.";
+
+function limits(session5hPct: number | null, weekPct: number | null): UsageLimits {
+  return {
+    session5h: session5hPct !== null ? { pct: session5hPct, resetAt: 0 } : null,
+    week: weekPct !== null ? { pct: weekPct, resetAt: 0 } : null,
+    credits: null,
+    stale: false,
+    calibratedAt: Date.now(),
+    subscriptionOnly: false,
+  };
+}
+
+test("classifyHalt: match + session5h=95 above holdPct=80 → usage_limit", () => {
+  expect(classifyHalt(MATCH, limits(95, null), 80)).toBe("usage_limit");
+});
+
+test("classifyHalt: match + both windows null (uncalibrated) → usage_limit (degraded)", () => {
+  expect(classifyHalt(MATCH, limits(null, null), 80)).toBe("usage_limit");
+});
+
+test("classifyHalt: match + session5h=40, week null, holdPct=80 → null (measurable below cap)", () => {
+  expect(classifyHalt(MATCH, limits(40, null), 80)).toBeNull();
+});
+
+test("classifyHalt: no match + high usage → null", () => {
+  expect(classifyHalt(NO_MATCH, limits(99, 99), 80)).toBeNull();
+});
+
+test("classifyHalt: match + week=90 above holdPct=80 → usage_limit", () => {
+  expect(classifyHalt(MATCH, limits(null, 90), 80)).toBe("usage_limit");
+});
+
+test("classifyHalt: match + both windows at exactly holdPct → usage_limit (>= is inclusive)", () => {
+  expect(classifyHalt(MATCH, limits(80, null), 80)).toBe("usage_limit");
+});
+
+test("classifyHalt: match + both windows just below holdPct → null", () => {
+  expect(classifyHalt(MATCH, limits(79, 79), 80)).toBeNull();
 });

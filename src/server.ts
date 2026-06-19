@@ -26,6 +26,7 @@ import {
   parseTermDims,
   validateSteers,
   validateBroadcast,
+  validateRetry,
   validateIconPatch,
   validateBuildSteps,
   validateBuildStepStatus,
@@ -2821,6 +2822,21 @@ async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
   return null;
 }
 
+// ── retry usage-halted sessions ──
+async function handleRetry({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] === "api" && parts[1] === "retry" && !parts[2]) {
+    if (req.method === "POST") {
+      const ctErr = requireJsonContentType(req);
+      if (ctErr) return ctErr;
+      const body = await req.json().catch(() => null);
+      const parsed = validateRetry(body);
+      if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
+      return json(await deps.service.retryHalted(parsed.ids, parsed.text));
+    }
+  }
+  return null;
+}
+
 // ── halt the herd: interrupt every live working agent at once ──
 function handleHalt({ req, parts, deps }: Ctx): Response | null {
   if (parts[0] !== "api" || parts[1] !== "halt" || parts[2]) return null;
@@ -4168,6 +4184,7 @@ const ROUTE_HANDLERS = [
   handleProjectIcons,
   handleBroadcast,
   handleHeld,
+  handleRetry,
   handleHalt,
   handleFsDirs,
   handleBranches,

@@ -888,3 +888,62 @@ test("resume no-op: gate decision is 'error' → returns false", () => {
   const h = harness({ store: { getPlanGate: () => gate, putPlanGate: () => {} } });
   expect(h.svc.resume(planningSession() as any)).toBe(false);
 });
+
+// ── readPlanBlocks: blocks captured into the gate ──────────────────────────────
+
+const questionBlock = () => ({
+  type: "question-form" as const,
+  id: "q1",
+  questions: [
+    { id: "q1a", prompt: "Which approach?", kind: "single" as const, options: ["A", "B"] },
+  ],
+});
+
+const dataModelBlock = () => ({
+  type: "data-model" as const,
+  id: "dm1",
+  entities: [{ id: "e1", name: "Task", fields: [{ name: "id", type: "string", pk: true }] }],
+});
+
+test("blocks captured into the gate: approve verdict carries the injected blocks", async () => {
+  const blocks = [questionBlock(), dataModelBlock()];
+  const h = harness({
+    readPlanBlocks: () => blocks,
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    store: { get: () => ({ id: "s1", auto: true }) },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.blocks).toHaveLength(2);
+  expect(h.store.gate.blocks[0].type).toBe("question-form");
+  expect(h.store.gate.blocks[1].type).toBe("data-model");
+});
+
+test("no sidecar → blockless gate (blocks is [])", async () => {
+  const h = harness({
+    readPlanBlocks: () => [],
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    store: { get: () => ({ id: "s1", auto: false }) },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(Array.isArray(h.store.gate.blocks)).toBe(true);
+  expect(h.store.gate.blocks).toHaveLength(0);
+});
+
+test("changes_requested verdict also carries blocks from readPlanBlocks", async () => {
+  const blocks = [questionBlock()];
+  const h = harness({
+    readPlanBlocks: () => blocks,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "needs work",
+      body: "B",
+      findings: ["fix X"],
+    }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.blocks).toHaveLength(1);
+  expect(h.store.gate.blocks[0].type).toBe("question-form");
+});

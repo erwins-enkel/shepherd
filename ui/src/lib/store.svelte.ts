@@ -302,18 +302,6 @@ export class HerdStore {
         recaps.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
         break;
-      case "session:git":
-        this.git = { ...this.git, [ev.data.id]: ev.data.git };
-        break;
-      case "session:activity":
-        this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
-        break;
-      case "session:subagents":
-        this.subagents = { ...this.subagents, [ev.data.id]: ev.data.subagents };
-        break;
-      case "session:claude-alive":
-        this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };
-        break;
       case "session:working-blocked":
         this.setWorkingBlockedFlag(ev.data.id, ev.data.working);
         break;
@@ -326,12 +314,6 @@ export class HerdStore {
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
         break;
-      case "session:halt":
-        this.patchSession(ev.data.id, {
-          haltReason: ev.data.haltReason,
-          haltedAt: ev.data.haltedAt,
-        });
-        break;
       case "session:egress-drop":
         toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
           key: "egress-drop-" + ev.data.id,
@@ -339,10 +321,39 @@ export class HerdStore {
         });
         break;
       default:
-        // Review/plan-gate and app-global (non-per-session-row) events are handled
+        // Simple data-update, review/plan-gate, and app-global events are handled
         // out of line to keep this dispatch switch under the complexity gate.
-        if (!this.applySessionCardEvent(ev)) this.applyGlobalEvent(ev);
+        if (!this.applySessionDataEvent(ev) && !this.applySessionCardEvent(ev))
+          this.applyGlobalEvent(ev);
         break;
+    }
+  }
+
+  /** Handle the simple per-session data-update WS events (git, activity, subagents,
+   *  claude-alive, halt) — extracted from apply() to keep that dispatch switch under
+   *  the complexity gate. Returns true when `ev` was handled. */
+  private applySessionDataEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "session:git":
+        this.git = { ...this.git, [ev.data.id]: ev.data.git };
+        return true;
+      case "session:activity":
+        this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
+        return true;
+      case "session:subagents":
+        this.subagents = { ...this.subagents, [ev.data.id]: ev.data.subagents };
+        return true;
+      case "session:claude-alive":
+        this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };
+        return true;
+      case "session:halt":
+        this.patchSession(ev.data.id, {
+          haltReason: ev.data.haltReason,
+          haltedAt: ev.data.haltedAt,
+        });
+        return true;
+      default:
+        return false;
     }
   }
 

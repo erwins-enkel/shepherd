@@ -427,17 +427,10 @@ export class StatusPoller {
       this.onChange(s.id, status); // nudge clients to re-attach the PTY to the fresh terminal
     }
     if (idChanged) s = { ...s, herdrAgentId: agent.terminalId };
-    // Observe-only Stop↔herdr-done measurement (issue #713): on the done-EDGE (status flips
-    // to done; `s.status` holds the PRIOR value) record/pair the window. Placed BEFORE the
-    // tryHookAwaitingBlock early-return below so a stale `hookAwaitingInput` short-circuit
-    // can never swallow the measurement. Pure measurement — does not alter status/routing.
-    if (config.hooksSignals && status === "done" && s.status !== "done") {
-      this.measureStopWindow(s.id, this.now());
-    }
-    // Detect usage-limit halt on the done-edge (live agent herdr-reports done).
-    if (status === "done" && s.status !== "done") {
-      this.detectUsageHalt(s);
-    }
+    // Observe-only Stop↔herdr-done measurement + usage-halt detection on the done-EDGE.
+    // Placed BEFORE the tryHookAwaitingBlock early-return below so a stale
+    // `hookAwaitingInput` short-circuit can never swallow the measurement.
+    if (status === "done" && s.status !== "done") this.handleDoneEdge(s);
     this.dropReadyToMergeIfActionable(s, status);
     // Left herdr-blocked (running/idle/done alike) → the working-while-blocked
     // display flag must drop in the SAME tick, not via the throttled probe paths.
@@ -467,6 +460,16 @@ export class StatusPoller {
       this.store.update(s.id, { readyToMerge: false });
       this.onReady(s.id, false);
     }
+  }
+
+  /**
+   * On the done-EDGE (prior status ≠ "done", new status === "done") in reconcileAgent:
+   * record the Stop↔herdr-done measurement window (when hooks are enabled) and detect
+   * a usage-limit halt. Extracted to keep reconcileAgent under the complexity gate.
+   */
+  private handleDoneEdge(s: Session): void {
+    if (config.hooksSignals) this.measureStopWindow(s.id, this.now());
+    this.detectUsageHalt(s);
   }
 
   /**

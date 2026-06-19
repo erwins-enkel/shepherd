@@ -352,7 +352,7 @@ export class DiagnosticsService {
     return list;
   }
 
-  /** Force a fresh run of all 7 probes; sets the TTL cache. A probe that throws /
+  /** Force a fresh run of all probes; sets the TTL cache. A probe that throws /
    *  times out resolves to its defined non-OK fallback — the batch never rejects. */
   async check(now: number): Promise<DiagnosticsSnapshot> {
     const checks = await Promise.all(

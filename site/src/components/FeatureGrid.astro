@@ -1,6 +1,9 @@
 ---
-// Six-card feature grid. Copy is faithful to README "Opinionated by design" +
-// intro — describes what ships, no invented capabilities.
+// Eight-card feature grid. Copy is faithful to the README "Opinionated by
+// design" + intro and the feature-announcement catalog
+// (ui/src/lib/feature-announcements.ts) — describes what ships, no invented
+// capabilities. Body text is rendered verbatim (no markdown), so copy stays
+// plain prose with no backticks.
 interface Feature {
   title: string;
   body: string;
@@ -12,12 +15,20 @@ const features: Feature[] = [
     body: "Spawn, watch, and steer a herd of real claude sessions in isolated git worktrees, from your browser or phone.",
   },
   {
+    title: "Your /commands come with you",
+    body: "Because each session is a genuine interactive claude against your own ~/.claude, every slash command, skill, and plugin you use locally is available — type / in New Task to pick from your actual commands. The cloud Claude Code can't carry that.",
+  },
+  {
     title: "Readiness",
     body: "Scores a JS/TS repo's guardrails — typecheck, lint, tests, CI, house rules — before you point agents at it, turning gaps into an install task.",
   },
   {
     title: "Plan gate",
     body: "Before an autonomous run, the agent writes a plan a separate read-only reviewer grills adversarially; only a plan that survives review is released to implement.",
+  },
+  {
+    title: "Visual plans & recaps",
+    body: "Plan-gate plans render as a scannable document — file trees, diagrams, data models — not a wall of text. When a session finishes, its recap does the same: a tree of what changed, the annotated diff, and toned callouts.",
   },
   {
     title: "Critic",

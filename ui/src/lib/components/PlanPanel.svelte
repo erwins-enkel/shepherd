@@ -16,6 +16,11 @@
   const releasable = $derived(canRelease(session, gate));
   // Manual re-review only makes sense while still planning (not once executing).
   const canReviewNow = $derived(session.planPhase === "planning");
+  // question-form answers steer back to the planning agent — only while planning (the gate +
+  // its questions persist past approval), with submit locked while a review is in flight.
+  const planAnswerCtx = $derived(
+    canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
+  );
 
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
   // agent-authored — the planning agent and the reviewer ingest untrusted input (issue
@@ -151,7 +156,7 @@
         {#if planBlocks.length > 0}
           <div class="plan-blocks">
             <span class="micro plan-blocks-caption">{m.planpanel_proposed_caption()}</span>
-            <VisualReview blocks={planBlocks} />
+            <VisualReview blocks={planBlocks} answerCtx={planAnswerCtx} />
           </div>
         {/if}
         {#if planHtml}

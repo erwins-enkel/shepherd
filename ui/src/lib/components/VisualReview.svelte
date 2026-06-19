@@ -16,7 +16,12 @@
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  let { blocks }: { blocks: VisualBlock[] } = $props();
+  // `answerCtx` (plan gate, planning phase only) makes question-form blocks interactive; absent in
+  // read-only contexts (recap / Done panels), where the form renders disabled.
+  let {
+    blocks,
+    answerCtx,
+  }: { blocks: VisualBlock[]; answerCtx?: { sessionId: string; locked: boolean } } = $props();
 
   // Dispatch table — block.type → its renderer. Using `satisfies` enforces key-exhaustiveness
   // (a missing block type is a compile error) while keeping the value cast localised to the use site.
@@ -44,9 +49,13 @@
     {#if block.type === "diff" && i === firstDiffIndex}
       <h4 class="vr-highlight-head">{m.vblock_diff_highlighted_heading()}</h4>
     {/if}
-    {@const Block = COMPONENTS[block.type] as unknown as Component<{ block: VisualBlock }>}
-    {#if Block}
-      <Block {block} />
+    {#if block.type === "question-form"}
+      <QuestionFormBlock {block} {answerCtx} />
+    {:else}
+      {@const Block = COMPONENTS[block.type] as unknown as Component<{ block: VisualBlock }>}
+      {#if Block}
+        <Block {block} />
+      {/if}
     {/if}
   {/each}
 </div>

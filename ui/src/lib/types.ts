@@ -335,6 +335,16 @@ export type VisualBlock =
       }[];
     };
 
+/** A single operator answer to a plan question-form question, keyed by (blockId, questionId).
+ *  `optionIndices` is for single (one) / multi (zero+); `text` is for freeform. Mirrors the
+ *  server's RawAnswer (#803). */
+export interface RawAnswer {
+  blockId: string;
+  questionId: string;
+  optionIndices?: number[];
+  text?: string;
+}
+
 // ── session recap ────────────────────────────────────────────────────────────
 // mirrors server Recap / RecapState / RecapVerdict
 export type RecapState = "generating" | "ready" | "failed" | "empty";

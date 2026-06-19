@@ -8,7 +8,12 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision } from "./types";
 import type { GitForge } from "./forge/types";
-import { type VisualBlock, parseVisualBlocks, groundPlanBlocks } from "./visual-blocks";
+import {
+  type VisualBlock,
+  type QuestionKind,
+  parseVisualBlocks,
+  groundPlanBlocks,
+} from "./visual-blocks";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import {
   isApiKeyMode,
@@ -697,6 +702,107 @@ function planSteerText(findings: string[]): string {
   return (
     "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +
     findings.map((f, i) => `${i + 1}. ${f}`).join("\n") +
+    "\n\nDon't start implementing yet — wait for the plan to be approved."
+  );
+}
+
+// ── Operator answer round-trip (#803) ──────────────────────────────────────────
+
+/** Raw operator answer from the UI — resolved against the gate's persisted questions.
+ *  `optionIndices` is for single (one) / multi (zero+); `text` is for freeform. */
+export interface RawAnswer {
+  blockId: string;
+  questionId: string;
+  optionIndices?: number[];
+  text?: string;
+}
+
+/** A validated answer keyed to a real persisted question. `selected` holds resolved option
+ *  labels (single: 1, multi: 0+); `text` is present only for freeform. */
+export interface ResolvedAnswer {
+  prompt: string;
+  kind: QuestionKind;
+  selected: string[];
+  text?: string;
+}
+
+/** Resolve raw operator answers against a gate's persisted question-form blocks. Pure, fail-closed.
+ *  Questions are keyed by (blockId, questionId) — id uniqueness is only per-block — so the same
+ *  questionId in two blocks never clobbers. Drops answers with no matching question. Per kind:
+ *   - single: exactly one in-range index kept; otherwise dropped.
+ *   - multi: in-range indices kept (deduped, order-preserving); an empty set is kept as an
+ *     answered "none selected" (distinct from an absent answer).
+ *   - freeform: trimmed non-empty text kept; blank dropped. */
+export function resolvePlanAnswers(blocks: VisualBlock[], answers: RawAnswer[]): ResolvedAnswer[] {
+  if (!Array.isArray(answers)) return [];
+  const byKey = indexQuestions(blocks);
+  const out: ResolvedAnswer[] = [];
+  for (const a of answers) {
+    if (!a || typeof a.blockId !== "string" || typeof a.questionId !== "string") continue;
+    const q = byKey.get(`${a.blockId} ${a.questionId}`);
+    if (!q) continue;
+    const resolved = resolveOne(q, a);
+    if (resolved) out.push(resolved);
+  }
+  return out;
+}
+
+type IndexedQuestion = { prompt: string; kind: QuestionKind; options: string[] };
+
+/** Index a gate's question-form questions by (blockId, questionId) — id uniqueness is only
+ *  per-block, so this namespacing keeps the same questionId in two blocks from clobbering. */
+function indexQuestions(blocks: VisualBlock[]): Map<string, IndexedQuestion> {
+  const byKey = new Map<string, IndexedQuestion>();
+  for (const b of blocks) {
+    if (b.type !== "question-form") continue;
+    for (const q of b.questions) {
+      byKey.set(`${b.id} ${q.id}`, { prompt: q.prompt, kind: q.kind, options: q.options ?? [] });
+    }
+  }
+  return byKey;
+}
+
+/** Map raw option indices to their labels — integer, in-range, deduped, order-preserving. */
+function resolveOptionLabels(indices: unknown, options: string[]): string[] {
+  if (!Array.isArray(indices)) return [];
+  const seen = new Set<number>();
+  const out: string[] = [];
+  for (const i of indices) {
+    if (!Number.isInteger(i) || i < 0 || i >= options.length || seen.has(i)) continue;
+    seen.add(i);
+    out.push(options[i]!); // bounds-checked above
+  }
+  return out;
+}
+
+/** Resolve a single raw answer against its question, fail-closed. null = drop. Per kind:
+ *   single = exactly one in-range index; multi = in-range indices (empty kept as "none selected");
+ *   freeform = trimmed non-empty text. */
+function resolveOne(q: IndexedQuestion, a: RawAnswer): ResolvedAnswer | null {
+  if (q.kind === "freeform") {
+    const text = typeof a.text === "string" ? a.text.trim() : "";
+    return text ? { prompt: q.prompt, kind: "freeform", selected: [], text } : null;
+  }
+  const selected = resolveOptionLabels(a.optionIndices, q.options);
+  if (q.kind === "single") {
+    return selected.length === 1 ? { prompt: q.prompt, kind: "single", selected } : null;
+  }
+  return { prompt: q.prompt, kind: "multi", selected };
+}
+
+/** Agent-facing steer that carries the operator's plan answers into the planning PTY. NOT i18n'd. */
+export function planAnswerSteerText(resolved: ResolvedAnswer[]): string {
+  const lines = resolved.map((r) => {
+    let answer: string;
+    if (r.kind === "freeform") answer = r.text ?? "";
+    else if (r.kind === "multi")
+      answer = r.selected.length ? r.selected.join(", ") : "(none selected)";
+    else answer = r.selected[0] ?? "";
+    return `- ${r.prompt}\n  → ${answer}`;
+  });
+  return (
+    "The operator answered the open questions on `.shepherd-plan.md`. Incorporate each answer into the plan, then stop so it can be re-reviewed:\n\n" +
+    lines.join("\n") +
     "\n\nDon't start implementing yet — wait for the plan to be approved."
   );
 }

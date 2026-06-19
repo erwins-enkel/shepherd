@@ -31,6 +31,7 @@ import {
   validateEpicRunPatch,
   validateEgressExtraHosts,
 } from "./validate";
+import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
 import {
@@ -1274,6 +1275,47 @@ function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
     : json({ error: "plan not approved or not in planning phase" }, 409);
 }
 
+// POST /api/sessions/:id/answer-plan-questions — steer the operator's answers to the gate's
+// question-form blocks back into the live planning agent (#803). Planning-phase only: the gate +
+// its questions persist past approval and AUTO sessions auto-release into execution, so without the
+// guard an operator could steer "incorporate answers, stop" into an already-executing agent.
+// Mirrors handleSessionReply's content-type + body-shape guards.
+async function handleSessionAnswerPlanQuestions({
+  req,
+  parts,
+  deps,
+}: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "answer-plan-questions")) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const answers = (body as { answers?: unknown } | null)?.answers;
+  if (
+    !Array.isArray(answers) ||
+    !answers.every(
+      (a) =>
+        !!a &&
+        typeof a === "object" &&
+        typeof (a as RawAnswer).blockId === "string" &&
+        typeof (a as RawAnswer).questionId === "string",
+    )
+  ) {
+    return json({ error: "body must be {answers: RawAnswer[]}" }, 400);
+  }
+  const id = parts[2];
+  const s = deps.store.get(id);
+  if (!s) return json({ error: "not found" }, 404);
+  if (s.planPhase !== "planning") return json({ error: "not in planning phase" }, 409);
+  const gate = deps.store.getPlanGate(id);
+  if (!gate || !gate.blocks?.some((b) => b.type === "question-form")) {
+    return json({ error: "no plan questions" }, 409);
+  }
+  const resolved = resolvePlanAnswers(gate.blocks, answers as RawAnswer[]);
+  if (resolved.length === 0) return json({ error: "no answers resolved" }, 400);
+  const delivered = deps.service.reply(id, planAnswerSteerText(resolved));
+  return json({ ok: true, delivered });
+}
+
 // POST /api/sessions/:id/preview/start — steer the agent to start its dev server.
 // Flow: already_bound? → 409. Resolve command (body.command ?? detectDevCommand). No
 // command? → 409. Steer → true → 200; false (dead pane / unknown) → 404.
@@ -1890,6 +1932,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionDelete,
     handleSessionReply,
     handleSessionGo,
+    handleSessionAnswerPlanQuestions,
     handleSessionReviewPlan,
     handleSessionReviewPr,
     handleSessionRecapRegenerate,

@@ -1531,7 +1531,15 @@
   "qform_kind_multi": "Alle zutreffenden auswählen",
   "qform_kind_freeform": "Freie Antwort",
   "qform_freeform_placeholder": "Freitextantwort",
+  "qform_kind_multi_optional": "Alle zutreffenden auswählen (optional)",
+  "qform_submit": "Antworten an Planungsagent senden",
+  "qform_submitting": "Wird gesendet…",
+  "qform_sent": "Antworten an den Planungsagenten gesendet.",
+  "qform_sent_undelivered": "Planungsagent nicht erreichbar – er ist möglicherweise bereits weitergezogen.",
+  "qform_submit_error": "Antworten konnten nicht gesendet werden. Bitte erneut versuchen.",
   "planpanel_proposed_caption": "Vorschlag — noch nicht umgesetzt · der Plantext unten ist maßgeblich",
   "feat_visual_plan_title": "Visuelle Pläne",
-  "feat_visual_plan_body": "Plan-Gate-Pläne können jetzt als übersichtliches visuelles Dokument dargestellt werden — Dateibäume, Diagramme, Datenmodelle und mehr — oberhalb des Plantextes, sofern der Planungs-Agent sie ausgibt."
+  "feat_visual_plan_body": "Plan-Gate-Pläne können jetzt als übersichtliches visuelles Dokument dargestellt werden — Dateibäume, Diagramme, Datenmodelle und mehr — oberhalb des Plantextes, sofern der Planungs-Agent sie ausgibt.",
+  "feat_plan_question_answers_title": "Planfragen direkt in der App beantworten",
+  "feat_plan_question_answers_body": "Wenn ein Plan offene Fragen stellt, kannst du sie jetzt direkt in der Planansicht beantworten — Optionen auswählen oder eine Antwort eingeben und direkt an den Planungs-Agenten zurücksenden, um den Plan zu verfeinern."
 }

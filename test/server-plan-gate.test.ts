@@ -185,6 +185,203 @@ test("POST /api/sessions/:id/review-plan → 404 for unknown id", async () => {
   expect(called).toBe(false);
 });
 
+// ── POST /api/sessions/:id/answer-plan-questions (#803) ─────────────────────
+
+function seedPlanningSession(
+  store: SessionStore,
+  opts: { suffix: string; phase?: Session["planPhase"]; withForm?: boolean },
+): string {
+  const seeded = store.create({
+    name: "p",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: `shepherd/${opts.suffix}`,
+    worktreePath: join(repoDir, `wt-${opts.suffix}`),
+    isolated: true,
+    herdrSession: `sess-${opts.suffix}`,
+    herdrAgentId: `term_${opts.suffix}`,
+    claudeSessionId: `claude-${opts.suffix}`,
+    model: null,
+  });
+  store.setPlanPhase(seeded.id, opts.phase ?? "planning");
+  const gate: PlanGate = {
+    sessionId: seeded.id,
+    planHash: "h",
+    decision: "approved",
+    summary: "ok",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 3,
+    approved: true,
+    plan: "the plan",
+    updatedAt: 1000,
+    blocks: opts.withForm
+      ? [
+          {
+            type: "question-form",
+            id: "qf1",
+            questions: [
+              { id: "q1", prompt: "Which approach?", kind: "single", options: ["Reuse", "New"] },
+            ],
+          },
+        ]
+      : [{ type: "rich-text", id: "rt", markdown: "no questions here" }],
+  };
+  store.putPlanGate(gate);
+  return seeded.id;
+}
+
+const POST_ANSWERS = (answers: unknown) => ({
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ answers }),
+});
+
+test("POST answer-plan-questions → composes steer, calls reply, returns delivered", async () => {
+  const replies: Array<{ id: string; text: string }> = [];
+  const store = new SessionStore(":memory:");
+  const { app } = (() => {
+    const deps: AppDeps = {
+      store,
+      service: {
+        reply: (id: string, text: string) => {
+          replies.push({ id, text });
+          return true;
+        },
+      } as any,
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+    };
+    return { app: makeApp(deps) };
+  })();
+  const id = seedPlanningSession(store, { suffix: "a", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [1] }]),
+    ),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true, delivered: true });
+  expect(replies.length).toBe(1);
+  expect(replies[0]!.id).toBe(id);
+  expect(replies[0]!.text).toContain("- Which approach?\n  → New");
+  expect(replies[0]!.text).toContain("then stop so it can be re-reviewed");
+});
+
+test("POST answer-plan-questions → delivered:false when reply can't reach the pane", async () => {
+  const store = new SessionStore(":memory:");
+  const deps: AppDeps = {
+    store,
+    service: { reply: () => false } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  const app = makeApp(deps);
+  const id = seedPlanningSession(store, { suffix: "b", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [0] }]),
+    ),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true, delivered: false });
+});
+
+test("POST answer-plan-questions → 415 without JSON content-type", async () => {
+  const { app, store } = harness();
+  const id = seedPlanningSession(store, { suffix: "ct", withForm: true });
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${id}/answer-plan-questions`, {
+      method: "POST",
+      body: JSON.stringify({ answers: [] }),
+    }),
+  );
+  expect(res.status).toBe(415);
+});
+
+test("POST answer-plan-questions → 400 on bad body shape", async () => {
+  const { app, store } = harness({ service: { reply: () => true } as any });
+  const id = seedPlanningSession(store, { suffix: "shape", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ questionId: "q1" }]), // missing blockId
+    ),
+  );
+  expect(res.status).toBe(400);
+});
+
+test("POST answer-plan-questions → 404 for unknown session", async () => {
+  const { app } = harness({ service: { reply: () => true } as any });
+  const res = await app.fetch(
+    new Request(
+      "http://x/api/sessions/nope/answer-plan-questions",
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [0] }]),
+    ),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("POST answer-plan-questions → 409 when session is not in planning phase", async () => {
+  let called = false;
+  const { app, store } = harness({
+    service: {
+      reply: () => {
+        called = true;
+        return true;
+      },
+    } as any,
+  });
+  const id = seedPlanningSession(store, { suffix: "exec", phase: "executing", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [0] }]),
+    ),
+  );
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain("planning");
+  expect(called).toBe(false);
+});
+
+test("POST answer-plan-questions → 409 when the gate has no question-form", async () => {
+  const { app, store } = harness({ service: { reply: () => true } as any });
+  const id = seedPlanningSession(store, { suffix: "noq", withForm: false });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [0] }]),
+    ),
+  );
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain("no plan questions");
+});
+
+test("POST answer-plan-questions → 400 when nothing resolves", async () => {
+  let called = false;
+  const { app, store } = harness({
+    service: {
+      reply: () => {
+        called = true;
+        return true;
+      },
+    } as any,
+  });
+  const id = seedPlanningSession(store, { suffix: "empty", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "unknown", optionIndices: [0] }]),
+    ),
+  );
+  expect(res.status).toBe(400);
+  expect(called).toBe(false);
+});
+
 // ── PUT /api/repo-config { planGateEnabled } (regression guard for Task 2 wiring) ──
 
 test("PUT /api/repo-config persists + echoes planGateEnabled=true", async () => {

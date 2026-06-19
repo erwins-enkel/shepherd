@@ -49,6 +49,7 @@ import type {
   CompletedEpic,
   HerdDigest,
   DistillerHealth,
+  RawAnswer,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -956,6 +957,20 @@ export async function reviewPlan(id: string): Promise<PlanReviewTrigger> {
   if (!r.ok) throw await failed(r, "review-plan");
   const body = (await r.json().catch(() => ({}))) as { status?: PlanReviewTrigger };
   return body.status ?? "skipped";
+}
+
+/** Submit operator answers to a plan's question-form (#803). The server resolves them against the
+ *  gate's persisted questions, composes a steer, and delivers it to the live planning agent.
+ *  Returns whether the steer reached the PTY (`delivered:false` ⇒ the planning pane is gone).
+ *  Throws on non-2xx (e.g. 409 once the session leaves the planning phase). */
+export async function answerPlanQuestions(
+  id: string,
+  answers: RawAnswer[],
+): Promise<{ delivered: boolean }> {
+  const r = await fetch(`/api/sessions/${id}/answer-plan-questions`, JSON_POST({ answers }));
+  if (!r.ok) throw await failed(r, "answer-plan-questions");
+  const body = (await r.json().catch(() => ({}))) as { delivered?: boolean };
+  return { delivered: body.delivered === true };
 }
 
 export type PrReviewTrigger = "started" | "skipped" | "error";

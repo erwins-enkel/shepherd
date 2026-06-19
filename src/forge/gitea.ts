@@ -112,6 +112,7 @@ export class GiteaForge implements GitForge {
       html_url: string;
       labels?: Array<{ name: string }>;
       created_at?: string;
+      assignees?: Array<{ login?: string }> | null;
     }>;
     return (raw ?? []).map((i) => {
       const ts = Date.parse(i.created_at ?? "");
@@ -122,6 +123,9 @@ export class GiteaForge implements GitForge {
         url: i.html_url,
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        // Gitea serializes a user's canonical name as `login` (matches the PR-author
+        // mapping above); drop any null/unnamed assignee defensively.
+        assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),
       };
     });
   }
@@ -138,6 +142,7 @@ export class GiteaForge implements GitForge {
         html_url: string;
         labels?: Array<{ name: string }>;
         created_at?: string;
+        assignees?: Array<{ login?: string }> | null;
       } | null;
       if (!i) return null;
       const ts = Date.parse(i.created_at ?? "");
@@ -148,6 +153,7 @@ export class GiteaForge implements GitForge {
         url: i.html_url,
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),
       };
     } catch {
       return null;

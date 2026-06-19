@@ -534,9 +534,15 @@ export async function setReadyToMerge(id: string, ready: boolean): Promise<void>
   if (!r.ok) throw await failed(r, "ready");
 }
 
-export async function listIssues(
-  repoPath: string,
-): Promise<{ slug: string | null; webUrl: string | null; issues: Issue[] }> {
+export async function listIssues(repoPath: string): Promise<{
+  slug: string | null;
+  webUrl: string | null;
+  issues: Issue[];
+  /** The operator's own login on the repo's forge, or null when it can't be
+   *  resolved (offline/unauth/local forge). Drives the "mine & unassigned"
+   *  filter (#824); null → fail open (show all). */
+  viewer: string | null;
+}> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");
   return r.json();

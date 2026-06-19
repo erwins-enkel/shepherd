@@ -69,6 +69,7 @@ function fakeForge(
             url: `https://x/${PARENT}`,
             labels: [],
             createdAt: 0,
+            assignees: [],
           }
         : null,
     listSubIssues: async () => [],
@@ -337,6 +338,7 @@ describe("epic base-mismatch marker self-heal on buildEpic (#645)", () => {
               url: `https://x/${PARENT}`,
               labels: [],
               createdAt: 0,
+              assignees: [],
             }
           : null,
       listSubIssues: async () => [sub(OPEN, false), sub(ICLOSED, true), sub(IINTEG, false)],

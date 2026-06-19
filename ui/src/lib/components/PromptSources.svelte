@@ -3,6 +3,8 @@
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { hideOthers } from "./issues-panel";
+  import { issuesFilter } from "$lib/issues-filter.svelte";
 
   let {
     repoPath,
@@ -23,7 +25,14 @@
   let issues = $state<Issue[]>([]);
   let commands = $state<SlashCommand[]>([]);
   let slug = $state<string | null>(null);
+  let viewer = $state<string | null>(null);
   let loading = $state(false);
+  // "Mine & unassigned" filter (#824), shared with IssuesPanel via issuesFilter.
+  // No-op identity when the chip is hidden (viewer unknown) → fail open.
+  let visibleIssues = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
+  let allHiddenByAssignee = $derived(
+    issues.length > 0 && visibleIssues.length === 0 && viewer != null && issuesFilter.hideOthers,
+  );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
   // null = TODO.md presence not yet resolved for this repo; hide the tab until known.
@@ -94,12 +103,14 @@
           if (rp !== repoPath || t !== tab) return;
           slug = r.slug;
           issues = r.issues;
+          viewer = r.viewer;
           loading = false;
         })
         .catch(() => {
           if (rp !== repoPath || t !== tab) return;
           slug = null;
           issues = [];
+          viewer = null;
           loading = false;
         });
     }
@@ -202,7 +213,24 @@
       {:else if issues.length === 0}
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
-        {#each issues as i (i.number)}
+        {#if viewer != null}
+          <div class="ps-filter-bar">
+            <button
+              class="filter-chip"
+              class:active={issuesFilter.hideOthers}
+              type="button"
+              aria-pressed={issuesFilter.hideOthers}
+              title={m.issues_filter_mine_title()}
+              onclick={() => issuesFilter.toggle()}
+            >
+              {m.issues_filter_mine_label()}
+            </button>
+          </div>
+        {/if}
+        {#if allHiddenByAssignee}
+          <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+        {/if}
+        {#each visibleIssues as i (i.number)}
           {@const ordered = orderedLabels(i.labels)}
           {#if epicParents.has(i.number)}
             <!-- Epic-parent tracking issue: not pickable as a manual task (it would
@@ -391,6 +419,43 @@
   .cmd-filter:focus {
     outline: none;
     border-color: var(--color-line-bright);
+  }
+
+  /* "Mine & unassigned" toggle bar above the issue list — sticky like .cmd-filter. */
+  .ps-filter-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    margin: 0 8px 4px;
+    background: var(--color-inset);
+  }
+
+  /* The .filter-chip recipe from ProjectBacklogList. */
+  .filter-chip {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.1em;
+    padding: 2px 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      color 0.12s,
+      border-color 0.12s;
+  }
+
+  .filter-chip:hover {
+    color: var(--color-ink);
+  }
+
+  .filter-chip.active {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-inset);
   }
 
   .cmd-name {

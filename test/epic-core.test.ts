@@ -66,6 +66,7 @@ describe("selectEpicCandidates", () => {
       url: "ux",
       labels: [],
       createdAt: 0,
+      assignees: [],
     });
   });
 });

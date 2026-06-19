@@ -189,7 +189,7 @@ export class GithubForge implements GitForge {
       "--state",
       "open",
       "--json",
-      "number,title,body,url,labels,createdAt",
+      "number,title,body,url,labels,createdAt,assignees",
       // Cap matches listPullRequests; the count source (GraphQL totalCount) is
       // unbounded, so a repo with >200 open issues lists a truncated set under a
       // larger count. Raise this or paginate if such repos appear.
@@ -203,6 +203,7 @@ export class GithubForge implements GitForge {
       url: string;
       labels?: Array<{ name: string }>;
       createdAt?: string;
+      assignees?: Array<{ login: string }>;
     }>;
     return raw.map((i) => {
       const ts = Date.parse(i.createdAt ?? "");
@@ -213,6 +214,7 @@ export class GithubForge implements GitForge {
         url: i.url,
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        assignees: (i.assignees ?? []).map((a) => a.login),
       };
     });
   }
@@ -232,7 +234,7 @@ export class GithubForge implements GitForge {
         "--repo",
         this.slug,
         "--json",
-        "number,title,body,url,labels,createdAt",
+        "number,title,body,url,labels,createdAt,assignees",
       ]);
       const i = JSON.parse(out || "null") as {
         number: number;
@@ -241,6 +243,7 @@ export class GithubForge implements GitForge {
         url: string;
         labels?: Array<{ name: string }>;
         createdAt?: string;
+        assignees?: Array<{ login: string }>;
       } | null;
       if (!i) return null;
       const ts = Date.parse(i.createdAt ?? "");
@@ -251,6 +254,7 @@ export class GithubForge implements GitForge {
         url: i.url,
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        assignees: (i.assignees ?? []).map((a) => a.login),
       };
     } catch {
       return null;

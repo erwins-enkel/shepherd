@@ -82,5 +82,8 @@ export function selectEpicCandidates(children: EpicChild[]): Issue[] {
       url: c.url,
       labels: [],
       createdAt: 0,
+      // Epic candidates are synthesized from sub-issues and spawned by the epic
+      // runner — they carry no assignee data and are not assignee-filtered (#824).
+      assignees: [],
     }));
 }

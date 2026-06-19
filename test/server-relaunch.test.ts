@@ -49,6 +49,7 @@ const ISSUE: Issue = {
   url: "https://github.com/team/proj/issues/42",
   labels: [],
   createdAt: 1_700_000_000_000,
+  assignees: [],
 };
 
 type Spy = { event: string; data: unknown };

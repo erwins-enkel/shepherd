@@ -6,7 +6,15 @@ import type { Issue, GitState } from "../src/forge/types";
 const AUTO_LABEL = "shepherd:auto";
 
 function issue(number: number, labels: string[] = [AUTO_LABEL]): Issue {
-  return { number, title: `t${number}`, body: "b", url: `u${number}`, labels, createdAt: 0 };
+  return {
+    number,
+    title: `t${number}`,
+    body: "b",
+    url: `u${number}`,
+    labels,
+    createdAt: 0,
+    assignees: [],
+  };
 }
 
 const MERGEABLE: GitState = {

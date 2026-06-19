@@ -23,10 +23,20 @@ const ISSUES_JSON = JSON.stringify([
     url: "u1",
     labels: [{ name: "bug" }],
     createdAt: ISSUE_CREATED_AT,
+    assignees: [{ login: "octocat" }, { login: "hubot" }],
+  },
+  {
+    number: 2,
+    title: "Unassigned",
+    body: "",
+    url: "u2",
+    labels: [],
+    createdAt: ISSUE_CREATED_AT,
+    // no assignees key → maps to []
   },
 ]);
 
-test("GithubForge.listIssues: parses gh issue list output", async () => {
+test("GithubForge.listIssues: parses gh issue list output (incl. assignee logins, #824)", async () => {
   const { run } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);
   const issues = await forge.listIssues();
@@ -38,8 +48,27 @@ test("GithubForge.listIssues: parses gh issue list output", async () => {
       url: "u1",
       labels: ["bug"],
       createdAt: Date.parse(ISSUE_CREATED_AT),
+      assignees: ["octocat", "hubot"],
+    },
+    {
+      number: 2,
+      title: "Unassigned",
+      body: "",
+      url: "u2",
+      labels: [],
+      createdAt: Date.parse(ISSUE_CREATED_AT),
+      assignees: [],
     },
   ]);
+});
+
+test("GithubForge.listIssues: requests the assignees field from gh (#824)", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);
+  await forge.listIssues();
+  const listCall = calls.find((c) => c[0] === "issue" && c[1] === "list");
+  const jsonArg = listCall?.[listCall.indexOf("--json") + 1] ?? "";
+  expect(jsonArg.split(",")).toContain("assignees");
 });
 
 test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs, review", async () => {

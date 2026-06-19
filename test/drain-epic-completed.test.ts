@@ -48,6 +48,7 @@ function fakeForge(
             url: `https://x/${PARENT}`,
             labels: [],
             createdAt: 0,
+            assignees: [],
           }
         : null,
     listSubIssues: async () => subIssues,

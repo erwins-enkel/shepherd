@@ -21,3 +21,26 @@ export function filterIssues(issues: readonly Issue[], query: string): Issue[] {
       issue.labels.some((label) => label.toLowerCase().includes(q)),
   );
 }
+
+/**
+ * Narrow an issue list to "mine & unassigned" (#824): keep an issue when it has
+ * no assignees OR the viewer is one of its assignees; drop issues assigned only
+ * to other people.
+ *
+ * Fails open — returns every issue unchanged — when `enabled` is false or
+ * `viewer` is null (offline/unauth/local forge: we don't know who "me" is, so we
+ * must never hide everything). The `?? []` guard tolerates a stale/old-shape
+ * payload that predates the server's `assignees` field, so the helper can never
+ * throw on a missing array.
+ */
+export function hideOthers(
+  issues: readonly Issue[],
+  viewer: string | null,
+  enabled: boolean,
+): Issue[] {
+  if (!enabled || viewer == null) return [...issues];
+  return issues.filter((issue) => {
+    const assignees = issue.assignees ?? [];
+    return assignees.length === 0 || assignees.includes(viewer);
+  });
+}

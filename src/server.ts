@@ -2822,16 +2822,20 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
     if (!dir) return json({ error: "invalid repo" }, 400);
     const forge = deps.resolveForge?.(dir) ?? null;
-    if (!forge) return json({ slug: null, webUrl: null, issues: [] });
+    if (!forge) return json({ slug: null, webUrl: null, issues: [], viewer: null });
     try {
       return json({
         slug: forge.slug,
         webUrl: forge.webUrl ?? null,
         issues: await forge.listIssues(),
+        // The operator's own login, so the UI's "mine & unassigned" filter (#824)
+        // knows who "me" is. Cached in the forge, so no per-request gh cost after
+        // the first call. null when the host can't resolve it (fail open → show all).
+        viewer: (await forge.currentUser?.()) ?? null,
       });
     } catch {
       // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
-      return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, issues: [] });
+      return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, issues: [], viewer: null });
     }
   }
   return null;

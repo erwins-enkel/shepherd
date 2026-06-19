@@ -285,6 +285,16 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
           html_url: "https://git.example.com/team/proj/issues/3",
           labels: [{ name: "bug" }, { name: "p1" }],
           created_at: GITEA_ISSUE_CREATED_AT,
+          assignees: [{ login: "alice" }, { login: "bob" }],
+        },
+        {
+          number: 4,
+          title: "Unassigned",
+          body: "",
+          html_url: "https://git.example.com/team/proj/issues/4",
+          labels: [],
+          created_at: GITEA_ISSUE_CREATED_AT,
+          assignees: null,
         },
       ],
     },
@@ -299,6 +309,16 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
       url: "https://git.example.com/team/proj/issues/3",
       labels: ["bug", "p1"],
       createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
+      assignees: ["alice", "bob"],
+    },
+    {
+      number: 4,
+      title: "Unassigned",
+      body: "",
+      url: "https://git.example.com/team/proj/issues/4",
+      labels: [],
+      createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
+      assignees: [],
     },
   ]);
   expect(calls[0]!.headers.get("Authorization")).toBe("token secret");

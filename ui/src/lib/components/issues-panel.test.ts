@@ -6,11 +6,25 @@
  * delegates to.
  */
 import { describe, it, expect } from "vitest";
-import { filterIssues } from "./issues-panel";
+import { filterIssues, hideOthers } from "./issues-panel";
 import type { Issue } from "$lib/types";
 
-function issue(number: number, title: string, body = "", labels: string[] = []): Issue {
-  return { number, title, body, url: `https://example.test/${number}`, labels, createdAt: 0 };
+function issue(
+  number: number,
+  title: string,
+  body = "",
+  labels: string[] = [],
+  assignees: string[] = [],
+): Issue {
+  return {
+    number,
+    title,
+    body,
+    url: `https://example.test/${number}`,
+    labels,
+    createdAt: 0,
+    assignees,
+  };
 }
 
 const issues = [
@@ -50,5 +64,57 @@ describe("filterIssues", () => {
 
   it("returns empty when nothing matches", () => {
     expect(filterIssues(issues, "zzz-no-match")).toEqual([]);
+  });
+});
+
+describe("hideOthers", () => {
+  const me = "octocat";
+  const unassigned = issue(1, "Unassigned", "", [], []);
+  const mine = issue(2, "Mine", "", [], [me]);
+  const theirs = issue(3, "Theirs", "", [], ["someone-else"]);
+  const mineAndTheirs = issue(4, "Shared", "", [], ["someone-else", me]);
+  const all = [unassigned, mine, theirs, mineAndTheirs];
+
+  it("when enabled, shows unassigned + mine + shared, hides others' issues", () => {
+    expect(hideOthers(all, me, true)).toEqual([unassigned, mine, mineAndTheirs]);
+  });
+
+  it("keeps an issue assigned to me alone", () => {
+    expect(hideOthers([mine], me, true)).toEqual([mine]);
+  });
+
+  it("keeps an unassigned issue", () => {
+    expect(hideOthers([unassigned], me, true)).toEqual([unassigned]);
+  });
+
+  it("hides an issue assigned only to others", () => {
+    expect(hideOthers([theirs], me, true)).toEqual([]);
+  });
+
+  it("keeps an issue assigned to me and others", () => {
+    expect(hideOthers([mineAndTheirs], me, true)).toEqual([mineAndTheirs]);
+  });
+
+  it("fails open when disabled — returns all issues", () => {
+    expect(hideOthers(all, me, false)).toEqual(all);
+  });
+
+  it("fails open when the viewer is null — returns all issues", () => {
+    expect(hideOthers(all, null, true)).toEqual(all);
+  });
+
+  it("does not throw on a stale payload missing assignees", () => {
+    // Simulate an old-shape issue (e.g. mid rolling-deploy) whose payload predates
+    // the `assignees` field — the `?? []` guard must keep it from throwing.
+    const stale = {
+      number: 1,
+      title: "Unassigned",
+      body: "",
+      url: "https://example.test/1",
+      labels: [],
+      createdAt: 0,
+    } as unknown as Issue;
+    expect(() => hideOthers([stale], me, true)).not.toThrow();
+    expect(hideOthers([stale], me, true)).toEqual([stale]);
   });
 });

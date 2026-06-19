@@ -900,6 +900,17 @@
     display: flex;
     gap: 4px;
   }
+  /* Compact (touch / unfolded-fold) layout pins the sidebar to ~288px. There the
+     .phead wraps the whole .right.filters group onto its own line, where it sizes
+     to its content width (~330px) and spills past the panel's right border (the
+     trailing "Rundown" filter). Let the group wrap onto a second row only here;
+     the non-touch desktop sidebar resolves to its 360px max where the row fits on
+     one line, so it stays single-line and unchanged. The ancestor .grid.compact
+     lives in +page.svelte (outside this component), hence the :global wrapper. */
+  :global(.grid.compact) .filters {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
   .fbtn {
     border: 0;
     background: none;

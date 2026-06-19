@@ -1208,6 +1208,16 @@ export class SessionService {
    *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled;
    *  the preview-hint notice when the session is `isolated`; and the context-trim flag + overlay +
    *  notice when `trim` says so (auto spawns, issue #499 — see trimDecision). */
+  /** Push the task `--model` flag onto `argv`, substituting opus[1m] when fable is
+   *  globally unavailable. Argv-only — never rewrites the stored session model. */
+  private pushModelFlag(argv: string[], model: string | null): void {
+    const spawnModel = spawnModelForAvailability(model, config.fableAvailable);
+    if (model === "fable" && spawnModel !== "fable") {
+      console.info(`model: fable unavailable — spawning on ${spawnModel} instead`);
+    }
+    if (spawnModel) argv.push("--model", spawnModel);
+  }
+
   private buildSpawnArgv(
     input: CreateSessionInput,
     claudeSessionId: string,
@@ -1255,11 +1265,7 @@ export class SessionService {
         trimmed: trim.trimmed,
       }),
     );
-    const spawnModel = spawnModelForAvailability(input.model, config.fableAvailable);
-    if (input.model === "fable" && spawnModel !== "fable") {
-      console.info(`model: fable unavailable — spawning on ${spawnModel} instead`);
-    }
-    if (spawnModel) argv.push("--model", spawnModel);
+    this.pushModelFlag(argv, input.model);
     argv.push(promptArg);
     return argv;
   }
@@ -1753,11 +1759,7 @@ export class SessionService {
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     );
-    const resumeModel = spawnModelForAvailability(s.model, config.fableAvailable);
-    if (s.model === "fable" && resumeModel !== "fable") {
-      console.info(`model: fable unavailable — spawning on ${resumeModel} instead`);
-    }
-    if (resumeModel) innerArgv.push("--model", resumeModel);
+    this.pushModelFlag(innerArgv, s.model);
     const outcome = this.prepareSpawn(innerArgv, {
       sessionId: s.id,
       name: s.name,

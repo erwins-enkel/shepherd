@@ -3242,10 +3242,13 @@ export interface BacklogPayloadInputs {
 }
 
 /**
- * Build the backlog overview payload: forge-backed repos under `repoRoot`,
- * deduped by forge slug, with open issue/PR counts, a pinned project, and
- * totals. Shared by GET /api/backlog and the poller's `backlog:update`
- * broadcast so both emit byte-identical snapshots.
+ * Build the backlog overview payload: every repo under `repoRoot`, deduped by
+ * forge slug (forge-backed) or path (forge-less), with open issue/PR counts, a
+ * pinned project, and totals. Forge-less repos (no detectable remote) and
+ * lightweight repos (LocalForge) appear with `kind:"local"`, null slug, and
+ * empty counts so their per-repo settings stay reachable without launching a
+ * task. Shared by GET /api/backlog and the poller's `backlog:update` broadcast
+ * so both emit byte-identical snapshots.
  */
 export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise<BacklogPayload> {
   const repos = listRepos(inputs.repoRoot);
@@ -3256,16 +3259,24 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
     Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  // Keep only forge-backed repos
-  const forgeRepos = repos
-    .map((r) => {
-      const forge = inputs.resolveForge(r.path);
-      return forge ? { ...r, forge } : null;
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+  const resolved = repos.map((r) => ({ ...r, forge: inputs.resolveForge(r.path) }));
 
-  // Collapse worktrees/clones of the same repo so each appears once (see helper).
-  const uniqueRepos = dedupeReposByForge(forgeRepos, lastUsed);
+  // Forge-backed repos (incl. lightweight repos, which resolve to a LocalForge):
+  // collapse worktrees/clones of the same repo so each appears once (see helper).
+  const forgeRepos = dedupeReposByForge(
+    resolved.filter((r): r is typeof r & { forge: GitForge } => r.forge !== null),
+    lastUsed,
+  );
+
+  // Forge-less repos (no detectable remote, still in forge mode) are kept too, so
+  // their per-repo settings stay reachable in the Backlog drill-down without
+  // launching a task. They carry no slug to collapse by, so dedupe by path
+  // (listRepos paths are already unique — the Map is belt-and-suspenders).
+  const localRepos = [
+    ...new Map(resolved.filter((r) => r.forge === null).map((r) => [r.path, r])).values(),
+  ];
+
+  const uniqueRepos = [...forgeRepos, ...localRepos];
 
   // Fetch counts for the deduped repos in parallel
   const countsArr = await Promise.all(uniqueRepos.map((r) => inputs.counts(r.path)));
@@ -3275,8 +3286,8 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
     return {
       path: r.path,
       display: r.display,
-      slug: r.forge.slug,
-      kind: r.forge.kind,
+      slug: r.forge?.slug ?? null,
+      kind: r.forge?.kind ?? "local",
       lastUsedAt: lastUsed[r.path] ?? null,
       recentAgentCount: recentCounts[r.path] ?? null,
       openIssues: counts.openIssues,
@@ -3284,7 +3295,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       prKinds: counts.prKinds,
       // GitHub-only: the Actions panel is github-gated, so other forges get null
       // (plain "Actions" label) rather than a count that has no panel behind it.
-      workflows: r.forge.kind === "github" ? countDefinedWorkflows(r.path) : null,
+      workflows: r.forge?.kind === "github" ? countDefinedWorkflows(r.path) : null,
       ciStatus: counts.ciStatus,
     };
   });

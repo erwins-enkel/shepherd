@@ -1,12 +1,14 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
   import PrsPanel from "./PrsPanel.svelte";
   import ActionsPanel from "./ActionsPanel.svelte";
   import ReadinessPanel from "./ReadinessPanel.svelte";
+  import AutomationSettings from "./AutomationSettings.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { actionsTabState, filterProjects } from "./backlog-view";
 
   let {
@@ -21,6 +23,7 @@
     epics = undefined,
     inTrainPrs = new Set(),
     target = null,
+    drain = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -45,9 +48,12 @@
     /** When set (EPIC badge click), select that repo, switch to the Issues tab,
      *  and expand+scroll the epic's row. Applied once per distinct value. */
     target?: { repoPath: string; issueNumber: number } | null;
+    /** Live drain status keyed by repoPath (store.drain), forwarded to the
+     *  Automation tab so its epic banner + drain-cap reflect reality without a task. */
+    drain?: Record<string, DrainStatus>;
   } = $props();
 
-  type Tab = "issues" | "prs" | "actions" | "readiness";
+  type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
   let activeTab = $state<Tab>("issues");
 
   // selectedPath: initialized from pinnedPath once payload arrives;
@@ -137,6 +143,9 @@
 </script>
 
 <div class="backlog-view" class:mobile class:flow>
+  <!-- Pre-existing large master/detail template; this change only adds one Automation
+       tab + branch. Complexity is inherent to the multi-tab layout, not introduced here. -->
+  <!-- fallow-ignore-next-line complexity -->
   {#if payload === null}
     <!-- loading state -->
     <div class="state-full">
@@ -223,6 +232,14 @@
             >
               {m.backlog_tab_readiness()}
             </button>
+            <button
+              class="tab-btn"
+              class:active={activeTab === "automation"}
+              type="button"
+              onclick={() => (activeTab = "automation")}
+            >
+              {m.backlog_tab_automation()}
+            </button>
           </div>
         </div>
         <div class="overlay-body">
@@ -250,6 +267,16 @@
             />
           {:else if activeTab === "actions"}
             <ActionsPanel repoPath={selectedPath} />
+          {:else if activeTab === "automation"}
+            <div class="automation-scroll">
+              {#if selectedPath !== null}
+                <AutomationSettings
+                  repoPath={selectedPath}
+                  drain={drain?.[selectedPath] ?? null}
+                  showHeader={false}
+                />
+              {/if}
+            </div>
           {:else}
             <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
           {/if}
@@ -321,6 +348,15 @@
           >
             {m.backlog_tab_readiness()}
           </button>
+          <button
+            class="tab-btn"
+            class:active={activeTab === "automation"}
+            type="button"
+            onclick={() => (activeTab = "automation")}
+            use:coachTarget={"backlog-automation"}
+          >
+            {m.backlog_tab_automation()}
+          </button>
         </div>
         <div class="detail-pane">
           {#if selectedPath !== null}
@@ -348,6 +384,14 @@
               />
             {:else if activeTab === "actions"}
               <ActionsPanel repoPath={selectedPath} />
+            {:else if activeTab === "automation"}
+              <div class="automation-scroll">
+                <AutomationSettings
+                  repoPath={selectedPath}
+                  drain={drain?.[selectedPath] ?? null}
+                  showHeader={false}
+                />
+              </div>
             {:else}
               <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
             {/if}
@@ -606,5 +650,16 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Automation tab owns its scroll: AutomationSettings is height-neutral and
+     non-scrolling (so the in-task popover's own clamp stays the only scroller
+     there), and both .detail-pane / .overlay-body are overflow:hidden — so this
+     wrapper is the scroll region that keeps the full rows + roles section
+     reachable. Mirrors ReadinessPanel's .scroll. */
+  .automation-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
 </style>

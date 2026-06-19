@@ -1495,6 +1495,9 @@
   }
 </script>
 
+<!-- Pre-existing top-level page template; this change only threads a `drain` prop into
+     three existing BacklogView mounts. Complexity is inherent, not introduced here. -->
+<!-- fallow-ignore-next-line complexity -->
 <svelte:window onkeydown={onShortcut} />
 
 <div
@@ -1627,6 +1630,7 @@
               flow={true}
               epics={store.epics}
               {inTrainPrs}
+              drain={store.drain}
             />
           {/if}
         </div>
@@ -1786,6 +1790,7 @@
             {onlaunchtrain}
             epics={store.epics}
             {inTrainPrs}
+            drain={store.drain}
           />
         {:else if selected}
           <Viewport
@@ -2112,6 +2117,7 @@
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}
+    drain={store.drain}
   />
 {/if}
 

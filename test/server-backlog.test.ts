@@ -123,15 +123,30 @@ test("GET /api/backlog returns 200 with projects array", async () => {
   expect(Array.isArray(body.projects)).toBe(true);
 });
 
-test("GET /api/backlog excludes non-forge repos", async () => {
+test("GET /api/backlog includes forge-less repos as kind:local", async () => {
+  // Forge-less repos (resolveForge → null) are now listed too, so their per-repo
+  // settings stay reachable in the Backlog drill-down without launching a task.
+  // They carry kind:"local", a null slug, and null counts (no forge to fetch from).
   const app = makeApp(makeDeps({ [repoA]: { openIssues: 1, openPRs: 0 } }));
   const body = await app.fetch(req()).then((r) => r.json());
-  const paths = body.projects.map((p: { path: string }) => p.path);
-  // repoNonForge must not appear
-  expect(paths).not.toContain(repoNonForge);
-  // Our two forge repos appear
+  const projects = body.projects as {
+    path: string;
+    kind: string;
+    slug: string | null;
+    openIssues: number | null;
+    openPRs: number | null;
+  }[];
+  const paths = projects.map((p) => p.path);
+  // Forge repos still appear...
   expect(paths).toContain(repoA);
   expect(paths).toContain(repoB);
+  // ...and so does the forge-less repo now.
+  expect(paths).toContain(repoNonForge);
+  const local = projects.find((p) => p.path === repoNonForge)!;
+  expect(local.kind).toBe("local");
+  expect(local.slug).toBeNull();
+  expect(local.openIssues).toBeNull();
+  expect(local.openPRs).toBeNull();
 });
 
 test("GET /api/backlog sorts by openIssues descending, null last", async () => {

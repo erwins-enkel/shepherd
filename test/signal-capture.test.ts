@@ -63,7 +63,11 @@ test("critic changes_requested records a 'critic' signal", async () => {
   } as any;
   const svc = new ReviewService({
     store,
-    herdr: { start: () => ({ terminalId: "rev1" }), stop: () => {} } as any,
+    herdr: {
+      start: () => ({ terminalId: "rev1" }),
+      stop: () => {},
+      list: () => [{ cwd: "/rev-wt", terminalId: "rev1", agentStatus: "idle" }],
+    } as any,
     worktree: {
       createDetached: async () => ({ worktreePath: "/rev-wt" }),
       remove: () => {},
@@ -73,7 +77,11 @@ test("critic changes_requested records a 'critic' signal", async () => {
     resolveForge: () => fakeForge,
     onChange: () => {},
     now: () => 1,
-    readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
+    readVerdict: () => ({
+      status: "parsed",
+      repaired: false,
+      value: { decision: "request-changes", summary: "2 issues", body: "## findings" },
+    }),
   });
   await svc.consider(session, {
     state: "open",

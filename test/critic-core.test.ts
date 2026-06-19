@@ -1,4 +1,7 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   scopeBackstop,
   shouldSkipForPatchId,
@@ -6,10 +9,41 @@ import {
   normalizeDecision,
   normalizeFindings,
   buildVerdictCore,
+  defaultReadVerdict,
   reviewPrompt,
   prReviewPrompt,
   reapRun,
 } from "../src/critic-core";
+
+// ── #822 regression: malformed-JSON read path with content fidelity ─────────────────────────────
+//
+// The critic verdict is consumed in the merge gate, so a malformed verdict that JSON.parse rejects
+// must (a) be recovered rather than silently lost to a timeout, and (b) keep its decision + findings
+// INTACT — a lossy repair that dropped a finding or mangled the decision could weaken the gate.
+// This FAILS on pre-fix code (raw JSON.parse → null → no parsed value).
+
+test("#822 critic read path: malformed verdict recovers with decision + findings intact", () => {
+  // bare unescaped inner quotes in `summary` AND inside a `findings` element (the #822 pattern).
+  const malformed =
+    '{"decision":"request-changes","summary":"the "Open for merge" path drops a finding",' +
+    '"body":"## findings","findings":["src/x.ts: the "fast" branch is wrong","src/y.ts: nit"]}';
+  expect(() => JSON.parse(malformed)).toThrow(); // pre-condition: genuinely strict-invalid
+
+  const dir = mkdtempSync(join(tmpdir(), "critic-822-"));
+  writeFileSync(join(dir, ".shepherd-review.json"), malformed);
+
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  expect(read.repaired).toBe(true);
+
+  // decision is NOT flipped, and both findings survive with their inner-quoted phrases verbatim.
+  expect(normalizeDecision(read.value.decision)).toBe("changes_requested");
+  expect(read.value.summary).toContain('"Open for merge"');
+  const findings = normalizeFindings(read.value.findings);
+  expect(findings).toHaveLength(2);
+  expect(findings[0]).toContain('"fast"');
+});
 
 // ── prReviewPrompt (session-less) ───────────────────────────────────────────
 

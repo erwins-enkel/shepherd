@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { execFileSync, timedAsync } from "./instrument";
 import type { ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
+import { tolerantParseJson } from "./json-tolerant";
+import type { VerdictRead } from "./json-tolerant";
 
 const execFileAsync = promisify(execFile);
 
@@ -276,14 +278,26 @@ export async function defaultComputePatchId(
   }
 }
 
-export function defaultReadVerdict(worktreePath: string): RawVerdict | null {
+/**
+ * Read the critic verdict file as a 3-way result (see VerdictRead). `absent` (not yet written) is
+ * distinct from `unparseable` (present but unrecoverable even after repair) so the review tick() can
+ * fail fast on the latter. A repaired parse carries `repaired: true` so it is trusted only once the
+ * critic spawn has finished — a repaired-truncated verdict must never silently drop findings or flip
+ * the decision in the merge gate. Exported for the read-path content-fidelity test.
+ */
+export function defaultReadVerdict(worktreePath: string): VerdictRead<RawVerdict> {
   const p = join(worktreePath, VERDICT_FILE);
-  if (!existsSync(p)) return null;
+  if (!existsSync(p)) return { status: "absent" };
+  let text: string;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawVerdict;
+    text = readFileSync(p, "utf8");
   } catch {
-    return null; // partial write; try again next tick
+    return { status: "absent" }; // unreadable mid-write — treat as not-yet-written, retry next tick
   }
+  const r = tolerantParseJson(text);
+  return r.status === "ok"
+    ? { status: "parsed", value: r.value as RawVerdict, repaired: r.repaired }
+    : { status: "unparseable" };
 }
 
 export function normalizeDecision(d: unknown): ReviewDecision | null {

@@ -1,5 +1,15 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
+import type { VerdictRead } from "../src/json-tolerant";
+import type { RawVerdict } from "../src/critic-core";
+
+/** Wrap a legacy `() => RawVerdict | null` reader into the 3-way VerdictRead the service now expects.
+ *  A returned object → strict parse (finalize now); null → absent (wait until timeout). Preserves the
+ *  behavior every pre-existing test relied on. */
+const adaptLegacyVerdict = (fn: () => RawVerdict | null) => (): VerdictRead<RawVerdict> => {
+  const v = fn();
+  return v == null ? { status: "absent" } : { status: "parsed", value: v, repaired: false };
+};
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -130,6 +140,10 @@ function makeDeps(
     comments?: PrComment[];
     prStatus?: () => Promise<PrStatus>;
     noCommentApi?: boolean; // when true the fake forge omits comment() (non-GitHub host)
+    /** Inject a raw 3-way verdict read directly (for the #822 repaired/unparseable gate tests). */
+    verdictRead?: VerdictRead<RawVerdict>;
+    /** agentStatus reported by herdr.list() for the critic at /review-wt (default "idle" = finished). */
+    criticAgentStatus?: string;
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -177,6 +191,12 @@ function makeDeps(
       stop(t: string) {
         this.recorded.push(t); // this.recorded → throws TypeError if called unbound
       }
+      // tick() consults agentStatus via isSpawnWorking to gate repaired/unparseable verdicts.
+      list() {
+        return [
+          { cwd: "/review-wt", terminalId: "rt", agentStatus: opts.criticAgentStatus ?? "idle" },
+        ] as any;
+      }
     })(),
     worktree: new (class {
       readonly recorded = removed; // this-dependent: unbound call loses this.recorded
@@ -202,8 +222,16 @@ function makeDeps(
       return opts.autoAddressReturns ?? true;
     },
     now: () => 1000,
-    readVerdict: () => ({ decision: "request-changes", summary: "2 issues", body: "## findings" }),
     ...over,
+    // Adapt the legacy `() => RawVerdict | null` reader (default or `over.readVerdict`) into the
+    // 3-way VerdictRead the service now consumes — placed AFTER `...over` so the wrap always wins.
+    // `verdictRead` (raw 3-way) takes precedence for the #822 gate tests.
+    readVerdict: opts.verdictRead
+      ? () => opts.verdictRead!
+      : adaptLegacyVerdict(
+          over.readVerdict ??
+            (() => ({ decision: "request-changes", summary: "2 issues", body: "## findings" })),
+        ),
   };
   return {
     deps: base,
@@ -490,6 +518,78 @@ test("timeout with no verdict → error verdict, still reaps", async () => {
   expect(reviews["s1"]?.decision).toBe("error");
   expect(stopped).toEqual(["rt"]);
   expect(removed).toEqual(["/review-wt"]);
+});
+
+// ── #822 gate (merge-gating critic path) ─────────────────────────────────────
+// A present-but-unparseable verdict whose critic spawn has FINISHED finalizes the transient `error`
+// verdict immediately, instead of waiting out the full timeout (mirrors recap's fail-fast).
+test("#822 review fail-fast: unparseable + finished critic → error well before timeout", async () => {
+  let t = 1000;
+  const {
+    deps: d,
+    reviews,
+    stopped,
+    removed,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 300_000 },
+    { verdictRead: { status: "unparseable" }, criticAgentStatus: "idle" }, // idle = finished
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 5000; // only 5s elapsed — nowhere near timeoutMs
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error"); // failed fast, not after the timeout
+  expect(stopped).toEqual(["rt"]);
+  expect(removed).toEqual(["/review-wt"]);
+});
+
+// A REPAIRED verdict while the critic is still WORKING must not be trusted (could be a truncated
+// partial write closed up by jsonrepair → would silently drop findings / flip the decision).
+test("#822 review gate: repaired + still-working critic → not finalized (no drop/flip)", async () => {
+  let t = 1000;
+  const {
+    deps: d,
+    reviews,
+    stopped,
+    removed,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 300_000 },
+    {
+      verdictRead: {
+        status: "parsed",
+        repaired: true,
+        value: { decision: "request-changes", summary: "1 issue", body: "## findings" },
+      },
+      criticAgentStatus: "working",
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 5000; // not timed out
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // gated: still in-flight, no verdict persisted
+  expect(stopped).toEqual([]); // critic not reaped
+  expect(removed).toEqual([]);
+});
+
+// `absent` is the out-of-scope "critic wrote nothing" class: even with a finished spawn it must not
+// fail-fast — only the hard timeout finalizes it.
+test("#822 review gate: absent + finished critic (not timed out) → not finalized", async () => {
+  let t = 1000;
+  const {
+    deps: d,
+    reviews,
+    removed,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 300_000 },
+    { verdictRead: { status: "absent" }, criticAgentStatus: "done" },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 5000; // not timed out
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // not fail-fasted
+  expect(removed).toEqual([]);
 });
 
 test("comment decision maps to COMMENT and never approves", async () => {

@@ -1,5 +1,6 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
 import { RecapService } from "../src/recap";
+import type { VerdictRead } from "../src/json-tolerant";
 import type { Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
 import { config } from "../src/config";
@@ -162,7 +163,7 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
   return store;
 }
 
-type FakePaneEntry = { cwd: string; terminalId: string };
+type FakePaneEntry = { cwd: string; terminalId: string; agentStatus?: string };
 
 type FakeHerdr = {
   started: { label: string; cwd: string; argv: string[]; env?: Record<string, string> }[];
@@ -229,7 +230,10 @@ function buildSvc(opts: {
   nowFn: () => number;
   headSha?: string;
   diff?: typeof NON_EMPTY_DIFF | typeof EMPTY_DIFF;
-  verdictJson?: unknown | null;
+  /** Convenience: a parsed (strict) verdict object — wrapped as { status:"parsed", repaired:false }.
+   *  Omit → { status:"absent" }. Use `verdictRead` for the repaired/unparseable statuses. */
+  verdictJson?: unknown;
+  verdictRead?: VerdictRead<unknown>;
   idleThresholdMs?: number;
   timeoutMs?: number;
   cleanup?: (d: string) => void;
@@ -249,7 +253,11 @@ function buildSvc(opts: {
     computeDiff: async () => (opts.diff ?? NON_EMPTY_DIFF) as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => (opts.verdictJson !== undefined ? opts.verdictJson : null),
+    readVerdict: (): VerdictRead<unknown> =>
+      opts.verdictRead ??
+      (opts.verdictJson !== undefined
+        ? { status: "parsed", value: opts.verdictJson, repaired: false }
+        : { status: "absent" }),
     readUsage: opts.readUsage ?? (async () => null),
     makeTmpDir: opts.makeTmpDir ?? (() => `/tmp/recap-test-${++tmpIdx}`),
     cleanup: opts.cleanup ?? (() => {}),
@@ -395,7 +403,7 @@ test("sweep: existing READY recap at headA; session re-activates then re-settles
     computeDiff: async () => NON_EMPTY_DIFF as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-headb",
     cleanup: () => {},
@@ -515,6 +523,75 @@ test("tick unparseable: garbage verdict → state 'failed'", async () => {
   await svc.tick();
   expect(store.getRecap("s1")?.state).toBe("failed");
   expect(cleaned).toContain("/tmp/recap-garbage");
+});
+
+// ── #822 fail-fast gate ──────────────────────────────────────────────────────
+// A present-but-unparseable verdict whose spawn has FINISHED finalizes `failed` immediately,
+// well before the 5-minute timeout (the bug: it used to wait out the full timeoutMs).
+test("#822 tick fail-fast: unparseable + finished spawn → 'failed' before timeout", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-ff", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  // agent present but idle (finished its turn) at this cwd → spawnFinished = true.
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-ff", terminalId: "t-ff", agentStatus: "idle" }]);
+  const cleaned: string[] = [];
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 5_000, // only 4s elapsed — NOWHERE near timeoutMs=300_000
+    timeoutMs: 300_000,
+    verdictRead: { status: "unparseable" },
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("failed"); // failed fast, not after 5 min
+  expect(herdr.stopped).toContain("t-ff");
+  expect(cleaned).toContain("/tmp/recap-ff");
+});
+
+// A repaired parse while the spawn is STILL WORKING must NOT be finalized — it could be a truncated
+// partial write that jsonrepair closed up. Keep waiting; a later tick catches the complete write.
+test("#822 tick gate: repaired + still-working → stays generating (not finalized)", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-rw", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-rw", terminalId: "t-rw", agentStatus: "working" }]);
+  const cleaned: string[] = [];
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 5_000, // not timed out
+    timeoutMs: 300_000,
+    // a repaired-but-valid recap shape — would finalize 'ready' if the gate let it through.
+    verdictRead: { status: "parsed", repaired: true, value: VALID_VERDICT_JSON },
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("generating"); // gated: still waiting
+  expect(herdr.stopped).not.toContain("t-rw");
+  expect(cleaned).not.toContain("/tmp/recap-rw");
+});
+
+// `absent` is the issue's out-of-scope "agent wrote nothing" class: even with a finished spawn it
+// must NOT fail-fast — only the hard timeout finalizes a never-written file.
+test("#822 tick gate: absent + finished spawn (not timed out) → stays generating", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-abs", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-abs", terminalId: "t-abs", agentStatus: "done" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 5_000, // not timed out
+    timeoutMs: 300_000,
+    verdictRead: { status: "absent" },
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("generating"); // not fail-fasted
+  expect(herdr.stopped).not.toContain("t-abs");
 });
 
 test("tick restart-safety: generating row in DB, no in-memory state → finalizes", async () => {
@@ -639,7 +716,7 @@ test("regenerate: replaces an existing ready row", async () => {
     computeDiff: async () => NON_EMPTY_DIFF as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-regen",
     cleanup: (d) => cleaned.push(d),
@@ -725,7 +802,7 @@ test("in-flight guard: second generate call for same session mid-await does not 
     computeDiff: async () => diffPromise as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-inflight",
     cleanup: () => {},
@@ -865,7 +942,7 @@ test("considerForArchive: headSha throws → 'error', no throw, no spawn", async
     computeDiff: async () => NON_EMPTY_DIFF as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-archive-err",
     cleanup: () => {},
@@ -947,7 +1024,7 @@ test("generate: computeDiff rejection → 'error', no throw, no row", async () =
     },
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-diff-fail",
     cleanup: (d) => cleaned.push(d),
@@ -977,7 +1054,7 @@ test("regenerate: headSha rejection → 'error', no throw", async () => {
     computeDiff: async () => NON_EMPTY_DIFF as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-head-fail",
     cleanup: () => {},
@@ -1010,7 +1087,7 @@ test("considerSession: headSha failure leaves fired=false so next sweep retries"
     computeDiff: async () => NON_EMPTY_DIFF as any,
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: () => null,
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-retry",
     cleanup: () => {},

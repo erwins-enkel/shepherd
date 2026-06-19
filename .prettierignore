@@ -24,6 +24,9 @@ extension/public/picker.js
 # Agent-generated planning artifacts — leave their formatting alone
 docs/superpowers
 
+# Intentionally-malformed JSON fixture (#822 regression: unescaped inner quotes — must not parse)
+test/fixtures/recap-task561.json
+
 # Paraglide generated output + vendored inlang plugins/metadata
 ui/src/lib/paraglide
 ui/project.inlang/.meta.json

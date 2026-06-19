@@ -24,6 +24,7 @@ import {
   DRAFT_PR_NOTE,
   planGoSteer,
   PREVIEW_START_STEER,
+  buildQueueDirective,
 } from "../src/service";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseTrimAutoContext } from "../src/config";
@@ -2852,6 +2853,22 @@ test("composeSystemPrompt omits <build-queue> block when null (1-arg backward co
   expect(composeSystemPrompt(null)).not.toContain("<build-queue>");
   expect(composeSystemPrompt(null, false)).not.toContain("<build-queue>");
   expect(composeSystemPrompt(null, true)).not.toContain("<build-queue>");
+});
+
+test("buildQueueDirective states the ordered contract that forward-fill relies on", () => {
+  const d = buildQueueDirective({
+    sessionId: "sess-1",
+    baseUrl: "http://127.0.0.1:7330",
+    token: null,
+    autopilot: true,
+  });
+  // The ordered contract + server auto-completion of earlier steps.
+  expect(d).toContain("IN ORDER");
+  expect(d).toMatch(/automatically completes any earlier steps/);
+  // Immediacy: update as you go, not batched.
+  expect(d).toContain("never batch the updates at the end");
+  // The reconcile-reminder heads-up.
+  expect(d).toMatch(/reminder to reconcile/);
 });
 
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {

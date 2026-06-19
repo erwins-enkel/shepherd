@@ -81,6 +81,7 @@ import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService } from "./recap";
+import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
@@ -250,6 +251,13 @@ const service = new SessionService({
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
   // archive() so it can never block teardown / the merge train.
   beforeArchive: (s) => recapService.considerForArchive(s).then(() => {}),
+});
+
+// Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
+// store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
+const buildQueueReminder = new BuildQueueReminderService({
+  store,
+  steer: (id, text) => service.reply(id, text),
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -760,6 +768,7 @@ setInterval(() => {
   void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
   void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
   void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
+  buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync, never throws)
 }, 15_000);
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
@@ -777,6 +786,7 @@ events.subscribe((event, data) => {
     reviewService.forget(id);
     planGate.forget(id);
     recapService.onArchived(id);
+    buildQueueReminder.forget(id);
   }
 });
 

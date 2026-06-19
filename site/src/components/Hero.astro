@@ -7,6 +7,14 @@ const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
 
 <section class="hero">
   <div class="copy">
+    <p class="prerelease" role="status">
+      <span class="pulse" aria-hidden="true"></span>
+      <span>
+        <strong>Public release in a few days.</strong> The GitHub repo and the one-line
+        installer below aren’t live yet — they go public at launch.
+      </span>
+    </p>
+
     <h1 class="headline">
       Run a herd of real Claude Code agents
       <span class="emph">ship only what survives review.</span>
@@ -52,6 +60,48 @@ const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+  }
+
+  .prerelease {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    align-self: flex-start;
+    max-width: 38rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--amber) 10%, var(--panel));
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .prerelease strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .pulse {
+    flex: 0 0 auto;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+    animation: pulse 2s ease-out infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 0.45rem transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
   }
 
   .headline {

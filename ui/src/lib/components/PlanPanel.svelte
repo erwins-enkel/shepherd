@@ -16,6 +16,8 @@
   const releasable = $derived(canRelease(session, gate));
   // Manual re-review only makes sense while still planning (not once executing).
   const canReviewNow = $derived(session.planPhase === "planning");
+  // During execution the plan is viewable read-only — hide Go + Review (issue #809).
+  const readonly = $derived(session.planPhase !== "planning");
   // question-form answers steer back to the planning agent — only while planning (the gate +
   // its questions persist past approval), with submit locked while a review is in flight.
   const planAnswerCtx = $derived(
@@ -194,20 +196,22 @@
         <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
       {/if}
 
-      <div class="actions">
-        {#if canReviewNow}
-          <button type="button" class="review" onclick={review} disabled={inFlight}>
-            {#if inFlight}
-              <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
-            {:else}
-              {m.planpanel_review_now()}
-            {/if}
+      {#if !readonly}
+        <div class="actions">
+          {#if canReviewNow}
+            <button type="button" class="review" onclick={review} disabled={inFlight}>
+              {#if inFlight}
+                <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
+              {:else}
+                {m.planpanel_review_now()}
+              {/if}
+            </button>
+          {/if}
+          <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
+            {m.planpanel_go()}
           </button>
-        {/if}
-        <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
-          {m.planpanel_go()}
-        </button>
-      </div>
+        </div>
+      {/if}
     </div>
   </div>
 </div>

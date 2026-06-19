@@ -4,9 +4,12 @@ import type { PlanGate, Session } from "../types";
  * Which plan-gate chip a session card should show, or "none" to hide it.
  * Pure state selection so it can be unit-tested without rendering.
  *
- * Priority order (the badge only renders while the session is in the plan phase):
- *  - "none":       planPhase is null (no gate active) OR planPhase is "executing"
- *                  (the gate already passed — nothing more to surface).
+ * Priority order:
+ *  - "none":       planPhase is null (no gate active), OR planPhase is "executing"
+ *                  with no persisted gate (nothing to show).
+ *  - "view":       planPhase is "executing" AND a persisted gate exists — surfaces
+ *                  the signed-off plan read-only so the operator can re-open it
+ *                  during execution (issue #809). No Go/Review actions are shown.
  *  - "reviewing":  the plan reviewer is running now — wins over any stale verdict.
  *  - "changes":    last verdict requested changes — shows the round/cap counter.
  *  - "ready":      verdict approved and still in "planning" → operator can hit Go.
@@ -15,6 +18,7 @@ import type { PlanGate, Session } from "../types";
  */
 export type PlanGateChip =
   | { kind: "none" }
+  | { kind: "view" }
   | { kind: "reviewing" }
   | { kind: "changes"; round: number; cap: number }
   | { kind: "ready" }
@@ -26,8 +30,10 @@ export function planGateChip(
   gate: PlanGate | undefined,
   reviewing: boolean,
 ): PlanGateChip {
-  // Gate only lives during the plan phase; executing means it already passed.
-  if (session.planPhase == null || session.planPhase === "executing") return { kind: "none" };
+  if (session.planPhase == null) return { kind: "none" };
+  // Executing: the gate already passed — surface the signed-off plan read-only (issue #809),
+  // but only while a persisted gate still exists.
+  if (session.planPhase === "executing") return gate ? { kind: "view" } : { kind: "none" };
   if (reviewing) return { kind: "reviewing" };
   if (gate?.decision === "changes_requested") {
     return { kind: "changes", round: gate.round, cap: gate.cap };

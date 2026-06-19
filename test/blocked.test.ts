@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { classifyBlocked, hasActiveSpinner } from "../src/blocked";
+import { classifyBlocked, hasActiveSpinner, quotaBlockReason } from "../src/blocked";
+import type { Session, PlanGate } from "../src/types";
 
 test("classifies a numbered permission menu", () => {
   const tail = [
@@ -107,4 +108,80 @@ test("strips ANSI escape codes before classifying a menu", () => {
   ]);
   // tail itself should be free of escape codes
   expect(r.tail.join("\n")).not.toContain("\x1b");
+});
+
+// ── quotaBlockReason: retained gate is inert during execution (issue #809) ───
+
+function makeSession(planPhase: Session["planPhase"]): Session {
+  return {
+    id: "s1",
+    desig: "TASK-01",
+    name: "task",
+    prompt: "",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "feat",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "h",
+    herdrAgentId: "a",
+    claudeSessionId: "",
+    model: null,
+    readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
+    mergeTrainPrs: null,
+    mergingPrNumber: null,
+    autopilotEnabled: null,
+    autopilotStepCount: 0,
+    autopilotPaused: false,
+    autopilotComplete: false,
+    autopilotQuestion: null,
+    planGateEnabled: null,
+    planPhase,
+    research: false,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
+    autoMergeRebaseHead: null,
+    auto: false,
+    issueNumber: null,
+    sandboxApplied: null,
+    sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
+    status: "idle",
+    lastState: "working",
+    createdAt: 0,
+    updatedAt: 0,
+    archivedAt: null,
+  };
+}
+
+const atCapGate: PlanGate = {
+  sessionId: "s1",
+  planHash: "abc",
+  decision: "changes_requested",
+  summary: "needs rework",
+  body: "## issues",
+  findings: ["fix X", "address Y"],
+  round: 3,
+  cap: 3,
+  approved: false,
+  plan: "do stuff",
+  updatedAt: 1000,
+};
+
+test("quotaBlockReason: executing session with retained at-cap gate returns null (gate inert)", () => {
+  // A gate retained into execution must NOT raise a quotaKind:"plan" block.
+  const session = makeSession("executing");
+  const result = quotaBlockReason(session, null, atCapGate, 2000);
+  expect(result).toBeNull();
+});
+
+test("quotaBlockReason: planning session with at-cap gate still raises plan block (guard not over-suppressing)", () => {
+  // Contrast: the same gate while planPhase:"planning" must still produce the quota block.
+  const session = makeSession("planning");
+  const result = quotaBlockReason(session, null, atCapGate, 2000);
+  expect(result).not.toBeNull();
+  expect(result?.quotaKind).toBe("plan");
 });

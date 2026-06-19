@@ -35,6 +35,8 @@
       {m.plangate_ready()}
     {:else if chip.kind === "error"}
       {m.plangate_error()}
+    {:else if chip.kind === "view"}
+      {m.plangate_view()}
     {:else}
       {m.plangate_planning()}
     {/if}

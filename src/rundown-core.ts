@@ -88,7 +88,10 @@ const ATTENTION_RULES: Array<{
     signal: "blocked-decision",
     when: (s) => s.status === "blocked" || Boolean(s.autopilotPaused && s.autopilotQuestion),
   },
-  { signal: "plan-rework", when: (_s, c) => c.gate?.decision === "changes_requested" },
+  {
+    signal: "plan-rework",
+    when: (s, c) => s.planPhase === "planning" && c.gate?.decision === "changes_requested",
+  },
   { signal: "critic-rework", when: (_s, c) => c.review?.decision === "changes_requested" },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // Tier 2: HIGH — needs a look soon, not yet a hard stop.
@@ -248,7 +251,8 @@ function toAssembledSession(
   if (git?.number != null) item.prNumber = git.number;
   if (git?.url) item.prUrl = git.url;
   if (review?.findings?.length) item.findings = review.findings;
-  if (gate && gate.decision === "changes_requested") item.planRound = gate.round;
+  if (s.planPhase === "planning" && gate && gate.decision === "changes_requested")
+    item.planRound = gate.round;
   return item;
 }
 

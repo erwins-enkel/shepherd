@@ -135,7 +135,9 @@ test("classifyAttention: each signal maps to the correct tier", () => {
   expect(c(session({ autopilotPaused: true, autopilotQuestion: "which?" })).signals).toContain(
     "blocked-decision",
   );
-  expect(c(session(), { gate: { decision: "changes_requested" } as any }).tier).toBe(1);
+  expect(
+    c(session({ planPhase: "planning" }), { gate: { decision: "changes_requested" } as any }).tier,
+  ).toBe(1);
   expect(c(session(), { review: { decision: "changes_requested" } as any }).tier).toBe(1);
   expect(c(session({ status: "idle" }), { git: git({ checks: "failure" }) }).tier).toBe(1);
 
@@ -387,4 +389,64 @@ test("isMerging: marked within backstop true, beyond false, unmarked false", () 
   expect(isMerging({ mergingSince: NOW - 1000 }, NOW)).toBe(true);
   expect(isMerging({ mergingSince: NOW - MERGE_MARK_BACKSTOP_MS - 1 }, NOW)).toBe(false);
   expect(isMerging({ mergingSince: null }, NOW)).toBe(false);
+});
+
+// ── retained gate is inert during execution (issue #809) ─────────────────────
+
+import type { PlanGate } from "../src/types";
+
+const retainedAtCapGate: PlanGate = {
+  sessionId: "s1",
+  planHash: "abc",
+  decision: "changes_requested",
+  summary: "needs rework",
+  body: "## issues",
+  findings: ["fix X", "address Y"],
+  round: 3,
+  cap: 3,
+  approved: false,
+  plan: "do stuff",
+  updatedAt: 1000,
+};
+
+test("classifyAttention + assemble: executing session with retained gate has no plan-rework signal and no planRound", () => {
+  // An executing session whose retained gate is changes_requested at cap must NOT get the
+  // plan-rework signal and must NOT have planRound set. Both L91 and L251 must be guarded.
+  const executingSession = session({ planPhase: "executing", status: "idle" });
+  const caches: ClassifyCaches = { gate: retainedAtCapGate };
+
+  const attn = classifyAttention(executingSession, caches, NOW);
+  expect(attn.signals).not.toContain("plan-rework"); // L91 guard
+
+  // assembleHerdState to check planRound (L251 guard)
+  const out = assembleHerdState({
+    sessions: [executingSession],
+    gates: { s1: retainedAtCapGate },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-19",
+    now: NOW,
+  });
+  const item = out.sessions.find((s) => s.sessionId === "s1");
+  // The session must still appear (it has an in-flight signal from idle status + some tier).
+  // planRound must be absent — the retained gate must not leak planRound into execution.
+  expect(item?.planRound).toBeUndefined(); // L251 guard
+});
+
+test("classifyAttention + assemble: planning session with same at-cap gate still gets plan-rework + planRound (guard not over-suppressing)", () => {
+  // Contrast: planPhase:"planning" with the same gate must still produce plan-rework and planRound.
+  const planningSession = session({ planPhase: "planning", status: "idle" });
+  const caches: ClassifyCaches = { gate: retainedAtCapGate };
+
+  const attn = classifyAttention(planningSession, caches, NOW);
+  expect(attn.signals).toContain("plan-rework"); // still fires during planning
+
+  const out = assembleHerdState({
+    sessions: [planningSession],
+    gates: { s1: retainedAtCapGate },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-19",
+    now: NOW,
+  });
+  const item = out.sessions.find((s) => s.sessionId === "s1");
+  expect(item?.planRound).toBe(3); // planRound still set during planning
 });

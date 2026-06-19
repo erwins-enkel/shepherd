@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.34.0](https://github.com/erwins-enkel/shepherd/compare/v1.33.0...v1.34.0) (2026-06-19)
+
+
+### Features
+
+* freshen task base branch from upstream at launch ([#766](https://github.com/erwins-enkel/shepherd/issues/766)) ([663585d](https://github.com/erwins-enkel/shepherd/commit/663585d584ef0ae7a01373a79e9b313e806b6e05))
+* **learnings:** one-click optimize for not-working house rules ([#780](https://github.com/erwins-enkel/shepherd/issues/780)) ([e605e61](https://github.com/erwins-enkel/shepherd/commit/e605e61f42d5f2d6c65ec1fd1f03cf000f2e6a22))
+* **learnings:** triage layer — budget visibility + sticky repo separation ([#796](https://github.com/erwins-enkel/shepherd/issues/796)) ([#800](https://github.com/erwins-enkel/shepherd/issues/800)) ([79138ad](https://github.com/erwins-enkel/shepherd/commit/79138adf0486665d838e432ccad44189ec0c7460))
+* **plan:** native visual plans — VisualReview in PlanPanel + question-form block ([#799](https://github.com/erwins-enkel/shepherd/issues/799)) ([#802](https://github.com/erwins-enkel/shepherd/issues/802)) ([46c3913](https://github.com/erwins-enkel/shepherd/commit/46c3913dbee4c6853857437d71aa53d9f0c8ff9a))
+* **recap:** native visual recap blocks — Phase 1 ([#773](https://github.com/erwins-enkel/shepherd/issues/773)) ([#781](https://github.com/erwins-enkel/shepherd/issues/781)) ([84216a1](https://github.com/erwins-enkel/shepherd/commit/84216a1414b0ceef6d5e035911dd831e2a4675ff))
+* **recap:** native visual recap cards — Phase 2 ([#773](https://github.com/erwins-enkel/shepherd/issues/773)) ([#789](https://github.com/erwins-enkel/shepherd/issues/789)) ([459e83f](https://github.com/erwins-enkel/shepherd/commit/459e83fafe5ac342a961f4b3ad254658aa86fae2))
+* **recap:** native visual recap Phase 3 — mermaid + wireframe blocks ([#773](https://github.com/erwins-enkel/shepherd/issues/773)) ([#797](https://github.com/erwins-enkel/shepherd/issues/797)) ([8b3f335](https://github.com/erwins-enkel/shepherd/commit/8b3f335c6590a6a8a5250080ee1bbeae79e284a6))
+* **ui:** collapsible build-queue panel ([#779](https://github.com/erwins-enkel/shepherd/issues/779)) ([6ff47e7](https://github.com/erwins-enkel/shepherd/commit/6ff47e778797e447bc3cca169b18e7eba933ef6d))
+* **ui:** declutter mobile PWA header ([#720](https://github.com/erwins-enkel/shepherd/issues/720)) ([#760](https://github.com/erwins-enkel/shepherd/issues/760)) ([196553e](https://github.com/erwins-enkel/shepherd/commit/196553e42b68deecd0bccc6523ad68a3ed437af0))
+* **ui:** keyboard repo switching in New Task pane ([#765](https://github.com/erwins-enkel/shepherd/issues/765)) ([7c1aae5](https://github.com/erwins-enkel/shepherd/commit/7c1aae5b6061aaf3b55346b2dede267f5c5ddeba))
+* **ui:** show build-queue progress on session cards ([#778](https://github.com/erwins-enkel/shepherd/issues/778)) ([b37cda4](https://github.com/erwins-enkel/shepherd/commit/b37cda4ae6cd1f6189895db6411758b314cc5109))
+
+
+### Bug Fixes
+
+* **ci:** pin fallow to 2.97.0 to stop template-complexity gate tripping on large UI files ([#757](https://github.com/erwins-enkel/shepherd/issues/757)) ([b716dae](https://github.com/erwins-enkel/shepherd/commit/b716dae349ba5f3e5c5c6611a8ad4f7790e6645f)), closes [#756](https://github.com/erwins-enkel/shepherd/issues/756)
+* **design:** add --status-warn caution token + adopt caution consumers ([#774](https://github.com/erwins-enkel/shepherd/issues/774)) ([78b1e67](https://github.com/erwins-enkel/shepherd/commit/78b1e676fde00d4ec8b3f1065143f36907e91c42))
+* **namer:** refine LLM-renames truncated prompts; tighten deterministic gate ([#775](https://github.com/erwins-enkel/shepherd/issues/775)) ([97600a3](https://github.com/erwins-enkel/shepherd/commit/97600a35e54f5f62fbb6fd86cacdcd5647916cd2))
+* **sandbox:** carve out writable session-env so critic Bash/git works under bwrap ([#791](https://github.com/erwins-enkel/shepherd/issues/791)) ([dd60ccc](https://github.com/erwins-enkel/shepherd/commit/dd60ccc8ca1c196a4d69210571d90ffe8e8bfe0d))
+* **ui:** add hover explainer to repo pill learnings (✦) count ([#763](https://github.com/erwins-enkel/shepherd/issues/763)) ([7fd13ff](https://github.com/erwins-enkel/shepherd/commit/7fd13ffabf0ac55f107c7eaaab2c618caae77b97))
+* **ui:** armed decommission solid-fill, drop crammed "?" adornment ([#767](https://github.com/erwins-enkel/shepherd/issues/767)-followup) ([#785](https://github.com/erwins-enkel/shepherd/issues/785)) ([0936e32](https://github.com/erwins-enkel/shepherd/commit/0936e320a6fd7708f0931959e9708e4b0a06932a))
+* **ui:** collapse mobile settings-gear pips into one severity dot ([#782](https://github.com/erwins-enkel/shepherd/issues/782)) ([e49c8c6](https://github.com/erwins-enkel/shepherd/commit/e49c8c69972899b384d56c05c28bbd6ca8309cbe))
+* **ui:** distinguish over-budget "Trim" state from pending learnings in TopBar chip ([#777](https://github.com/erwins-enkel/shepherd/issues/777)) ([eafd83a](https://github.com/erwins-enkel/shepherd/commit/eafd83a6e7e7b7b0dfb19e5e36f6b74dca3a68d9))
+* **ui:** escape closes repo picker, not the whole New Task modal ([#765](https://github.com/erwins-enkel/shepherd/issues/765)) [no-feature-entry] ([#772](https://github.com/erwins-enkel/shepherd/issues/772)) ([249cf77](https://github.com/erwins-enkel/shepherd/commit/249cf77e85dfb85a29b723668826501d903d9f80))
+* **ui:** expand collapsed build queue on click anywhere in header ([#787](https://github.com/erwins-enkel/shepherd/issues/787)) ([b32fd52](https://github.com/erwins-enkel/shepherd/commit/b32fd52d33acc36405901bcf4faedf486d5f728b))
+* **ui:** portal mobile gear sheet out of transformed header ([#784](https://github.com/erwins-enkel/shepherd/issues/784)) ([bfc30ee](https://github.com/erwins-enkel/shepherd/commit/bfc30ee4b670a2efae003ca3c2ba092c0511dd4b))
+* **ui:** quiet redraw control to an icon-only wrench ([#768](https://github.com/erwins-enkel/shepherd/issues/768)) ([13ca999](https://github.com/erwins-enkel/shepherd/commit/13ca999d242f094ab4ab195080ac1130f7b75f3b))
+* **ui:** restore discoverable learnings approval via a global TopBar button ([#769](https://github.com/erwins-enkel/shepherd/issues/769)) ([f0f6407](https://github.com/erwins-enkel/shepherd/commit/f0f6407626383e7da653ab34649ba0b592c918cc))
+* **ui:** scroll New Task pane when it outgrows the viewport ([#795](https://github.com/erwins-enkel/shepherd/issues/795)) ([799a87f](https://github.com/erwins-enkel/shepherd/commit/799a87fb2e18618716268d6a6010d49247fdd70b))
+* **ui:** shared .icon-btn recipe + recognisable SVG terminal-header controls ([#767](https://github.com/erwins-enkel/shepherd/issues/767)) ([#776](https://github.com/erwins-enkel/shepherd/issues/776)) ([de04bd8](https://github.com/erwins-enkel/shepherd/commit/de04bd8b80da5e633aa737d11e2f97526dd863f7))
+* **ui:** single-row build-queue badge to match sibling height ([#783](https://github.com/erwins-enkel/shepherd/issues/783)) ([df179c2](https://github.com/erwins-enkel/shepherd/commit/df179c2c0314fa36ba9039af87f4492c22355ac5))
+* **ui:** tidy learnings drawer header gap + injected-rule button wrap ([#786](https://github.com/erwins-enkel/shepherd/issues/786)) ([8a21513](https://github.com/erwins-enkel/shepherd/commit/8a21513d12ed11fc6d41e8aca30d6367425324d6))
+* **ui:** usage gauge goes red above 90% ([#788](https://github.com/erwins-enkel/shepherd/issues/788)) ([4d88708](https://github.com/erwins-enkel/shepherd/commit/4d887080763c5fd918c998fc12ee6048753a6d30))
+* **worktree:** abort instead of silent non-isolated fallback ([#790](https://github.com/erwins-enkel/shepherd/issues/790)) ([#792](https://github.com/erwins-enkel/shepherd/issues/792)) ([482209d](https://github.com/erwins-enkel/shepherd/commit/482209d30fdef694355d060c77bd57ea4063224c))
+* **worktree:** suffix past leftover branches instead of failing create ([#801](https://github.com/erwins-enkel/shepherd/issues/801)) ([15c964e](https://github.com/erwins-enkel/shepherd/commit/15c964e326aded77f49312b64d5162d03d1295b8))
+
+
+### Code Refactoring
+
+* **ui:** drop redundant top-bar rundown button [no-feature-entry] ([#764](https://github.com/erwins-enkel/shepherd/issues/764)) ([571f3b8](https://github.com/erwins-enkel/shepherd/commit/571f3b8637d8a4d35b91156c146e016f8a642f01))
+
+
+### Documentation
+
+* **research:** native visual plan/recap design for Shepherd [no-feature-entry] ([#771](https://github.com/erwins-enkel/shepherd/issues/771)) ([63e2f2b](https://github.com/erwins-enkel/shepherd/commit/63e2f2bb7303b2c30ce76ed32a555930c73748e9))
+* **research:** UX pass on the learnings pane ([#794](https://github.com/erwins-enkel/shepherd/issues/794)) ([1e19e4d](https://github.com/erwins-enkel/shepherd/commit/1e19e4dbe836bc712c6f5d13eb4c18b04eabde9b))
+
 ## [1.33.0](https://github.com/erwins-enkel/shepherd/compare/v1.32.0...v1.33.0) (2026-06-17)
 
 

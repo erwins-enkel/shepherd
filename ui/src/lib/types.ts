@@ -579,6 +579,9 @@ export interface GitState extends PrStatus {
   handoff?: "reviewer" | "merger";
   /** The login to display for {@link handoff} (e.g. "scoop"). */
   handoffWho?: string;
+  /** Web URL of the backlog issue this session was spawned for, or absent when the
+   *  session has no linked issue or the repo has no web forge (local mode). */
+  issueUrl?: string;
 }
 
 /** Per-repo reviewer + merger logins, from `.shepherd/roles.json`. */

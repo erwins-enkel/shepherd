@@ -254,6 +254,32 @@ describe("RepoSwitcher — filter rail", () => {
     expect(live!.textContent?.trim()).toBe("");
   });
 
+  it("lone-repo with insights > 0 shows 'LEARNINGS' label and insights count in the telemetry button", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/solo", insights: 5 })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    const btn = container.querySelector<HTMLElement>(".rs-insights");
+    expect(btn, "insights button present").not.toBeNull();
+    expect(btn!.querySelector(".rs-insights-label")?.textContent?.trim()).toBe(m.learnings_title());
+    expect(btn!.querySelector(".rs-insights-n")?.textContent?.trim()).toBe("5");
+  });
+
+  it("lone-repo with insights: 0, curate > 0 shows 'TRIM' label and curate count in the telemetry button", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/solo", insights: 0, curate: 3 })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    const btn = container.querySelector<HTMLElement>(".rs-insights");
+    expect(btn, "insights button present").not.toBeNull();
+    expect(btn!.querySelector(".rs-insights-label")?.textContent?.trim()).toBe(
+      m.learnings_trim_title(),
+    );
+    expect(btn!.querySelector(".rs-insights-n")?.textContent?.trim()).toBe("3");
+  });
+
   it("clicking the queued button expands the inline queue (fetches via getDrainQueue)", async () => {
     getDrainQueueFn.mockResolvedValueOnce([
       { number: 42, title: "queued issue", url: "https://example.test/42" },

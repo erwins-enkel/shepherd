@@ -32,6 +32,7 @@ export const DISTILL_LABEL = "__distill__";
 
 const HEALTH_FAILURE_THRESHOLD = 3;
 
+const MAX_ADDS_PER_RUN = 5;
 const MAX_UPDATES_PER_RUN = 5;
 const MAX_DELETES_PER_RUN = 5;
 
@@ -359,6 +360,7 @@ export class DistillerService {
     let added = 0;
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
+      if (added >= MAX_ADDS_PER_RUN) break;
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
       const key = normalizeRule(r.rule);
       if (have.has(key)) continue;

@@ -738,6 +738,23 @@ test("DELETE soft-retires with reason 'superseded'", async () => {
   expect(retired.retiredReason).toBe("superseded");
 });
 
+test("ADD cap: at most 5 rules added per run", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+
+  const rules = Array.from({ length: 6 }, (_, i) => ({
+    rule: `new rule ${i}`,
+    rationale: "",
+    evidence: [],
+  }));
+  const { deps } = mkDeps(store, { rules, updates: [], deletes: [], ineffective: [] });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  expect(store.listLearnings("/r", { status: "proposed" }).length).toBe(5); // capped at 5
+});
+
 test("UPDATE cap: at most 5 updates applied per run", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);

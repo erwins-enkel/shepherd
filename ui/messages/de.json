@@ -1697,5 +1697,7 @@
   "settings_reduced_push_on": "An",
   "settings_reduced_push_off": "Aus",
   "settings_reduced_push_disabled_note": "Reduzierter Modus: nur Benachrichtigungen für „seit 5s wartend“ werden gesendet.",
-  "settings_reduced_push_save_failed": "Einstellung für reduzierte Benachrichtigungen konnte nicht gespeichert werden."
+  "settings_reduced_push_save_failed": "Einstellung für reduzierte Benachrichtigungen konnte nicht gespeichert werden.",
+  "feat_reduced_push_title": "Reduzierter Benachrichtigungsmodus",
+  "feat_reduced_push_body": "Ein neuer globaler Schalter unter Einstellungen → Gerät schaltet alle Push-Benachrichtigungen stumm — bis auf eine: eine Sitzung, die seit 5 Sekunden auf dich wartet. Nutzungs- und Kostenhinweise kommen weiterhin durch. Aktiviere ihn für einen ruhigen Tag, an dem die einzige Meldung „etwas braucht dich und hat sich nicht von selbst erledigt“ lautet."
 }

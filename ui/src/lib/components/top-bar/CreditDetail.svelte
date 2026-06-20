@@ -12,6 +12,7 @@
     refreshing,
     refreshError,
     onRefresh,
+    wide = false,
   }: {
     credits: CreditWindow | null;
     creditFill: number;
@@ -21,6 +22,7 @@
     refreshing: boolean;
     refreshError: boolean;
     onRefresh: () => void;
+    wide?: boolean;
   } = $props();
 </script>
 
@@ -30,7 +32,7 @@
       <span class="gp-period">{m.topbar_credits_period()}</span>
       <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
     </div>
-    <span class="g-bar g-bar-wide"
+    <span class="g-bar g-bar-wide {wide ? 'wide' : ''}"
       ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
       ></span></span
     >
@@ -86,7 +88,7 @@
     min-width: 30px;
     text-align: right;
   }
-  .g-bar-wide {
+  .g-bar.wide {
     width: 100%;
     height: 6px;
   }

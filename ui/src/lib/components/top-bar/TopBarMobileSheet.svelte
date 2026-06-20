@@ -163,7 +163,7 @@
       {#if subscriptionOnly}
         <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
       {:else}
-        <div class="sheet-gauges" class:stale>
+        <div class="sheet-gauges {stale ? 'stale' : ''}">
           {#each gauges as g (g.label)}
             <div class="sheet-gauge-row">
               <div class="sheet-gauge-head">

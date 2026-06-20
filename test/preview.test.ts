@@ -497,8 +497,12 @@ test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /
 import { afterEach, beforeEach } from "bun:test";
 import { PreviewService } from "../src/preview";
 
-// A high, unusual base unlikely to collide with anything on the test host.
-const TEST_BASE = 39000;
+// Per-process random base avoids cross-process port collision: a fixed base (e.g. 39000)
+// collides when a concurrent or leftover `bun test` process is binding the same range.
+// The range sits BELOW the Linux ephemeral port range (32768–60999) so the OS won't hand a
+// colliding ephemeral port to an unrelated socket; the random offset (10k span) isolates this
+// process from other test processes. Max bound port = base+count ≈ 30003 < 32768. Ref #817.
+const TEST_BASE = 20000 + Math.floor(Math.random() * 10000);
 const TEST_COUNT = 4;
 
 type Upstream = ReturnType<typeof Bun.serve>;

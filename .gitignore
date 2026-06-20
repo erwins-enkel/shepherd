@@ -37,3 +37,6 @@ ci/self-hosted-runner/.env
 
 # fallow analyzer cache
 .fallow/
+
+# Pre-push test capture logs (flake diagnosis, #817)
+.test-logs/

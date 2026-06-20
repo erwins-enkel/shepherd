@@ -41,16 +41,26 @@ echo "→ i18n catalog parity (en ↔ de)"
 (cd ui && bun run check:i18n)
 (cd extension && bun run check:i18n)
 
+# Capture full test output so an intermittent flake's failing test name survives (#817).
+TEST_LOG_DIR="$(pwd)/.test-logs"
+mkdir -p "$TEST_LOG_DIR"
+# Bound growth: each push writes new timestamped logs, so keep only the most recent ones.
+ls -1t "$TEST_LOG_DIR"/*.log 2>/dev/null | tail -n +21 | xargs -r rm -f
+
 echo "→ root tests"
 # server.test.ts builds a throwaway git repo under SHEPHERD_REPO_ROOT;
 # point it at a temp dir so we never touch the operator's real repo root.
-SHEPHERD_REPO_ROOT="$(mktemp -d)" bun test ./test
+ROOT_TEST_LOG="$TEST_LOG_DIR/prepush-roottest-$(date +%Y%m%dT%H%M%S).log"
+bash -o pipefail -c 'SHEPHERD_REPO_ROOT="$(mktemp -d)" bun test ./test 2>&1 | tee "$1"' _ "$ROOT_TEST_LOG" \
+  || { echo "✗ root tests failed — full output (incl. failing test name) saved to $ROOT_TEST_LOG"; exit 1; }
 
 echo "→ ensure Playwright Chromium (ui browser tests)"
 (cd ui && bunx playwright install chromium)
 
 echo "→ ui tests"
-(cd ui && bun run test)
+UI_TEST_LOG="$TEST_LOG_DIR/prepush-uitest-$(date +%Y%m%dT%H%M%S).log"
+bash -o pipefail -c 'cd ui && bun run test 2>&1 | tee "$1"' _ "$UI_TEST_LOG" \
+  || { echo "✗ ui tests failed — full output saved to $UI_TEST_LOG"; exit 1; }
 
 echo "→ extension tests"
 (cd extension && bun run test)

@@ -499,8 +499,10 @@ import { PreviewService } from "../src/preview";
 
 // Per-process random base avoids cross-process port collision: a fixed base (e.g. 39000)
 // collides when a concurrent or leftover `bun test` process is binding the same range.
-// A random offset in a 20k span makes overlap astronomically unlikely. Ref #817.
-const TEST_BASE = 40000 + Math.floor(Math.random() * 20000);
+// The range sits BELOW the Linux ephemeral port range (32768–60999) so the OS won't hand a
+// colliding ephemeral port to an unrelated socket; the random offset (10k span) isolates this
+// process from other test processes. Max bound port = base+count ≈ 30003 < 32768. Ref #817.
+const TEST_BASE = 20000 + Math.floor(Math.random() * 10000);
 const TEST_COUNT = 4;
 
 type Upstream = ReturnType<typeof Bun.serve>;

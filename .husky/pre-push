@@ -44,6 +44,8 @@ echo "→ i18n catalog parity (en ↔ de)"
 # Capture full test output so an intermittent flake's failing test name survives (#817).
 TEST_LOG_DIR="$(pwd)/.test-logs"
 mkdir -p "$TEST_LOG_DIR"
+# Bound growth: each push writes new timestamped logs, so keep only the most recent ones.
+ls -1t "$TEST_LOG_DIR"/*.log 2>/dev/null | tail -n +21 | xargs -r rm -f
 
 echo "→ root tests"
 # server.test.ts builds a throwaway git repo under SHEPHERD_REPO_ROOT;

@@ -869,3 +869,42 @@ test("mergeLearning: rejects non-active states (proposed, dismissed, promoted, r
   // missing id
   expect(s.mergeLearning("nope", "attempt")).toBeNull();
 });
+
+// ── mergeSuggestionSignatures: cross dedup carve-out (issue #872) ──────────────
+
+test("mergeSuggestionSignatures: cross includes 'applied' so a promoted group is not re-suggested", () => {
+  const s = new SessionStore(":memory:");
+  const sug = s.addMergeSuggestion({
+    kind: "cross",
+    repoPath: null,
+    targetId: null,
+    sourceIds: ["x", "y"],
+    mergedRule: "always rebase",
+    mergedRationale: "",
+    repoPaths: ["/r1", "/r2"],
+    signature: "cross-sig-1",
+  });
+  // Before promote it is pending → already in the dedup set.
+  expect(s.mergeSuggestionSignatures({ kind: "cross" }).has("cross-sig-1")).toBe(true);
+  // promote-global marks it applied; cross members stay active, so 'applied' MUST still dedup.
+  s.setMergeSuggestionStatus(sug.id, "applied");
+  expect(s.mergeSuggestionSignatures({ kind: "cross" }).has("cross-sig-1")).toBe(true);
+});
+
+test("mergeSuggestionSignatures: intra still EXCLUDES 'applied' (members get retired on merge)", () => {
+  const s = new SessionStore(":memory:");
+  const sug = s.addMergeSuggestion({
+    kind: "intra",
+    repoPath: "/r",
+    targetId: "t",
+    sourceIds: ["a"],
+    mergedRule: "merged",
+    mergedRationale: "",
+    repoPaths: null,
+    signature: "intra-sig-1",
+  });
+  s.setMergeSuggestionStatus(sug.id, "applied");
+  expect(s.mergeSuggestionSignatures({ kind: "intra", repoPath: "/r" }).has("intra-sig-1")).toBe(
+    false,
+  );
+});

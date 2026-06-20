@@ -3961,6 +3961,24 @@ async function buildEpicSummaries(
   return result;
 }
 
+/** Issue numbers the backlog "hide sub-issues" filter should hide: native sub-issues plus the
+ *  open markdown (epic-dag) members of every candidate. Markdown epics have no GitHub-native
+ *  parent links, so their children never appear in `nativeSubIssues` — fold them in here. A
+ *  mid-level epic that is also a member stays visible (the UI guards hiding on epicParents). */
+function collectSubIssueNumbers(
+  candidates: Map<number, IssueHint | undefined>,
+  nativeSubIssues: number[],
+  openNumbers: Set<number>,
+): number[] {
+  const subIssues = new Set(nativeSubIssues);
+  for (const hint of candidates.values()) {
+    for (const m of parseEpicBody(hint?.body ?? "").members) {
+      if (openNumbers.has(m)) subIssues.add(m);
+    }
+  }
+  return [...subIssues];
+}
+
 async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "epics" && !parts[2]))
     return null;
@@ -4000,7 +4018,8 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     openNumbers,
     openTruncated,
   );
-  return json({ epics: result, subIssues: subIssueNumbers });
+  const subIssues = collectSubIssueNumbers(candidates, subIssueNumbers, openNumbers);
+  return json({ epics: result, subIssues });
 }
 
 // GET /api/epic?repo=&parent= — assemble the Epic for a single parent issue.

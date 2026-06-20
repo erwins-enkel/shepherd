@@ -770,6 +770,64 @@ describe("GET /api/epics", () => {
     expect(body).toEqual({ epics: [], subIssues: [] });
     expect(Array.isArray(body)).toBe(false);
   });
+
+  // ── markdown epic members count as sub-issues ────────────────────────────────
+  // A markdown (epic-dag) epic's children have no GitHub-native parent, so they never
+  // appear in the native `subIssueNumbers`. The backlog "hide sub-issues" filter must
+  // still hide them, so subIssues folds in the open markdown members too.
+  test("markdown epic: open members are surfaced in subIssues", async () => {
+    const forge: any = {
+      // #50 is a markdown epic with members #100 (closed) / #101 (open) / #102 (open).
+      // Only the open members render in the list, so only those should be hidden.
+      listIssues: async () => [
+        {
+          number: 50,
+          title: "Epic",
+          body: "- [x] #100\n- [ ] #101\n- [ ] #102",
+          url: "",
+          labels: [],
+          createdAt: 0,
+        },
+        { number: 101, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
+        { number: 102, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
+        { number: 200, title: "Ordinary", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      // No native sub-issues in this repo (markdown epic only).
+      listSubIssueSummaries: async () => ({ summaries: new Map(), subIssueNumbers: [] }),
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(50);
+    // Open members #101/#102 surface; closed #100 and the parent/ordinary do not.
+    expect([...body.subIssues].sort((a: number, b: number) => a - b)).toEqual([101, 102]);
+  });
+
+  // Native + markdown sub-issues union without duplicates.
+  test("markdown + native: subIssues unions both with no duplicates", async () => {
+    const forge: any = {
+      listIssues: async () => [
+        {
+          number: 50,
+          title: "MD Epic",
+          body: "- [ ] #101\n- [ ] #7",
+          url: "",
+          labels: [],
+          createdAt: 0,
+        },
+        { number: 101, title: "Open md sub", body: "", url: "", labels: [], createdAt: 0 },
+        { number: 7, title: "Both", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      // #7 is also a native sub-issue → must appear once, not twice.
+      listSubIssueSummaries: async () => ({ summaries: new Map(), subIssueNumbers: [7] }),
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    const body = await res.json();
+    expect([...body.subIssues].sort((a: number, b: number) => a - b)).toEqual([7, 101]);
+  });
 });
 
 // ── completed-epics band (GET /api/epics/completed + dismiss) ─────────────────

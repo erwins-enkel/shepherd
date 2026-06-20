@@ -18,6 +18,11 @@ interface ExecLikeError {
   stderr?: string | Buffer;
   message?: string;
 }
+
+/** Narrow an unknown (e.g. a JSON.parse result) to an indexable object. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object";
+}
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
@@ -315,9 +320,9 @@ export async function listGithubRepos(
     } catch {
       continue; // skip a malformed jq line rather than failing the whole list
     }
-    if (!raw || typeof raw !== "object") continue;
     const o = raw as Record<string, unknown>;
     if (
+      !isRecord(raw) ||
       typeof o.nameWithOwner !== "string" ||
       typeof o.url !== "string" ||
       typeof o.owner !== "string" ||

@@ -13,7 +13,6 @@
   import type { HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { REPO_URL, version } from "$lib/build-info";
@@ -24,6 +23,8 @@
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
+  import TopBarBadges from "./top-bar/TopBarBadges.svelte";
+  import TopBarGear from "./top-bar/TopBarGear.svelte";
 
   const reduceMotion =
     typeof window !== "undefined" &&
@@ -643,101 +644,26 @@
     <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
     </div>
-    {#if !mobile && updateAvailable}
-      <button
-        class="update-badge"
-        onclick={() => onupdate?.()}
-        title="{update!.behind} {update!.behind === 1
-          ? m.updatemodal_commits_one()
-          : m.updatemodal_commits_other()}"
-      >
-        <span class="up-dot">▲</span>
-        {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
-        <span class="up-n">{update!.behind}</span>
-      </button>
-    {/if}
-    <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         bottom sheet to free a slot in the single-row control cluster. The
-         touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
-         it named) so two stacked update badges still fit. -->
-    {#if herdrUpdateAvailable && !mobile}
-      <button
-        class="update-badge herdr"
-        onclick={() => onherdrupdate?.()}
-        aria-label={m.topbar_herdr_update_badge()}
-        title={m.topbar_herdr_update_title({
-          current: herdrUpdate!.current ?? "?",
-          latest: herdrUpdate!.latest ?? "?",
-        })}
-      >
-        <span class="up-dot">▲</span>
-        {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
-      </button>
-    {/if}
-    {#if whatsNew && !mobile}
-      <!-- Desktop: labelled button with hover-tip; touch-desktop multi-badge crunch
-           collapses to dot-only to avoid crowding the control cluster. On mobile,
-           What's New moves into the gear bottom sheet. -->
-      {#if !compactBadges}
-        <button
-          class="whatsnew-badge tip"
-          type="button"
-          onclick={() => onwhatsnew?.()}
-          data-tip={m.whatsnew_open()}
-          aria-label={m.whatsnew_topbar_aria()}
-        >
-          <span class="wn-dot" aria-hidden="true">●</span>
-          <span class="wn-label">{m.whatsnew_open()}</span>
-        </button>
-      {:else}
-        <button
-          class="whatsnew-dot-btn"
-          type="button"
-          onclick={() => onwhatsnew?.()}
-          aria-label={m.whatsnew_topbar_aria()}
-          ><span class="wn-pip" aria-hidden="true"></span></button
-        >
-      {/if}
-    {/if}
-    <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok" AND not mobile
-         (on mobile it moves into the gear bottom sheet).
-         Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right).
-         Color: slate ring with state-colored core —
-         warn for warning, red for error — distinct from both the halt-pip identity
-         and the herdr blue. Token choice: --status-warn / --color-red for the core,
-         --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
-    {#if diagnosticsOverall !== "ok" && !mobile}
-      <button
-        class="health-pip tip"
-        class:alert={diagnosticsOverall === "error"}
-        type="button"
-        onclick={() => ondiagnose?.()}
-        data-tip={m.diagnostics_pip_label()}
-        aria-label={m.diagnostics_pip_label()}
-        use:coachTarget={"diagnostics"}
-      >
-        <span class="health-dot" aria-hidden="true"></span>
-      </button>
-    {/if}
-    <!-- ✦ LEARNINGS: global entry point to review proposed house rules across all repos.
-         Desktop-only badge (mobile folds into the gear bottom sheet). Stays off status
-         hues — ✦ is neutral chrome, not an attention state (Four-Light Rule). -->
-    {#if !mobile && learningsPresent}
-      <button
-        class="learnings-btn"
-        class:compact={compactBadges}
-        type="button"
-        onclick={() => onlearnings?.()}
-        title={learningsTip}
-        aria-label={learnings > 0
-          ? m.learnings_open_aria({ count: learnings })
-          : m.learnings_open_curate_aria({ count: learningsCurate })}
-      >
-        <span class="learn-glyph" aria-hidden="true">✦</span>
-        {#if !compactBadges}<span class="learn-label">{learningsLabel}</span>{/if}
-        <span class="learn-n">{learningsCount}</span>
-      </button>
-    {/if}
+    {#if !mobile}<TopBarBadges
+        {compactBadges}
+        {updateAvailable}
+        {update}
+        {onupdate}
+        {herdrUpdateAvailable}
+        {herdrUpdate}
+        {onherdrupdate}
+        {whatsNew}
+        {onwhatsnew}
+        {diagnosticsOverall}
+        {ondiagnose}
+        {learningsPresent}
+        {learnings}
+        {learningsCurate}
+        {learningsTip}
+        {learningsLabel}
+        {learningsCount}
+        {onlearnings}
+      />{/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. The pip differs by platform:
@@ -749,67 +675,22 @@
            a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
            signal — red > orange > yellow > blue. Red still means "needs you",
            consistent with the rest of the bar. -->
-    <div class="gear-wrap" bind:this={gearWrap}>
-      <button
-        bind:this={gearBtn}
-        class="gear tip"
-        type="button"
-        onclick={clickGear}
-        data-tip={gearOpensMenu ? m.topbar_menu_aria() : m.settings_title()}
-        aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
-        aria-expanded={gearOpensMenu ? menuOpen : undefined}
-        aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-        >⚙{#if !mobile && haltable > 0}<span
-            class="halt-pip"
-            class:alert={blocked > 0}
-            aria-hidden="true"
-          ></span>{/if}{#if mobile && gearPipTier}<span
-            class="gear-pip"
-            data-tier={gearPipTier}
-            aria-hidden="true"
-          ></span>{/if}</button
-      >
-      {#if menuOpen && !mobile}
-        <!-- Desktop dropdown: role=menu/menuitem + arrow-key cycling. Zero change vs before. -->
-        <div
-          class="gear-menu"
-          role="menu"
-          tabindex="-1"
-          aria-label={m.topbar_menu_label()}
-          bind:this={menuEl}
-          onkeydown={onMenuKey}
-        >
-          {#if haltable > 0}
-            <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
-                 Full intent stays in the aria-label. -->
-            <button
-              class="menu-item halt-item"
-              class:armed
-              type="button"
-              role="menuitem"
-              onclick={clickHalt}
-              aria-label={armed
-                ? m.halt_arm_aria({ count: haltable })
-                : m.halt_all_aria({ count: haltable })}
-            >
-              <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-              </svg>
-              <span class="menu-label"
-                >{armed
-                  ? m.halt_arm({ count: haltable })
-                  : m.halt_menu_item({ count: haltable })}</span
-              >
-            </button>
-            <div class="menu-sep" role="separator"></div>
-          {/if}
-          <button class="menu-item" type="button" role="menuitem" onclick={chooseSettings}>
-            <span class="menu-glyph" aria-hidden="true">⚙</span>
-            <span class="menu-label">{m.settings_title()}</span>
-          </button>
-        </div>
-      {/if}
-    </div>
+    <TopBarGear
+      {mobile}
+      {haltable}
+      {blocked}
+      {gearPipTier}
+      {gearOpensMenu}
+      {armed}
+      bind:menuOpen
+      bind:gearWrap
+      bind:gearBtn
+      bind:menuEl
+      {clickGear}
+      {clickHalt}
+      {chooseSettings}
+      {onMenuKey}
+    />
   </div>
 </div>
 
@@ -1110,69 +991,7 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-  /* ✦ LEARNINGS: quiet neutral chrome control — review proposed house rules across all
-     repos. ✦ stays on the ink/faint ramp (no status hue). */
-  .learnings-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    padding: 5px 10px;
-    border-radius: 2px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .learnings-btn:hover {
-    color: var(--color-ink);
-    border-color: var(--color-ink);
-  }
-  .learnings-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-ink);
-  }
-  .learn-glyph {
-    font-size: var(--fs-lg);
-    line-height: 1;
-  }
-  /* Compact: icon-only, ≥44px tap target. */
-  .learnings-btn.compact {
-    justify-content: center;
-    min-width: 44px;
-    padding: 8px 10px;
-    letter-spacing: 0;
-  }
-  .learn-n {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
-  /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
-     working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
-  .gear-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-  .gear-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 30;
-    min-width: 184px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 5px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  }
+  /* learnings-btn, learn-glyph, learn-n, gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
   /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
      desktop ActionBar but sized up for touch (44px tap targets). */
   .quick {
@@ -1415,207 +1234,15 @@
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
   }
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-base);
-    text-align: left;
-    padding: 8px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .menu-item:hover,
-  .menu-item:focus-visible {
-    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
-    outline: none;
-  }
-  .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-    display: block;
-    flex-shrink: 0;
-  }
-  .menu-glyph {
-    width: var(--fs-lg);
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .menu-label {
-    font-variant-numeric: tabular-nums;
-  }
-  /* e-stop row: muted by default, goes loud (red) only on hover/focus and once armed —
-     so a rarely-pressed control never dominates the menu. */
-  .halt-item {
-    color: var(--color-muted);
-  }
-  .halt-item:hover,
-  .halt-item:focus-visible {
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    color: var(--color-red);
-  }
-  .halt-item.armed {
-    background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border-color: var(--color-red);
-    color: var(--color-red);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: var(--fs-meta);
-  }
-  /* Keep the octagon glyph at full size even when arming drops the row font-size. */
-  .halt-item.armed .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-  }
-  .menu-sep {
-    height: 1px;
-    margin: 3px 2px;
-    background: var(--color-line);
-  }
-  /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
-     agents merely work; red (.alert) only when something is blocked, so red stays
-     reserved for "needs you" rather than the normal running state. */
-  .halt-pip {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .halt-pip.alert {
-    background: var(--color-red);
-  }
+  /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, halt-pip, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
   .rightside {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 16px;
   }
-  .gear {
-    position: relative;
-    background: transparent;
-    border: none;
-    color: var(--color-muted);
-    font-size: var(--fs-xl);
-    line-height: 1;
-    padding: 5px 8px;
-    cursor: pointer;
-  }
-  .gear:hover {
-    color: var(--color-amber);
-  }
-  /* Mobile only: single severity dot on the gear — red > orange > yellow > blue.
-     One dot replaces the old three-pip "measles" layout on mobile. */
-  .gear-pip {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .gear-pip[data-tier="red"] {
-    background: var(--color-red);
-  }
-  .gear-pip[data-tier="orange"] {
-    background: var(--color-warn);
-  }
-  .gear-pip[data-tier="yellow"] {
-    background: var(--color-amber);
-  }
-  .gear-pip[data-tier="blue"] {
-    background: var(--color-blue);
-  }
-  /* Health pip: a standalone button placed left of the gear-wrap in .rightside.
-     Visible only when diagnosticsOverall !== "ok" (hidden-when-OK via {#if}).
-     Ring: --color-line-bright (neutral slate) — a quiet outline that doesn't
-     read as the halt-pip or the herdr dot.
-     Core: --status-warn (warning) or --color-red (error, .alert). */
-  .health-pip {
-    position: relative;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 50%;
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-    padding: 0;
-  }
-  .health-pip:hover {
-    border-color: var(--color-muted);
-  }
-  .health-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--status-warn);
-    display: block;
-  }
-  .health-pip.alert .health-dot {
-    background: var(--color-red);
-  }
-  /* What's New affordance — blue informational accent (shared with the herdr cue),
-     distinct from amber (app-update). */
-  .whatsnew-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-    border: 1px solid var(--color-blue);
-    color: var(--color-blue);
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    border-radius: 2px;
-  }
-  .whatsnew-badge:hover {
-    background: color-mix(in srgb, var(--color-blue) 22%, transparent);
-  }
-  .whatsnew-badge .wn-dot {
-    font-size: var(--fs-micro);
-  }
-  /* Phone-only: bare pip button, no label. */
-  .whatsnew-dot-btn {
-    position: relative;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 5px 8px;
-    border-radius: 2px;
-    cursor: pointer;
-    min-height: 44px;
-    min-width: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .wn-pip {
-    display: block;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--color-blue);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
+  /* gear, gear-pip, halt-pip, health-pip, health-dot moved to top-bar/TopBarGear.svelte / TopBarBadges.svelte (#855) */
+  /* whatsnew-badge, whatsnew-dot-btn, wn-pip, health-pip, health-dot, update-badge, learnings-btn moved to top-bar/TopBarBadges.svelte (#855) */
   /* usage-sub-only, gauges-wrap, gauges, gauge, g-label, gauge-wrap, gauge-btn, gauge-pop,
      gauge-pop-desk, gp-window, gp-head, credit-amount moved to top-bar/TopBarUsage.svelte (#855) */
   .g-bar {
@@ -1663,47 +1290,7 @@
     margin: 0;
   }
   /* gauge-pop-desk .gauge-pop-reset moved to top-bar/TopBarUsage.svelte (#855) */
-  .update-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
-    border: 1px solid var(--color-amber);
-    color: var(--color-amber);
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    border-radius: 2px;
-    animation: update-pulse 2.4s ease-in-out infinite;
-  }
-  .update-badge .up-dot {
-    font-size: var(--fs-micro);
-  }
-  .update-badge .up-n {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
-  /* herdr badge: informational (operator updates manually), so it reads as calm
-     blue — the informational accent — and doesn't pulse like the actionable
-     self-update badge */
-  .update-badge.herdr {
-    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-    border-color: var(--color-blue);
-    color: var(--color-blue);
-    animation: none;
-  }
-  @keyframes update-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 40%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 0 4px transparent;
-    }
-  }
+  /* update-badge, up-dot, up-n, update-pulse moved to top-bar/TopBarBadges.svelte (#855) */
   .clock {
     color: var(--color-ink-bright);
     letter-spacing: 0.16em;
@@ -1769,16 +1356,7 @@
     gap: 5px;
     row-gap: 8px;
   }
-  /* finger-sized tap targets on touch HUDs (≥44px) — the desktop sizes are
-     tuned for a cursor and are too small to hit reliably on a phone. These
-     phone-layout rules (.hud.mobile …) outrank the @media (pointer: coarse)
-     block below on specificity, so the 44px floor must live here too. */
-  .hud.mobile .gear {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 5px 11px;
-    font-size: var(--fs-xl);
-  }
+  /* .hud.mobile .gear moved to top-bar/TopBarGear.svelte as .gear.mobile (#855) */
   /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,
      so .hud.mobile .gauge-btn can never match — verified dead (#855). */
   .hud.mobile .needsyou {
@@ -1812,17 +1390,11 @@
      mobile-width class so coarse-pointer tablets/foldables in desktop layout
      also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
   @media (pointer: coarse) {
-    .gear,
+    /* .gear/.menu-item moved to TopBarGear; .update-badge/.learnings-btn moved to TopBarBadges */
     .needsyou,
-    .needsyou.compact,
-    .learnings-btn,
-    .update-badge {
+    .needsyou.compact {
       min-height: 44px;
       min-width: 44px;
-    }
-    /* Menu rows get the same ≥44px touch floor without enlarging the desktop layout. */
-    .menu-item {
-      min-height: 44px;
     }
   }
 

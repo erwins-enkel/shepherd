@@ -95,7 +95,7 @@ function mkHarness(opts?: {
       | null,
     stagedNames: "docs-site/src/content/docs/reference/configuration.md",
     worktreeListPorcelain: "",
-    herdrAgents: [] as { name: string; tabId: string }[],
+    herdrAgents: [] as { name: string; tabId: string; cwd?: string; terminalId?: string }[],
     repos: [] as string[],
     originSha: "origin-sha-1" as string,
     originShaThrows: false,

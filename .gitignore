@@ -40,3 +40,7 @@ ci/self-hosted-runner/.env
 
 # Pre-push test capture logs (flake diagnosis, #817)
 .test-logs/
+
+# SDD subagent scratch (briefs) + plan sidecar
+briefs/
+.shepherd-plan-blocks.json

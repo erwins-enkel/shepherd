@@ -510,3 +510,84 @@ describe("Herd epic grouping", () => {
     await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
   });
 });
+
+describe("Herd epic-child preview badge", () => {
+  // Regression guard: epic-child rows must pass withPreview=true so a live preview
+  // port surfaces the Preview badge. If HerdEpicGroups were to pass withPreview=false
+  // the badge would silently disappear for grouped sessions.
+  afterEach(() => {
+    // no module-singleton state to clean up for this test
+  });
+
+  it("renders the Preview badge for an epic-grouped child session with a live preview port", async () => {
+    const epicChild = (number: number): import("$lib/types").EpicChild => ({
+      number,
+      title: `child ${number}`,
+      url: "",
+      order: number,
+      body: "",
+      blockedBy: [],
+      state: "running",
+      sessionId: null,
+      prNumber: null,
+      issueClosed: false,
+      claimed: false,
+    });
+    const epic = (children: import("$lib/types").EpicChild[]): import("$lib/types").Epic => ({
+      repoPath: "/repo/a",
+      parentIssueNumber: 100,
+      parentTitle: "Big epic",
+      source: "native",
+      children,
+      warnings: [],
+      run: { repoPath: "/repo/a", parentIssueNumber: 100, mode: "auto", status: "running" },
+    });
+    const epics = { "/repo/a#100": epic([epicChild(11)]) };
+    const activeEpicKeys = new Set(["/repo/a#100"]);
+
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "eg1", name: "epic grouped session", issueNumber: 11 })],
+      git: {},
+      epics,
+      activeEpicKeys,
+      // live preview port on the epic-grouped session
+      preview: { eg1: 5173 },
+      previewServe: { eg1: "ok" as const },
+      onpreview: vi.fn(),
+    });
+
+    // The .preview-badge span renders "Preview" when previewPort is non-null.
+    // This fails if HerdEpicGroups passes withPreview=false to HerdGroup.
+    await expect.element(page.getByText("Preview")).toBeInTheDocument();
+    // Confirm it's inside the epic-children rail (not some other badge)
+    const rail = document.querySelector(".epic-children")!;
+    expect(rail).not.toBeNull();
+    expect(rail.textContent).toContain("Preview");
+  });
+});
+
+describe("Herd reviewer-running preview badge", () => {
+  // reviews is a module singleton — clear after each test
+  afterEach(() => {
+    reviews.setReviewing("rv", false);
+  });
+
+  it("renders the Preview badge for a critic-reviewing session that has a live preview port", async () => {
+    // A session in the reviewer-running bucket (inReview=true) with a live preview
+    // port. The reviewerRunning partition has withPreview=true — if it were false the
+    // previewPort would be coerced to null and the badge would not render, breaking
+    // the preview UX for sessions under critic review.
+    reviews.setReviewing("rv", true);
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "rv", name: "critic session", status: "idle" })],
+      git: { rv: openPr },
+      preview: { rv: 5173 },
+      previewServe: { rv: "ok" as const },
+      onpreview: vi.fn(),
+    });
+    // The .preview-badge span renders the text "Preview" when previewPort is non-null
+    await expect.element(page.getByText("Preview")).toBeInTheDocument();
+  });
+});

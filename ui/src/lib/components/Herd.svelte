@@ -1,9 +1,13 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity, Epic, CompletedEpic } from "$lib/types";
   import type { BlockState } from "$lib/triage";
-  import UnitRow from "./UnitRow.svelte";
-  import EmptyHerd from "./EmptyHerd.svelte";
-  import EpicGroupHeader from "./EpicGroupHeader.svelte";
+  import HerdGroup from "./herd/HerdGroup.svelte";
+  import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
+  import HerdFilterBar from "./herd/HerdFilterBar.svelte";
+  import HerdSegRow from "./herd/HerdSegRow.svelte";
+  import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
+  import HerdDoneList from "./herd/HerdDoneList.svelte";
+  import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import RundownPanel from "./RundownPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
@@ -11,11 +15,7 @@
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "$lib/display-status";
   import { reviews, planGates } from "$lib/reviews.svelte";
-  import { recaps } from "$lib/recaps.svelte";
-  import { formatAgo } from "$lib/format";
-  import type { RecapVerdict } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     sessions,
@@ -246,179 +246,168 @@
   const reviewerWho = $derived(uniqueWho(partition.waitingOnReviewer));
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
 
-  // Done lens row chrome: a finished session's recap verdict drives a small chip. Semantic
-  // colors mirror SessionRecap/DoneRecapPanel (green = genuinely READY only; parked = slate;
-  // needs-attention = amber).
-  const VERDICT_COLOR: Record<RecapVerdict, string> = {
-    ready: "var(--color-green)",
-    parked: "var(--status-done)",
-    needs_attention: "var(--color-amber)",
+  // Shared row-context bundle — passed to HerdGroup (and later HerdEpicGroups) so the
+  // parent builds it once and each group reads from it. All fields wire straight from
+  // the parent's props/derivations.
+  const rowCtx = $derived<HerdRowCtx>({
+    selectedId,
+    nowMs,
+    onselect,
+    git,
+    activity,
+    preview,
+    previewServe,
+    onpreview,
+    ondecommission,
+    onrelaunch,
+    onrelaunchElsewhere,
+    repoFilter,
+    onrepofilter,
+    workingBlocked,
+    quotaKindFor,
+  });
+
+  // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
+  // Using a $derived array keeps the who↔multi switch and above-counts reactive.
+  type PartitionGroupEntry = {
+    key: string;
+    sessions: Session[];
+    headClass?: string | null;
+    countLabel?: string | null;
+    aboveLabel?: string | null;
+    action?: { class: string; title: string; label: string; onclick: () => void } | null;
+    withPreview?: boolean;
   };
-  function verdictLabel(v: RecapVerdict): string {
-    if (v === "ready") return m.recap_verdict_ready();
-    if (v === "parked") return m.recap_verdict_parked();
-    return m.recap_verdict_needs_attention();
-  }
-  // last path segment of a repoPath, for the done row's repo label
-  function repoBasename(p: string): string {
-    return p.split("/").filter(Boolean).at(-1) ?? p;
-  }
+  const partitionGroups = $derived<PartitionGroupEntry[]>(
+    [
+      partition.active.length > 0 && {
+        key: "active",
+        sessions: partition.active,
+        headClass: null,
+        withPreview: true,
+      },
+      partition.ciRunning.length > 0 && {
+        key: "ci-running",
+        sessions: partition.ciRunning,
+        headClass: "ci-head",
+        countLabel: m.herd_ci_running_group({ count: partition.ciRunning.length }),
+        withPreview: true,
+      },
+      partition.ciFailed.length > 0 && {
+        key: "ci-failed",
+        sessions: partition.ciFailed,
+        headClass: "ci-failed-head",
+        countLabel: m.herd_ci_failed_group({ count: partition.ciFailed.length }),
+        withPreview: true,
+      },
+      partition.reviewerRunning.length > 0 && {
+        key: "reviewer-running",
+        sessions: partition.reviewerRunning,
+        headClass: "reviewing-head",
+        countLabel: m.herd_reviewer_running_group({ count: partition.reviewerRunning.length }),
+        withPreview: true,
+      },
+      partition.waitingOnReviewer.length > 0 && {
+        key: "waiting-reviewer",
+        sessions: partition.waitingOnReviewer,
+        headClass: "waiting-head",
+        countLabel: reviewerWho
+          ? m.herd_waiting_reviewer_group({
+              who: reviewerWho,
+              count: partition.waitingOnReviewer.length,
+            })
+          : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length }),
+        withPreview: false,
+      },
+      partition.waitingOnMerger.length > 0 && {
+        key: "waiting-merger",
+        sessions: partition.waitingOnMerger,
+        headClass: "waiting-head",
+        countLabel: mergerWho
+          ? m.herd_waiting_merger_group({ who: mergerWho, count: partition.waitingOnMerger.length })
+          : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length }),
+        withPreview: false,
+      },
+      partition.draftAwaitingSignoff.length > 0 && {
+        key: "draft-signoff",
+        sessions: partition.draftAwaitingSignoff,
+        headClass: "draft-head",
+        countLabel: m.herd_draft_awaiting_signoff_group({
+          count: partition.draftAwaitingSignoff.length,
+        }),
+        withPreview: false,
+      },
+      partition.awaitingMerge.length > 0 && {
+        key: "awaiting-merge",
+        sessions: partition.awaitingMerge,
+        headClass: "awaiting-head",
+        countLabel: m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length }),
+        withPreview: true,
+      },
+      partition.ready.length + readyAbove > 0 && {
+        key: "ready",
+        sessions: partition.ready,
+        headClass: "ready-head",
+        countLabel:
+          partition.ready.length > 0 ? m.herd_ready_group({ count: partition.ready.length }) : null,
+        aboveLabel: readyAbove > 0 ? m.herd_in_epics_above({ count: readyAbove }) : null,
+        action:
+          onmergetrain && readyPrCount > 0
+            ? {
+                class: "merge-train",
+                title: m.herd_merge_train_title(),
+                label: m.herd_merge_train_action(),
+                onclick: onmergetrain,
+              }
+            : null,
+        withPreview: true,
+      },
+      partition.merging.length > 0 && {
+        key: "merging",
+        sessions: partition.merging,
+        headClass: "merging-head",
+        countLabel: m.herd_merging_group({ count: partition.merging.length }),
+        withPreview: true,
+      },
+      partition.merged.length + mergedAbove > 0 && {
+        key: "merged",
+        sessions: partition.merged,
+        headClass: "merged-head",
+        countLabel:
+          partition.merged.length > 0
+            ? m.herd_merged_group({ count: partition.merged.length })
+            : null,
+        aboveLabel: mergedAbove > 0 ? m.herd_in_epics_above({ count: mergedAbove }) : null,
+        action:
+          onclearmerged && mergedCount > 0
+            ? {
+                class: "clear-merged",
+                title: m.herd_clear_merged_title(),
+                label: m.herd_clear_merged_action(),
+                onclick: onclearmerged,
+              }
+            : null,
+        withPreview: true,
+      },
+    ].filter(Boolean) as PartitionGroupEntry[],
+  );
 </script>
 
 <div class="panel bracket" class:flow>
   <div class="phead">
     <span class="micro">{m.herd_title()}</span>
-    <div class="right filters">
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "all"}
-        title={m.herd_all_title()}
-        aria-pressed={statusFilter == null && filter === "all"}
-        onclick={() => {
-          filter = "all";
-          onstatusfilter?.(null);
-        }}>{m.herd_all_hint()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "ready"}
-        title={m.herd_ready_title()}
-        aria-pressed={statusFilter == null && filter === "ready"}
-        onclick={() => {
-          filter = "ready";
-          onstatusfilter?.(null);
-        }}>{m.herd_ready_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "research"}
-        title={m.herd_research_title()}
-        aria-pressed={statusFilter == null && filter === "research"}
-        onclick={() => {
-          filter = "research";
-          onstatusfilter?.(null);
-        }}>{m.herd_research_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "done"}
-        title={m.herd_done_title()}
-        aria-pressed={statusFilter == null && filter === "done"}
-        use:coachTarget={"done-lens"}
-        onclick={() => {
-          filter = "done";
-          onstatusfilter?.(null);
-        }}>{m.herd_done_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "rundown"}
-        title={m.herd_rundown_title()}
-        aria-pressed={statusFilter == null && filter === "rundown"}
-        use:coachTarget={"herd-rundown"}
-        onclick={() => {
-          filter = "rundown";
-          onstatusfilter?.(null);
-        }}>{m.herd_rundown_filter()}</button
-      >
-      {#if statusFilter != null}
-        <!-- aria-label carries status + clear action; the visible "✕" glyph would
-           otherwise be read aloud without conveying what the chip does -->
-        <button
-          type="button"
-          class="micro fbtn active statchip"
-          title={m.topbar_tally_clear_title()}
-          aria-label={m.herd_status_chip_aria({ status: statusLabel })}
-          aria-pressed="true"
-          onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
-        >
-      {/if}
-      {#if collapsible}
-        <button
-          id="herd-collapse-btn"
-          type="button"
-          class="fbtn collapse-inline"
-          title={m.herd_collapse()}
-          aria-label={m.herd_collapse()}
-          onclick={() => oncollapse?.()}>‹</button
-        >
-      {/if}
-    </div>
+    {#if !flow}
+      <HerdFilterBar
+        bind:filter
+        {statusFilter}
+        {statusLabel}
+        {collapsible}
+        {onstatusfilter}
+        {oncollapse}
+      />
+    {/if}
   </div>
-  {#if flow}
-    <!-- Mobile-only segmented control: replaces the .fbtn filter row in flow
-         mode. A direct child of the already-full-bleed .panel.flow, so it spans
-         the full phone width without its own negative margin. Equal-width segments,
-         44px touch targets, no leading glyphs. Labels are --fs-base (13px), a
-         DELIBERATE exception to the ≥16px label floor (NOT an oversight): five
-         equal segments on a 390px phone leave ~77px each, but the longest label
-         ("Recherche", DE) needs ~93px at 16px — so ≥16px would truncate it, which
-         breaks the "keep full text labels" criterion. 13px is the largest size
-         that fits the full word; contrast is held high to compensate (active
-         --color-amber 8.49:1, inactive --color-muted 5.27:1). -->
-    <div class="seg-row" use:coachTarget={"mobile-seg-ctrl"}>
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "all"}
-        title={m.herd_all_title()}
-        aria-pressed={statusFilter == null && filter === "all"}
-        onclick={() => {
-          filter = "all";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_all()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "ready"}
-        title={m.herd_ready_title()}
-        aria-pressed={statusFilter == null && filter === "ready"}
-        onclick={() => {
-          filter = "ready";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_ready()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "research"}
-        title={m.herd_research_title()}
-        aria-pressed={statusFilter == null && filter === "research"}
-        onclick={() => {
-          filter = "research";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_research()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "done"}
-        title={m.herd_done_title()}
-        aria-pressed={statusFilter == null && filter === "done"}
-        onclick={() => {
-          filter = "done";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_done()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "rundown"}
-        title={m.herd_rundown_title()}
-        aria-pressed={statusFilter == null && filter === "rundown"}
-        onclick={() => {
-          filter = "rundown";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_rundown()}</button
-      >
-    </div>
-  {/if}
+  {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
   <div class="units" class:flow>
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
@@ -426,393 +415,45 @@
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
-      {#if doneList.length === 0}
-        <div class="empty micro static">{m.herd_done_empty()}</div>
-      {:else}
-        {#each doneList as ds (ds.id)}
-          {@const r = recaps.map[ds.id]}
-          <button
-            type="button"
-            class="done-row"
-            class:sel={ds.id === doneSelectedId}
-            data-unit-id={ds.id}
-            onclick={() => ondoneselect?.(ds.id)}
-          >
-            <div class="done-row-top">
-              <span class="done-desig">{ds.desig}</span>
-              <span class="done-repo" title={ds.repoPath}>{repoBasename(ds.repoPath)}</span>
-              {#if r?.state === "ready" && r.verdict}
-                <span class="done-verdict" style:color={VERDICT_COLOR[r.verdict]}
-                  >{verdictLabel(r.verdict)}</span
-                >
-              {/if}
-              <span class="done-ago"
-                >{m.done_recap_finished({
-                  ago: formatAgo(nowMs - (ds.archivedAt ?? ds.updatedAt)),
-                })}</span
-              >
-            </div>
-            <span class="done-snippet"
-              >{r?.state === "ready" ? r.headline : ds.name || ds.prompt}</span
-            >
-          </button>
-        {/each}
-      {/if}
+      <HerdDoneList {doneList} {doneSelectedId} {ondoneselect} {nowMs} />
     {:else if sessions.length === 0}
       <!-- the status filter empties the list at PAGE level (herdSessions), so an
          empty status result lands HERE — it must outrank the repo note and the
          first-run EmptyHerd nudge, and name the active status so vanished
          done/parked sessions read as intentional -->
-      {#if statusFilter != null && filteredRepo}
-        <div class="empty micro static">
-          {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}
-        </div>
-      {:else if statusFilter != null}
-        <div class="empty micro static">
-          {m.herd_status_filter_empty({ status: statusLabel })}
-        </div>
-      {:else if filteredRepo}
-        <div class="empty micro static">{m.herd_repo_filter_empty({ repo: filteredRepo })}</div>
-      {:else}
-        <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
-      {/if}
+      <HerdEmptyState
+        mode="sessions"
+        {statusFilter}
+        {statusLabel}
+        {filteredRepo}
+        {filter}
+        {issueActionsUnset}
+        {onnew}
+        {onsettings}
+      />
     {:else if shown.length === 0}
-      {#if filter === "research"}
-        <div class="empty micro static">{m.herd_research_empty()}</div>
-      {:else}
-        <div class="empty micro static">{m.herd_ready_empty()}</div>
-      {/if}
+      <HerdEmptyState
+        mode="shown"
+        {statusFilter}
+        {statusLabel}
+        {filteredRepo}
+        {filter}
+        {issueActionsUnset}
+        {onnew}
+        {onsettings}
+      />
     {:else}
-      {#each grouped.groups as g (g.key)}
-        <EpicGroupHeader
-          epic={g.epic}
-          collapsed={collapsedKeys.has(g.key)}
-          cues={cuesFor(g)}
-          ontoggle={() => oncollapsetoggle?.(g.key)}
-          {onepic}
-        />
-        {#if !collapsedKeys.has(g.key)}
-          <div class="epic-children">
-            {#each g.sessions as session (session.id)}
-              <UnitRow
-                {session}
-                selected={session.id === selectedId}
-                {nowMs}
-                {onselect}
-                git={git[session.id]}
-                activity={activity[session.id]}
-                previewPort={preview[session.id] ?? null}
-                previewServeFailed={previewServe[session.id] === "failed"}
-                {onpreview}
-                {ondecommission}
-                {onrelaunch}
-                {onrelaunchElsewhere}
-                {repoFilter}
-                {onrepofilter}
-                {workingBlocked}
-                quotaKind={quotaKindFor(session.id)}
-              />
-            {/each}
-          </div>
-        {/if}
+      <HerdEpicGroups
+        groups={grouped.groups}
+        {collapsedKeys}
+        {cuesFor}
+        {onepic}
+        {oncollapsetoggle}
+        ctx={rowCtx}
+      />
+      {#each partitionGroups as grp (grp.key)}
+        <HerdGroup ctx={rowCtx} {...grp} />
       {/each}
-      {#each partition.active as session (session.id)}
-        <UnitRow
-          {session}
-          selected={session.id === selectedId}
-          {nowMs}
-          {onselect}
-          git={git[session.id]}
-          activity={activity[session.id]}
-          previewPort={preview[session.id] ?? null}
-          previewServeFailed={previewServe[session.id] === "failed"}
-          {onpreview}
-          {ondecommission}
-          {onrelaunch}
-          {onrelaunchElsewhere}
-          {repoFilter}
-          {onrepofilter}
-          {workingBlocked}
-          quotaKind={quotaKindFor(session.id)}
-        />
-      {/each}
-      {#if partition.ciRunning.length > 0}
-        <div class="ci-head micro">
-          {m.herd_ci_running_group({ count: partition.ciRunning.length })}
-        </div>
-        {#each partition.ciRunning as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.ciFailed.length > 0}
-        <div class="ci-failed-head micro">
-          {m.herd_ci_failed_group({ count: partition.ciFailed.length })}
-        </div>
-        {#each partition.ciFailed as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.reviewerRunning.length > 0}
-        <div class="reviewing-head micro">
-          {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
-        </div>
-        {#each partition.reviewerRunning as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnReviewer.length > 0}
-        <div class="waiting-head micro">
-          {reviewerWho
-            ? m.herd_waiting_reviewer_group({
-                who: reviewerWho,
-                count: partition.waitingOnReviewer.length,
-              })
-            : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length })}
-        </div>
-        {#each partition.waitingOnReviewer as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnMerger.length > 0}
-        <div class="waiting-head micro">
-          {mergerWho
-            ? m.herd_waiting_merger_group({
-                who: mergerWho,
-                count: partition.waitingOnMerger.length,
-              })
-            : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length })}
-        </div>
-        {#each partition.waitingOnMerger as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.draftAwaitingSignoff.length > 0}
-        <div class="draft-head micro">
-          {m.herd_draft_awaiting_signoff_group({ count: partition.draftAwaitingSignoff.length })}
-        </div>
-        {#each partition.draftAwaitingSignoff as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.awaitingMerge.length > 0}
-        <div class="awaiting-head micro">
-          {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
-        </div>
-        {#each partition.awaitingMerge as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.ready.length + readyAbove > 0}
-        <div class="ready-head micro">
-          {#if partition.ready.length > 0}
-            {m.herd_ready_group({ count: partition.ready.length })}
-          {/if}
-          {#if readyAbove > 0}
-            <span class="above">{m.herd_in_epics_above({ count: readyAbove })}</span>
-          {/if}
-          {#if onmergetrain && readyPrCount > 0}
-            <button
-              type="button"
-              class="merge-train micro"
-              title={m.herd_merge_train_title()}
-              onclick={onmergetrain}>{m.herd_merge_train_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.ready as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.merging.length > 0}
-        <div class="merging-head micro">
-          {m.herd_merging_group({ count: partition.merging.length })}
-        </div>
-        {#each partition.merging as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.merged.length + mergedAbove > 0}
-        <div class="merged-head micro">
-          {#if partition.merged.length > 0}
-            {m.herd_merged_group({ count: partition.merged.length })}
-          {/if}
-          {#if mergedAbove > 0}
-            <span class="above">{m.herd_in_epics_above({ count: mergedAbove })}</span>
-          {/if}
-          {#if onclearmerged && mergedCount > 0}
-            <button
-              type="button"
-              class="clear-merged micro"
-              title={m.herd_clear_merged_title()}
-              onclick={onclearmerged}>{m.herd_clear_merged_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.merged as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
     {/if}
     {#if filter !== "done" && filter !== "rundown"}
       <IntegratedEpicsBand
@@ -871,20 +512,13 @@
   .panel.flow.bracket::after {
     display: none;
   }
-  /* On mobile (flow mode) the "THE HERD" title forces the filter row to wrap on
-     narrow phones; hide just the title span (the filter buttons are nested under
-     .right.filters, so the direct-child combinator leaves them untouched). The
-     herd_title key is still used on desktop (non-flow). */
+  /* On mobile (flow mode) the desktop filter bar isn't rendered ({#if !flow} — the
+     seg-row below replaces it); hide the "THE HERD" title span too so the .phead
+     collapses away and the seg-row leads. The herd_title key is still used on
+     desktop (non-flow). */
   .panel.flow .phead > .micro {
     display: none;
   }
-  /* In flow mode the desktop .fbtn row is replaced by the segmented control row
-     below; hide the entire filters bar (and the statchip within it) on mobile.
-     Desktop keeps .phead + .filters exactly as-is. */
-  .panel.flow .filters {
-    display: none;
-  }
-
   .phead {
     display: flex;
     align-items: center;
@@ -895,228 +529,11 @@
     flex-wrap: wrap;
     row-gap: 6px;
   }
-  .phead .right {
-    margin-left: auto;
-  }
-  .filters {
-    display: flex;
-    gap: 4px;
-  }
-  /* Compact (touch / unfolded-fold) layout pins the sidebar to ~288px. There the
-     .phead wraps the whole .right.filters group onto its own line, where it sizes
-     to its content width (~330px) and spills past the panel's right border (the
-     trailing "Rundown" filter). Let the group wrap onto a second row only here;
-     the non-touch desktop sidebar resolves to its 360px max where the row fits on
-     one line, so it stays single-line and unchanged. The ancestor .grid.compact
-     lives in +page.svelte (outside this component), hence the :global wrapper. */
-  :global(.grid.compact) .filters {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-  .fbtn {
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 2px 5px;
-    color: var(--color-faint);
-    transition: color 0.12s ease;
-  }
-  .fbtn:hover {
-    color: var(--color-ink);
-  }
-  .fbtn.active {
-    color: var(--color-amber);
-  }
-  .fbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* Mobile-only segmented control: replaces the .fbtn filter row in flow mode.
-     A direct child of the already-full-bleed .panel.flow, so it spans the full
-     phone width without its own negative margin. Equal-width segments, 44px touch
-     targets. Labels are --fs-base (13px) — a DELIBERATE sub-16px exception, not an
-     oversight: at the 390px reference five equal segments give ~77px each and the
-     longest label "Recherche" (DE) measures 93px at 16px (it would truncate),
-     vs 77px at 13px (fits). The ≥16px floor is waived for this one control to keep
-     full text labels; high contrast (amber active / muted inactive) compensates.
-     A text-overflow:ellipsis below handles even-narrower fold-cover widths. */
-  .seg-row {
-    display: none;
-  }
-  .panel.flow .seg-row {
-    display: flex;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .seg-btn {
-    flex: 1;
-    min-width: 0;
-    min-height: 44px;
-    border: 0;
-    border-right: 1px solid var(--color-line);
-    background: none;
-    font-family: inherit;
-    font-size: var(--fs-base);
-    cursor: pointer;
-    padding: 0 2px;
-    color: var(--color-muted);
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    transition:
-      color 0.12s ease,
-      background 0.12s ease;
-  }
-  .seg-btn:last-child {
-    border-right: 0;
-  }
-  .seg-btn:hover {
-    color: var(--color-ink);
-  }
-  .seg-btn.seg-active {
-    color: var(--color-amber);
-    background: var(--color-inset);
-    box-shadow: inset 0 -2px 0 var(--color-amber);
-  }
-  .seg-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* inline collapse trigger living in the filters group (touch wide devices). */
-  .collapse-inline {
-    flex: none;
-    margin-left: 4px;
-    font-size: var(--fs-lg);
-    line-height: 1;
-  }
-
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
-  }
-
-  /* amber section headers for the in-flight stages (PR CI running, critic
-     reviewing) — amber mirrors the CI-pending dot and the critic badge */
-  .ci-head,
-  .reviewing-head,
-  .merging-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-amber);
-    border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
-  }
-
-  /* red section header for an open PR whose CI failed — done but needs a look */
-  .ci-failed-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-red);
-    border-top: 1px solid color-mix(in srgb, var(--color-red) 30%, var(--color-line));
-  }
-
-  /* slate section header for a green-CI draft PR awaiting human sign-off —
-     parked but NOT actionable (must never read as the green "Your turn" state) */
-  .draft-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-slate);
-    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
-  }
-
-  /* green section headers for the "waiting for a human to merge" stages:
-     auto-detected (open PR, CI green) and operator-parked "ready to merge" */
-  .awaiting-head,
-  .ready-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-green);
-    border-top: 1px solid color-mix(in srgb, var(--color-green) 30%, var(--color-line));
-  }
-
-  /* slate section header for "waiting on someone else" (a foreign reviewer/merger):
-     NOT the operator's turn, so it must read as parked, not actionable-green. */
-  .waiting-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-slate);
-    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
-  }
-
-  /* blue section header for the landed "merged PR" group */
-  .merged-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-blue);
-    border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
-  }
-  /* right-aligned action in the ready-to-merge group header */
-  .merge-train {
-    margin-left: auto;
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 0 2px;
-    color: color-mix(in srgb, var(--color-green) 70%, var(--color-faint));
-    transition: color 0.12s ease;
-  }
-  .merge-train:hover {
-    color: var(--color-green);
-  }
-  .merge-train:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* right-aligned bulk action in the merged group header */
-  .clear-merged {
-    margin-left: auto;
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 0 2px;
-    color: color-mix(in srgb, var(--color-blue) 70%, var(--color-faint));
-    transition: color 0.12s ease;
-  }
-  .clear-merged:hover {
-    color: var(--color-blue);
-  }
-  .clear-merged:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* Child rows of an epic group sit lightly inset under their headline so the
-     group reads as one unit. A hairline rail on the leading edge reinforces the
-     nesting without a heavy indent. Token-based; no raw px color. */
-  .epic-children {
-    padding-left: 10px;
-    margin-left: 4px;
-    border-left: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
-  }
-
-  /* "N in epics above" — a quiet annotation beside a section count when that
-     stage's rows live in epic groups above the lifecycle list. */
-  .above {
-    color: var(--color-faint);
   }
 
   .units {
@@ -1148,93 +565,5 @@
   }
   .units.flow :global(.unit.sel::after) {
     display: none;
-  }
-
-  .empty {
-    width: 100%;
-    padding: 24px 14px;
-    text-align: center;
-    color: var(--color-faint);
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    transition: color 0.12s ease;
-  }
-  .empty:hover {
-    color: var(--color-ink);
-  }
-  .empty.static {
-    cursor: default;
-  }
-  .empty.static:hover {
-    color: var(--color-faint);
-  }
-
-  /* Done-lens row: a finished session, picked to show its recap in the main panel.
-     Borrows the rail's row rhythm/tokens; selection mirrors UnitRow's .sel cue. */
-  .done-row {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    width: 100%;
-    text-align: left;
-    border: 1px solid transparent;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 8px 10px;
-    transition:
-      border-color 0.12s ease,
-      background 0.12s ease;
-  }
-  .done-row:hover {
-    border-color: var(--color-line);
-    background: var(--color-hover);
-  }
-  .done-row:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .done-row.sel {
-    border-color: var(--color-line-bright);
-    background: var(--color-sel);
-  }
-  .done-row-top {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .done-desig {
-    font-size: var(--fs-meta);
-    color: var(--color-ink-bright);
-    font-weight: 600;
-  }
-  .done-repo {
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .done-verdict {
-    font-size: var(--fs-micro);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    flex-shrink: 0;
-  }
-  .done-ago {
-    margin-left: auto;
-    flex-shrink: 0;
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-  }
-  .done-snippet {
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

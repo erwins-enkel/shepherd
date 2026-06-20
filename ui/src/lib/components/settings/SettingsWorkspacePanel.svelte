@@ -1,22 +1,31 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { getSettings, listDirs, putSettings } from "$lib/api";
+  import { listDirs, putSettings } from "$lib/api";
   import { type DirListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   let {
+    repoRoot,
+    repoRootDisplay,
+    settingsLoaded,
     onclone,
     onfork,
     onsaved,
     onclose,
   }: {
+    // resolved by the parent's single getSettings() call (no second fetch here):
+    // repoRoot drives the initial browse, repoRootDisplay is the current-root label.
+    // null until the load settles (or if it failed). settingsLoaded flips once it has.
+    repoRoot: string | null;
+    repoRootDisplay: string | null;
+    settingsLoaded: boolean;
     onclone?: () => void;
     onfork?: () => void;
     onsaved?: (root: string) => void;
     onclose?: () => void;
   } = $props();
 
-  let currentRoot = $state(""); // the persisted root (display form)
+  // the persisted root (display form), authoritative from the parent
+  const currentRoot = $derived(repoRootDisplay ?? "");
   let listing = $state<DirListing | null>(null);
   let loading = $state(false);
   let saving = $state(false);
@@ -34,14 +43,14 @@
     }
   }
 
-  onMount(async () => {
-    try {
-      const s = await getSettings();
-      currentRoot = s.repoRootDisplay;
-      await browse(s.repoRoot);
-    } catch {
-      await browse();
-    }
+  // Browse once the parent's settings load settles: into repoRoot on success,
+  // or the default dir if it failed (repoRoot stays null). Guarded so a later
+  // prop change can't re-trigger the initial listing.
+  let browsed = false;
+  $effect(() => {
+    if (browsed || !settingsLoaded) return;
+    browsed = true;
+    void browse(repoRoot ?? undefined);
   });
 
   const isCurrent = $derived(
@@ -54,7 +63,8 @@
     error = null;
     try {
       const s = await putSettings(listing.path);
-      currentRoot = s.repoRootDisplay;
+      // onsaved bubbles the new root up; onclose dismisses immediately, so the
+      // displayed currentRoot (derived from the parent prop) needs no local write.
       onsaved?.(s.repoRoot);
       onclose?.();
     } catch (e) {

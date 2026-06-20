@@ -135,6 +135,13 @@
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
 
+  // Repo root, resolved by the single getSettings() below and handed to the
+  // workspace panel as props so it never re-fetches. settingsLoaded flips once
+  // that load settles (success OR failure) so the child knows when to browse.
+  let repoRoot = $state<string | null>(null);
+  let repoRootDisplay = $state<string | null>(null);
+  let settingsLoaded = $state(false);
+
   async function savePrReviewCycles() {
     if (prRcyBusy) return;
     prRcyBusy = true;
@@ -444,8 +451,13 @@
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
       fableAvailable = s.fableAvailable;
+      repoRoot = s.repoRoot;
+      repoRootDisplay = s.repoRootDisplay;
     } catch {
-      // settings load failed — session fields keep their defaults
+      // settings load failed — session fields keep their defaults; the workspace
+      // panel falls back to browsing the default dir (repoRoot stays null)
+    } finally {
+      settingsLoaded = true;
     }
   });
 </script>
@@ -517,7 +529,15 @@
       tabindex="0"
       hidden={tab !== "workspace"}
     >
-      <SettingsWorkspacePanel {onclone} {onfork} {onsaved} {onclose} />
+      <SettingsWorkspacePanel
+        {repoRoot}
+        {repoRootDisplay}
+        {settingsLoaded}
+        {onclone}
+        {onfork}
+        {onsaved}
+        {onclose}
+      />
     </div>
 
     <div

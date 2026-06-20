@@ -9,7 +9,7 @@ import { isMerging } from "./rundown-core";
  *  A session herdr reports "blocked" but the server flagged as working-while-blocked
  *  renders with the full working treatment (upgrades blocked → running).
  *  The flag only ever upgrades blocked — a stale entry on a non-blocked session is inert. */
-export function displayStatus(
+function displayStatus(
   s: Pick<Session, "id" | "status">,
   workingBlocked: Record<string, boolean>,
 ): SessionStatus {
@@ -17,7 +17,7 @@ export function displayStatus(
 }
 
 /** Lifecycle stage of a session — mirrors herd-partition.ts's Stage type. */
-export type Stage =
+type Stage =
   | "merged"
   | "merging"
   | "ready"
@@ -59,7 +59,7 @@ function handoffStage(g: GitState): Stage {
  *  Port of herd-partition.ts's stageOf.
  *  Precedence: merged > merging > ready > reviewerRunning > ciRunning > ciFailed >
  *  (greenIdle → draftAwaitingSignoff | waitingOnReviewer | waitingOnMerger | awaitingMerge) > active. */
-export function stageOf(
+function stageOf(
   s: Session,
   g: GitState | undefined,
   isReviewing: (id: string) => boolean,

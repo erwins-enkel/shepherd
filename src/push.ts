@@ -393,13 +393,7 @@ export class PushService {
     const cooldownMs = config.pushCooldownMs;
     const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
     const t = this.now();
-    // Suppress repeats within the window of the last send that actually fired; a
-    // sustained flap stays suppressed until a full quiet window passes. Distinct
-    // kinds (done vs blocked) live under separate keys and never collapse.
-    if (cooldownMs > 0) {
-      const last = this.lastNotified.get(key);
-      if (last !== undefined && t - last < cooldownMs) return false;
-    }
+    if (this.withinCooldown(key, t, cooldownMs)) return false;
     const category = KIND_CATEGORY[input.kind];
     let sent = false;
     for (const row of this.store.listPushSubs()) {
@@ -412,6 +406,16 @@ export class PushService {
     }
     if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
     return sent;
+  }
+
+  /** True when a prior send under `key` still falls inside the cooldown window.
+   *  Suppresses repeats within the window of the last send that actually fired; a
+   *  sustained flap stays suppressed until a full quiet window passes. Distinct
+   *  kinds (done vs blocked) live under separate keys and never collapse. */
+  private withinCooldown(key: string, t: number, cooldownMs: number): boolean {
+    if (cooldownMs <= 0) return false;
+    const last = this.lastNotified.get(key);
+    return last !== undefined && t - last < cooldownMs;
   }
 
   /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */

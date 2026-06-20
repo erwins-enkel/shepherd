@@ -98,10 +98,7 @@ export class ReadyNotifier {
     this.ticking = true;
     try {
       if (!this.deps.reducedMode()) {
-        // Mode OFF resets everything; the next ON re-seeds.
-        this.dwell.clear();
-        this.firstSeen.clear();
-        this.armed = false;
+        this.resetOff();
         return;
       }
 
@@ -111,56 +108,87 @@ export class ReadyNotifier {
       const git = this.deps.gitSnapshot();
       const reviewing = new Set(this.deps.reviewingIds());
       const isReviewing = (id: string) => reviewing.has(id);
-      const activeIds = new Set(sessions.map((s) => s.id));
 
-      // Prune state for sessions that disappeared.
-      for (const id of [...this.dwell.keys()]) if (!activeIds.has(id)) this.dwell.delete(id);
-      for (const id of [...this.firstSeen.keys()])
-        if (!activeIds.has(id)) this.firstSeen.delete(id);
-
-      // Warm-up baseline from first sighting.
-      for (const s of sessions) if (!this.firstSeen.has(s.id)) this.firstSeen.set(s.id, now);
+      this.syncSeen(sessions, now);
 
       // Seed on arm (off→on transition / first armed tick): mark currently-ready
       // sessions as already-notified and fire nothing this tick.
       if (!this.armed) {
-        this.armed = true;
-        for (const s of sessions) {
-          if (this.isReady(s, git[s.id], isReviewing, wb, now)) {
-            this.dwell.set(s.id, { since: now, notified: true });
-          }
-        }
+        this.seedOnArm(sessions, git, isReviewing, wb, now);
         return;
       }
 
       // Normal evaluation. Sequential awaits (no Promise.all) so `ticking` genuinely
       // serializes I/O; fine for the session counts involved.
       for (const s of sessions) {
-        const ready = this.isReady(s, git[s.id], isReviewing, wb, now);
-        const entry = this.dwell.get(s.id);
-        if (!ready) {
-          if (entry) this.dwell.delete(s.id); // resets dwell + notified
-          continue;
-        }
-        if (!entry) {
-          this.dwell.set(s.id, { since: now, notified: false });
-          continue;
-        }
-        if (entry.notified) continue;
-        if (now - entry.since < READY_DWELL_MS) continue; // dwell not met
-        if (now - (this.firstSeen.get(s.id) ?? now) < READY_WARMUP_MS) continue; // warm-up not met
-
-        const sent = await this.deps.notify({
-          kind: "ready",
-          sessionId: s.id,
-          tag: `ready:${s.id}`,
-          name: s.name ?? s.id,
-          cooldownKey: `ready:${s.id}`,
-        });
-        if (sent) entry.notified = true; // ONLY mark on a real send
+        await this.evaluateSession(s, git, isReviewing, wb, now);
       }
     } finally {
       this.ticking = false;
     }
+  }
+
+  /** Mode OFF resets everything; the next ON re-seeds. */
+  private resetOff(): void {
+    this.dwell.clear();
+    this.firstSeen.clear();
+    this.armed = false;
+  }
+
+  /** Prune state for vanished sessions, then record the warm-up baseline for new ones. */
+  private syncSeen(sessions: Session[], now: number): void {
+    const activeIds = new Set(sessions.map((s) => s.id));
+    for (const id of [...this.dwell.keys()]) if (!activeIds.has(id)) this.dwell.delete(id);
+    for (const id of [...this.firstSeen.keys()]) if (!activeIds.has(id)) this.firstSeen.delete(id);
+    // Warm-up baseline from first sighting.
+    for (const s of sessions) if (!this.firstSeen.has(s.id)) this.firstSeen.set(s.id, now);
+  }
+
+  /** First armed tick: mark currently-ready sessions already-notified, fire nothing. */
+  private seedOnArm(
+    sessions: Session[],
+    git: Record<string, GitState>,
+    isReviewing: (id: string) => boolean,
+    wb: Record<string, boolean>,
+    now: number,
+  ): void {
+    this.armed = true;
+    for (const s of sessions) {
+      if (this.isReady(s, git[s.id], isReviewing, wb, now)) {
+        this.dwell.set(s.id, { since: now, notified: true });
+      }
+    }
+  }
+
+  /** Per-session ready/entry/dwell/warm-up/fire decision; awaits the send when it fires. */
+  private async evaluateSession(
+    s: Session,
+    git: Record<string, GitState>,
+    isReviewing: (id: string) => boolean,
+    wb: Record<string, boolean>,
+    now: number,
+  ): Promise<void> {
+    const ready = this.isReady(s, git[s.id], isReviewing, wb, now);
+    const entry = this.dwell.get(s.id);
+    if (!ready) {
+      if (entry) this.dwell.delete(s.id); // resets dwell + notified
+      return;
+    }
+    if (!entry) {
+      this.dwell.set(s.id, { since: now, notified: false });
+      return;
+    }
+    if (entry.notified) return;
+    if (now - entry.since < READY_DWELL_MS) return; // dwell not met
+    if (now - (this.firstSeen.get(s.id) ?? now) < READY_WARMUP_MS) return; // warm-up not met
+
+    const sent = await this.deps.notify({
+      kind: "ready",
+      sessionId: s.id,
+      tag: `ready:${s.id}`,
+      name: s.name ?? s.id,
+      cooldownKey: `ready:${s.id}`,
+    });
+    if (sent) entry.notified = true; // ONLY mark on a real send
   }
 }

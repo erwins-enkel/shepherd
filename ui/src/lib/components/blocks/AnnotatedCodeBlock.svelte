@@ -20,8 +20,7 @@
     <ul class="acb-annotations">
       {#each block.annotations as ann, i (i)}
         <li class="acb-ann">
-          {#if ann.label}<strong>{ann.label}</strong>
-          {/if}{ann.note}
+          {#if ann.label}<strong>{ann.label}</strong>{/if}{ann.label ? " " : ""}{ann.note}
         </li>
       {/each}
     </ul>

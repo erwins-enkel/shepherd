@@ -1676,5 +1676,7 @@
   "feat_learnings_retire_push_title": "Push-Benachrichtigung beim Auto-Zurückziehen",
   "feat_learnings_retire_push_body": "Wenn der tägliche Hintergrundlauf leistungsschwache Hausregeln zurückzieht, erhältst du jetzt eine Push-Benachrichtigung – so erfährst du davon, ohne das Learnings-Panel zu öffnen. Tippe darauf, um die zurückgezogenen Regeln zu prüfen und versehentlich zurückgezogene wiederherzustellen.",
   "feat_learnings_repo_glyph_title": "Repo auf einen Blick in den Erkenntnissen",
-  "feat_learnings_repo_glyph_body": "Jede Repo-Gruppe im Erkenntnisse-Panel zeigt jetzt das Projekt-Emoji (oder das ▣-Symbol) neben dem Namen – genau wie die Session-Karten – damit klar ist, zu welchem Repo eine Erkenntnis gehört."
+  "feat_learnings_repo_glyph_body": "Jede Repo-Gruppe im Erkenntnisse-Panel zeigt jetzt das Projekt-Emoji (oder das ▣-Symbol) neben dem Namen – genau wie die Session-Karten – damit klar ist, zu welchem Repo eine Erkenntnis gehört.",
+  "feat_ios_text_size_title": "Berücksichtigt deine iOS-Textgröße",
+  "feat_ios_text_size_body": "Auf iPhone und iPad folgt die Home-Bildschirm-App von Shepherd jetzt der System-Textgröße (Kontrollzentrum oder Einstellungen → Anzeige & Helligkeit → Textgröße). Die gesamte Oberfläche skaliert mit dem Regler – größer für Lesbarkeit oder kleiner für Dichte – und behält in der Standardstellung das aktuelle Erscheinungsbild bei."
 }

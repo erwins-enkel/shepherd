@@ -1676,5 +1676,7 @@
   "feat_learnings_retire_push_title": "Auto-retire push notifications",
   "feat_learnings_retire_push_body": "When the daily background pass retires underperforming house rules, you now get a push notification so you learn of it without opening the Learnings drawer. Tap it to review the retired rules and restore any retired by mistake.",
   "feat_learnings_repo_glyph_title": "Repo at a glance in Learnings",
-  "feat_learnings_repo_glyph_body": "Each repo's group in the Learnings drawer now shows its project emoji (or the ▣ marker) beside the name — just like session cards — so it's clear which repo a learning belongs to."
+  "feat_learnings_repo_glyph_body": "Each repo's group in the Learnings drawer now shows its project emoji (or the ▣ marker) beside the name — just like session cards — so it's clear which repo a learning belongs to.",
+  "feat_ios_text_size_title": "Respects your iOS text size",
+  "feat_ios_text_size_body": "On iPhone and iPad, Shepherd's home-screen app now follows the system Text Size setting (Control Center, or Settings → Display & Brightness → Text Size). The whole interface scales with the slider — larger for readability or smaller for density — preserving the current look at the default position."
 }

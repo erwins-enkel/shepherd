@@ -63,13 +63,22 @@
 
   /* Type scale — single source of truth. 6 deliberate rungs anchored on
      DESIGN.md's 11px (label/numeric) + 13px (title/body); 10px is the floor for
-     dense chrome. Replaces ~16 drifted ad-hoc sizes. */
-  --fs-micro: 10px;
-  --fs-meta: 11px;
-  --fs-base: 13px;
-  --fs-lg: 16px;
-  --fs-xl: 20px;
-  --fs-2xl: 22px;
+     dense chrome. Replaces ~16 drifted ad-hoc sizes.
+
+     Every rung is multiplied by --ui-scale so the whole scale honors the iOS
+     system Text Size (Dynamic Type) setting. --ui-scale is 1 everywhere by
+     default (desktop/Android render at the exact px above, unchanged); on iOS
+     Safari the pre-paint probe in app.html sets it to the user's Dynamic Type
+     ratio (1.0 at the default slider position), so the design is preserved at
+     default and scales proportionally as the slider moves. The fallback `1`
+     keeps sizing correct if the script never runs. */
+  --ui-scale: 1;
+  --fs-micro: calc(10px * var(--ui-scale));
+  --fs-meta: calc(11px * var(--ui-scale));
+  --fs-base: calc(13px * var(--ui-scale));
+  --fs-lg: calc(16px * var(--ui-scale));
+  --fs-xl: calc(20px * var(--ui-scale));
+  --fs-2xl: calc(22px * var(--ui-scale));
 
   /* Fixed mobile action bar (list screen) — single source so the bar's sizing
      and the list's padding-bottom reservation can't drift. The bar's own
@@ -321,10 +330,13 @@ button {
    drift back under the threshold. The `:is()` wrapper deliberately lends the
    bare `textarea`/`select` the input arm's specificity (0,3,1), so this beats
    Svelte-scoped component rules like `.ep-search.svelte-x` (0,2,0) or
-   `textarea.svelte-x` (0,1,1) that set a smaller desktop size. */
+   `textarea.svelte-x` (0,1,1) that set a smaller desktop size.
+   max(16px, …) keeps the guard hard: --fs-lg now scales with the iOS Text Size
+   setting (--ui-scale), so a *smaller* Dynamic Type choice could otherwise push
+   --fs-lg under 16px and bring the focus-zoom back; the floor stays absolute. */
 @media (max-width: 768px) {
   :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
-    font-size: var(--fs-lg);
+    font-size: max(16px, var(--fs-lg));
   }
 }
 

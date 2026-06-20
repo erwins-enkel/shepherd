@@ -2,7 +2,6 @@
   import { onMount, untrack } from "svelte";
   import {
     getSettings,
-    putSettings,
     putRemoteControl,
     putSessionHousekeeping,
     putPrReviewCyclesCap,
@@ -15,51 +14,17 @@
     putUsageHoldEnabled,
     putUsageHoldPct,
     putFableAvailable,
-    listDirs,
-    getDiagnostics,
-    fixDiagnostic,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
-  import {
-    MODELS,
-    PREMIUM_MODELS,
-    type DirListing,
-    type HerdrUpdateStatus,
-    type DiagnosticCheck,
-  } from "$lib/types";
-  import DiagnoseRows from "$lib/components/DiagnoseRows.svelte";
-  import PwaInstallRow from "$lib/components/PwaInstallRow.svelte";
+  import { MODELS, PREMIUM_MODELS, type HerdrUpdateStatus, type DiagnosticCheck } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
-  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import SettingsWorkspacePanel from "$lib/components/settings/SettingsWorkspacePanel.svelte";
+  import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
+  import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
-  import {
-    pushState,
-    enablePush,
-    disablePush,
-    getPushCategories,
-    setPushCategories,
-    type PushStatus,
-    type PushCategories,
-  } from "$lib/push";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
-  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
-
-  // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
-  // but on phones the ActionBar hides it and it was dropped from the top bar,
-  // so Settings (reachable via the gear from any mobile screen) is its home.
-  const THEMES: { pref: ThemePref; icon: "moon" | "sun" | "auto"; label: () => string }[] = [
-    { pref: "dark", icon: "moon", label: m.theme_dark },
-    { pref: "light", icon: "sun", label: m.theme_light },
-    { pref: "system", icon: "auto", label: m.theme_system },
-  ];
-
-  // Build/repo facts ($lib/build-info) come from the same source the desktop
-  // ActionBar footer uses. That footer is hidden on mobile, so the Device tab is
-  // where phone users read them (mirrors the theme picker, surfaced for the same
-  // reason).
 
   // Settings group into three jobs so the modal never outgrows the viewport:
   // WORKSPACE (which repo root), SESSION (how agents start + steer), DEVICE
@@ -124,21 +89,6 @@
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
 
-  let currentRoot = $state(""); // the persisted root (display form)
-  let listing = $state<DirListing | null>(null);
-  let loading = $state(false);
-  let saving = $state(false);
-  let error = $state<string | null>(null);
-  let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
-  let pushBusy = $state(false);
-  let categories = $state<PushCategories>({ agent: true, reviews: true, ci: true });
-
-  // Category metadata drives the checkbox list; keys index into `categories`.
-  const categoryRows: { key: keyof PushCategories; label: () => string }[] = [
-    { key: "agent", label: () => m.settings_push_cat_agent() },
-    { key: "reviews", label: () => m.settings_push_cat_reviews() },
-    { key: "ci", label: () => m.settings_push_cat_ci() },
-  ];
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
@@ -184,55 +134,6 @@
   // Fable availability — operator kill-switch while Fable is globally unavailable.
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
-
-  // Diagnose tab — local checks + re-run state.
-  // untrack: initialDiagnostics is intentionally only read once as the seed value.
-  let diagChecks = $state<DiagnosticCheck[] | null>(untrack(() => initialDiagnostics ?? null));
-  let diagBusy = $state(false);
-  let diagError = $state<string | null>(null);
-
-  async function rerunDiagnostics() {
-    if (diagBusy) return;
-    diagBusy = true;
-    diagError = null;
-    try {
-      const snap = await getDiagnostics(true);
-      diagChecks = snap.checks;
-    } catch {
-      diagError = m.diagnostics_rerun_error();
-    } finally {
-      diagBusy = false;
-    }
-  }
-
-  // One-click fix: run the check's remediation server-side, re-render from the
-  // re-probed snapshot. Fail closed on two levels: a non-2xx surfaces a persistent,
-  // deduped failure toast (and rethrows so DiagnoseRows clears busy); a 2xx whose
-  // re-probe shows the target check STILL not ok (the command exited 0 but didn't
-  // clear it) surfaces a persistent "unresolved" toast — never a green success.
-  async function fixCheck(checkId: string) {
-    try {
-      const snap = await fixDiagnostic(checkId);
-      diagChecks = snap.checks;
-      const cleared = snap.checks.find((c) => c.id === checkId)?.state === "ok";
-      if (cleared) {
-        toasts.info(m.diagnostics_fix_success(), { duration: 3000 });
-      } else {
-        toasts.info(m.diagnostics_fix_unresolved(), {
-          duration: null,
-          alert: true,
-          key: `diagnose-fix:${checkId}`,
-        });
-      }
-    } catch {
-      toasts.info(m.diagnostics_fix_failed(), {
-        duration: null,
-        alert: true,
-        key: `diagnose-fix:${checkId}`,
-      });
-      throw new Error("fix failed");
-    }
-  }
 
   async function savePrReviewCycles() {
     if (prRcyBusy) return;
@@ -517,47 +418,9 @@
     }
   }
 
-  async function refreshPush() {
-    push = await pushState();
-    if (push.subscribed) categories = await getPushCategories();
-  }
-
-  async function toggleCategory(key: keyof PushCategories) {
-    const prev = categories;
-    const next = { ...categories, [key]: !categories[key] };
-    categories = next; // optimistic; server is authoritative at send time
-    if (!(await setPushCategories(next))) categories = prev; // persist failed → revert
-  }
-
-  async function togglePush() {
-    if (pushBusy) return;
-    pushBusy = true;
-    try {
-      if (push.subscribed) await disablePush();
-      else await enablePush();
-      await refreshPush();
-    } finally {
-      pushBusy = false;
-    }
-  }
-
-  async function browse(path?: string) {
-    loading = true;
-    error = null;
-    try {
-      listing = await listDirs(path);
-    } catch (e) {
-      error = e instanceof Error ? e.message : "failed to list directory";
-    } finally {
-      loading = false;
-    }
-  }
-
   onMount(async () => {
-    await refreshPush();
     try {
       const s = await getSettings();
-      currentRoot = s.repoRootDisplay;
       remoteControl = s.remoteControlAtStartup;
       housekeeping = s.sessionHousekeepingEnabled;
       retentionDays = s.sessionRetentionDays;
@@ -581,39 +444,10 @@
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
       fableAvailable = s.fableAvailable;
-      await browse(s.repoRoot);
     } catch {
-      await browse();
-    }
-    // Seed diagnose tab: if no pre-seeded checks from the store, fetch once on mount.
-    if (diagChecks === null) {
-      try {
-        const snap = await getDiagnostics();
-        diagChecks = snap.checks;
-      } catch {
-        // diagnostics unavailable — panel shows empty state gracefully
-      }
+      // settings load failed — session fields keep their defaults
     }
   });
-
-  const isCurrent = $derived(
-    listing != null && currentRoot !== "" && listing.display === currentRoot,
-  );
-
-  async function useThisFolder() {
-    if (!listing || saving) return;
-    saving = true;
-    error = null;
-    try {
-      const s = await putSettings(listing.path);
-      currentRoot = s.repoRootDisplay;
-      onsaved?.(s.repoRoot);
-      onclose?.();
-    } catch (e) {
-      error = e instanceof Error ? e.message : "failed to save";
-      saving = false;
-    }
-  }
 </script>
 
 <div
@@ -683,66 +517,7 @@
       tabindex="0"
       hidden={tab !== "workspace"}
     >
-      <div class="cur">
-        <span class="micro">{m.settings_current_root_label()}</span>
-        <code>{currentRoot || "—"}</code>
-      </div>
-
-      <span class="micro path-label">{m.settings_browse_label()}</span>
-      <div class="crumbs">
-        <button
-          type="button"
-          class="up"
-          disabled={!listing?.parent || loading}
-          onclick={() => listing?.parent && browse(listing.parent)}
-          title={m.settings_up_level()}
-        >
-          ↑
-        </button>
-        <code class="here">{listing?.display ?? "…"}</code>
-      </div>
-
-      <div class="list">
-        {#if loading}
-          <div class="placeholder">{m.settings_loading()}</div>
-        {:else if listing && listing.entries.length === 0}
-          <div class="placeholder">{m.settings_no_subfolders()}</div>
-        {:else if listing}
-          {#each listing.entries as e (e.path)}
-            <button type="button" class="row" onclick={() => browse(e.path)}>
-              <span class="ico">▸</span><span class="nm">{e.name}</span>
-              <span class="chev">›</span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-
-      {#if error}<div class="err">{error}</div>{/if}
-
-      <button
-        class="run"
-        type="button"
-        disabled={!listing || saving || isCurrent}
-        onclick={useThisFolder}
-      >
-        {#if saving}
-          {m.settings_saving()}
-        {:else if isCurrent}
-          {m.settings_already_current()}
-        {:else}
-          {m.settings_use_folder()}
-        {/if}
-      </button>
-      {#if onclone}
-        <button type="button" class="clone-trigger" onclick={() => onclone?.()}
-          >{m.clonerepo_trigger()}</button
-        >
-      {/if}
-      {#if onfork}
-        <button type="button" class="clone-trigger" onclick={() => onfork?.()}
-          >{m.forkrepo_trigger()}</button
-        >
-      {/if}
+      <SettingsWorkspacePanel {onclone} {onfork} {onsaved} {onclose} />
     </div>
 
     <div
@@ -1003,111 +778,7 @@
       tabindex="0"
       hidden={tab !== "device"}
     >
-      <div class="theme-row">
-        <span class="micro">{m.actionbar_theme_group_aria()}</span>
-        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-          {#each THEMES as t (t.pref)}
-            <button
-              type="button"
-              class="t-opt"
-              class:on={theme.pref === t.pref}
-              aria-pressed={theme.pref === t.pref}
-              aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
-            >
-          {/each}
-        </div>
-      </div>
-      <div class="contrast-row">
-        <span class="micro">{m.settings_contrast_title()}</span>
-        <p class="hint">{m.settings_contrast_hint()}</p>
-        <button
-          type="button"
-          class="toggle"
-          role="switch"
-          aria-checked={theme.contrast}
-          onclick={() => theme.toggleContrast()}
-        >
-          <span class="track" class:on={theme.contrast}><span class="knob"></span></span>
-          <span class="state"
-            >{theme.contrast ? m.settings_contrast_on() : m.settings_contrast_off()}</span
-          >
-        </button>
-      </div>
-      <div class="rc">
-        <span class="micro">{m.settings_colorblind_title()}</span>
-        <p class="hint">{m.settings_colorblind_hint()}</p>
-        <button
-          type="button"
-          class="toggle"
-          role="switch"
-          aria-checked={theme.colorblind}
-          onclick={() => theme.toggleColorblind()}
-        >
-          <span class="track" class:on={theme.colorblind}><span class="knob"></span></span>
-          <span class="state"
-            >{theme.colorblind ? m.settings_colorblind_on() : m.settings_colorblind_off()}</span
-          >
-        </button>
-      </div>
-      <div class="push">
-        <span class="micro">{m.settings_push_title()}</span>
-        {#if !push.supported}
-          <p class="hint">{m.settings_push_unsupported()}</p>
-        {:else if push.permission === "denied"}
-          <p class="hint">{m.settings_push_denied()}</p>
-        {:else}
-          <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
-            {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
-          </button>
-          {#if push.subscribed}
-            <fieldset class="cats">
-              <legend class="micro">{m.settings_push_cat_title()}</legend>
-              {#each categoryRows as row (row.key)}
-                <label class="cat">
-                  <input
-                    type="checkbox"
-                    checked={categories[row.key]}
-                    onchange={() => toggleCategory(row.key)}
-                  />
-                  <span>{row.label()}</span>
-                </label>
-              {/each}
-            </fieldset>
-          {/if}
-        {/if}
-      </div>
-      <div class="about">
-        <span class="micro">{m.settings_about_title()}</span>
-        <p class="hint">{m.settings_about_blurb()}</p>
-        <dl class="about-grid">
-          <dt>{m.settings_about_version()}</dt>
-          <dd>
-            v{version}
-            <button type="button" class="clone-trigger whatsnew-btn" onclick={() => onwhatsnew?.()}
-              >{m.whatsnew_open()}</button
-            >
-          </dd>
-          <dt>{m.settings_about_commit()}</dt>
-          <dd>
-            <a
-              href={commitUrl}
-              target="_blank"
-              rel="external noreferrer noopener"
-              title={m.actionbar_commit_title({ sha })}>{sha}</a
-            >
-          </dd>
-          <dt>{m.settings_about_repo()}</dt>
-          <dd>
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="external noreferrer noopener"
-              title={m.actionbar_repo_link({ repo: REPO })}>{REPO}</a
-            >
-          </dd>
-        </dl>
-      </div>
+      <SettingsDevicePanel {onwhatsnew} />
     </div>
 
     <div
@@ -1118,20 +789,7 @@
       tabindex="0"
       hidden={tab !== "diagnose"}
     >
-      <div class="rc">
-        <span class="micro">{m.diagnostics_title()}</span>
-        <p class="hint">{m.diagnostics_subtitle()}</p>
-      </div>
-      <DiagnoseRows checks={diagChecks} onfix={fixCheck} />
-      <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
-           row renders independently of the server snapshot's load/fail/empty state. -->
-      <PwaInstallRow />
-      {#if diagError}
-        <p class="hint err">{diagError}</p>
-      {/if}
-      <button type="button" class="run" disabled={diagBusy} onclick={rerunDiagnostics}>
-        {diagBusy ? m.common_loading() : m.diagnostics_rerun()}
-      </button>
+      <SettingsDiagnosePanel {initialDiagnostics} />
     </div>
   </div>
 </div>
@@ -1288,171 +946,6 @@
     color: var(--color-green);
     font-size: var(--fs-xl);
     line-height: 1;
-  }
-  .cur {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    border: 1px solid var(--color-line);
-    background: var(--color-inset);
-    padding: 8px 10px;
-    border-radius: 2px;
-  }
-  .cur code {
-    color: var(--color-amber);
-    font-size: var(--fs-base);
-    word-break: break-all;
-  }
-  .path-label {
-    margin-top: 4px;
-  }
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .up {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 5px 9px;
-    border-radius: 2px;
-    cursor: pointer;
-  }
-  .up:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  .here {
-    color: var(--color-ink-bright);
-    font-size: var(--fs-base);
-    word-break: break-all;
-  }
-  .list {
-    border: 1px solid var(--color-line);
-    background: var(--color-inset);
-    border-radius: 2px;
-    max-height: 280px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  .placeholder {
-    padding: 14px 12px;
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--color-line);
-    color: var(--color-ink-bright);
-    font: inherit;
-    font-size: var(--fs-base);
-    text-align: left;
-    padding: 9px 11px;
-    cursor: pointer;
-  }
-  .row:last-child {
-    border-bottom: 0;
-  }
-  .row:hover {
-    background: var(--color-panel);
-  }
-  .ico {
-    opacity: 0.85;
-  }
-  .nm {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .chev {
-    color: var(--color-faint);
-  }
-  .err {
-    color: var(--color-red);
-    font-size: var(--fs-meta);
-    margin-top: 2px;
-  }
-  .run {
-    border: 1px solid var(--color-amber);
-    color: var(--color-amber);
-    background: transparent;
-    padding: 9px 14px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    cursor: pointer;
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
-  }
-  .run:disabled {
-    opacity: 0.5;
-    cursor: default;
-    box-shadow: none;
-  }
-  /* Secondary/outline button — same shape as .run but uses the panel's neutral
-     line colour rather than amber, so it reads as a lower-priority action. */
-  .clone-trigger {
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-ink);
-    background: var(--color-inset);
-    padding: 9px 14px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    cursor: pointer;
-  }
-  .clone-trigger:hover {
-    color: var(--color-ink-bright);
-    border-color: var(--color-ink);
-  }
-  .whatsnew-btn {
-    padding: 4px 8px;
-    vertical-align: middle;
-    margin-left: 6px;
-  }
-  .push {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .push .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .cats {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    border: 0;
-    margin: 2px 0 0;
-    padding: 0;
-  }
-  .cats legend {
-    padding: 0;
-    margin-bottom: 4px;
-  }
-  .cat {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-base);
-    cursor: pointer;
-  }
-  .cat input {
-    cursor: pointer;
   }
   .rc {
     display: flex;
@@ -1638,85 +1131,6 @@
     text-transform: uppercase;
     color: var(--color-ink-bright);
   }
-  /* The theme switcher and high-contrast toggle live in the Settings dialog on
-     every viewport so the menu reads identically on mobile and desktop — desktop
-     additionally mirrors the theme switcher in the ActionBar for quick access. */
-  .theme-row,
-  .contrast-row {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .contrast-row .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .theme-seg {
-    display: flex;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    overflow: hidden;
-    align-self: flex-start;
-  }
-  .t-opt {
-    background: transparent;
-    border: 0;
-    border-left: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 0 16px;
-    min-height: 44px;
-    cursor: pointer;
-  }
-  .t-opt:first-child {
-    border-left: 0;
-  }
-  .t-opt.on {
-    color: var(--color-amber);
-    background: var(--color-inset);
-  }
-  /* The about block — blurb plus the version / commit / repo rows — shows on
-     every viewport; desktop additionally surfaces the same metadata in the
-     ActionBar footer. */
-  .about {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 4px;
-    border-top: 1px solid var(--color-line);
-    padding-top: 12px;
-  }
-  .about .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .about-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 14px;
-    margin: 0;
-  }
-  .about-grid dt {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-  }
-  .about-grid dd {
-    margin: 0;
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
-    word-break: break-all;
-  }
-  .about-grid a {
-    color: var(--color-amber);
-    text-decoration: none;
-  }
-  .about-grid a:hover {
-    text-decoration: underline;
-  }
 
   @media (max-width: 768px) {
     .overlay {
@@ -1730,17 +1144,6 @@
       max-height: none;
       border: 0;
       overflow: hidden;
-    }
-    /* Lift the list cap on mobile: the list flexes to fill the bounded panel
-       and stays the single scroll region (button pinned below), instead of a
-       capped list nested inside a separately-scrolling panel. */
-    .list {
-      max-height: none;
-    }
-    .row,
-    .up,
-    .run {
-      min-height: 44px;
     }
   }
 </style>

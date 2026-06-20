@@ -376,11 +376,14 @@ describe("reapFallowCaches", () => {
     const dir = join(root, name);
     mkdirSync(dir);
 
+    // roots: [root] isolates this assertion from foreign fallow-audit-base-cache-* dirs
+    // the real fallow tool / a concurrent test process leaves in the system tmpdir (#817).
     const res = await reapFallowCaches({
       now: Date.now(),
       staleMs: 24 * 3600_000,
       fsOps: fsp,
       log: () => {},
+      roots: [root],
     });
 
     expect(res.removed).toBe(0);
@@ -397,11 +400,14 @@ describe("reapFallowCaches", () => {
     const old = new Date(now - 48 * 3600_000);
     utimesSync(otherDir, old, old);
 
+    // roots: [root] isolates this assertion from foreign fallow-audit-base-cache-* dirs
+    // the real fallow tool / a concurrent test process leaves in the system tmpdir (#817).
     const res = await reapFallowCaches({
       now,
       staleMs: 24 * 3600_000,
       fsOps: fsp,
       log: () => {},
+      roots: [root],
     });
 
     expect(res.removed).toBe(0);
@@ -419,11 +425,14 @@ describe("reapFallowCaches", () => {
     writeFileSync(join(root, `${FALLOW_CACHE_PREFIX}orphan.lock`), "");
     writeFileSync(join(root, `${FALLOW_CACHE_PREFIX}orphan.last-used`), "");
 
+    // roots: [root] isolates this assertion from foreign fallow-audit-base-cache-* dirs
+    // the real fallow tool / a concurrent test process leaves in the system tmpdir (#817).
     const res = await reapFallowCaches({
       now: Date.now(),
       staleMs: 24 * 3600_000,
       fsOps: fsp,
       log: () => {},
+      roots: [root],
     });
 
     // sidecars are skipped, so removed count stays 0; the sidecar files themselves stay
@@ -449,14 +458,17 @@ describe("reapFallowCaches", () => {
     const cleanRoot = mkTmp();
     setEnv("SHEPHERD_TMP_SWEEP_DIR", cleanRoot);
 
-    const res = await reapFallowCaches({
+    await reapFallowCaches({
       now,
       staleMs: 24 * 3600_000,
       fsOps: fsp,
       log: () => {},
     });
 
-    expect(res.removed).toBeGreaterThanOrEqual(1);
+    // Count not asserted: under concurrency a different process's reaper may sweep the dir
+    // first, leaving removed: 0. The dir's removal proves tmpdir() is in the default scan
+    // set (#817) — SHEPHERD_TMP_SWEEP_DIR points to an empty cleanRoot so only the bare
+    // tmpdir() root could have removed it.
     expect(existsSync(dir)).toBe(false);
   });
 
@@ -473,11 +485,14 @@ describe("reapFallowCaches", () => {
     utimesSync(dir, old, old);
 
     // Only provide readdir/stat/rm — no statfs property at all.
+    // roots: [root] isolates this assertion from foreign fallow-audit-base-cache-* dirs
+    // the real fallow tool / a concurrent test process leaves in the system tmpdir (#817).
     const res = await reapFallowCaches({
       now,
       staleMs: 24 * 3600_000,
       fsOps: { readdir: fsp.readdir, stat: fsp.stat, rm: fsp.rm },
       log: () => {},
+      roots: [root],
     });
 
     expect(res.removed).toBe(1);
@@ -495,6 +510,8 @@ describe("reapFallowCaches", () => {
     const old = new Date(now - 48 * 3600_000);
     utimesSync(dir, old, old);
 
+    // roots: [root] isolates this assertion from foreign fallow-audit-base-cache-* dirs
+    // the real fallow tool / a concurrent test process leaves in the system tmpdir (#817).
     const res = await reapFallowCaches({
       now,
       staleMs: 24 * 3600_000,
@@ -506,6 +523,7 @@ describe("reapFallowCaches", () => {
         },
       },
       log: () => {},
+      roots: [root],
     });
 
     // rm threw, so nothing removed — but we did not reject

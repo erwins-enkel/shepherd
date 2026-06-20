@@ -148,6 +148,51 @@ describe("RepoSwitcher — filter rail", () => {
       .toBeVisible();
   });
 
+  it("active chip with insights shows the ✦ count ONCE — telemetry line only, no chip mark (no dup)", async () => {
+    const learnChip = chip({ repoPath: "/repo/alpha", insights: 31 });
+    const { container } = render(RepoSwitcher, {
+      chips: [learnChip, chip({ repoPath: "/repo/beta" })],
+      repoFilter: "/repo/alpha",
+      onrepofilter: () => {},
+    });
+    // the active chip drops its decorative mark...
+    expect(
+      container.querySelector(".rs-learn-mark"),
+      "no decorative ✦ mark on the active chip",
+    ).toBeNull();
+    // ...the actionable ✦ count lives once, in the telemetry detail line below
+    const insightsBtns = container.querySelectorAll(".rs-insights");
+    expect(insightsBtns.length, "exactly one actionable ✦ count").toBe(1);
+    expect(insightsBtns[0].querySelector(".rs-insights-n")?.textContent).toBe("31");
+  });
+
+  it("a NON-active chip with insights keeps its ✦ mark even while another repo is filtered", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [
+        chip({ repoPath: "/repo/alpha", insights: 5 }),
+        chip({ repoPath: "/repo/beta", insights: 9 }),
+      ],
+      repoFilter: "/repo/beta",
+      onrepofilter: () => {},
+    });
+    // beta is active → its chip mark is gone; alpha (inactive) keeps its mark
+    const marks = container.querySelectorAll(".rs-learn-mark");
+    expect(marks.length, "one mark — on the inactive chip only").toBe(1);
+    expect(marks[0].querySelector(".rs-learn-n")?.textContent).toBe("5");
+  });
+
+  it("the active filter chip carries no underline text-decoration", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: "/repo/alpha",
+      onrepofilter: () => {},
+    });
+    const activeChip = container.querySelector<HTMLElement>(".rs-chip.active");
+    expect(activeChip, "active chip present").not.toBeNull();
+    const deco = getComputedStyle(activeChip!).textDecorationLine;
+    expect(deco, "no underline on the active chip").toBe("none");
+  });
+
   it("active-repo detail line appears only when the filtered repo has telemetry", async () => {
     const withTele = chip({
       repoPath: "/repo/alpha",

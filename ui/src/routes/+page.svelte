@@ -35,6 +35,9 @@
     restoreLearning,
     setLearningScope,
     markRetiredSeen,
+    applyMergeSuggestion,
+    dismissMergeSuggestion,
+    mergeSuggestNow,
     getMergedClearable,
     clearMerged,
     getDrain,
@@ -1931,6 +1934,7 @@
     <LearningsDrawer
       items={learnings.items}
       injectable={learnings.injectable}
+      mergeSuggestions={learnings.mergeSuggestions}
       focusRepo={learningsRepo}
       onapprove={(id, rule) =>
         approveLearning(id, rule)
@@ -1970,6 +1974,21 @@
       onseenretired={(repoPath) =>
         markRetiredSeen(repoPath)
           .then(() => learnings.load())
+          .catch(() => {})}
+      onmerge={(suggestionId) =>
+        applyMergeSuggestion(suggestionId)
+          .then(() => {
+            toasts.info(m.learnings_merge_applied());
+            return learnings.load();
+          })
+          .catch(() => toasts.info(m.learnings_merge_failed()))}
+      ondismissmerge={(suggestionId) =>
+        dismissMergeSuggestion(suggestionId)
+          .then(() => learnings.load())
+          .catch(() => {})}
+      onmergenow={(repoPath) =>
+        mergeSuggestNow(repoPath)
+          .then(() => toasts.info(m.learnings_merge_now_started({ repo: basename(repoPath) })))
           .catch(() => {})}
       onclose={() => {
         showLearnings = false;

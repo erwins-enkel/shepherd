@@ -517,6 +517,49 @@ export interface Learning {
   lastEvidenceAt: number | null;
   /** URL of the CLAUDE.md promote PR, set when status becomes `promoted`. */
   promotedPrUrl: string | null;
+  /** When this rule was soft-retired by being consolidated into another rule
+   *  (Phase 4 merge), the id of the surviving rule it was merged into — the retained
+   *  citation. Null otherwise. Cleared on restore; only meaningful while the rule is
+   *  `retired` with `retiredReason === "merged"`. */
+  mergedIntoId: string | null;
+}
+
+/** Phase 4 background merge-suggestion (off the hot path, operator-applied).
+ *  `intra` = a near-duplicate group within one repo, one-click consolidated into a
+ *  surviving rule. `cross` = a rule that recurs across many repos, surfaced as a
+ *  promote-to-global suggestion (display-only for now). */
+export type MergeSuggestionKind = "intra" | "cross";
+export type MergeSuggestionStatus = "pending" | "applied" | "dismissed";
+
+/** A member rule of a merge suggestion, hydrated for display (API payload only). */
+export interface MergeSuggestionMember {
+  id: string;
+  repoPath: string;
+  rule: string;
+  status: LearningStatus;
+}
+
+export interface MergeSuggestion {
+  id: string;
+  kind: MergeSuggestionKind;
+  /** Owning repo for `intra`; null for `cross` (spans repos). */
+  repoPath: string | null;
+  /** Survivor rule id for `intra`; null for `cross`. */
+  targetId: string | null;
+  /** Member rule ids: for `intra` the non-survivor sources to retire; for `cross`
+   *  the recurring rules across repos. */
+  sourceIds: string[];
+  /** Proposed consolidated rule text (`intra`) / canonical recurring text (`cross`). */
+  mergedRule: string;
+  mergedRationale: string;
+  /** For `cross`: the repos the rule recurs in. Null for `intra`. */
+  repoPaths: string[] | null;
+  /** Stable dedupe key derived from the sorted member rule ids ONLY (never text). */
+  signature: string;
+  status: MergeSuggestionStatus;
+  createdAt: number;
+  /** Hydrated member rules (survivor + sources), for the drawer. API payload only. */
+  members?: MergeSuggestionMember[];
 }
 
 /** A manually-submitted task held in the queue pending usage headroom. */

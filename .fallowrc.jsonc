@@ -233,10 +233,10 @@
       {
         "files": ["ui/src/lib/components/LearningsDrawer.svelte"],
         "functions": ["<template>"],
-        "maxCyclomatic": 50,
-        "maxCognitive": 140,
+        "maxCyclomatic": 70,
+        "maxCognitive": 160,
         "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855. Cognitive bar raised 110→130 in #840 (auto-retire UI), then 130→140 in #842: glob-scoped injection added the per-rule scope line + inline editor + 'Scoped' badge to this component (its own UI home), per the established 'next multiple of 10 above current' convention."
+        "reason": "Tier 2 grandfather (#851); refactor candidate #855. Cognitive bar raised 110→130 in #840 (auto-retire UI), 130→140 in #842 (glob-scoped injection UI), then 140→160 (cyclo 50→70) in #843: the background merge-suggestion cards + cross-repo recurrence band + 'Suggest merges' button landed in this component (its own UI home), per the established 'next multiple of 10 above current' convention."
       }
     ],
 

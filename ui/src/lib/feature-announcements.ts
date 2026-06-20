@@ -1254,4 +1254,21 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_scoped_learnings_title",
     bodyKey: "feat_scoped_learnings_body",
   },
+  {
+    // Background merge-suggestion pass (#843): periodically clusters a repo's near-duplicate
+    // house rules and surfaces merge groups in the Learnings drawer for one-click
+    // consolidation. v1.34.0 is the latest released tag → 1.35.0.
+    id: "learnings-merge-suggestions",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_learnings_merge_title",
+    bodyKey: "feat_learnings_merge_body",
+  },
+  {
+    // Cross-repo recurrence (#843): rules that recur across many repos are surfaced as a
+    // suggestion to promote one to a user-global CLAUDE.md. v1.34.0 latest released → 1.35.0.
+    id: "learnings-cross-repo-recurrence",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_learnings_recur_title",
+    bodyKey: "feat_learnings_recur_body",
+  },
 ];

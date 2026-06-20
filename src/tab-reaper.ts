@@ -3,6 +3,7 @@ import type { HerdrDriver } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
+import { MERGE_LABEL } from "./merge-suggest";
 
 export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
 
@@ -34,6 +35,7 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  - `__usage_probe__`   — usage probe (PROBE_NAME)
  *  - `__distill__<hex>`  — distiller (DISTILL_LABEL prefix, unique per run)
  *  - `__optimize__<hex>` — rule optimizer (OPTIMIZE_LABEL prefix, unique per run)
+ *  - `__merge__<hex>`    — background merge-suggestion pass (MERGE_LABEL prefix, unique per run)
  *  - `review <desig>`    — critic / code-review spawns
  *  - `name <desig>`      — background LLM namer
  *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
@@ -47,6 +49,7 @@ export function isShepherdHelperLabel(label: string): boolean {
     label === PROBE_NAME ||
     label.startsWith(DISTILL_LABEL) ||
     label.startsWith(OPTIMIZE_LABEL) ||
+    label.startsWith(MERGE_LABEL) ||
     label === "rundown" ||
     label === "verify api key" ||
     label.startsWith("review ") ||

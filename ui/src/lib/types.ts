@@ -1059,6 +1059,35 @@ export interface Learning {
   updatedAt: number;
   lastEvidenceAt: number | null;
   promotedPrUrl: string | null;
+  // Phase 4: id of the surviving rule this one was merged into when soft-retired by
+  // consolidation (the retained citation). Null otherwise.
+  mergedIntoId?: string | null;
+}
+
+/** Phase 4 background merge-suggestion surfaced in the drawer (operator-applied). */
+export type MergeSuggestionKind = "intra" | "cross";
+
+export interface MergeSuggestionMember {
+  id: string;
+  repoPath: string;
+  rule: string;
+  status: LearningStatus;
+}
+
+export interface MergeSuggestion {
+  id: string;
+  kind: MergeSuggestionKind;
+  repoPath: string | null;
+  targetId: string | null;
+  sourceIds: string[];
+  mergedRule: string;
+  mergedRationale: string;
+  repoPaths: string[] | null;
+  signature: string;
+  status: "pending" | "applied" | "dismissed";
+  createdAt: number;
+  /** Hydrated member rules (survivor first for `intra`). */
+  members?: MergeSuggestionMember[];
 }
 
 /** A learning as it appears in the injectable preview: the rule plus the planner's

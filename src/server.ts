@@ -68,6 +68,7 @@ import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
+  Learning,
   LearningStatus,
   SignalKind,
   SessionPreviewState,
@@ -290,6 +291,11 @@ export interface AppDeps {
       consecutiveFailures: number;
       lastFailure: { reason: string; at: number; repoPath: string } | null;
     };
+  };
+  /** Background merge-suggestion pass — manual per-repo trigger ("Suggest merges now").
+   *  Optional so tests that don't wire it still type-check; route no-ops when absent. */
+  mergeSuggest?: {
+    mergeNow: (repoPath: string) => void;
   };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
@@ -977,6 +983,21 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
     return json({ ...distiller, optimizer });
   }
 
+  // GET /api/learnings/merge-suggestions — pending Phase-4 merge suggestions (intra + cross),
+  // each with its member rules hydrated for the drawer. Stale members (no longer present) are
+  // dropped here; pruneOrphanMergeSuggestions sweeps fully-broken suggestions on the daily pass.
+  if (parts[2] === "merge-suggestions") {
+    const out = deps.store.listMergeSuggestions({ status: "pending" }).map((s) => {
+      const memberIds = [...(s.targetId ? [s.targetId] : []), ...s.sourceIds];
+      const members = memberIds
+        .map((mid) => deps.store.getLearning(mid))
+        .filter((l): l is Learning => l !== null)
+        .map((l) => ({ id: l.id, repoPath: l.repoPath, rule: l.rule, status: l.status }));
+      return { ...s, members };
+    });
+    return json(out);
+  }
+
   // GET /api/learnings?repo=&status=
   if (!parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
@@ -993,14 +1014,69 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
 /** POST /api/learnings/{distill,optimize,seen-retired}?repo= — repo-scoped learning
  *  triggers (matched before :id). Returns null when `parts[2]` is none of these. */
 function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps): Response | null {
-  if (parts[2] !== "distill" && parts[2] !== "optimize" && parts[2] !== "seen-retired") return null;
+  if (
+    parts[2] !== "distill" &&
+    parts[2] !== "optimize" &&
+    parts[2] !== "seen-retired" &&
+    parts[2] !== "merge-suggest"
+  )
+    return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (parts[2] === "distill") deps.distiller?.distillNow(dir);
   else if (parts[2] === "optimize") deps.optimizer?.optimizeAllFlagged(dir);
+  else if (parts[2] === "merge-suggest") deps.mergeSuggest?.mergeNow(dir);
   else if (parts[2] === "seen-retired") {
     deps.store.markRetiredSeen(dir, Date.now());
   }
+  return json({ ok: true });
+}
+
+/** POST /api/learnings/merge — apply an intra-repo merge suggestion (body {suggestionId}).
+ *  Consolidates the group via mergeLearning (survivor counters preserved) + soft-retires the
+ *  other members with a citation, re-validating every member is still active first. */
+async function handleMergeApply(req: Request, deps: AppDeps): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
+  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
+  if (!id) return json({ error: "suggestionId required" }, 400);
+  const s = deps.store.getMergeSuggestion(id);
+  if (!s || s.kind !== "intra" || !s.targetId) return json({ error: "not found" }, 404);
+  if (s.status !== "pending") return json({ error: "already resolved" }, 409);
+  const members = [s.targetId, ...s.sourceIds].map((mid) => deps.store.getLearning(mid));
+  if (members.some((m) => !m || m.status !== "active")) {
+    // A member was promoted/retired/edited since the pass — the merge no longer applies.
+    deps.store.setMergeSuggestionStatus(id, "dismissed");
+    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+    return json({ error: "stale" }, 409);
+  }
+  deps.store.mergeLearning(s.targetId, s.mergedRule, s.mergedRationale || undefined);
+  for (const sid of s.sourceIds) deps.store.retireLearningMerged(sid, s.targetId);
+  deps.store.setMergeSuggestionStatus(id, "applied");
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json({ ok: true });
+}
+
+/** Route the two Phase-4 merge-suggestion POSTs (`merge` apply, `merge-dismiss`). Returns
+ *  null when `parts[2]` is neither, so the caller falls through to the `:id` routes. */
+function handleMergeSuggestionPost(
+  parts: string[],
+  req: Request,
+  deps: AppDeps,
+): Promise<Response> | null {
+  if (parts[2] === "merge" && !parts[3]) return handleMergeApply(req, deps);
+  if (parts[2] === "merge-dismiss") return handleMergeDismiss(req, deps);
+  return null;
+}
+
+/** POST /api/learnings/merge-dismiss — dismiss a merge suggestion (intra or cross), body
+ *  {suggestionId}. The id-signature keeps the same group from being re-suggested. */
+async function handleMergeDismiss(req: Request, deps: AppDeps): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
+  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
+  if (!id) return json({ error: "suggestionId required" }, 400);
+  const updated = deps.store.setMergeSuggestionStatus(id, "dismissed");
+  if (!updated) return json({ error: "not found" }, 404);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
   return json({ ok: true });
 }
 
@@ -1013,9 +1089,13 @@ async function handleLearningPromote(deps: AppDeps, id: string): Promise<Respons
 }
 
 async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  // POST /api/learnings/{distill,optimize}?repo= — checked BEFORE :id so they aren't ids
+  // POST /api/learnings/{distill,optimize,merge-suggest}?repo= — checked BEFORE :id so they aren't ids
   const repoScoped = handleRepoScopedLearningPost(parts, url, deps);
   if (repoScoped) return repoScoped;
+
+  // POST /api/learnings/{merge,merge-dismiss} — apply/dismiss a Phase-4 merge suggestion
+  const mergePost = await handleMergeSuggestionPost(parts, req, deps);
+  if (mergePost) return mergePost;
 
   // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
   if (parts[2] && parts[3] === "promote") return handleLearningPromote(deps, parts[2]);

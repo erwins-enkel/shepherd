@@ -39,13 +39,22 @@ export default defineConfig({
       plugins: [
         starlightTypeDoc({
           entryPoints: ["../src"],
-          tsconfig: "../tsconfig.json",
+          // Dedicated, docs-site-local tsconfig (NOT the root one): scopes the
+          // TypeDoc program to ../src and resolves Bun/node globals from this
+          // package's own @types/bun, so the API reference builds on Vercel where
+          // only docs-site/ is installed. See typedoc.tsconfig.json for the why.
+          tsconfig: "./typedoc.tsconfig.json",
           output: "api",
           sidebar: { label: "API reference", collapsed: true },
           typeDoc: {
             // `expand` documents every .ts under ../src (there is no public-API
             // barrel to use as a single entry point).
             entryPointStrategy: "expand",
+            // Generate docs even if a stray type can't be resolved in the docs-site
+            // install — the docs build must not gate on a type diagnostic (the root
+            // `tsc`/CI is the real type gate). Belt-and-suspenders with the scoped
+            // tsconfig above, which already makes ../src resolve cleanly here.
+            skipErrorChecking: true,
             // Drop the lone test file and the zero-export entry script.
             exclude: ["**/*.test.ts", "**/src/index.ts"],
             readme: "none",

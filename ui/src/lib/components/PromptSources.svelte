@@ -4,7 +4,6 @@
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { issuesFilter } from "$lib/issues-filter.svelte";
 
   let {
@@ -274,7 +273,6 @@
             aria-pressed={issuesFilter.hideSubIssues}
             title={m.issues_filter_subissues_title()}
             onclick={() => issuesFilter.toggleSubIssues()}
-            use:coachTarget={"issues-filter-subissues"}
           >
             {m.issues_filter_subissues_label()}
           </button>

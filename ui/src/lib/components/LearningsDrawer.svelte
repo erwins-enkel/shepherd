@@ -114,7 +114,6 @@
     onoptimize,
     onoptimizeall,
     onrestore,
-    onscope,
     onseenretired,
     onmerge,
     ondismissmerge,

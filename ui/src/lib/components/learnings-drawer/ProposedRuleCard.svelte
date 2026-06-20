@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Action } from "svelte/action";
-  import { untrack } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import type { Learning, SignalKind } from "$lib/types";
   import { evidenceSources } from "../learnings-drawer";
@@ -54,9 +53,11 @@
   };
 
   // Per-card local state (independent, no shared invariant).
-  // Snapshot learning.rule once at mount so the draft diverges from any prop refresh.
-  // untrack signals intentional one-time capture of the reactive prop value.
-  let draft = $state(untrack(() => learning.rule));
+  // "Live until edited, then frozen": an untouched card tracks the live learning.rule prop
+  // (so a poll refresh replacing the rule text updates the textarea and re-fits autosize),
+  // while a user-edited draft stays frozen until the card is approved or dismissed.
+  let edited = $state<string | null>(null);
+  const draft = $derived(edited ?? learning.rule);
   let expanded = $state(false);
 </script>
 
@@ -67,7 +68,7 @@
     data-1p-ignore
     use:autosize={draft}
     value={draft}
-    oninput={(e) => (draft = e.currentTarget.value)}
+    oninput={(e) => (edited = e.currentTarget.value)}
     aria-label={m.learnings_rule_aria()}></textarea>
   {#if learning.rationale}
     <p class="why"><span>{m.learnings_rationale_label()}:</span> {learning.rationale}</p>

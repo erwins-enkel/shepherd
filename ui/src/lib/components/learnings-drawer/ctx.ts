@@ -12,7 +12,6 @@ export type LearningsCtx = {
   onoptimize: (id: string) => void;
   onoptimizeall: (repoPath: string) => void;
   onrestore: (id: string) => void;
-  onscope: (id: string, globs: string[]) => void;
   onseenretired: (repoPath: string) => void;
   onmerge: (suggestionId: string) => void;
   ondismissmerge: (suggestionId: string) => void;

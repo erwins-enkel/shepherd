@@ -176,10 +176,17 @@
       {
         "files": ["ui/src/lib/components/Viewport.svelte"],
         "functions": ["<template>"],
-        "maxCyclomatic": 140,
-        "maxCognitive": 200,
+        "maxCyclomatic": 90,
+        "maxCognitive": 130,
         "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
+        // #855: tightened from 140/200 after extracting ViewportTermBanners,
+        // ViewportTermControls, ViewportTabBar and ViewportHeaderActions into
+        // viewport/ (each well under the Tier-1 40/60 bar). Template fell 136/194
+        // -> 80/121. The residual is the .vp-head identity/rename row + status
+        // zone: deeply nested conditionals whose cognitive cost can't clear the
+        // 60 bar without splitting the nesting into unnatural sub-components, so
+        // it stays grandfathered (just above current) and tracked in #855.
+        "reason": "Tier 2 grandfather (#851), tightened by #855; remaining .vp-head identity/status split tracked in #855."
       },
       {
         "files": ["ui/src/lib/components/TopBar.svelte"],

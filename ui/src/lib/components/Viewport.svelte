@@ -21,7 +21,6 @@
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { tick } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { dialog } from "$lib/a11yDialog";
   import {
     getSessionUsage,
     getTodo,
@@ -30,7 +29,6 @@
     renameSession,
     getLeftovers,
     setSessionAutopilot,
-    startPreview as apiStartPreview,
     stopPreview as apiStopPreview,
     getCommands,
   } from "$lib/api";
@@ -46,11 +44,8 @@
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import SubagentFanout from "$lib/components/SubagentFanout.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
-  import ControlBar from "$lib/components/ControlBar.svelte";
   import { enterKey } from "$lib/controlKeys";
-  import { lockAxis, paneSwipeAction, isSwipeUp, type Axis } from "./swipe";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import ComposeBar from "$lib/components/ComposeBar.svelte";
+  import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
   import GitRail from "$lib/components/GitRail.svelte";
   import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "$lib/components/PlanGateBadge.svelte";
@@ -58,10 +53,13 @@
   import { recaps } from "$lib/recaps.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
-  import RedrawMenu from "$lib/components/RedrawMenu.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import SessionRecap from "$lib/components/SessionRecap.svelte";
+  import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
+  import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
+  import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
+  import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
@@ -308,7 +306,6 @@
   let notesKey = $state<string | null>(null);
   let uploading = $state(false);
   let uploadFailed = $state(false);
-  let fileInput = $state<HTMLInputElement>();
   // platform-correct modifier for the "force local selection" hint: xterm uses
   // Shift on Linux/Windows, Option (⌥) on macOS while the agent holds the mouse.
   // Guarded for SSR (no navigator) → renders the Shift glyph, corrects on hydrate.
@@ -705,138 +702,6 @@
     }
   }
 
-  // ── start preview ──────────────────────────────────────────────────────────
-  // Per-session "start in flight" guard: keyed by session id so it survives
-  // navigating away and back. Cleared on port-bound, error, throw, or 60s timeout.
-  // Single SvelteMap (from svelte/reactivity) doubles as the timer store AND the
-  // reactive presence check — SvelteMap proxies .has()/.set()/.delete() so derived
-  // values re-evaluate correctly (plain Set/Map would not).
-  const previewStartPending = new SvelteMap<string, ReturnType<typeof setTimeout>>();
-  // Teardown: clear all outstanding 60s guard timers so they can't fire after unmount.
-  $effect(() => () => {
-    for (const t of previewStartPending.values()) clearTimeout(t);
-  });
-  // Command-collection popover: shown when the server says it can't auto-detect.
-  let previewCommandOpen = $state(false);
-  let previewCommandDraft = $state("");
-  // Ref for outside-click dismissal of the start-wrap (button + command popover).
-  let previewStartWrapEl = $state<HTMLElement | null>(null);
-  // Two-step confirm for working-agent start: first click arms, second confirms.
-  let previewArmed = $state(false);
-  let previewArmTimer: ReturnType<typeof setTimeout> | undefined;
-  // Disarm + close popover on unit switch; clean up arm timer on unmount.
-  $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
-    unitId;
-    previewArmed = false;
-    previewCommandOpen = false;
-    clearTimeout(previewArmTimer);
-  });
-  $effect(() => () => clearTimeout(previewArmTimer));
-
-  // Clear the pending flag for a session (port bound via WS event).
-  $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
-    previewPort; // re-run whenever previewPort changes for this session
-    if (previewPort != null && previewStartPending.has(unitId)) {
-      clearPreviewPending(unitId);
-    }
-  });
-
-  function setPreviewPending(id: string) {
-    clearPreviewPending(id); // clear any stale timer first
-    const t = setTimeout(() => clearPreviewPending(id), 60_000);
-    previewStartPending.set(id, t);
-  }
-
-  function clearPreviewPending(id: string) {
-    const t = previewStartPending.get(id);
-    if (t !== undefined) clearTimeout(t);
-    previewStartPending.delete(id);
-  }
-
-  const isPreviewStartPending = $derived(previewStartPending.has(unitId));
-
-  async function handleStartPreview(command?: string) {
-    let result;
-    try {
-      result = await apiStartPreview(session.id, command);
-    } catch {
-      clearPreviewPending(session.id);
-      toasts.info(m.viewport_preview_start_failed(), {
-        duration: null,
-        alert: true,
-        key: `preview-start-fail-${session.id}`,
-      });
-      return;
-    }
-
-    if ("needCommand" in result) {
-      // Server can't auto-detect: open the command input popover.
-      // use:dialog handles focus-in via queueMicrotask on mount.
-      previewCommandDraft = command ?? "";
-      previewCommandOpen = true;
-      return;
-    }
-
-    if ("alreadyBound" in result) {
-      toasts.info(m.viewport_preview_already_bound());
-      return;
-    }
-
-    // ok: directive sent. Set pending guard.
-    setPreviewPending(session.id);
-    toasts.info(m.viewport_preview_start_sent({ name: session.name, command: result.command }));
-  }
-
-  async function onStartPreviewClick() {
-    if (isPreviewStartPending) return; // re-entrancy guard
-
-    // Two-step confirm when the agent is actively working: first click arms the
-    // button into a confirm state; second click (within 3s) proceeds. Mirrors
-    // the decommission arm and GitRail merge arm patterns. Raw status by design
-    // (gates an action, not a render) — see displayStatus for the display flag.
-    if (session.status === "running") {
-      if (!previewArmed) {
-        previewArmed = true;
-        clearTimeout(previewArmTimer);
-        previewArmTimer = setTimeout(() => (previewArmed = false), 3000);
-        return;
-      }
-      clearTimeout(previewArmTimer);
-      previewArmed = false;
-      // Re-check pending at the moment of the confirming click.
-      if (isPreviewStartPending) return;
-    }
-
-    await handleStartPreview();
-  }
-
-  async function submitPreviewCommand() {
-    const cmd = previewCommandDraft.trim();
-    if (!cmd) return;
-    previewCommandOpen = false;
-    await handleStartPreview(cmd);
-  }
-
-  function onPreviewCommandKey(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void submitPreviewCommand();
-    }
-    // Esc is handled by use:dialog (closes + restores focus to Start button).
-  }
-
-  // Outside-click dismiss for the command popover + arm state.
-  function onWindowPointerdownPreview(e: PointerEvent) {
-    if (!previewCommandOpen && !previewArmed) return;
-    if (previewStartWrapEl && !previewStartWrapEl.contains(e.target as Node)) {
-      previewCommandOpen = false;
-      previewArmed = false;
-      clearTimeout(previewArmTimer);
-    }
-  }
-
   // ── stop preview ──────────────────────────────────────────────────────────
   // Per-session "stop in flight" guard: keyed by session id. The 15s timer fires
   // a warning toast if the sweep hasn't cleared the port yet (signals-sent ≠ dead).
@@ -1052,7 +917,6 @@
   // variants are repair *candidates* — Kai + Patrick A/B them in the wild and the
   // losers get deleted, so keep each one self-contained and trivially removable.
   let redrawOpen = $state(false);
-  let redrawBtnEl = $state<HTMLButtonElement>();
   // 1) Gentle: shrink the PTY by one column and restore it. Both SIGWINCHes make
   //    Claude Code repaint its visible screen at the (now correct) width. Safe
   //    while the agent is working; doesn't touch deep scrollback.
@@ -1109,77 +973,6 @@
       ended = false;
       resumeEpoch++;
     }
-  });
-
-  // mobile compose bar submit. Routing the composed line through here (as an
-  // atomic bracketed paste) instead of xterm's textarea sidesteps the Android
-  // IME duplication bug. See composeKeystrokes for the byte mapping.
-  function sendComposed(text: string) {
-    conn?.send(composeKeystrokes(text));
-  }
-
-  // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
-  // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
-  // composeDictate opens the sheet already listening — the one-tap ◉ dictate chip sets
-  // it; the compose-first entries (✎, swipe-up) leave it false so the keyboard
-  // comes up to type.
-  let composeOpen = $state(false);
-  let composeDictate = $state(false);
-  let ctrlRowEl: HTMLDivElement | undefined = $state();
-  function openCompose() {
-    composeDictate = false; // compose-first; the ◉ dictate toggle lives inside the sheet too
-    composeOpen = true;
-  }
-  // one-tap dictate: opens the sheet already listening (preserves Kai's original
-  // affordance), a peer of the ✎ compose entry rather than a step inside it.
-  // Gated on Web Speech support so the chip never becomes a dead end where it's
-  // unavailable (e.g. an iOS home-screen PWA); the sheet's own ◉ toggle hides
-  // itself there the same way.
-  const speechSupported =
-    typeof window !== "undefined" &&
-    !!(
-      (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
-      (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
-    );
-  function openDictate() {
-    composeDictate = true;
-    composeOpen = true;
-  }
-  // Swipe up from the ctrl-row gutter to summon the compose sheet — a bottom-edge
-  // gesture, so it never competes with the terminal's vertical scrollback (which
-  // lives above the row). isSwipeUp ignores chip taps and horizontal pane swipes.
-  // Listeners are bound in JS (not inline on the markup) so the row stays a plain
-  // static container — the chips remain the interactive elements.
-  $effect(() => {
-    const row = ctrlRowEl;
-    if (!row) return;
-    let sx = 0;
-    let sy = 0;
-    let dx = 0;
-    let dy = 0;
-    const start = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      sx = e.touches[0].clientX;
-      sy = e.touches[0].clientY;
-      dx = dy = 0;
-    };
-    const move = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      dx = e.touches[0].clientX - sx;
-      dy = e.touches[0].clientY - sy;
-    };
-    const end = () => {
-      if (isSwipeUp(dx, dy, 36)) openCompose();
-      dx = dy = 0;
-    };
-    row.addEventListener("touchstart", start, { passive: true });
-    row.addEventListener("touchmove", move, { passive: true });
-    row.addEventListener("touchend", end);
-    return () => {
-      row.removeEventListener("touchstart", start);
-      row.removeEventListener("touchmove", move);
-      row.removeEventListener("touchend", end);
-    };
   });
 
   $effect(() => {
@@ -1793,8 +1586,6 @@
   });
 </script>
 
-<svelte:window onpointerdown={onWindowPointerdownPreview} />
-
 <div
   class="viewport"
   class:swiping
@@ -2025,114 +1816,18 @@
       {@render renameNoteEl()}
     {/if}
     <div class="spacer"></div>
-    <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
-      <!-- The preview tab is pinned OUTSIDE this scroll strip (it must stay visible
-           while the other tabs scroll), so the tablist owns it via aria-owns rather
-           than DOM containment. Only the preview id is listed: the term/todo/activity/
-           diff tabs are already DOM children and must not be referenced by aria-owns. -->
-      <div
-        class="tab-scroll"
-        role="tablist"
-        aria-label={m.viewport_tablist_aria()}
-        aria-owns={hasPreview ? tabId("preview") : undefined}
-      >
-        <button
-          class="tab-btn"
-          class:active={tab === "term"}
-          role="tab"
-          id={tabId("term")}
-          aria-selected={tab === "term"}
-          aria-controls={vpBodyId}
-          onclick={() => (tab = "term")}>{m.viewport_terminal_tab()}</button
-        >
-        {#if todoExists}
-          <!-- only when the repo has a TODO.md (server-resolved); skips the empty
-               "add your first item" tab so the strip stays meaningful. -->
-          <button
-            class="tab-btn"
-            class:active={tab === "todo"}
-            role="tab"
-            id={tabId("todo")}
-            aria-selected={tab === "todo"}
-            aria-controls={vpBodyId}
-            onclick={() => (tab = "todo")}>{m.viewport_todo_tab()}</button
-          >
-        {/if}
-        <button
-          class="tab-btn"
-          class:active={tab === "activity"}
-          role="tab"
-          id={tabId("activity")}
-          aria-selected={tab === "activity"}
-          aria-controls={vpBodyId}
-          use:coachTarget={"activity-tab"}
-          onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
-        >
-        <button
-          class="tab-btn"
-          class:active={tab === "diff"}
-          role="tab"
-          id={tabId("diff")}
-          aria-selected={tab === "diff"}
-          aria-controls={vpBodyId}
-          onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
-        >
-      </div>
-      {#if hasPreview}
-        <!-- only while the server reports a bound preview listener (single source of
-             truth: the live port). Disappears when the dev server stops. -->
-        <button
-          class="tab-btn preview-tab"
-          class:active={tab === "preview"}
-          role="tab"
-          id={tabId("preview")}
-          aria-selected={tab === "preview"}
-          aria-controls={vpBodyId}
-          onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
-        >
-      {:else if session && !session.archivedAt}
-        <!-- no preview yet: offer operator-triggered start. Icon-only (▶, ▶? when
-             armed) to keep the header slim — full label lives in title + aria.
-             Anchored non-modal (no scrim) — dismiss on Esc + outside-click
-             (svelte:window onpointerdown). -->
-        <span class="preview-start-wrap" bind:this={previewStartWrapEl}>
-          <button
-            class="tab-btn preview-start-btn"
-            class:armed={previewArmed}
-            type="button"
-            disabled={isPreviewStartPending}
-            title={previewArmed
-              ? m.viewport_preview_start_confirm_working()
-              : `${m.viewport_preview_start()}\n${m.viewport_preview_start_note()}`}
-            aria-label={previewArmed
-              ? m.viewport_preview_start_confirm_working()
-              : m.viewport_preview_start()}
-            onclick={onStartPreviewClick}
-            ><span aria-hidden="true">{previewArmed ? "▶?" : "▶"}</span></button
-          >
-          {#if previewCommandOpen}
-            <span
-              class="preview-cmd-pop"
-              role="dialog"
-              aria-label={m.viewport_preview_command_prompt()}
-              use:dialog={{ onclose: () => (previewCommandOpen = false) }}
-            >
-              <span class="pcp-label">{m.viewport_preview_command_prompt()}</span>
-              <input
-                class="pcp-input"
-                type="text"
-                bind:value={previewCommandDraft}
-                placeholder={m.viewport_preview_command_placeholder()}
-                onkeydown={onPreviewCommandKey}
-              />
-              <button class="pcp-send gbtn" type="button" onclick={submitPreviewCommand}
-                >{m.viewport_preview_command_send()}</button
-              >
-            </span>
-          {/if}
-        </span>
-      {/if}
-    </div>
+    <ViewportTabBar
+      bind:tab
+      {session}
+      {previewPort}
+      todoExists={!!todoExists}
+      {hasPreview}
+      {compact}
+      {headerFolded}
+      {vpBodyId}
+      {tabId}
+      {foldRegionId}
+    />
     {#if !compact}
       <span class="sep">·</span>
     {/if}
@@ -2223,163 +1918,28 @@
            co-renders with REVIEWING anywhere. -->
       {#if !reviews.isReviewing(session.id)}<AutopilotBadge {session} />{/if}
     {/if}
-    <!-- trailing controls: on compact/phone they group + wrap together as a
-         right-aligned cluster so the close button never orphans to its own row -->
-    <div class="vp-actions">
-      {#if compact}
-        {@render renameNoteEl()}
-        <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
-             terminal claims the freed height. State persists across sessions. -->
-        <button
-          class="vp-fold icon-btn compact"
-          type="button"
-          aria-expanded={!headerCollapsed}
-          aria-controls={foldRegionId}
-          aria-label={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
-          title={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
-          onclick={toggleFold}
-        >
-          <!-- chevron points the way the secondary chrome moves, per the user's
-               explicit "Pfeil nach unten" request: ▾ while expanded (tap to fold it
-               down/away), ▴ once folded (tap to bring it back up). This intentionally
-               inverts the desktop git-toggle's disclosure caret, which is a separate
-               control that never co-renders with this one. -->
-          <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
-        </button>
-      {/if}
-      <!-- squished-history repair variants under field test (see redrawNudge etc.
-           above) — a quiet icon-only wrench toggle opening an anchored popover with the four
-           candidates. The losing variants get removed after testing. Terminal-tab
-           only: every variant acts on the terminal, so the control can't issue a
-           silent nudge/fullscreen against a hidden mount from another tab (the
-           button unmounting also drops redrawBtnEl, which closes an open menu). -->
-      {#if tab === "term"}
-        <button
-          class="vp-redraw icon-btn"
-          class:compact
-          bind:this={redrawBtnEl}
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={redrawOpen}
-          onclick={() => (redrawOpen = !redrawOpen)}
-          title={m.viewport_redraw_title()}
-          aria-label={m.viewport_redraw_title()}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            ><path
-              d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z"
-            /></svg
-          >
-        </button>
-        {#if redrawOpen && redrawBtnEl}
-          <RedrawMenu
-            anchor={redrawBtnEl}
-            live={!ended && !parked}
-            {resuming}
-            onnudge={redrawNudge}
-            onreattach={redrawReattach}
-            onfullscreen={redrawFullscreen}
-            onresume={redrawResume}
-            onclose={() => (redrawOpen = false)}
-          />
-        {/if}
-      {/if}
-      {#if resumable}
-        <!-- bring claude back when the session is parked (idle/done) — e.g. claude
-             exited to a shell after a herdr restart. Forces a fresh claude --resume. -->
-        <button
-          class="vp-resume"
-          class:icon-btn={compact}
-          class:compact
-          type="button"
-          onclick={() => resumeSession(true)}
-          disabled={resuming}
-          title={m.viewport_resume_title()}
-          aria-label={m.viewport_resume_title()}
-        >
-          <svg
-            class:spin={resuming}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path
-              d="M21 3v5h-5"
-            /></svg
-          >
-          {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
-        </button>
-      {/if}
-      {#if prReady}
-        <!-- earned prominence: once a PR exists the work is delivered, so the
-             decommission nudge surfaces inline (green, arms red on click) — one
-             obvious click+confirm away. Before that, desktop shows the quiet
-             icon-only ✕ below; compact shows the same icon-only ✕ in the git strip. -->
-        <button
-          class="decom"
-          class:armed
-          class:ready={!armed}
-          class:icon-btn={compact}
-          class:compact
-          type="button"
-          onclick={decommission}
-          title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_ready_title()}
-          aria-label={armed
-            ? m.viewport_confirm_decommission()
-            : m.viewport_decommission_ready_aria()}
-        >
-          {#if compact}
-            <!-- armed = destructive confirm: the square fills solid red (no glyph
-                 swap). Never ✓ — that glyph means READY/actionable-complete in the HUD. -->
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
-            >
-          {:else}
-            {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
-          {/if}
-        </button>
-      {:else if !compact}
-        <!-- no PR yet → desktop still keeps decommission one click away, but quiet:
-             a faint icon-only ✕ (the green nudge is earned by delivering a PR).
-             Compact layouts show the same icon-only ✕ in the git strip instead.
-             Same armed treatment as above: the square fills solid red (no glyph
-             swap). Never ✓ — that glyph means READY/actionable-complete. -->
-        <button
-          class="decom quiet icon-btn"
-          class:armed
-          type="button"
-          onclick={decommission}
-          title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
-          aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
-          >
-        </button>
-      {/if}
-    </div>
+    <ViewportHeaderActions
+      {compact}
+      {renaming}
+      {tab}
+      {headerCollapsed}
+      {foldRegionId}
+      {toggleFold}
+      bind:redrawOpen
+      {ended}
+      {parked}
+      {resuming}
+      {resumable}
+      {resumeSession}
+      {prReady}
+      {armed}
+      {decommission}
+      {renameNote}
+      onnudge={redrawNudge}
+      onreattach={redrawReattach}
+      onfullscreen={redrawFullscreen}
+      onresume={redrawResume}
+    />
   </div>
 
   <!-- the git rail gets its own strip when there's no room for it inline:
@@ -2483,45 +2043,20 @@
       }}
       ondrop={onTermDrop}
     ></div>
-    {#if tab === "term" && scrolledUp && !parked}
-      <button
-        class="scroll-bottom"
-        type="button"
-        onclick={scrollToBottom}
-        title={m.viewport_scroll_to_bottom()}
-        aria-label={m.viewport_scroll_to_bottom()}
-      >
-        <span aria-hidden="true">↓</span>
-      </button>
-    {/if}
-    {#if parked && tab === "term"}
-      <button class="parked" type="button" onclick={takeover}>
-        <span class="parked-icon" aria-hidden="true">▶</span>
-        <span class="parked-title">{m.viewport_parked_title()}</span>
-        <span class="parked-sub">{m.viewport_parked_sub()}</span>
-      </button>
-    {/if}
-    {#if ended && !parked && tab === "term" && endReason === "unreachable"}
-      <!-- herdr is down, not the agent — re-attach (no claudeSessionId needed) -->
-      <button class="parked resume" type="button" onclick={reattach}>
-        <span class="parked-icon" aria-hidden="true">↻</span>
-        <span class="parked-title">{m.viewport_reconnect_title()}</span>
-        <span class="parked-sub">{m.viewport_reconnect_sub()}</span>
-      </button>
-    {:else if ended && !parked && tab === "term" && session.claudeSessionId}
-      <button
-        class="parked resume"
-        type="button"
-        onclick={() => resumeSession()}
-        disabled={resuming}
-      >
-        <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
-        <span class="parked-title"
-          >{resumeFailed ? m.viewport_resume_failed() : m.viewport_resume_title()}</span
-        >
-        <span class="parked-sub">{resuming ? m.common_loading() : m.viewport_resume_sub()}</span>
-      </button>
-    {/if}
+    <ViewportTermBanners
+      {tab}
+      {scrolledUp}
+      {parked}
+      {ended}
+      {endReason}
+      {resuming}
+      {resumeFailed}
+      {session}
+      {scrollToBottom}
+      {takeover}
+      {reattach}
+      {resumeSession}
+    />
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -2609,124 +2144,18 @@
 
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
        mobile breakpoint) gets it, since there's no hardware keyboard to steer with -->
-  {#if (mobile || touch) && tab === "term"}
-    <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
-      <!-- Esc frozen on the left edge; Tab/Space + arrows + ^-keys scroll in the
-           middle; attach/dictate/Enter frozen on the right. Tab/Space ride along
-           in the scroll well so the frozen edge stays one button wide — on a
-           portrait phone a wider frozen cluster squeezed the scroll window to ~2
-           keys. There's no compose chip — swipe up from this row to summon the
-           compose sheet. -->
-      <ControlBar onkey={(seq) => conn?.send(seq)} include={["cancel"]} scroll={false} />
-      <ControlBar onkey={(seq) => conn?.send(seq)} include={["edit", "nav", "signal"]} />
-      <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
-           no keyboard on a phone to press the letter, so this is the sole way into
-           the dialog's notes branch; it pulses to catch the eye and vanishes once
-           the prompt does -->
-      {#if notesKey}
-        <button
-          type="button"
-          class="notes"
-          aria-label={m.viewport_notes_aria({ key: notesKey })}
-          onpointerup={(e) => {
-            e.preventDefault();
-            if (notesKey) conn?.send(notesKey);
-          }}>✎ {notesKey.toUpperCase()}</button
-        >
-      {/if}
-      <button
-        type="button"
-        class="attach"
-        class:failed={uploadFailed}
-        title={uploadFailed ? m.viewport_upload_failed() : m.viewport_attach_image()}
-        onclick={() => fileInput?.click()}
-        aria-label={m.viewport_attach_image()}
-      >
-        {#if uploading}
-          <svg
-            class="spin"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path
-              d="M21 3v5h-5"
-            /></svg
-          >
-        {:else if uploadFailed}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            ><path
-              d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-            /><path d="M12 9v4" /><path d="M12 17h.01" /></svg
-          >
-        {:else}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            ><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path
-              d="M12 3v12"
-            /></svg
-          >
-        {/if}
-      </button>
-      {#if speechSupported}
-        <button
-          type="button"
-          class="dictate"
-          title={m.composebar_dictate_aria()}
-          aria-label={m.composebar_dictate_aria()}
-          onpointerdown={(e) => {
-            e.preventDefault();
-            openDictate();
-          }}>{m.composebar_dictate()}</button
-        >
-      {/if}
-      <button
-        type="button"
-        class="enter"
-        aria-label={enter.aria}
-        onpointerup={(e) => {
-          e.preventDefault();
-          conn?.send(enter.seq);
-        }}>{enter.label}</button
-      >
-    </div>
-    {#if composeOpen}
-      <ComposeBar
-        onsend={sendComposed}
-        onclose={() => (composeOpen = false)}
-        repoPath={session.repoPath}
-        startDictation={composeDictate}
-      />
-    {/if}
-    <input
-      bind:this={fileInput}
-      type="file"
-      accept="image/*"
-      multiple
-      hidden
-      onchange={(e) => {
-        const t = e.currentTarget;
-        if (t.files) attachImages(t.files);
-        t.value = "";
-      }}
-    />
-  {/if}
+  <ViewportTermControls
+    {mobile}
+    {touch}
+    {tab}
+    send={(seq) => conn?.send(seq)}
+    {notesKey}
+    {enter}
+    {uploading}
+    {uploadFailed}
+    {attachImages}
+    repoPath={session.repoPath}
+  />
 
   {#if tab !== "activity"}
     <SessionRecap {session} />
@@ -2953,27 +2382,6 @@
 
   .spacer {
     flex: 1;
-  }
-
-  /* desktop: transparent to layout — resume + the decom control (quiet ✕ or
-     ready nudge) flow inline.
-     compact/phone override (see .vp-head.mobile .vp-actions) turns this into a
-     real flex cluster so the trailing controls wrap together. */
-  .vp-actions {
-    display: contents;
-  }
-
-  /* mobile fold toggle: now an .icon-btn.compact — ghost/sizing/hover from recipe.
-     Keep only the Unicode-chevron legibility bits the recipe doesn't provide. */
-  .vp-fold {
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    line-height: 1;
-  }
-  /* folded tabs are display:none rather than removed from the DOM so the active
-     tab + terminal mount survive the toggle (no remount, no PTY teardown) */
-  .tab-group.folded {
-    display: none;
   }
 
   .status-mark {
@@ -3221,103 +2629,10 @@
       border-color 0.12s,
       background 0.12s;
   }
-  /* text-pill-only declarations — not applied when icon-btn form is used */
-  .decom:not(.icon-btn) {
-    font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-  }
-  /* Resume: the primary action of a parked session, so it stays on the identity
-     row (not in the strip). Quiet neutral (not destructive, not "ready-complete"
-     → no green/red), brightening to ink on hover. */
-  /* redraw-variants toggle: now an .icon-btn; only the open-state highlight
-     is kept here (hover is handled by the global recipe). */
-  .vp-redraw[aria-expanded="true"] {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-  }
-
-  .vp-resume {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-  /* text-pill-only declarations — not applied when compact icon-btn form is used */
-  .vp-resume:not(.icon-btn) {
-    gap: 5px;
-    font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-  }
-  /* desktop labeled form sizes its SVG text-scaled (beside the uppercase label);
-     the compact icon-only form has no label and sizes via the global
-     .icon-btn svg (18px) instead. Without this the labeled SVG has no sizing
-     rule and falls back to the replaced-element default (~300×150). */
-  .vp-resume:not(.icon-btn) svg {
-    width: var(--fs-base);
-    height: var(--fs-base);
-    display: block;
-  }
-  .vp-resume:hover {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-  }
-  .vp-resume:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-
-  /* PR delivered → the work is done. The decommission control graduates from its
-     quiet form (faint inline ✕ on desktop, strip button on compact) into a bright,
-     gently pulsing green call-to-action on the identity row so wrapping up the
-     session reads as the obvious next step. Hover/armed below still override it
-     red (destructive confirm). */
-  .decom.ready {
-    color: var(--color-green);
-    border-color: color-mix(in srgb, var(--color-green) 40%, transparent);
-    background: color-mix(in srgb, var(--color-green) 10%, transparent);
-    animation: decom-ready-pulse 2.4s ease-in-out infinite;
-  }
-
-  @keyframes decom-ready-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-green) 30%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-green) 35%, transparent);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .decom.ready {
-      animation: none;
-    }
-  }
 
   .decom:hover {
     color: var(--color-red);
     border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
-  }
-
-  /* hovering the ready button means the operator is about to act on it — drop the
-     green pulse so the red destructive-confirm affordance reads cleanly */
-  .decom.ready:hover {
-    background: transparent;
-    animation: none;
-    box-shadow: none;
   }
 
   .decom.armed {
@@ -3336,9 +2651,6 @@
        red fill in all four themes (ink-bright fails the high-contrast themes). */
     color: var(--color-bg);
   }
-
-  /* quiet variant: pre-PR desktop inline ✕. Now an .icon-btn — sizing/padding
-     handled by the global recipe. Color/hover/armed states still apply below. */
 
   /* rename: inline editor that takes the title's own slot in place (double-tap/
      dblclick the title to open it); the post-rename note sits in the trailing
@@ -3485,125 +2797,6 @@
     touch-action: none;
   }
 
-  /* parked: this terminal is live on another device — tap to take it back */
-  .parked {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    background: color-mix(in srgb, var(--color-bg) 78%, transparent);
-    backdrop-filter: blur(1.5px);
-    border: 0;
-    cursor: pointer;
-    font: inherit;
-    color: var(--color-ink);
-  }
-  .parked-icon {
-    color: var(--color-amber);
-    font-size: var(--fs-2xl);
-    line-height: 1;
-  }
-  .parked-title {
-    color: var(--color-ink-bright);
-    letter-spacing: 0.08em;
-    font-size: var(--fs-base);
-  }
-  .parked-sub {
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-  .parked.resume:disabled {
-    cursor: progress;
-    opacity: 0.7;
-  }
-
-  /* jump-to-bottom: small round affordance, bottom-right of the terminal body.
-     sits above xterm content (z-index 2) but below the parked/resume overlays (3) */
-  .scroll-bottom {
-    position: absolute;
-    bottom: 12px;
-    right: 14px;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    border: 1px solid color-mix(in srgb, var(--color-amber) 60%, var(--color-line-bright));
-    background: color-mix(in srgb, var(--color-head) 96%, transparent);
-    backdrop-filter: blur(2px);
-    color: var(--color-amber);
-    font-size: var(--fs-xl);
-    line-height: 1;
-    cursor: pointer;
-    /* depth shadow + a soft amber halo so the affordance catches the eye the
-       moment it appears — our accent signals "there's newer output below". */
-    box-shadow:
-      0 3px 12px rgba(0, 0, 0, 0.45),
-      0 0 12px color-mix(in srgb, var(--color-amber) 30%, transparent);
-    transition:
-      background 0.12s ease,
-      color 0.12s ease,
-      box-shadow 0.12s ease,
-      transform 0.12s ease;
-    /* slide in, then pulse the amber glow twice to draw the eye; the pulse ends
-       and the button rests on the steady halo set above. */
-    animation:
-      scroll-bottom-in 0.14s ease,
-      scroll-bottom-glow 1.5s ease-in-out 0.14s 2;
-  }
-  .scroll-bottom:hover {
-    background: var(--color-hover);
-    color: var(--color-amber);
-    transform: translateY(-1px);
-    /* end the entry/glow pulse so this box-shadow isn't suppressed by the
-       still-running animation (the pulse is a one-shot attention cue anyway). */
-    animation: none;
-    box-shadow:
-      0 3px 12px rgba(0, 0, 0, 0.45),
-      0 0 16px color-mix(in srgb, var(--color-amber) 45%, transparent);
-  }
-  /* Coarse pointers (touch): grow the free-floating affordance to a ≥44px tap
-     target. It sits in the terminal corner with room to spare, so enlarging the
-     element itself is simplest — stays round, stays flat. Desktop (fine pointer)
-     keeps the 38px glyph. */
-  @media (pointer: coarse) {
-    .scroll-bottom {
-      min-width: 44px;
-      min-height: 44px;
-    }
-  }
-  @keyframes scroll-bottom-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  @keyframes scroll-bottom-glow {
-    0%,
-    100% {
-      box-shadow:
-        0 3px 12px rgba(0, 0, 0, 0.45),
-        0 0 12px color-mix(in srgb, var(--color-amber) 30%, transparent);
-    }
-    50% {
-      box-shadow:
-        0 3px 12px rgba(0, 0, 0, 0.45),
-        0 0 22px color-mix(in srgb, var(--color-amber) 65%, transparent);
-    }
-  }
-
   /* let xterm fill the mount */
   .term-mount :global(.xterm) {
     height: 100%;
@@ -3613,18 +2806,6 @@
   .term-mount :global(.xterm-scrollable-element .scrollbar .slider) {
     background: var(--color-faint);
     border-radius: 2px;
-  }
-
-  .tab-group {
-    display: flex;
-    gap: 2px;
-  }
-
-  /* transparent pass-through on desktop (matches .tab-group's flex/gap so the
-     desktop layout is visually identical); scrolls on compact/mobile below */
-  .tab-scroll {
-    display: flex;
-    gap: 2px;
   }
 
   .back {
@@ -3754,24 +2935,6 @@
     row-gap: 6px;
     padding: 8px 10px;
   }
-  /* group the trailing controls (rename ✎ + close ✕) into one cluster that
-     wraps as a unit and stays right-aligned — margin-left:auto pins it to the
-     right edge of whichever row it lands on, so the close button can no longer
-     orphan to the left of its own line when the identity row gets crowded */
-  .vp-head.mobile .vp-actions {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-  /* while the rename editor is open the trailing cluster yields the row: the
-     editor claims (nearly) the full width, and the decom ✕ can't sit beside
-     the rename-cancel ✕ inviting a mistap. Blur still saves, so no control in
-     the hidden cluster is needed mid-edit. */
-  .vp-head.mobile.renaming .vp-actions {
-    display: none;
-  }
   /* let the task name claim the free space instead of splitting it with the
      spacer; its flex-grow still pushes the status badge + decom to the right */
   .vp-head.mobile .spacer {
@@ -3799,40 +2962,6 @@
     display: block;
     flex: 0;
   }
-  .tab-group.mobile {
-    order: 10;
-    flex-basis: 100%;
-    gap: 4px;
-  }
-  /* phone: nav tabs scroll horizontally so the pinned preview slot (Preview tab
-     / Start-dev-server control) stays visible at the row's right edge.
-     Matches BacklogView's .overlay-tabs idiom (hidden scrollbar). */
-  .tab-group.mobile .tab-scroll {
-    flex: 1 1 0;
-    min-width: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .tab-group.mobile .tab-scroll::-webkit-scrollbar {
-    display: none;
-  }
-  .vp-head.mobile .tab-btn {
-    text-align: center;
-    padding: 10px 6px;
-    font-size: var(--fs-meta);
-  }
-  /* grow:1 fills the strip when tabs fit (no dead gap, large tap targets);
-     shrink:0 + basis:auto forces overflow→scroll when they don't */
-  .vp-head.mobile .tab-scroll .tab-btn {
-    flex: 1 0 auto;
-  }
-  /* keep the preview slot (Preview tab / Start control) pinned + always visible */
-  .tab-group.mobile .preview-start-wrap,
-  .tab-group.mobile .preview-tab {
-    flex-shrink: 0;
-  }
   /* finger-sized header controls on touch layouts (≥44px) */
   .vp-head.mobile .back,
   .vp-head.mobile .next-yu {
@@ -3857,38 +2986,6 @@
     line-height: 1;
     padding: 6px 12px;
   }
-  /* the fold toggle is likewise a bare chevron — at --fs-base it reads as a
-     dot, so it gets the same icon-size bump (hit area stays ≥44px above) */
-  .vp-head.mobile .vp-fold {
-    font-size: var(--fs-xl);
-    line-height: 1;
-  }
-
-  .tab-btn {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    padding: 2px 8px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-
-  .tab-btn:hover {
-    color: var(--color-ink);
-  }
-
-  .tab-btn.active {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-    background: var(--color-inset);
-  }
-
   .panel-wrap {
     position: absolute;
     inset: 0;
@@ -3994,86 +3091,6 @@
     border-color: var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
-  /* preview tab marker: the non-reserved blue accent ties it to the row badge */
-  .tab-btn.preview-tab.active {
-    border-color: var(--color-blue);
-    color: var(--color-blue);
-  }
-
-  /* ── start-preview affordance ── */
-  .preview-start-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-  }
-  .tab-btn.preview-start-btn {
-    color: var(--color-blue);
-    opacity: 0.85;
-  }
-  .tab-btn.preview-start-btn:hover:not(:disabled) {
-    opacity: 1;
-    color: var(--color-blue);
-  }
-  .tab-btn.preview-start-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  /* confirm-to-proceed cue — mirrors .decom.armed but with amber (non-destructive) */
-  .tab-btn.preview-start-btn.armed {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
-  }
-  /* anchored non-modal command-collection popover (no scrim) */
-  .preview-cmd-pop {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    z-index: 30;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    white-space: nowrap;
-    min-width: 220px;
-  }
-  /* phone: the preview slot is pinned at the row's right edge, so a left:0
-     popover would open rightward off-screen — flip it to right-anchored and
-     width-cap it so it drops inside the (overflow:hidden) .viewport box instead
-     of past the viewport edge. It lives in the pinned .preview-start-wrap, not
-     the .tab-scroll scroller, so the strip's overflow-x:auto never clips it. */
-  .vp-head.mobile .preview-cmd-pop {
-    left: auto;
-    right: 0;
-    max-width: calc(100vw - 16px);
-  }
-  .pcp-label {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    letter-spacing: 0.04em;
-  }
-  .pcp-input {
-    background: var(--color-bg);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    padding: 3px 7px;
-    width: 100%;
-    outline: none;
-  }
-  .pcp-input:focus {
-    border-color: var(--color-blue);
-  }
-  .pcp-send {
-    align-self: flex-end;
-  }
-
   .vp-foot {
     display: flex;
     align-items: center;
@@ -4089,107 +3106,5 @@
   .term-mount.dragging {
     outline: 2px dashed var(--color-amber);
     outline-offset: -4px;
-  }
-  /* one unified bar across the whole row (scroll palette + pinned actions) */
-  .ctrl-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-right: 10px;
-    background: var(--color-head);
-    border-top: 1px solid var(--color-line);
-  }
-  .ctrl-row .dictate,
-  .ctrl-row .attach,
-  .ctrl-row .enter {
-    flex: 0 0 auto;
-    min-width: 44px;
-    height: 44px;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-size: var(--fs-lg);
-    cursor: pointer;
-    touch-action: manipulation;
-    user-select: none;
-    transition:
-      background 0.08s,
-      border-color 0.08s;
-  }
-  .ctrl-row .dictate:active,
-  .ctrl-row .attach:active,
-  .ctrl-row .enter:active {
-    background: var(--color-line-bright);
-    border-color: var(--color-ink);
-  }
-  .ctrl-row .attach.failed {
-    border-color: var(--color-red);
-    color: var(--color-red);
-  }
-  .ctrl-row .attach {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .ctrl-row .attach svg {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-    display: block;
-  }
-  /* Enter — primary affirmative action. Amber outline-ghost (transparent fill,
-     amber border + text, inset amber glow) per the design-system primary recipe.
-     Four-Light Rule: green is reserved for READY agent state; primary buttons
-     are never solid-filled — always outline + inset glow. Mirrors EmptyHerd .spawn. */
-  .ctrl-row .enter {
-    font-family: var(--font-mono);
-    font-size: var(--fs-xl);
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-    background: transparent;
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
-  }
-  .ctrl-row .enter:active {
-    background: var(--color-hover);
-    border-color: var(--color-amber);
-    box-shadow: inset 0 0 22px -10px var(--color-amber);
-  }
-  /* "add notes" affordance — only mounted while Claude's prompt offers it. Amber
-     (the same attention hue as the running pip) plus a soft halo pulse so it's
-     noticed on a phone where there's no keyboard to press the key directly. The
-     global prefers-reduced-motion guard stills the animation. */
-  .ctrl-row .notes {
-    flex: 0 0 auto;
-    min-width: 44px;
-    height: 44px;
-    padding: 0 10px;
-    border-radius: 2px;
-    font-family: var(--font-mono);
-    font-size: var(--fs-lg);
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    cursor: pointer;
-    touch-action: manipulation;
-    user-select: none;
-    color: var(--color-amber);
-    border: 1px solid color-mix(in srgb, var(--color-amber) 60%, var(--color-line-bright));
-    background: color-mix(in srgb, var(--color-amber) 16%, var(--color-inset));
-    animation: notes-pulse 1.5s ease-in-out infinite;
-    transition:
-      background 0.08s,
-      border-color 0.08s;
-  }
-  .ctrl-row .notes:active {
-    background: color-mix(in srgb, var(--color-amber) 32%, var(--color-inset));
-    border-color: var(--color-amber);
-  }
-  @keyframes notes-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 transparent;
-    }
-    50% {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-amber) 30%, transparent);
-    }
   }
 </style>

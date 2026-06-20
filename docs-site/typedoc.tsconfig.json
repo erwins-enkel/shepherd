@@ -1,0 +1,25 @@
+{
+  // Dedicated tsconfig for starlight-typedoc's API-reference generation — NOT the
+  // root tsconfig. On Vercel the project root is `docs-site/`, so only this
+  // package's deps are installed; the root `node_modules` (and its `bun-types`)
+  // never exist there. Pointing TypeDoc at `../tsconfig.json` therefore failed two
+  // ways on deploy: its `types: ["bun-types"]` couldn't resolve (TS2688), and its
+  // include-less program pulled in the whole repo (ci/, deploy/, scripts/) whose
+  // node/bun globals were unresolved.
+  //
+  // This config fixes both: the program is scoped to `../src` ONLY (the sole thing
+  // we document), and Bun + node globals resolve from docs-site's own `@types/bun`
+  // (a devDependency here), so the API reference builds self-contained on Vercel.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun"],
+    "strict": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true
+  },
+  "include": ["../src/**/*.ts"],
+  "exclude": ["../src/**/*.test.ts", "../src/index.ts"]
+}

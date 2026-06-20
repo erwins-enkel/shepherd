@@ -497,8 +497,10 @@ test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /
 import { afterEach, beforeEach } from "bun:test";
 import { PreviewService } from "../src/preview";
 
-// A high, unusual base unlikely to collide with anything on the test host.
-const TEST_BASE = 39000;
+// Per-process random base avoids cross-process port collision: a fixed base (e.g. 39000)
+// collides when a concurrent or leftover `bun test` process is binding the same range.
+// A random offset in a 20k span makes overlap astronomically unlikely. Ref #817.
+const TEST_BASE = 40000 + Math.floor(Math.random() * 20000);
 const TEST_COUNT = 4;
 
 type Upstream = ReturnType<typeof Bun.serve>;

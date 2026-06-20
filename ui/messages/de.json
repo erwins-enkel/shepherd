@@ -1674,5 +1674,7 @@
   "feat_open_linked_issue_title": "Verknüpftes Issue öffnen",
   "feat_open_linked_issue_body": "GitRail zeigt jetzt einen \"Issue #N ↗\"-Link für Aufgaben, die aus einem Backlog-Issue gestartet wurden – direkt zum Issue auf GitHub oder Gitea springen.",
   "feat_learnings_retire_push_title": "Push-Benachrichtigung beim Auto-Zurückziehen",
-  "feat_learnings_retire_push_body": "Wenn der tägliche Hintergrundlauf leistungsschwache Hausregeln zurückzieht, erhältst du jetzt eine Push-Benachrichtigung – so erfährst du davon, ohne das Learnings-Panel zu öffnen. Tippe darauf, um die zurückgezogenen Regeln zu prüfen und versehentlich zurückgezogene wiederherzustellen."
+  "feat_learnings_retire_push_body": "Wenn der tägliche Hintergrundlauf leistungsschwache Hausregeln zurückzieht, erhältst du jetzt eine Push-Benachrichtigung – so erfährst du davon, ohne das Learnings-Panel zu öffnen. Tippe darauf, um die zurückgezogenen Regeln zu prüfen und versehentlich zurückgezogene wiederherzustellen.",
+  "feat_learnings_repo_glyph_title": "Repo auf einen Blick in den Erkenntnissen",
+  "feat_learnings_repo_glyph_body": "Jede Repo-Gruppe im Erkenntnisse-Panel zeigt jetzt das Projekt-Emoji (oder das ▣-Symbol) neben dem Namen – genau wie die Session-Karten – damit klar ist, zu welchem Repo eine Erkenntnis gehört."
 }

@@ -1674,5 +1674,7 @@
   "feat_open_linked_issue_title": "Open the linked issue",
   "feat_open_linked_issue_body": "GitRail now shows an \"Issue #N ↗\" link for tasks spawned from a backlog issue — jump straight to the issue on GitHub or Gitea.",
   "feat_learnings_retire_push_title": "Auto-retire push notifications",
-  "feat_learnings_retire_push_body": "When the daily background pass retires underperforming house rules, you now get a push notification so you learn of it without opening the Learnings drawer. Tap it to review the retired rules and restore any retired by mistake."
+  "feat_learnings_retire_push_body": "When the daily background pass retires underperforming house rules, you now get a push notification so you learn of it without opening the Learnings drawer. Tap it to review the retired rules and restore any retired by mistake.",
+  "feat_learnings_repo_glyph_title": "Repo at a glance in Learnings",
+  "feat_learnings_repo_glyph_body": "Each repo's group in the Learnings drawer now shows its project emoji (or the ▣ marker) beside the name — just like session cards — so it's clear which repo a learning belongs to."
 }

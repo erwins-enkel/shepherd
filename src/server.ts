@@ -2733,6 +2733,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       repoRoot: config.repoRoot,
       repoRootDisplay: collapseHome(config.repoRoot),
       remoteControlAtStartup: config.remoteControlAtStartup,
+      reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
       planReviewCyclesCap: config.planReviewCyclesCap,
@@ -2784,6 +2785,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
 // validates the value, live-updates config, and persists to the store.
 const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response][] = [
   ["remoteControlAtStartup", putRemoteControl],
+  ["reducedPushMode", putReducedPushMode],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
@@ -2803,6 +2805,15 @@ function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
   config.remoteControlAtStartup = value; // live: next spawn picks it up
   deps.store.setSetting("remoteControlAtStartup", value ? "1" : "0"); // persist
   return json({ remoteControlAtStartup: config.remoteControlAtStartup });
+}
+
+function putReducedPushMode(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "reducedPushMode must be a boolean" }, 400);
+  }
+  config.reducedPushMode = value; // live: the push gate reads it immediately
+  deps.store.setSetting("reducedPushMode", value ? "1" : "0"); // persist
+  return json({ reducedPushMode: config.reducedPushMode });
 }
 
 function putSessionHousekeeping(value: unknown, deps: Ctx["deps"]): Response {

@@ -112,6 +112,8 @@ if (savedRoot) {
 // env default; absent → keep the config default. Stored as "1"/"0".
 const savedRc = store.getSetting("remoteControlAtStartup");
 if (savedRc !== null) config.remoteControlAtStartup = savedRc === "1";
+const savedRpm = store.getSetting("reducedPushMode");
+if (savedRpm !== null) config.reducedPushMode = savedRpm === "1";
 // a UI-chosen session-housekeeping preference (persisted) overrides the env default;
 // absent → keep the config default (on). Stored as "1"/"0".
 const savedHk = store.getSetting("sessionHousekeepingEnabled");

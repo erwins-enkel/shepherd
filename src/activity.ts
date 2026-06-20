@@ -77,7 +77,7 @@ interface Block {
 }
 
 interface ParsedRecord {
-  o: any;
+  o: unknown;
   blocks: Block[];
 }
 
@@ -85,7 +85,8 @@ interface ParsedRecord {
 function parseRecords(text: string): ParsedRecord[] {
   const records: ParsedRecord[] = [];
   for (const o of eachJsonlObject(text)) {
-    const blocks = o?.message?.content;
+    const rec = o as { message?: { content?: unknown } } | undefined;
+    const blocks = rec?.message?.content;
     if (Array.isArray(blocks)) records.push({ o, blocks });
   }
   return records;
@@ -114,7 +115,7 @@ function resolveStatus(errored: Map<string, boolean>, id: string): ActivityEntry
 function collectEntries(records: ParsedRecord[], errored: Map<string, boolean>): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const { o, blocks } of records) {
-    const ts = Date.parse(o?.timestamp) || 0;
+    const ts = Date.parse((o as { timestamp?: unknown })?.timestamp as string) || 0;
     for (const b of blocks) {
       if (b?.type !== "tool_use" || typeof b.name !== "string") continue;
       const id = typeof b.id === "string" ? b.id : "";
@@ -200,13 +201,13 @@ export function latestRecordTs(text: string): number {
   for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t) continue;
-    let o: any;
+    let o: unknown;
     try {
       o = JSON.parse(t);
     } catch {
       continue;
     }
-    const ts = Date.parse(o?.timestamp) || 0;
+    const ts = Date.parse((o as { timestamp?: unknown })?.timestamp as string) || 0;
     if (ts > max) max = ts;
   }
   return max;

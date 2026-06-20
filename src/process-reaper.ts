@@ -78,7 +78,8 @@ function isUnder(path: string, root: string): boolean {
 /** Yield every Bash tool command recorded in a Claude JSONL transcript. */
 function* bashCommands(text: string): Iterable<string> {
   for (const o of eachJsonlObject(text)) {
-    const content = o?.message?.content;
+    const rec = o as { message?: { content?: unknown } } | undefined;
+    const content = rec?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const item of content) {
       if (

@@ -49,7 +49,8 @@ export function matchesUsageLimit(tail: string): boolean {
 export function assistantSideText(rawJsonl: string): string {
   const parts: string[] = [];
   for (const obj of eachJsonlObject(rawJsonl)) {
-    const role = obj?.message?.role ?? obj?.role ?? obj?.type;
+    const rec = obj as { message?: { role?: unknown }; role?: unknown; type?: unknown } | undefined;
+    const role = rec?.message?.role ?? rec?.role ?? rec?.type;
     if (role === "user") continue;
     parts.push(JSON.stringify(obj));
   }

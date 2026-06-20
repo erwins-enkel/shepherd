@@ -4,6 +4,8 @@
   import UnitRow from "./UnitRow.svelte";
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
+  import HerdFilterBar from "./herd/HerdFilterBar.svelte";
+  import HerdSegRow from "./herd/HerdSegRow.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import EpicGroupHeader from "./EpicGroupHeader.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
@@ -17,7 +19,6 @@
   import { formatAgo } from "$lib/format";
   import type { RecapVerdict } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     sessions,
@@ -416,157 +417,17 @@
 <div class="panel bracket" class:flow>
   <div class="phead">
     <span class="micro">{m.herd_title()}</span>
-    <div class="right filters">
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "all"}
-        title={m.herd_all_title()}
-        aria-pressed={statusFilter == null && filter === "all"}
-        onclick={() => {
-          filter = "all";
-          onstatusfilter?.(null);
-        }}>{m.herd_all_hint()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "ready"}
-        title={m.herd_ready_title()}
-        aria-pressed={statusFilter == null && filter === "ready"}
-        onclick={() => {
-          filter = "ready";
-          onstatusfilter?.(null);
-        }}>{m.herd_ready_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "research"}
-        title={m.herd_research_title()}
-        aria-pressed={statusFilter == null && filter === "research"}
-        onclick={() => {
-          filter = "research";
-          onstatusfilter?.(null);
-        }}>{m.herd_research_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "done"}
-        title={m.herd_done_title()}
-        aria-pressed={statusFilter == null && filter === "done"}
-        use:coachTarget={"done-lens"}
-        onclick={() => {
-          filter = "done";
-          onstatusfilter?.(null);
-        }}>{m.herd_done_filter()}</button
-      >
-      <button
-        type="button"
-        class="micro fbtn"
-        class:active={statusFilter == null && filter === "rundown"}
-        title={m.herd_rundown_title()}
-        aria-pressed={statusFilter == null && filter === "rundown"}
-        use:coachTarget={"herd-rundown"}
-        onclick={() => {
-          filter = "rundown";
-          onstatusfilter?.(null);
-        }}>{m.herd_rundown_filter()}</button
-      >
-      {#if statusFilter != null}
-        <!-- aria-label carries status + clear action; the visible "✕" glyph would
-           otherwise be read aloud without conveying what the chip does -->
-        <button
-          type="button"
-          class="micro fbtn active statchip"
-          title={m.topbar_tally_clear_title()}
-          aria-label={m.herd_status_chip_aria({ status: statusLabel })}
-          aria-pressed="true"
-          onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
-        >
-      {/if}
-      {#if collapsible}
-        <button
-          id="herd-collapse-btn"
-          type="button"
-          class="fbtn collapse-inline"
-          title={m.herd_collapse()}
-          aria-label={m.herd_collapse()}
-          onclick={() => oncollapse?.()}>‹</button
-        >
-      {/if}
-    </div>
+    <HerdFilterBar
+      bind:filter
+      {statusFilter}
+      {statusLabel}
+      {collapsible}
+      {flow}
+      {onstatusfilter}
+      {oncollapse}
+    />
   </div>
-  {#if flow}
-    <!-- Mobile-only segmented control: replaces the .fbtn filter row in flow
-         mode. A direct child of the already-full-bleed .panel.flow, so it spans
-         the full phone width without its own negative margin. Equal-width segments,
-         44px touch targets, no leading glyphs. Labels are --fs-base (13px), a
-         DELIBERATE exception to the ≥16px label floor (NOT an oversight): five
-         equal segments on a 390px phone leave ~77px each, but the longest label
-         ("Recherche", DE) needs ~93px at 16px — so ≥16px would truncate it, which
-         breaks the "keep full text labels" criterion. 13px is the largest size
-         that fits the full word; contrast is held high to compensate (active
-         --color-amber 8.49:1, inactive --color-muted 5.27:1). -->
-    <div class="seg-row" use:coachTarget={"mobile-seg-ctrl"}>
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "all"}
-        title={m.herd_all_title()}
-        aria-pressed={statusFilter == null && filter === "all"}
-        onclick={() => {
-          filter = "all";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_all()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "ready"}
-        title={m.herd_ready_title()}
-        aria-pressed={statusFilter == null && filter === "ready"}
-        onclick={() => {
-          filter = "ready";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_ready()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "research"}
-        title={m.herd_research_title()}
-        aria-pressed={statusFilter == null && filter === "research"}
-        onclick={() => {
-          filter = "research";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_research()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "done"}
-        title={m.herd_done_title()}
-        aria-pressed={statusFilter == null && filter === "done"}
-        onclick={() => {
-          filter = "done";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_done()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={statusFilter == null && filter === "rundown"}
-        title={m.herd_rundown_title()}
-        aria-pressed={statusFilter == null && filter === "rundown"}
-        onclick={() => {
-          filter = "rundown";
-          onstatusfilter?.(null);
-        }}>{m.herd_seg_rundown()}</button
-      >
-    </div>
-  {/if}
+  {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
   <div class="units" class:flow>
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
@@ -732,13 +593,6 @@
   .panel.flow .phead > .micro {
     display: none;
   }
-  /* In flow mode the desktop .fbtn row is replaced by the segmented control row
-     below; hide the entire filters bar (and the statchip within it) on mobile.
-     Desktop keeps .phead + .filters exactly as-is. */
-  .panel.flow .filters {
-    display: none;
-  }
-
   .phead {
     display: flex;
     align-items: center;
@@ -749,104 +603,6 @@
     flex-wrap: wrap;
     row-gap: 6px;
   }
-  .phead .right {
-    margin-left: auto;
-  }
-  .filters {
-    display: flex;
-    gap: 4px;
-  }
-  /* Compact (touch / unfolded-fold) layout pins the sidebar to ~288px. There the
-     .phead wraps the whole .right.filters group onto its own line, where it sizes
-     to its content width (~330px) and spills past the panel's right border (the
-     trailing "Rundown" filter). Let the group wrap onto a second row only here;
-     the non-touch desktop sidebar resolves to its 360px max where the row fits on
-     one line, so it stays single-line and unchanged. The ancestor .grid.compact
-     lives in +page.svelte (outside this component), hence the :global wrapper. */
-  :global(.grid.compact) .filters {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-  .fbtn {
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 2px 5px;
-    color: var(--color-faint);
-    transition: color 0.12s ease;
-  }
-  .fbtn:hover {
-    color: var(--color-ink);
-  }
-  .fbtn.active {
-    color: var(--color-amber);
-  }
-  .fbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* Mobile-only segmented control: replaces the .fbtn filter row in flow mode.
-     A direct child of the already-full-bleed .panel.flow, so it spans the full
-     phone width without its own negative margin. Equal-width segments, 44px touch
-     targets. Labels are --fs-base (13px) — a DELIBERATE sub-16px exception, not an
-     oversight: at the 390px reference five equal segments give ~77px each and the
-     longest label "Recherche" (DE) measures 93px at 16px (it would truncate),
-     vs 77px at 13px (fits). The ≥16px floor is waived for this one control to keep
-     full text labels; high contrast (amber active / muted inactive) compensates.
-     A text-overflow:ellipsis below handles even-narrower fold-cover widths. */
-  .seg-row {
-    display: none;
-  }
-  .panel.flow .seg-row {
-    display: flex;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .seg-btn {
-    flex: 1;
-    min-width: 0;
-    min-height: 44px;
-    border: 0;
-    border-right: 1px solid var(--color-line);
-    background: none;
-    font-family: inherit;
-    font-size: var(--fs-base);
-    cursor: pointer;
-    padding: 0 2px;
-    color: var(--color-muted);
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    transition:
-      color 0.12s ease,
-      background 0.12s ease;
-  }
-  .seg-btn:last-child {
-    border-right: 0;
-  }
-  .seg-btn:hover {
-    color: var(--color-ink);
-  }
-  .seg-btn.seg-active {
-    color: var(--color-amber);
-    background: var(--color-inset);
-    box-shadow: inset 0 -2px 0 var(--color-amber);
-  }
-  .seg-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* inline collapse trigger living in the filters group (touch wide devices). */
-  .collapse-inline {
-    flex: none;
-    margin-left: 4px;
-    font-size: var(--fs-lg);
-    line-height: 1;
-  }
-
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;

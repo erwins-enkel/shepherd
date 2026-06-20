@@ -6,39 +6,21 @@
     HerdrUpdateStatus,
     DiagnosticState,
   } from "$lib/types";
-  import { formatReset, formatResetIn, relativeAge } from "$lib/format";
+  import { formatReset, formatResetIn } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { gaugeList, hotterGauge, overspending, gaugeColor, type GaugeKey } from "./usage-gauges";
+  import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
   import type { HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
-  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
-  import { REPO_URL, version } from "$lib/build-info";
-  import { fly } from "svelte/transition";
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
-
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  import TopBarTallies from "./top-bar/TopBarTallies.svelte";
+  import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
+  import TopBarUsage from "./top-bar/TopBarUsage.svelte";
+  import TopBarBadges from "./top-bar/TopBarBadges.svelte";
+  import TopBarGear from "./top-bar/TopBarGear.svelte";
+  import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
 
   type TallyStatus = "running" | "idle" | "blocked";
-
-  // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
-  // ActionBar carries these, but on phone it hides them, leaving Settings → Device the
-  // only home. Mirrors the ActionBar's compact recipe: two explicit choices (dark/light;
-  // "system" stays the implicit default), keyed on the resolved value.
-  const QUICK_THEMES: {
-    pref: Exclude<ThemePref, "system">;
-    icon: "moon" | "sun";
-    label: () => string;
-  }[] = [
-    { pref: "dark", icon: "moon", label: m.theme_dark },
-    { pref: "light", icon: "sun", label: m.theme_light },
-  ];
 
   let {
     sessions,
@@ -561,73 +543,7 @@
 
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
-<!-- CR credit gauge: the compact inline bar (label + bar + amount), reused across the
-     desktop .gauges row and the desktop hover popover. Mirrors the .gauge recipe. -->
-{#snippet creditGauge()}
-  {#if credits}
-    <div
-      class="gauge credit-gauge"
-      class:stale={credits.stale}
-      class:alert={overspend}
-      aria-label={overspend
-        ? m.topbar_credits_alert_aria({ amount: creditAmount })
-        : `${m.topbar_credits_period()} · ${creditAmount}`}
-    >
-      <span class="g-label micro">CR</span>
-      <span class="g-bar"
-        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
-        ></span></span
-      >
-      <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-    </div>
-  {/if}
-{/snippet}
-
-<!-- CR credit detail block for the popovers: full name, wide bar + amount, reset,
-     snapshot age, stale note, and an on-demand refresh button. -->
-{#snippet creditDetail()}
-  {#if credits}
-    <div class="credit-detail" class:stale={credits.stale}>
-      <div class="gp-head">
-        <span class="gp-period">{m.topbar_credits_period()}</span>
-        <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-      </div>
-      <span class="g-bar g-bar-wide"
-        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
-        ></span></span
-      >
-      <div class="credit-sub micro">
-        {m.topbar_credits_amount({
-          spent: `${credits.currency}${credits.spent.toFixed(2)}`,
-          cap: `${credits.currency}${credits.cap.toFixed(2)}`,
-        })}
-      </div>
-      {#if credits.resetAt !== null}
-        <div class="gauge-pop-reset micro">
-          {m.topbar_gauge_reset({ reset: formatReset(credits.resetAt, nowMs) })}
-        </div>
-      {/if}
-      <div class="gauge-pop-reset micro">
-        {m.topbar_credits_age({ age: relativeAge(credits.scrapedAt, nowMs) })}
-      </div>
-      {#if credits.stale}
-        <div class="credit-stale micro">{m.topbar_credits_stale()}</div>
-      {/if}
-      <button
-        type="button"
-        class="credit-refresh micro"
-        disabled={refreshing}
-        aria-busy={refreshing}
-        onclick={doRefresh}
-      >
-        {refreshing ? m.common_loading() : m.topbar_credits_refresh()}
-      </button>
-      {#if refreshError}
-        <div class="credit-error micro" role="alert">{m.common_retry()}</div>
-      {/if}
-    </div>
-  {/if}
-{/snippet}
+<!-- CR credit gauge + detail: extracted to top-bar/ children (#855). -->
 
 <div class="hud bracket" class:mobile bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
@@ -638,111 +554,16 @@
     <div class="micro">Mission&nbsp;Control</div>
   {/if}
   <div class="sep"></div>
-  {#if mobile}
-    <div class="tallies compact">
-      <!-- aria-labels carry the COUNT alongside the action (the visible text is a
-           bare digit, and an action-only label would hide the tally from screen
-           readers — the desktop buttons get this for free from their text content) -->
-      <button
-        type="button"
-        class="ctally"
-        disabled={statusFilter == null}
-        title={m.topbar_tally_clear_title()}
-        aria-label={m.topbar_tally_total_aria({ count: sessions.length })}
-        onclick={() => onstatusfilter?.(null)}
-      >
-        <span class="n">{sessions.length}</span>
-      </button>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "running"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
-        aria-label={m.topbar_tally_status_aria({
-          status: m.topbar_working_label(),
-          count: working,
-        })}
-        aria-pressed={statusFilter === "running"}
-        onclick={() => clickStatus("running")}
-      >
-        <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
-      </button>
-      <span class="csep">·</span>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "idle"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
-        aria-label={m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: idle })}
-        aria-pressed={statusFilter === "idle"}
-        onclick={() => clickStatus("idle")}
-      >
-        <span class="n">{idle}</span>
-      </button>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "blocked"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
-        aria-label={m.topbar_tally_status_aria({
-          status: m.topbar_blocked_label(),
-          count: blocked,
-        })}
-        aria-pressed={statusFilter === "blocked"}
-        onclick={() => clickStatus("blocked")}
-      >
-        <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
-      </button>
-    </div>
-  {:else}
-    <div class="tallies" use:coachTarget={"tally-filter"}>
-      <!-- the total is a CLEAR action — without an active filter it's a no-op, so
-           it renders disabled (no hover/click affordance) until a status is set -->
-      <button
-        type="button"
-        class="tally"
-        disabled={statusFilter == null}
-        title={m.topbar_tally_clear_title()}
-        onclick={() => onstatusfilter?.(null)}
-      >
-        <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "running"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
-        aria-pressed={statusFilter === "running"}
-        onclick={() => clickStatus("running")}
-      >
-        <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
-          class="n">{working}</span
-        >
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "idle"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
-        aria-pressed={statusFilter === "idle"}
-        onclick={() => clickStatus("idle")}
-      >
-        <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "blocked"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
-        aria-pressed={statusFilter === "blocked"}
-        onclick={() => clickStatus("blocked")}
-      >
-        <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
-          class="n">{blocked}</span
-        >
-      </button>
-    </div>
-  {/if}
+  <TopBarTallies
+    {mobile}
+    total={sessions.length}
+    {working}
+    {idle}
+    {blocked}
+    {statusFilter}
+    {onstatusfilter}
+    {clickStatus}
+  />
   <div class="rightside">
     {#if needsYou > 0}
       <button
@@ -758,321 +579,68 @@
         {/if}
       </button>
     {/if}
-    {#if (heldCount ?? 0) > 0}
-      <!-- Held-tasks badge: non-modal anchored popover (design-system exemption). -->
-      <div class="held-wrap">
-        <button
-          bind:this={heldBadgeBtn}
-          class="held-badge"
-          class:compact={mobile || compactBadges}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={heldPopOpen}
-          aria-label={m.topbar_held_badge({ count: heldCount ?? 0 })}
-          onclick={toggleHeldPop}
-        >
-          {#if mobile || compactBadges}
-            <span class="held-n">{heldCount}</span>
-          {:else}
-            <span>{m.topbar_held_badge({ count: heldCount ?? 0 })}</span>
-            {#if hotter?.w.resetAt}
-              <span class="held-reset"
-                >{m.topbar_held_resets({ time: formatResetIn(hotter.w.resetAt, nowMs) })}</span
-              >
-            {/if}
-          {/if}
-        </button>
-        {#if heldPopOpen}
-          <div
-            bind:this={heldPopEl}
-            class={["held-pop", { "flip-up": heldPopFlipUp }]}
-            role="dialog"
-            aria-label={m.topbar_held_title()}
-            tabindex="-1"
-          >
-            <div class="held-pop-head">{m.topbar_held_title()}</div>
-            {#if heldLoading}
-              <div class="held-pop-empty">{m.common_loading()}</div>
-            {:else if heldItems.length === 0}
-              <div class="held-pop-empty">{m.topbar_held_empty()}</div>
-            {:else}
-              {#each heldItems as task (task.id)}
-                <div class="held-row">
-                  <div class="held-row-info">
-                    <span class="held-row-prompt">{task.input.prompt}</span>
-                    <span class="held-row-repo"
-                      >{task.repoPath.split("/").at(-1) ?? task.repoPath}</span
-                    >
-                  </div>
-                  <div class="held-row-actions">
-                    <button
-                      type="button"
-                      class="held-action held-spawn"
-                      onclick={() => doSpawnHeld(task.id)}>{m.topbar_held_spawn_now()}</button
-                    >
-                    <button
-                      type="button"
-                      class="held-action held-discard"
-                      onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
-                    >
-                  </div>
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
+    <TopBarHeldBadge
+      {heldCount}
+      {mobile}
+      {compactBadges}
+      {hotter}
+      {nowMs}
+      {heldPopFlipUp}
+      {heldItems}
+      {heldLoading}
+      bind:heldPopOpen
+      bind:heldBadgeBtn
+      bind:heldPopEl
+      {toggleHeldPop}
+      {doSpawnHeld}
+      {doDiscardHeld}
+    />
     {#if !mobile}
-      {#if subscriptionOnly}
-        <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
-      {:else if touch}
-        {#if hotter || credits}
-          <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
-               only signal); tap for the full breakdown. The collapsed button carries an
-               alert state while extra credits are being spent. -->
-          <div class="gauge-wrap" bind:this={gaugeWrap}>
-            {#if hotter}
-              <button
-                class="gauge gauge-btn"
-                class:stale={limits?.stale}
-                class:alert={overspend}
-                type="button"
-                aria-haspopup="dialog"
-                aria-expanded={popoverOpen}
-                aria-label={m.topbar_gauge_toggle_aria({
-                  period: periodLabel(hotter.label),
-                  pct: hotter.w.pct,
-                })}
-                onclick={() => (popoverOpen = !popoverOpen)}
-              >
-                <span class="g-label micro">{hotter.label}</span>
-                <span class="g-bar"
-                  ><span
-                    class="g-fill"
-                    style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
-                      100});background:{gaugeColor(hotter.w.pct)}"
-                  ></span></span
-                >
-                <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
-              </button>
-            {:else}
-              <!-- credits-only: no usage windows scraped, but extra spend exists -->
-              <button
-                class="gauge gauge-btn"
-                class:stale={credits?.stale}
-                class:alert={overspend}
-                type="button"
-                aria-haspopup="dialog"
-                aria-expanded={popoverOpen}
-                aria-label={overspend
-                  ? m.topbar_credits_alert_aria({ amount: creditAmount })
-                  : `${m.topbar_credits_period()} · ${creditAmount}`}
-                onclick={() => (popoverOpen = !popoverOpen)}
-              >
-                <span class="g-label micro">CR</span>
-                <span class="g-bar"
-                  ><span
-                    class="g-fill"
-                    style="transform:scaleX({creditFill});background:{creditColor}"
-                  ></span></span
-                >
-                <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-              </button>
-            {/if}
-            {#if popoverOpen}
-              <div
-                class="gauge-pop"
-                role="dialog"
-                aria-label={m.topbar_gauge_popover_title()}
-                class:stale={limits?.stale}
-              >
-                <div class="gauge-pop-title micro">
-                  {m.topbar_gauge_popover_title()}{limits?.stale
-                    ? m.topbar_gauge_stale_suffix()
-                    : ""}
-                </div>
-                {#each gauges as g (g.label)}
-                  <div class="gauge-pop-row">
-                    <span class="g-label micro">{g.label}</span>
-                    <span class="g-bar g-bar-wide"
-                      ><span
-                        class="g-fill"
-                        style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                          100});background:{gaugeColor(g.w.pct)}"
-                      ></span></span
-                    >
-                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                  </div>
-                  <div class="gauge-pop-reset micro">
-                    {m.topbar_gauge_reset_rel({
-                      rel: formatResetIn(g.w.resetAt, nowMs),
-                      abs: formatReset(g.w.resetAt, nowMs),
-                    })}
-                  </div>
-                {/each}
-                {@render creditDetail()}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      {:else if gauges.length || credits}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="gauges-wrap"
-          onmouseenter={() => (detailOpen = true)}
-          onmouseleave={() => (detailOpen = false)}
-        >
-          <div class="gauges" class:stale={limits?.stale}>
-            {#each gauges as g (g.label)}
-              <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
-                <span class="g-label micro">{g.label}</span>
-                <span class="g-bar"
-                  ><span
-                    class="g-fill"
-                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                      100});background:{gaugeColor(g.w.pct)}"
-                  ></span></span
-                >
-                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-              </div>
-            {/each}
-            {@render creditGauge()}
-          </div>
-          {#if detailOpen}
-            <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
-              <div class="gauge-pop-title micro">
-                {m.topbar_gauge_popover_title()}{limits?.stale ? m.topbar_gauge_stale_suffix() : ""}
-              </div>
-              {#each gauges as g (g.label)}
-                <div class="gp-window">
-                  <div class="gp-head">
-                    <span class="gp-period">{periodLabel(g.label)}</span>
-                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                  </div>
-                  <span class="g-bar g-bar-wide"
-                    ><span
-                      class="g-fill"
-                      style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                        100});background:{gaugeColor(g.w.pct)}"
-                    ></span></span
-                  >
-                  <div class="gauge-pop-reset micro">
-                    {m.topbar_gauge_reset_rel({
-                      rel: formatResetIn(g.w.resetAt, nowMs),
-                      abs: formatReset(g.w.resetAt, nowMs),
-                    })}
-                  </div>
-                </div>
-              {/each}
-              {#if credits}
-                <div class="gp-window">
-                  {@render creditDetail()}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/if}
+      <TopBarUsage
+        {subscriptionOnly}
+        {touch}
+        stale={limits?.stale ?? false}
+        {hotter}
+        {gauges}
+        {credits}
+        {overspend}
+        {creditFill}
+        {creditColor}
+        {creditAmount}
+        {nowMs}
+        {refreshing}
+        {refreshError}
+        onRefresh={doRefresh}
+        {periodLabel}
+        {gaugeTip}
+        bind:popoverOpen
+        bind:detailOpen
+        bind:gaugeWrap
+      />
     {/if}
     <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
     </div>
-    {#if !mobile && updateAvailable}
-      <button
-        class="update-badge"
-        onclick={() => onupdate?.()}
-        title="{update!.behind} {update!.behind === 1
-          ? m.updatemodal_commits_one()
-          : m.updatemodal_commits_other()}"
-      >
-        <span class="up-dot">▲</span>
-        {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
-        <span class="up-n">{update!.behind}</span>
-      </button>
-    {/if}
-    <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
-         bottom sheet to free a slot in the single-row control cluster. The
-         touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
-         it named) so two stacked update badges still fit. -->
-    {#if herdrUpdateAvailable && !mobile}
-      <button
-        class="update-badge herdr"
-        onclick={() => onherdrupdate?.()}
-        aria-label={m.topbar_herdr_update_badge()}
-        title={m.topbar_herdr_update_title({
-          current: herdrUpdate!.current ?? "?",
-          latest: herdrUpdate!.latest ?? "?",
-        })}
-      >
-        <span class="up-dot">▲</span>
-        {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
-      </button>
-    {/if}
-    {#if whatsNew && !mobile}
-      <!-- Desktop: labelled button with hover-tip; touch-desktop multi-badge crunch
-           collapses to dot-only to avoid crowding the control cluster. On mobile,
-           What's New moves into the gear bottom sheet. -->
-      {#if !compactBadges}
-        <button
-          class="whatsnew-badge tip"
-          type="button"
-          onclick={() => onwhatsnew?.()}
-          data-tip={m.whatsnew_open()}
-          aria-label={m.whatsnew_topbar_aria()}
-        >
-          <span class="wn-dot" aria-hidden="true">●</span>
-          <span class="wn-label">{m.whatsnew_open()}</span>
-        </button>
-      {:else}
-        <button
-          class="whatsnew-dot-btn"
-          type="button"
-          onclick={() => onwhatsnew?.()}
-          aria-label={m.whatsnew_topbar_aria()}
-          ><span class="wn-pip" aria-hidden="true"></span></button
-        >
-      {/if}
-    {/if}
-    <!-- Health pip: visible ONLY when diagnosticsOverall !== "ok" AND not mobile
-         (on mobile it moves into the gear bottom sheet).
-         Own slot left of the gear-wrap so it never overlaps the halt-pip (gear top-right).
-         Color: slate ring with state-colored core —
-         warn for warning, red for error — distinct from both the halt-pip identity
-         and the herdr blue. Token choice: --status-warn / --color-red for the core,
-         --color-line-bright for the ring. Never --color-green (hidden when ok anyway). -->
-    {#if diagnosticsOverall !== "ok" && !mobile}
-      <button
-        class="health-pip tip"
-        class:alert={diagnosticsOverall === "error"}
-        type="button"
-        onclick={() => ondiagnose?.()}
-        data-tip={m.diagnostics_pip_label()}
-        aria-label={m.diagnostics_pip_label()}
-        use:coachTarget={"diagnostics"}
-      >
-        <span class="health-dot" aria-hidden="true"></span>
-      </button>
-    {/if}
-    <!-- ✦ LEARNINGS: global entry point to review proposed house rules across all repos.
-         Desktop-only badge (mobile folds into the gear bottom sheet). Stays off status
-         hues — ✦ is neutral chrome, not an attention state (Four-Light Rule). -->
-    {#if !mobile && learningsPresent}
-      <button
-        class="learnings-btn"
-        class:compact={compactBadges}
-        type="button"
-        onclick={() => onlearnings?.()}
-        title={learningsTip}
-        aria-label={learnings > 0
-          ? m.learnings_open_aria({ count: learnings })
-          : m.learnings_open_curate_aria({ count: learningsCurate })}
-      >
-        <span class="learn-glyph" aria-hidden="true">✦</span>
-        {#if !compactBadges}<span class="learn-label">{learningsLabel}</span>{/if}
-        <span class="learn-n">{learningsCount}</span>
-      </button>
-    {/if}
+    {#if !mobile}<TopBarBadges
+        {compactBadges}
+        {updateAvailable}
+        {update}
+        {onupdate}
+        {herdrUpdateAvailable}
+        {herdrUpdate}
+        {onherdrupdate}
+        {whatsNew}
+        {onwhatsnew}
+        {diagnosticsOverall}
+        {ondiagnose}
+        {learningsPresent}
+        {learnings}
+        {learningsCurate}
+        {learningsTip}
+        {learningsLabel}
+        {learningsCount}
+        {onlearnings}
+      />{/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. The pip differs by platform:
@@ -1084,293 +652,60 @@
            a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
            signal — red > orange > yellow > blue. Red still means "needs you",
            consistent with the rest of the bar. -->
-    <div class="gear-wrap" bind:this={gearWrap}>
-      <button
-        bind:this={gearBtn}
-        class="gear tip"
-        type="button"
-        onclick={clickGear}
-        data-tip={gearOpensMenu ? m.topbar_menu_aria() : m.settings_title()}
-        aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
-        aria-expanded={gearOpensMenu ? menuOpen : undefined}
-        aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-        >⚙{#if !mobile && haltable > 0}<span
-            class="halt-pip"
-            class:alert={blocked > 0}
-            aria-hidden="true"
-          ></span>{/if}{#if mobile && gearPipTier}<span
-            class="gear-pip"
-            data-tier={gearPipTier}
-            aria-hidden="true"
-          ></span>{/if}</button
-      >
-      {#if menuOpen && !mobile}
-        <!-- Desktop dropdown: role=menu/menuitem + arrow-key cycling. Zero change vs before. -->
-        <div
-          class="gear-menu"
-          role="menu"
-          tabindex="-1"
-          aria-label={m.topbar_menu_label()}
-          bind:this={menuEl}
-          onkeydown={onMenuKey}
-        >
-          {#if haltable > 0}
-            <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
-                 Full intent stays in the aria-label. -->
-            <button
-              class="menu-item halt-item"
-              class:armed
-              type="button"
-              role="menuitem"
-              onclick={clickHalt}
-              aria-label={armed
-                ? m.halt_arm_aria({ count: haltable })
-                : m.halt_all_aria({ count: haltable })}
-            >
-              <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-              </svg>
-              <span class="menu-label"
-                >{armed
-                  ? m.halt_arm({ count: haltable })
-                  : m.halt_menu_item({ count: haltable })}</span
-              >
-            </button>
-            <div class="menu-sep" role="separator"></div>
-          {/if}
-          <button class="menu-item" type="button" role="menuitem" onclick={chooseSettings}>
-            <span class="menu-glyph" aria-hidden="true">⚙</span>
-            <span class="menu-label">{m.settings_title()}</span>
-          </button>
-        </div>
-      {/if}
-    </div>
+    <TopBarGear
+      {mobile}
+      {haltable}
+      {blocked}
+      {gearPipTier}
+      {gearOpensMenu}
+      {armed}
+      bind:menuOpen
+      bind:gearWrap
+      bind:gearBtn
+      bind:menuEl
+      {clickGear}
+      {clickHalt}
+      {chooseSettings}
+      {onMenuKey}
+    />
   </div>
 </div>
 
-<!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
-     and the herd recedes. Rendered outside .gear-wrap so outside-click detection fires on it.
-     onclick also wires close explicitly to complement the window-level handler.
-     The portal wrapper re-parents both children to <body> so position:fixed resolves
-     against the viewport, not the will-change:transform chrome header. The wrapper itself
-     is display:contents with no transform/filter/will-change so it establishes no
-     containing block of its own. -->
 {#if menuOpen && mobile}
-  <div class="gear-sheet-portal" use:portal>
-    <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
-    <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
-         provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
-         NOT role="menuitem" (that role is invalid inside a dialog). -->
-    <div
-      class="gear-sheet"
-      role="dialog"
-      aria-modal="true"
-      aria-label={m.topbar_sheet_title()}
-      use:dialog={{ onclose: closeMenu }}
-      transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
-    >
-      <!-- Grab handle + title row -->
-      <div class="sheet-handle-row" aria-hidden="true">
-        <div class="sheet-handle"></div>
-      </div>
-      <div class="sheet-title-row">
-        <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
-        <button
-          type="button"
-          class="sheet-close"
-          onclick={() => closeMenu()}
-          aria-label={m.common_close()}>✕</button
-        >
-      </div>
-
-      <!-- Quick appearance: dark/light theme + high-contrast toggle -->
-      <div class="quick">
-        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-          {#each QUICK_THEMES as t (t.pref)}
-            <button
-              type="button"
-              class="t-opt"
-              class:on={theme.resolved === t.pref}
-              aria-pressed={theme.resolved === t.pref}
-              aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
-            >
-          {/each}
-        </div>
-        <button
-          type="button"
-          class="contrast-toggle"
-          class:on={theme.contrast}
-          aria-pressed={theme.contrast}
-          aria-label={m.actionbar_contrast_toggle()}
-          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
-        >
-      </div>
-      <div class="sheet-sep"></div>
-
-      <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
-      {#if gauges.length || credits || subscriptionOnly}
-        <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
-        {#if subscriptionOnly}
-          <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
-        {:else}
-          <div class="sheet-gauges" class:stale={limits?.stale}>
-            {#each gauges as g (g.label)}
-              <div class="sheet-gauge-row">
-                <div class="sheet-gauge-head">
-                  <span class="gp-period">{periodLabel(g.label)}</span>
-                  <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                </div>
-                <span class="g-bar g-bar-wide"
-                  ><span
-                    class="g-fill"
-                    style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                      100});background:{gaugeColor(g.w.pct)}"
-                  ></span></span
-                >
-                <div class="gauge-pop-reset micro">
-                  {m.topbar_gauge_reset_rel({
-                    rel: formatResetIn(g.w.resetAt, nowMs),
-                    abs: formatReset(g.w.resetAt, nowMs),
-                  })}
-                </div>
-              </div>
-            {/each}
-            {@render creditDetail()}
-          </div>
-        {/if}
-        <div class="sheet-sep"></div>
-      {/if}
-
-      <!-- Diagnose row: only when health is not ok -->
-      {#if diagnosticsOverall !== "ok"}
-        <button
-          type="button"
-          class="sheet-item"
-          class:alert={diagnosticsOverall === "error"}
-          onclick={() => {
-            closeMenu();
-            ondiagnose?.();
-          }}
-          aria-label={m.diagnostics_pip_label()}
-        >
-          <span class="sheet-glyph" aria-hidden="true"
-            >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
-          >
-          <span class="sheet-label">{m.diagnostics_pip_label()}</span>
-        </button>
-      {/if}
-
-      <!-- Update row: when shepherd update is available -->
-      {#if updateAvailable}
-        <button
-          type="button"
-          class="sheet-item sheet-update"
-          onclick={() => {
-            closeMenu();
-            onupdate?.();
-          }}
-          aria-label={m.topbar_update_badge()}
-        >
-          <span class="sheet-glyph" aria-hidden="true">▲</span>
-          <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
-        </button>
-      {/if}
-
-      <!-- Herdr update row: when herdr update is available -->
-      {#if herdrUpdateAvailable}
-        <button
-          type="button"
-          class="sheet-item sheet-update"
-          onclick={() => {
-            closeMenu();
-            onherdrupdate?.();
-          }}
-          aria-label={m.topbar_herdr_update_badge()}
-        >
-          <span class="sheet-glyph" aria-hidden="true">▲</span>
-          <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
-        </button>
-      {/if}
-
-      <!-- What's New row -->
-      {#if whatsNew}
-        <button
-          type="button"
-          class="sheet-item"
-          onclick={() => {
-            closeMenu();
-            onwhatsnew?.();
-          }}
-          aria-label={m.whatsnew_topbar_aria()}
-        >
-          <span class="sheet-glyph" aria-hidden="true">●</span>
-          <span class="sheet-label">{m.whatsnew_open()}</span>
-        </button>
-      {/if}
-
-      <!-- Learnings row: review proposed house rules across all repos -->
-      {#if learningsPresent}
-        <button
-          type="button"
-          class="sheet-item"
-          onclick={() => {
-            closeMenu();
-            onlearnings?.();
-          }}
-          aria-label={learnings > 0
-            ? m.learnings_open_aria({ count: learnings })
-            : m.learnings_open_curate_aria({ count: learningsCurate })}
-        >
-          <span class="sheet-glyph" aria-hidden="true">✦</span>
-          <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
-        </button>
-      {/if}
-
-      <div class="sheet-sep"></div>
-
-      <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
-      {#if haltable > 0}
-        <button
-          class="sheet-item halt-item"
-          class:armed
-          type="button"
-          onclick={clickHalt}
-          aria-label={armed
-            ? m.halt_arm_aria({ count: haltable })
-            : m.halt_all_aria({ count: haltable })}
-        >
-          <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-          </svg>
-          <span class="sheet-label"
-            >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
-          >
-        </button>
-        <div class="sheet-sep"></div>
-      {/if}
-
-      <!-- Settings -->
-      <button type="button" class="sheet-item" onclick={chooseSettings}>
-        <span class="sheet-glyph" aria-hidden="true">⚙</span>
-        <span class="sheet-label">{m.settings_title()}</span>
-      </button>
-
-      <!-- Docs + version footer -->
-      <div class="sheet-sep"></div>
-      <a
-        class="sheet-item"
-        href={REPO_URL}
-        target="_blank"
-        rel="external noreferrer noopener"
-        onclick={() => closeMenu()}
-      >
-        <span class="sheet-glyph" aria-hidden="true">↗</span>
-        <span class="sheet-label">{m.topbar_menu_docs()}</span>
-      </a>
-      <div class="sheet-foot micro">v{version}</div>
-    </div>
-  </div>
+  <TopBarMobileSheet
+    {gauges}
+    {credits}
+    {subscriptionOnly}
+    stale={limits?.stale ?? false}
+    {diagnosticsOverall}
+    {updateAvailable}
+    {update}
+    {herdrUpdateAvailable}
+    {whatsNew}
+    {learningsPresent}
+    {learnings}
+    {learningsCurate}
+    {learningsLabel}
+    {learningsCount}
+    {haltable}
+    {armed}
+    {nowMs}
+    {creditFill}
+    {creditColor}
+    {creditAmount}
+    {refreshing}
+    {refreshError}
+    onRefresh={doRefresh}
+    {periodLabel}
+    {closeMenu}
+    {clickHalt}
+    {chooseSettings}
+    {ondiagnose}
+    {onupdate}
+    {onherdrupdate}
+    {onwhatsnew}
+    {onlearnings}
+  />
 {/if}
 
 <style>
@@ -1425,43 +760,6 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  .tallies {
-    display: flex;
-    /* was 18px between static divs: the tally buttons now carry 4px side padding
-       each, so 10px gap keeps the content-to-content rhythm (4+10+4) and the bar's
-       intrinsic width ~stable — the measured desktop compaction threshold
-       (hudEl.scrollWidth) must not drift */
-    gap: 10px;
-    align-items: center;
-  }
-  .tally {
-    display: flex;
-    gap: 7px;
-    align-items: center;
-    background: none;
-    border: 1px solid transparent;
-    padding: 2px 4px;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-  }
-  .tally:not(:disabled):hover {
-    background: var(--color-inset);
-  }
-  /* the disabled total (no active filter → clearing is a no-op) keeps its full
-     tally appearance, just without the click affordance */
-  .tally:disabled,
-  .ctally:disabled {
-    cursor: default;
-  }
-  .tally.active {
-    background: var(--color-inset);
-    border-color: var(--color-line-bright);
-  }
-  .tally .n {
-    color: var(--color-ink-bright);
-    font-weight: 500;
-  }
   .needsyou {
     background: color-mix(in srgb, var(--color-red) 18%, transparent);
     border: 1px solid var(--color-red);
@@ -1473,764 +771,24 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-  /* ✦ LEARNINGS: quiet neutral chrome control — review proposed house rules across all
-     repos. ✦ stays on the ink/faint ramp (no status hue). */
-  .learnings-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    padding: 5px 10px;
-    border-radius: 2px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .learnings-btn:hover {
-    color: var(--color-ink);
-    border-color: var(--color-ink);
-  }
-  .learnings-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-ink);
-  }
-  .learn-glyph {
-    font-size: var(--fs-lg);
-    line-height: 1;
-  }
-  /* Compact: icon-only, ≥44px tap target. */
-  .learnings-btn.compact {
-    justify-content: center;
-    min-width: 44px;
-    padding: 8px 10px;
-    letter-spacing: 0;
-  }
-  .learn-n {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
-  /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
-     working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
-  .gear-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-  .gear-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 30;
-    min-width: 184px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 5px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  }
-  /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
-     desktop ActionBar but sized up for touch (44px tap targets). */
-  .quick {
-    display: flex;
-    align-items: stretch;
-    gap: 8px;
-    padding: 2px;
-  }
-  .theme-seg {
-    display: flex;
-    flex: 1;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .t-opt {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    background: transparent;
-    border: 0;
-    border-left: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: var(--fs-xl);
-    line-height: 1;
-    cursor: pointer;
-  }
-  .t-opt:first-child {
-    border-left: 0;
-  }
-  .t-opt:hover {
-    color: var(--color-ink-bright);
-  }
-  /* seg group clips overflow, so an inset ring would be cropped — outline instead */
-  .t-opt:focus-visible {
-    outline: 1.5px solid var(--color-line-bright);
-    outline-offset: -1.5px;
-  }
-  .t-opt.on {
-    color: var(--color-amber);
-    background: var(--color-inset);
-  }
-  .contrast-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 56px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    color: var(--color-muted);
-    font-size: var(--fs-xl);
-    line-height: 1;
-    cursor: pointer;
-  }
-  .contrast-toggle:hover {
-    color: var(--color-ink-bright);
-  }
-  .contrast-toggle:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .contrast-toggle.on {
-    color: var(--color-amber);
-    background: var(--color-inset);
-    border-color: var(--color-amber);
-  }
-  /* Portal wrapper: re-parents scrim + sheet to <body> so position:fixed resolves
-     against the viewport, not the will-change:transform chrome header (see portal.ts).
-     display:contents collapses the wrapper in the layout — it establishes NO containing
-     block of its own (no transform, filter, will-change, or contain). */
-  .gear-sheet-portal {
-    display: contents;
-  }
-  /* Scrim: sits below the mobile bottom sheet (z 49) but above app content.
-     Uses the canonical .scrim primitive (dim + blur) from app.css. */
-  .menu-scrim {
-    z-index: 49;
-  }
-
-  /* Mobile bottom sheet: slides up from the bottom. Fixed to left/right/bottom edges,
-     tall enough to hold all sections without viewport overflow. The sheet itself is
-     opaque panel chrome — the .scrim behind it dims+blurs the herd content. */
-  .gear-sheet {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 50;
-    background: var(--color-panel);
-    border-top: 1px solid var(--color-line-bright);
-    border-radius: 10px 10px 0 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 0 8px 12px;
-    /* safe-area bottom for notched phones */
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    max-height: 90dvh;
-    overflow-y: auto;
-  }
-  .sheet-handle-row {
-    display: flex;
-    justify-content: center;
-    padding: 10px 0 4px;
-  }
-  .sheet-handle {
-    width: 40px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--color-line-bright);
-  }
-  .sheet-title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 2px 4px 6px;
-  }
-  .sheet-title {
-    color: var(--color-muted);
-  }
-  .sheet-close {
-    background: none;
-    border: 0;
-    color: var(--color-muted);
-    cursor: pointer;
-    min-width: 44px;
-    min-height: 44px;
-    font-size: var(--fs-lg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .sheet-sep {
-    height: 1px;
-    margin: 5px 4px;
-    background: var(--color-line);
-  }
-  .sheet-section-label {
-    padding: 6px 8px 2px;
-    color: var(--color-muted);
-  }
-  .sheet-row-text {
-    padding: 6px 8px;
-    color: var(--color-muted);
-  }
-  /* Full gauge breakdown in the sheet — one row per window, wider bars. */
-  .sheet-gauges {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 4px 8px 4px;
-  }
-  .sheet-gauges.stale {
-    opacity: 0.5;
-  }
-  .sheet-gauge-row {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-  .sheet-gauge-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
-  /* Sheet action rows: ≥44px targets, token-driven, no role=menuitem (invalid in dialog). */
-  .sheet-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    min-height: 44px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-lg);
-    text-align: left;
-    padding: 10px 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    text-decoration: none;
-  }
-  .sheet-item:hover,
-  .sheet-item:focus-visible {
-    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
-    outline: none;
-  }
-  .sheet-item.alert {
-    color: var(--color-amber);
-  }
-  .sheet-item.alert:hover,
-  .sheet-item.alert:focus-visible {
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
-  }
-  /* Update rows: amber accent (same semantic hue as the inline update badge). */
-  .sheet-item.sheet-update {
-    color: var(--color-amber);
-  }
-  .sheet-item.sheet-update:hover,
-  .sheet-item.sheet-update:focus-visible {
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
-  }
-  /* e-stop row in the sheet — same muted-then-red pattern as the desktop menu. */
-  .sheet-item.halt-item {
-    color: var(--color-muted);
-  }
-  .sheet-item.halt-item:hover,
-  .sheet-item.halt-item:focus-visible {
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    color: var(--color-red);
-  }
-  .sheet-item.halt-item.armed {
-    background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border-color: var(--color-red);
-    color: var(--color-red);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: var(--fs-meta);
-  }
-  .sheet-item.halt-item.armed .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-  }
-  .sheet-glyph {
-    width: var(--fs-lg);
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .sheet-label {
-    font-variant-numeric: tabular-nums;
-  }
-  .sheet-foot {
-    padding: 6px 12px 2px;
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
-  }
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-base);
-    text-align: left;
-    padding: 8px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .menu-item:hover,
-  .menu-item:focus-visible {
-    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
-    outline: none;
-  }
-  .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-    display: block;
-    flex-shrink: 0;
-  }
-  .menu-glyph {
-    width: var(--fs-lg);
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .menu-label {
-    font-variant-numeric: tabular-nums;
-  }
-  /* e-stop row: muted by default, goes loud (red) only on hover/focus and once armed —
-     so a rarely-pressed control never dominates the menu. */
-  .halt-item {
-    color: var(--color-muted);
-  }
-  .halt-item:hover,
-  .halt-item:focus-visible {
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    color: var(--color-red);
-  }
-  .halt-item.armed {
-    background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border-color: var(--color-red);
-    color: var(--color-red);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: var(--fs-meta);
-  }
-  /* Keep the octagon glyph at full size even when arming drops the row font-size. */
-  .halt-item.armed .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-  }
-  .menu-sep {
-    height: 1px;
-    margin: 3px 2px;
-    background: var(--color-line);
-  }
-  /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
-     agents merely work; red (.alert) only when something is blocked, so red stays
-     reserved for "needs you" rather than the normal running state. */
-  .halt-pip {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .halt-pip.alert {
-    background: var(--color-red);
-  }
+  /* learnings-btn, learn-glyph, learn-n, gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
+  /* quick, theme-seg, t-opt, contrast-toggle, gear-sheet-portal, menu-scrim, gear-sheet, sheet-* moved to top-bar/TopBarMobileSheet.svelte (#855) */
+  /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, halt-pip, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
   .rightside {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 16px;
   }
-  .gear {
-    position: relative;
-    background: transparent;
-    border: none;
-    color: var(--color-muted);
-    font-size: var(--fs-xl);
-    line-height: 1;
-    padding: 5px 8px;
-    cursor: pointer;
-  }
-  .gear:hover {
-    color: var(--color-amber);
-  }
-  /* Mobile only: single severity dot on the gear — red > orange > yellow > blue.
-     One dot replaces the old three-pip "measles" layout on mobile. */
-  .gear-pip {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .gear-pip[data-tier="red"] {
-    background: var(--color-red);
-  }
-  .gear-pip[data-tier="orange"] {
-    background: var(--color-warn);
-  }
-  .gear-pip[data-tier="yellow"] {
-    background: var(--color-amber);
-  }
-  .gear-pip[data-tier="blue"] {
-    background: var(--color-blue);
-  }
-  /* Health pip: a standalone button placed left of the gear-wrap in .rightside.
-     Visible only when diagnosticsOverall !== "ok" (hidden-when-OK via {#if}).
-     Ring: --color-line-bright (neutral slate) — a quiet outline that doesn't
-     read as the halt-pip or the herdr dot.
-     Core: --status-warn (warning) or --color-red (error, .alert). */
-  .health-pip {
-    position: relative;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 50%;
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-    padding: 0;
-  }
-  .health-pip:hover {
-    border-color: var(--color-muted);
-  }
-  .health-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--status-warn);
-    display: block;
-  }
-  .health-pip.alert .health-dot {
-    background: var(--color-red);
-  }
-  /* What's New affordance — blue informational accent (shared with the herdr cue),
-     distinct from amber (app-update). */
-  .whatsnew-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-    border: 1px solid var(--color-blue);
-    color: var(--color-blue);
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    border-radius: 2px;
-  }
-  .whatsnew-badge:hover {
-    background: color-mix(in srgb, var(--color-blue) 22%, transparent);
-  }
-  .whatsnew-badge .wn-dot {
-    font-size: var(--fs-micro);
-  }
-  /* Phone-only: bare pip button, no label. */
-  .whatsnew-dot-btn {
-    position: relative;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 5px 8px;
-    border-radius: 2px;
-    cursor: pointer;
-    min-height: 44px;
-    min-width: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .wn-pip {
-    display: block;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--color-blue);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .gauges-wrap {
-    position: relative;
-  }
-  /* api-key mode: explicit fail-closed note in place of the usage meters. */
-  .usage-sub-only {
-    color: var(--color-muted);
-    max-width: 22rem;
-  }
-  .gauges {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-  }
-  .gauges.stale {
-    opacity: 0.5;
-  }
-  .gauge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-variant-numeric: tabular-nums;
-  }
-  .g-label {
-    color: var(--color-muted);
-  }
-  .g-bar {
-    width: 46px;
-    height: 5px;
-    background: var(--color-line);
-    border: 1px solid var(--color-line-bright);
-    overflow: hidden;
-  }
-  .g-fill {
-    display: block;
-    width: 100%;
-    height: 100%;
-    transform-origin: left;
-    transition: transform 0.6s ease;
-  }
-  .g-pct {
-    font-size: var(--fs-meta);
-    min-width: 30px;
-    text-align: right;
-  }
-  /* CR credit gauge: reuses the .gauge recipe. The amount text is wider than a
-     percentage, so it gets a larger min-width and rides on the same tabular nums. */
-  .credit-gauge.alert .g-label {
-    color: var(--color-amber);
-  }
-  .credit-gauge.stale {
-    opacity: 0.5;
-  }
-  .credit-amount {
-    min-width: max-content;
-    white-space: nowrap;
-  }
-  /* CR collapsed touch button + popover detail when extra credits are being spent. */
-  .gauge-btn.alert {
-    border-color: var(--color-amber);
-  }
-  .credit-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .credit-detail.stale {
-    opacity: 0.5;
-  }
-  .credit-sub {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-ink);
-  }
-  .credit-stale {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-amber);
-  }
-  .credit-error {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-red);
-  }
-  .credit-refresh {
-    align-self: flex-start;
-    margin-top: 2px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    text-transform: none;
-    letter-spacing: 0.04em;
-    padding: 4px 9px;
-    cursor: pointer;
-  }
-  .credit-refresh:hover:not(:disabled) {
-    background: var(--color-inset);
-  }
-  .credit-refresh:disabled {
-    cursor: default;
-    opacity: 0.5;
-  }
-  /* Touch: a single collapsed gauge rendered as a tappable button. */
-  .gauge-wrap {
-    position: relative;
-  }
-  .gauge-btn {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    cursor: pointer;
-    font: inherit;
-    /* finger-sized tap target, matching the gear on touch HUDs */
-    min-height: 40px;
-    padding: 0 8px;
-  }
-  .gauge-btn:hover,
-  .gauge-btn[aria-expanded="true"] {
-    border-color: var(--color-line-bright);
-  }
-  .gauge-btn.stale {
-    opacity: 0.5;
-  }
-  /* Popover: full breakdown of every window, anchored under the gauge. */
-  .gauge-pop {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    z-index: 50;
-    min-width: 200px;
-    max-width: min(280px, 85vw);
-    background: var(--color-panel);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-    padding: 10px 11px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .gauge-pop.stale {
-    opacity: 0.5;
-  }
-  .gauge-pop-title {
-    margin-bottom: 6px;
-  }
-  .gauge-pop-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-  .gauge-pop-row .g-bar-wide {
-    flex: 1;
-    width: auto;
-    height: 6px;
-  }
-  .gauge-pop-row .g-pct {
-    min-width: 34px;
-  }
-  .gauge-pop-reset {
-    margin: 0 0 6px 30px;
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-faint);
-  }
-  .gauge-pop-reset:last-child {
-    margin-bottom: 0;
-  }
-  /* Desktop hover detail card: one block per window — period name + percentage
-     on a header row, a full-width bar below, reset time as a faint subline. */
-  .gauge-pop-desk {
-    gap: 0;
-  }
-  .gp-window {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .gp-window + .gp-window {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--color-line);
-  }
-  .gp-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
-  .gp-period {
-    color: var(--color-text);
-    font-size: var(--fs-meta);
-    text-transform: capitalize;
-  }
-  .gauge-pop-desk .g-bar-wide {
-    width: 100%;
-    height: 6px;
-  }
-  .sheet-gauge-row .g-bar-wide {
-    width: 100%;
-    height: 6px;
-  }
-  .sheet-gauge-row .gauge-pop-reset {
-    margin: 0;
-  }
-  .gauge-pop-desk .gauge-pop-reset {
-    margin: 0;
-  }
-  .update-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
-    border: 1px solid var(--color-amber);
-    color: var(--color-amber);
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    border-radius: 2px;
-    animation: update-pulse 2.4s ease-in-out infinite;
-  }
-  .update-badge .up-dot {
-    font-size: var(--fs-micro);
-  }
-  .update-badge .up-n {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
-  /* herdr badge: informational (operator updates manually), so it reads as calm
-     blue — the informational accent — and doesn't pulse like the actionable
-     self-update badge */
-  .update-badge.herdr {
-    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-    border-color: var(--color-blue);
-    color: var(--color-blue);
-    animation: none;
-  }
-  @keyframes update-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 40%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 0 4px transparent;
-    }
-  }
+  /* gear, gear-pip, halt-pip, health-pip, health-dot moved to top-bar/TopBarGear.svelte / TopBarBadges.svelte (#855) */
+  /* whatsnew-badge, whatsnew-dot-btn, wn-pip, health-pip, health-dot, update-badge, learnings-btn moved to top-bar/TopBarBadges.svelte (#855) */
+  /* usage-sub-only, gauges-wrap, gauges, gauge, g-label, gauge-wrap, gauge-btn, gauge-pop,
+     gauge-pop-desk, gp-window, gp-head, credit-amount moved to top-bar/TopBarUsage.svelte (#855) */
+  /* g-bar, g-fill, g-pct, g-bar-wide, gauge-pop-reset, gp-period, sheet-gauge-row.g-bar-wide
+     moved to top-bar/TopBarMobileSheet.svelte (#855) */
+  /* credit-gauge.* rules moved to top-bar/CreditGauge.svelte (#855) */
+  /* credit-detail.* rules moved to top-bar/CreditDetail.svelte (#855) */
+  /* update-badge, up-dot, up-n, update-pulse moved to top-bar/TopBarBadges.svelte (#855) */
   .clock {
     color: var(--color-ink-bright);
     letter-spacing: 0.16em;
@@ -2280,42 +838,6 @@
     font-size: var(--fs-base);
     letter-spacing: 0.12em;
   }
-  .tallies.compact {
-    display: flex;
-    align-items: center;
-    /* button side padding (5px) now provides the separation the old 4px gap gave */
-    gap: 0;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
-  .ctally {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    background: none;
-    border: 1px solid transparent;
-    padding: 0 5px;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    /* 44px touch floor in HEIGHT only (matches .hud.mobile .gear/.needsyou); a
-       44px width floor for four buttons would blow the ~260px usable line-1
-       budget on fold-cover phones. 24px min width keeps even the bare-digit
-       Idle segment at the WCAG 2.5.8 (AA) target size. */
-    min-height: 44px;
-    min-inline-size: 24px;
-  }
-  .ctally.active {
-    background: var(--color-inset);
-    border-color: var(--color-line-bright);
-  }
-  .tallies.compact .cdot {
-    font-size: var(--fs-micro);
-  }
-  .tallies.compact .csep {
-    color: var(--color-faint);
-  }
   /* Mobile: drop the numeric time and let the bare connection dot ride inline at
      the head of the right-side cluster (order:-1) — vertically centred with the
      gauge/gear instead of floating off-centre in the corner. */
@@ -2332,31 +854,9 @@
     gap: 5px;
     row-gap: 8px;
   }
-  /* finger-sized tap targets on touch HUDs (≥44px) — the desktop sizes are
-     tuned for a cursor and are too small to hit reliably on a phone. These
-     phone-layout rules (.hud.mobile …) outrank the @media (pointer: coarse)
-     block below on specificity, so the 44px floor must live here too. */
-  .hud.mobile .gear {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 5px 11px;
-    font-size: var(--fs-xl);
-  }
-  .hud.mobile .gauge-btn {
-    padding: 0 6px;
-    gap: 5px;
-  }
-  .hud.mobile .gauge-btn .g-bar {
-    width: 28px;
-  }
-  /* Phone: collapse the gauge to a bare colour bar — drop both the numeric
-     percentage and the period label. The bar fill + colour carry the level at a
-     glance and the tap popover still shows the labelled windows with exact
-     numbers — so the control row holds one line down to ~360px phones. */
-  .hud.mobile .gauge-btn .g-pct,
-  .hud.mobile .gauge-btn .g-label {
-    display: none;
-  }
+  /* .hud.mobile .gear moved to top-bar/TopBarGear.svelte as .gear.mobile (#855) */
+  /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,
+     so .hud.mobile .gauge-btn can never match — verified dead (#855). */
   .hud.mobile .needsyou {
     min-height: 44px;
     padding: 8px 12px;
@@ -2388,18 +888,11 @@
      mobile-width class so coarse-pointer tablets/foldables in desktop layout
      also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
   @media (pointer: coarse) {
-    .gear,
+    /* .gear/.menu-item moved to TopBarGear; .update-badge/.learnings-btn moved to TopBarBadges */
     .needsyou,
-    .needsyou.compact,
-    .learnings-btn,
-    .gauge-btn,
-    .update-badge {
+    .needsyou.compact {
       min-height: 44px;
       min-width: 44px;
-    }
-    /* Menu rows get the same ≥44px touch floor without enlarging the desktop layout. */
-    .menu-item {
-      min-height: 44px;
     }
   }
 
@@ -2436,144 +929,5 @@
       opacity: 1;
       transform: translateY(0);
     }
-  }
-
-  /* ── Held-tasks badge + popover ──────────────────────────────────────────── */
-  .held-wrap {
-    position: relative;
-  }
-  .held-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: transparent;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    padding: 3px 8px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .held-badge:hover {
-    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
-  }
-  .held-badge .held-n {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .held-badge .held-reset {
-    color: color-mix(in srgb, var(--color-amber) 70%, transparent);
-    font-size: var(--fs-micro);
-  }
-  /* Anchored popover — mirrors .auto-pop from AutomationPanel */
-  .held-pop {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 20;
-    margin-top: 4px;
-    width: 300px;
-    max-width: 90vw;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    color: var(--color-ink);
-    max-height: 85vh;
-    overflow-y: auto;
-  }
-  .held-pop.flip-up {
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 4px;
-  }
-  @media (pointer: coarse) {
-    /* Touch: keep the popover ANCHORED (not fixed-centered) so it stays a small
-       non-blocking popover exempt from the modal scrim rule (CLAUDE.md). The
-       flip-up + height-clamp $effect already handles overflow on coarse-pointer
-       devices. Widen slightly for thumb reach. */
-    .held-pop {
-      width: min(360px, 92vw);
-    }
-    .held-badge {
-      min-height: 44px;
-      min-width: 44px;
-    }
-  }
-  .held-pop-head {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    padding: 10px 12px 6px;
-  }
-  .held-pop-empty {
-    font-size: var(--fs-meta);
-    color: var(--color-faint);
-    padding: 6px 12px 10px;
-  }
-  .held-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 6px 12px;
-    border-top: 1px solid var(--color-line);
-  }
-  .held-row-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-  .held-row-prompt {
-    font-size: var(--fs-meta);
-    color: var(--color-ink-bright);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 22ch;
-  }
-  .held-row-repo {
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-    letter-spacing: 0.04em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .held-row-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-  .held-action {
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    font: inherit;
-    font-size: var(--fs-micro);
-    letter-spacing: 0.06em;
-    padding: 2px 8px;
-    cursor: pointer;
-    white-space: nowrap;
-    color: var(--color-ink);
-  }
-  .held-action:hover {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .held-spawn {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
-  .held-spawn:hover {
-    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
 </style>

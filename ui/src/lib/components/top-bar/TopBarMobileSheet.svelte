@@ -1,0 +1,634 @@
+<script lang="ts">
+  import type { Gauge, GaugeKey } from "../usage-gauges";
+  import type { CreditWindow, UpdateStatus, DiagnosticState } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
+  import { theme, type ThemePref } from "$lib/theme.svelte";
+  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import CreditDetail from "./CreditDetail.svelte";
+  import { gaugeColor } from "../usage-gauges";
+  import { formatResetIn, formatReset } from "$lib/format";
+  import { REPO_URL, version } from "$lib/build-info";
+  import { fly } from "svelte/transition";
+  import { dialog } from "$lib/a11yDialog";
+  import { portal } from "$lib/portal";
+
+  // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
+  // ActionBar carries these, but on phone it hides them, leaving Settings → Device the
+  // only home. Mirrors the ActionBar's compact recipe: two explicit choices (dark/light;
+  // "system" stays the implicit default), keyed on the resolved value.
+  const QUICK_THEMES: {
+    pref: Exclude<ThemePref, "system">;
+    icon: "moon" | "sun";
+    label: () => string;
+  }[] = [
+    { pref: "dark", icon: "moon", label: m.theme_dark },
+    { pref: "light", icon: "sun", label: m.theme_light },
+  ];
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+  let {
+    gauges,
+    credits,
+    subscriptionOnly,
+    stale,
+    diagnosticsOverall,
+    updateAvailable,
+    update,
+    herdrUpdateAvailable,
+    whatsNew,
+    learningsPresent,
+    learnings,
+    learningsCurate,
+    learningsLabel,
+    learningsCount,
+    haltable,
+    armed,
+    nowMs,
+    creditFill,
+    creditColor,
+    creditAmount,
+    refreshing,
+    refreshError,
+    onRefresh,
+    periodLabel,
+    closeMenu,
+    clickHalt,
+    chooseSettings,
+    ondiagnose,
+    onupdate,
+    onherdrupdate,
+    onwhatsnew,
+    onlearnings,
+  }: {
+    gauges: Gauge[];
+    credits: CreditWindow | null;
+    subscriptionOnly: boolean;
+    stale: boolean;
+    diagnosticsOverall: DiagnosticState;
+    updateAvailable: boolean;
+    update: UpdateStatus | null;
+    herdrUpdateAvailable: boolean;
+    whatsNew: boolean;
+    learningsPresent: boolean;
+    learnings: number;
+    learningsCurate: number;
+    learningsLabel: string;
+    learningsCount: number;
+    haltable: number;
+    armed: boolean;
+    nowMs: number;
+    creditFill: number;
+    creditColor: string;
+    creditAmount: string;
+    refreshing: boolean;
+    refreshError: boolean;
+    onRefresh: () => void;
+    periodLabel: (k: GaugeKey) => string;
+    closeMenu: () => void;
+    clickHalt: () => void;
+    chooseSettings: () => void;
+    ondiagnose: (() => void) | undefined;
+    onupdate: (() => void) | undefined;
+    onherdrupdate: (() => void) | undefined;
+    onwhatsnew: (() => void) | undefined;
+    onlearnings: (() => void) | undefined;
+  } = $props();
+</script>
+
+<!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
+     and the herd recedes. Rendered outside .gear-wrap so outside-click detection fires on it.
+     onclick also wires close explicitly to complement the window-level handler.
+     The portal wrapper re-parents both children to <body> so position:fixed resolves
+     against the viewport, not the will-change:transform chrome header. The wrapper itself
+     is display:contents with no transform/filter/will-change so it establishes no
+     containing block of its own. -->
+<div class="gear-sheet-portal" use:portal>
+  <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
+  <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
+       provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
+       NOT role="menuitem" (that role is invalid inside a dialog). -->
+  <div
+    class="gear-sheet"
+    role="dialog"
+    aria-modal="true"
+    aria-label={m.topbar_sheet_title()}
+    use:dialog={{ onclose: closeMenu }}
+    transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
+  >
+    <!-- Grab handle + title row -->
+    <div class="sheet-handle-row" aria-hidden="true">
+      <div class="sheet-handle"></div>
+    </div>
+    <div class="sheet-title-row">
+      <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
+      <button
+        type="button"
+        class="sheet-close"
+        onclick={() => closeMenu()}
+        aria-label={m.common_close()}>✕</button
+      >
+    </div>
+
+    <!-- Quick appearance: dark/light theme + high-contrast toggle -->
+    <div class="quick">
+      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+        {#each QUICK_THEMES as t (t.pref)}
+          <button
+            type="button"
+            class="t-opt"
+            class:on={theme.resolved === t.pref}
+            aria-pressed={theme.resolved === t.pref}
+            aria-label={m.actionbar_theme_option({ label: t.label() })}
+            onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+          >
+        {/each}
+      </div>
+      <button
+        type="button"
+        class="contrast-toggle"
+        class:on={theme.contrast}
+        aria-pressed={theme.contrast}
+        aria-label={m.actionbar_contrast_toggle()}
+        onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+      >
+    </div>
+    <div class="sheet-sep"></div>
+
+    <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
+    {#if gauges.length || credits || subscriptionOnly}
+      <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
+      {#if subscriptionOnly}
+        <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
+      {:else}
+        <div class="sheet-gauges {stale ? 'stale' : ''}">
+          {#each gauges as g (g.label)}
+            <div class="sheet-gauge-row">
+              <div class="sheet-gauge-head">
+                <span class="gp-period">{periodLabel(g.label)}</span>
+                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              </div>
+              <span class="g-bar g-bar-wide"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                    100});background:{gaugeColor(g.w.pct)}"
+                ></span></span
+              >
+              <div class="gauge-pop-reset micro">
+                {m.topbar_gauge_reset_rel({
+                  rel: formatResetIn(g.w.resetAt, nowMs),
+                  abs: formatReset(g.w.resetAt, nowMs),
+                })}
+              </div>
+            </div>
+          {/each}
+          <CreditDetail
+            {credits}
+            {creditFill}
+            {creditColor}
+            {creditAmount}
+            {nowMs}
+            {refreshing}
+            {refreshError}
+            {onRefresh}
+          />
+        </div>
+      {/if}
+      <div class="sheet-sep"></div>
+    {/if}
+
+    <!-- Diagnose row: only when health is not ok -->
+    {#if diagnosticsOverall !== "ok"}
+      <button
+        type="button"
+        class="sheet-item"
+        class:alert={diagnosticsOverall === "error"}
+        onclick={() => {
+          closeMenu();
+          ondiagnose?.();
+        }}
+        aria-label={m.diagnostics_pip_label()}
+      >
+        <span class="sheet-glyph" aria-hidden="true"
+          >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
+        >
+        <span class="sheet-label">{m.diagnostics_pip_label()}</span>
+      </button>
+    {/if}
+
+    <!-- Update row: when shepherd update is available -->
+    {#if updateAvailable}
+      <button
+        type="button"
+        class="sheet-item sheet-update"
+        onclick={() => {
+          closeMenu();
+          onupdate?.();
+        }}
+        aria-label={m.topbar_update_badge()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
+      </button>
+    {/if}
+
+    <!-- Herdr update row: when herdr update is available -->
+    {#if herdrUpdateAvailable}
+      <button
+        type="button"
+        class="sheet-item sheet-update"
+        onclick={() => {
+          closeMenu();
+          onherdrupdate?.();
+        }}
+        aria-label={m.topbar_herdr_update_badge()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
+      </button>
+    {/if}
+
+    <!-- What's New row -->
+    {#if whatsNew}
+      <button
+        type="button"
+        class="sheet-item"
+        onclick={() => {
+          closeMenu();
+          onwhatsnew?.();
+        }}
+        aria-label={m.whatsnew_topbar_aria()}
+      >
+        <span class="sheet-glyph" aria-hidden="true">●</span>
+        <span class="sheet-label">{m.whatsnew_open()}</span>
+      </button>
+    {/if}
+
+    <!-- Learnings row: review proposed house rules across all repos -->
+    {#if learningsPresent}
+      <button
+        type="button"
+        class="sheet-item"
+        onclick={() => {
+          closeMenu();
+          onlearnings?.();
+        }}
+        aria-label={learnings > 0
+          ? m.learnings_open_aria({ count: learnings })
+          : m.learnings_open_curate_aria({ count: learningsCurate })}
+      >
+        <span class="sheet-glyph" aria-hidden="true">✦</span>
+        <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
+      </button>
+    {/if}
+
+    <div class="sheet-sep"></div>
+
+    <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
+    {#if haltable > 0}
+      <button
+        class="sheet-item halt-item"
+        class:armed
+        type="button"
+        onclick={clickHalt}
+        aria-label={armed
+          ? m.halt_arm_aria({ count: haltable })
+          : m.halt_all_aria({ count: haltable })}
+      >
+        <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
+        </svg>
+        <span class="sheet-label"
+          >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
+        >
+      </button>
+      <div class="sheet-sep"></div>
+    {/if}
+
+    <!-- Settings -->
+    <button type="button" class="sheet-item" onclick={chooseSettings}>
+      <span class="sheet-glyph" aria-hidden="true">⚙</span>
+      <span class="sheet-label">{m.settings_title()}</span>
+    </button>
+
+    <!-- Docs + version footer -->
+    <div class="sheet-sep"></div>
+    <a
+      class="sheet-item"
+      href={REPO_URL}
+      target="_blank"
+      rel="external noreferrer noopener"
+      onclick={() => closeMenu()}
+    >
+      <span class="sheet-glyph" aria-hidden="true">↗</span>
+      <span class="sheet-label">{m.topbar_menu_docs()}</span>
+    </a>
+    <div class="sheet-foot micro">v{version}</div>
+  </div>
+</div>
+
+<style>
+  /* Portal wrapper: re-parents scrim + sheet to <body> so position:fixed resolves
+     against the viewport, not the will-change:transform chrome header (see portal.ts).
+     display:contents collapses the wrapper in the layout — it establishes NO containing
+     block of its own (no transform, filter, will-change, or contain). */
+  .gear-sheet-portal {
+    display: contents;
+  }
+  /* Scrim: sits below the mobile bottom sheet (z 49) but above app content.
+     Uses the canonical .scrim primitive (dim + blur) from app.css. */
+  .menu-scrim {
+    z-index: 49;
+  }
+
+  /* Mobile bottom sheet: slides up from the bottom. Fixed to left/right/bottom edges,
+     tall enough to hold all sections without viewport overflow. The sheet itself is
+     opaque panel chrome — the .scrim behind it dims+blurs the herd content. */
+  .gear-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    background: var(--color-panel);
+    border-top: 1px solid var(--color-line-bright);
+    border-radius: 10px 10px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px 12px;
+    /* safe-area bottom for notched phones */
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+  .sheet-handle-row {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+  }
+  .sheet-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-line-bright);
+  }
+  .sheet-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 4px 6px;
+  }
+  .sheet-title {
+    color: var(--color-muted);
+  }
+  .sheet-close {
+    background: none;
+    border: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: var(--fs-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sheet-sep {
+    height: 1px;
+    margin: 5px 4px;
+    background: var(--color-line);
+  }
+  .sheet-section-label {
+    padding: 6px 8px 2px;
+    color: var(--color-muted);
+  }
+  .sheet-row-text {
+    padding: 6px 8px;
+    color: var(--color-muted);
+  }
+  /* Full gauge breakdown in the sheet — one row per window, wider bars. */
+  .sheet-gauges {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 8px 4px;
+  }
+  .sheet-gauges.stale {
+    opacity: 0.5;
+  }
+  .sheet-gauge-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .sheet-gauge-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Sheet action rows: ≥44px targets, token-driven, no role=menuitem (invalid in dialog). */
+  .sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-lg);
+    text-align: left;
+    padding: 10px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .sheet-item:hover,
+  .sheet-item:focus-visible {
+    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
+    outline: none;
+  }
+  .sheet-item.alert {
+    color: var(--color-amber);
+  }
+  .sheet-item.alert:hover,
+  .sheet-item.alert:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  }
+  /* Update rows: amber accent (same semantic hue as the inline update badge). */
+  .sheet-item.sheet-update {
+    color: var(--color-amber);
+  }
+  .sheet-item.sheet-update:hover,
+  .sheet-item.sheet-update:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  }
+  /* e-stop row in the sheet — same muted-then-red pattern as the desktop menu. */
+  .sheet-item.halt-item {
+    color: var(--color-muted);
+  }
+  .sheet-item.halt-item:hover,
+  .sheet-item.halt-item:focus-visible {
+    background: color-mix(in srgb, var(--color-red) 14%, transparent);
+    color: var(--color-red);
+  }
+  .sheet-item.halt-item.armed {
+    background: color-mix(in srgb, var(--color-red) 22%, transparent);
+    border-color: var(--color-red);
+    color: var(--color-red);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: var(--fs-meta);
+  }
+  .sheet-item.halt-item.armed .menu-icon {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+  }
+  .sheet-glyph {
+    width: var(--fs-lg);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .sheet-label {
+    font-variant-numeric: tabular-nums;
+  }
+  .sheet-foot {
+    padding: 6px 12px 2px;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
+     desktop ActionBar but sized up for touch (44px tap targets). */
+  .quick {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 2px;
+  }
+  .theme-seg {
+    display: flex;
+    flex: 1;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .t-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    font-size: var(--fs-xl);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .t-opt:first-child {
+    border-left: 0;
+  }
+  .t-opt:hover {
+    color: var(--color-ink-bright);
+  }
+  /* seg group clips overflow, so an inset ring would be cropped — outline instead */
+  .t-opt:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: -1.5px;
+  }
+  .t-opt.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+  }
+  .contrast-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    color: var(--color-muted);
+    font-size: var(--fs-xl);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .contrast-toggle:hover {
+    color: var(--color-ink-bright);
+  }
+  .contrast-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .contrast-toggle.on {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    border-color: var(--color-amber);
+  }
+  /* Copied from parent: octagon halt icon shared between desktop gear-menu and this sheet. */
+  .menu-icon {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+    display: block;
+    flex-shrink: 0;
+  }
+  /* Base gauge classes used by the usage section in this sheet. */
+  .g-bar {
+    width: 46px;
+    height: 5px;
+    background: var(--color-line);
+    border: 1px solid var(--color-line-bright);
+    overflow: hidden;
+  }
+  .g-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    transform-origin: left;
+    transition: transform 0.6s ease;
+  }
+  .g-pct {
+    font-size: var(--fs-meta);
+    min-width: 30px;
+    text-align: right;
+  }
+  .g-bar-wide {
+    width: 100%;
+    height: 6px;
+  }
+  .gauge-pop-reset {
+    margin: 0 0 6px 30px;
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-faint);
+  }
+  .gauge-pop-reset:last-child {
+    margin-bottom: 0;
+  }
+  .gp-period {
+    color: var(--color-text);
+    font-size: var(--fs-meta);
+    text-transform: capitalize;
+  }
+  .sheet-gauge-row .g-bar-wide {
+    width: 100%;
+    height: 6px;
+  }
+  .sheet-gauge-row .gauge-pop-reset {
+    margin: 0;
+  }
+  .micro {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+</style>

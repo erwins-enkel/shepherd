@@ -22,6 +22,8 @@
   import { portal } from "$lib/portal";
   import CreditGauge from "./top-bar/CreditGauge.svelte";
   import CreditDetail from "./top-bar/CreditDetail.svelte";
+  import TopBarTallies from "./top-bar/TopBarTallies.svelte";
+  import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
 
   const reduceMotion =
     typeof window !== "undefined" &&
@@ -574,111 +576,16 @@
     <div class="micro">Mission&nbsp;Control</div>
   {/if}
   <div class="sep"></div>
-  {#if mobile}
-    <div class="tallies compact">
-      <!-- aria-labels carry the COUNT alongside the action (the visible text is a
-           bare digit, and an action-only label would hide the tally from screen
-           readers — the desktop buttons get this for free from their text content) -->
-      <button
-        type="button"
-        class="ctally"
-        disabled={statusFilter == null}
-        title={m.topbar_tally_clear_title()}
-        aria-label={m.topbar_tally_total_aria({ count: sessions.length })}
-        onclick={() => onstatusfilter?.(null)}
-      >
-        <span class="n">{sessions.length}</span>
-      </button>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "running"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
-        aria-label={m.topbar_tally_status_aria({
-          status: m.topbar_working_label(),
-          count: working,
-        })}
-        aria-pressed={statusFilter === "running"}
-        onclick={() => clickStatus("running")}
-      >
-        <span class="cdot" style="color:var(--color-amber)">●</span><span class="n">{working}</span>
-      </button>
-      <span class="csep">·</span>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "idle"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
-        aria-label={m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: idle })}
-        aria-pressed={statusFilter === "idle"}
-        onclick={() => clickStatus("idle")}
-      >
-        <span class="n">{idle}</span>
-      </button>
-      <button
-        type="button"
-        class="ctally"
-        class:active={statusFilter === "blocked"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
-        aria-label={m.topbar_tally_status_aria({
-          status: m.topbar_blocked_label(),
-          count: blocked,
-        })}
-        aria-pressed={statusFilter === "blocked"}
-        onclick={() => clickStatus("blocked")}
-      >
-        <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
-      </button>
-    </div>
-  {:else}
-    <div class="tallies" use:coachTarget={"tally-filter"}>
-      <!-- the total is a CLEAR action — without an active filter it's a no-op, so
-           it renders disabled (no hover/click affordance) until a status is set -->
-      <button
-        type="button"
-        class="tally"
-        disabled={statusFilter == null}
-        title={m.topbar_tally_clear_title()}
-        onclick={() => onstatusfilter?.(null)}
-      >
-        <span class="micro">{m.topbar_herd_label()}</span><span class="n">{sessions.length}</span>
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "running"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_working_label() })}
-        aria-pressed={statusFilter === "running"}
-        onclick={() => clickStatus("running")}
-      >
-        <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
-          class="n">{working}</span
-        >
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "idle"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_idle_label() })}
-        aria-pressed={statusFilter === "idle"}
-        onclick={() => clickStatus("idle")}
-      >
-        <span class="micro">{m.topbar_idle_label()}</span><span class="n">{idle}</span>
-      </button>
-      <button
-        type="button"
-        class="tally"
-        class:active={statusFilter === "blocked"}
-        title={m.topbar_tally_filter_title({ status: m.topbar_blocked_label() })}
-        aria-pressed={statusFilter === "blocked"}
-        onclick={() => clickStatus("blocked")}
-      >
-        <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
-          class="n">{blocked}</span
-        >
-      </button>
-    </div>
-  {/if}
+  <TopBarTallies
+    {mobile}
+    total={sessions.length}
+    {working}
+    {idle}
+    {blocked}
+    {statusFilter}
+    {onstatusfilter}
+    {clickStatus}
+  />
   <div class="rightside">
     {#if needsYou > 0}
       <button
@@ -694,71 +601,22 @@
         {/if}
       </button>
     {/if}
-    {#if (heldCount ?? 0) > 0}
-      <!-- Held-tasks badge: non-modal anchored popover (design-system exemption). -->
-      <div class="held-wrap">
-        <button
-          bind:this={heldBadgeBtn}
-          class="held-badge"
-          class:compact={mobile || compactBadges}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={heldPopOpen}
-          aria-label={m.topbar_held_badge({ count: heldCount ?? 0 })}
-          onclick={toggleHeldPop}
-        >
-          {#if mobile || compactBadges}
-            <span class="held-n">{heldCount}</span>
-          {:else}
-            <span>{m.topbar_held_badge({ count: heldCount ?? 0 })}</span>
-            {#if hotter?.w.resetAt}
-              <span class="held-reset"
-                >{m.topbar_held_resets({ time: formatResetIn(hotter.w.resetAt, nowMs) })}</span
-              >
-            {/if}
-          {/if}
-        </button>
-        {#if heldPopOpen}
-          <div
-            bind:this={heldPopEl}
-            class={["held-pop", { "flip-up": heldPopFlipUp }]}
-            role="dialog"
-            aria-label={m.topbar_held_title()}
-            tabindex="-1"
-          >
-            <div class="held-pop-head">{m.topbar_held_title()}</div>
-            {#if heldLoading}
-              <div class="held-pop-empty">{m.common_loading()}</div>
-            {:else if heldItems.length === 0}
-              <div class="held-pop-empty">{m.topbar_held_empty()}</div>
-            {:else}
-              {#each heldItems as task (task.id)}
-                <div class="held-row">
-                  <div class="held-row-info">
-                    <span class="held-row-prompt">{task.input.prompt}</span>
-                    <span class="held-row-repo"
-                      >{task.repoPath.split("/").at(-1) ?? task.repoPath}</span
-                    >
-                  </div>
-                  <div class="held-row-actions">
-                    <button
-                      type="button"
-                      class="held-action held-spawn"
-                      onclick={() => doSpawnHeld(task.id)}>{m.topbar_held_spawn_now()}</button
-                    >
-                    <button
-                      type="button"
-                      class="held-action held-discard"
-                      onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
-                    >
-                  </div>
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
+    <TopBarHeldBadge
+      {heldCount}
+      {mobile}
+      {compactBadges}
+      {hotter}
+      {nowMs}
+      {heldPopFlipUp}
+      {heldItems}
+      {heldLoading}
+      bind:heldPopOpen
+      bind:heldBadgeBtn
+      bind:heldPopEl
+      {toggleHeldPop}
+      {doSpawnHeld}
+      {doDiscardHeld}
+    />
     {#if !mobile}
       {#if subscriptionOnly}
         <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
@@ -1387,43 +1245,6 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
-  }
-  .tallies {
-    display: flex;
-    /* was 18px between static divs: the tally buttons now carry 4px side padding
-       each, so 10px gap keeps the content-to-content rhythm (4+10+4) and the bar's
-       intrinsic width ~stable — the measured desktop compaction threshold
-       (hudEl.scrollWidth) must not drift */
-    gap: 10px;
-    align-items: center;
-  }
-  .tally {
-    display: flex;
-    gap: 7px;
-    align-items: center;
-    background: none;
-    border: 1px solid transparent;
-    padding: 2px 4px;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-  }
-  .tally:not(:disabled):hover {
-    background: var(--color-inset);
-  }
-  /* the disabled total (no active filter → clearing is a no-op) keeps its full
-     tally appearance, just without the click affordance */
-  .tally:disabled,
-  .ctally:disabled {
-    cursor: default;
-  }
-  .tally.active {
-    background: var(--color-inset);
-    border-color: var(--color-line-bright);
-  }
-  .tally .n {
-    color: var(--color-ink-bright);
-    font-weight: 500;
   }
   .needsyou {
     background: color-mix(in srgb, var(--color-red) 18%, transparent);
@@ -2193,42 +2014,6 @@
     font-size: var(--fs-base);
     letter-spacing: 0.12em;
   }
-  .tallies.compact {
-    display: flex;
-    align-items: center;
-    /* button side padding (5px) now provides the separation the old 4px gap gave */
-    gap: 0;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
-  .ctally {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    background: none;
-    border: 1px solid transparent;
-    padding: 0 5px;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    /* 44px touch floor in HEIGHT only (matches .hud.mobile .gear/.needsyou); a
-       44px width floor for four buttons would blow the ~260px usable line-1
-       budget on fold-cover phones. 24px min width keeps even the bare-digit
-       Idle segment at the WCAG 2.5.8 (AA) target size. */
-    min-height: 44px;
-    min-inline-size: 24px;
-  }
-  .ctally.active {
-    background: var(--color-inset);
-    border-color: var(--color-line-bright);
-  }
-  .tallies.compact .cdot {
-    font-size: var(--fs-micro);
-  }
-  .tallies.compact .csep {
-    color: var(--color-faint);
-  }
   /* Mobile: drop the numeric time and let the bare connection dot ride inline at
      the head of the right-side cluster (order:-1) — vertically centred with the
      gauge/gear instead of floating off-centre in the corner. */
@@ -2349,144 +2134,5 @@
       opacity: 1;
       transform: translateY(0);
     }
-  }
-
-  /* ── Held-tasks badge + popover ──────────────────────────────────────────── */
-  .held-wrap {
-    position: relative;
-  }
-  .held-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: transparent;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    padding: 3px 8px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .held-badge:hover {
-    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
-  }
-  .held-badge .held-n {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .held-badge .held-reset {
-    color: color-mix(in srgb, var(--color-amber) 70%, transparent);
-    font-size: var(--fs-micro);
-  }
-  /* Anchored popover — mirrors .auto-pop from AutomationPanel */
-  .held-pop {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 20;
-    margin-top: 4px;
-    width: 300px;
-    max-width: 90vw;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    color: var(--color-ink);
-    max-height: 85vh;
-    overflow-y: auto;
-  }
-  .held-pop.flip-up {
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: 4px;
-  }
-  @media (pointer: coarse) {
-    /* Touch: keep the popover ANCHORED (not fixed-centered) so it stays a small
-       non-blocking popover exempt from the modal scrim rule (CLAUDE.md). The
-       flip-up + height-clamp $effect already handles overflow on coarse-pointer
-       devices. Widen slightly for thumb reach. */
-    .held-pop {
-      width: min(360px, 92vw);
-    }
-    .held-badge {
-      min-height: 44px;
-      min-width: 44px;
-    }
-  }
-  .held-pop-head {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    padding: 10px 12px 6px;
-  }
-  .held-pop-empty {
-    font-size: var(--fs-meta);
-    color: var(--color-faint);
-    padding: 6px 12px 10px;
-  }
-  .held-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 6px 12px;
-    border-top: 1px solid var(--color-line);
-  }
-  .held-row-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-  .held-row-prompt {
-    font-size: var(--fs-meta);
-    color: var(--color-ink-bright);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 22ch;
-  }
-  .held-row-repo {
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-    letter-spacing: 0.04em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .held-row-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-  .held-action {
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    font: inherit;
-    font-size: var(--fs-micro);
-    letter-spacing: 0.06em;
-    padding: 2px 8px;
-    cursor: pointer;
-    white-space: nowrap;
-    color: var(--color-ink);
-  }
-  .held-action:hover {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .held-spawn {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
-  .held-spawn:hover {
-    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
 </style>

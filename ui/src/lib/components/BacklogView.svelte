@@ -3,12 +3,8 @@
   import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
-  import IssuesPanel from "./IssuesPanel.svelte";
-  import PrsPanel from "./PrsPanel.svelte";
-  import ActionsPanel from "./ActionsPanel.svelte";
-  import ReadinessPanel from "./ReadinessPanel.svelte";
-  import AutomationSettings from "./AutomationSettings.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
+  import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
   import { actionsTabState, filterProjects } from "./backlog-view";
   import { pullMainAndToast } from "$lib/pull-offer";
 
@@ -197,112 +193,31 @@
           >
             ‹ {m.common_close()}
           </button>
-          <div class="overlay-tabs">
-            <button
-              class="tab-btn"
-              class:active={activeTab === "issues"}
-              type="button"
-              onclick={() => (activeTab = "issues")}
-            >
-              {selected && selected.openIssues !== null
-                ? m.backlog_tab_issues_count({ count: selected.openIssues })
-                : m.backlog_tab_issues()}
-            </button>
-            <button
-              class="tab-btn"
-              class:active={activeTab === "prs"}
-              type="button"
-              onclick={() => (activeTab = "prs")}
-            >
-              {selected && selected.openPRs !== null
-                ? m.backlog_tab_prs_count({ count: selected.openPRs })
-                : m.backlog_tab_prs()}
-            </button>
-            <button
-              class="tab-btn"
-              class:active={activeTab === "actions"}
-              class:failing={actionsState.kind === "failing"}
-              type="button"
-              onclick={() => (activeTab = "actions")}
-            >
-              {#if actionsState.kind === "failing"}
-                {m.backlog_tab_actions_failing()}
-              {:else if actionsState.kind === "count"}
-                {m.backlog_tab_actions_count({ count: actionsState.count })}
-              {:else}
-                {m.backlog_tab_actions()}
-              {/if}
-            </button>
-            <button
-              class="tab-btn"
-              class:active={activeTab === "readiness"}
-              type="button"
-              onclick={() => (activeTab = "readiness")}
-            >
-              {m.backlog_tab_readiness()}
-            </button>
-            <button
-              class="tab-btn"
-              class:active={activeTab === "automation"}
-              type="button"
-              onclick={() => (activeTab = "automation")}
-            >
-              {m.backlog_tab_automation()}
-            </button>
-            <button
-              class="gbtn ff-btn"
-              type="button"
-              disabled={ffInFlight || selectedPath === null}
-              onclick={handleFf}
-              title={m.backlog_ff_main_title()}
-              aria-label={m.backlog_ff_main_title()}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
-                <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
-              </svg>
-              {m.backlog_ff_main()}
-            </button>
-          </div>
+          <BacklogTabBar
+            variant="mobile"
+            {activeTab}
+            {selected}
+            {actionsState}
+            {ffInFlight}
+            {selectedPath}
+            onselecttab={(t) => (activeTab = t)}
+            onff={handleFf}
+          />
         </div>
         <div class="overlay-body">
-          {#if activeTab === "issues"}
-            <IssuesPanel
-              repoPath={selectedPath}
-              onnewtask={(issue) => {
-                onissue(selectedPath!, issue);
-              }}
-              onquick={onquick
-                ? (issue, action) => onquick(selectedPath!, issue, action)
-                : undefined}
-              bodyPreview
-              age
-              {epics}
-              expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
-            />
-          {:else if activeTab === "prs"}
-            <PrsPanel
-              repoPath={selectedPath}
-              onreview={(pr) => onpr(selectedPath!, pr)}
-              {onlaunchtrain}
-              {inTrainPrs}
-              age
-            />
-          {:else if activeTab === "actions"}
-            <ActionsPanel repoPath={selectedPath} />
-          {:else if activeTab === "automation"}
-            <div class="automation-scroll">
-              {#if selectedPath !== null}
-                <AutomationSettings
-                  repoPath={selectedPath}
-                  drain={drain?.[selectedPath] ?? null}
-                  showHeader={false}
-                />
-              {/if}
-            </div>
-          {:else}
-            <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
-          {/if}
+          <BacklogTabContent
+            {activeTab}
+            {selectedPath}
+            {onissue}
+            {onquick}
+            {onpr}
+            {onlaunchtrain}
+            {onadopt}
+            {epics}
+            {inTrainPrs}
+            {target}
+            {drain}
+          />
         </div>
       </div>
     {/if}
@@ -327,112 +242,31 @@
         />
       </div>
       <div class="detail-column">
-        <div class="tab-bar">
-          <button
-            class="tab-btn"
-            class:active={activeTab === "issues"}
-            type="button"
-            onclick={() => (activeTab = "issues")}
-          >
-            {selected && selected.openIssues !== null
-              ? m.backlog_tab_issues_count({ count: selected.openIssues })
-              : m.backlog_tab_issues()}
-          </button>
-          <button
-            class="tab-btn"
-            class:active={activeTab === "prs"}
-            type="button"
-            onclick={() => (activeTab = "prs")}
-          >
-            {selected && selected.openPRs !== null
-              ? m.backlog_tab_prs_count({ count: selected.openPRs })
-              : m.backlog_tab_prs()}
-          </button>
-          <button
-            class="tab-btn"
-            class:active={activeTab === "actions"}
-            class:failing={actionsState.kind === "failing"}
-            type="button"
-            onclick={() => (activeTab = "actions")}
-          >
-            {#if actionsState.kind === "failing"}
-              {m.backlog_tab_actions_failing()}
-            {:else if actionsState.kind === "count"}
-              {m.backlog_tab_actions_count({ count: actionsState.count })}
-            {:else}
-              {m.backlog_tab_actions()}
-            {/if}
-          </button>
-          <button
-            class="tab-btn"
-            class:active={activeTab === "readiness"}
-            type="button"
-            onclick={() => (activeTab = "readiness")}
-          >
-            {m.backlog_tab_readiness()}
-          </button>
-          <button
-            class="tab-btn"
-            class:active={activeTab === "automation"}
-            type="button"
-            onclick={() => (activeTab = "automation")}
-            use:coachTarget={"backlog-automation"}
-          >
-            {m.backlog_tab_automation()}
-          </button>
-          <button
-            class="gbtn ff-btn"
-            type="button"
-            disabled={ffInFlight || selectedPath === null}
-            onclick={handleFf}
-            title={m.backlog_ff_main_title()}
-            aria-label={m.backlog_ff_main_title()}
-            use:coachTarget={"backlog-ff-main"}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
-              <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
-            </svg>
-            {m.backlog_ff_main()}
-          </button>
-        </div>
+        <BacklogTabBar
+          variant="desktop"
+          {activeTab}
+          {selected}
+          {actionsState}
+          {ffInFlight}
+          {selectedPath}
+          onselecttab={(t) => (activeTab = t)}
+          onff={handleFf}
+        />
         <div class="detail-pane">
           {#if selectedPath !== null}
-            {#if activeTab === "issues"}
-              <IssuesPanel
-                repoPath={selectedPath}
-                onnewtask={(issue) => {
-                  onissue(selectedPath!, issue);
-                }}
-                onquick={onquick
-                  ? (issue, action) => onquick(selectedPath!, issue, action)
-                  : undefined}
-                bodyPreview
-                age
-                {epics}
-                expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
-              />
-            {:else if activeTab === "prs"}
-              <PrsPanel
-                repoPath={selectedPath}
-                onreview={(pr) => onpr(selectedPath!, pr)}
-                {onlaunchtrain}
-                {inTrainPrs}
-                age
-              />
-            {:else if activeTab === "actions"}
-              <ActionsPanel repoPath={selectedPath} />
-            {:else if activeTab === "automation"}
-              <div class="automation-scroll">
-                <AutomationSettings
-                  repoPath={selectedPath}
-                  drain={drain?.[selectedPath] ?? null}
-                  showHeader={false}
-                />
-              </div>
-            {:else}
-              <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
-            {/if}
+            <BacklogTabContent
+              {activeTab}
+              {selectedPath}
+              {onissue}
+              {onquick}
+              {onpr}
+              {onlaunchtrain}
+              {onadopt}
+              {epics}
+              {inTrainPrs}
+              {target}
+              {drain}
+            />
           {:else}
             <div class="detail-empty">
               <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
@@ -485,90 +319,6 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);
-  }
-
-  /* ── tab bar ── */
-  .tab-bar {
-    display: flex;
-    gap: 2px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--color-line);
-    background: var(--color-head);
-    flex-shrink: 0;
-  }
-
-  .tab-btn {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    padding: 2px 8px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-
-  .tab-btn:hover {
-    color: var(--color-ink);
-  }
-
-  .tab-btn.active {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-    background: var(--color-inset);
-  }
-
-  .tab-btn.failing {
-    color: var(--color-red);
-    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
-  }
-
-  .tab-btn.failing.active {
-    color: var(--color-red);
-    border-color: var(--color-red);
-    background: var(--color-inset);
-  }
-
-  /* ── fast-forward button ── */
-  .gbtn {
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-    transition:
-      border-color 0.12s,
-      color 0.12s;
-  }
-  .gbtn:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  /* keyboard focus — flat inset amber ring (never an outer glow), per design-system */
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .gbtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .ff-btn {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    white-space: nowrap;
   }
 
   /* ── desktop split layout ── */
@@ -696,46 +446,10 @@
     background: var(--color-hover);
   }
 
-  /* Tab strip sits after the fixed close button and scrolls horizontally when
-     tabs exceed the available width. Scrollbar is hidden (matches ControlBar
-     convention). */
-  .overlay-tabs {
-    display: flex;
-    gap: 2px;
-    flex: 1 1 0;
-    min-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-
-  .overlay-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .overlay-tabs .tab-btn {
-    min-height: 40px;
-    padding: 0 12px;
-    touch-action: manipulation;
-    flex-shrink: 0;
-  }
-
   .overlay-body {
     flex: 1;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-
-  /* Automation tab owns its scroll: AutomationSettings is height-neutral and
-     non-scrolling (so the in-task popover's own clamp stays the only scroller
-     there), and both .detail-pane / .overlay-body are overflow:hidden — so this
-     wrapper is the scroll region that keeps the full rows + roles section
-     reachable. Mirrors ReadinessPanel's .scroll. */
-  .automation-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
   }
 </style>

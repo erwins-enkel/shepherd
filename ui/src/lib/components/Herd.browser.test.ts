@@ -511,6 +511,62 @@ describe("Herd epic grouping", () => {
   });
 });
 
+describe("Herd epic-child preview badge", () => {
+  // Regression guard: epic-child rows must pass withPreview=true so a live preview
+  // port surfaces the Preview badge. If HerdEpicGroups were to pass withPreview=false
+  // the badge would silently disappear for grouped sessions.
+  afterEach(() => {
+    // no module-singleton state to clean up for this test
+  });
+
+  it("renders the Preview badge for an epic-grouped child session with a live preview port", async () => {
+    const epicChild = (number: number): import("$lib/types").EpicChild => ({
+      number,
+      title: `child ${number}`,
+      url: "",
+      order: number,
+      body: "",
+      blockedBy: [],
+      state: "running",
+      sessionId: null,
+      prNumber: null,
+      issueClosed: false,
+      claimed: false,
+    });
+    const epic = (children: import("$lib/types").EpicChild[]): import("$lib/types").Epic => ({
+      repoPath: "/repo/a",
+      parentIssueNumber: 100,
+      parentTitle: "Big epic",
+      source: "native",
+      children,
+      warnings: [],
+      run: { repoPath: "/repo/a", parentIssueNumber: 100, mode: "auto", status: "running" },
+    });
+    const epics = { "/repo/a#100": epic([epicChild(11)]) };
+    const activeEpicKeys = new Set(["/repo/a#100"]);
+
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "eg1", name: "epic grouped session", issueNumber: 11 })],
+      git: {},
+      epics,
+      activeEpicKeys,
+      // live preview port on the epic-grouped session
+      preview: { eg1: 5173 },
+      previewServe: { eg1: "ok" as const },
+      onpreview: vi.fn(),
+    });
+
+    // The .preview-badge span renders "Preview" when previewPort is non-null.
+    // This fails if HerdEpicGroups passes withPreview=false to HerdGroup.
+    await expect.element(page.getByText("Preview")).toBeInTheDocument();
+    // Confirm it's inside the epic-children rail (not some other badge)
+    const rail = document.querySelector(".epic-children")!;
+    expect(rail).not.toBeNull();
+    expect(rail.textContent).toContain("Preview");
+  });
+});
+
 describe("Herd reviewer-running preview badge", () => {
   // reviews is a module singleton — clear after each test
   afterEach(() => {

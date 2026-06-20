@@ -126,6 +126,7 @@ interface Harness {
   creates: CreateSessionInput[];
   statuses: DrainStatus[];
   epics: Epic[];
+  sessionNews: Session[];
   archived: string[];
   dropped: string[];
   prCache: Record<string, GitState>;
@@ -204,6 +205,7 @@ function makeHarness(
   const creates: CreateSessionInput[] = [];
   const statuses: Harness["statuses"] = [];
   const epics: Epic[] = [];
+  const sessionNews: Session[] = [];
   const archived: string[] = [];
   const dropped: string[] = [];
 
@@ -249,6 +251,7 @@ function makeHarness(
     creates,
     statuses,
     epics,
+    sessionNews,
     archived,
     dropped,
     prCache,
@@ -277,6 +280,7 @@ function makeHarness(
     },
     dropPrCache: (id) => dropped.push(id),
     emitEpic: (epic) => epics.push(epic),
+    emitSessionNew: (s) => sessionNews.push(s),
   });
   harness.drain = drain;
   return harness;
@@ -315,6 +319,31 @@ test("spawn fills to cap: 3 labeled issues, maxAuto 2 → creates exactly 2 auto
   }
   // last status holds on cap
   expect(h.statuses.at(-1)?.inFlight).toBe(2);
+});
+
+test("spawn emits session:new for the created session (UI session list is push-only)", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [issue(1)] });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1);
+  // exactly one announcement, carrying the persisted session (same id the store created)
+  expect(h.sessionNews).toHaveLength(1);
+  const created = h.store.list().find((s) => s.issueNumber === 1);
+  expect(created).toBeDefined();
+  expect(h.sessionNews[0]!.id).toBe(created!.id);
+});
+
+test("spawn failure does NOT emit session:new (emit is success-only, outside the spawn try)", async () => {
+  const h = makeHarness({
+    maxAuto: 1,
+    issues: [issue(1)],
+    createImpl: async () => {
+      throw new Error("create boom");
+    },
+  });
+  await h.drain.pump(REPO);
+  // create threw → claim released, no session persisted, and nothing announced
+  expect(h.forgeRec.removed.some((r) => r.number === 1 && r.label === ACTIVE_LABEL)).toBe(true);
+  expect(h.sessionNews).toHaveLength(0);
 });
 
 test("dedupe: an existing session mapped to #1 → spawns #2 next, not #1", async () => {

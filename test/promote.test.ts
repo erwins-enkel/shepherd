@@ -515,3 +515,27 @@ test("promoteGlobal is an idempotent no-op when the rule is already present", as
   expect(res.ok).toBe(true);
   expect(state.writes.length).toBe(0); // already current → nothing written
 });
+
+test("promoteGlobal returns a structured 500 (not a throw) on an fs failure", async () => {
+  const p = new Promoter({
+    store: new SessionStore(":memory:"),
+    worktree: {
+      create: () => {
+        throw new Error("unused");
+      },
+      remove: () => {},
+    },
+    resolveForge: () => null,
+    git: async () => {},
+    writeClaudeMd: () => {},
+    readClaudeMd: () => {
+      throw new Error("EACCES: permission denied, open '/root/.claude/CLAUDE.md'");
+    },
+  });
+  const res = await p.promoteGlobal("a rule");
+  expect(res.ok).toBe(false);
+  if (!res.ok) {
+    expect(res.status).toBe(500);
+    expect(res.error).toBe("global promote failed"); // no raw fs stderr leaked
+  }
+});

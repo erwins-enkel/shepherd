@@ -60,12 +60,19 @@ export class Promoter {
    *  process's home — see the issue's home-dir-trust caveat. */
   async promoteGlobal(rule: string): Promise<PromoteResult> {
     const path = join(homedir(), ".claude", "CLAUDE.md");
-    const current = this.readClaudeMd(path);
-    const rules = [...new Set([...extractLearningsBlockRules(current), rule])];
-    const next = upsertLearningsBlock(current, rules);
-    if (next === current) return { ok: true, url: "" };
-    this.writeClaudeMd(path, next);
-    return { ok: true, url: "" };
+    try {
+      const current = this.readClaudeMd(path);
+      const rules = [...new Set([...extractLearningsBlockRules(current), rule])];
+      const next = upsertLearningsBlock(current, rules);
+      if (next === current) return { ok: true, url: "" };
+      this.writeClaudeMd(path, next);
+      return { ok: true, url: "" };
+    } catch (err) {
+      // Don't leak raw fs stderr (EACCES/EROFS on the home dir) to the client; log it
+      // server-side and return a structured result, matching the PR-promote path.
+      console.warn(`[promote-global] failed:`, err);
+      return { ok: false, error: "global promote failed", status: 500 };
+    }
   }
 
   async resyncPromoted(repoPath: string): Promise<PromoteResult> {

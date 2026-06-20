@@ -2,6 +2,8 @@
   import type { Session, GitState, SessionActivity, Epic, CompletedEpic } from "$lib/types";
   import type { BlockState } from "$lib/triage";
   import UnitRow from "./UnitRow.svelte";
+  import HerdGroup from "./herd/HerdGroup.svelte";
+  import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
   import EmptyHerd from "./EmptyHerd.svelte";
   import EpicGroupHeader from "./EpicGroupHeader.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
@@ -245,6 +247,152 @@
   }
   const reviewerWho = $derived(uniqueWho(partition.waitingOnReviewer));
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
+
+  // Shared row-context bundle — passed to HerdGroup (and later HerdEpicGroups) so the
+  // parent builds it once and each group reads from it. All fields wire straight from
+  // the parent's props/derivations.
+  const rowCtx = $derived<HerdRowCtx>({
+    selectedId,
+    nowMs,
+    onselect,
+    git,
+    activity,
+    preview,
+    previewServe,
+    onpreview,
+    ondecommission,
+    onrelaunch,
+    onrelaunchElsewhere,
+    repoFilter,
+    onrepofilter,
+    workingBlocked,
+    quotaKindFor,
+  });
+
+  // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
+  // Using a $derived array keeps the who↔multi switch and above-counts reactive.
+  type PartitionGroupEntry = {
+    key: string;
+    sessions: Session[];
+    headClass?: string | null;
+    countLabel?: string | null;
+    aboveLabel?: string | null;
+    action?: { class: string; title: string; label: string; onclick: () => void } | null;
+    withPreview?: boolean;
+  };
+  const partitionGroups = $derived<PartitionGroupEntry[]>(
+    [
+      partition.active.length > 0 && {
+        key: "active",
+        sessions: partition.active,
+        headClass: null,
+        withPreview: true,
+      },
+      partition.ciRunning.length > 0 && {
+        key: "ci-running",
+        sessions: partition.ciRunning,
+        headClass: "ci-head",
+        countLabel: m.herd_ci_running_group({ count: partition.ciRunning.length }),
+        withPreview: true,
+      },
+      partition.ciFailed.length > 0 && {
+        key: "ci-failed",
+        sessions: partition.ciFailed,
+        headClass: "ci-failed-head",
+        countLabel: m.herd_ci_failed_group({ count: partition.ciFailed.length }),
+        withPreview: true,
+      },
+      partition.reviewerRunning.length > 0 && {
+        key: "reviewer-running",
+        sessions: partition.reviewerRunning,
+        headClass: "reviewing-head",
+        countLabel: m.herd_reviewer_running_group({ count: partition.reviewerRunning.length }),
+        withPreview: true,
+      },
+      partition.waitingOnReviewer.length > 0 && {
+        key: "waiting-reviewer",
+        sessions: partition.waitingOnReviewer,
+        headClass: "waiting-head",
+        countLabel: reviewerWho
+          ? m.herd_waiting_reviewer_group({
+              who: reviewerWho,
+              count: partition.waitingOnReviewer.length,
+            })
+          : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length }),
+        withPreview: false,
+      },
+      partition.waitingOnMerger.length > 0 && {
+        key: "waiting-merger",
+        sessions: partition.waitingOnMerger,
+        headClass: "waiting-head",
+        countLabel: mergerWho
+          ? m.herd_waiting_merger_group({ who: mergerWho, count: partition.waitingOnMerger.length })
+          : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length }),
+        withPreview: false,
+      },
+      partition.draftAwaitingSignoff.length > 0 && {
+        key: "draft-signoff",
+        sessions: partition.draftAwaitingSignoff,
+        headClass: "draft-head",
+        countLabel: m.herd_draft_awaiting_signoff_group({
+          count: partition.draftAwaitingSignoff.length,
+        }),
+        withPreview: false,
+      },
+      partition.awaitingMerge.length > 0 && {
+        key: "awaiting-merge",
+        sessions: partition.awaitingMerge,
+        headClass: "awaiting-head",
+        countLabel: m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length }),
+        withPreview: true,
+      },
+      partition.ready.length + readyAbove > 0 && {
+        key: "ready",
+        sessions: partition.ready,
+        headClass: "ready-head",
+        countLabel:
+          partition.ready.length > 0 ? m.herd_ready_group({ count: partition.ready.length }) : null,
+        aboveLabel: readyAbove > 0 ? m.herd_in_epics_above({ count: readyAbove }) : null,
+        action:
+          onmergetrain && readyPrCount > 0
+            ? {
+                class: "merge-train",
+                title: m.herd_merge_train_title(),
+                label: m.herd_merge_train_action(),
+                onclick: onmergetrain,
+              }
+            : null,
+        withPreview: true,
+      },
+      partition.merging.length > 0 && {
+        key: "merging",
+        sessions: partition.merging,
+        headClass: "merging-head",
+        countLabel: m.herd_merging_group({ count: partition.merging.length }),
+        withPreview: true,
+      },
+      partition.merged.length + mergedAbove > 0 && {
+        key: "merged",
+        sessions: partition.merged,
+        headClass: "merged-head",
+        countLabel:
+          partition.merged.length > 0
+            ? m.herd_merged_group({ count: partition.merged.length })
+            : null,
+        aboveLabel: mergedAbove > 0 ? m.herd_in_epics_above({ count: mergedAbove }) : null,
+        action:
+          onclearmerged && mergedCount > 0
+            ? {
+                class: "clear-merged",
+                title: m.herd_clear_merged_title(),
+                label: m.herd_clear_merged_action(),
+                onclick: onclearmerged,
+              }
+            : null,
+        withPreview: true,
+      },
+    ].filter(Boolean) as PartitionGroupEntry[],
+  );
 
   // Done lens row chrome: a finished session's recap verdict drives a small chip. Semantic
   // colors mirror SessionRecap/DoneRecapPanel (green = genuinely READY only; parked = slate;
@@ -516,303 +664,9 @@
           </div>
         {/if}
       {/each}
-      {#each partition.active as session (session.id)}
-        <UnitRow
-          {session}
-          selected={session.id === selectedId}
-          {nowMs}
-          {onselect}
-          git={git[session.id]}
-          activity={activity[session.id]}
-          previewPort={preview[session.id] ?? null}
-          previewServeFailed={previewServe[session.id] === "failed"}
-          {onpreview}
-          {ondecommission}
-          {onrelaunch}
-          {onrelaunchElsewhere}
-          {repoFilter}
-          {onrepofilter}
-          {workingBlocked}
-          quotaKind={quotaKindFor(session.id)}
-        />
+      {#each partitionGroups as grp (grp.key)}
+        <HerdGroup ctx={rowCtx} {...grp} />
       {/each}
-      {#if partition.ciRunning.length > 0}
-        <div class="ci-head micro">
-          {m.herd_ci_running_group({ count: partition.ciRunning.length })}
-        </div>
-        {#each partition.ciRunning as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.ciFailed.length > 0}
-        <div class="ci-failed-head micro">
-          {m.herd_ci_failed_group({ count: partition.ciFailed.length })}
-        </div>
-        {#each partition.ciFailed as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.reviewerRunning.length > 0}
-        <div class="reviewing-head micro">
-          {m.herd_reviewer_running_group({ count: partition.reviewerRunning.length })}
-        </div>
-        {#each partition.reviewerRunning as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnReviewer.length > 0}
-        <div class="waiting-head micro">
-          {reviewerWho
-            ? m.herd_waiting_reviewer_group({
-                who: reviewerWho,
-                count: partition.waitingOnReviewer.length,
-              })
-            : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length })}
-        </div>
-        {#each partition.waitingOnReviewer as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.waitingOnMerger.length > 0}
-        <div class="waiting-head micro">
-          {mergerWho
-            ? m.herd_waiting_merger_group({
-                who: mergerWho,
-                count: partition.waitingOnMerger.length,
-              })
-            : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length })}
-        </div>
-        {#each partition.waitingOnMerger as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.draftAwaitingSignoff.length > 0}
-        <div class="draft-head micro">
-          {m.herd_draft_awaiting_signoff_group({ count: partition.draftAwaitingSignoff.length })}
-        </div>
-        {#each partition.draftAwaitingSignoff as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.awaitingMerge.length > 0}
-        <div class="awaiting-head micro">
-          {m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length })}
-        </div>
-        {#each partition.awaitingMerge as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.ready.length + readyAbove > 0}
-        <div class="ready-head micro">
-          {#if partition.ready.length > 0}
-            {m.herd_ready_group({ count: partition.ready.length })}
-          {/if}
-          {#if readyAbove > 0}
-            <span class="above">{m.herd_in_epics_above({ count: readyAbove })}</span>
-          {/if}
-          {#if onmergetrain && readyPrCount > 0}
-            <button
-              type="button"
-              class="merge-train micro"
-              title={m.herd_merge_train_title()}
-              onclick={onmergetrain}>{m.herd_merge_train_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.ready as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.merging.length > 0}
-        <div class="merging-head micro">
-          {m.herd_merging_group({ count: partition.merging.length })}
-        </div>
-        {#each partition.merging as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
-      {#if partition.merged.length + mergedAbove > 0}
-        <div class="merged-head micro">
-          {#if partition.merged.length > 0}
-            {m.herd_merged_group({ count: partition.merged.length })}
-          {/if}
-          {#if mergedAbove > 0}
-            <span class="above">{m.herd_in_epics_above({ count: mergedAbove })}</span>
-          {/if}
-          {#if onclearmerged && mergedCount > 0}
-            <button
-              type="button"
-              class="clear-merged micro"
-              title={m.herd_clear_merged_title()}
-              onclick={onclearmerged}>{m.herd_clear_merged_action()}</button
-            >
-          {/if}
-        </div>
-        {#each partition.merged as session (session.id)}
-          <UnitRow
-            {session}
-            selected={session.id === selectedId}
-            {nowMs}
-            {onselect}
-            git={git[session.id]}
-            activity={activity[session.id]}
-            previewPort={preview[session.id] ?? null}
-            previewServeFailed={previewServe[session.id] === "failed"}
-            {onpreview}
-            {ondecommission}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {repoFilter}
-            {onrepofilter}
-            {workingBlocked}
-            quotaKind={quotaKindFor(session.id)}
-          />
-        {/each}
-      {/if}
     {/if}
     {#if filter !== "done" && filter !== "rundown"}
       <IntegratedEpicsBand
@@ -1000,110 +854,6 @@
     color: var(--color-muted);
   }
 
-  /* amber section headers for the in-flight stages (PR CI running, critic
-     reviewing) — amber mirrors the CI-pending dot and the critic badge */
-  .ci-head,
-  .reviewing-head,
-  .merging-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-amber);
-    border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
-  }
-
-  /* red section header for an open PR whose CI failed — done but needs a look */
-  .ci-failed-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-red);
-    border-top: 1px solid color-mix(in srgb, var(--color-red) 30%, var(--color-line));
-  }
-
-  /* slate section header for a green-CI draft PR awaiting human sign-off —
-     parked but NOT actionable (must never read as the green "Your turn" state) */
-  .draft-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-slate);
-    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
-  }
-
-  /* green section headers for the "waiting for a human to merge" stages:
-     auto-detected (open PR, CI green) and operator-parked "ready to merge" */
-  .awaiting-head,
-  .ready-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-green);
-    border-top: 1px solid color-mix(in srgb, var(--color-green) 30%, var(--color-line));
-  }
-
-  /* slate section header for "waiting on someone else" (a foreign reviewer/merger):
-     NOT the operator's turn, so it must read as parked, not actionable-green. */
-  .waiting-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-slate);
-    border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
-  }
-
-  /* blue section header for the landed "merged PR" group */
-  .merged-head {
-    display: flex;
-    align-items: center;
-    padding: 10px 8px 6px;
-    margin-top: 6px;
-    color: var(--color-blue);
-    border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
-  }
-  /* right-aligned action in the ready-to-merge group header */
-  .merge-train {
-    margin-left: auto;
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 0 2px;
-    color: color-mix(in srgb, var(--color-green) 70%, var(--color-faint));
-    transition: color 0.12s ease;
-  }
-  .merge-train:hover {
-    color: var(--color-green);
-  }
-  .merge-train:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  /* right-aligned bulk action in the merged group header */
-  .clear-merged {
-    margin-left: auto;
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 0 2px;
-    color: color-mix(in srgb, var(--color-blue) 70%, var(--color-faint));
-    transition: color 0.12s ease;
-  }
-  .clear-merged:hover {
-    color: var(--color-blue);
-  }
-  .clear-merged:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
   /* Child rows of an epic group sit lightly inset under their headline so the
      group reads as one unit. A hairline rail on the leading edge reinforces the
      nesting without a heavy indent. Token-based; no raw px color. */
@@ -1111,12 +861,6 @@
     padding-left: 10px;
     margin-left: 4px;
     border-left: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
-  }
-
-  /* "N in epics above" — a quiet annotation beside a section count when that
-     stage's rows live in epic groups above the lifecycle list. */
-  .above {
-    color: var(--color-faint);
   }
 
   .units {

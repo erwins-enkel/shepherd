@@ -510,3 +510,28 @@ describe("Herd epic grouping", () => {
     await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
   });
 });
+
+describe("Herd reviewer-running preview badge", () => {
+  // reviews is a module singleton — clear after each test
+  afterEach(() => {
+    reviews.setReviewing("rv", false);
+  });
+
+  it("renders the Preview badge for a critic-reviewing session that has a live preview port", async () => {
+    // A session in the reviewer-running bucket (inReview=true) with a live preview
+    // port. The reviewerRunning partition has withPreview=true — if it were false the
+    // previewPort would be coerced to null and the badge would not render, breaking
+    // the preview UX for sessions under critic review.
+    reviews.setReviewing("rv", true);
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "rv", name: "critic session", status: "idle" })],
+      git: { rv: openPr },
+      preview: { rv: 5173 },
+      previewServe: { rv: "ok" as const },
+      onpreview: vi.fn(),
+    });
+    // The .preview-badge span renders the text "Preview" when previewPort is non-null
+    await expect.element(page.getByText("Preview")).toBeInTheDocument();
+  });
+});

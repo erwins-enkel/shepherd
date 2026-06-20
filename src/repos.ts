@@ -9,6 +9,12 @@ import {
   mkdirSync,
   rmSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { execFileSync } from "./instrument";
+import { join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { expandHome, safeRepoDir } from "./validate";
 
 /** Shape of Node child_process exec errors (code / signal / killed / stderr). */
 interface ExecLikeError {
@@ -23,12 +29,6 @@ interface ExecLikeError {
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object";
 }
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { execFileSync } from "./instrument";
-import { join, resolve, sep } from "node:path";
-import { homedir } from "node:os";
-import { expandHome, safeRepoDir } from "./validate";
 
 export interface RepoEntry {
   name: string;

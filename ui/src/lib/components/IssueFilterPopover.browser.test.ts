@@ -18,6 +18,7 @@ afterEach(() => {
   issuesFilter.set(true);
   issuesFilter.setActive(false);
   issuesFilter.setSubIssues(true);
+  localStorage.clear();
   document.body.innerHTML = "";
 });
 
@@ -188,5 +189,41 @@ describe("IssueFilterPopover", () => {
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
     await expect.poll(() => isOpen()).toBe(false);
+  });
+
+  it("mounting does NOT steal focus from a pre-focused element", async () => {
+    // Create an input and give it focus before rendering the popover.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    render(IssueFilterPopover, { showMine: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+
+    // Allow any microtask / setTimeout(0) to settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Focus must still be on the input — the popover must not have stolen it.
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("opening then closing the popover restores focus to the trigger button", async () => {
+    render(IssueFilterPopover, { showMine: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+
+    // Open the popover.
+    triggerBtn()!.click();
+    await expect.poll(() => isOpen()).toBe(true);
+    // Allow focus-on-open setTimeout(0) to settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Close via Escape.
+    await new Promise((r) => setTimeout(r, 50)); // let dismiss listener register
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect.poll(() => isOpen()).toBe(false);
+
+    // Focus must be restored to the trigger button.
+    expect(document.activeElement).toBe(triggerBtn());
   });
 });

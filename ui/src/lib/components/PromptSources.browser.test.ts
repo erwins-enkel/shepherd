@@ -82,7 +82,7 @@ function assertStickyCovers() {
   expect(barRect.right + 1).toBeGreaterThanOrEqual(rowRect.right);
 }
 
-describe("PromptSources sticky filter bar covers scrolling rows", () => {
+describe("PromptSources filter bar (popover + sticky coverage)", () => {
   it("Issues tab: Filters trigger renders, opening it shows checkboxes, toggling hides in-progress issues", async () => {
     // Reset filter state so hide-in-progress is OFF (default) before this test.
     issuesFilter.setActive(false);

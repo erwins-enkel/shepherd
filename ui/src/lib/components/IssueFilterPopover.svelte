@@ -8,7 +8,11 @@
   // coachTargets: when true, the trigger carries use:coachTarget={"issue-filters"}.
   let { showMine, coachTargets = false }: { showMine: boolean; coachTargets?: boolean } = $props();
 
+  // SSR-stable per-instance id for aria-controls wiring.
+  const popoverId = $props.id();
+
   let open = $state(false);
+  let wasOpen = false; // tracks previous open value; not reactive — managed in the focus effect
   let btnEl = $state<HTMLButtonElement | null>(null);
   let popEl = $state<HTMLDivElement | null>(null);
 
@@ -62,18 +66,22 @@
     };
   });
 
-  // Focus management: focus first checkbox on open; restore trigger on close.
+  // Focus management: focus first checkbox on open→true; restore trigger on true→false.
+  // Do NOT move focus on initial mount (wasOpen starts false, open starts false).
   $effect(() => {
     if (typeof window === "undefined") return;
     if (open) {
+      wasOpen = true;
       const first = popEl?.querySelector<HTMLInputElement>("input[type=checkbox]");
       if (first) {
         // defer so popover is visible before we focus
         setTimeout(() => first.focus(), 0);
       }
-    } else {
+    } else if (wasOpen) {
+      // genuine open→closed transition
       btnEl?.focus();
     }
+    // If open===false and wasOpen===false (initial mount), do nothing.
   });
 </script>
 
@@ -83,6 +91,7 @@
   type="button"
   aria-haspopup="dialog"
   aria-expanded={open}
+  aria-controls={popoverId}
   aria-label={m.issue_filter_button_aria({ count: activeCount })}
   onclick={() => (open = !open)}
   use:coachTarget={coachTargets ? "issue-filters" : ""}
@@ -98,6 +107,7 @@
      position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
      Non-modal: no aria-modal, no scrim (small anchored non-blocking popover, exempt per CLAUDE.md). -->
 <div
+  id={popoverId}
   bind:this={popEl}
   class="filter-popover"
   role="dialog"

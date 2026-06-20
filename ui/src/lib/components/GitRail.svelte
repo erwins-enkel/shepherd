@@ -554,7 +554,7 @@
   {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile use:edgeFades={mobile}>
-      {#if git?.issueUrl && issueNumber != null}
+      {#if git.issueUrl && issueNumber != null}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
         <a class="prlink" href={git.issueUrl} target="_blank" rel="noopener"
           >{m.gitrail_open_issue({ number: issueNumber })}</a

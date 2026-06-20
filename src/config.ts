@@ -277,6 +277,15 @@ export function parseSandboxProfile(v: string | undefined): SandboxProfile {
   return isSandboxProfile(v) ? v : "trusted";
 }
 
+/** Parse an hour-of-day env (0–23 integer); empty/missing/out-of-range falls back to `def`. Exported
+ *  for tests. Guards the empty string explicitly — `Number("")` is `0`, which would otherwise pass as
+ *  a valid midnight hour. */
+export function parseHour(raw: string | undefined, def: number): number {
+  if (raw == null || raw.trim() === "") return def;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : def;
+}
+
 export const config = {
   port: Number(process.env.SHEPHERD_PORT ?? 7330),
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -356,6 +365,10 @@ export const config = {
   // Model alias for the doc-agent spawn. Unset → no --model (spawn default). The agent does
   // substantive comprehension, so a capable model is appropriate; override per deployment.
   docAgentModel: process.env.SHEPHERD_DOC_AGENT_MODEL ?? null,
+  // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
+  // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
+  // run; default 3 (≈03:00 local). Invalid values fall back to 3.
+  docAgentNightlyHour: parseHour(process.env.SHEPHERD_DOC_AGENT_NIGHTLY_HOUR, 3),
   // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
   // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
   // overlay disabling every operator-enabled plugin (drops plugin hook injections,

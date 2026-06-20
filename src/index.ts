@@ -579,6 +579,8 @@ const docAgent = new DocAgentService({
   worktree,
   resolveForge,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  store,
+  nightlyHour: config.docAgentNightlyHour,
   model: config.docAgentModel,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
@@ -810,6 +812,24 @@ events.subscribe((event, data) => {
     console.warn(`[issue-log] comment on #${s.issueNumber} failed:`, err),
   );
 });
+// Merge-triggered doc-agent consideration (issue #904). On a managed session's PR merging to the
+// default branch, consider a doc-sync run when the merge subject is doc-relevant (feat/config). Flag-
+// gated; idempotent across the 3s boot warm-tick replay via onMergedPr's per-PR persisted key. The
+// merge fast path only sees managed-session PRs — human/non-session/non-conventional merges (e.g.
+// epic-landing PRs) are caught by the nightly catch-all instead.
+events.subscribe((event, data) => {
+  if (!config.docAgentEnabled) return;
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  if (git.state !== "merged") return;
+  const s = store.get(id);
+  if (!s) return;
+  // onMergedPr gates on s.baseBranch === the repo default — a feat/config PR that merged into a
+  // non-default (epic/stacked) base must not trigger a run grounded on the default tip.
+  void docAgent
+    .onMergedPr(s.repoPath, git.number, git.title, s.baseBranch)
+    .catch((err) => console.warn("[doc-agent] onMergedPr failed:", err));
+});
 setInterval(() => {
   if (maintenance.active) return;
   void reviewService.tick();
@@ -819,8 +839,12 @@ setInterval(() => {
   void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
   void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
   void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
-  if (config.docAgentEnabled)
+  if (config.docAgentEnabled) {
     void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
+    void docAgent
+      .sweepNightly()
+      .catch((err) => console.warn("[doc-agent] nightly sweep failed:", err)); // cadence: once/day/repo, spawn only when base advanced
+  }
   try {
     buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
   } catch (err) {

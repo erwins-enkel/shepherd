@@ -54,10 +54,27 @@ mutation, `gh`, or network access**, so it can neither commit nor push; the trus
 stages the in-scope doc files, commits, and opens a **pull request** for human review
 (never an auto-merge). Off by default; flip on per deployment to soak it.
 
+**Automated cadence.** With the same flag on, two triggers run in addition to the manual
+one (a per-repo in-flight guard means at most one run per repo at a time):
+
+- **Nightly** — once per local day per repo that has the docs tree, at/after
+  `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` (default `3`). It first freshens the repo's default
+  branch from `origin`, then spawns a run **only if the branch advanced** since the last
+  doc-agent run — quiet days cost a cheap fetch but no agent spawn. This is the reliable
+  catch-all: it picks up **any** landed change, including `fix:` commits, config-only
+  changes, and human/non-session or non-conventional merges (e.g. epic-landing PRs).
+- **Merge-triggered** — when a Shepherd-managed session's PR merges to the default branch
+  **and its title is a `feat`/`config` conventional-commit subject**, a run is considered
+  immediately (the fast path). A doc-relevant `fix:` is intentionally **not** caught here —
+  it's covered by the nightly sweep instead. `config` (type or scope) is a forward-looking
+  allowance and may not yet appear in a given repo's history. Non-conventional or untitled
+  merges simply fall through to nightly.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_DOC_AGENT` | `0` (off) | Set `1` to enable the manual doc-agent trigger + its boot orphan-sweep |
+| `SHEPHERD_DOC_AGENT` | `0` (off) | Set `1` to enable the doc agent: manual trigger, nightly + merge-triggered cadence, and the boot orphan-sweep |
 | `SHEPHERD_DOC_AGENT_MODEL` | _(none)_ | Model alias for the doc-agent spawn; unset uses the spawn default |
+| `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
 ## Per-agent sandbox / permission profiles
 

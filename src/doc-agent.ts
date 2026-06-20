@@ -10,6 +10,7 @@ import { EmptyDiffError } from "./forge/types";
 import type { GitForge } from "./forge/types";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
+import type { SessionStore } from "./store";
 import {
   apiKeyMembraneFields,
   apiKeyPassthroughEnv,
@@ -103,13 +104,20 @@ export interface DocAgentDeps {
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   worktree: Pick<WorktreeMgr, "create" | "remove" | "gitCommonDir" | "ensureBaseRef">;
   resolveForge: (repoPath: string) => GitForge | null;
-  /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune). */
+  /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune) and the nightly
+   *  cadence sweep. */
   repos: () => string[];
+  /** Persisted per-repo cadence markers (last-sha / nightly-day / merged-seen). */
+  store: Pick<SessionStore, "getSetting" | "setSetting">;
   model?: string | null;
   onChange?: (f: DocAgentFinalize) => void;
   now?: () => number;
   timeoutMs?: number;
+  /** Local hour (0–23) at/after which the nightly sweep evaluates a repo. */
+  nightlyHour?: number;
   // Injectable seams (tests).
+  /** Local `YYYY-MM-DD` for `now` — the nightly once/day key. */
+  dayKey?: (now: number) => string;
   git?: (cwd: string, args: string[]) => Promise<string>;
   detectBackend?: () => SandboxBackend;
   membraneEnv?: () => {
@@ -143,6 +151,8 @@ export class DocAgentService {
   private git: (cwd: string, args: string[]) => Promise<string>;
   private now: () => number;
   private timeoutMs: number;
+  private nightlyHour: number;
+  private dayKey: (now: number) => string;
   private fileExists: (p: string) => boolean;
   private readSentinel: (worktreePath: string) => string | null;
   private buildPrompt: (base: string) => string;
@@ -151,6 +161,8 @@ export class DocAgentService {
     this.git = deps.git ?? defaultGit;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 20 * 60 * 1000;
+    this.nightlyHour = deps.nightlyHour ?? 3;
+    this.dayKey = deps.dayKey ?? defaultDayKey;
     this.fileExists = deps.fileExists ?? existsSync;
     this.readSentinel = deps.readSentinel ?? defaultReadSentinel;
     this.buildPrompt = deps.buildPrompt ?? ((base) => docAgentPrompt(base));
@@ -190,6 +202,115 @@ export class DocAgentService {
       return await this.begin(repoPath);
     } finally {
       this.starting.delete(repoPath);
+    }
+  }
+
+  /**
+   * Merge-triggered consideration (issue #904). Called when a managed session's PR merges. Only a
+   * merge INTO the repo's default branch is considered — `baseBranch` (the session's PR target) must
+   * equal `forge.defaultBranch()`; a feat/config PR merging into a non-default (epic/stacked) base
+   * would spawn a near-no-op run grounded on the default tip, and those changes reach the default
+   * branch at epic-landing time (caught by the nightly sweep) anyway.
+   *
+   * Gated on a PER-PR persisted `merged-seen` key (NOT the sha-gate): the merged `session:git` event
+   * fires ONCE (the open→merged transition; `gitStateChanged` re-emits only on
+   * state/checks/headSha/mergeable/review/handoff moves) and this method does NO fetch, so the local
+   * `origin/<base>` is still the pre-merge sha at that instant — a sha-gate would wrongly skip with no
+   * re-emit to retry. The per-PR key is freshness-independent: it fires immediately (consider() →
+   * begin() fetches via ensureBaseRef so the agent grounds on the merged commits) and is
+   * restart-idempotent (the 3s boot warm-tick replays the merged event, but the key is already set).
+   */
+  async onMergedPr(
+    repoPath: string,
+    prNumber: number | undefined,
+    prTitle: string | undefined,
+    baseBranch: string,
+  ): Promise<DocAgentResult> {
+    if (prNumber == null) return { status: "skipped", reason: "merged event without a PR number" };
+    if (!isDocRelevantMerge(prTitle))
+      return { status: "skipped", reason: "merge subject is not doc-relevant (feat/config)" };
+    // Default-branch gate (cheap forge call, reached only for doc-relevant subjects). On a resolve
+    // failure, skip — better a missed fast-path (nightly catches it) than a wrong-tip spawn.
+    const forge = this.deps.resolveForge(repoPath);
+    let def: string;
+    try {
+      def = forge ? await forge.defaultBranch() : "";
+    } catch {
+      return { status: "skipped", reason: "could not resolve default branch" };
+    }
+    if (!forge || baseBranch !== def)
+      return { status: "skipped", reason: "merge target is not the default branch" };
+    const key = mergedSeenKey(repoPath, prNumber);
+    if (this.deps.store.getSetting(key) != null)
+      return { status: "skipped", reason: "merge already handled" };
+    this.deps.store.setSetting(key, "1");
+    return this.consider(repoPath);
+  }
+
+  /**
+   * Nightly cadence sweep (issue #904). Called on the 15s tick (flag-gated in index.ts). For each
+   * doc-tree repo, at most once per local day (the `nightly-day` marker), freshens `origin/<base>`
+   * and spawns a run ONLY when the default branch advanced since the last run (the `last-sha` gate) —
+   * so quiet days cost a fetch but no agent spawn.
+   */
+  async sweepNightly(): Promise<void> {
+    if (new Date(this.now()).getHours() < this.nightlyHour) return;
+    const today = this.dayKey(this.now());
+    for (const repo of this.deps.repos()) {
+      if (!this.fileExists(join(repo, DOC_TREE_MARKER))) continue;
+      if (this.deps.store.getSetting(nightlyDayKey(repo)) === today) continue;
+      // Stamp "evaluated today" BEFORE the freshen/compare so any outcome (skip, fire, fetch failure)
+      // counts as today's evaluation and the bounded fetch runs at most once/day/repo.
+      this.deps.store.setSetting(nightlyDayKey(repo), today);
+      try {
+        await this.considerNightly(repo);
+      } catch (err) {
+        console.warn(`[doc-agent] nightly sweep failed for ${repo}:`, err);
+      }
+    }
+  }
+
+  /** Per-repo nightly decision: freshen origin/<base>, sha-gate, spawn on change. */
+  private async considerNightly(repo: string): Promise<void> {
+    const forge = this.deps.resolveForge(repo);
+    if (!forge || forge.kind === "local") return; // no PR surface; guardRepo would skip anyway
+    let base: string;
+    try {
+      base = await forge.defaultBranch();
+    } catch {
+      return;
+    }
+    // REQUIRED freshen: PrPoller polls PR state via the gh API and never `git fetch`s, and nothing
+    // else periodically fetches managed repos' base refs — so without this the local origin/<base>
+    // only advances when the doc agent itself last ran, and a quiet repo (or one whose last merge was
+    // non-conventional) would skip indefinitely. ensureBaseRef is timeout-bounded and never throws.
+    await this.deps.worktree.ensureBaseRef(repo, base);
+    const sha = await this.originSha(repo, base);
+    if (sha === null) {
+      // fetch failed AND the remote ref was never local (offline) — skip today, retry tomorrow.
+      console.warn(
+        `[doc-agent] nightly: cannot resolve origin/${base} for ${repo}; skipping today`,
+      );
+      return;
+    }
+    if (sha === this.deps.store.getSetting(lastShaKey(repo))) return; // no new commits → no spawn
+    await this.consider(repo);
+  }
+
+  /** Stamp `last-sha` = `refs/remotes/origin/<base>` (the nightly gate's ref). Best-effort. */
+  private async stampLastSha(repoPath: string, base: string): Promise<void> {
+    const sha = await this.originSha(repoPath, base);
+    if (sha !== null) this.deps.store.setSetting(lastShaKey(repoPath), sha);
+  }
+
+  /** `refs/remotes/origin/<base>` sha, or null when the ref isn't locally present. */
+  private async originSha(repoPath: string, base: string): Promise<string | null> {
+    try {
+      const out = await this.git(repoPath, ["rev-parse", `refs/remotes/origin/${base}`]);
+      const sha = out.trim();
+      return sha.length > 0 ? sha : null;
+    } catch {
+      return null;
     }
   }
 
@@ -239,6 +360,12 @@ export class DocAgentService {
       agentName: DOC_AGENT_LABEL + id8,
       startedAt: this.now(),
     });
+    // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
+    // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
+    // name/local sha in the diverged/no-upstream case and could never reach equality with the gate's
+    // origin/<base> read, re-firing nightly on quiet days. Best-effort: a repo without the remote ref
+    // simply isn't sha-gated by nightly (it has its own rev-parse-failure skip).
+    await this.stampLastSha(repoPath, base);
     return { status: "started" };
   }
 
@@ -453,6 +580,40 @@ export class DocAgentService {
     flush();
     return res;
   }
+}
+
+// ── cadence markers (settings KV) ─────────────────────────────────────────────
+const lastShaKey = (repo: string) => `docagent:last-sha:${repo}`;
+const nightlyDayKey = (repo: string) => `docagent:nightly-day:${repo}`;
+// One tiny row per merged feat/config PR per repo. Bounded by the count of such PRs (finite, modest)
+// and never read back beyond an existence check, so it needs no cleanup path — same accept-and-grow
+// posture as the existing `learnings:*` per-key settings markers (e.g. learnings:retired-seen:<repo>).
+const mergedSeenKey = (repo: string, prNumber: number) =>
+  `docagent:merged-seen:${repo}:${prNumber}`;
+
+/** Local `YYYY-MM-DD` for `now` — the nightly once/day key (mirrors herd-digest's dayKeyFor). */
+function defaultDayKey(now: number): string {
+  const d = new Date(now);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * True when a merged PR's title (the squash/merge commit subject) classifies as a documentation-
+ * relevant change: a conventional-commit header whose type is `feat`/`config` or whose scope is
+ * `config`. Returns false for an absent/empty title, a bare (non-conventional) title, and the
+ * doc-sync subject (`docs: sync …`) — so non-conventional titles cleanly degrade to the nightly path
+ * and the doc agent never self-triggers off its own merged PR. `config` is a forward-looking
+ * allowance (not yet in this repo's history). See issue #904.
+ */
+export function isDocRelevantMerge(title: string | undefined): boolean {
+  if (!title) return false;
+  const m = /^\s*(\w+)(?:\(([^)]*)\))?!?:/.exec(title);
+  if (!m) return false;
+  const type = m[1]!.toLowerCase();
+  const scope = m[2]?.toLowerCase();
+  return type === "feat" || type === "config" || scope === "config";
 }
 
 function defaultReadSentinel(worktreePath: string): string | null {

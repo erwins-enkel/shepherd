@@ -3,6 +3,7 @@ import {
   HOUSE_RULES_OVERHEAD,
   HOUSE_RULES_TAG,
   DAY_MS,
+  envNum,
   planHouseRulesInjection,
   prioritize,
   renderHouseRulesBlock,
@@ -170,4 +171,20 @@ test("rendered block is wrapped in the XML tag, one bullet per rule", () => {
   expect(block.endsWith(`\n</${HOUSE_RULES_TAG}>`)).toBe(true);
   expect(block).toContain("- use bun");
   expect(block).toContain("- rebase, do not merge");
+});
+
+test("envNum: unset and non-numeric env values fall back to the default; valid values parse", () => {
+  const name = "SHEPHERD_TEST_ENVNUM_XYZ";
+  delete process.env[name];
+  expect(envNum(name, 0.5)).toBe(0.5); // unset → default
+  try {
+    process.env[name] = "abc";
+    expect(envNum(name, 0.5)).toBe(0.5); // non-numeric → default (no NaN poisoning)
+    process.env[name] = "";
+    expect(envNum(name, 0.5)).toBe(0.5); // empty → default
+    process.env[name] = "30";
+    expect(envNum(name, 0.5)).toBe(30); // valid → parsed
+  } finally {
+    delete process.env[name];
+  }
 });

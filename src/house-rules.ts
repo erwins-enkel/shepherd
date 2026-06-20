@@ -21,11 +21,19 @@ export const HOUSE_RULES_OVERHEAD =
 // ── ranking constants (env-overridable) ───────────────────────────────────────
 
 export const DAY_MS = 86_400_000;
-const RANK_W_RECENCY = Number(process.env.SHEPHERD_LEARNINGS_RANK_W_RECENCY ?? 0.5);
-const RANK_W_HELP = Number(process.env.SHEPHERD_LEARNINGS_RANK_W_HELP ?? 0.5);
-const RANK_HALF_LIFE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_RANK_HALF_LIFE_DAYS ?? 30);
-const RANK_PRIOR_STRENGTH = Number(process.env.SHEPHERD_LEARNINGS_RANK_PRIOR_STRENGTH ?? 4);
-const RANK_NEUTRAL_PRIOR = Number(process.env.SHEPHERD_LEARNINGS_RANK_NEUTRAL_PRIOR ?? 0.5);
+/** Parse a numeric env override, falling back to `def` for unset or non-numeric (NaN/±Inf)
+ *  values — a bad env var must not silently poison the score and disable ranking. */
+export function envNum(name: string, def: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return def; // unset/empty → default (Number("")===0)
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : def; // non-numeric (NaN/±Inf) → default
+}
+const RANK_W_RECENCY = envNum("SHEPHERD_LEARNINGS_RANK_W_RECENCY", 0.5);
+const RANK_W_HELP = envNum("SHEPHERD_LEARNINGS_RANK_W_HELP", 0.5);
+const RANK_HALF_LIFE_DAYS = envNum("SHEPHERD_LEARNINGS_RANK_HALF_LIFE_DAYS", 30);
+const RANK_PRIOR_STRENGTH = envNum("SHEPHERD_LEARNINGS_RANK_PRIOR_STRENGTH", 4);
+const RANK_NEUTRAL_PRIOR = envNum("SHEPHERD_LEARNINGS_RANK_NEUTRAL_PRIOR", 0.5);
 /** Per-day decay factor; default half-life = 30 days → 0.5^(1/30). */
 const RANK_DECAY_BASE = Math.pow(0.5, 1 / RANK_HALF_LIFE_DAYS);
 

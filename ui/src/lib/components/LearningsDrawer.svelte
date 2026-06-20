@@ -27,6 +27,8 @@
   import ProposedRuleCard from "./learnings-drawer/ProposedRuleCard.svelte";
   import MergeSuggestCard from "./learnings-drawer/MergeSuggestCard.svelte";
   import RetiredRuleCard from "./learnings-drawer/RetiredRuleCard.svelte";
+  import TriageBand from "./learnings-drawer/TriageBand.svelte";
+  import RecurrenceBand from "./learnings-drawer/RecurrenceBand.svelte";
 
   // "What is this?" explainer at the top of the drawer. Default open so a first-time
   // user gets the plain-language explanation; collapsing is remembered (localStorage)
@@ -95,9 +97,6 @@
   const crossSuggestions = $derived(mergeSuggestions.filter((s) => s.kind === "cross"));
   const intraFor = (repoPath: string): MergeSuggestion[] =>
     mergeSuggestions.filter((s) => s.kind === "intra" && s.repoPath === repoPath);
-
-  // Cross-repo card pending the inline two-step confirm before a global CLAUDE.md write (#872).
-  let confirmingGlobalId = $state<string | null>(null);
 
   // Glob-scope editing (#842): which injectable rule has its scope editor open, and the
   // comma-separated draft text. Saving splits on commas/whitespace into a glob array.
@@ -189,6 +188,16 @@
       document.getElementById(id)?.scrollIntoView({ block: "start" });
     });
   });
+
+  // Triage chip handler: reset both lens filters so the target repo is guaranteed to
+  // be in the DOM, then rAF-scroll to it (lens reset stays here; TriageBand emits onjump).
+  function jumpToRepo(repoPath: string) {
+    flaggedOnly = false;
+    overBudgetOnly = false;
+    requestAnimationFrame(() => {
+      document.getElementById(repoAnchorId(repoPath))?.scrollIntoView({ block: "start" });
+    });
+  }
 </script>
 
 <div class="scrim" aria-hidden="true" onclick={() => onclose()}></div>
@@ -270,96 +279,11 @@
   </section>
 
   <!-- Change 3: Triage summary band — stable above group list, reflects ALL attention repos -->
-  {#if attention.length > 0}
-    <section class="triage" aria-label={m.learnings_triage_heading()}>
-      <span class="triage-label">{m.learnings_triage_heading()}</span>
-      <div class="triage-chips">
-        {#each attention as a (a.repoPath)}
-          <button
-            class="triage-chip"
-            type="button"
-            aria-label={m.learnings_triage_jump_aria({ repo: basename(a.repoPath) })}
-            onclick={() => {
-              // Clear both lens filters so the target repo is guaranteed to be in the DOM,
-              // then scroll on the next frame after Svelte has updated displayGroups.
-              flaggedOnly = false;
-              overBudgetOnly = false;
-              requestAnimationFrame(() => {
-                document
-                  .getElementById(repoAnchorId(a.repoPath))
-                  ?.scrollIntoView({ block: "start" });
-              });
-            }}
-          >
-            <span class="tc-repo">{basename(a.repoPath)}</span>
-            {#if a.droppedCount > 0}<span class="tc-over"
-                >{m.learnings_triage_over({ count: a.droppedCount })}</span
-              >{/if}
-            {#if a.flaggedCount > 0}<span class="tc-flagged"
-                >{m.learnings_triage_flagged({ count: a.flaggedCount })}</span
-              >{/if}
-          </button>
-        {/each}
-      </div>
-    </section>
-  {/if}
+  <TriageBand {attention} onjump={jumpToRepo} />
 
   <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for the
        user-global CLAUDE.md. Promote (guarded, two-step) writes the rule there; or dismiss. -->
-  {#if crossSuggestions.length > 0}
-    <section class="recur" aria-label={m.learnings_recur_heading()}>
-      <span class="recur-title">{m.learnings_recur_heading()}</span>
-      <p class="recur-lead">{m.learnings_recur_lead()}</p>
-      {#each crossSuggestions as s (s.id)}
-        <article class="recur-card">
-          <p class="recur-rule">{s.mergedRule}</p>
-          <p class="recur-repos">
-            {m.learnings_recur_repos({
-              count: s.repoPaths?.length ?? 0,
-              repos: (s.repoPaths ?? []).map(basename).join(", "),
-            })}
-          </p>
-          {#if confirmingGlobalId === s.id}
-            <p class="recur-confirm">{m.learnings_recur_promote_confirm()}</p>
-            <div class="recur-foot">
-              <button class="ms-dismiss" type="button" onclick={() => (confirmingGlobalId = null)}>
-                {m.common_cancel()}
-              </button>
-              <button
-                class="ms-apply"
-                type="button"
-                onclick={() => {
-                  onpromoteglobal(s.id);
-                  confirmingGlobalId = null;
-                }}
-              >
-                {m.learnings_recur_promote_action()}
-              </button>
-            </div>
-          {:else}
-            <div class="recur-foot">
-              <button
-                class="ms-dismiss"
-                type="button"
-                onclick={() => ondismissmerge(s.id)}
-                aria-label={m.learnings_recur_dismiss_aria()}
-              >
-                {m.learnings_dismiss()}
-              </button>
-              <button
-                class="ms-apply"
-                type="button"
-                onclick={() => (confirmingGlobalId = s.id)}
-                aria-label={m.learnings_recur_promote_aria()}
-              >
-                {m.learnings_recur_promote()}
-              </button>
-            </div>
-          {/if}
-        </article>
-      {/each}
-    </section>
-  {/if}
+  <RecurrenceBand suggestions={crossSuggestions} {onpromoteglobal} {ondismissmerge} />
 
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>
@@ -617,49 +541,6 @@
     color: var(--color-ink-bright);
     font-weight: 600;
   }
-  /* Change 3: Triage summary band */
-  .triage {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
-    border: 1px solid var(--color-line);
-    background: var(--color-head);
-  }
-  .triage-label {
-    font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--color-muted);
-  }
-  .triage-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .triage-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: none;
-    border: 1px solid var(--color-line-bright);
-    padding: 3px 8px;
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-meta);
-  }
-  .triage-chip:hover {
-    border-color: var(--color-ink-bright);
-  }
-  .tc-repo {
-    color: var(--color-ink-bright);
-    font-weight: 600;
-  }
-  .tc-over,
-  .tc-flagged {
-    color: var(--color-amber);
-    font-size: var(--fs-meta);
-  }
   .empty {
     color: var(--color-muted);
     font-size: var(--fs-base);
@@ -802,58 +683,6 @@
     letter-spacing: 0.1em;
     color: var(--color-muted);
   }
-  /* Phase 4: cross-repo recurrence band (top-level, repo-agnostic) */
-  .recur {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
-    border: 1px solid var(--color-line);
-    background: var(--color-head);
-  }
-  .recur-title {
-    font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--color-muted);
-  }
-  .recur-lead {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    line-height: 1.45;
-  }
-  .recur-card,
-  .ms-card {
-    border: 1px solid var(--color-line);
-    background: var(--color-inset);
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .recur-rule {
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
-    line-height: 1.5;
-  }
-  .recur-repos {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    line-height: 1.45;
-  }
-  .recur-confirm {
-    font-size: var(--fs-meta);
-    color: var(--color-amber);
-    line-height: 1.45;
-  }
-  .recur-foot,
-  .ms-foot {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
   /* Phase 4: intra-repo merge-group suggestion cards */
   .merge-suggest {
     display: flex;
@@ -866,26 +695,5 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--color-muted);
-  }
-  /* Merge = actionable consolidation → green (matches .promote) */
-  .ms-apply {
-    font-size: var(--fs-base);
-    padding: 4px 12px;
-    cursor: pointer;
-    border: 1px solid var(--color-green);
-    background: none;
-    color: var(--color-green);
-  }
-  .ms-dismiss {
-    font-size: var(--fs-base);
-    padding: 4px 10px;
-    cursor: pointer;
-    border: 1px solid var(--color-line-bright);
-    background: none;
-    color: var(--color-muted);
-  }
-  .ms-dismiss:hover {
-    color: var(--color-ink-bright);
-    border-color: var(--color-ink-bright);
   }
 </style>

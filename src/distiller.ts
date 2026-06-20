@@ -308,9 +308,6 @@ export class DistillerService {
     repoPath: string,
     raw: RawProposals | null,
   ): { added: number; updated: number; deleted: number } {
-    let added = 0;
-    let updated = 0;
-    let deleted = 0;
     const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
     const activeIds = new Set(
       this.deps.store
@@ -318,19 +315,32 @@ export class DistillerService {
         .filter((l) => l.status === "active")
         .map((l) => l.id),
     );
+    const updated = this.applyUpdates(raw, activeIds);
+    const deleted = this.applyDeletes(raw, activeIds);
+    const added = this.applyAdds(repoPath, raw, have);
+    return { added, updated, deleted };
+  }
 
-    // UPDATE — validate id ∈ activeIds, non-blank rule, capped
+  private applyUpdates(raw: RawProposals | null, activeIds: Set<string>): number {
+    let updated = 0;
     const updates = Array.isArray(raw?.updates) ? (raw!.updates as RawUpdate[]) : [];
     for (const u of updates) {
       if (updated >= MAX_UPDATES_PER_RUN) break;
-      const id = typeof u?.id === "string" ? u.id : undefined;
-      if (!id || !activeIds.has(id)) continue;
-      if (typeof u.rule !== "string" || !u.rule.trim()) continue;
-      const rationale = typeof u.rationale === "string" ? u.rationale : undefined;
-      if (this.deps.store.mergeLearning(id, u.rule, rationale)) updated++;
+      if (this.mergeOneUpdate(u, activeIds)) updated++;
     }
+    return updated;
+  }
 
-    // DELETE — validate id ∈ activeIds, re-confirm active, capped, soft-retire "superseded"
+  private mergeOneUpdate(u: RawUpdate, activeIds: Set<string>): boolean {
+    const id = typeof u?.id === "string" ? u.id : undefined;
+    if (!id || !activeIds.has(id)) return false;
+    if (typeof u.rule !== "string" || !u.rule.trim()) return false;
+    const rationale = typeof u.rationale === "string" ? u.rationale : undefined;
+    return this.deps.store.mergeLearning(id, u.rule, rationale) !== null;
+  }
+
+  private applyDeletes(raw: RawProposals | null, activeIds: Set<string>): number {
+    let deleted = 0;
     const deletes = Array.isArray(raw?.deletes) ? (raw!.deletes as RawDelete[]) : [];
     for (const d of deletes) {
       if (deleted >= MAX_DELETES_PER_RUN) break;
@@ -339,8 +349,11 @@ export class DistillerService {
       if (this.deps.store.getLearning(id)?.status !== "active") continue; // defense-in-depth
       if (this.deps.store.retireLearning(id, "superseded")) deleted++;
     }
+    return deleted;
+  }
 
-    // ADD — unchanged from prior behavior (exact-text dedup backstop)
+  private applyAdds(repoPath: string, raw: RawProposals | null, have: Set<string>): number {
+    let added = 0;
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
@@ -357,7 +370,7 @@ export class DistillerService {
       });
       added++;
     }
-    return { added, updated, deleted };
+    return added;
   }
 
   /** Bump ineffectiveCount for any active rule the distiller cited as not working,

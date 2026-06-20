@@ -155,11 +155,12 @@
     //   external convention exists for template thresholds — this is a deliberate
     //   judgment call. 27 of 36 components clear it; anything over it still trips, so
     //   the metric stays live for new code.
-    // Tier 2: the 9 giants that exceed Tier 1, each grandfathered just above its
+    // Tier 2: the 6 giants that exceed Tier 1, each grandfathered just above its
     //   current cyclo/cog (next multiple of 10) so it can't silently grow. Tracked for
-    //   refactor in #855 — which has paid down 4 of the original 13 (RepoSwitcher,
-    //   NewTask, AutomationSettings, Settings), each split into subcomponents that clear
-    //   the Tier-1 bar, so their grandfathers are removed.
+    //   refactor in #855 — which has paid down 7 of the original 13 (RepoSwitcher,
+    //   NewTask, AutomationSettings, Settings, IssuesPanel, BacklogView, UnitRow), each
+    //   split into subcomponents that clear the Tier-1 bar, so their grandfathers are
+    //   removed. Remaining: Viewport, TopBar, Herd, +page, GitRail, LearningsDrawer.
     // maxCrap is intentionally inert for templates: CRAP for uncovered code is pure
     //   CC-derived noise bounded by CC²+CC; 20000 sits above the largest template's
     //   worst case (Viewport CC 136 → ≈18632) so it never becomes the binding
@@ -219,14 +220,6 @@
         "functions": ["<template>"],
         "maxCyclomatic": 60,
         "maxCognitive": 120,
-        "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
-      },
-      {
-        "files": ["ui/src/lib/components/UnitRow.svelte"],
-        "functions": ["<template>"],
-        "maxCyclomatic": 60,
-        "maxCognitive": 90,
         "maxCrap": 20000,
         "reason": "Tier 2 grandfather (#851); refactor candidate #855."
       },

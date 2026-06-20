@@ -91,11 +91,14 @@ test("no inversion: lightly-helped outranks unproven (fixed prior, not Wilson LB
 });
 
 test("determinism tie-break: higher updatedAt sorts first on identical score inputs", () => {
+  // Setup designed to diverge on old vs new comparator:
+  //   New: effectiveLastUsed = lastUsedAt (set) → both = now → equal recency + equal help (0/0)
+  //        → score tie → updatedAt desc → Y(2) before X(1) → ["y","x"]
+  //   Old: lastEvidenceAt desc nulls-last → X(200) before Y(100) → ["x","y"]  ← assertion fails
   const now = 100 * DAY_MS;
-  const X = rule({ id: "X", lastUsedAt: now, helpfulCount: 5, injectedCount: 10, updatedAt: 1 });
-  const Y = rule({ id: "Y", lastUsedAt: now, helpfulCount: 5, injectedCount: 10, updatedAt: 2 });
-  // Identical recency and help → score equal → updatedAt desc: Y first.
-  expect(prioritize([X, Y], now).map((r) => r.id)).toEqual(["Y", "X"]);
+  const X = rule({ id: "x", lastUsedAt: now, lastEvidenceAt: 200, updatedAt: 1 });
+  const Y = rule({ id: "y", lastUsedAt: now, lastEvidenceAt: 100, updatedAt: 2 });
+  expect(prioritize([X, Y], now).map((r) => r.id)).toEqual(["y", "x"]);
 });
 
 // ── budget / greedy / render tests (unchanged) ─────────────────────────────────

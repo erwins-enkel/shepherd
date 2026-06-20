@@ -43,7 +43,16 @@
     "extension/scripts/**/*.mjs",
     "extension/eslint.config.js",
     "eslint.config.js",
-    "commitlint.config.js"
+    "commitlint.config.js",
+    // Docs = Astro Starlight static site (docs-site/). The astro config + content
+    // collection config are genuine roots (like the ui/ext vite/svelte configs),
+    // and custom.css is the root brand stylesheet — Astro loads it via the
+    // `customCss: [...]` string path in astro.config.mjs, not a static import, so
+    // fallow would otherwise report it as an unused file (same class as the
+    // ui/extension app.css roots listed above).
+    "docs-site/astro.config.mjs",
+    "docs-site/src/content.config.ts",
+    "docs-site/src/styles/custom.css"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

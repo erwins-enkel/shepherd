@@ -31,13 +31,12 @@ so `curl -fsSL https://shepherd.run/install.sh | bash` keeps working. (The old
 bare-`/` → GitHub redirect from the redirect-only `deploy/vanity` project is
 intentionally dropped — the root now serves a page; GitHub is an on-page link.)
 
-## ⚠️ Deployment inertness — merging does NOT make shepherd.run serve this page
+## Deployment status
 
-There is **no Vercel project for `shepherd.run` yet** (the connected Vercel
-account had zero projects as of 2026-06-16; `deploy/vanity/` only ever held the
-redirect *config + setup instructions*, which were never provisioned). So this
-work is **deployment-inert**: nothing is served at `shepherd.run` until an
-operator does the from-scratch steps below.
+**Update:** `shepherd.run` is now **live** on its own Vercel project — the
+"no Vercel project yet / deployment-inert" caveat that previously stood here is
+stale and has been removed. The from-scratch go-live steps below are retained as
+a historical record of how the project was created.
 
 ## Go-live (manual operator steps — creating from scratch)
 

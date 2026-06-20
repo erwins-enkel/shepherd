@@ -324,13 +324,22 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     issuesFilter.setActive(false);
   });
 
-  // Resolve a filter chip by its label text — the bar can hold two chips.
-  const chipByLabel = (label: string) =>
-    [...document.querySelectorAll(".filter-chip")].find(
-      (el) => el.textContent?.trim() === label,
-    ) as HTMLButtonElement | undefined;
-  const mineChip = () => chipByLabel(m.issues_filter_mine_label());
-  const activeChip = () => chipByLabel(m.issues_filter_active_label());
+  // Open the Filters popover by clicking the trigger button.
+  const openPopover = () => {
+    const trigger = document.querySelector<HTMLButtonElement>(".filter-bar button");
+    trigger?.click();
+  };
+
+  // Find a checkbox in the open popover by its row label text.
+  const checkboxByLabel = (label: string): HTMLInputElement | undefined => {
+    const checkboxes = document.querySelectorAll<HTMLInputElement>(
+      "[popover] input[type=checkbox]",
+    );
+    return [...checkboxes].find((cb) => {
+      const row = cb.closest("label");
+      return row?.textContent?.includes(label);
+    });
+  };
 
   function withAssignees(number: number, title: string, assignees: string[]): Issue {
     return {
@@ -361,41 +370,53 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
   const titles = () =>
     [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim());
 
-  it("hides others' issues by default and shows the toggle when viewer is known", async () => {
+  it("hides others' issues by default and shows the Filters trigger when viewer is known", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => mineChip()).toBeTruthy();
+    // The Filters trigger button renders in the filter bar.
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".filter-bar button"))
+      .toBeTruthy();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
     expect(titles()).toEqual(["Unassigned issue", "Mine issue"]);
     expect(titles()).not.toContain("Theirs issue");
   });
 
-  it("toggling the chip off reveals every issue", async () => {
+  it("toggling mine & unassigned off reveals every issue", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => mineChip()).toBeTruthy();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
 
-    mineChip()!.click();
+    // Open popover then click the mine & unassigned checkbox.
+    openPopover();
+    await expect.poll(() => checkboxByLabel(m.issues_filter_mine_label())).toBeTruthy();
+    checkboxByLabel(m.issues_filter_mine_label())!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
     expect(titles()).toContain("Theirs issue");
   });
 
-  it("hides the mine chip but keeps the hide-in-progress chip when viewer is unknown (fail open)", async () => {
+  it("hides the mine row but still shows the Filters trigger when viewer is unknown (fail open)", async () => {
     seedMixed(null);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    // mine filter fails open (viewer unknown) → all 3 show; its chip is gone, but
-    // the viewer-agnostic hide-in-progress chip still renders.
+    // mine filter fails open (viewer unknown) → all 3 show; Filters trigger still renders.
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    expect(mineChip()).toBeUndefined();
-    expect(activeChip()).toBeTruthy();
+    // The trigger button is always present (hide-in-progress row is viewer-agnostic).
+    expect(document.querySelector(".filter-bar button")).not.toBeNull();
+
+    // Open the popover and confirm mine row is absent but active row is present.
+    openPopover();
+    await expect
+      .poll(() => document.querySelector("[popover] input[type=checkbox]"))
+      .not.toBeNull();
+    expect(checkboxByLabel(m.issues_filter_mine_label())).toBeUndefined();
+    expect(checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
   });
 
-  it("hide-in-progress chip drops shepherd:active issues and restores them when toggled off", async () => {
+  it("hide-in-progress checkbox drops shepherd:active issues and restores them when toggled off", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",
       webUrl: null,
@@ -411,11 +432,17 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     // Off by default → both visible.
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
 
-    activeChip()!.click();
+    // Open popover and toggle hide-in-progress ON.
+    openPopover();
+    await expect.poll(() => checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
+    checkboxByLabel(m.issues_filter_active_label())!.click();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
     expect(titles()).toEqual(["Plain issue"]);
 
-    activeChip()!.click();
+    // Open popover again and toggle hide-in-progress OFF.
+    openPopover();
+    await expect.poll(() => checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
+    checkboxByLabel(m.issues_filter_active_label())!.click();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
     expect(titles()).toContain("Claimed issue");
   });

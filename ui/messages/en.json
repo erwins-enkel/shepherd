@@ -1574,7 +1574,7 @@
   "feat_lightweight_repo_title": "Lightweight (local-only) mode",
   "feat_lightweight_repo_body": "Repos without a GitHub remote can now run in [[lightweight_repo|lightweight]] mode: Shepherd drives local git only — no PRs, no Forge. Enable it in the automation panel; the agent's branch is squash-merged locally at completion.",
   "feat_issues_filter_mine_title": "Filter issues to mine & unassigned",
-  "feat_issues_filter_mine_body": "The Backlog and New Task issue lists now hide issues assigned to other people by default, showing only unassigned issues or ones assigned to you. Use the \"mine & unassigned\" toggle to flip it off and see everything; the setting is remembered across both lists.",
+  "feat_issues_filter_mine_body": "The Backlog and New Task issue lists now hide issues assigned to other people by default, showing only unassigned issues or ones assigned to you. Open the Filters menu and turn off \"mine & unassigned\" to see everything; the setting is remembered across both lists.",
   "gitrail_open_for_merge": "↟ Open for merge",
   "gitrail_merge_locally": "Merge locally",
   "gitrail_confirm_merge_locally": "confirm ✓",
@@ -1650,7 +1650,7 @@
   "issues_filter_active_title": "Hide issues already being worked on (shepherd:active)",
   "issues_filter_all_in_progress": "All matching issues are in progress — toggle off to see them",
   "feat_issues_filter_active_title": "Hide in-progress issues",
-  "feat_issues_filter_active_body": "The Backlog and New Task issue lists now offer a \"hide in progress\" filter that hides issues already claimed by a running session (labeled shepherd:active). Off by default; the setting is remembered across both lists.",
+  "feat_issues_filter_active_body": "The Backlog and New Task issue lists now offer a \"hide in progress\" filter in the Filters menu that hides issues already claimed by a running session (labeled shepherd:active). Off by default; the setting is remembered across both lists.",
   "backlog_ff_main": "Fast-forward",
   "backlog_ff_main_title": "Fast-forward local default branch",
   "feat_ff_main_title": "Fast-forward on demand",
@@ -1686,7 +1686,7 @@
   "issues_filter_subissues_title": "Hide native sub-issues (children of an epic) — start an epic drain instead",
   "issues_filter_all_sub_issues": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain",
   "feat_issues_filter_subissues_title": "Hide sub-issues by default",
-  "feat_issues_filter_subissues_body": "The Backlog and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Use the \"hide sub-issues\" toggle to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists.",
+  "feat_issues_filter_subissues_body": "The Backlog and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Open the Filters menu and turn off \"hide sub-issues\" to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists.",
   "learnings_recur_promote": "Add to global CLAUDE.md",
   "learnings_recur_promote_aria": "Add this rule to your user-global CLAUDE.md",
   "learnings_recur_promote_confirm": "This writes the rule into ~/.claude/CLAUDE.md — a global, unversioned file applied to every repo. Shepherd owns this block and rewrites it on each promote.",
@@ -1702,5 +1702,10 @@
   "settings_reduced_push_disabled_note": "Reduced mode: only ready-after-5s notifications are sent.",
   "settings_reduced_push_save_failed": "Couldn't save reduced notifications setting.",
   "feat_reduced_push_title": "Reduced notifications mode",
-  "feat_reduced_push_body": "A new global switch in Settings → Device silences every push notification except one: a session that's been waiting on you for 5 seconds. Usage and cost alerts still come through. Turn it on for a low-noise day where the only banner you get is \"something needs you and didn't resolve itself\"."
+  "feat_reduced_push_body": "A new global switch in Settings → Device silences every push notification except one: a session that's been waiting on you for 5 seconds. Usage and cost alerts still come through. Turn it on for a low-noise day where the only banner you get is \"something needs you and didn't resolve itself\".",
+  "issue_filter_button": "Filters",
+  "issue_filter_button_aria": "Issue filters, {count} active",
+  "issue_filter_heading": "Filter issues",
+  "feat_issue_filters_menu_title": "Issue filters grouped into a menu",
+  "feat_issue_filters_menu_body": "The Backlog and New Task issue lists now gather their filters — mine & unassigned, hide in progress, hide sub-issues — into a single Filters menu with an active-count badge, instead of a row of chips."
 }

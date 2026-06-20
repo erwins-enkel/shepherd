@@ -12,18 +12,18 @@ export const coachTargets = new SvelteMap<string, HTMLElement>();
  * a <Coachmark> should anchor to.
  */
 export function coachTarget(node: HTMLElement, id: string) {
-  coachTargets.set(id, node);
+  if (id) coachTargets.set(id, node);
 
   return {
     update(newId: string) {
       if (newId !== id) {
-        coachTargets.delete(id);
+        if (id) coachTargets.delete(id);
         id = newId;
-        coachTargets.set(id, node);
+        if (id) coachTargets.set(id, node);
       }
     },
     destroy() {
-      coachTargets.delete(id);
+      if (id) coachTargets.delete(id);
     },
   };
 }

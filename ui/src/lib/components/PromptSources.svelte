@@ -5,6 +5,7 @@
   import { m } from "$lib/paraglide/messages";
   import { hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
+  import IssueFilterPopover from "./IssueFilterPopover.svelte";
 
   let {
     repoPath,
@@ -244,38 +245,7 @@
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
         <div class="ps-filter-bar">
-          {#if viewer != null}
-            <button
-              class="filter-chip"
-              class:active={issuesFilter.hideOthers}
-              type="button"
-              aria-pressed={issuesFilter.hideOthers}
-              title={m.issues_filter_mine_title()}
-              onclick={() => issuesFilter.toggle()}
-            >
-              {m.issues_filter_mine_label()}
-            </button>
-          {/if}
-          <button
-            class="filter-chip"
-            class:active={issuesFilter.hideActive}
-            type="button"
-            aria-pressed={issuesFilter.hideActive}
-            title={m.issues_filter_active_title()}
-            onclick={() => issuesFilter.toggleActive()}
-          >
-            {m.issues_filter_active_label()}
-          </button>
-          <button
-            class="filter-chip"
-            class:active={issuesFilter.hideSubIssues}
-            type="button"
-            aria-pressed={issuesFilter.hideSubIssues}
-            title={m.issues_filter_subissues_title()}
-            onclick={() => issuesFilter.toggleSubIssues()}
-          >
-            {m.issues_filter_subissues_label()}
-          </button>
+          <IssueFilterPopover showMine={viewer != null} />
         </div>
         {#if allHiddenByAssignee}
           <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
@@ -481,12 +451,12 @@
     border-color: var(--color-line-bright);
   }
 
-  /* Sticky bar pinned above the scrolling rows — hosts the "mine & unassigned"
-     chip (Issues tab) and the search input (Commands tab). It reaches the full
-     scroll width via the flex-column .ps-body's `align-items: stretch` (no
+  /* Sticky bar pinned above the scrolling rows — hosts the IssueFilterPopover
+     "Filters" trigger (Issues tab) and the search input (Commands tab). It reaches
+     the full scroll width via the flex-column .ps-body's `align-items: stretch` (no
      explicit width here) — KEEP it a direct flex child of .ps-body, or scrolled
      rows bleed past its sides. The 0 10px padding (+ .ps-body's 2px) insets the
-     chip/input to 12px, matching the rows' text. */
+     trigger/input to 12px, matching the rows' text. */
   .ps-filter-bar {
     position: sticky;
     top: 0;
@@ -494,33 +464,6 @@
     display: flex;
     margin: 0 0 4px;
     padding: 0 10px;
-    background: var(--color-inset);
-  }
-
-  /* The .filter-chip recipe from ProjectBacklogList. */
-  .filter-chip {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    padding: 2px 10px;
-    cursor: pointer;
-    touch-action: manipulation;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-
-  .filter-chip:hover {
-    color: var(--color-ink);
-  }
-
-  .filter-chip.active {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
     background: var(--color-inset);
   }
 

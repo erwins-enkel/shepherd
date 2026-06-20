@@ -1574,7 +1574,7 @@
   "feat_lightweight_repo_title": "Lightweight-Modus (nur lokal)",
   "feat_lightweight_repo_body": "Repos ohne GitHub-Remote können jetzt im [[lightweight_repo|Lightweight]]-Modus betrieben werden: Shepherd steuert nur lokales Git — keine PRs, kein Forge. Im Automatisierungsfenster aktivieren; der Agent-Branch wird lokal bei Abschluss squash-gemergt.",
   "feat_issues_filter_mine_title": "Issues auf meine & nicht zugewiesene filtern",
-  "feat_issues_filter_mine_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ blenden jetzt standardmäßig Issues aus, die anderen zugewiesen sind, und zeigen nur nicht zugewiesene oder dir zugewiesene Issues. Mit dem Schalter „meine & nicht zugewiesen“ lässt sich das abschalten, um alles zu sehen; die Einstellung gilt für beide Listen.",
+  "feat_issues_filter_mine_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ blenden jetzt standardmäßig Issues aus, die anderen zugewiesen sind, und zeigen nur nicht zugewiesene oder dir zugewiesene Issues. Öffne das Filters-Menü und deaktiviere „meine & nicht zugewiesen“, um alles zu sehen; die Einstellung gilt für beide Listen.",
   "gitrail_open_for_merge": "↟ Für Merge öffnen",
   "gitrail_merge_locally": "Lokal mergen",
   "gitrail_confirm_merge_locally": "bestätigen ✓",
@@ -1650,7 +1650,7 @@
   "issues_filter_active_title": "Issues ausblenden, die bereits bearbeitet werden (shepherd:active)",
   "issues_filter_all_in_progress": "Alle passenden Issues werden bearbeitet — zum Anzeigen ausschalten",
   "feat_issues_filter_active_title": "In Arbeit befindliche Issues ausblenden",
-  "feat_issues_filter_active_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bieten jetzt einen Filter „in Arbeit ausblenden“, der bereits von einer laufenden Sitzung beanspruchte Issues (Label shepherd:active) ausblendet. Standardmäßig aus; die Einstellung gilt für beide Listen.",
+  "feat_issues_filter_active_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bieten jetzt einen Filter „in Arbeit ausblenden“ im Filters-Menü, der bereits von einer laufenden Sitzung beanspruchte Issues (Label shepherd:active) ausblendet. Standardmäßig aus; die Einstellung gilt für beide Listen.",
   "backlog_ff_main": "Vorspulen",
   "backlog_ff_main_title": "Lokalen Standard-Branch vorspulen",
   "feat_ff_main_title": "Vorspulen auf Knopfdruck",
@@ -1686,7 +1686,7 @@
   "issues_filter_subissues_title": "Native Unteraufgaben (Kinder eines Epics) ausblenden — stattdessen einen Epic-Drain starten",
   "issues_filter_all_sub_issues": "Alle passenden Issues sind Epic-Unteraufgaben — zum Anzeigen ausschalten oder einen Epic-Drain starten",
   "feat_issues_filter_subissues_title": "Unteraufgaben standardmäßig ausblenden",
-  "feat_issues_filter_subissues_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ blenden GitHub-native Unteraufgaben jetzt standardmäßig aus, damit du einen Epic-Drain vom übergeordneten Issue startest, statt ein einzelnes Kinder-Issue zu bearbeiten. Mit dem Schalter „Unteraufgaben ausblenden“ kannst du sie einblenden; übergeordnete Epic-Issues (einschließlich mehrstufiger Epics) bleiben sichtbar. Die Einstellung gilt für beide Listen.",
+  "feat_issues_filter_subissues_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ blenden GitHub-native Unteraufgaben jetzt standardmäßig aus, damit du einen Epic-Drain vom übergeordneten Issue startest, statt ein einzelnes Kinder-Issue zu bearbeiten. Öffne das Filters-Menü und deaktiviere „Unteraufgaben ausblenden“, um sie einzublenden; übergeordnete Epic-Issues (einschließlich mehrstufiger Epics) bleiben sichtbar. Die Einstellung gilt für beide Listen.",
   "learnings_recur_promote": "Zur globalen CLAUDE.md hinzufügen",
   "learnings_recur_promote_aria": "Diese Regel zu deiner benutzerglobalen CLAUDE.md hinzufügen",
   "learnings_recur_promote_confirm": "Dies schreibt die Regel in ~/.claude/CLAUDE.md – eine globale, nicht versionierte Datei, die für jedes Repo gilt. Shepherd verwaltet diesen Block und schreibt ihn bei jeder Übernahme neu.",
@@ -1702,5 +1702,10 @@
   "settings_reduced_push_disabled_note": "Reduzierter Modus: nur Benachrichtigungen für „seit 5s wartend“ werden gesendet.",
   "settings_reduced_push_save_failed": "Einstellung für reduzierte Benachrichtigungen konnte nicht gespeichert werden.",
   "feat_reduced_push_title": "Reduzierter Benachrichtigungsmodus",
-  "feat_reduced_push_body": "Ein neuer globaler Schalter unter Einstellungen → Gerät schaltet alle Push-Benachrichtigungen stumm — bis auf eine: eine Sitzung, die seit 5 Sekunden auf dich wartet. Nutzungs- und Kostenhinweise kommen weiterhin durch. Aktiviere ihn für einen ruhigen Tag, an dem die einzige Meldung „etwas braucht dich und hat sich nicht von selbst erledigt“ lautet."
+  "feat_reduced_push_body": "Ein neuer globaler Schalter unter Einstellungen → Gerät schaltet alle Push-Benachrichtigungen stumm — bis auf eine: eine Sitzung, die seit 5 Sekunden auf dich wartet. Nutzungs- und Kostenhinweise kommen weiterhin durch. Aktiviere ihn für einen ruhigen Tag, an dem die einzige Meldung „etwas braucht dich und hat sich nicht von selbst erledigt“ lautet.",
+  "issue_filter_button": "Filter",
+  "issue_filter_button_aria": "Issue-Filter, {count} aktiv",
+  "issue_filter_heading": "Issues filtern",
+  "feat_issue_filters_menu_title": "Issue-Filter in einem Menü gebündelt",
+  "feat_issue_filters_menu_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bündeln ihre Filter — meine & nicht zugewiesen, in Arbeit ausblenden, Unteraufgaben ausblenden — jetzt in einem einzigen Filters-Menü mit Aktivzähler-Badge, statt als Chip-Reihe."
 }

@@ -10,6 +10,7 @@
   import AutomationSettings from "./AutomationSettings.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { actionsTabState, filterProjects } from "./backlog-view";
+  import { pullMainAndToast } from "$lib/pull-offer";
 
   let {
     payload,
@@ -55,6 +56,17 @@
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
   let activeTab = $state<Tab>("issues");
+  let ffInFlight = $state(false);
+
+  async function handleFf() {
+    if (!selectedPath || ffInFlight) return;
+    ffInFlight = true;
+    try {
+      await pullMainAndToast(selectedPath);
+    } finally {
+      ffInFlight = false;
+    }
+  }
 
   // selectedPath: initialized from pinnedPath once payload arrives;
   // user selection is not clobbered (only set when currently null).
@@ -237,6 +249,20 @@
             >
               {m.backlog_tab_automation()}
             </button>
+            <button
+              class="gbtn ff-btn"
+              type="button"
+              disabled={ffInFlight || selectedPath === null}
+              onclick={handleFf}
+              title={m.backlog_ff_main_title()}
+              aria-label={m.backlog_ff_main_title()}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
+                <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
+              </svg>
+              {m.backlog_ff_main()}
+            </button>
           </div>
         </div>
         <div class="overlay-body">
@@ -353,6 +379,21 @@
             use:coachTarget={"backlog-automation"}
           >
             {m.backlog_tab_automation()}
+          </button>
+          <button
+            class="gbtn ff-btn"
+            type="button"
+            disabled={ffInFlight || selectedPath === null}
+            onclick={handleFf}
+            title={m.backlog_ff_main_title()}
+            aria-label={m.backlog_ff_main_title()}
+            use:coachTarget={"backlog-ff-main"}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
+              <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
+            </svg>
+            {m.backlog_ff_main()}
           </button>
         </div>
         <div class="detail-pane">
@@ -490,6 +531,44 @@
     color: var(--color-red);
     border-color: var(--color-red);
     background: var(--color-inset);
+  }
+
+  /* ── fast-forward button ── */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  /* keyboard focus — flat inset amber ring (never an outer glow), per design-system */
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .ff-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   /* ── desktop split layout ── */

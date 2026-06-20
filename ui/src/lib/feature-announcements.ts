@@ -1235,4 +1235,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_issues_filter_active_body",
     targetId: "issues-filter-active",
   },
+  {
+    // targetId "backlog-ff-main" anchors the coachmark on the Fast-forward button
+    // at the right end of the Backlog detail tab bar. v1.34.0 is the latest released
+    // tag → ships in 1.35.0.
+    id: "ff-main-standalone",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_ff_main_title",
+    bodyKey: "feat_ff_main_body",
+    targetId: "backlog-ff-main",
+  },
 ];

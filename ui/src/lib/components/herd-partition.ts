@@ -59,11 +59,14 @@ type Stage =
 export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown";
 
 /** Lifecycle stages the "ready" lens hides: the session is NOT awaiting the operator.
- *  A green PR handed off to a foreign reviewer/merger (`waitingOnReviewer`/`waitingOnMerger`)
- *  is waiting on someone else, and a PR a launched merge train is carrying (`merging`) is
- *  in Shepherd's hands — neither is "your turn", so the Ready lens drops them (the All lens
- *  still shows them). Draft-awaiting-signoff stays: it awaits the operator's own sign-off. */
+ *  A PR with CI still in flight (`ciRunning`) is awaiting CI, a green PR handed off to a
+ *  foreign reviewer/merger (`waitingOnReviewer`/`waitingOnMerger`) is waiting on someone
+ *  else, and a PR a launched merge train is carrying (`merging`) is in Shepherd's hands —
+ *  none is "your turn", so the Ready lens drops them (the All lens still shows them).
+ *  `ciFailed` is NOT hidden — a failed CI run is back in your court. Draft-awaiting-signoff
+ *  stays too: it awaits the operator's own sign-off. */
 const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
+  "ciRunning",
   "waitingOnReviewer",
   "waitingOnMerger",
   "merging",
@@ -76,8 +79,9 @@ const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
  *  rail order, so keyboard navigation can never land on a row the rail isn't showing. Goes
  *  through `displayStatus` (a working-while-blocked session is actually mid-turn, so it is
  *  NOT awaiting the operator). `git`/`now` drive the stage check for the not-your-turn
- *  exclusion; both default empty/now so legacy 4-arg callers keep today's behavior (no
- *  handoff git + `mergingSince: null` → no session resolves to an excluded stage). */
+ *  exclusion; both default empty/now so legacy 4-arg callers keep today's behavior (no git
+ *  → no CI checks, no handoff, `mergingSince: null` → no session resolves to an excluded
+ *  stage). */
 export function shownSessions(
   sessions: Session[],
   filter: HerdFilter,

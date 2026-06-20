@@ -407,6 +407,27 @@ test('"ready" filter hides a merging session (shared now), keeps awaitingMerge',
   ]);
 });
 
+test('"ready" filter hides a CI-running session, keeps ciFailed + awaitingMerge', () => {
+  const list = [
+    session("run", false, "idle"), // open + pending → ciRunning → awaiting CI, hidden
+    session("fail", false, "idle"), // open + failure → ciFailed → your turn, kept
+    session("mine", false, "idle"), // open + success → awaitingMerge → your turn, kept
+  ];
+  const g = {
+    run: git("open", "pending"),
+    fail: git("open", "failure"),
+    mine: git("open", "success"),
+  };
+  const shown = shownSessions(list, "ready", () => false, {}, g);
+  expect(shown.map((s) => s.id)).toEqual(["fail", "mine"]);
+  // All lens still lists the CI-running session
+  expect(shownSessions(list, "all", () => false, {}, g).map((s) => s.id)).toEqual([
+    "run",
+    "fail",
+    "mine",
+  ]);
+});
+
 test('"ready" filter keeps your-turn stages: awaitingMerge, parked ready, draft, ciFailed, blocked, idle', () => {
   const list = [
     session("am", false, "idle"), // green, no handoff → awaitingMerge

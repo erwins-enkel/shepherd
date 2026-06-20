@@ -7,7 +7,7 @@ import {
 } from "./types";
 import type { CapturedSignals } from "./signals";
 
-export type FetchFn = (input: string, init: any) => Promise<Response>;
+export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 /** Issue title / body caps — mirror the server's POST /api/issues limits so the
  *  popup can pre-validate and show a clear message instead of a generic 'invalid'.

@@ -143,13 +143,36 @@
   // PWA (standalone display mode), only in the Safari browser tab. When
   // unsupported the in-overlay mic toggle hides itself and the overlay is a
   // plain type-and-send sheet — so the entry point never becomes a dead end.
-  const SpeechRec: any =
+
+  // Minimal SpeechRecognition interface — the W3C Web Speech API types are not
+  // yet in TypeScript's built-in lib.dom.d.ts (only the event/result sub-types
+  // are), so we declare the constructor/instance shape we actually consume.
+  interface SpeechRecognitionInstance {
+    lang: string;
+    interimResults: boolean;
+    continuous: boolean;
+    onresult: ((e: SpeechRecognitionEvent) => void) | null;
+    onend: (() => void) | null;
+    onerror: (() => void) | null;
+    start(): void;
+    stop(): void;
+  }
+  interface SpeechRecognitionConstructor {
+    new (): SpeechRecognitionInstance;
+  }
+  interface SpeechWindow extends Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+
+  const SpeechRec: SpeechRecognitionConstructor | undefined =
     typeof window !== "undefined"
-      ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
+      ? ((window as SpeechWindow).SpeechRecognition ??
+        (window as SpeechWindow).webkitSpeechRecognition)
       : undefined;
   let speechSupported = $state(!!SpeechRec);
   let listening = $state(false);
-  let recog: any = null;
+  let recog: SpeechRecognitionInstance | null = null;
 
   function toggleDictation() {
     if (!SpeechRec) return;
@@ -162,7 +185,7 @@
     recog.interimResults = true;
     recog.continuous = true;
     let base = value; // text already typed before dictation started
-    recog.onresult = (e: any) => {
+    recog.onresult = (e: SpeechRecognitionEvent) => {
       let finalChunk = "";
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {

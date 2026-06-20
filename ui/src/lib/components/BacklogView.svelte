@@ -252,7 +252,7 @@
             <button
               class="gbtn ff-btn"
               type="button"
-              disabled={ffInFlight}
+              disabled={ffInFlight || selectedPath === null}
               onclick={handleFf}
               title={m.backlog_ff_main_title()}
               aria-label={m.backlog_ff_main_title()}
@@ -563,6 +563,11 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .ff-btn:focus-visible {
+    outline: 2px solid var(--color-line-bright);
+    outline-offset: 2px;
   }
 
   /* ── desktop split layout ── */

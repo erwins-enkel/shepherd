@@ -142,3 +142,14 @@ export function onSelectSession(cb: (id: string) => void): () => void {
   navigator.serviceWorker.addEventListener("message", handler);
   return () => navigator.serviceWorker.removeEventListener("message", handler);
 }
+
+/** Subscribe to "open-learnings" messages posted by the SW when a learnings-retire
+ *  notification is clicked (issue #852). Returns a disposer. */
+export function onOpenLearnings(cb: () => void): () => void {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return () => {};
+  const handler = (e: MessageEvent) => {
+    if (e.data?.type === "open-learnings") cb();
+  };
+  navigator.serviceWorker.addEventListener("message", handler);
+  return () => navigator.serviceWorker.removeEventListener("message", handler);
+}

@@ -1171,8 +1171,23 @@ const runDailySweep = () => {
   // repo base rate (gated on real harm evidence). Returns the retired set so we only
   // nudge clients (banner refresh) when something actually changed.
   const retired = runAutoRetire({ store, optimizer });
-  if (retired.length > 0)
+  if (retired.length > 0) {
     events.emit("learnings:update", { pending: store.pendingLearningCount() });
+    // Best-effort push so operators learn of background retirements without opening the
+    // drawer (issue #852). One summary push across all repos; suppressed while the app is
+    // active and for devices that muted the "agent" category. Guarded so a rejection can't
+    // crash the sweep — the in-drawer banner remains the durable surface either way.
+    void push
+      .notify({
+        kind: "learnings_retired",
+        sessionId: "",
+        tag: "learnings-retired",
+        name: "learnings",
+        retiredCount: retired.length,
+        cooldownKey: "learnings_retired:all",
+      })
+      .catch((err) => console.warn("[push] learnings_retired notify failed:", err));
+  }
   // Reclaim session_injected_learnings rows for sessions that vanished without archive()
   // (force-removed/crashed) — archive() consumes the rest.
   store.pruneOrphanInjectedLearnings();

@@ -122,7 +122,7 @@
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import StarPrompt from "$lib/components/StarPrompt.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
-  import { registerSW, onSelectSession } from "$lib/push";
+  import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
@@ -1041,7 +1041,11 @@
     registerSW();
     const params = new URLSearchParams(location.search);
     const deepLink = params.get("session");
+    // Learnings-retire push deep-link (issue #852): ?learnings=1 (cold open) or an
+    // "open-learnings" message from the SW (open/backgrounded window) opens the drawer.
+    if (params.get("learnings") === "1") showLearnings = true;
     const disposeSelect = onSelectSession((id) => selectUnit(id));
+    const disposeLearnings = onOpenLearnings(() => (showLearnings = true));
     listSessions()
       .then((list) => {
         store.setAll(list);
@@ -1152,6 +1156,7 @@
     return () => {
       dispose();
       disposeSelect();
+      disposeLearnings();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };

@@ -2,6 +2,9 @@
 # (source of truth is docs/; these are imported, not authored here).
 src/content/docs/reference/external-task-api.md
 src/content/docs/reference/security.md
+# TypeScript API reference generated at build time by starlight-typedoc from
+# ../src (source of truth is src/; reproducible, not authored here).
+src/content/docs/api/
 # build output
 dist/
 # generated types

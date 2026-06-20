@@ -888,3 +888,42 @@ test("health — timeout-no-output counts as failure; successful finalize resets
   expect(d.health().consecutiveFailures).toBe(0);
   expect(d.health().lastFailure).toBeNull();
 });
+
+test("#842: distiller persists sanitized scopeGlobs from a proposal", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps } = mkDeps(store, {
+    rules: [
+      {
+        rule: "keep svelte styles scoped",
+        rationale: "ui only",
+        evidence: [],
+        // mix of valid + junk: non-string, ./-prefixed (normalized), over-long, dup
+        scopeGlobs: [
+          "./ui/**/*.svelte",
+          "ui/**/*.svelte", // dup after normalize
+          42,
+          "x".repeat(200), // over MAX_GLOB_LEN
+        ],
+      },
+    ],
+  });
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+  await d.tick();
+  const [l] = store.listLearnings("/r", { status: "proposed" });
+  expect(l!.scopeGlobs).toEqual(["ui/**/*.svelte"]);
+});
+
+test("#842: a proposal without scopeGlobs stays an Always-rule (empty globs)", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps } = mkDeps(store, {
+    rules: [{ rule: "general rule", rationale: "", evidence: [] }],
+  });
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+  await d.tick();
+  const [l] = store.listLearnings("/r", { status: "proposed" });
+  expect(l!.scopeGlobs).toEqual([]);
+});

@@ -7,6 +7,10 @@ import {
   planHouseRulesInjection,
   prioritize,
   renderHouseRulesBlock,
+  extractTargetPaths,
+  normalizeExtractedPath,
+  normalizeGlob,
+  learningMatchesScope,
 } from "../src/house-rules";
 import type { Learning } from "../src/types";
 
@@ -25,6 +29,7 @@ function rule(p: Partial<Learning>): Learning {
     lastUsedAt: p.lastUsedAt ?? null,
     retiredAt: null,
     retiredReason: null,
+    scopeGlobs: p.scopeGlobs ?? [],
     createdAt: p.createdAt ?? 0,
     updatedAt: p.updatedAt ?? 0,
     lastEvidenceAt: p.lastEvidenceAt ?? null,
@@ -187,4 +192,101 @@ test("envNum: unset and non-numeric env values fall back to the default; valid v
   } finally {
     delete process.env[name];
   }
+});
+
+// ── #842 glob-scoped injection ──────────────────────────────────────────────
+
+test("normalizeGlob strips ./ and leading slash, normalizes backslashes", () => {
+  expect(normalizeGlob("./src/**")).toBe("src/**");
+  expect(normalizeGlob("/src/foo.ts")).toBe("src/foo.ts");
+  expect(normalizeGlob("ui\\**\\*.svelte")).toBe("ui/**/*.svelte");
+  expect(normalizeGlob("  src/**  ")).toBe("src/**");
+});
+
+test("normalizeExtractedPath canonicalizes ./, absolute-under-repo, and punctuation", () => {
+  expect(normalizeExtractedPath("./src/foo.ts")).toBe("src/foo.ts");
+  expect(normalizeExtractedPath("/repo/src/foo.ts", "/repo")).toBe("src/foo.ts");
+  expect(normalizeExtractedPath("`src/foo.ts`,")).toBe("src/foo.ts");
+  expect(normalizeExtractedPath("(ui/x.svelte)")).toBe("ui/x.svelte");
+  expect(normalizeExtractedPath("/repo", "/repo")).toBe("");
+});
+
+test("extractTargetPaths keeps path-like tokens, drops prose/numbers", () => {
+  const paths = extractTargetPaths([
+    "Please fix src/house-rules.ts and update ui/x.svelte for issue #842 (4000 chars)",
+  ]);
+  expect(paths).toContain("src/house-rules.ts");
+  expect(paths).toContain("ui/x.svelte");
+  expect(paths).not.toContain("842");
+  expect(paths).not.toContain("Please");
+  // bare filename with a real extension is kept
+  expect(extractTargetPaths(["touch house-rules.ts"])).toContain("house-rules.ts");
+  // a bare word is not a path
+  expect(extractTargetPaths(["just some prose words here"])).toEqual([]);
+});
+
+test("extractTargetPaths strips an absolute repoPath prefix to repo-relative", () => {
+  expect(
+    extractTargetPaths(["edit /home/me/repo/src/a.ts now", undefined], "/home/me/repo"),
+  ).toEqual(["src/a.ts"]);
+});
+
+// token × glob match matrix (the load-bearing normalization assertions)
+const SCOPED = (globs: string[]) => rule({ id: "s", rule: "scoped", scopeGlobs: globs });
+test.each([
+  ["src/**", "src/foo.ts", true],
+  ["src/**", "src/a/b.ts", true],
+  ["src/**", "ui/x.ts", false],
+  ["src/**/*.ts", "src/foo.ts", true],
+  ["**/*.svelte", "ui/x.svelte", true],
+  // bare-filename token hits a glob whose trailing segment is a concrete file pattern
+  ["src/**/*.ts", "foo.ts", true],
+  ["src/house-rules.ts", "house-rules.ts", true],
+  // bare filename must NOT match a directory-only glob (trailing ** has no dot)
+  ["src/**", "readme.md", false],
+])("learningMatchesScope(%s vs %s) === %s", (glob, path, expected) => {
+  expect(learningMatchesScope(SCOPED([glob]), [path])).toBe(expected);
+});
+
+test("learningMatchesScope: Always-rule (no globs) never matches via scope, empty paths never match", () => {
+  expect(learningMatchesScope(rule({ id: "a", scopeGlobs: [] }), ["src/foo.ts"])).toBe(false);
+  expect(learningMatchesScope(SCOPED(["src/**"]), [])).toBe(false);
+});
+
+test("planHouseRulesInjection: Always-rules always candidates; scoped gated unless matched", () => {
+  const always = rule({ id: "always", rule: "always rule", scopeGlobs: [] });
+  const match = rule({ id: "m", rule: "src rule", scopeGlobs: ["src/**"] });
+  const nomatch = rule({ id: "n", rule: "ui rule", scopeGlobs: ["ui/**"] });
+
+  const withMatch = planHouseRulesInjection([always, match, nomatch], 10_000, undefined, [
+    "src/foo.ts",
+  ]);
+  const injectedIds = withMatch.injected.map((r) => r.id).sort();
+  expect(injectedIds).toEqual(["always", "m"]);
+  // the non-matching scoped rule is gated (scoped bucket), NOT dropped as over-budget
+  expect(withMatch.scoped.map((r) => r.id)).toEqual(["n"]);
+  expect(withMatch.dropped).toEqual([]);
+
+  // no target paths → every scoped rule gated, only Always-rules inject
+  const noPaths = planHouseRulesInjection([always, match, nomatch], 10_000);
+  expect(noPaths.injected.map((r) => r.id)).toEqual(["always"]);
+  expect(noPaths.scoped.map((r) => r.id).sort()).toEqual(["m", "n"]);
+});
+
+test("planHouseRulesInjection: Always-rules are packed before matched-scoped (never evicted)", () => {
+  // Budget fits exactly the two Always-rules + overhead, no room for the scoped match.
+  const a1 = rule({ id: "a1", rule: "AAAA", scopeGlobs: [], lastEvidenceAt: 10 });
+  const a2 = rule({ id: "a2", rule: "BBBB", scopeGlobs: [], lastEvidenceAt: 9 });
+  // a flurry of matching scoped rules with FRESHER evidence than the Always-rules
+  const scoped = Array.from({ length: 6 }, (_, i) =>
+    rule({ id: `s${i}`, rule: `SCOPED-${i}`, scopeGlobs: ["src/**"], lastEvidenceAt: 100 + i }),
+  );
+  const costOf = (s: string) => ("- " + s + "\n").length;
+  const budget = HOUSE_RULES_OVERHEAD + costOf("AAAA") + costOf("BBBB");
+  const plan = planHouseRulesInjection([...scoped, a1, a2], budget, undefined, ["src/foo.ts"]);
+  const injectedIds = plan.injected.map((r) => r.id).sort();
+  // both Always-rules guaranteed; every scoped match dropped despite fresher evidence
+  expect(injectedIds).toEqual(["a1", "a2"]);
+  expect(plan.dropped.every((r) => r.id.startsWith("s"))).toBe(true);
+  expect(plan.dropped.length).toBe(6);
 });

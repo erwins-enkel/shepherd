@@ -1642,5 +1642,16 @@
   "backlog_ff_main": "Fast-forward",
   "backlog_ff_main_title": "Fast-forward local default branch",
   "feat_ff_main_title": "Fast-forward on demand",
-  "feat_ff_main_body": "Fast-forward a repo's local default branch to origin any time from the Backlog — no PR merge required."
+  "feat_ff_main_body": "Fast-forward a repo's local default branch to origin any time from the Backlog — no PR merge required.",
+  "common_save": "Save",
+  "learnings_scoped_badge": "Scoped",
+  "learnings_scoped_title": "Glob-scoped rule — injected only for tasks whose target files match its globs, not every session. Keeps the budget for the rules a task actually needs.",
+  "learnings_scope_label": "Scope:",
+  "learnings_scope_always": "always (every task)",
+  "learnings_scope_edit": "Edit scope",
+  "learnings_scope_placeholder": "e.g. src/**, ui/**/*.svelte",
+  "learnings_scope_input_aria": "Glob patterns, comma- or space-separated",
+  "learnings_scope_failed": "Couldn't update scope",
+  "feat_scoped_learnings_title": "House rules scoped to files",
+  "feat_scoped_learnings_body": "A learned rule can now carry glob patterns (e.g. src/**) so it's injected only for tasks touching those files — the 4000-char budget caps within the matched set instead of biting across the whole repo. Set or clear a rule's scope from the Learnings drawer."
 }

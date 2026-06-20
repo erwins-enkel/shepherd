@@ -936,23 +936,31 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
           enabled,
           budgetChars,
           usedChars: 0,
-          rules: prioritize(rules).map((r) => ({ ...r, injected: false })),
+          rules: prioritize(rules).map((r) => ({
+            ...r,
+            injected: false,
+            scoped: r.scopeGlobs.length > 0,
+          })),
           retired,
           unseenRetired,
         };
       }
+      // No session here, so no target files: planHouseRulesInjection gates every scoped
+      // rule into `scoped` (its globs decide injection only at spawn). usedChars therefore
+      // reflects the Always-rules baseline only — scoped rules never count against budget.
       const plan = planHouseRulesInjection(rules, budgetChars);
       const injectedIds = new Set(plan.injected.map((r) => r.id));
-      // injected first (priority order), then dropped (priority order) — same
-      // ordering the drawer renders.
+      // injected (priority order), then dropped (over budget), then scope-gated — same
+      // ordering the drawer renders; `scoped` marks the glob-conditional rules.
       return {
         repoPath,
         enabled,
         budgetChars,
         usedChars: plan.usedChars,
-        rules: [...plan.injected, ...plan.dropped].map((r) => ({
+        rules: [...plan.injected, ...plan.dropped, ...plan.scoped].map((r) => ({
           ...r,
           injected: injectedIds.has(r.id),
+          scoped: r.scopeGlobs.length > 0,
         })),
         retired,
         unseenRetired,
@@ -1026,12 +1034,29 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
     return json(updated);
   }
 
+  // POST /api/learnings/:id/scope — set/clear a rule's glob scope (operator edit, #842)
+  if (parts[2] && parts[3] === "scope") return handleLearningScope(req, deps, parts[2]);
+
   // POST /api/learnings/:id/approve  |  /:id/dismiss
   if (parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
     return handleLearningStatus(req, deps, parts[2], parts[3]);
   }
 
   return null;
+}
+
+/** POST /api/learnings/:id/scope — replace a rule's `scopeGlobs` (body `{globs:string[]}`).
+ *  An empty array makes it an Always-rule again. The store dedupes/trims; matching honesty
+ *  is the operator's. Refreshes the drawer via learnings:update. */
+async function handleLearningScope(req: Request, deps: AppDeps, id: string): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { globs?: unknown } | null;
+  const globs = Array.isArray(body?.globs)
+    ? body!.globs.filter((g): g is string => typeof g === "string")
+    : [];
+  const updated = deps.store.setLearningScope(id, globs);
+  if (!updated) return json({ error: "not found" }, 404);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json(updated);
 }
 
 async function handleLearningStatus(

@@ -6,6 +6,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Signal, SignalKind } from "./types";
+import { normalizeGlob } from "./house-rules";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -40,6 +41,30 @@ interface RawRule {
   rule?: unknown;
   rationale?: unknown;
   evidence?: unknown;
+  scopeGlobs?: unknown;
+}
+
+/** Max glob patterns kept per proposed rule, and max chars per pattern — bounds the
+ *  scope the distiller LLM can attach so a runaway/garbled output can't bloat a row. */
+const MAX_SCOPE_GLOBS = 5;
+const MAX_GLOB_LEN = 120;
+
+/** Sanitize the distiller's proposed `scopeGlobs`: keep only non-empty strings, trim +
+ *  normalize to repo-relative form, drop overly-long patterns, dedupe, cap the count.
+ *  Anything not a string array → []. */
+function sanitizeScopeGlobs(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const g of raw) {
+    if (typeof g !== "string") continue;
+    const norm = normalizeGlob(g);
+    if (!norm || norm.length > MAX_GLOB_LEN || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(norm);
+    if (out.length >= MAX_SCOPE_GLOBS) break;
+  }
+  return out;
 }
 interface RawUpdate {
   id?: unknown;
@@ -372,6 +397,7 @@ export class DistillerService {
         evidence: Array.isArray(r.evidence)
           ? r.evidence.filter((e): e is string => typeof e === "string")
           : [],
+        scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
       });
       added++;
     }
@@ -425,8 +451,13 @@ function distillPrompt(): string {
     "Only cite ids present in the data — never invent ids.",
     "",
     "Limits: at most 5 ADDs, 5 updates, 5 deletes.",
+    "",
+    "When an ADD clearly applies only to specific files or areas (judging by the file paths",
+    "mentioned in the signals), include an optional `scopeGlobs`: an array of up to 5 repo-relative",
+    'glob patterns (e.g. "src/**", "ui/**/*.svelte") so the rule injects only for tasks touching',
+    "those files. OMIT `scopeGlobs` (or use []) for general rules — do not invent a scope when unsure.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
+    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
     'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[]}. Do not write anything else.',
   ].join("\n");
 }

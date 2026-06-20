@@ -6,6 +6,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import type { PromoteResult } from "../src/promote";
+import { HOUSE_RULES_OVERHEAD } from "../src/house-rules";
 
 let tmpRoot: string;
 let validRepo: string;
@@ -512,4 +513,110 @@ test("PUT /api/repo-config autoOptimizeFlagged:false round-trips", async () => {
   );
   expect(putRes.status).toBe(200);
   expect((await putRes.json()).autoOptimizeFlagged).toBe(false);
+});
+
+// ── #842 scope route + injectable scoped bucket ──────────────────────────────
+
+function harnessWithStore(): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  emitted: Array<[string, unknown]>;
+} {
+  const store = new SessionStore(":memory:");
+  const emitted: Array<[string, unknown]> = [];
+  const events = new EventHub();
+  const origEmit = events.emit.bind(events);
+  events.emit = (event: string, data: unknown) => {
+    emitted.push([event, data]);
+    return origEmit(event, data);
+  };
+  const deps: AppDeps = {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  return { app: makeApp(deps), store, emitted };
+}
+
+test("POST /api/learnings/:id/scope sets globs, returns the rule, emits update", async () => {
+  const { app, store, emitted } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/scope`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globs: ["src/**", "src/**", " ui/** "] }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { scopeGlobs: string[] };
+  expect(body.scopeGlobs).toEqual(["src/**", "ui/**"]);
+  expect(store.getLearning(l.id)!.scopeGlobs).toEqual(["src/**", "ui/**"]);
+  expect(emitted.some(([e]) => e === "learnings:update")).toBe(true);
+});
+
+test("POST /api/learnings/:id/scope with a bad body clears to [] (Always-rule)", async () => {
+  const { app, store } = harnessWithStore();
+  const l = store.addLearning({
+    repoPath: "/r",
+    rule: "x",
+    rationale: "",
+    evidence: [],
+    scopeGlobs: ["src/**"],
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/scope`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globs: "not-an-array" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(store.getLearning(l.id)!.scopeGlobs).toEqual([]);
+});
+
+test("POST /api/learnings/:id/scope on a missing rule → 404", async () => {
+  const { app } = harnessWithStore();
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/nope/scope", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globs: ["src/**"] }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("GET /api/learnings/injectable marks scoped rules and excludes them from usedChars", async () => {
+  const { app, store } = harnessWithStore();
+  // One Always-rule (injects) + one glob-scoped rule (gated in this no-session preview).
+  const always = store.addLearning({ repoPath: "/r", rule: "always", rationale: "", evidence: [] });
+  store.setLearningStatus(always.id, "active");
+  const scoped = store.addLearning({
+    repoPath: "/r",
+    rule: "scoped",
+    rationale: "",
+    evidence: [],
+    scopeGlobs: ["src/**"],
+  });
+  store.setLearningStatus(scoped.id, "active");
+
+  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
+  expect(res.status).toBe(200);
+  const out = (await res.json()) as {
+    repoPath: string;
+    usedChars: number;
+    rules: { id: string; injected: boolean; scoped: boolean }[];
+  }[];
+  const repo = out.find((r) => r.repoPath === "/r")!;
+  const byId = Object.fromEntries(repo.rules.map((r) => [r.id, r]));
+  expect(byId[always.id]!.injected).toBe(true);
+  expect(byId[always.id]!.scoped).toBe(false);
+  // scoped rule: not injected, flagged scoped (NOT over-budget)
+  expect(byId[scoped.id]!.injected).toBe(false);
+  expect(byId[scoped.id]!.scoped).toBe(true);
+  // usedChars reflects the Always-rule only — the scoped rule never counts against budget.
+  const alwaysCost = ("- " + "always" + "\n").length;
+  expect(repo.usedChars).toBe(alwaysCost + HOUSE_RULES_OVERHEAD);
 });

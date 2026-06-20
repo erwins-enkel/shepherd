@@ -1,4 +1,4 @@
-import type { Learning, RepoInjectable, SignalKind } from "../types";
+import type { InjectableRule, Learning, RepoInjectable, SignalKind } from "../types";
 
 /** Last non-empty path segment (repo display name). */
 export function basename(p: string): string {
@@ -60,18 +60,22 @@ export function mergeRepoGroups(proposed: Learning[], injectable: RepoInjectable
   return groups;
 }
 
-export type InjectionBadge = "injected" | "over-budget" | "disabled";
+export type InjectionBadge = "injected" | "over-budget" | "disabled" | "scoped";
 
 /** Which injection badge a rule shows, given the repo's enabled flag.
  *  - disabled: repo injection is off → rule isn't injected regardless of budget
  *  - injected: rule made the budget cut
+ *  - scoped: glob-scoped rule, injects only for matching tasks (NOT over-budget;
+ *    this preview has no session, so it's shown conditional, not dropped)
  *  - over-budget: enabled but the rule didn't fit (operator can prune to free room) */
 export function injectionBadge(
-  rule: Learning & { injected: boolean },
+  rule: Learning & { injected: boolean; scoped?: boolean },
   enabled: boolean,
 ): InjectionBadge {
   if (!enabled) return "disabled";
-  return rule.injected ? "injected" : "over-budget";
+  if (rule.injected) return "injected";
+  if (rule.scoped) return "scoped";
+  return "over-budget";
 }
 
 /** Count of rules the planner actually injected (true count for the meter). */
@@ -85,7 +89,7 @@ export function showIneffective(rule: { ineffectiveCount: number }): boolean {
 }
 
 /** Flagged ("not working") rules in a repo's injectable view (ineffectiveCount > 0). */
-export function flaggedRules(repo: RepoInjectable | null): (Learning & { injected: boolean })[] {
+export function flaggedRules(repo: RepoInjectable | null): InjectableRule[] {
   return repo ? repo.rules.filter((r) => r.ineffectiveCount > 0) : [];
 }
 /** Count of flagged rules in a repo's injectable view. */
@@ -101,9 +105,11 @@ export function totalFlagged(injectable: RepoInjectable[]): number {
 
 /** Count of rules the planner dropped (didn't fit budget) for an enabled repo.
  *  Null repo → 0. Disabled repo → 0 (rules are uninjected because injection is
- *  off, NOT budget pressure — the single authoritative "over budget" predicate). */
+ *  off, NOT budget pressure — the single authoritative "over budget" predicate).
+ *  Scope-gated rules are excluded: they're uninjected because no task matched their
+ *  globs, not because of budget pressure (#842). */
 export function droppedCount(repo: RepoInjectable | null): number {
-  return repo && repo.enabled ? repo.rules.filter((r) => !r.injected).length : 0;
+  return repo && repo.enabled ? repo.rules.filter((r) => !r.injected && !r.scoped).length : 0;
 }
 
 /** True when the repo has ≥1 rule the planner dropped due to budget pressure. */
@@ -131,14 +137,16 @@ export function sortGroupsForTriage(groups: RepoGroup[]): RepoGroup[] {
  *  without dropped rules are returned unsplit (all rules in `injected`) so the
  *  drawer doesn't mislabel a disabled repo's rules as "not injected". */
 export function splitDropped(repo: RepoInjectable | null): {
-  dropped: (Learning & { injected: boolean })[];
-  injected: (Learning & { injected: boolean })[];
+  dropped: InjectableRule[];
+  injected: InjectableRule[];
 } {
   if (!repo) return { dropped: [], injected: [] };
   if (!isOverBudget(repo)) return { dropped: [], injected: repo.rules };
+  // Scope-gated rules are not over-budget — they stay in the non-dropped bucket
+  // (rendered with their own "scoped" badge), only true budget casualties drop.
   return {
-    dropped: repo.rules.filter((r) => !r.injected),
-    injected: repo.rules.filter((r) => r.injected),
+    dropped: repo.rules.filter((r) => !r.injected && !r.scoped),
+    injected: repo.rules.filter((r) => r.injected || r.scoped),
   };
 }
 
@@ -164,15 +172,15 @@ export function reposNeedingAttention(
 export function visibleInjectableRules(
   repo: RepoInjectable | null,
   lenses: { flaggedOnly: boolean; overBudgetOnly: boolean },
-): (Learning & { injected: boolean })[] {
+): InjectableRule[] {
   if (!repo) return [];
   if (!lenses.flaggedOnly && !lenses.overBudgetOnly) return repo.rules;
   const overBudget = isOverBudget(repo);
   const ids = new Set<string>();
-  const result: (Learning & { injected: boolean })[] = [];
+  const result: InjectableRule[] = [];
   for (const r of repo.rules) {
     const wantFlagged = lenses.flaggedOnly && r.ineffectiveCount > 0;
-    const wantDropped = lenses.overBudgetOnly && !r.injected && overBudget;
+    const wantDropped = lenses.overBudgetOnly && !r.injected && !r.scoped && overBudget;
     if ((wantFlagged || wantDropped) && !ids.has(r.id)) {
       ids.add(r.id);
       result.push(r);

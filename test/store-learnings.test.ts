@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 
 test("addSignal stores and lists newest-first within a repo", () => {
@@ -355,6 +359,60 @@ test("new learnings columns exist after migration; old-shape DB migrates cleanly
   const s2 = new SessionStore(":memory:");
   const l2 = s2.addLearning({ repoPath: "/r", rule: "r2", rationale: "", evidence: [] });
   expect(l2.helpfulCount).toBe(0);
+});
+
+// ── #842 glob scope ─────────────────────────────────────────────────────────
+
+test("#842: addLearning defaults scopeGlobs to [] and round-trips supplied globs", () => {
+  const s = new SessionStore(":memory:");
+  const always = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  expect(always.scopeGlobs).toEqual([]);
+  const scoped = s.addLearning({
+    repoPath: "/r",
+    rule: "scoped",
+    rationale: "",
+    evidence: [],
+    scopeGlobs: ["src/**", "ui/**/*.svelte"],
+  });
+  expect(scoped.scopeGlobs).toEqual(["src/**", "ui/**/*.svelte"]);
+  expect(s.getLearning(scoped.id)!.scopeGlobs).toEqual(["src/**", "ui/**/*.svelte"]);
+});
+
+test("#842: setLearningScope replaces, trims/dedupes, and can clear back to []", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
+  const set = s.setLearningScope(l.id, [" src/** ", "src/**", "ui/**", ""]);
+  expect(set!.scopeGlobs).toEqual(["src/**", "ui/**"]);
+  const cleared = s.setLearningScope(l.id, []);
+  expect(cleared!.scopeGlobs).toEqual([]);
+  expect(s.setLearningScope("missing", ["a"])).toBeNull();
+});
+
+test("#842: a pre-existing DB without the scopeGlobs column migrates to []", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-scopeglobs-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Hand-build a learnings table at the ORIGINAL schema (no scopeGlobs / Phase-1 cols).
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE learnings (
+      id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, rule TEXT NOT NULL,
+      rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL, evidenceCount INTEGER NOT NULL DEFAULT 0,
+      ineffectiveCount INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT,
+      ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
+    raw.run(
+      `INSERT INTO learnings (id, repoPath, rule, status, createdAt, updatedAt) VALUES ('old','/r','legacy','active',1,1)`,
+    );
+    raw.close();
+    // Opening a store runs migrateLearningsColumns → scopeGlobs column added, defaults to [].
+    const s = new SessionStore(dbPath);
+    expect(s.getLearning("old")!.scopeGlobs).toEqual([]);
+    // And a newly-set scope persists on the migrated table.
+    expect(s.setLearningScope("old", ["src/**"])!.scopeGlobs).toEqual(["src/**"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("FSM: active→retired and promoted→retired succeed", () => {

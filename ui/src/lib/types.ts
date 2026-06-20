@@ -1051,6 +1051,10 @@ export interface Learning {
   lastUsedAt: number | null;
   retiredAt: number | null;
   retiredReason: string | null;
+  // Glob patterns scoping where this rule injects (repo-relative). Empty = an
+  // Always-rule (every task); non-empty = injected only when the session's target
+  // files match a glob (#842).
+  scopeGlobs: string[];
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
@@ -1060,13 +1064,20 @@ export interface Learning {
 /** GET /api/learnings/injectable: one entry per repo with ≥1 active/promoted rule.
  *  Drives the drawer's "Injected house rules" view; the budget value flows from
  *  here so the UI never hardcodes it. `injected` reflects the server-side planner's
- *  greedy fit; when `enabled` is false every rule is `injected:false`, `usedChars:0`. */
+ *  greedy fit; when `enabled` is false every rule is `injected:false`, `usedChars:0`.
+ *  `scoped` marks a glob-scoped rule — in this preview (no session) it never injects;
+ *  it's conditional on a task's files matching, NOT over-budget. */
+/** A learning as it appears in the injectable preview: the rule plus the planner's
+ *  per-rule verdict — `injected` (made the budget cut) and `scoped` (glob-conditional,
+ *  not injected in this no-session preview). */
+export type InjectableRule = Learning & { injected: boolean; scoped: boolean };
+
 export interface RepoInjectable {
   repoPath: string;
   enabled: boolean;
   budgetChars: number;
   usedChars: number;
-  rules: (Learning & { injected: boolean })[];
+  rules: InjectableRule[];
   retired: Learning[];
   unseenRetired: number;
 }

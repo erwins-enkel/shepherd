@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
     listBranches,
@@ -176,6 +177,9 @@
   let promptInput = $state<HTMLTextAreaElement>();
   let repoSelect: RepoSelect | undefined = $state();
   let isMac = $state(false);
+  // Coarse pointer = touch-primary device with no hardware Ctrl/⌘/⌥ keys: hide
+  // keyboard-combo hints it can't fulfil (submit shortcut badge + repo shortcuts).
+  const coarse = new MediaQuery("(pointer: coarse)");
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
   let allCommands = $state<SlashCommand[]>([]);
@@ -650,9 +654,11 @@
       />
     </div>
 
-    <span class="hint repo-shortcuts-hint">
-      {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
-    </span>
+    {#if !coarse.current}
+      <span class="hint repo-shortcuts-hint">
+        {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
+      </span>
+    {/if}
 
     {#if relaunch}
       <div class="relaunch-note">
@@ -833,7 +839,7 @@
         class="run"
         type="submit"
         disabled={submitting}
-        title={isMac ? "⌘ + Enter" : "Ctrl + Enter"}
+        title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
       >
         <span
           >{submitting
@@ -842,7 +848,7 @@
               ? m.newtask_submit_in_repo({ repo: selectedRepoName })
               : m.newtask_submit()}</span
         >
-        {#if !submitting}
+        {#if !submitting && !coarse.current}
           <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
         {/if}
       </button>

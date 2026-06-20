@@ -52,7 +52,12 @@
     // ui/extension app.css roots listed above).
     "docs-site/astro.config.mjs",
     "docs-site/src/content.config.ts",
-    "docs-site/src/styles/custom.css"
+    "docs-site/src/styles/custom.css",
+    // SiteBacklink overrides Starlight's header `SocialIcons` slot. Astro loads it
+    // via the `components: { SocialIcons: "./src/components/SiteBacklink.astro" }`
+    // string path in astro.config.mjs, not a static import — so fallow reports it as
+    // an unused file (same string-path-root class as custom.css above).
+    "docs-site/src/components/SiteBacklink.astro"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

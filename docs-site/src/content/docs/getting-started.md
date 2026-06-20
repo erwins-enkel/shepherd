@@ -1,6 +1,10 @@
 ---
 title: Getting started
 description: Install Shepherd and sign in.
+# The external "shepherd.run" sidebar back-link sits first in sidebar order, so
+# Starlight's auto-pagination would otherwise make it this page's "Previous" link
+# (an off-site pager). This is the first real doc page, so it has no previous page.
+prev: false
 ---
 
 Shepherd is interactive mission control for fleets of Claude Code agents — it runs

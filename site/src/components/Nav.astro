@@ -1,6 +1,8 @@
 ---
 // Top navigation landmark. No JS — links wrap on narrow viewports.
 const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
+// First-party docs site — same-tab navigation (no target="_blank").
+const DOCS_URL = "https://docs.shepherd.run";
 ---
 
 <nav class="nav" aria-label="Primary">
@@ -28,6 +30,7 @@ const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
     <ul class="links">
       <li><a href="#features">Features</a></li>
       <li><a href="#install">Install</a></li>
+      <li><a href={DOCS_URL}>Docs</a></li>
       <li>
         <a href={GITHUB_URL} rel="noopener noreferrer" target="_blank">GitHub</a
         >

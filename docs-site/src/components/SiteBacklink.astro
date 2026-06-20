@@ -1,0 +1,18 @@
+---
+// Override of Starlight's `SocialIcons` header slot (registered in astro.config.mjs).
+// Prepends a same-tab back-link to the marketing site (shepherd.run), then re-renders
+// the default component so the configured `social` icons (GitHub) still appear.
+//
+// In @astrojs/starlight@^0.40.0 the default `SocialIcons` renders the `social[]`
+// array from the virtual user-config module (route data lives in
+// `Astro.locals.starlightRoute`, not `Astro.props`), so the GitHub icon survives this
+// override regardless. `{...Astro.props}` is forwarded only as harmless
+// belt-and-suspenders. The `↗` is decorative and `aria-hidden` so assistive tech
+// announces just "shepherd.run".
+import Default from "@astrojs/starlight/components/SocialIcons.astro";
+---
+
+<a class="site-backlink" href="https://shepherd.run">
+  shepherd.run <span aria-hidden="true">↗</span>
+</a>
+<Default {...Astro.props} />

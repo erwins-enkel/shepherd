@@ -31,6 +31,12 @@ export default defineConfig({
       title: "Shepherd",
       description: "Documentation for Shepherd — interactive mission control for Claude Code agents.",
       customCss: ["./src/styles/custom.css"],
+      // Override the header social-icons slot to prepend a same-tab back-link to the
+      // marketing site (shepherd.run); the override re-renders the default so the
+      // GitHub social icon below still appears. See src/components/SiteBacklink.astro.
+      components: {
+        SocialIcons: "./src/components/SiteBacklink.astro",
+      },
       // Generate the TypeScript API reference from the server package (../src)
       // with TypeDoc, so it CANNOT drift from source. Like syncDocs() above, this
       // runs at Starlight-init time on every astro command (check/build/dev), so
@@ -95,6 +101,10 @@ export default defineConfig({
       // deterministic and the three build-time-generated reference pages
       // (external-task-api, security, house-rules) resolve by slug.
       sidebar: [
+        // Back-link to the marketing site. Starlight auto-detects the external
+        // https:// link and renders its own external-link affordance; left same-tab
+        // (no `attrs.target`) to match the header back-link.
+        { label: "shepherd.run", link: "https://shepherd.run" },
         {
           label: "Guides",
           items: [

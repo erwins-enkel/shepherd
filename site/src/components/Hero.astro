@@ -3,6 +3,8 @@ import InstallBlock from "./InstallBlock.astro";
 import FocusMock from "./FocusMock.astro";
 
 const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
+// First-party docs site — same-tab navigation (no target="_blank").
+const DOCS_URL = "https://docs.shepherd.run";
 ---
 
 <section class="hero">
@@ -35,6 +37,7 @@ const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
         rel="noopener noreferrer"
         target="_blank">View on GitHub</a
       >
+      <a class="btn btn-ghost" href={DOCS_URL}>Read the docs</a>
     </div>
 
     <InstallBlock />

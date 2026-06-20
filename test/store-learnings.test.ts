@@ -674,3 +674,128 @@ test("listRepoPathsWithRetiredLearnings returns multiple repos with retired rule
   const repos = s.listRepoPathsWithRetiredLearnings().sort();
   expect(repos).toEqual(["/r1", "/r2"]);
 });
+
+// ── mergeLearning ─────────────────────────────────────────────────────────────
+
+test("mergeLearning: preserves counters + updates text and rationale", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "original rule",
+    rationale: "original rationale",
+    evidence: [],
+  });
+  s.setLearningStatus(l.id, "active");
+
+  // Seed counters: 2 good + 1 bad attribution → injected=3, helpful=2
+  s.attributeInjected([l.id], { good: true });
+  s.attributeInjected([l.id], { good: true });
+  s.attributeInjected([l.id], { good: false });
+  // One ineffective signal → ineffective=1
+  s.incrementLearningIneffective(l.id, ["s1"]);
+
+  const before = s.getLearning(l.id)!;
+  expect(before.injectedCount).toBe(3);
+  expect(before.helpfulCount).toBe(2);
+  expect(before.ineffectiveCount).toBe(1);
+  const lastUsedAtBefore = before.lastUsedAt;
+  const evidenceCountBefore = before.evidenceCount;
+
+  const updated = s.mergeLearning(l.id, "new longer enriched text", "new rationale")!;
+  expect(updated).not.toBeNull();
+  expect(updated.rule).toBe("new longer enriched text");
+  expect(updated.rationale).toBe("new rationale");
+  // Counters preserved
+  expect(updated.helpfulCount).toBe(2);
+  expect(updated.injectedCount).toBe(3);
+  expect(updated.ineffectiveCount).toBe(1);
+  expect(updated.lastUsedAt).toBe(lastUsedAtBefore);
+  expect(updated.evidenceCount).toBe(evidenceCountBefore);
+  // Timestamps advanced (or at least as recent)
+  expect(updated.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
+  expect(updated.lastEvidenceAt).toBeGreaterThanOrEqual(before.lastEvidenceAt ?? 0);
+  expect(updated.status).toBe("active");
+  // autoOptimizedAt not stamped (use the dedicated getter — field absent from Learning type)
+  expect(s.autoOptimizedAt(l.id)).toBeNull();
+});
+
+test("mergeLearning: omitted rationale keeps existing rationale", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "rule",
+    rationale: "keep me",
+    evidence: [],
+  });
+  s.setLearningStatus(l.id, "active");
+  const updated = s.mergeLearning(l.id, "newtext")!;
+  expect(updated).not.toBeNull();
+  expect(updated.rationale).toBe("keep me");
+  expect(updated.rule).toBe("newtext");
+});
+
+test("mergeLearning: text > 240 chars is clamped to 240", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "original", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  const longRule = "y".repeat(300);
+  const updated = s.mergeLearning(l.id, longRule)!;
+  expect(updated.rule.length).toBe(240);
+});
+
+test("mergeLearning: blank/whitespace-only rule → returns null, row unchanged", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "keep this", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.mergeLearning(l.id, "")).toBeNull();
+  expect(s.mergeLearning(l.id, "   ")).toBeNull();
+  expect(s.getLearning(l.id)!.rule).toBe("keep this");
+});
+
+test("mergeLearning: rejects non-active states (proposed, dismissed, promoted, retired, missing)", () => {
+  const s = new SessionStore(":memory:");
+
+  // proposed
+  const proposed = s.addLearning({
+    repoPath: "/r",
+    rule: "proposed rule",
+    rationale: "",
+    evidence: [],
+  });
+  expect(s.mergeLearning(proposed.id, "attempt")).toBeNull();
+  expect(s.getLearning(proposed.id)!.rule).toBe("proposed rule");
+
+  // dismissed
+  const dis = s.addLearning({
+    repoPath: "/r",
+    rule: "dismissed rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(dis.id, "active");
+  s.setLearningStatus(dis.id, "dismissed");
+  expect(s.mergeLearning(dis.id, "attempt")).toBeNull();
+  expect(s.getLearning(dis.id)!.rule).toBe("dismissed rule");
+
+  // promoted
+  const prom = s.addLearning({
+    repoPath: "/r",
+    rule: "promoted rule",
+    rationale: "",
+    evidence: [],
+  });
+  s.setLearningStatus(prom.id, "active");
+  s.promoteLearning(prom.id, "https://github.com/owner/repo/pull/1");
+  expect(s.mergeLearning(prom.id, "attempt")).toBeNull();
+  expect(s.getLearning(prom.id)!.rule).toBe("promoted rule");
+
+  // retired
+  const ret = s.addLearning({ repoPath: "/r", rule: "retired rule", rationale: "", evidence: [] });
+  s.setLearningStatus(ret.id, "active");
+  s.retireLearning(ret.id, "reason");
+  expect(s.mergeLearning(ret.id, "attempt")).toBeNull();
+  expect(s.getLearning(ret.id)!.rule).toBe("retired rule");
+
+  // missing id
+  expect(s.mergeLearning("nope", "attempt")).toBeNull();
+});

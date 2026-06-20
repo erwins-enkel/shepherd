@@ -27,7 +27,7 @@ import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from ".
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
-import { normalizeGlob } from "./house-rules";
+import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 
@@ -2438,21 +2438,14 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getLearning(id);
   }
 
-  /** Replace a rule's scope globs (operator edit, #842). Normalizes each pattern to the
-   *  same repo-relative form the distiller uses (display parity with `sanitizeScopeGlobs`),
-   *  deduping and dropping empties; `[]` makes it an Always-rule again. No-op (returns null)
-   *  for a missing rule. */
+  /** Replace a rule's scope globs (operator edit, #842). Runs the same `sanitizeScopeGlobs`
+   *  the distiller uses — normalize to repo-relative form, drop empty/over-long patterns,
+   *  dedupe, and cap the count — so both paths persist identical, bounded scope; `[]` makes
+   *  it an Always-rule again. No-op (returns null) for a missing rule. */
   setLearningScope(id: string, globs: string[]): Learning | null {
     const cur = this.getLearning(id);
     if (!cur) return null;
-    const clean = [
-      ...new Set(
-        globs
-          .filter((g) => typeof g === "string")
-          .map((g) => normalizeGlob(g))
-          .filter(Boolean),
-      ),
-    ];
+    const clean = sanitizeScopeGlobs(globs);
     this.db.run(`UPDATE learnings SET scopeGlobs = ?, updatedAt = ? WHERE id = ?`, [
       JSON.stringify(clean),
       Date.now(),

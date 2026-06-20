@@ -78,6 +78,30 @@ export function normalizeGlob(g: string): string {
   return g.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
 }
 
+/** Max glob patterns kept per rule, and max chars per pattern — bounds the scope so a
+ *  runaway distiller output OR a fat-fingered operator paste can't bloat a row. */
+const MAX_SCOPE_GLOBS = 5;
+const MAX_GLOB_LEN = 120;
+
+/** Sanitize proposed/edited `scopeGlobs` from ANY source (distiller LLM or operator edit):
+ *  keep only strings, normalize to repo-relative form, drop empty/over-long patterns, dedupe,
+ *  and cap the count. Anything not a string array → []. The single source of truth so both the
+ *  distiller and the operator path enforce identical caps (#842). */
+export function sanitizeScopeGlobs(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const g of raw) {
+    if (typeof g !== "string") continue;
+    const norm = normalizeGlob(g);
+    if (!norm || norm.length > MAX_GLOB_LEN || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(norm);
+    if (out.length >= MAX_SCOPE_GLOBS) break;
+  }
+  return out;
+}
+
 /** Canonicalize a path-like token scraped from task text to the same repo-relative
  *  forward-slash form so it can be matched against {@link normalizeGlob}'d patterns.
  *  Strips wrapping quotes/brackets and trailing sentence punctuation, and (when given)

@@ -390,6 +390,16 @@ test("#842: setLearningScope normalizes, dedupes, and can clear back to []", () 
   expect(s.setLearningScope("missing", ["a"])).toBeNull();
 });
 
+test("#842: setLearningScope enforces the same count/length caps as the distiller", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
+  // 8 distinct globs → capped at 5; an over-long pattern is dropped.
+  const many = Array.from({ length: 8 }, (_, i) => `src/d${i}/**`);
+  const set = s.setLearningScope(l.id, [...many, "x".repeat(200)]);
+  expect(set!.scopeGlobs.length).toBe(5);
+  expect(set!.scopeGlobs).toEqual(many.slice(0, 5));
+});
+
 test("#842: a pre-existing DB without the scopeGlobs column migrates to []", () => {
   const dir = mkdtempSync(join(tmpdir(), "shepherd-store-scopeglobs-"));
   const dbPath = join(dir, "test.db");

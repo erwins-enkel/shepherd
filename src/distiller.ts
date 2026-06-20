@@ -6,7 +6,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Signal, SignalKind } from "./types";
-import { normalizeGlob } from "./house-rules";
+import { sanitizeScopeGlobs } from "./house-rules";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -44,28 +44,6 @@ interface RawRule {
   scopeGlobs?: unknown;
 }
 
-/** Max glob patterns kept per proposed rule, and max chars per pattern — bounds the
- *  scope the distiller LLM can attach so a runaway/garbled output can't bloat a row. */
-const MAX_SCOPE_GLOBS = 5;
-const MAX_GLOB_LEN = 120;
-
-/** Sanitize the distiller's proposed `scopeGlobs`: keep only non-empty strings, trim +
- *  normalize to repo-relative form, drop overly-long patterns, dedupe, cap the count.
- *  Anything not a string array → []. */
-function sanitizeScopeGlobs(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const g of raw) {
-    if (typeof g !== "string") continue;
-    const norm = normalizeGlob(g);
-    if (!norm || norm.length > MAX_GLOB_LEN || seen.has(norm)) continue;
-    seen.add(norm);
-    out.push(norm);
-    if (out.length >= MAX_SCOPE_GLOBS) break;
-  }
-  return out;
-}
 interface RawUpdate {
   id?: unknown;
   rule?: unknown;

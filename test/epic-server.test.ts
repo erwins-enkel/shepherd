@@ -305,7 +305,7 @@ describe("POST /api/epic/approve-next", () => {
 // ── GET /api/epics ────────────────────────────────────────────────────────────
 
 describe("GET /api/epics", () => {
-  test("missing drain → empty array", async () => {
+  test("missing drain → empty epics/subIssues", async () => {
     const store = new SessionStore(":memory:");
     const deps: AppDeps = {
       store,
@@ -317,14 +317,14 @@ describe("GET /api/epics", () => {
     const app = makeApp(deps);
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+    expect(await res.json()).toEqual({ epics: [], subIssues: [] });
   });
 
-  test("no forge → empty array", async () => {
+  test("no forge → empty epics/subIssues", async () => {
     const { app } = harness({ resolveForge: () => null });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+    expect(await res.json()).toEqual({ epics: [], subIssues: [] });
   });
 
   test("stored epic_run surfaces even with no forge issues match", async () => {
@@ -343,9 +343,9 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(99);
-    expect(body[0].status).toBe("running");
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(99);
+    expect(body.epics[0].status).toBe("running");
   });
 
   test("invalid repo → 400", async () => {
@@ -392,9 +392,9 @@ describe("GET /api/epics", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     // Markdown counts: members [10, 11, 12], only #10 is absent from open set (open = [1,2,3,4,5])
-    expect(body.length).toBe(1);
-    expect(body[0].total).toBe(3);
-    expect(body[0].merged).toBe(3); // 10, 11, 12 all absent from open set
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].total).toBe(3);
+    expect(body.epics[0].merged).toBe(3); // 10, 11, 12 all absent from open set
     // Native probe must be skipped entirely — open list is complete (<200 items)
     expect(listSubIssuesCallCount).toBe(0);
   });
@@ -429,10 +429,10 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(7);
-    expect(body[0].total).toBe(3); // native: 3 sub-issues
-    expect(body[0].merged).toBe(2); // two closed sub-issues
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(7);
+    expect(body.epics[0].total).toBe(3); // native: 3 sub-issues
+    expect(body.epics[0].merged).toBe(2); // two closed sub-issues
     expect(listSubIssuesCallCount).toBe(1); // probe was made
   });
 
@@ -460,10 +460,10 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(50);
-    expect(body[0].total).toBe(3); // markdown: 3 members
-    expect(body[0].merged).toBe(2); // #100 and #102 absent from open set
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(50);
+    expect(body.epics[0].total).toBe(3); // markdown: 3 members
+    expect(body.epics[0].merged).toBe(2); // #100 and #102 absent from open set
     expect(listSubIssuesCallCount).toBe(0); // no native probe
   });
 
@@ -494,9 +494,9 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].total).toBe(2); // native counts used
-    expect(body[0].merged).toBe(1);
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].total).toBe(2); // native counts used
+    expect(body.epics[0].merged).toBe(1);
     expect(listSubIssuesCallCount).toBe(1); // native probe was called
   });
 
@@ -518,10 +518,10 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(77);
-    expect(body[0].total).toBe(2); // native counts
-    expect(body[0].merged).toBe(1); // 1 closed sub
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(77);
+    expect(body.epics[0].total).toBe(2); // native counts
+    expect(body.epics[0].merged).toBe(1); // 1 closed sub
     expect(listSubIssuesCallCount).toBe(1); // probe was called
   });
 
@@ -547,10 +547,10 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(8);
-    expect(body[0].total).toBe(4);
-    expect(body[0].merged).toBe(2); // #31 and #33 not in open set
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(8);
+    expect(body.epics[0].total).toBe(4);
+    expect(body.epics[0].merged).toBe(2); // #31 and #33 not in open set
   });
 
   // ── listSubIssueSummaries integration ────────────────────────────────────
@@ -563,18 +563,18 @@ describe("GET /api/epics", () => {
         // issue 42 has no markdown body — purely native
         { number: 42, title: "Native Epic", body: "", url: "", labels: [], createdAt: 0 },
       ],
-      listSubIssueSummaries: async () => summaryMap,
+      listSubIssueSummaries: async () => ({ summaries: summaryMap, subIssueNumbers: [] }),
       listSubIssues: async () => [],
     };
     const { app } = harness({ resolveForge: () => forge });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(42);
-    expect(body[0].source).toBe("native");
-    expect(body[0].total).toBe(5);
-    expect(body[0].merged).toBe(3);
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(42);
+    expect(body.epics[0].source).toBe("native");
+    expect(body.epics[0].total).toBe(5);
+    expect(body.epics[0].merged).toBe(3);
     // native candidate must NOT trigger listSubIssues per-candidate probe
     // (counts come from the summary map directly)
   });
@@ -594,17 +594,17 @@ describe("GET /api/epics", () => {
         },
         { number: 101, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
       ],
-      listSubIssueSummaries: async () => summaryMap,
+      listSubIssueSummaries: async () => ({ summaries: summaryMap, subIssueNumbers: [] }),
     };
     const { app } = harness({ resolveForge: () => forge });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].parentIssueNumber).toBe(7);
-    expect(body[0].source).toBe("markdown");
-    expect(body[0].total).toBe(2);
-    expect(body[0].merged).toBe(1); // #100 absent from open set
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(7);
+    expect(body.epics[0].source).toBe("markdown");
+    expect(body.epics[0].total).toBe(2);
+    expect(body.epics[0].merged).toBe(1); // #100 absent from open set
   });
 
   // both markdown + native → source:"markdown" (markdown takes precedence in list)
@@ -622,14 +622,14 @@ describe("GET /api/epics", () => {
         },
         { number: 201, title: "Open sub", body: "", url: "", labels: [], createdAt: 0 },
       ],
-      listSubIssueSummaries: async () => summaryMap,
+      listSubIssueSummaries: async () => ({ summaries: summaryMap, subIssueNumbers: [] }),
     };
     const { app } = harness({ resolveForge: () => forge });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.length).toBe(1);
-    expect(body[0].source).toBe("markdown");
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].source).toBe("markdown");
   });
 
   // native parent absent from the visible listIssues set → NOT surfaced. IssuesPanel renders an
@@ -642,14 +642,14 @@ describe("GET /api/epics", () => {
       listIssues: async () => [
         { number: 1, title: "Unrelated", body: "", url: "", labels: [], createdAt: 0 },
       ],
-      listSubIssueSummaries: async () => summaryMap,
+      listSubIssueSummaries: async () => ({ summaries: summaryMap, subIssueNumbers: [] }),
       listSubIssues: async () => [],
     };
     const { app } = harness({ resolveForge: () => forge });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.find((e: any) => e.parentIssueNumber === 999)).toBeUndefined();
+    expect(body.epics.find((e: any) => e.parentIssueNumber === 999)).toBeUndefined();
   });
 
   // forge without listSubIssueSummaries → no native candidates, no error
@@ -664,7 +664,8 @@ describe("GET /api/epics", () => {
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual([]); // no epics — no markdown, no native
+    expect(body.epics).toEqual([]); // no epics — no markdown, no native
+    expect(body.subIssues).toEqual([]);
   });
 
   // native discovery adds no extra listSubIssues probe for native candidates
@@ -675,7 +676,7 @@ describe("GET /api/epics", () => {
       listIssues: async () => [
         { number: 55, title: "Native only", body: "", url: "", labels: [], createdAt: 0 },
       ],
-      listSubIssueSummaries: async () => summaryMap,
+      listSubIssueSummaries: async () => ({ summaries: summaryMap, subIssueNumbers: [] }),
       listSubIssues: async () => {
         listSubIssuesCallCount++;
         return [];
@@ -701,11 +702,73 @@ describe("GET /api/epics", () => {
     store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 10, mode: "auto", status: "running" });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
-    const body: { parentIssueNumber: number; status: string }[] = await res.json();
-    const epicA = body.find((e) => e.parentIssueNumber === 10);
-    const epicB = body.find((e) => e.parentIssueNumber === 11);
+    const body: { epics: { parentIssueNumber: number; status: string }[]; subIssues: number[] } =
+      await res.json();
+    const epicA = body.epics.find((e) => e.parentIssueNumber === 10);
+    const epicB = body.epics.find((e) => e.parentIssueNumber === 11);
     expect(epicA?.status).toBe("running");
     expect(epicB?.status).toBe("idle");
+  });
+
+  // ── response shape { epics, subIssues } ──────────────────────────────────────
+
+  test("response shape: happy path returns { epics: [...], subIssues: [...] }", async () => {
+    const summaryMap = new Map([[30, { total: 2, completed: 1 }]]);
+    const forge: any = {
+      listIssues: async () => [
+        { number: 30, title: "Epic", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => ({
+        summaries: summaryMap,
+        subIssueNumbers: [5, 6],
+      }),
+      listSubIssues: async () => [],
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.epics)).toBe(true);
+    expect(Array.isArray(body.subIssues)).toBe(true);
+    expect(body.epics.length).toBe(1);
+    expect(body.epics[0].parentIssueNumber).toBe(30);
+    expect(body.subIssues).toEqual([5, 6]);
+  });
+
+  test("response shape: listIssues throws → { epics: [], subIssues: [] }", async () => {
+    const forge: any = {
+      listIssues: async () => {
+        throw new Error("network failure");
+      },
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ epics: [], subIssues: [] });
+  });
+
+  test("response shape: missing drain → { epics: [], subIssues: [] } (shape not bare array)", async () => {
+    const store = new SessionStore(":memory:");
+    const deps: AppDeps = {
+      store,
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      drain: undefined,
+    };
+    const app = makeApp(deps);
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    const body = await res.json();
+    expect(body).toEqual({ epics: [], subIssues: [] });
+    expect(Array.isArray(body)).toBe(false); // must be object, not bare array
+  });
+
+  test("response shape: no forge → { epics: [], subIssues: [] } (shape not bare array)", async () => {
+    const { app } = harness({ resolveForge: () => null });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    const body = await res.json();
+    expect(body).toEqual({ epics: [], subIssues: [] });
+    expect(Array.isArray(body)).toBe(false);
   });
 });
 

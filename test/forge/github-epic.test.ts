@@ -98,19 +98,21 @@ describe("GithubForge listSubIssueSummaries", () => {
     const { run, calls } = sequenceRunner([page]);
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     expect(calls.length).toBe(1);
-    expect(result.size).toBe(2);
-    expect(result.get(1)).toEqual({ total: 3, completed: 1 });
-    expect(result.get(2)).toBeUndefined(); // total === 0 excluded
-    expect(result.get(3)).toEqual({ total: 5, completed: 5 });
+    expect(result.summaries.size).toBe(2);
+    expect(result.summaries.get(1)).toEqual({ total: 3, completed: 1 });
+    expect(result.summaries.get(2)).toBeUndefined(); // total === 0 excluded
+    expect(result.summaries.get(3)).toEqual({ total: 5, completed: 5 });
+    expect(result.subIssueNumbers).toEqual([]); // no nodes have parent set
   });
 
-  test("runner throws → returns empty Map (no rethrow)", async () => {
+  test("runner throws → returns empty summaries and subIssueNumbers (no rethrow)", async () => {
     const run: GhRunner = async () => {
       throw new Error("network error");
     };
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
+    expect(result.summaries).toBeInstanceOf(Map);
+    expect(result.summaries.size).toBe(0);
+    expect(result.subIssueNumbers).toEqual([]);
   });
 
   test("two-page cursor: collects both pages, 2 runner calls, second call passes endCursor from first", async () => {
@@ -137,9 +139,10 @@ describe("GithubForge listSubIssueSummaries", () => {
     const { run, calls } = sequenceRunner([page1, page2]);
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     expect(calls.length).toBe(2);
-    expect(result.size).toBe(2);
-    expect(result.get(10)).toEqual({ total: 2, completed: 0 });
-    expect(result.get(20)).toEqual({ total: 4, completed: 2 });
+    expect(result.summaries.size).toBe(2);
+    expect(result.summaries.get(10)).toEqual({ total: 2, completed: 0 });
+    expect(result.summaries.get(20)).toEqual({ total: 4, completed: 2 });
+    expect(result.subIssueNumbers).toEqual([]); // no nodes have parent set
     // First call must NOT pass an endCursor field arg; second must pass cursor-abc.
     const firstCallArgs = calls[0]!.join(" ");
     const secondCallArgs = calls[1]!.join(" ");
@@ -166,5 +169,56 @@ describe("GithubForge listSubIssueSummaries", () => {
     const { run, calls } = infiniteRunner(infinitePage);
     await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     expect(calls.length).toBe(2); // MAX_SUMMARY_PAGES = 2
+  });
+
+  // collectSubIssueSummaryPage: tested via listSubIssueSummaries with synthetic mixed nodes
+  test("collectSubIssueSummaryPage: parent!=null adds to subIssueNumbers, parent:null does not", async () => {
+    // node 7: parent set → sub-issue child; node 10: parent null → not a sub-issue;
+    // node 15: total>0 → goes into summaries map
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { number: 7, subIssuesSummary: null, parent: { number: 3 } },
+              { number: 10, subIssuesSummary: { total: 2, completed: 1 }, parent: null },
+              { number: 15, subIssuesSummary: { total: 4, completed: 0 }, parent: null },
+            ],
+          },
+        },
+      },
+    });
+    const { run } = sequenceRunner([page]);
+    const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
+    // subIssueNumbers: only node 7 has a non-null parent
+    expect(result.subIssueNumbers).toEqual([7]);
+    // summaries map: only nodes with total>0; node 7 has null subIssuesSummary so excluded
+    expect(result.summaries.get(7)).toBeUndefined();
+    expect(result.summaries.get(10)).toEqual({ total: 2, completed: 1 });
+    expect(result.summaries.get(15)).toEqual({ total: 4, completed: 0 });
+  });
+
+  test("collectSubIssueSummaryPage: node with parent AND total>0 appears in both summaries and subIssueNumbers", async () => {
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              // parent set AND total>0: appears in both
+              { number: 42, subIssuesSummary: { total: 3, completed: 1 }, parent: { number: 1 } },
+              // no parent, no summary: neither
+              { number: 43, subIssuesSummary: null, parent: null },
+            ],
+          },
+        },
+      },
+    });
+    const { run } = sequenceRunner([page]);
+    const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
+    expect(result.subIssueNumbers).toEqual([42]);
+    expect(result.summaries.get(42)).toEqual({ total: 3, completed: 1 });
+    expect(result.summaries.size).toBe(1);
   });
 });

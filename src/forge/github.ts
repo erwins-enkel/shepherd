@@ -39,10 +39,12 @@ function isNoCommitsBetween(text: string): boolean {
 const MAX_SUMMARY_PAGES = 2;
 
 /** Parse one page of the sub-issue-summary GraphQL response: record every node with
- *  total > 0 into `into` (keyed by issue number) and return the page's cursor info. */
+ *  total > 0 into `intoSummaries` (keyed by issue number), add every node with a non-null
+ *  parent to `intoSubIssues`, and return the page's cursor info. */
 function collectSubIssueSummaryPage(
   out: string,
-  into: Map<number, { total: number; completed: number }>,
+  intoSummaries: Map<number, { total: number; completed: number }>,
+  intoSubIssues: Set<number>,
 ): { hasNextPage: boolean; endCursor: string | null } {
   const json = JSON.parse(out) as {
     data?: {
@@ -52,6 +54,7 @@ function collectSubIssueSummaryPage(
           nodes?: Array<{
             number: number;
             subIssuesSummary?: { total: number; completed: number };
+            parent?: { number: number } | null;
           } | null>;
         };
       };
@@ -59,9 +62,13 @@ function collectSubIssueSummaryPage(
   };
   const issues = json.data?.repository?.issues;
   for (const node of issues?.nodes ?? []) {
-    const s = node?.subIssuesSummary;
-    if (node && s && s.total > 0) {
-      into.set(node.number, { total: s.total, completed: s.completed });
+    if (!node) continue;
+    const s = node.subIssuesSummary;
+    if (s && s.total > 0) {
+      intoSummaries.set(node.number, { total: s.total, completed: s.completed });
+    }
+    if (node.parent != null) {
+      intoSubIssues.add(node.number);
     }
   }
   return {
@@ -1010,16 +1017,20 @@ export class GithubForge implements GitForge {
     ]);
   }
 
-  async listSubIssueSummaries(): Promise<Map<number, { total: number; completed: number }>> {
+  async listSubIssueSummaries(): Promise<{
+    summaries: Map<number, { total: number; completed: number }>;
+    subIssueNumbers: number[];
+  }> {
     // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
     // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
     // REST sub_issues endpoints above.
     const [owner, name] = this.slug.split("/");
-    // Only number + counts are selected: the backlog renders this badge on the matching visible
-    // issue row, so the row already supplies title/body — no need to fetch them here.
+    // number + counts + parent selected: backlog renders badge on visible issue row;
+    // parent field identifies native sub-issues (child numbers collected here).
     const query =
-      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed}}}}}";
-    const result = new Map<number, { total: number; completed: number }>();
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed} parent{number}}}}}";
+    const summaries = new Map<number, { total: number; completed: number }>();
+    const subIssueSet = new Set<number>();
     try {
       let endCursor: string | null = null;
       for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
@@ -1035,14 +1046,14 @@ export class GithubForge implements GitForge {
         ];
         // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
         if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
-        const pageInfo = collectSubIssueSummaryPage(await this.run(args), result);
+        const pageInfo = collectSubIssueSummaryPage(await this.run(args), summaries, subIssueSet);
         if (!pageInfo.hasNextPage) break;
         endCursor = pageInfo.endCursor;
       }
     } catch {
       // Best-effort; degrade to markdown-only discovery rather than failing the route.
-      return new Map();
+      return { summaries: new Map(), subIssueNumbers: [] };
     }
-    return result;
+    return { summaries, subIssueNumbers: [...subIssueSet] };
   }
 }

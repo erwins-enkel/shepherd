@@ -3819,13 +3819,15 @@ type NativeSummaryMap = Map<number, { total: number; completed: number }>;
 
 /** Best-effort fetch of native sub-issue summaries (GitHub only; one bounded forge call that
  *  internally pages up to MAX_SUMMARY_PAGES GraphQL requests). Returns an empty map on any error
- *  so discovery degrades to markdown-only. */
-async function fetchNativeSummaries(forge: GitForge): Promise<NativeSummaryMap> {
+ *  so discovery degrades to markdown-only. Also surfaces native sub-issue child numbers. */
+async function fetchNativeSummaries(
+  forge: GitForge,
+): Promise<{ summaries: NativeSummaryMap; subIssueNumbers: number[] }> {
   try {
     // The method catches internally today; this guard keeps discovery alive if that changes.
-    return (await forge.listSubIssueSummaries?.()) ?? new Map();
+    return (await forge.listSubIssueSummaries?.()) ?? { summaries: new Map(), subIssueNumbers: [] };
   } catch {
-    return new Map();
+    return { summaries: new Map(), subIssueNumbers: [] };
   }
 }
 
@@ -3923,9 +3925,9 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (!deps.drain) return json([]);
+  if (!deps.drain) return json({ epics: [], subIssues: [] });
   const forge = deps.resolveForge?.(dir) ?? null;
-  if (!forge) return json([]);
+  if (!forge) return json({ epics: [], subIssues: [] });
 
   const storedRun = deps.store.getEpicRun(dir);
   let openIssues: Awaited<ReturnType<typeof forge.listIssues>>;
@@ -3933,11 +3935,11 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     openIssues = await forge.listIssues();
   } catch {
     // forge/network error → graceful empty (matches handleIssues/handlePrsList convention)
-    return json([]);
+    return json({ epics: [], subIssues: [] });
   }
 
   // Fetch native sub-issue summaries cheaply (one bounded forge call, ≤2 GraphQL pages, GitHub only).
-  const nativeSummaries = await fetchNativeSummaries(forge);
+  const { summaries: nativeSummaries, subIssueNumbers } = await fetchNativeSummaries(forge);
 
   // openNumbers: a member absent from the open set is considered closed (markdown fallback).
   // openTruncated: listIssues caps at 200; when true the open set may be incomplete so
@@ -3957,7 +3959,7 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     openNumbers,
     openTruncated,
   );
-  return json(result);
+  return json({ epics: result, subIssues: subIssueNumbers });
 }
 
 // GET /api/epic?repo=&parent= — assemble the Epic for a single parent issue.

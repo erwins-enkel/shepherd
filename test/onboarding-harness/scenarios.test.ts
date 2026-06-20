@@ -30,4 +30,27 @@ describe("scenario catalog", () => {
       expect(covered.has(id)).toBe(true);
     }
   });
+
+  // Cheap canary (subordinate to the behavioral test in test/diagnostics.test.ts):
+  // since #819 the gh probe only reports `error` when a forge-mode repo is
+  // configured, so any scenario asserting gh:error MUST seed a repo dir under
+  // repoRoot ($HOME) — else the probe downgrades to `warning` and the gap reopens.
+  // This guards against the `mkdir`-seed being silently deleted; it does NOT prove
+  // the mechanism (that is the diagnostics behavioral test).
+  it("every scenario expecting gh:error seeds a repo dir under repoRoot", () => {
+    const ghErrorScenarios = SCENARIOS.filter((s) =>
+      s.expect.some((e) => e.id === "gh" && e.state === "error"),
+    );
+    expect(ghErrorScenarios.length).toBeGreaterThan(0); // catalog still has them
+    for (const s of ghErrorScenarios) {
+      // a `mkdir` of a NON-dot dir directly under the home/repoRoot (~/… or /root/…).
+      // The negative lookahead `(?!\.)` rejects a dot final segment (e.g. ~/.config/gh),
+      // which listRepos() filters out (`!name.startsWith(".")`) — so the guard can't
+      // pass on a seed that creates no enumerable forge repo.
+      const seedsRepoDir = s.seed.some((cmd) =>
+        /mkdir\s+(-p\s+)?(~|\/root)\/(?!\.)[^/\s]+/.test(cmd),
+      );
+      expect(seedsRepoDir).toBe(true);
+    }
+  });
 });

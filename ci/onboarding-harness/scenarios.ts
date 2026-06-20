@@ -36,6 +36,14 @@ export const SCENARIOS: Scenario[] = [
     seed: [
       "type gh >/dev/null 2>&1 || (apt-get update && apt-get install -y gh)",
       "rm -rf ~/.config/gh", // installed but never logged in
+      // Since #819 (lightweight repo mode) the gh probe only surfaces a failure as
+      // `error` when a FORGE-mode repo is configured — with zero repos it downgrades
+      // to `warning` (diagnostics_hint_gh_not_required, gh genuinely optional). A
+      // bare dir under repoRoot ($HOME=/root) is enough: listRepos() enumerates any
+      // non-dot subdir and repoMode defaults to "forge", so anyForgeRepo()→true and
+      // the unauthed gh surfaces as `error`. (The inverse no-forge-repo→warning path
+      // stays covered by test/diagnostics.test.ts, not a harness scenario.)
+      "mkdir -p ~/forge-repo",
     ],
     expect: [{ id: "gh", state: "error" }],
     coaching: "prose",
@@ -45,7 +53,14 @@ export const SCENARIOS: Scenario[] = [
     // gh install is distro-specific AND auth is interactive → detection-only.
     id: "gh-missing",
     image: "images:debian/12",
-    seed: ["apt-get remove -y gh 2>/dev/null || true", "rm -f /usr/bin/gh /usr/local/bin/gh"],
+    seed: [
+      "apt-get remove -y gh 2>/dev/null || true",
+      "rm -f /usr/bin/gh /usr/local/bin/gh",
+      // See gh-unauthed: post-#819 a configured forge repo is required for the gh
+      // probe to report `error` rather than the no-repo `warning`. A bare dir under
+      // repoRoot suffices (repoMode defaults to "forge").
+      "mkdir -p ~/forge-repo",
+    ],
     expect: [{ id: "gh", state: "error" }],
     coaching: "prose",
     detectionOnly: true,

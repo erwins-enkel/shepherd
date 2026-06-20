@@ -31,6 +31,22 @@ interface GitCall {
   args: string[];
 }
 
+interface SpawnRow {
+  reviewerSessionId: string;
+  taskSessionId: string;
+  kind: string;
+  worktreePath: string;
+  model: string | null;
+  spawnedAt: number;
+  completedAt: number | null;
+}
+
+interface CompletedRow {
+  reviewerSessionId: string;
+  completedAt: number;
+  total: number;
+}
+
 interface Harness {
   svc: DocAgentService;
   gitCalls: GitCall[];
@@ -42,6 +58,8 @@ interface Harness {
   finalizes: DocAgentFinalize[];
   ensureBaseRefCalls: { repo: string; base: string }[];
   kv: Map<string, string>;
+  spawnRows: SpawnRow[];
+  completedRows: CompletedRow[];
   __merge: number;
 }
 
@@ -58,6 +76,7 @@ function mkHarness(opts?: {
   originShaThrows?: boolean;
   now?: () => number;
   nightlyHour?: number;
+  act?: boolean;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -74,6 +93,7 @@ function mkHarness(opts?: {
     originShaThrows: false,
     now: () => 1000,
     nightlyHour: 3,
+    act: false,
     ...opts,
   };
 
@@ -85,11 +105,33 @@ function mkHarness(opts?: {
   const finalizes: DocAgentFinalize[] = [];
   const ensureBaseRefCalls: { repo: string; base: string }[] = [];
   const kv = new Map<string, string>();
+  const spawnRows: SpawnRow[] = [];
+  const completedRows: CompletedRow[] = [];
   const store = {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
       kv.set(key, value);
     },
+    recordReviewerSpawn: (r: {
+      reviewerSessionId: string;
+      taskSessionId: string;
+      kind: string;
+      worktreePath: string;
+      model: string | null;
+      spawnedAt: number;
+    }) => {
+      spawnRows.push({ ...r, completedAt: null });
+    },
+    completeReviewerSpawn: (
+      reviewerSessionId: string,
+      u: { total: number },
+      completedAt: number,
+    ) => {
+      completedRows.push({ reviewerSessionId, completedAt, total: u.total });
+      const row = spawnRows.find((s) => s.reviewerSessionId === reviewerSessionId);
+      if (row) row.completedAt = completedAt;
+    },
+    listReviewerSpawns: () => spawnRows,
   };
   let mergeCalls = 0;
 
@@ -160,9 +202,10 @@ function mkHarness(opts?: {
     worktree: worktree as any,
     resolveForge: () => forge,
     repos: () => o.repos,
-    store,
+    store: store as any,
     nightlyHour: o.nightlyHour,
     model: null,
+    act: o.act,
     onChange: (f) => finalizes.push(f),
     now: o.now,
     git,
@@ -173,6 +216,18 @@ function mkHarness(opts?: {
       return o.inScopeFilesPresent;
     },
     readSentinel: () => o.sentinel,
+    readUsage: async () => ({
+      input: 5,
+      output: 7,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 12,
+      messageCount: 1,
+      lastActivity: null,
+      byModel: {},
+      fullRecaches: 0,
+      sidechainCount: 0,
+    }),
   });
 
   return {
@@ -185,6 +240,8 @@ function mkHarness(opts?: {
     finalizes,
     ensureBaseRefCalls,
     kv,
+    spawnRows,
+    completedRows,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -197,7 +254,7 @@ function mkHarness(opts?: {
 }
 
 test("happy path: in-scope edits → commit --no-verify + push + openPr (never merge)", async () => {
-  const h = mkHarness();
+  const h = mkHarness({ act: true });
   const res = await h.svc.consider("/repo");
   expect(res.status).toBe("started");
   expect(h.starts).toHaveLength(1);
@@ -509,4 +566,70 @@ test("merge: absent PR number → skip", async () => {
   const res = await h.svc.onMergedPr("/repo", undefined, "feat: x", "main");
   expect(res.status).toBe("skipped");
   expect(h.starts).toHaveLength(0);
+});
+
+// ── soak flags: observe → act (issue #905) ─────────────────────────────────────
+
+test("observe mode (act:false): staged changes → OBSERVE warn, NO push, NO PR, worktree removed", async () => {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => {
+    warns.push(a.join(" "));
+  };
+  try {
+    const h = mkHarness({ act: false });
+    await h.svc.consider("/repo");
+    await h.svc.tick();
+    // no PR opened, no push run
+    expect(h.openPrInputs).toHaveLength(0);
+    expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
+    expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
+    // worktree still cleaned up
+    expect(h.removedWorktrees.length).toBeGreaterThan(0);
+    // url stays null (same shape as already-current path)
+    expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null }]);
+    // the OBSERVE line fired
+    expect(warns.some((w) => w.includes("[doc-agent] OBSERVE:"))).toBe(true);
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("act mode (act:true): staged changes → one PR opened (current behavior preserved)", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(1);
+});
+
+// ── durable spawn-row tracking (cost attribution) ──────────────────────────────
+
+test("spawn row recorded: a successful begin() persists one doc_agent reviewer_spawns row", async () => {
+  const h = mkHarness();
+  await h.svc.consider("/repo");
+  expect(h.spawnRows).toHaveLength(1);
+  const row = h.spawnRows[0]!;
+  expect(row.kind).toBe("doc_agent");
+  expect(row.taskSessionId).toBe("/repo");
+  expect(row.worktreePath).toMatch(/^\/wt\/docs-update-/);
+  expect(row.spawnedAt).not.toBeNull();
+});
+
+test("row completed at finalize: observe path completes the spawn row", async () => {
+  const h = mkHarness({ act: false });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.completedRows).toHaveLength(1);
+  expect(h.completedRows[0]!.reviewerSessionId).toBe(h.spawnRows[0]!.reviewerSessionId);
+  // real (non-zero) usage recorded via the readUsage stub
+  expect(h.completedRows[0]!.total).toBe(12);
+  expect(h.spawnRows[0]!.completedAt).not.toBeNull();
+});
+
+test("row completed at finalize: act path completes the spawn row", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.completedRows).toHaveLength(1);
+  expect(h.completedRows[0]!.reviewerSessionId).toBe(h.spawnRows[0]!.reviewerSessionId);
 });

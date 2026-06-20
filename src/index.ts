@@ -582,6 +582,7 @@ const docAgent = new DocAgentService({
   store,
   nightlyHour: config.docAgentNightlyHour,
   model: config.docAgentModel,
+  act: config.docAgentAct,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
 if (config.docAgentEnabled) {

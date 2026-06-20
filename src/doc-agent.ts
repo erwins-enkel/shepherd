@@ -11,6 +11,8 @@ import type { GitForge } from "./forge/types";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
+import type { SessionUsage } from "./usage";
+import { readSessionUsage } from "./usage";
 import {
   apiKeyMembraneFields,
   apiKeyPassthroughEnv,
@@ -78,6 +80,21 @@ const COMMIT_WINDOW = 50;
 
 const COMMIT_MSG = "docs: sync docs to recent source changes";
 
+/** Zeroed usage written when a finalize completes a spawn row but the transcript is unreadable
+ *  (GC'd / partial) — so the row is never left dangling. Same shape as review.ts's zeroedUsage. */
+const ZEROED_USAGE: SessionUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total: 0,
+  messageCount: 0,
+  lastActivity: null,
+  byModel: {},
+  fullRecaches: 0,
+  sidechainCount: 0,
+};
+
 export type DocAgentStatus = "started" | "skipped" | "error";
 export interface DocAgentResult {
   status: DocAgentStatus;
@@ -96,6 +113,8 @@ interface InFlight {
   base: string;
   terminalId: string;
   agentName: string;
+  /** The agent's forced --session-id — the reviewer_spawns PK, used to complete the cost row. */
+  spawnSessionId: string;
   startedAt: number;
   finalizing?: boolean;
 }
@@ -107,9 +126,19 @@ export interface DocAgentDeps {
   /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune) and the nightly
    *  cadence sweep. */
   repos: () => string[];
-  /** Persisted per-repo cadence markers (last-sha / nightly-day / merged-seen). */
-  store: Pick<SessionStore, "getSetting" | "setSetting">;
+  /** Persisted per-repo cadence markers (last-sha / nightly-day / merged-seen) + durable
+   *  spawn-cost rows (reviewer_spawns, reused for doc-agent attribution; issue #502/#905). */
+  store: Pick<
+    SessionStore,
+    | "getSetting"
+    | "setSetting"
+    | "recordReviewerSpawn"
+    | "completeReviewerSpawn"
+    | "listReviewerSpawns"
+  >;
   model?: string | null;
+  /** Phase-1 escalation: when false (Phase-0 observe), finalize() is log-only (no commit/push/PR). */
+  act?: boolean;
   onChange?: (f: DocAgentFinalize) => void;
   now?: () => number;
   timeoutMs?: number;
@@ -129,6 +158,9 @@ export interface DocAgentDeps {
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
   buildPrompt?: (base: string) => string;
+  /** Read a spawn's token usage from its transcript at finalize (cost attribution). Mirrors
+   *  herd-digest.ts's identical dep + readSessionUsage default. */
+  readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
 }
 
 /**
@@ -156,6 +188,8 @@ export class DocAgentService {
   private fileExists: (p: string) => boolean;
   private readSentinel: (worktreePath: string) => string | null;
   private buildPrompt: (base: string) => string;
+  private act: boolean;
+  private readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
 
   constructor(private deps: DocAgentDeps) {
     this.git = deps.git ?? defaultGit;
@@ -166,6 +200,8 @@ export class DocAgentService {
     this.fileExists = deps.fileExists ?? existsSync;
     this.readSentinel = deps.readSentinel ?? defaultReadSentinel;
     this.buildPrompt = deps.buildPrompt ?? ((base) => docAgentPrompt(base));
+    this.act = deps.act ?? false;
+    this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
   private detectBackend(): SandboxBackend {
@@ -346,11 +382,13 @@ export class DocAgentService {
       return { status: "error", reason: "worktree creation failed" };
     }
 
-    const terminalId = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
-    if (!terminalId) {
+    const spawned = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
+    if (!spawned) {
       this.deps.worktree.remove(wt.worktreePath);
       return { status: "error", reason: "spawn failed" };
     }
+    const { terminalId, spawnSessionId } = spawned;
+    const startedAt = this.now();
     this.inflight.set(repoPath, {
       repoPath,
       worktreePath: wt.worktreePath,
@@ -358,7 +396,19 @@ export class DocAgentService {
       base,
       terminalId,
       agentName: DOC_AGENT_LABEL + id8,
-      startedAt: this.now(),
+      spawnSessionId,
+      startedAt,
+    });
+    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
+    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
+    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: spawnSessionId,
+      taskSessionId: repoPath,
+      kind: "doc_agent",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: startedAt,
     });
     // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
     // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
@@ -398,16 +448,17 @@ export class DocAgentService {
     return { ok: true, forge };
   }
 
-  /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId, or
-   *  null on a spawn failure (logged). profile "standard": the agent needs Anthropic egress (to run
-   *  claude) but not GitHub — the server pushes/opens the PR — mirroring ReviewService's spawn. */
+  /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId +
+   *  the agent's forced --session-id (the reviewer_spawns PK), or null on a spawn failure (logged).
+   *  profile "standard": the agent needs Anthropic egress (to run claude) but not GitHub — the
+   *  server pushes/opens the PR — mirroring ReviewService's spawn. */
   private spawnAgent(
     repoPath: string,
     worktreePath: string,
     agentName: string,
     base: string,
-  ): string | null {
-    const { argv } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
+  ): { terminalId: string; spawnSessionId: string } | null {
+    const { argv, sessionId } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
     const backend = this.detectBackend();
     const env = this.membraneEnv();
     const membrane: MembraneInputs = {
@@ -424,12 +475,13 @@ export class DocAgentService {
     };
     const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     try {
-      return this.deps.herdr.start(
+      const terminalId = this.deps.herdr.start(
         agentName,
         worktreePath,
         wrapped,
         apiKeyPassthroughEnv(backend !== null),
       ).terminalId;
+      return { terminalId, spawnSessionId: sessionId };
     } catch (err) {
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[doc-agent] herdr unavailable for ${repoPath}:`, err);
@@ -466,28 +518,47 @@ export class DocAgentService {
       const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
       if (forge && inScope.length > 0) {
         await this.git(f.worktreePath, ["add", "--", ...inScope]);
-        const staged = (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
-        if (staged.length > 0) {
-          // --no-verify deliberately DIVERGES from promote.ts (which commits WITH hooks): a
-          // server-side docs-only commit must not run the repo's pre-commit hooks (lint-staged
-          // etc.) on unrelated state. The change is grounded + human-reviewed via the PR.
-          await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
-          await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
-          try {
-            const status = await forge.openPr({
-              head: f.branch,
-              base: f.base,
-              title: COMMIT_MSG,
-              body: docPrBody(sentinel),
-            });
-            url = status.url ?? null;
-          } catch (err) {
-            // No net diff vs base → nothing to land; not an error.
-            if (!(err instanceof EmptyDiffError)) throw err;
+        const stagedOut = (
+          await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
+        ).trim();
+        if (stagedOut.length > 0) {
+          if (!this.act) {
+            // Phase-0 OBSERVE: the agent ran + edited, but we skip every publish side-effect (no
+            // commit, no push, no openPr). Log exactly what we WOULD have opened, then fall through
+            // to cleanup. url stays null → onChange fires the same {repoPath, url:null} shape as the
+            // already-current path.
+            const staged = stagedOut.split("\n").join(", ");
+            const n = stagedOut.split("\n").length;
+            console.warn(
+              `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${n} files): ${staged}`,
+            );
+          } else {
+            // --no-verify deliberately DIVERGES from promote.ts (which commits WITH hooks): a
+            // server-side docs-only commit must not run the repo's pre-commit hooks (lint-staged
+            // etc.) on unrelated state. The change is grounded + human-reviewed via the PR.
+            await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
+            await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
+            try {
+              const status = await forge.openPr({
+                head: f.branch,
+                base: f.base,
+                title: COMMIT_MSG,
+                body: docPrBody(sentinel),
+              });
+              url = status.url ?? null;
+            } catch (err) {
+              // No net diff vs base → nothing to land; not an error.
+              if (!(err instanceof EmptyDiffError)) throw err;
+            }
           }
         }
       }
     } finally {
+      // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
+      // and act) BEFORE the worktree is removed — mirrors herd-digest.ts / review.ts.
+      // completeReviewerSpawn no-ops on an unknown id, so an empty/missing id is safe.
+      const usage = await this.readUsage(f.worktreePath, f.spawnSessionId).catch(() => null);
+      this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? ZEROED_USAGE, this.now());
       // Cleanup mirrors Promoter.cleanup: stop the agent (closes its tab), remove the worktree, and
       // force-delete the local branch (the pushed remote branch backs any opened PR).
       this.deps.herdr.stop(f.terminalId);

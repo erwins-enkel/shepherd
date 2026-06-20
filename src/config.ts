@@ -357,11 +357,15 @@ export const config = {
   // Staged after Phase 0 has confirmed the live payload shape (see issue #704).
   hooksSignals: process.env.SHEPHERD_HOOKS_SIGNALS === "1",
   // PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in soak flag, mirroring
-  // SHEPHERD_HOOKS_INGEST: default-off and reversible. When off, the manual trigger
-  // (POST /api/doc-agent) 404s and the boot orphan-sweep is inert. When on, the trigger
-  // spawns a scoped, dontAsk doc agent that edits stale prose docs in a disposable worktree;
-  // the trusted server — never the agent — commits/pushes/opens a PR for human review.
+  // SHEPHERD_HOOKS_INGEST→HOOKS_SIGNALS: default-off and reversible. This is now Phase-0
+  // OBSERVE — when on, the trigger spawns a scoped, dontAsk doc agent that edits stale prose
+  // docs in a disposable worktree, but finalize() is LOG-ONLY (no commit/push/openPr). Set
+  // `docAgentAct` (Phase 1) to escalate to actually opening PRs. When off, the manual trigger
+  // (POST /api/doc-agent) 404s and the boot orphan-sweep is inert.
   docAgentEnabled: process.env.SHEPHERD_DOC_AGENT === "1",
+  // Phase-1 escalation; meaningful only with `docAgentEnabled` (Phase-0 observe). When off,
+  // finalize() is log-only (it warns what PR it *would* open, then skips commit/push/openPr).
+  docAgentAct: process.env.SHEPHERD_DOC_AGENT_ACT === "1",
   // Model alias for the doc-agent spawn. Unset → no --model (spawn default). The agent does
   // substantive comprehension, so a capable model is appropriate; override per deployment.
   docAgentModel: process.env.SHEPHERD_DOC_AGENT_MODEL ?? null,

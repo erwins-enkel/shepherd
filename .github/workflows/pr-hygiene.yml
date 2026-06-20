@@ -31,5 +31,7 @@ jobs:
         run: bash scripts/check-branch-hygiene.sh
       - name: Feature catalog upkeep (feat + UI ⇒ catalog entry)
         run: bash scripts/check-feature-catalog.sh
+      - name: Generated docs upkeep (generator source ⇒ regenerated output)
+        run: bash scripts/check-generated-docs.sh
       - name: Glossary referential integrity (terms ↔ keys ↔ markers)
         run: node scripts/check-glossary.mjs

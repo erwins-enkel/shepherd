@@ -27,6 +27,7 @@ import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from ".
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
+import { normalizeGlob } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 
@@ -2437,9 +2438,10 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getLearning(id);
   }
 
-  /** Replace a rule's scope globs (operator edit, #842). Stores the normalized,
-   *  deduped, non-empty patterns verbatim as a JSON array; `[]` makes it an
-   *  Always-rule again. No-op (returns null) for a missing rule. */
+  /** Replace a rule's scope globs (operator edit, #842). Normalizes each pattern to the
+   *  same repo-relative form the distiller uses (display parity with `sanitizeScopeGlobs`),
+   *  deduping and dropping empties; `[]` makes it an Always-rule again. No-op (returns null)
+   *  for a missing rule. */
   setLearningScope(id: string, globs: string[]): Learning | null {
     const cur = this.getLearning(id);
     if (!cur) return null;
@@ -2447,7 +2449,7 @@ export class SessionStore implements CapStore, CreditStore {
       ...new Set(
         globs
           .filter((g) => typeof g === "string")
-          .map((g) => g.trim())
+          .map((g) => normalizeGlob(g))
           .filter(Boolean),
       ),
     ];

@@ -378,10 +378,12 @@ test("#842: addLearning defaults scopeGlobs to [] and round-trips supplied globs
   expect(s.getLearning(scoped.id)!.scopeGlobs).toEqual(["src/**", "ui/**/*.svelte"]);
 });
 
-test("#842: setLearningScope replaces, trims/dedupes, and can clear back to []", () => {
+test("#842: setLearningScope normalizes, dedupes, and can clear back to []", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
-  const set = s.setLearningScope(l.id, [" src/** ", "src/**", "ui/**", ""]);
+  // " src/** " and "./src/**" both normalize to "src/**" → one entry (display parity
+  // with the distiller's sanitizeScopeGlobs); empty strings drop.
+  const set = s.setLearningScope(l.id, [" src/** ", "./src/**", "/ui/**", ""]);
   expect(set!.scopeGlobs).toEqual(["src/**", "ui/**"]);
   const cleared = s.setLearningScope(l.id, []);
   expect(cleared!.scopeGlobs).toEqual([]);

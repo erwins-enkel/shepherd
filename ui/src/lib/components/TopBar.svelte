@@ -12,7 +12,7 @@
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
   import type { HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { modeOf, topBarPlan, badgeCount } from "./top-bar-layout";
+  import { modeOf, badgeCount } from "./top-bar-layout";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
@@ -98,10 +98,11 @@
     sessions.filter((s) => displayStatus(s, workingBlocked) === "running").length,
   );
   const haltable = $derived(sessions.filter((s) => s.status === "running").length);
-  // Responsive right-cluster decisions live in ./top-bar-layout (pure + unit-tested,
-  // see top-bar-layout.test.ts). "touch-desktop" is the unfolded-foldable crunch
-  // (~1000px) the #247/#322 overflow fixes targeted. The halt e-stop is NOT a bar
-  // badge — it folds into the always-present gear menu — so it never counts here.
+  // "touch-desktop" = a coarse-pointer device wider than 768px (an unfolded foldable, a
+  // tablet) — a VARIABLE-width class, not the fixed ~1000px the old #247/#322 count rule
+  // assumed. Right-cluster compaction is therefore measurement-driven for it too, sharing
+  // desktop's path below (only `mobile`, which WRAPS, stays out of measurement). The halt
+  // e-stop is NOT a bar badge — it folds into the always-present gear menu.
   const mode = $derived(modeOf(mobile, touch));
   const learningsPresent = $derived(learnings > 0 || learningsCurate > 0);
   // Badge shows proposed count when any proposed, else the curate count
@@ -117,16 +118,16 @@
     whatsNew,
     learnings: learnings + learningsCurate,
   });
-  const plan = $derived(topBarPlan(mode, chrome));
 
-  // ── Desktop compaction is MEASURED, not count-based ──────────────────────────
-  // touch-desktop (≈fixed 1000px device, #322) + mobile stay rule-driven in
-  // top-bar-layout. But real desktop WIDTH varies — a ~1366px laptop gives the bar
-  // ~1322px usable, where even two full-label badges (~1354px) overflow, which a
-  // fixed badge count can't catch. So on desktop we compact only when the bar would
-  // ACTUALLY overflow its container, measured at runtime.
+  // ── Compaction is MEASURED, not count-based (desktop AND touch-desktop) ───────
+  // WIDTH varies on both: a ~1366px laptop gives the bar ~1322px usable where even two
+  // full-label badges (~1354px) overflow; an unfolded foldable can be ~800px where a lone
+  // full-label badge overflows, while a coarse-pointer tablet at ~1366px has ample room.
+  // A fixed badge count can't catch either, so for every non-mobile mode we compact only
+  // when the bar would ACTUALLY overflow its container, measured at runtime. (Mobile
+  // WRAPS to a second row instead — handled by the `mobile` flag, never measured.)
   let hudEl = $state<HTMLElement | null>(null);
-  let desktopCompact = $state(false);
+  let measuredCompact = $state(false);
   // Cached TRUE full-label content width (scrollWidth at the full render). The
   // full-label content is RESIZE-INVARIANT — nothing inside the bar wraps or reflows
   // on container width at desktop, so the content's intrinsic width doesn't change
@@ -144,18 +145,18 @@
   function measureFull() {
     if (measureScheduled) return;
     measureScheduled = true;
-    desktopCompact = false; // render full so scrollWidth is the full-label width
+    measuredCompact = false; // render full so scrollWidth is the full-label width
     requestAnimationFrame(() => {
       measureScheduled = false;
-      if (!hudEl || mode !== "desktop") {
-        desktopCompact = false;
+      if (!hudEl || mode === "mobile") {
+        measuredCompact = false;
         fullWidth = 0;
         return;
       }
       fullWidth = hudEl.scrollWidth;
       // 1px slack absorbs sub-pixel layout rounding, so a flush-fitting full-label bar
       // (scrollWidth a hair over clientWidth) isn't needlessly compacted.
-      desktopCompact = fullWidth > hudEl.clientWidth + 1;
+      measuredCompact = fullWidth > hudEl.clientWidth + 1;
     });
   }
 
@@ -164,12 +165,12 @@
   // full→compact every frame. If the cache is stale (0), fall back to a one-shot
   // full measurement.
   function decideFromCache() {
-    if (mode !== "desktop" || !hudEl) {
-      desktopCompact = false;
-      fullWidth = 0; // off-desktop: clear so re-entry re-measures fresh (matches content effect)
+    if (mode === "mobile" || !hudEl) {
+      measuredCompact = false;
+      fullWidth = 0; // mobile: clear so re-entry re-measures fresh (matches content effect)
       return;
     }
-    if (fullWidth > 0) desktopCompact = fullWidth > hudEl.clientWidth + 1;
+    if (fullWidth > 0) measuredCompact = fullWidth > hudEl.clientWidth + 1;
     else measureFull();
   }
 
@@ -186,9 +187,9 @@
     // neither this effect nor the ResizeObserver would re-fire — the bar would stay
     // un-compacted and overflow until an unrelated resize/badge change self-healed it.
     void gauges.length;
-    if (mode !== "desktop") {
-      desktopCompact = false;
-      fullWidth = 0; // off-desktop: clear the cache so re-entry re-measures fresh
+    if (mode === "mobile") {
+      measuredCompact = false;
+      fullWidth = 0; // mobile: clear the cache so re-entry re-measures fresh
       return;
     }
     fullWidth = 0; // content changed → cached full width is stale
@@ -205,11 +206,14 @@
     return () => ro.disconnect();
   });
 
-  // OR the measured desktop result into the flags the markup already keys off
-  // (compactBadges / hideClockTime). The touch-desktop rules from top-bar-layout
-  // stay as-is; desktop adds the measured overflow signal.
-  const hideClockTime = $derived(plan.hideClockTime || (mode === "desktop" && desktopCompact));
-  const compactBadges = $derived(plan.compactBadges || (mode === "desktop" && desktopCompact));
+  // The measured overflow result drives the flags the markup keys off, for every
+  // non-mobile mode (desktop + touch-desktop). The single signal COUPLES them: on a
+  // measured overflow the numeric clock-time drops AND labels collapse to icons together
+  // — there is intentionally no clock-dropped-but-labels-full intermediate (this is the
+  // deliberate loss of #322's two-step ladder, kept consistent with desktop). Mobile uses
+  // its own wrapping layout (the `mobile` flag), never these.
+  const hideClockTime = $derived(mode !== "mobile" && measuredCompact);
+  const compactBadges = $derived(mode !== "mobile" && measuredCompact);
 
   const idle = $derived(sessions.filter((s) => displayStatus(s, workingBlocked) === "idle").length);
   const blocked = $derived(
@@ -797,8 +801,8 @@
     align-items: center;
     font-variant-numeric: tabular-nums;
   }
-  /* Touch desktop-layout crowded by any right-side badge: hide the numeric
-     time, keep the dot inline so the cluster no longer overflows the bar. */
+  /* Measured overflow (non-mobile): hide the numeric time, keep the dot inline so the
+     right-side cluster no longer overflows the bar. */
   .clock.no-time {
     gap: 0;
   }

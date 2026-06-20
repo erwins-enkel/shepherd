@@ -237,12 +237,13 @@ function assertNoOverflow(el: HTMLElement) {
   expect(el.scrollWidth, `${el.className} overflows`).toBeLessThanOrEqual(el.clientWidth + 1);
 }
 
-// Desktop compaction is decided in a requestAnimationFrame after render, so the
-// no-overflow check has to wait for that frame to land. vi.waitFor re-runs the
-// assertion until it passes OR the timeout fires (then it surfaces the last
-// failure) — so a render that genuinely keeps overflowing still FAILS the test;
-// it can't be masked by polling. (touch-desktop/mobile already pass on the first
-// tick — their compaction is synchronous — so the wait is a no-op there.)
+// Compaction is decided in a requestAnimationFrame after render (desktop AND
+// touch-desktop now — both are measurement-driven), so the no-overflow check has to wait
+// for that frame to land. vi.waitFor re-runs the assertion until it passes OR the timeout
+// fires (then it surfaces the last failure) — so a render that genuinely keeps
+// overflowing still FAILS the test; it can't be masked by polling. (Only MOBILE settles
+// on the first tick — it wraps synchronously via the `mobile` flag — so the wait is a
+// no-op there.)
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 // Drain pending rAF-deferred measurement work: spin frames until the measured
@@ -300,6 +301,112 @@ describe("TopBar — no overflow, controls stay hittable", () => {
       assertControlsHittable(hud!);
     });
   }
+});
+
+describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-driven", () => {
+  // Unfolded foldables are touch + wider-than-768px → "touch-desktop", but at WILDLY
+  // varying widths (a fold ~800px vs an iPad landscape ~1366px). The old count-based
+  // rule kept a lone badge labelled regardless of width, so a lone ✦ LEARNINGS 87 label
+  // overflowed and pushed the gear out on a narrow fold — while ALSO over-compacting 2+
+  // badges on a wide tablet. Compaction is now runtime-measured for touch-desktop too
+  // (same path as desktop). On touch the usage gauges collapse to a single .gauge-btn
+  // (TopBarUsage), so fullLimits here renders that collapsed button, matching the
+  // reported screenshot (5H ▭ 46%).
+  async function renderTD(width: number, extra: Record<string, unknown>) {
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS["touch-desktop"],
+      ...sessionsProp(0),
+      limits: fullLimits,
+      ...extra,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    return hud!;
+  }
+
+  it("narrow fold (800): lone learnings overflows full-label → compacts to fit, gear hittable", async () => {
+    // Full-label intrinsic (clock already dropped) ≈ 840 > 800, so the old count rule
+    // overflowed here; the measured path compacts the chip to fit.
+    const hud = await renderTD(800, { learnings: 87 });
+    await waitNoOverflow(hud);
+    await drainFrames(hud);
+    const btn = hud.querySelector<HTMLElement>(".learnings-btn");
+    expect(btn, "learnings chip present").not.toBeNull();
+    expect(btn!.classList.contains("compact"), "lone learnings compacts to fit the fold").toBe(
+      true,
+    );
+    expect(hud.querySelector(".learnings-btn .learn-label"), "full label dropped").toBeNull();
+    assertControlsHittable(hud);
+  });
+
+  it("wide tablet (1366): lone learnings FITS → stays full-label (measurement does not over-compact)", async () => {
+    // Full-with-clock intrinsic ≈ 928 < 1366, so it must stay full: label kept, clock
+    // shown — the no-over-fire direction of the ungated measurement.
+    const hud = await renderTD(1366, { learnings: 87 });
+    await nextFrame();
+    await nextFrame();
+    await drainFrames(hud);
+    assertNoOverflow(hud);
+    const btn = hud.querySelector<HTMLElement>(".learnings-btn");
+    expect(btn!.classList.contains("compact"), "not compacted when it fits").toBe(false);
+    expect(hud.querySelector(".learnings-btn .learn-label"), "full label kept").not.toBeNull();
+    expect(
+      hud.querySelector(".clock")!.classList.contains("no-time"),
+      "clock shown when it fits",
+    ).toBe(false);
+    assertControlsHittable(hud);
+  });
+
+  it("wide tablet (1366): two badges keep full labels (old count-floor over-compaction is gone)", async () => {
+    const hud = await renderTD(1366, { needsYou: 2, update: { behind: 3 } as UpdateStatus });
+    await nextFrame();
+    await nextFrame();
+    await drainFrames(hud);
+    assertNoOverflow(hud);
+    const needsYou = hud.querySelector<HTMLElement>(".needsyou");
+    expect(needsYou!.classList.contains("compact"), "needsYou full at wide tablet").toBe(false);
+    expect(hud.querySelector(".update-badge .up-label"), "update full label kept").not.toBeNull();
+    assertControlsHittable(hud);
+  });
+
+  it("clock-drop and label-collapse are COUPLED across all widths (#322 two-step ladder dropped)", async () => {
+    // The single measured signal couples the two flags: on a measured overflow the bar
+    // drops the numeric clock AND compacts the labels together — there is NO
+    // clock-dropped-but-full-label intermediate (the deliberate loss of #322's two-step
+    // ladder, matching desktop). Asserted as an invariant over a width sweep rather than a
+    // fixed band, so it's independent of font metrics (the exact transition width varies
+    // by the monospace fallback). At every width: clock-dropped iff labels-compacted; and
+    // the sweep must exercise BOTH states (a wide width stays full, a narrow width
+    // compacts) so the invariant can't pass vacuously.
+    // Widths start at 800 (proven to fit once compacted, in CI + local) and span up to a
+    // wide tablet; the exact compact↔full transition is font-dependent, but coupling must
+    // hold at every width regardless.
+    const states: { width: number; clockDropped: boolean; labelsCompact: boolean }[] = [];
+    for (const width of [800, 880, 960, 1100, 1250, 1366]) {
+      const hud = await renderTD(width, { learnings: 87 });
+      await waitNoOverflow(hud);
+      await drainFrames(hud);
+      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
+      const labelsCompact = hud
+        .querySelector<HTMLElement>(".learnings-btn")!
+        .classList.contains("compact");
+      expect(clockDropped, `coupled at ${width}px (clock vs labels)`).toBe(labelsCompact);
+      assertControlsHittable(hud);
+      states.push({ width, clockDropped, labelsCompact });
+    }
+    expect(
+      states.some((s) => s.clockDropped),
+      "sweep exercises the compacted state (some narrow width drops clock + compacts)",
+    ).toBe(true);
+    expect(
+      states.some((s) => !s.clockDropped),
+      "sweep exercises the full state (some wide width keeps clock + full labels)",
+    ).toBe(true);
+  });
 });
 
 describe("TopBar — wide desktop keeps full labels (measurement does NOT over-compact)", () => {

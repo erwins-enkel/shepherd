@@ -1,12 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { badgeCount, topBarPlan, type Mode, type ChromeState } from "./top-bar-layout";
+import { badgeCount, type ChromeState } from "./top-bar-layout";
 
-// NOTE: desktop compaction is no longer count-based — it's measurement-driven at
-// runtime in TopBar.svelte and covered by TopBar.browser.test.ts. The pure layer
-// here only models touch-desktop (count-based, #322) + mobile; on desktop both
-// plan flags are always false.
-
-const MODES: Mode[] = ["mobile", "touch-desktop", "desktop"];
+// NOTE: compaction is no longer count-based for ANY mode — it's measurement-driven at
+// runtime in TopBar.svelte (desktop AND touch-desktop) and covered by
+// TopBar.browser.test.ts; mobile wraps via the component's `mobile` flag. So this pure
+// layer no longer has a render-plan to test — only `badgeCount`, the content-change
+// signal the measure effect tracks.
 
 // Build every ChromeState from a 5-bit mask over the five badge-presence inputs.
 // The halt e-stop is NOT a bar badge (it lives in the gear menu), so it never
@@ -81,90 +80,5 @@ describe("badgeCount", () => {
       learnings: 2,
     };
     expect(badgeCount(s)).toBe(2);
-  });
-});
-
-describe("topBarPlan — exhaustive 3 modes × 32 presence combos", () => {
-  // Desktop compaction is measurement-driven (TopBar.svelte / TopBar.browser.test.ts),
-  // so the pure layer always returns false for desktop here.
-  it("hideClockTime only on touch-desktop (>=1 badge); desktop + mobile never", () => {
-    for (const mode of MODES) {
-      for (let mask = 0; mask <= ALL; mask++) {
-        const s = stateFromMask(mask);
-        const plan = topBarPlan(mode, s);
-        const count = badgeCount(s);
-        const expected = mode === "touch-desktop" && count > 0;
-        expect(plan.hideClockTime).toBe(expected);
-      }
-    }
-  });
-
-  it("compactBadges only on touch-desktop (>=2 badges); desktop + mobile never", () => {
-    for (const mode of MODES) {
-      for (let mask = 0; mask <= ALL; mask++) {
-        const s = stateFromMask(mask);
-        const plan = topBarPlan(mode, s);
-        const count = badgeCount(s);
-        const expected = mode === "touch-desktop" && count >= 2;
-        expect(plan.compactBadges).toBe(expected);
-      }
-    }
-  });
-});
-
-describe("regression anchors (#322 / #247)", () => {
-  it("a lone badge on touch-desktop drops the clock but does NOT compact", () => {
-    const s = stateFromMask(0b0100); // needsYou only
-    const plan = topBarPlan("touch-desktop", s);
-    expect(plan.hideClockTime).toBe(true);
-    expect(plan.compactBadges).toBe(false);
-  });
-
-  it("two badges on touch-desktop compact the row", () => {
-    const s = stateFromMask(0b1100); // needsYou + whatsNew
-    expect(topBarPlan("touch-desktop", s).compactBadges).toBe(true);
-  });
-
-  it("desktop never sets crunch flags in the pure layer (measurement-driven instead)", () => {
-    // Desktop compaction is decided by runtime pixel measurement in TopBar.svelte
-    // (see measureFull/decideFromCache + TopBar.browser.test.ts), so the pure plan
-    // is false for desktop at every badge count — including all five badges.
-    const all = stateFromMask(ALL);
-    const plan = topBarPlan("desktop", all);
-    expect(plan.hideClockTime).toBe(false);
-    expect(plan.compactBadges).toBe(false);
-  });
-
-  it("mobile never sets touch-desktop crunch flags", () => {
-    const all = stateFromMask(ALL);
-    const plan = topBarPlan("mobile", all);
-    expect(plan.hideClockTime).toBe(false);
-    expect(plan.compactBadges).toBe(false);
-  });
-
-  it("learnings>0 as lone badge on touch-desktop: drops clock, does not compact", () => {
-    const s: ChromeState = {
-      updateAvailable: false,
-      herdrUpdateAvailable: false,
-      needsYou: 0,
-      whatsNew: false,
-      learnings: 5,
-    };
-    const plan = topBarPlan("touch-desktop", s);
-    expect(plan.hideClockTime).toBe(true);
-    expect(plan.compactBadges).toBe(false);
-  });
-
-  it("learnings>0 plus one more badge on touch-desktop: compactBadges", () => {
-    const s: ChromeState = {
-      updateAvailable: false,
-      herdrUpdateAvailable: false,
-      needsYou: 1,
-      whatsNew: false,
-      learnings: 2,
-    };
-    const plan = topBarPlan("touch-desktop", s);
-    expect(plan.hideClockTime).toBe(true);
-    expect(plan.compactBadges).toBe(true);
   });
 });

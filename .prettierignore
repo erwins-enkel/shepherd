@@ -4,6 +4,9 @@ bun.lock
 # Self-contained Astro marketing site (own toolchain; later extracted to its own repo)
 site
 
+# Astro Starlight docs site (own toolchain; .astro/.md formatted by astro, not root prettier)
+docs-site
+
 # Generated changelog — leave its formatting alone
 CHANGELOG.md
 

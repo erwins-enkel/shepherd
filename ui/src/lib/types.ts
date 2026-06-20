@@ -652,6 +652,11 @@ export interface Session {
   egressDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
+  /** Web URL of the linked forge issue. Populated **only** by the Done-list endpoint
+   *  (`GET /api/sessions/done`) for archived sessions — the live counterpart is
+   *  {@link GitState.issueUrl}, keyed by active session id and absent once archived. Same
+   *  semantic URL, two distinct population paths; neither is a single source of truth. */
+  issueUrl?: string;
   lastState: string;
   createdAt: number;
   updatedAt: number;

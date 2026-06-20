@@ -106,6 +106,21 @@ describe("DoneRecapPanel ready state", () => {
     expect(document.querySelector("a"), "no fabricated PR link in header").toBeNull();
   });
 
+  it("renders the header issue as a forge link when issueUrl is present", async () => {
+    recaps.map = { s1l: recap({ sessionId: "s1l" }) };
+    render(DoneRecapPanel, {
+      session: session({
+        id: "s1l",
+        issueNumber: 855,
+        issueUrl: "https://github.com/o/r/issues/855",
+      }),
+    });
+    const link = page.getByRole("link", { name: "Issue #855" });
+    await expect.element(link).toBeInTheDocument();
+    await expect.element(link).toHaveAttribute("href", "https://github.com/o/r/issues/855");
+    await expect.element(link).toHaveAttribute("target", "_blank");
+  });
+
   it("omits the changed-files section when the list is empty", async () => {
     recaps.map = { s2: recap({ sessionId: "s2", changedFiles: [] }) };
     render(DoneRecapPanel, { session: session({ id: "s2" }) });

@@ -71,7 +71,14 @@
     <span class="dr-desig">{session.desig}</span>
     <span class="dr-finished">{m.done_recap_finished({ ago: finishedAgo })}</span>
     {#if session.issueNumber != null}
-      <span class="dr-issue">{m.recap_issue({ n: session.issueNumber })}</span>
+      {#if session.issueUrl}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+        <a class="dr-issue dr-issue-link" href={session.issueUrl} target="_blank" rel="noopener"
+          >{m.recap_issue({ n: session.issueNumber })}</a
+        >
+      {:else}
+        <span class="dr-issue">{m.recap_issue({ n: session.issueNumber })}</span>
+      {/if}
     {/if}
   </header>
 
@@ -162,6 +169,17 @@
     margin-left: auto;
     font-size: var(--fs-meta);
     color: var(--color-faint);
+  }
+
+  /* Clickable variant when the Done payload carries a forge issue URL. Amber accent
+     matches the panel's markdown links (.dr-md a); underline on hover signals interactivity. */
+  .dr-issue-link {
+    color: var(--color-amber);
+    text-decoration: none;
+  }
+
+  .dr-issue-link:hover {
+    text-decoration: underline;
   }
 
   .dr-body {

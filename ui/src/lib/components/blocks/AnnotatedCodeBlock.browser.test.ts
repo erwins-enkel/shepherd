@@ -31,6 +31,25 @@ describe("AnnotatedCodeBlock", () => {
     await expect.element(page.getByText(/This sets up the main handler\./)).toBeInTheDocument();
   });
 
+  it("separates annotation label and note with whitespace", async () => {
+    render(AnnotatedCodeBlock, {
+      block: {
+        type: "annotated-code",
+        id: "ac2ws",
+        filename: "src/api.ts",
+        code: "export function init() {}",
+        annotations: [{ label: "Placeholder", note: "removed resolveMarkdown call" }],
+      },
+    });
+    const li = page
+      .getByText(/removed resolveMarkdown call/)
+      .element()
+      .closest("li");
+    expect(li?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Placeholder removed resolveMarkdown call",
+    );
+  });
+
   it("renders annotation without label", async () => {
     render(AnnotatedCodeBlock, {
       block: {

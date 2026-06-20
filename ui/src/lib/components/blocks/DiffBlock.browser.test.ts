@@ -82,6 +82,24 @@ describe("DiffBlock", () => {
     await expect.element(page.getByText(/This is important/)).toBeInTheDocument();
   });
 
+  it("separates annotation label and note with whitespace", async () => {
+    render(DiffBlock, {
+      block: {
+        type: "diff",
+        id: "d4ws",
+        path: "src/index.ts",
+        summary: "With annotations",
+        file: TEST_FILE,
+        annotations: [{ label: "Type", note: "widened openIssues element" }],
+      },
+    });
+    const li = page
+      .getByText(/widened openIssues element/)
+      .element()
+      .closest("li");
+    expect(li?.textContent?.replace(/\s+/g, " ").trim()).toBe("Type widened openIssues element");
+  });
+
   it("renders annotation without label", async () => {
     render(DiffBlock, {
       block: {

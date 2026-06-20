@@ -11,6 +11,7 @@
     SignalKind,
   } from "$lib/types";
   import { learnings } from "$lib/learnings.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
   import {
     basename,
     repoAnchorId,
@@ -456,10 +457,18 @@
   {:else}
     {#each displayGroups as group (group.repoPath)}
       <!-- Change 4: group container with left-accent border + faint surface -->
+      {@const repoIcon = projectIcons.iconFor(group.repoPath)}
       <section class="group" id={repoAnchorId(group.repoPath)}>
         <!-- Change 4: sticky repo header -->
         <div class="ghead">
-          <span class="repo">{basename(group.repoPath)}</span>
+          <!-- Repo identity glyph + name, mirroring the session-card label
+               (UnitRow): the configured project emoji when set, else the ▣
+               marker — makes it clear at a glance which repo a card concerns. -->
+          <span class="repo">
+            <span class="repo-glyph" class:emoji={!!repoIcon} aria-hidden="true"
+              >{repoIcon ?? "▣"}</span
+            >{basename(group.repoPath)}
+          </span>
           <button
             class="distill"
             onclick={() => onmergenow(group.repoPath)}
@@ -869,9 +878,22 @@
     background: var(--color-head);
   }
   .repo {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
     font-weight: 600;
+  }
+  /* Repo marker before the name — muted ▣ matches the session-card glyph; a
+     configured project emoji renders at its own (slightly larger) size. */
+  .repo-glyph {
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    flex-shrink: 0;
+  }
+  .repo-glyph.emoji {
+    font-size: var(--fs-base);
   }
   .distill {
     font-size: var(--fs-meta);

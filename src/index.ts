@@ -824,8 +824,10 @@ events.subscribe((event, data) => {
   if (git.state !== "merged") return;
   const s = store.get(id);
   if (!s) return;
+  // onMergedPr gates on s.baseBranch === the repo default — a feat/config PR that merged into a
+  // non-default (epic/stacked) base must not trigger a run grounded on the default tip.
   void docAgent
-    .onMergedPr(s.repoPath, git.number, git.title)
+    .onMergedPr(s.repoPath, git.number, git.title, s.baseBranch)
     .catch((err) => console.warn("[doc-agent] onMergedPr failed:", err));
 });
 setInterval(() => {

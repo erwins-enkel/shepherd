@@ -206,9 +206,14 @@ export class DocAgentService {
   }
 
   /**
-   * Merge-triggered consideration (issue #904). Called when a managed session's PR merges to the
-   * default branch. Gated on a PER-PR persisted `merged-seen` key (NOT the sha-gate): the merged
-   * `session:git` event fires ONCE (the open→merged transition; `gitStateChanged` re-emits only on
+   * Merge-triggered consideration (issue #904). Called when a managed session's PR merges. Only a
+   * merge INTO the repo's default branch is considered — `baseBranch` (the session's PR target) must
+   * equal `forge.defaultBranch()`; a feat/config PR merging into a non-default (epic/stacked) base
+   * would spawn a near-no-op run grounded on the default tip, and those changes reach the default
+   * branch at epic-landing time (caught by the nightly sweep) anyway.
+   *
+   * Gated on a PER-PR persisted `merged-seen` key (NOT the sha-gate): the merged `session:git` event
+   * fires ONCE (the open→merged transition; `gitStateChanged` re-emits only on
    * state/checks/headSha/mergeable/review/handoff moves) and this method does NO fetch, so the local
    * `origin/<base>` is still the pre-merge sha at that instant — a sha-gate would wrongly skip with no
    * re-emit to retry. The per-PR key is freshness-independent: it fires immediately (consider() →
@@ -219,10 +224,22 @@ export class DocAgentService {
     repoPath: string,
     prNumber: number | undefined,
     prTitle: string | undefined,
+    baseBranch: string,
   ): Promise<DocAgentResult> {
     if (prNumber == null) return { status: "skipped", reason: "merged event without a PR number" };
     if (!isDocRelevantMerge(prTitle))
       return { status: "skipped", reason: "merge subject is not doc-relevant (feat/config)" };
+    // Default-branch gate (cheap forge call, reached only for doc-relevant subjects). On a resolve
+    // failure, skip — better a missed fast-path (nightly catches it) than a wrong-tip spawn.
+    const forge = this.deps.resolveForge(repoPath);
+    let def: string;
+    try {
+      def = forge ? await forge.defaultBranch() : "";
+    } catch {
+      return { status: "skipped", reason: "could not resolve default branch" };
+    }
+    if (!forge || baseBranch !== def)
+      return { status: "skipped", reason: "merge target is not the default branch" };
     const key = mergedSeenKey(repoPath, prNumber);
     if (this.deps.store.getSetting(key) != null)
       return { status: "skipped", reason: "merge already handled" };
@@ -568,6 +585,9 @@ export class DocAgentService {
 // ── cadence markers (settings KV) ─────────────────────────────────────────────
 const lastShaKey = (repo: string) => `docagent:last-sha:${repo}`;
 const nightlyDayKey = (repo: string) => `docagent:nightly-day:${repo}`;
+// One tiny row per merged feat/config PR per repo. Bounded by the count of such PRs (finite, modest)
+// and never read back beyond an existence check, so it needs no cleanup path — same accept-and-grow
+// posture as the existing `learnings:*` per-key settings markers (e.g. learnings:retired-seen:<repo>).
 const mergedSeenKey = (repo: string, prNumber: number) =>
   `docagent:merged-seen:${repo}:${prNumber}`;
 

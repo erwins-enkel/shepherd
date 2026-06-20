@@ -469,9 +469,9 @@ test("nightly rev-parse failure then next-day success fires", async () => {
   expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-02");
 });
 
-test("merge: feat-subject PR → spawn once + merged-seen persisted; no fetch in onMergedPr", async () => {
+test("merge: feat-subject PR into default base → spawn once + merged-seen persisted; no fetch in onMergedPr", async () => {
   const h = mkHarness();
-  const res = await h.svc.onMergedPr("/repo", 42, "feat(ui): add thing");
+  const res = await h.svc.onMergedPr("/repo", 42, "feat(ui): add thing", "main");
   expect(res.status).toBe("started");
   expect(h.starts).toHaveLength(1);
   expect(h.kv.get(MERGED_SEEN("/repo", 42))).toBe("1");
@@ -482,23 +482,31 @@ test("merge: feat-subject PR → spawn once + merged-seen persisted; no fetch in
 
 test("merge: non-doc-relevant subject → skip, no spawn, no merged-seen", async () => {
   const h = mkHarness();
-  const res = await h.svc.onMergedPr("/repo", 7, "fix: a bug");
+  const res = await h.svc.onMergedPr("/repo", 7, "fix: a bug", "main");
   expect(res.status).toBe("skipped");
   expect(h.starts).toHaveLength(0);
   expect(h.kv.has(MERGED_SEEN("/repo", 7))).toBe(false);
 });
 
+test("merge: feat PR into NON-default base (epic/stacked) → skip, no spawn, no merged-seen", async () => {
+  const h = mkHarness(); // forge.defaultBranch() === "main"
+  const res = await h.svc.onMergedPr("/repo", 99, "feat: epic sub-task", "epic/875-docs-site");
+  expect(res.status).toBe("skipped");
+  expect(h.starts).toHaveLength(0);
+  expect(h.kv.has(MERGED_SEEN("/repo", 99))).toBe(false);
+});
+
 test("merge restart-idempotency: merged-seen already set → skip (boot-replay no-op)", async () => {
   const h = mkHarness();
   h.kv.set(MERGED_SEEN("/repo", 42), "1");
-  const res = await h.svc.onMergedPr("/repo", 42, "feat: x");
+  const res = await h.svc.onMergedPr("/repo", 42, "feat: x", "main");
   expect(res.status).toBe("skipped");
   expect(h.starts).toHaveLength(0);
 });
 
 test("merge: absent PR number → skip", async () => {
   const h = mkHarness();
-  const res = await h.svc.onMergedPr("/repo", undefined, "feat: x");
+  const res = await h.svc.onMergedPr("/repo", undefined, "feat: x", "main");
   expect(res.status).toBe("skipped");
   expect(h.starts).toHaveLength(0);
 });

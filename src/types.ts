@@ -506,6 +506,12 @@ export interface Learning {
   lastUsedAt: number | null;
   retiredAt: number | null;
   retiredReason: string | null;
+  /** Optional glob patterns scoping where this rule applies (repo-relative, e.g.
+   *  "src/" + star-star or "ui/" + star-star + "/*.svelte"). Empty = an "Always-rule"
+   *  injected for every task; non-empty = injected only when the session's target files
+   *  match a glob (Phase 3, #842). Distiller-inferred from path-like signal text, or
+   *  operator-set. */
+  scopeGlobs: string[];
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;

@@ -17,6 +17,7 @@ function L(id: string): Learning {
     lastUsedAt: null,
     retiredAt: null,
     retiredReason: null,
+    scopeGlobs: [],
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,

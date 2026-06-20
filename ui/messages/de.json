@@ -1642,5 +1642,16 @@
   "backlog_ff_main": "Vorspulen",
   "backlog_ff_main_title": "Lokalen Standard-Branch vorspulen",
   "feat_ff_main_title": "Vorspulen auf Knopfdruck",
-  "feat_ff_main_body": "Den lokalen Standard-Branch eines Repos jederzeit aus dem Backlog auf origin vorspulen – kein PR-Merge erforderlich."
+  "feat_ff_main_body": "Den lokalen Standard-Branch eines Repos jederzeit aus dem Backlog auf origin vorspulen – kein PR-Merge erforderlich.",
+  "common_save": "Speichern",
+  "learnings_scoped_badge": "Begrenzt",
+  "learnings_scoped_title": "Auf Globs begrenzte Regel – wird nur für Aufgaben injiziert, deren Zieldateien zu ihren Globs passen, nicht in jede Sitzung. So bleibt das Budget für die Regeln, die eine Aufgabe wirklich braucht.",
+  "learnings_scope_label": "Geltungsbereich:",
+  "learnings_scope_always": "immer (jede Aufgabe)",
+  "learnings_scope_edit": "Bereich bearbeiten",
+  "learnings_scope_placeholder": "z. B. src/**, ui/**/*.svelte",
+  "learnings_scope_input_aria": "Glob-Muster, durch Komma oder Leerzeichen getrennt",
+  "learnings_scope_failed": "Geltungsbereich konnte nicht aktualisiert werden",
+  "feat_scoped_learnings_title": "Hausregeln auf Dateien begrenzen",
+  "feat_scoped_learnings_body": "Eine gelernte Regel kann jetzt Glob-Muster tragen (z. B. src/**), sodass sie nur für Aufgaben injiziert wird, die diese Dateien berühren – das 4000-Zeichen-Budget greift innerhalb der passenden Menge statt über das ganze Repo. Den Bereich einer Regel im Learnings-Panel setzen oder entfernen."
 }

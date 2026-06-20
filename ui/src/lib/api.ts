@@ -1255,6 +1255,18 @@ export async function optimizeLearning(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "optimize");
 }
 
+/** Set (or clear, with `[]`) a rule's glob scope (#842). Returns the updated rule;
+ *  the drawer reloads on the learnings:update event. */
+export async function setLearningScope(id: string, globs: string[]): Promise<Learning> {
+  const r = await fetch(`/api/learnings/${id}/scope`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ globs }),
+  });
+  if (!r.ok) throw await failed(r, "scope");
+  return r.json();
+}
+
 /** Restore a retired learning rule back to active. */
 export async function restoreLearning(id: string): Promise<Learning> {
   const r = await fetch(`/api/learnings/${id}/restore`, { method: "POST", headers: JSON_HEADERS });

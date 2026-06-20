@@ -39,6 +39,7 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
     lastUsedAt: null,
     retiredAt: null,
     retiredReason: null,
+    scopeGlobs: [],
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
@@ -48,7 +49,14 @@ function L(id: string, repo: string, status: LearningStatus = "proposed"): Learn
 
 function IR(
   repo: string,
-  rules: { id: string; injected: boolean; status?: LearningStatus; ineffectiveCount?: number }[],
+  rules: {
+    id: string;
+    injected: boolean;
+    status?: LearningStatus;
+    ineffectiveCount?: number;
+    scoped?: boolean;
+    scopeGlobs?: string[];
+  }[],
   over: Partial<RepoInjectable> = {},
 ): RepoInjectable {
   return {
@@ -59,6 +67,8 @@ function IR(
     rules: rules.map((r) => ({
       ...L(r.id, repo, r.status ?? "active"),
       injected: r.injected,
+      scoped: r.scoped ?? false,
+      scopeGlobs: r.scopeGlobs ?? [],
       ineffectiveCount: r.ineffectiveCount ?? 0,
     })),
     retired: [],
@@ -129,7 +139,11 @@ describe("mergeRepoGroups", () => {
 });
 
 describe("injectionBadge", () => {
-  const rule = (injected: boolean) => ({ ...L("1", "/a", "active"), injected });
+  const rule = (injected: boolean, scoped = false) => ({
+    ...L("1", "/a", "active"),
+    injected,
+    scoped,
+  });
   it("disabled when repo injection is off, regardless of injected flag", () => {
     expect(injectionBadge(rule(true), false)).toBe("disabled");
     expect(injectionBadge(rule(false), false)).toBe("disabled");

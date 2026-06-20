@@ -46,6 +46,7 @@ function learning(over: Partial<Learning>): Learning {
     lastUsedAt: null,
     retiredAt: null,
     retiredReason: null,
+    scopeGlobs: [],
     createdAt: 0,
     updatedAt: 0,
     lastEvidenceAt: null,
@@ -54,8 +55,11 @@ function learning(over: Partial<Learning>): Learning {
   };
 }
 
-function rule(injected: boolean): Learning & { injected: boolean } {
-  return { ...learning({}), injected };
+function rule(
+  injected: boolean,
+  scoped = false,
+): Learning & { injected: boolean; scoped: boolean } {
+  return { ...learning({}), injected, scoped };
 }
 
 function injectable(over: Partial<RepoInjectable>): RepoInjectable {

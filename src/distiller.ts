@@ -6,6 +6,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Signal, SignalKind } from "./types";
+import { sanitizeScopeGlobs } from "./house-rules";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -40,7 +41,9 @@ interface RawRule {
   rule?: unknown;
   rationale?: unknown;
   evidence?: unknown;
+  scopeGlobs?: unknown;
 }
+
 interface RawUpdate {
   id?: unknown;
   rule?: unknown;
@@ -372,6 +375,7 @@ export class DistillerService {
         evidence: Array.isArray(r.evidence)
           ? r.evidence.filter((e): e is string => typeof e === "string")
           : [],
+        scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
       });
       added++;
     }
@@ -425,8 +429,13 @@ function distillPrompt(): string {
     "Only cite ids present in the data — never invent ids.",
     "",
     "Limits: at most 5 ADDs, 5 updates, 5 deletes.",
+    "",
+    "When an ADD clearly applies only to specific files or areas (judging by the file paths",
+    "mentioned in the signals), include an optional `scopeGlobs`: an array of up to 5 repo-relative",
+    'glob patterns (e.g. "src/**", "ui/**/*.svelte") so the rule injects only for tasks touching',
+    "those files. OMIT `scopeGlobs` (or use []) for general rules — do not invent a scope when unsure.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
+    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
     'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[]}. Do not write anything else.',
   ].join("\n");
 }

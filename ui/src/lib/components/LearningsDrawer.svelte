@@ -3,7 +3,7 @@
   import type { Action } from "svelte/action";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-  import type { Learning, RepoInjectable, SignalKind } from "$lib/types";
+  import type { InjectableRule, Learning, RepoInjectable, SignalKind } from "$lib/types";
   import { learnings } from "$lib/learnings.svelte";
   import {
     basename,
@@ -102,6 +102,7 @@
     onoptimize,
     onoptimizeall,
     onrestore,
+    onscope,
     onseenretired,
     onclose,
   }: {
@@ -115,12 +116,30 @@
     onoptimize: (id: string) => void;
     onoptimizeall: (repoPath: string) => void;
     onrestore: (id: string) => void;
+    onscope: (id: string, globs: string[]) => void;
     onseenretired: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
 
   let drafts = $state<Record<string, string>>({});
   const draft = (l: Learning) => drafts[l.id] ?? l.rule;
+
+  // Glob-scope editing (#842): which injectable rule has its scope editor open, and the
+  // comma-separated draft text. Saving splits on commas/whitespace into a glob array.
+  let editingScope = $state<string | null>(null);
+  let scopeDraft = $state("");
+  function openScopeEditor(l: Learning & { scopeGlobs: string[] }) {
+    editingScope = l.id;
+    scopeDraft = l.scopeGlobs.join(", ");
+  }
+  function saveScope(id: string) {
+    const globs = scopeDraft
+      .split(/[,\s]+/)
+      .map((g) => g.trim())
+      .filter(Boolean);
+    onscope(id, globs);
+    editingScope = null;
+  }
 
   const reduceMotion =
     typeof window !== "undefined" &&
@@ -288,7 +307,7 @@
 
   <!-- Change 6: Injectable-rule snippet — single source, no copy-paste.
        Accepts the repo's enabled flag so the badge reflects injection state correctly. -->
-  {#snippet irule(r: Learning & { injected: boolean }, enabled: boolean)}
+  {#snippet irule(r: InjectableRule, enabled: boolean)}
     {@const badge = injectionBadge(r, enabled)}
     <article class="irule">
       <p class="itext">{r.rule}</p>
@@ -298,6 +317,10 @@
         </span>
         {#if badge === "injected"}
           <span class="badge ok">✓ {m.learnings_injected_badge()}</span>
+        {:else if badge === "scoped"}
+          <span class="badge scoped" title={m.learnings_scoped_title()}>
+            ◎ {m.learnings_scoped_badge()}
+          </span>
         {:else if badge === "over-budget"}
           <span class="badge warn" title={m.learnings_overbudget_title()}>
             ⊘ {m.learnings_overbudget_badge()}
@@ -346,6 +369,34 @@
             </a>
           {/if}
         </div>
+      </div>
+      <!-- #842: glob scope — which files this rule applies to (empty = always). -->
+      <div class="iscope">
+        {#if editingScope === r.id}
+          <input
+            class="scope-input"
+            type="text"
+            bind:value={scopeDraft}
+            placeholder={m.learnings_scope_placeholder()}
+            aria-label={m.learnings_scope_input_aria()}
+          />
+          <button class="scope-save" type="button" onclick={() => saveScope(r.id)}>
+            {m.common_save()}
+          </button>
+          <button class="scope-cancel" type="button" onclick={() => (editingScope = null)}>
+            {m.common_cancel()}
+          </button>
+        {:else}
+          <span class="scope-label">{m.learnings_scope_label()}</span>
+          {#if r.scopeGlobs.length > 0}
+            {#each r.scopeGlobs as g (g)}<code class="scope-glob">{g}</code>{/each}
+          {:else}
+            <span class="scope-always">{m.learnings_scope_always()}</span>
+          {/if}
+          <button class="scope-edit" type="button" onclick={() => openScopeEditor(r)}>
+            {m.learnings_scope_edit()}
+          </button>
+        {/if}
       </div>
     </article>
   {/snippet}
@@ -1013,6 +1064,58 @@
   }
   .badge.off {
     color: var(--color-muted);
+  }
+  .badge.scoped {
+    border-color: var(--color-blue);
+    color: var(--color-blue);
+    cursor: help;
+  }
+  .iscope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .scope-label {
+    color: var(--color-muted);
+  }
+  .scope-glob {
+    padding: 1px 5px;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-blue);
+    background: color-mix(in srgb, var(--color-blue) 10%, var(--color-head));
+  }
+  .scope-always {
+    color: var(--color-muted);
+    font-style: italic;
+  }
+  .scope-edit,
+  .scope-save,
+  .scope-cancel {
+    font-size: var(--fs-meta);
+    background: none;
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-muted);
+    padding: 2px 7px;
+    cursor: pointer;
+  }
+  .scope-edit:hover,
+  .scope-save:hover,
+  .scope-cancel:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink-bright);
+  }
+  .scope-input {
+    flex: 1 1 12rem;
+    min-width: 0;
+    font-size: var(--fs-meta);
+    padding: 2px 6px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink-bright);
   }
   .help-rate {
     font-size: var(--fs-micro);

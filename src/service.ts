@@ -29,7 +29,7 @@ import {
 } from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import type { PreviewService } from "./preview";
-import { planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { MAX_IMAGES } from "./validate";
@@ -1236,14 +1236,23 @@ export class SessionService {
   }
 
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when none /
-   *  learnings disabled. Records the injected rule ids against the session (join rows
-   *  only — counters are advanced symmetrically with the reward at archive, never here).
-   *  Injected into every new agent's system prompt via composeSystemPrompt. */
-  private recordInjectedHouseRules(sessionId: string, repoPath: string): string | null {
+   *  learnings disabled. Always-rules plus glob-scoped rules whose globs match files named
+   *  in the task text (prompt + attached issue), with the budget capping within that matched
+   *  set (#842). Records the injected rule ids against the session (join rows only — counters
+   *  are advanced symmetrically with the reward at archive, never here). Injected into every
+   *  new agent's system prompt via composeSystemPrompt. */
+  private recordInjectedHouseRules(sessionId: string, input: CreateSessionInput): string | null {
+    const { repoPath } = input;
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
+    const targetPaths = extractTargetPaths(
+      [input.prompt, input.issueRef?.title, input.issueRef?.body],
+      repoPath,
+    );
     const { injected } = planHouseRulesInjection(
       this.deps.store.listActiveLearnings(repoPath),
       config.houseRulesBudgetChars,
+      Date.now(),
+      targetPaths,
     );
     this.deps.store.recordInjectedLearnings(
       sessionId,
@@ -1280,7 +1289,7 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const houseRules = this.recordInjectedHouseRules(sessionId, input.repoPath);
+    const houseRules = this.recordInjectedHouseRules(sessionId, input);
     const autopilotActive = repoConfig.autopilotEnabled;
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled

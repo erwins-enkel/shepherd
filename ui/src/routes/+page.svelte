@@ -33,6 +33,7 @@
     optimizeLearning,
     optimizeRepoFlagged,
     restoreLearning,
+    setLearningScope,
     markRetiredSeen,
     getMergedClearable,
     clearMerged,
@@ -1962,6 +1963,10 @@
         restoreLearning(id)
           .then(() => learnings.load())
           .catch(() => toasts.info(m.learnings_restore_failed()))}
+      onscope={(id, globs) =>
+        setLearningScope(id, globs)
+          .then(() => learnings.load())
+          .catch(() => toasts.info(m.learnings_scope_failed()))}
       onseenretired={(repoPath) =>
         markRetiredSeen(repoPath)
           .then(() => learnings.load())

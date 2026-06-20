@@ -32,6 +32,7 @@ function makeLearning(o: Partial<Learning> & { id: string }): Learning {
     lastUsedAt: null,
     retiredAt: null,
     retiredReason: null,
+    scopeGlobs: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     lastEvidenceAt: null,
@@ -315,6 +316,20 @@ describe("shouldRetire", () => {
     // Both should pass since helpfulCount=1/10 is well below 0.5 regardless of z
     expect(withDefault).toBe(true);
     expect(withTinyZ).toBe(true);
+  });
+
+  test("#842: a scope-gated rule never injected (injectedCount=0) is not auto-retired", () => {
+    // A glob-scoped rule whose globs never matched a task stays at injectedCount=0.
+    // Even flagged ineffective, the nMin gate (injectedCount < nMin) must spare it —
+    // scoping must never turn into unfair retirement.
+    const scopedUnmatched = makeLearning({
+      id: "s",
+      scopeGlobs: ["src/**"],
+      injectedCount: 0,
+      ineffectiveCount: 3,
+      helpfulCount: 0,
+    });
+    expect(shouldRetire(scopedUnmatched, baseRate)).toBe(false);
   });
 });
 

@@ -27,6 +27,7 @@ import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from ".
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
+import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 
@@ -329,6 +330,7 @@ type LearningRow = {
   lastUsedAt: number | null;
   retiredAt: number | null;
   retiredReason: string | null;
+  scopeGlobs: string;
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
@@ -2307,6 +2309,9 @@ export class SessionStore implements CapStore, CreditStore {
     add("retiredReason", `retiredReason TEXT`);
     add("retiredFromStatus", `retiredFromStatus TEXT`);
     add("autoOptimizedAt", `autoOptimizedAt INTEGER`);
+    // Glob-scoped injection (#842). JSON array of repo-relative glob patterns; '[]'
+    // = an Always-rule (every task), matching the original always-inject behavior.
+    add("scopeGlobs", `scopeGlobs TEXT NOT NULL DEFAULT '[]'`);
   }
 
   private hydrateLearning(r: LearningRow): Learning {
@@ -2324,6 +2329,7 @@ export class SessionStore implements CapStore, CreditStore {
       lastUsedAt: r.lastUsedAt ?? null,
       retiredAt: r.retiredAt ?? null,
       retiredReason: r.retiredReason ?? null,
+      scopeGlobs: parseFindings(r.scopeGlobs),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       lastEvidenceAt: r.lastEvidenceAt,
@@ -2336,6 +2342,7 @@ export class SessionStore implements CapStore, CreditStore {
     rule: string;
     rationale: string;
     evidence: string[];
+    scopeGlobs?: string[];
   }): Learning {
     const now = Date.now();
     const l: Learning = {
@@ -2352,6 +2359,7 @@ export class SessionStore implements CapStore, CreditStore {
       lastUsedAt: null,
       retiredAt: null,
       retiredReason: null,
+      scopeGlobs: input.scopeGlobs ?? [],
       createdAt: now,
       updatedAt: now,
       lastEvidenceAt: input.evidence.length ? now : null,
@@ -2359,8 +2367,8 @@ export class SessionStore implements CapStore, CreditStore {
     };
     this.db.run(
       `INSERT INTO learnings
-         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, createdAt, updatedAt, lastEvidenceAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, scopeGlobs, createdAt, updatedAt, lastEvidenceAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         l.id,
         l.repoPath,
@@ -2370,6 +2378,7 @@ export class SessionStore implements CapStore, CreditStore {
         l.status,
         l.evidenceCount,
         l.ineffectiveCount,
+        JSON.stringify(l.scopeGlobs),
         l.createdAt,
         l.updatedAt,
         l.lastEvidenceAt,
@@ -2423,6 +2432,22 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`UPDATE learnings SET status = ?, rule = ?, updatedAt = ? WHERE id = ?`, [
       status,
       rule ?? cur.rule,
+      Date.now(),
+      id,
+    ]);
+    return this.getLearning(id);
+  }
+
+  /** Replace a rule's scope globs (operator edit, #842). Runs the same `sanitizeScopeGlobs`
+   *  the distiller uses — normalize to repo-relative form, drop empty/over-long patterns,
+   *  dedupe, and cap the count — so both paths persist identical, bounded scope; `[]` makes
+   *  it an Always-rule again. No-op (returns null) for a missing rule. */
+  setLearningScope(id: string, globs: string[]): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur) return null;
+    const clean = sanitizeScopeGlobs(globs);
+    this.db.run(`UPDATE learnings SET scopeGlobs = ?, updatedAt = ? WHERE id = ?`, [
+      JSON.stringify(clean),
       Date.now(),
       id,
     ]);

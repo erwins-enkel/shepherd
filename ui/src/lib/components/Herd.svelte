@@ -519,6 +519,14 @@
   .panel.flow .phead > .micro {
     display: none;
   }
+  /* Compact (touch / unfolded-foldable) layout pins the sidebar to ~288px, where the
+     filter bar wraps onto its own row and the "THE HERD" title sits alone above it —
+     pure vertical-space cost. Drop the title here too so the filter bar leads. The
+     .grid.compact ancestor lives in +page.svelte (outside this component), hence the
+     :global wrapper. herd_title still serves the standard desktop layout. */
+  :global(.grid.compact) .phead > .micro {
+    display: none;
+  }
   .phead {
     display: flex;
     align-items: center;

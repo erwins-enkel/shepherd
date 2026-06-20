@@ -101,10 +101,8 @@
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
-    <span
-      class="prlink"
-      title={m.prbadge_open({ number: git.number ?? 0 })}
-      aria-label={m.prbadge_open({ number: git.number ?? 0 })}>{m.gitrail_pr_plain()}</span
+    <span class="prlink" title={m.prbadge_open({ number: git.number ?? 0 })}
+      >{m.gitrail_pr_plain()}</span
     >
   {/if}
   {#if !local}

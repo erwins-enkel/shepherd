@@ -72,6 +72,8 @@ export interface Settings {
   usageHoldPct: number;
   /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
   fableAvailable: boolean;
+  /** Global reduced-notifications mode: when on, only the ready-after-5s push (+ usage/credit alerts) is sent. */
+  reducedPushMode: boolean;
 }
 
 export interface DirEntry {

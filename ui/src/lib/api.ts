@@ -166,6 +166,10 @@ export const putUsageHoldPct = (pct: number): Promise<{ usageHoldPct: number }> 
 export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boolean }> =>
   patchSettings<{ fableAvailable: boolean }>({ fableAvailable: value });
 
+// Toggle the global reduced-notifications mode (only ready-after-5s + cost alerts when on).
+export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>
+  patchSettings({ reducedPushMode: enabled });
+
 /** Upload one image; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
 export async function uploadImage(file: File, sessionId?: string): Promise<string> {

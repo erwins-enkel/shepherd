@@ -14,6 +14,7 @@
     putUsageHoldEnabled,
     putUsageHoldPct,
     putFableAvailable,
+    putReducedPushMode,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
@@ -134,6 +135,10 @@
   // Fable availability — operator kill-switch while Fable is globally unavailable.
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
+
+  // Reduced-notifications mode — mutes all pushes except ready-after-5s + cost alerts.
+  let reducedPushMode = $state(false);
+  let reducedPushBusy = $state(false);
 
   // Repo root, resolved by the single getSettings() below and handed to the
   // workspace panel as props so it never re-fetches. settingsLoaded flips once
@@ -375,6 +380,23 @@
     }
   }
 
+  async function toggleReducedPush() {
+    if (reducedPushBusy) return;
+    reducedPushBusy = true;
+    try {
+      const r = await putReducedPushMode(!reducedPushMode);
+      reducedPushMode = r.reducedPushMode;
+    } catch {
+      toasts.info(m.settings_reduced_push_save_failed(), {
+        key: "reduced-push-mode",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      reducedPushBusy = false;
+    }
+  }
+
   async function saveUsageHoldPct() {
     if (usageHoldPctBusy) return;
     usageHoldPctBusy = true;
@@ -451,6 +473,7 @@
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
       fableAvailable = s.fableAvailable;
+      reducedPushMode = s.reducedPushMode;
       repoRoot = s.repoRoot;
       repoRootDisplay = s.repoRootDisplay;
     } catch {
@@ -798,7 +821,12 @@
       tabindex="0"
       hidden={tab !== "device"}
     >
-      <SettingsDevicePanel {onwhatsnew} />
+      <SettingsDevicePanel
+        {onwhatsnew}
+        {reducedPushMode}
+        {reducedPushBusy}
+        onToggleReducedPush={toggleReducedPush}
+      />
     </div>
 
     <div

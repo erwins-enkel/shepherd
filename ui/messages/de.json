@@ -1691,5 +1691,11 @@
   "learnings_recur_promote_done": "Regel zu deiner globalen CLAUDE.md hinzugefügt.",
   "learnings_recur_promote_failed": "Schreiben in deine globale CLAUDE.md fehlgeschlagen.",
   "feat_learnings_promote_global_title": "Eine Regel global per Klick übernehmen",
-  "feat_learnings_promote_global_body": "Ein repoübergreifender Wiederholungsvorschlag lässt sich jetzt mit einem abgesicherten Klick (zweistufige Bestätigung) direkt in deine benutzerglobale ~/.claude/CLAUDE.md schreiben – ohne PR, gültig für jedes Repo."
+  "feat_learnings_promote_global_body": "Ein repoübergreifender Wiederholungsvorschlag lässt sich jetzt mit einem abgesicherten Klick (zweistufige Bestätigung) direkt in deine benutzerglobale ~/.claude/CLAUDE.md schreiben – ohne PR, gültig für jedes Repo.",
+  "settings_reduced_push_title": "Reduzierte Benachrichtigungen",
+  "settings_reduced_push_hint": "Schaltet alle Benachrichtigungen stumm außer einer Sitzung, die 5s auf dich wartet (Nutzungs- und Kostenhinweise kommen weiterhin).",
+  "settings_reduced_push_on": "An",
+  "settings_reduced_push_off": "Aus",
+  "settings_reduced_push_disabled_note": "Reduzierter Modus: nur Benachrichtigungen für „seit 5s wartend“ werden gesendet.",
+  "settings_reduced_push_save_failed": "Einstellung für reduzierte Benachrichtigungen konnte nicht gespeichert werden."
 }

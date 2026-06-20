@@ -14,7 +14,17 @@
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  let { onwhatsnew }: { onwhatsnew?: () => void } = $props();
+  let {
+    onwhatsnew,
+    reducedPushMode = false,
+    reducedPushBusy = false,
+    onToggleReducedPush,
+  }: {
+    onwhatsnew?: () => void;
+    reducedPushMode?: boolean;
+    reducedPushBusy?: boolean;
+    onToggleReducedPush?: () => void;
+  } = $props();
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
   // but on phones the ActionBar hides it and it was dropped from the top bar,
@@ -114,6 +124,24 @@
 </div>
 <div class="push">
   <span class="micro">{m.settings_push_title()}</span>
+  <div class="reduced-row">
+    <span class="micro">{m.settings_reduced_push_title()}</span>
+    <p class="hint">{m.settings_reduced_push_hint()}</p>
+    <button
+      type="button"
+      class="toggle"
+      role="switch"
+      aria-label={m.settings_reduced_push_title()}
+      aria-checked={reducedPushMode}
+      disabled={reducedPushBusy}
+      onclick={() => onToggleReducedPush?.()}
+    >
+      <span class="track" class:on={reducedPushMode}><span class="knob"></span></span>
+      <span class="state"
+        >{reducedPushMode ? m.settings_reduced_push_on() : m.settings_reduced_push_off()}</span
+      >
+    </button>
+  </div>
   {#if !push.supported}
     <p class="hint">{m.settings_push_unsupported()}</p>
   {:else if push.permission === "denied"}
@@ -125,11 +153,15 @@
     {#if push.subscribed}
       <fieldset class="cats">
         <legend class="micro">{m.settings_push_cat_title()}</legend>
+        {#if reducedPushMode}
+          <p class="hint">{m.settings_reduced_push_disabled_note()}</p>
+        {/if}
         {#each categoryRows as row (row.key)}
           <label class="cat">
             <input
               type="checkbox"
               checked={categories[row.key]}
+              disabled={reducedPushMode}
               onchange={() => toggleCategory(row.key)}
             />
             <span>{row.label()}</span>
@@ -216,6 +248,16 @@
     padding: 4px 8px;
     vertical-align: middle;
     margin-left: 6px;
+  }
+  .reduced-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .reduced-row .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
   }
   .push {
     display: flex;

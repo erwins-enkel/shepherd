@@ -16,6 +16,10 @@
   } = $props();
 
   const d = $derived(chip.drain);
+  const insightsLabel = $derived(
+    chip.insights > 0 ? m.learnings_title() : m.learnings_trim_title(),
+  );
+  const insightsCount = $derived(chip.insights > 0 ? chip.insights : chip.curate);
 
   // ── inline queue expansion (mirrors QueueStrip toggle/loading/failed) ───────
   // At most one repo's queue is expanded at a time, fetched fresh on open.
@@ -87,9 +91,9 @@
         : m.learnings_open_curate_aria({ count: chip.curate })}
       onclick={() => onlearnings?.(chip.repoPath)}
     >
-      <span class="rs-insights-icon" aria-hidden="true">✦</span>{#if chip.insights > 0}<span
-          class="rs-insights-n">{chip.insights}</span
-        >{/if}
+      <span class="rs-insights-icon" aria-hidden="true">✦</span><span class="rs-insights-label"
+        >{insightsLabel}</span
+      ><span class="rs-insights-n">{insightsCount}</span>
     </button>
   {/if}
 

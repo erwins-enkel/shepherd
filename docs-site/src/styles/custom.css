@@ -1,0 +1,69 @@
+/*
+ * Shepherd docs — brand theming for Starlight.
+ *
+ * A curated subset of the UI design tokens (ui/src/app.css `--color-*` / `--fs-*`)
+ * mapped onto Starlight's `--sl-*` variables. The literal hex/size values live in
+ * ONE provenance block below (the `--brand-*` palette, mirroring app.css); every
+ * `--sl-*` mapping references those via var() — so there is no hex scattered
+ * through the theme, matching how site/src/styles/global.css already works.
+ *
+ * Shepherd's brand is dark-first. The default (dark) theme is fully brand-mapped;
+ * light mode keeps Starlight's comfortable defaults and only re-points the accent
+ * to a darkened brand amber so links stay legible on a light background.
+ *
+ * Body/prose sizing is intentionally left at Starlight's defaults: the app's
+ * `--fs-*` scale (10–22px) is HUD-tuned and too small for long-form docs reading.
+ * The brand scale is still recorded below for provenance and used only for the
+ * small caption/code rungs.
+ */
+
+:root {
+  /* ---- Brand palette — values mirror ui/src/app.css (single source-mirror block) ---- */
+  /* Surfaces */
+  --brand-bg: #0a0d0c;
+  --brand-panel: #0f1413;
+  --brand-inset: #070a09;
+  --brand-line: #1b2422;
+  --brand-line-bright: #2c3835;
+  /* Text */
+  --brand-ink-bright: #eef4f0;
+  --brand-ink: #c4d0cb;
+  --brand-muted: #7c8c86;
+  --brand-faint: #4a5752;
+  /* Accents */
+  --brand-amber: #e8a13a;
+  --brand-green: #5ad19a;
+  /* Type scale (px, mirrors --fs-*) — provenance; used sparingly below */
+  --brand-fs-micro: 10px;
+  --brand-fs-meta: 11px;
+
+  /* ---- Dark theme (Starlight default) — map --sl-* onto the brand palette ---- */
+  --sl-color-accent-low: color-mix(in srgb, var(--brand-amber) 25%, var(--brand-bg));
+  --sl-color-accent: var(--brand-amber);
+  --sl-color-accent-high: color-mix(in srgb, var(--brand-amber) 55%, var(--brand-ink-bright));
+
+  --sl-color-white: var(--brand-ink-bright);
+  --sl-color-gray-1: var(--brand-ink);
+  --sl-color-gray-2: var(--brand-muted);
+  --sl-color-gray-3: var(--brand-faint);
+  --sl-color-gray-4: var(--brand-line-bright);
+  --sl-color-gray-5: var(--brand-line);
+  --sl-color-gray-6: var(--brand-panel);
+  --sl-color-black: var(--brand-bg);
+
+  /* "Tip" asides — themed on-brand with the green accent (success/tip semantic). */
+  --sl-color-green: var(--brand-green);
+  --sl-color-green-high: color-mix(in srgb, var(--brand-green) 60%, var(--brand-ink-bright));
+  --sl-color-green-low: color-mix(in srgb, var(--brand-green) 25%, var(--brand-bg));
+
+  /* Small UI rungs adopt the brand meta sizes; body type stays Starlight default. */
+  --sl-text-xs: var(--brand-fs-micro);
+  --sl-text-sm: var(--brand-fs-meta);
+}
+
+:root[data-theme="light"] {
+  /* Brand amber is too light on white for link contrast — darken it for light mode. */
+  --sl-color-accent-low: color-mix(in srgb, var(--brand-amber) 18%, white);
+  --sl-color-accent: color-mix(in srgb, var(--brand-amber) 72%, black);
+  --sl-color-accent-high: color-mix(in srgb, var(--brand-amber) 40%, black);
+}

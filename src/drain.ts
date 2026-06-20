@@ -146,6 +146,8 @@ export interface DrainDeps {
   emitEpic?: (epic: Epic) => void;
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
+  /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
+  emitSessionNew?: (s: Session) => void;
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
@@ -1251,13 +1253,20 @@ export class DrainService {
     }
     // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
     this.approvedNext.delete(repoPath);
+    // Hold the created session so we can announce it AFTER the try/catch. Emitting
+    // inside the try would route a throwing session:new listener into the catch
+    // below (EventHub.emit has no per-listener guard), which releases the claim
+    // label for an already-created session → duplicate re-spawn next tick. The UI
+    // session list is push-only, so without this emit a drain-spawned (incl. epic
+    // sub-issue) session never appears until a full page reload.
+    let session: Session | undefined;
     try {
       const { base, prompt } = await this.resolveSpawnBase(forge, decision);
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they
       // fall back to no --model flag (Claude's own default). The Fable promo is a
       // client-only UI concern and is NEVER applied to autonomous spawns.
-      await this.deps.service.create({
+      session = await this.deps.service.create({
         repoPath,
         baseBranch: base,
         prompt,
@@ -1280,6 +1289,8 @@ export class DrainService {
         console.warn(`[drain] release label for issue #${number} failed:`, rerr);
       }
     }
+    // Success-only, outside the try: push the new session to the UI live.
+    if (session) this.deps.emitSessionNew?.(session);
   }
 
   // ── event handlers (public surface) ───────────────────────────────────────────

@@ -1638,5 +1638,9 @@
   "issues_filter_active_title": "Hide issues already being worked on (shepherd:active)",
   "issues_filter_all_in_progress": "All matching issues are in progress — toggle off to see them",
   "feat_issues_filter_active_title": "Hide in-progress issues",
-  "feat_issues_filter_active_body": "The Backlog and New Task issue lists now offer a \"hide in progress\" filter that hides issues already claimed by a running session (labeled shepherd:active). Off by default; the setting is remembered across both lists."
+  "feat_issues_filter_active_body": "The Backlog and New Task issue lists now offer a \"hide in progress\" filter that hides issues already claimed by a running session (labeled shepherd:active). Off by default; the setting is remembered across both lists.",
+  "backlog_ff_main": "Fast-forward",
+  "backlog_ff_main_title": "Fast-forward local default branch",
+  "feat_ff_main_title": "Fast-forward on demand",
+  "feat_ff_main_body": "Fast-forward a repo's local default branch to origin any time from the Backlog — no PR merge required."
 }

@@ -1638,5 +1638,9 @@
   "issues_filter_active_title": "Issues ausblenden, die bereits bearbeitet werden (shepherd:active)",
   "issues_filter_all_in_progress": "Alle passenden Issues werden bearbeitet — zum Anzeigen ausschalten",
   "feat_issues_filter_active_title": "In Arbeit befindliche Issues ausblenden",
-  "feat_issues_filter_active_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bieten jetzt einen Filter „in Arbeit ausblenden“, der bereits von einer laufenden Sitzung beanspruchte Issues (Label shepherd:active) ausblendet. Standardmäßig aus; die Einstellung gilt für beide Listen."
+  "feat_issues_filter_active_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bieten jetzt einen Filter „in Arbeit ausblenden“, der bereits von einer laufenden Sitzung beanspruchte Issues (Label shepherd:active) ausblendet. Standardmäßig aus; die Einstellung gilt für beide Listen.",
+  "backlog_ff_main": "Vorspulen",
+  "backlog_ff_main_title": "Lokalen Standard-Branch vorspulen",
+  "feat_ff_main_title": "Vorspulen auf Knopfdruck",
+  "feat_ff_main_body": "Den lokalen Standard-Branch eines Repos jederzeit aus dem Backlog auf origin vorspulen – kein PR-Merge erforderlich."
 }

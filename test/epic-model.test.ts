@@ -71,14 +71,20 @@ describe("assembleEpic", () => {
       parent: { number: 1, title: "p", body: "```epic-dag\n#2\n#3 <- #2\n```" },
       persistedBranch: "epic/1-p", // matches derive(1,"p") → isolate the truncation warning
       openIssues: [
-        { number: 2, body: "", labels: [] },
-        { number: 3, body: "", labels: [] },
+        { number: 2, title: "wire the thing", url: "https://forge/issues/2", body: "", labels: [] },
+        { number: 3, title: "test the thing", url: "https://forge/issues/3", body: "", labels: [] },
       ],
       openIssuesTruncated: true,
     });
     expect(e.source).toBe("markdown");
     expect(e.children.find((c) => c.number === 3)!.state).toBe("blocked"); // #2 open → not closed
     expect(e.warnings.some((w) => w.includes("truncated"))).toBe(true);
+    // markdown children carry the real openIssues title + url (not the `#${n}` placeholder /
+    // empty href) — the queue popover renders `#n <title>` linking to the issue, not `#n #n`
+    // with a dead `href=""` that reloads the app.
+    const c2 = e.children.find((c) => c.number === 2)!;
+    expect(c2.title).toBe("wire the thing");
+    expect(c2.url).toBe("https://forge/issues/2");
   });
   test("non-member + self edges dropped + warned", () => {
     const e = assembleEpic({ ...BASE, blockedBy: new Map([[322, [999, 322]]]) });

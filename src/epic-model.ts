@@ -24,7 +24,7 @@ export interface AssembleInput {
   parent: { number: number; title: string; body: string };
   subIssues: SubIssueRef[]; // native: carries closed/labels/body per child
   blockedBy: Map<number, number[]>;
-  openIssues: { number: number; body: string; labels: string[] }[]; // markdown fallback only (200-capped)
+  openIssues: { number: number; title: string; url: string; body: string; labels: string[] }[]; // markdown fallback only (200-capped)
   openIssuesTruncated: boolean; // listIssues() hit the 200 cap
   sessions: AssembleSession[];
   /** Child #s whose PR was squash-merged into the epic integration branch (persisted
@@ -80,8 +80,8 @@ function resolveMarkdown(input: AssembleInput): ResolvedGraph {
     const o = openByNum.get(n);
     // markdown: a member absent from the (capped) open list is treated closed
     resolved.set(n, {
-      title: `#${n}`,
-      url: "",
+      title: o?.title ?? `#${n}`,
+      url: o?.url ?? "",
       body: o?.body ?? "",
       closed: !o,
       claimed: !!o?.labels.includes(ACTIVE_LABEL),

@@ -14,7 +14,16 @@ hero:
       variant: minimal
 ---
 
-Welcome to the Shepherd documentation. This site is a **skeleton** scaffolded in
-Phase 1 of the docs effort — real guides, reference material, and the AI-agent
-surfaces arrive in follow-up work. Start with the [getting-started](/getting-started/)
-guide.
+Shepherd runs sessions, drains backlogs into pull requests, and keeps a human in
+the loop where it matters — a single mission control for fleets of Claude Code
+agents.
+
+## Start here
+
+- **[Getting started](/getting-started/)** — install Shepherd and sign in.
+- **[Operating Shepherd](/operating/)** — run it as a service, expose it over
+  Tailscale, and deploy code changes.
+- **[Configuration](/reference/configuration/)** — every environment variable.
+- **[Concepts & glossary](/reference/glossary/)** — the terms Shepherd uses.
+- **[External Task API](/reference/external-task-api/)** — queue work over HTTP.
+- **[Security](/reference/security/)** — the sandbox membrane and egress firewall.

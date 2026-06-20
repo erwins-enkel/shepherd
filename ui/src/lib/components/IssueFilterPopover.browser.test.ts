@@ -120,8 +120,12 @@ describe("IssueFilterPopover", () => {
 
     expect(checkboxes().length).toBe(3);
 
-    // The active checkbox is the one not checked (hideActive=false → unchecked).
-    const activeCheckbox = checkboxes().find((cb) => !cb.checked);
+    // Find the active checkbox by its row label text, not by checked state.
+    const activeLabel = [...(popoverPanel()?.querySelectorAll(".filter-row") ?? [])].find(
+      (row) =>
+        row.querySelector(".row-label")?.textContent?.trim() === m.issues_filter_active_label(),
+    );
+    const activeCheckbox = activeLabel?.querySelector<HTMLInputElement>("input[type=checkbox]");
     expect(activeCheckbox).toBeTruthy();
     activeCheckbox!.click();
 

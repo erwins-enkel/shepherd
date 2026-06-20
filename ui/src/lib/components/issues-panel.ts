@@ -65,3 +65,24 @@ export function hideActive(issues: readonly Issue[], enabled: boolean): Issue[] 
   if (!enabled) return [...issues];
   return issues.filter((issue) => !(issue.labels ?? []).includes(ACTIVE_LABEL));
 }
+
+/**
+ * Narrow an issue list to hide native sub-issues (children of a GitHub epic),
+ * nudging the operator to start an epic drain instead of draining a child alone.
+ *
+ * Hides an issue only when it is a native sub-issue (`subIssues.has(number)`) AND
+ * not itself an epic parent (`!epicParents.has(number)`) — so a mid-level epic
+ * (a sub-issue that is also a parent) stays visible as a drain entry point.
+ *
+ * Fails open — returns every issue unchanged — when `enabled` is false or
+ * `subIssues` is empty (non-GitHub forge / drain-absent / epics not yet loaded).
+ */
+export function hideSubIssues(
+  issues: readonly Issue[],
+  enabled: boolean,
+  subIssues: ReadonlySet<number>,
+  epicParents: ReadonlySet<number>,
+): Issue[] {
+  if (!enabled) return [...issues];
+  return issues.filter((issue) => !(subIssues.has(issue.number) && !epicParents.has(issue.number)));
+}

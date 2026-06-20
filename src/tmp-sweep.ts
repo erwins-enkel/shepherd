@@ -305,6 +305,12 @@ interface ReapFallowOpts {
   now?: number;
   fsOps?: Pick<FsOps, "readdir" | "stat" | "rm">;
   log?: (msg: string) => void;
+  /**
+   * Overrides the directories scanned (default: computed `[claudeTmpRoot(), claude-$uid subdir,
+   * tmpdir()]` set). Lets a test isolate the scan to a controlled root so the bare-`/tmp` scan
+   * can't pull in a concurrent process's caches. Reference #817.
+   */
+  roots?: string[];
 }
 
 export interface ReapFallowResult {
@@ -388,10 +394,13 @@ export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallo
 
   // Dedupe roots: claudeTmpRoot(), claude-$uid subdir, and bare tmpdir() for caches whose
   // TMPDIR was the system default. Using a Set so a reconfigured env can't double-scan.
+  // opts?.roots overrides the computed set (lets tests isolate from bare /tmp — #817).
   const claudeRoot = claudeTmpRoot();
   const nestedRoot = join(claudeRoot, `claude-${uid()}`);
   const systemTmp = tmpdir();
-  const roots = [...new Set([claudeRoot, nestedRoot, systemTmp])];
+  const roots = opts?.roots
+    ? [...new Set(opts.roots)]
+    : [...new Set([claudeRoot, nestedRoot, systemTmp])];
 
   const ctx: ReapFallowCtx = { ops, now, staleMs, log };
   let removed = 0;

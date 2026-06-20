@@ -352,7 +352,15 @@ describe("reapFallowCaches", () => {
     const old = new Date(now - 48 * 3600_000);
     utimesSync(dir, old, old);
 
-    const res = await reapFallowCaches({ now, staleMs: 24 * 3600_000, fsOps: fsp, log: () => {} });
+    // Injecting the scanned root makes `removed === 1` deterministic regardless of bare-`/tmp`
+    // contents or a concurrent test process — env-independent isolation (#817).
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+      roots: [root],
+    });
 
     expect(res.removed).toBe(1);
     expect(existsSync(dir)).toBe(false);

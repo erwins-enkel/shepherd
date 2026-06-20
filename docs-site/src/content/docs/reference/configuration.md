@@ -44,6 +44,19 @@ lines), read by the systemd unit if present.
 
 See [Operating Shepherd](/operating/) for the host-level `/etc/fstab` belt.
 
+## Documentation automation (PR-gated doc agent)
+
+Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)
+spawns a read-only-scoped Claude Code agent that diffs recent source changes against the
+hand-written docs and proposes edits. The agent **never** commits or pushes — the trusted
+server stages the in-scope doc files, commits, and opens a **pull request** for human
+review (never an auto-merge). Off by default; flip on per deployment to soak it.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_DOC_AGENT` | `0` (off) | Set `1` to enable the manual doc-agent trigger + its boot orphan-sweep |
+| `SHEPHERD_DOC_AGENT_MODEL` | _(none)_ | Model alias for the doc-agent spawn; unset uses the spawn default |
+
 ## Per-agent sandbox / permission profiles
 
 Shepherd can wrap each spawned `claude` process in an OS-level filesystem/process

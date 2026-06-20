@@ -60,6 +60,7 @@ interface Harness {
   kv: Map<string, string>;
   spawnRows: SpawnRow[];
   completedRows: CompletedRow[];
+  deletedRemote: string[];
   __merge: number;
 }
 
@@ -70,13 +71,20 @@ function mkHarness(opts?: {
   sentinel?: string | null;
   stagedNames?: string; // stdout of `git diff --cached --name-only`
   worktreeListPorcelain?: string;
-  herdrAgents?: { name: string; tabId: string }[];
+  herdrAgents?: { name: string; tabId: string; cwd?: string; terminalId?: string }[];
   repos?: string[];
   originSha?: string | (() => string);
   originShaThrows?: boolean;
   now?: () => number;
   nightlyHour?: number;
   act?: boolean;
+  defaultBranchThrows?: boolean;
+  /** Short-names returned by forge.listBranches; when undefined, listBranches is absent. */
+  remoteBranches?: string[];
+  /** Drives forge.prStatus(branch).state for the remote-branch reap. */
+  prStatusByBranch?: Record<string, "none" | "open" | "merged" | "closed">;
+  /** stdout of `git for-each-ref … refs/remotes/origin/…` (git fallback path). */
+  forEachRefStdout?: string;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -94,6 +102,8 @@ function mkHarness(opts?: {
     now: () => 1000,
     nightlyHour: 3,
     act: false,
+    defaultBranchThrows: false,
+    forEachRefStdout: "",
     ...opts,
   };
 
@@ -107,6 +117,7 @@ function mkHarness(opts?: {
   const kv = new Map<string, string>();
   const spawnRows: SpawnRow[] = [];
   const completedRows: CompletedRow[] = [];
+  const deletedRemote: string[] = [];
   const store = {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
@@ -139,6 +150,11 @@ function mkHarness(opts?: {
     gitCalls.push({ cwd, args });
     if (args[0] === "diff" && args[1] === "--cached") return o.stagedNames;
     if (args[0] === "worktree" && args[1] === "list") return o.worktreeListPorcelain;
+    if (args[0] === "for-each-ref") return o.forEachRefStdout;
+    if (args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+      deletedRemote.push(args[3]!);
+      return "";
+    }
     if (args[0] === "rev-parse" && args[1]?.startsWith("refs/remotes/origin/")) {
       if (o.originShaThrows) throw new Error("no such ref");
       return typeof o.originSha === "function" ? (o.originSha as () => string)() : o.originSha;
@@ -151,7 +167,10 @@ function mkHarness(opts?: {
       ? null
       : ({
           kind: o.forgeKind,
-          defaultBranch: async () => "main",
+          defaultBranch: async () => {
+            if (o.defaultBranchThrows) throw new Error("forge offline");
+            return "main";
+          },
           openPr: async (input: unknown) => {
             openPrInputs.push(input);
             return { url: "https://forge/pr/42" };
@@ -159,6 +178,12 @@ function mkHarness(opts?: {
           merge: async () => {
             mergeCalls++;
           },
+          // listBranches is present ONLY when remoteBranches is provided (mirrors the
+          // optional GitHub matching-refs API; absent → git-fallback path exercised).
+          ...(o.remoteBranches !== undefined ? { listBranches: async () => o.remoteBranches } : {}),
+          prStatus: async (branch: string) => ({
+            state: o.prStatusByBranch?.[branch] ?? "none",
+          }),
         } as any);
 
   const herdr = {
@@ -167,7 +192,16 @@ function mkHarness(opts?: {
       return { terminalId: "term-" + starts.length } as any;
     },
     stop: () => {},
-    list: () => o.herdrAgents.map((a) => ({ name: a.name, tabId: a.tabId }) as any),
+    list: () =>
+      o.herdrAgents.map(
+        (a) =>
+          ({
+            name: a.name,
+            tabId: a.tabId,
+            cwd: a.cwd ?? "",
+            terminalId: a.terminalId ?? "",
+          }) as any,
+      ),
     closeTab: (tabId: string) => {
       closedTabs.push(tabId);
     },
@@ -242,6 +276,7 @@ function mkHarness(opts?: {
     kv,
     spawnRows,
     completedRows,
+    deletedRemote,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -353,7 +388,7 @@ test("restart safety: unique-per-run agent names never collide", async () => {
   expect(h.starts[0]!.name).not.toBe(h.starts[1]!.name);
 });
 
-test("sweepOrphans: closes only __docagent__ tabs and prunes only docs-update worktrees", async () => {
+test("reapOrphans: closes only __docagent__ tabs and prunes only docs-update worktrees (no sentinel/no tab)", async () => {
   const porcelain = [
     "worktree /repo",
     "branch refs/heads/main",
@@ -368,12 +403,13 @@ test("sweepOrphans: closes only __docagent__ tabs and prunes only docs-update wo
   const h = mkHarness({
     repos: ["/repo"],
     worktreeListPorcelain: porcelain,
+    sentinel: null, // agent died mid-edit → prune (not re-adopt)
     herdrAgents: [
-      { name: "__docagent__deadbeef", tabId: "tab-doc" },
+      { name: "__docagent__deadbeef", tabId: "tab-doc", cwd: "/wt/gone" },
       { name: "review TASK-7", tabId: "tab-review" },
     ],
   });
-  await h.svc.sweepOrphans();
+  await h.svc.reapOrphans();
   // only the doc-agent husk tab closed
   expect(h.closedTabs).toEqual(["tab-doc"]);
   // only the docs-update worktree removed; main + unrelated feature left alone
@@ -389,6 +425,149 @@ test("sweepOrphans: closes only __docagent__ tabs and prunes only docs-update wo
   ).toBe(true);
   // unrelated feature branch NOT deleted
   expect(h.gitCalls.some((c) => c.args.includes("shepherd/some-feature"))).toBe(false);
+});
+
+// ── reapOrphans: re-adoption + dangling sweep + remote reap (issue #905) ────────
+
+const DOCS_WT_PORCELAIN = (id: string) =>
+  [
+    "worktree /repo",
+    "branch refs/heads/main",
+    "",
+    `worktree /wt/docs-update-${id}`,
+    `branch refs/heads/shepherd/docs-update-${id}`,
+    "",
+  ].join("\n");
+
+test("reapOrphans: re-adopts a sentinel-present orphan and finalizes it (not discarded)", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("x0000001"),
+    sentinel: "## Changes\n- updated configuration.md\n",
+    act: true,
+  });
+  await h.svc.reapOrphans();
+  // re-adopted, NOT pruned by reapOrphans itself
+  expect(h.removedWorktrees).not.toContain("/wt/docs-update-x0000001");
+  // the work is finalized on the next tick (act:true → openPr fires)
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(1);
+  expect((h.openPrInputs[0] as any).head).toBe("shepherd/docs-update-x0000001");
+});
+
+test("reapOrphans: prunes a no-sentinel/no-tab orphan and completes its dangling row", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("dead0001"),
+    sentinel: null,
+  });
+  // an uncompleted doc_agent row exists for the orphan worktree
+  h.spawnRows.push({
+    reviewerSessionId: "sess-dead",
+    taskSessionId: "/repo",
+    kind: "doc_agent",
+    worktreePath: "/wt/docs-update-dead0001",
+    model: null,
+    spawnedAt: 500,
+    completedAt: null,
+  });
+  await h.svc.reapOrphans();
+  expect(h.removedWorktrees).toContain("/wt/docs-update-dead0001");
+  expect(
+    h.gitCalls.some(
+      (c) =>
+        c.args[0] === "branch" &&
+        c.args[1] === "-D" &&
+        c.args[2] === "shepherd/docs-update-dead0001",
+    ),
+  ).toBe(true);
+  expect(h.completedRows.some((r) => r.reviewerSessionId === "sess-dead")).toBe(true);
+});
+
+test("reapOrphans: transient forge (defaultBranch throws) + sentinel present → keep, do not prune/complete", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("keep0001"),
+    sentinel: "## Changes\n- something\n",
+    defaultBranchThrows: true,
+  });
+  h.spawnRows.push({
+    reviewerSessionId: "sess-keep",
+    taskSessionId: "/repo",
+    kind: "doc_agent",
+    worktreePath: "/wt/docs-update-keep0001",
+    model: null,
+    spawnedAt: 500,
+    completedAt: null,
+  });
+  await h.svc.reapOrphans();
+  // finished edits preserved across the blip — a later boot retries
+  expect(h.removedWorktrees).not.toContain("/wt/docs-update-keep0001");
+  expect(h.completedRows.some((r) => r.reviewerSessionId === "sess-keep")).toBe(false);
+});
+
+test("reapOrphans: dangling-row sweep completes a row whose worktree is gone from disk", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: "worktree /repo\nbranch refs/heads/main\n\n",
+    inScopeFilesPresent: false, // fileExists → false for the gone worktree path
+  });
+  h.spawnRows.push({
+    reviewerSessionId: "sess-gone",
+    taskSessionId: "/repo",
+    kind: "doc_agent",
+    worktreePath: "/wt/docs-update-gone0001",
+    model: null,
+    spawnedAt: 500,
+    completedAt: null,
+  });
+  await h.svc.reapOrphans();
+  expect(h.completedRows.some((r) => r.reviewerSessionId === "sess-gone")).toBe(true);
+});
+
+test("reapOrphans: a re-adopted repo's claim blocks a concurrent consider (no double-spawn)", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("claim001"),
+    sentinel: "## Changes\n- x\n",
+  });
+  await h.svc.reapOrphans();
+  // the repo is now inflight → a concurrent consider is skipped
+  const res = await h.svc.consider("/repo");
+  expect(res.status).toBe("skipped");
+});
+
+test("reapOrphans: remote reap deletes only no-PR branches (state none), keeps open/merged/closed", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: "worktree /repo\nbranch refs/heads/main\n\n",
+    remoteBranches: ["shepherd/docs-update-aaa", "shepherd/docs-update-bbb"],
+    prStatusByBranch: {
+      "shepherd/docs-update-aaa": "none",
+      "shepherd/docs-update-bbb": "open",
+    },
+  });
+  await h.svc.reapOrphans();
+  expect(h.deletedRemote).toEqual(["shepherd/docs-update-aaa"]);
+});
+
+test("reapOrphans: git fallback (no listBranches) runs `git remote prune origin` before for-each-ref", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: "worktree /repo\nbranch refs/heads/main\n\n",
+    // remoteBranches omitted → forge.listBranches absent → git fallback
+    forEachRefStdout: "origin/shepherd/docs-update-ccc\n",
+    prStatusByBranch: { "shepherd/docs-update-ccc": "none" },
+  });
+  await h.svc.reapOrphans();
+  const pruneIdx = h.gitCalls.findIndex(
+    (c) => c.args[0] === "remote" && c.args[1] === "prune" && c.args[2] === "origin",
+  );
+  const forEachIdx = h.gitCalls.findIndex((c) => c.args[0] === "for-each-ref");
+  expect(pruneIdx).toBeGreaterThanOrEqual(0);
+  expect(forEachIdx).toBeGreaterThan(pruneIdx);
+  // the stale-but-PR-less branch is reaped (short-name, origin/ stripped)
+  expect(h.deletedRemote).toEqual(["shepherd/docs-update-ccc"]);
 });
 
 // ── cadence: scheduling (issue #904) ───────────────────────────────────────────

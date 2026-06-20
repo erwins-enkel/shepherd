@@ -42,12 +42,20 @@ async function defaultGit(cwd: string, args: string[]): Promise<string> {
  *  orphaned husk (after a restart) can NEVER squat a stable name — a re-spawn always gets a new
  *  name, so `agent_name_taken` is impossible by construction (the distiller's fix; see
  *  DISTILL_LABEL). The underscores are load-bearing: prompt-derived session slugs are `[a-z0-9-]`
- *  only, so no real session collides, and sweepOrphans can match husks by this prefix safely. */
+ *  only, so no real session collides, and reapOrphans can match husks by this prefix safely. */
 export const DOC_AGENT_LABEL = "__docagent__";
 
 /** Worktree/branch name stem. worktree.create() prepends `shepherd/`, so the branch is
- *  `shepherd/docs-update-<8hex>`. sweepOrphans matches `shepherd/${DOC_BRANCH_PREFIX}`. */
+ *  `shepherd/docs-update-<8hex>`. reapOrphans matches `shepherd/${DOC_BRANCH_PREFIX}`. */
 const DOC_BRANCH_PREFIX = "docs-update-";
+
+/** Refname grammar (mirrors BranchPruner/worktree.ts): rejects a leading "-" so a branch name can
+ *  never smuggle a flag into `git push origin --delete <branch>`. */
+const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
+
+/** Max forge prStatus lookups per boot remote-reap (matches BranchPruner). The rest wait for the
+ *  next boot — orphan remote branches are durable, so an unbounded backlog never accumulates. */
+const REMOTE_REAP_CAP = 20;
 
 /** The agent writes this at the worktree root as its FINAL action: a per-change grounding bullet
  *  list + an "Uncertain / needs human judgment" section. Its presence is the completion signal; its
@@ -174,8 +182,10 @@ export interface DocAgentDeps {
  * import("./promote").Promoter} and the spawn/membrane posture of ReviewService.
  *
  * Restart-safety: the unique-per-run herdr name (`__docagent__<8hex>`) makes name-squat impossible;
- * `sweepOrphans()` (boot) additionally clears husk tabs + orphan `shepherd/docs-update-*` worktrees,
- * working even when the herdr daemon also restarted (it parses `git worktree list`).
+ * `reapOrphans()` (boot) additionally re-adopts a finished/in-progress interrupted run, prunes dead
+ * ones (+ their husk tabs / dangling cost rows), and reaps orphan remote `shepherd/docs-update-*`
+ * branches with no PR, working even when the herdr daemon also restarted (it parses `git worktree
+ * list`).
  */
 export class DocAgentService {
   private inflight = new Map<string, InFlight>();
@@ -579,50 +589,245 @@ export class DocAgentService {
   }
 
   /**
-   * Boot reconcile. Two independent passes so it works even when the herdr daemon ALSO restarted:
-   *  1. Close any live herdr tab whose name starts with the doc-agent prefix (herdr survived).
-   *  2. herdr-independent: parse `git worktree list` per known repo and remove every
-   *     `shepherd/docs-update-*` worktree + force-delete its branch (the authoritative orphan
-   *     signal when there's no tab to read a cwd from, and no persisted run rows).
+   * Boot reconcile (issue #905). Unlike the reviewer's reapOrphans (which DISCARDS the worktree and
+   * re-kicks a fresh run), the doc agent KEEPS a finished worktree and FINALIZES the work already
+   * produced — the SENTINEL edits are the deliverable, so throwing them away on a restart that
+   * happened to land right after the agent finished would waste a whole run.
+   *
+   * Per repo (skipping any already `inflight`/`starting`), for each surviving
+   * `shepherd/docs-update-*` worktree it applies {@link reapOneWorktree}'s decision tree
+   * (re-adopt / prune / keep-across-a-forge-blip), reaps orphan REMOTE branches with no PR
+   * (the crash-between-push-and-openPr leak), and finally mops up dangling spawn rows + leftover
+   * husk tabs. Works even when the herdr daemon ALSO restarted (it parses `git worktree list`).
    * Scoped strictly to the doc-agent namespace, so it never collides with the reviewer's `review *`
    * reaper or the tmpfs sweeper.
+   *
+   * The boot callsite is best-effort (not awaited): the per-repo `starting` claim is the load-bearing
+   * double-spawn guard regardless, and a merged trigger lost during the brief reconcile window is
+   * recovered by the nightly catch-all.
    */
-  async sweepOrphans(): Promise<void> {
-    this.closeHuskTabs();
+  async reapOrphans(): Promise<void> {
     for (const repo of this.deps.repos()) {
-      if (this.inflight.has(repo)) continue; // never reap a live run
-      await this.pruneRepoOrphanWorktrees(repo);
-    }
-  }
-
-  /** Pass 1: close any live herdr tab whose name starts with the doc-agent prefix. */
-  private closeHuskTabs(): void {
-    try {
-      for (const a of this.deps.herdr.list()) {
-        if (a.name.startsWith(DOC_AGENT_LABEL)) this.deps.herdr.closeTab(a.tabId);
+      if (this.inflight.has(repo) || this.starting.has(repo)) continue; // never reap a live run
+      this.starting.add(repo); // claim BEFORE any await so a concurrent consider() short-circuits
+      let readopted = false;
+      try {
+        readopted = await this.reapRepoWorktrees(repo);
+      } catch (err) {
+        console.warn(`[doc-agent] reapOrphans: error reaping ${repo}:`, err);
+      } finally {
+        if (!readopted) this.starting.delete(repo); // re-adopt keeps the claim (handed to inflight)
       }
-    } catch (err) {
-      console.warn("[doc-agent] sweepOrphans tab pass:", err);
     }
+    await this.sweepDanglingRows();
+    this.closeHuskTabs();
   }
 
-  /** Pass 2 (per repo): remove every `shepherd/docs-update-*` worktree + force-delete its branch. */
-  private async pruneRepoOrphanWorktrees(repo: string): Promise<void> {
+  /** Per repo: walk the doc-update worktrees applying the decision tree, then reap orphan remote
+   *  branches. Returns true iff a worktree was RE-ADOPTED into `inflight` (so the caller keeps the
+   *  `starting` claim, already handed to `inflight`). At most one re-adopt per repo. */
+  private async reapRepoWorktrees(repo: string): Promise<boolean> {
     const orphanPrefix = `shepherd/${DOC_BRANCH_PREFIX}`;
     let entries: { path: string; branch: string }[];
     try {
       entries = await this.listWorktreeBranches(repo);
     } catch {
-      return;
+      return false;
     }
+    const forge = this.deps.resolveForge(repo);
+    let readopted = false;
     for (const { path, branch } of entries) {
       if (!branch.startsWith(orphanPrefix)) continue;
-      this.deps.worktree.remove(path);
-      try {
-        await this.git(repo, ["branch", "-D", branch]);
-      } catch {
-        /* best-effort */
+      if (readopted) {
+        // begin() allows one in-flight run per repo, so any extra orphan worktree is prunable.
+        await this.pruneWorktree(repo, path, branch);
+        continue;
       }
+      readopted = await this.reapOneWorktree(repo, path, branch, forge);
+    }
+    const protectedBranches = new Set<string>(readopted ? [this.inflight.get(repo)!.branch] : []);
+    if (forge && forge.kind !== "local") {
+      await this.reapOrphanRemoteBranches(repo, forge, protectedBranches);
+    }
+    return readopted;
+  }
+
+  /** Decision tree for ONE surviving doc-update worktree. Returns true iff it was re-adopted. */
+  private async reapOneWorktree(
+    repo: string,
+    path: string,
+    branch: string,
+    forge: GitForge | null,
+  ): Promise<boolean> {
+    // No PR surface (no forge / lightweight repo) → nothing to finalize against → prune.
+    if (!forge || forge.kind === "local") {
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    const sentinel = this.readSentinel(path);
+    const liveTab = this.findLiveTab(path);
+    let base: string;
+    try {
+      base = await forge.defaultBranch();
+    } catch {
+      // Transient forge failure (offline). Preserve anything worth finishing for a later boot;
+      // otherwise prune. KEEP leaves the row + tab untouched so the next reachable boot retries.
+      if (sentinel !== null || liveTab) return false;
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    if (sentinel === null && !liveTab) {
+      // Agent died mid-edit (no completion signal, no live process) → nothing to salvage.
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    // sentinel present (finished) OR a live tab (still editing after a Shepherd-only restart) →
+    // RE-ADOPT: hand the `starting` claim to `inflight`; the next tick() finalizes it (and completes
+    // the row). Recover spawnedAt + the spawn session id from the uncompleted row when present.
+    const row = this.uncompletedRowFor(path);
+    this.inflight.set(repo, {
+      repoPath: repo,
+      worktreePath: path,
+      branch,
+      base,
+      terminalId: liveTab?.terminalId ?? "",
+      agentName: liveTab?.name ?? "",
+      startedAt: row?.spawnedAt ?? this.now(),
+      spawnSessionId: row?.reviewerSessionId ?? "",
+    });
+    this.starting.delete(repo);
+    return true;
+  }
+
+  /** Reap orphan REMOTE `shepherd/docs-update-*` branches that have NO PR at all (state "none") —
+   *  the crash-between-push-and-openPr leak. open/merged/closed branches are left alone. */
+  private async reapOrphanRemoteBranches(
+    repo: string,
+    forge: GitForge,
+    protectedBranches: Set<string>,
+  ): Promise<void> {
+    let candidates: string[];
+    try {
+      candidates = await this.listRemoteDocBranches(repo, forge);
+    } catch (err) {
+      console.warn(`[doc-agent] reapOrphans: listing remote branches failed for ${repo}:`, err);
+      return;
+    }
+    let checks = 0;
+    for (const branch of candidates) {
+      if (protectedBranches.has(branch) || !BRANCH_RE.test(branch)) continue;
+      if (checks >= REMOTE_REAP_CAP) break; // bounded per sweep; the rest wait for the next boot
+      checks++;
+      let state: string;
+      try {
+        state = (await forge.prStatus(branch)).state;
+      } catch {
+        console.warn(`[doc-agent] reapOrphans: prStatus failed for ${branch}; keeping`);
+        continue;
+      }
+      if (state !== "none") continue; // an open/merged/closed PR owns the branch — keep it
+      try {
+        await this.git(repo, ["push", "origin", "--delete", branch]);
+      } catch {
+        /* best-effort: the branch may already be gone */
+      }
+    }
+  }
+
+  /** Candidate remote `shepherd/docs-update-*` short-names. Prefer the authoritative forge view
+   *  (GitHub matching-refs API, free of stale local refs); fall back to git, pruning stale
+   *  remote-tracking refs FIRST so a deleted-on-origin branch can't permanently consume the cap. */
+  private async listRemoteDocBranches(repo: string, forge: GitForge): Promise<string[]> {
+    const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;
+    if (forge.listBranches) return forge.listBranches(prefix);
+    try {
+      await this.git(repo, ["remote", "prune", "origin"]);
+    } catch {
+      /* best-effort: a prune failure just leaves stale refs in the for-each-ref read */
+    }
+    const out = await this.git(repo, [
+      "for-each-ref",
+      "--format=%(refname:short)",
+      `refs/remotes/origin/${prefix}`,
+    ]);
+    return out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/^origin\//, ""));
+  }
+
+  /** Remove a worktree + force-delete its local branch + complete its dangling row + close any
+   *  husk tab. The terminal prune branch of the decision tree. */
+  private async pruneWorktree(repo: string, path: string, branch: string): Promise<void> {
+    await this.completeRowFor(path);
+    const tab = this.findLiveTab(path);
+    if (tab) this.deps.herdr.closeTab(tab.tabId);
+    this.deps.worktree.remove(path);
+    try {
+      await this.git(repo, ["branch", "-D", branch]);
+    } catch {
+      /* best-effort: a never-committed branch may already be gone */
+    }
+  }
+
+  /** After the worktree loop: complete any uncompleted `doc_agent` row whose worktree no longer
+   *  exists on disk (finalize ran but never completed it, or it was pruned elsewhere) so cost
+   *  attribution never leaks. Rows owned by a live in-flight run are left for tick() to complete. */
+  private async sweepDanglingRows(): Promise<void> {
+    const owned = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+    for (const row of this.deps.store.listReviewerSpawns()) {
+      if (row.kind !== "doc_agent" || row.completedAt != null) continue;
+      if (owned.has(row.worktreePath) || this.fileExists(row.worktreePath)) continue;
+      await this.completeRowFor(row.worktreePath);
+    }
+  }
+
+  /** Complete the uncompleted `doc_agent` cost row for `worktreePath` with real usage (best-effort,
+   *  zeroed fallback). No-op when no matching row exists. */
+  private async completeRowFor(worktreePath: string): Promise<void> {
+    const row = this.uncompletedRowFor(worktreePath);
+    if (!row) return;
+    const u = await this.readUsage(worktreePath, row.reviewerSessionId).catch(() => null);
+    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, u ?? ZEROED_USAGE, this.now());
+  }
+
+  /** The uncompleted `doc_agent` reviewer_spawns row for a worktree path, or undefined. */
+  private uncompletedRowFor(worktreePath: string) {
+    return this.deps.store
+      .listReviewerSpawns()
+      .find(
+        (r) => r.kind === "doc_agent" && r.completedAt == null && r.worktreePath === worktreePath,
+      );
+  }
+
+  /** A live herdr agent (doc-agent prefix) whose cwd is this worktree, or undefined. */
+  private findLiveTab(
+    worktreePath: string,
+  ): { tabId: string; terminalId: string; name: string } | undefined {
+    try {
+      return this.deps.herdr
+        .list()
+        .find((a) => a.name.startsWith(DOC_AGENT_LABEL) && a.cwd === worktreePath);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Final pass: close any leftover doc-agent husk tab NOT owned by a re-adopted in-flight run. */
+  private closeHuskTabs(): void {
+    const ownedCwds = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+    const ownedTerms = new Set(
+      [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
+    );
+    try {
+      for (const a of this.deps.herdr.list()) {
+        if (!a.name.startsWith(DOC_AGENT_LABEL)) continue;
+        if (ownedTerms.has(a.terminalId) || ownedCwds.has(a.cwd)) continue; // spare re-adopted runs
+        this.deps.herdr.closeTab(a.tabId);
+      }
+    } catch (err) {
+      console.warn("[doc-agent] reapOrphans tab pass:", err);
     }
   }
 

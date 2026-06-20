@@ -622,6 +622,38 @@ test("UPDATE merges rule text + rationale while preserving counters", async () =
   expect(updated.injectedCount).toBe(1); // preserved
 });
 
+test("ADD carrying text just merged by an UPDATE is deduped (no duplicate active rule)", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "original rule",
+    rationale: "r1",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+
+  // The LLM both UPDATEs the rule to a richer text AND emits an ADD with that same text.
+  // The ADD must dedup against the just-merged rule — `have` is recomputed after updates.
+  const merged = "merged enriched rule text";
+  const { deps } = mkDeps(store, {
+    rules: [{ rule: merged, rationale: "dup", evidence: [] }],
+    updates: [{ id: learning.id, rule: merged, rationale: "r2" }],
+    deletes: [],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  // Exactly one rule remains (the merged one); no duplicate proposed rule was added.
+  expect(store.listLearnings("/r").length).toBe(1);
+  expect(store.listLearnings("/r", { status: "proposed" }).length).toBe(0);
+  const only = store.getLearning(learning.id)!;
+  expect(only.rule).toBe(merged);
+  expect(only.status).toBe("active");
+});
+
 test("UPDATE skips promoted rules", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);

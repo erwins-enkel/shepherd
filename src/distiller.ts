@@ -308,7 +308,6 @@ export class DistillerService {
     repoPath: string,
     raw: RawProposals | null,
   ): { added: number; updated: number; deleted: number } {
-    const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
     const activeIds = new Set(
       this.deps.store
         .listActiveLearnings(repoPath)
@@ -317,6 +316,10 @@ export class DistillerService {
     );
     const updated = this.applyUpdates(raw, activeIds);
     const deleted = this.applyDeletes(raw, activeIds);
+    // Build the ADD dedup set AFTER updates/deletes: an UPDATE merges richer text into an
+    // existing rule, so an ADD carrying that same merged text must dedup against the
+    // just-merged rule (recomputing from the store reflects the post-merge text).
+    const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
     const added = this.applyAdds(repoPath, raw, have);
     return { added, updated, deleted };
   }

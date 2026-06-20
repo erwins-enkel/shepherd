@@ -7,6 +7,11 @@ import {
 import { DIAGNOSTICS_TTL_MS } from "../src/config";
 import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
+import { SessionStore } from "../src/store";
+import { listRepos } from "../src/repos";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── injected-runner helpers ────────────────────────────────────────────────────
 // A runner that returns canned `--version` output per binary; throw to simulate a
@@ -620,5 +625,83 @@ describe("defaultRunRemediation (real spawn)", () => {
     // `sleep 30` would outlive the test; the 50ms budget fires the timeout path,
     // SIGKILLs the process group, and rejects — proving the budget is honored.
     await expect(defaultRunRemediation("sleep 30", 50)).rejects.toThrow("remediation timed out");
+  });
+});
+
+// ── gh probe: the REAL anyForgeRepo closure over a real filesystem + store ────
+// Regression guard for the onboarding-harness gh DETECTION GAP (#860): the gh
+// scenarios seed a bare repo dir so anyForgeRepo()→true and the probe surfaces
+// `error` (not the post-#819 no-repo `warning`). The stubbed `anyForgeRepo: () =>
+// true/false` tests above never prove that a bare, never-configured directory
+// actually resolves to forge — this exercises the exact closure src/index.ts wires
+// (listRepos(repoRoot).some(r => store.getRepoConfig(r.path).repoMode === "forge"))
+// against the real listRepos + SessionStore, the mechanism the harness fix relies on.
+describe("DiagnosticsService gh probe — real anyForgeRepo closure (bare repo dir)", () => {
+  // Build the literal index.ts closure over `root`, backed by a fresh in-memory store.
+  function forgeClosure(root: string): () => boolean {
+    const store = new SessionStore(":memory:");
+    return () => listRepos(root).some((r) => store.getRepoConfig(r.path).repoMode === "forge");
+  }
+
+  function withRepoRoot(make: (root: string) => void): string {
+    const root = mkdtempSync(join(tmpdir(), "shep-diag-gh-"));
+    make(root);
+    return root;
+  }
+
+  it("a bare non-git subdir (no DB row) resolves to forge → closure true", () => {
+    const root = withRepoRoot((r) => mkdirSync(join(r, "forge-repo")));
+    expect(forgeClosure(root)()).toBe(true);
+  });
+
+  it("an empty repoRoot resolves to no forge repo → closure false (pre-fix premise)", () => {
+    const root = withRepoRoot(() => {});
+    expect(forgeClosure(root)()).toBe(false);
+  });
+
+  it("gh auth failure + bare forge dir present → error (gh_not_authenticated)", async () => {
+    const root = withRepoRoot((r) => mkdirSync(join(r, "forge-repo")));
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw new Error("not authenticated");
+      },
+      anyForgeRepo: forgeClosure(root),
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_authenticated");
+    assertPure(c);
+  });
+
+  it("gh ENOENT + bare forge dir present → error (gh_missing)", async () => {
+    const root = withRepoRoot((r) => mkdirSync(join(r, "forge-repo")));
+    const enoent = Object.assign(new Error("gh not found"), { code: "ENOENT" });
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw enoent;
+      },
+      anyForgeRepo: forgeClosure(root),
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_missing");
+    assertPure(c);
+  });
+
+  it("non-vacuity: same gh failure with an EMPTY repoRoot → warning (not_required)", async () => {
+    const root = withRepoRoot(() => {}); // no repo → closure false → downgrade
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        throw new Error("not authenticated");
+      },
+      anyForgeRepo: forgeClosure(root),
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_required");
+    assertPure(c);
   });
 });

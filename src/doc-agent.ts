@@ -755,16 +755,21 @@ export class DocAgentService {
     } catch {
       /* best-effort: a prune failure just leaves stale refs in the for-each-ref read */
     }
+    // Pattern must end on a FULL path component: `git for-each-ref` matches a literal pattern only
+    // completely or up to a slash, so a mid-component prefix (`…/shepherd/docs-update-`) matches
+    // nothing. Use the full `…/shepherd/` component (as branch-pruner does for `refs/heads/shepherd/`)
+    // and narrow to the `docs-update-` branches in code.
     const out = await this.git(repo, [
       "for-each-ref",
       "--format=%(refname:short)",
-      `refs/remotes/origin/${prefix}`,
+      `refs/remotes/origin/shepherd/`,
     ]);
     return out
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((s) => s.replace(/^origin\//, ""));
+      .map((s) => s.replace(/^origin\//, ""))
+      .filter((b) => b.startsWith(prefix));
   }
 
   /** Remove a worktree + force-delete its local branch + complete its dangling row + close any

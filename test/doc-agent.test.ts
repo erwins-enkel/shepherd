@@ -150,7 +150,26 @@ function mkHarness(opts?: {
     gitCalls.push({ cwd, args });
     if (args[0] === "diff" && args[1] === "--cached") return o.stagedNames;
     if (args[0] === "worktree" && args[1] === "list") return o.worktreeListPorcelain;
-    if (args[0] === "for-each-ref") return o.forEachRefStdout;
+    if (args[0] === "for-each-ref") {
+      // Faithfully model `git for-each-ref`'s literal-pattern matching (complete, or up to a slash:
+      // refname starts with the pattern AND ends at a component boundary, OR the pattern ends in
+      // `/`). Treat each forEachRefStdout line as a `%(refname:short)` for a `refs/remotes/*` ref.
+      // This makes a mid-component pattern (`…/shepherd/docs-update-`) correctly match nothing.
+      const pattern = args[args.length - 1] ?? "";
+      return o.forEachRefStdout
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((short) => {
+          const ref = `refs/remotes/${short}`;
+          return (
+            ref.startsWith(pattern) &&
+            (ref.length === pattern.length || ref[pattern.length] === "/" || pattern.endsWith("/"))
+          );
+        })
+        .map((s) => `${s}\n`)
+        .join("");
+    }
     if (args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
       deletedRemote.push(args[3]!);
       return "";

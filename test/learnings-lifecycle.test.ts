@@ -37,6 +37,7 @@ function makeLearning(o: Partial<Learning> & { id: string }): Learning {
     updatedAt: Date.now(),
     lastEvidenceAt: null,
     promotedPrUrl: null,
+    mergedIntoId: null,
     ...o,
   };
 }

@@ -35,6 +35,7 @@ import type {
   Leftover,
   Learning,
   RepoInjectable,
+  MergeSuggestion,
   ForgeKind,
   WorkflowRun,
   WorkflowJob,
@@ -1281,6 +1282,47 @@ export async function markRetiredSeen(repoPath: string): Promise<void> {
     headers: JSON_HEADERS,
   });
   if (!r.ok) throw await failed(r, "seen-retired");
+}
+
+// ── Phase 4 merge suggestions ───────────────────────────────────────────────
+
+/** Pending background merge suggestions (intra-repo consolidation + cross-repo recurrence),
+ *  each with hydrated member rules. */
+export async function getMergeSuggestions(): Promise<MergeSuggestion[]> {
+  const r = await fetch("/api/learnings/merge-suggestions");
+  if (!r.ok) throw await failed(r, "merge suggestions");
+  return r.json();
+}
+
+/** Apply an intra-repo merge suggestion: consolidate the group into its survivor and
+ *  soft-retire the rest. The drawer reloads on the learnings:update event. */
+export async function applyMergeSuggestion(suggestionId: string): Promise<void> {
+  const r = await fetch(`/api/learnings/merge`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ suggestionId }),
+  });
+  if (!r.ok) throw await failed(r, "merge");
+}
+
+/** Dismiss a merge suggestion (intra or cross); the same group won't be re-suggested. */
+export async function dismissMergeSuggestion(suggestionId: string): Promise<void> {
+  const r = await fetch(`/api/learnings/merge-dismiss`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ suggestionId }),
+  });
+  if (!r.ok) throw await failed(r, "merge dismiss");
+}
+
+/** Manually trigger the background merge-suggestion pass for a repo ("Suggest merges now").
+ *  Fire-and-forget; suggestions arrive via the learnings:update event. */
+export async function mergeSuggestNow(repoPath: string): Promise<void> {
+  const r = await fetch(`/api/learnings/merge-suggest?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "merge suggest");
 }
 
 /** Optimize ALL flagged rules in a repo. Fire-and-forget (see optimizeLearning). */

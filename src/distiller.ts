@@ -402,7 +402,7 @@ export class DistillerService {
   }
 }
 
-function normalizeRule(s: string): string {
+export function normalizeRule(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 

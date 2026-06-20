@@ -3,7 +3,13 @@
   import type { Action } from "svelte/action";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-  import type { InjectableRule, Learning, RepoInjectable, SignalKind } from "$lib/types";
+  import type {
+    InjectableRule,
+    Learning,
+    RepoInjectable,
+    MergeSuggestion,
+    SignalKind,
+  } from "$lib/types";
   import { learnings } from "$lib/learnings.svelte";
   import {
     basename,
@@ -94,6 +100,7 @@
   let {
     items,
     injectable,
+    mergeSuggestions = [],
     focusRepo = null,
     onapprove,
     ondismiss,
@@ -104,10 +111,14 @@
     onrestore,
     onscope,
     onseenretired,
+    onmerge,
+    ondismissmerge,
+    onmergenow,
     onclose,
   }: {
     items: Learning[];
     injectable: RepoInjectable[];
+    mergeSuggestions?: MergeSuggestion[];
     focusRepo?: string | null;
     onapprove: (id: string, rule: string) => void;
     ondismiss: (id: string) => void;
@@ -118,8 +129,17 @@
     onrestore: (id: string) => void;
     onscope: (id: string, globs: string[]) => void;
     onseenretired: (repoPath: string) => void;
+    onmerge: (suggestionId: string) => void;
+    ondismissmerge: (suggestionId: string) => void;
+    onmergenow: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
+
+  // Phase 4 merge suggestions, split for rendering: cross-repo recurrence at the top
+  // (repo-agnostic), intra-repo consolidation cards inside each repo's group.
+  const crossSuggestions = $derived(mergeSuggestions.filter((s) => s.kind === "cross"));
+  const intraFor = (repoPath: string): MergeSuggestion[] =>
+    mergeSuggestions.filter((s) => s.kind === "intra" && s.repoPath === repoPath);
 
   let drafts = $state<Record<string, string>>({});
   const draft = (l: Learning) => drafts[l.id] ?? l.rule;
@@ -305,6 +325,36 @@
     </section>
   {/if}
 
+  <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for a
+       user-global CLAUDE.md. Display + dismiss only; the operator decides. -->
+  {#if crossSuggestions.length > 0}
+    <section class="recur" aria-label={m.learnings_recur_heading()}>
+      <span class="recur-title">{m.learnings_recur_heading()}</span>
+      <p class="recur-lead">{m.learnings_recur_lead()}</p>
+      {#each crossSuggestions as s (s.id)}
+        <article class="recur-card">
+          <p class="recur-rule">{s.mergedRule}</p>
+          <p class="recur-repos">
+            {m.learnings_recur_repos({
+              count: s.repoPaths?.length ?? 0,
+              repos: (s.repoPaths ?? []).map(basename).join(", "),
+            })}
+          </p>
+          <div class="recur-foot">
+            <button
+              class="ms-dismiss"
+              type="button"
+              onclick={() => ondismissmerge(s.id)}
+              aria-label={m.learnings_recur_dismiss_aria()}
+            >
+              {m.learnings_dismiss()}
+            </button>
+          </div>
+        </article>
+      {/each}
+    </section>
+  {/if}
+
   <!-- Change 6: Injectable-rule snippet — single source, no copy-paste.
        Accepts the repo's enabled flag so the badge reflects injection state correctly. -->
   {#snippet irule(r: InjectableRule, enabled: boolean)}
@@ -412,6 +462,13 @@
           <span class="repo">{basename(group.repoPath)}</span>
           <button
             class="distill"
+            onclick={() => onmergenow(group.repoPath)}
+            aria-label={m.learnings_merge_now_aria({ repo: basename(group.repoPath) })}
+          >
+            {m.learnings_merge_now()}
+          </button>
+          <button
+            class="distill"
             onclick={() => ondistill(group.repoPath)}
             aria-label={m.learnings_distill_aria({ repo: basename(group.repoPath) })}
           >
@@ -499,6 +556,35 @@
             </div>
           </article>
         {/each}
+
+        <!-- Phase 4: intra-repo merge-group suggestions (hidden under the active lenses,
+             same as proposals). One-click consolidation; survivor counters preserved. -->
+        {#if !(flaggedOnly || overBudgetOnly) && intraFor(group.repoPath).length > 0}
+          <div class="merge-suggest">
+            <span class="ms-title">{m.learnings_merge_heading()}</span>
+            {#each intraFor(group.repoPath) as s (s.id)}
+              <article class="ms-card">
+                <ul class="ms-members">
+                  {#each s.members ?? [] as mem (mem.id)}
+                    <li class="ms-member">{mem.rule}</li>
+                  {/each}
+                </ul>
+                <p class="ms-result">
+                  <span class="ms-result-label">{m.learnings_merge_result_label()}</span>
+                  {s.mergedRule}
+                </p>
+                <div class="ms-foot">
+                  <button class="ms-dismiss" type="button" onclick={() => ondismissmerge(s.id)}>
+                    {m.learnings_dismiss()}
+                  </button>
+                  <button class="ms-apply" type="button" onclick={() => onmerge(s.id)}>
+                    {m.learnings_merge_apply()}
+                  </button>
+                </div>
+              </article>
+            {/each}
+          </div>
+        {/if}
 
         {#if group.injectable && group.injectable.rules.length > 0}
           {@const inj = group.injectable}
@@ -1182,6 +1268,118 @@
     color: var(--color-muted);
   }
   .restore:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink-bright);
+  }
+
+  /* Phase 4: cross-repo recurrence band (top-level, repo-agnostic) */
+  .recur {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-line);
+    background: var(--color-head);
+  }
+  .recur-title {
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+  }
+  .recur-lead {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.45;
+  }
+  .recur-card,
+  .ms-card {
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .recur-rule {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+    line-height: 1.5;
+  }
+  .recur-repos {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.45;
+  }
+  .recur-foot,
+  .ms-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* Phase 4: intra-repo merge-group suggestion cards */
+  .merge-suggest {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .ms-title {
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-muted);
+  }
+  .ms-members {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .ms-member {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.45;
+    padding-left: 12px;
+    position: relative;
+  }
+  .ms-member::before {
+    content: "•";
+    position: absolute;
+    left: 2px;
+    color: var(--color-line-bright);
+  }
+  .ms-result {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+    line-height: 1.5;
+  }
+  .ms-result-label {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  /* Merge = actionable consolidation → green (matches .promote) */
+  .ms-apply {
+    font-size: var(--fs-base);
+    padding: 4px 12px;
+    cursor: pointer;
+    border: 1px solid var(--color-green);
+    background: none;
+    color: var(--color-green);
+  }
+  .ms-dismiss {
+    font-size: var(--fs-base);
+    padding: 4px 10px;
+    cursor: pointer;
+    border: 1px solid var(--color-line-bright);
+    background: none;
+    color: var(--color-muted);
+  }
+  .ms-dismiss:hover {
     color: var(--color-ink-bright);
     border-color: var(--color-ink-bright);
   }

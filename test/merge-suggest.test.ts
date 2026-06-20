@@ -1,0 +1,275 @@
+import { test, expect, beforeEach, afterEach } from "bun:test";
+import {
+  MergeSuggestionService,
+  MERGE_LABEL,
+  pickSurvivor,
+  crossRepoShortlist,
+} from "../src/merge-suggest";
+import { SessionStore } from "../src/store";
+import { config } from "../src/config";
+import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import type { Learning } from "../src/types";
+
+beforeEach(() => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+});
+afterEach(() => {
+  __setApiKeyConfigDirProvisionForTest(null);
+});
+
+function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    fn();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
+}
+
+/** Seed an ACTIVE rule and return it. */
+function seedActive(store: SessionStore, repo: string, rule: string): Learning {
+  const l = store.addLearning({ repoPath: repo, rule, rationale: "", evidence: [] });
+  return store.setLearningStatus(l.id, "active")!;
+}
+
+/** mkDeps with a canned LLM output; `cap` records spawn argv/env, `started` counts spawns. */
+function mkDeps(store: SessionStore, output: unknown, over: Record<string, unknown> = {}) {
+  const cap: { argv: string[]; env: Record<string, string> | undefined; agent: string } = {
+    argv: [],
+    env: undefined,
+    agent: "",
+  };
+  const started: number[] = [];
+  return {
+    cap,
+    started,
+    deps: {
+      store,
+      herdr: {
+        start: (agent: string, _dir: string, argv: string[], env?: Record<string, string>) => {
+          cap.agent = agent;
+          cap.argv = argv;
+          cap.env = env;
+          started.push(1);
+          return { terminalId: "m1" };
+        },
+        stop: () => {},
+      } as never,
+      scratch: { create: () => ({ dir: "/scratch/m" }), remove: () => {} },
+      onChange: () => {},
+      now: () => 1000,
+      minRules: 2,
+      crossMinRepos: 2,
+      writeRules: () => {},
+      readOutput: () => output as never,
+      log: () => {},
+      ...over,
+    },
+  };
+}
+
+// ── intra: clustering, persistence, survivor ────────────────────────────────
+
+test("consider spawns + tick persists an intra merge suggestion (survivor = anchor)", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "Use bun, not npm");
+  const b = seedActive(store, "/r", "Prefer bun over npm for installs");
+  const { deps } = mkDeps(store, {
+    groups: [
+      {
+        memberIds: [a.id, b.id],
+        anchorId: a.id,
+        mergedRule: "Use bun (not npm)",
+        mergedRationale: "same",
+      },
+    ],
+  });
+  const svc = new MergeSuggestionService(deps);
+  svc.consider("/r");
+  await svc.tick();
+  const pending = store.listMergeSuggestions({ status: "pending" });
+  expect(pending.length).toBe(1);
+  expect(pending[0]!.kind).toBe("intra");
+  expect(pending[0]!.targetId).toBe(a.id);
+  expect(pending[0]!.sourceIds).toEqual([b.id]);
+  expect(pending[0]!.mergedRule).toBe("Use bun (not npm)");
+});
+
+test("intra agent name uses the MERGE_LABEL prefix (reaper-safe)", async () => {
+  const store = new SessionStore(":memory:");
+  seedActive(store, "/r", "rule one");
+  seedActive(store, "/r", "rule two");
+  const { deps, cap } = mkDeps(store, { groups: [] });
+  new MergeSuggestionService(deps).consider("/r");
+  expect(cap.agent.startsWith(MERGE_LABEL)).toBe(true);
+});
+
+test("consider no-ops below minRules and when the active set is unchanged", async () => {
+  const store = new SessionStore(":memory:");
+  seedActive(store, "/r", "only one rule");
+  const { deps, started } = mkDeps(store, { groups: [] }, { minRules: 2 });
+  const svc = new MergeSuggestionService(deps);
+  svc.consider("/r"); // 1 active < 2
+  expect(started.length).toBe(0);
+
+  // Now enough rules → spawns once; after a successful tick the signature is stamped, so a
+  // second consider over the SAME active set must not re-spawn.
+  seedActive(store, "/r", "a second rule");
+  svc.consider("/r");
+  await svc.tick();
+  expect(started.length).toBe(1);
+  svc.consider("/r");
+  expect(started.length).toBe(1); // unchanged set → no re-spawn
+});
+
+test("dismissed group is not re-suggested after a benign rule edit (id-only signature)", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "Use bun, not npm");
+  const b = seedActive(store, "/r", "Prefer bun over npm");
+  const out = {
+    groups: [
+      { memberIds: [a.id, b.id], anchorId: a.id, mergedRule: "Use bun", mergedRationale: "x" },
+    ],
+  };
+  const { deps } = mkDeps(store, out);
+  const svc = new MergeSuggestionService(deps);
+  svc.consider("/r");
+  await svc.tick();
+  const s = store.listMergeSuggestions({ status: "pending" })[0]!;
+  store.setMergeSuggestionStatus(s.id, "dismissed");
+
+  // Benign edit: reword a member (its id is unchanged) and re-run via the manual trigger.
+  store.setLearningStatus(b.id, "active", "Prefer bun over npm for ALL installs");
+  svc.mergeNow("/r");
+  await svc.tick();
+  expect(store.listMergeSuggestions({ status: "pending" }).length).toBe(0);
+});
+
+test("intra: groups citing unknown ids or singletons are dropped", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "rule a");
+  seedActive(store, "/r", "rule b");
+  const { deps } = mkDeps(store, {
+    groups: [
+      { memberIds: [a.id, "hallucinated-id"], anchorId: a.id, mergedRule: "x" }, // only 1 valid → drop
+      { memberIds: [a.id], anchorId: a.id, mergedRule: "y" }, // singleton → drop
+    ],
+  });
+  const svc = new MergeSuggestionService(deps);
+  svc.mergeNow("/r");
+  await svc.tick();
+  expect(store.listMergeSuggestions({ status: "pending" }).length).toBe(0);
+});
+
+// ── cross-repo ──────────────────────────────────────────────────────────────
+
+test("considerCrossRepo persists a cross suggestion for a rule recurring across repos", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r1", "Always write a regression test");
+  const b = seedActive(store, "/r2", "Always write a regression test first");
+  const { deps } = mkDeps(store, {
+    groups: [{ memberIds: [a.id, b.id], canonicalRule: "Always write a regression test" }],
+  });
+  const svc = new MergeSuggestionService(deps);
+  svc.considerCrossRepo();
+  await svc.tick();
+  const cross = store.listMergeSuggestions({ kind: "cross", status: "pending" });
+  expect(cross.length).toBe(1);
+  expect(new Set(cross[0]!.repoPaths)).toEqual(new Set(["/r1", "/r2"]));
+  expect(cross[0]!.targetId).toBeNull();
+});
+
+test("cross: a group whose members are all in one repo is rejected", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r1", "same rule");
+  const b = seedActive(store, "/r2", "same rule"); // makes the pre-filter spawn
+  // The LLM (wrongly) groups a with itself-in-one-repo; validation must require ≥2 repos.
+  const { deps } = mkDeps(store, { groups: [{ memberIds: [a.id], canonicalRule: "same rule" }] });
+  const svc = new MergeSuggestionService(deps);
+  svc.considerCrossRepo();
+  await svc.tick();
+  expect(store.listMergeSuggestions({ kind: "cross", status: "pending" }).length).toBe(0);
+  void b;
+});
+
+// ── pure helpers ────────────────────────────────────────────────────────────
+
+test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", () => {
+  const mk = (id: string, injectedCount: number, createdAt: number): Learning =>
+    ({ id, injectedCount, createdAt }) as Learning;
+  const m = [mk("a", 1, 100), mk("b", 5, 200), mk("c", 3, 50)];
+  expect(pickSurvivor(m, "a").id).toBe("a"); // anchor (even though not most-injected)
+  expect(pickSurvivor(m).id).toBe("b"); // highest injectedCount
+  // tie on injectedCount → earliest createdAt: d(5,50) beats b(5,200)
+  const tie = [mk("b", 5, 200), mk("d", 5, 50)];
+  expect(pickSurvivor(tie).id).toBe("d");
+});
+
+test("crossRepoShortlist drops single-repo rules and caps with a reported drop", () => {
+  const mk = (id: string, repoPath: string, rule: string): Learning =>
+    ({ id, repoPath, rule }) as Learning;
+  const rules = [
+    mk("1", "/r1", "always write a regression test"),
+    mk("2", "/r2", "always write a regression test please"),
+    mk("3", "/r1", "a totally unique rule unique to one repo only"),
+  ];
+  const { shortlist, dropped } = crossRepoShortlist(rules, 10);
+  const ids = new Set(shortlist.map((r) => r.id));
+  expect(ids.has("1")).toBe(true);
+  expect(ids.has("2")).toBe(true);
+  expect(ids.has("3")).toBe(false); // no cross-repo twin
+  expect(dropped).toBe(0);
+
+  const capped = crossRepoShortlist(rules, 1);
+  expect(capped.shortlist.length).toBe(1);
+  expect(capped.dropped).toBe(1);
+});
+
+// ── store primitives: citation + restore + counter preservation ─────────────
+
+test("retireLearningMerged sets the citation; restore clears it; listSubsumed is status-scoped", () => {
+  const store = new SessionStore(":memory:");
+  const survivor = seedActive(store, "/r", "survivor rule");
+  const sub = seedActive(store, "/r", "subsumed rule");
+  store.retireLearningMerged(sub.id, survivor.id);
+
+  const retired = store.getLearning(sub.id)!;
+  expect(retired.status).toBe("retired");
+  expect(retired.retiredReason).toBe("merged");
+  expect(retired.mergedIntoId).toBe(survivor.id);
+  expect(store.listSubsumedLearnings(survivor.id).map((l) => l.id)).toEqual([sub.id]);
+
+  // Restore clears the citation AND drops it from the survivor's subsumed list.
+  store.restoreLearning(sub.id);
+  expect(store.getLearning(sub.id)!.mergedIntoId).toBeNull();
+  expect(store.listSubsumedLearnings(survivor.id).length).toBe(0);
+});
+
+test("mergeLearning preserves the survivor's effectiveness counters", () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "rule a");
+  store.attributeInjected([a.id], { good: true }); // injected=1 helpful=1
+  store.attributeInjected([a.id], { good: false }); // injected=2 helpful=1
+  store.mergeLearning(a.id, "rule a — merged richer text");
+  const after = store.getLearning(a.id)!;
+  expect(after.rule).toBe("rule a — merged richer text");
+  expect(after.injectedCount).toBe(2);
+  expect(after.helpfulCount).toBe(1);
+});
+
+// ── fail-closed ─────────────────────────────────────────────────────────────
+
+test("api-key mode without a configured key fails closed (no spawn)", () => {
+  withAuth("api-key", null, () => {
+    const store = new SessionStore(":memory:");
+    seedActive(store, "/r", "rule a");
+    seedActive(store, "/r", "rule b");
+    const { deps, started } = mkDeps(store, { groups: [] });
+    new MergeSuggestionService(deps).mergeNow("/r");
+    expect(started.length).toBe(0);
+  });
+});

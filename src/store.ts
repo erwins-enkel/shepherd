@@ -11,6 +11,9 @@ import type {
   SignalKind,
   Learning,
   LearningStatus,
+  MergeSuggestion,
+  MergeSuggestionKind,
+  MergeSuggestionStatus,
   BuildStep,
   BuildStepStatus,
   BuildQueue,
@@ -335,6 +338,22 @@ type LearningRow = {
   updatedAt: number;
   lastEvidenceAt: number | null;
   promotedPrUrl: string | null;
+  mergedIntoId: string | null;
+};
+
+/** SQLite row shape for the learning_merge_suggestions table (Phase 4). */
+type MergeSuggestionRow = {
+  id: string;
+  kind: string;
+  repoPath: string | null;
+  targetId: string | null;
+  sourceIds: string;
+  mergedRule: string;
+  mergedRationale: string;
+  repoPaths: string | null;
+  signature: string;
+  status: string;
+  createdAt: number;
 };
 
 /** SQLite row shape for the pr_reviews table. */
@@ -647,6 +666,22 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS session_injected_learnings (
       sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
       PRIMARY KEY (sessionId, learningId))`);
+    // Phase 4 background merge-suggestions (#843). kind='intra': repoPath+targetId set,
+    // repoPaths NULL. kind='cross': repoPath/targetId NULL, repoPaths set. signature is a
+    // hash of the sorted member rule ids only (never text) for dedupe.
+    this.db.run(`CREATE TABLE IF NOT EXISTS learning_merge_suggestions (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'intra',
+      repoPath TEXT, targetId TEXT,
+      sourceIds TEXT NOT NULL, mergedRule TEXT NOT NULL,
+      mergedRationale TEXT NOT NULL DEFAULT '', repoPaths TEXT,
+      signature TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS merge_suggestions_repo_status ON learning_merge_suggestions (repoPath, status)`,
+    );
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS merge_suggestions_kind_status ON learning_merge_suggestions (kind, status)`,
+    );
     this.migrateLearningsColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
       id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
@@ -2312,6 +2347,9 @@ export class SessionStore implements CapStore, CreditStore {
     // Glob-scoped injection (#842). JSON array of repo-relative glob patterns; '[]'
     // = an Always-rule (every task), matching the original always-inject behavior.
     add("scopeGlobs", `scopeGlobs TEXT NOT NULL DEFAULT '[]'`);
+    // Phase 4 merge citation (#843): on a rule soft-retired by consolidation, the id of
+    // the surviving rule it was merged into. Null otherwise; cleared on restore.
+    add("mergedIntoId", `mergedIntoId TEXT`);
   }
 
   private hydrateLearning(r: LearningRow): Learning {
@@ -2334,6 +2372,24 @@ export class SessionStore implements CapStore, CreditStore {
       updatedAt: r.updatedAt,
       lastEvidenceAt: r.lastEvidenceAt,
       promotedPrUrl: r.promotedPrUrl ?? null,
+      mergedIntoId: r.mergedIntoId ?? null,
+    };
+  }
+
+  private hydrateMergeSuggestion(r: MergeSuggestionRow): MergeSuggestion {
+    return {
+      id: r.id,
+      kind: r.kind === "cross" ? "cross" : "intra",
+      repoPath: r.repoPath ?? null,
+      targetId: r.targetId ?? null,
+      sourceIds: parseFindings(r.sourceIds),
+      mergedRule: r.mergedRule,
+      mergedRationale: r.mergedRationale,
+      repoPaths: r.repoPaths ? parseFindings(r.repoPaths) : null,
+      signature: r.signature,
+      status:
+        r.status === "applied" ? "applied" : r.status === "dismissed" ? "dismissed" : "pending",
+      createdAt: r.createdAt,
     };
   }
 
@@ -2364,6 +2420,7 @@ export class SessionStore implements CapStore, CreditStore {
       updatedAt: now,
       lastEvidenceAt: input.evidence.length ? now : null,
       promotedPrUrl: null,
+      mergedIntoId: null,
     };
     this.db.run(
       `INSERT INTO learnings
@@ -2597,8 +2654,9 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getLearning(id);
   }
 
-  /** retired → retiredFromStatus (or 'active'); clears retiredAt/retiredReason/retiredFromStatus.
-   *  Returns null when not currently retired or missing. */
+  /** retired → retiredFromStatus (or 'active'); clears retiredAt/retiredReason/retiredFromStatus,
+   *  and clears `mergedIntoId` so a rule restored after a Phase-4 consolidation carries no
+   *  dangling citation back to its former survivor. Returns null when not retired or missing. */
   restoreLearning(id: string): Learning | null {
     const cur = this.getLearning(id);
     if (!cur || cur.status !== "retired") return null;
@@ -2609,10 +2667,175 @@ export class SessionStore implements CapStore, CreditStore {
       (row?.retiredFromStatus as LearningStatus | null | undefined) ?? "active";
     const now = Date.now();
     this.db.run(
-      `UPDATE learnings SET status = ?, retiredAt = NULL, retiredReason = NULL, retiredFromStatus = NULL, updatedAt = ? WHERE id = ?`,
+      `UPDATE learnings SET status = ?, retiredAt = NULL, retiredReason = NULL, retiredFromStatus = NULL, mergedIntoId = NULL, updatedAt = ? WHERE id = ?`,
       [restoreTo, now, id],
     );
     return this.getLearning(id);
+  }
+
+  /** Soft-retire a rule that was consolidated into another (Phase 4 merge): same as
+   *  `retireLearning(id, "merged")` but also records `mergedIntoId = targetId` as the
+   *  retained citation back to the surviving rule. active|promoted → retired only. */
+  retireLearningMerged(sourceId: string, targetId: string): Learning | null {
+    const cur = this.getLearning(sourceId);
+    if (!cur) return null;
+    if (!LEARNING_TRANSITIONS[cur.status].includes("retired")) return null;
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = 'merged',
+         retiredFromStatus = ?, mergedIntoId = ?, updatedAt = ? WHERE id = ?`,
+      [now, cur.status, targetId, now, sourceId],
+    );
+    return this.getLearning(sourceId);
+  }
+
+  /** Rules soft-retired by being merged into `targetId` (Phase 4 citation list). Scoped to
+   *  status='retired' AND retiredReason='merged' so a since-restored member (which has its
+   *  mergedIntoId cleared) can never reappear here. Newest-retired first. */
+  listSubsumedLearnings(targetId: string): Learning[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM learnings WHERE mergedIntoId = ? AND status = 'retired'
+           AND retiredReason = 'merged' ORDER BY retiredAt DESC`,
+      )
+      .all(targetId);
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
+  }
+
+  /** Active + promoted rules across ALL repos (Phase 4 cross-repo recurrence pass).
+   *  Oldest-updated first. */
+  listAllActiveLearnings(): Learning[] {
+    const rows = this.db
+      .query(`SELECT * FROM learnings WHERE status IN ('active','promoted') ORDER BY updatedAt ASC`)
+      .all();
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
+  }
+
+  // ── merge suggestions (Phase 4) ───────────────────────────────────────────
+  /** Persist a background merge suggestion. */
+  addMergeSuggestion(input: {
+    kind: MergeSuggestionKind;
+    repoPath: string | null;
+    targetId: string | null;
+    sourceIds: string[];
+    mergedRule: string;
+    mergedRationale: string;
+    repoPaths: string[] | null;
+    signature: string;
+  }): MergeSuggestion {
+    const s: MergeSuggestion = {
+      id: randomUUID(),
+      kind: input.kind,
+      repoPath: input.repoPath,
+      targetId: input.targetId,
+      sourceIds: input.sourceIds,
+      mergedRule: input.mergedRule,
+      mergedRationale: input.mergedRationale,
+      repoPaths: input.repoPaths,
+      signature: input.signature,
+      status: "pending",
+      createdAt: Date.now(),
+    };
+    this.db.run(
+      `INSERT INTO learning_merge_suggestions
+         (id, kind, repoPath, targetId, sourceIds, mergedRule, mergedRationale, repoPaths, signature, status, createdAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        s.id,
+        s.kind,
+        s.repoPath,
+        s.targetId,
+        JSON.stringify(s.sourceIds),
+        s.mergedRule,
+        s.mergedRationale,
+        s.repoPaths ? JSON.stringify(s.repoPaths) : null,
+        s.signature,
+        s.status,
+        s.createdAt,
+      ],
+    );
+    return s;
+  }
+
+  listMergeSuggestions(opts?: {
+    repoPath?: string;
+    kind?: MergeSuggestionKind;
+    status?: MergeSuggestionStatus;
+  }): MergeSuggestion[] {
+    const where: string[] = [];
+    const args: (string | number)[] = [];
+    if (opts?.repoPath !== undefined) {
+      where.push(`repoPath = ?`);
+      args.push(opts.repoPath);
+    }
+    if (opts?.kind) {
+      where.push(`kind = ?`);
+      args.push(opts.kind);
+    }
+    if (opts?.status) {
+      where.push(`status = ?`);
+      args.push(opts.status);
+    }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const rows = this.db
+      .query(`SELECT * FROM learning_merge_suggestions ${clause} ORDER BY createdAt DESC`)
+      .all(...args);
+    return (rows as MergeSuggestionRow[]).map((r) => this.hydrateMergeSuggestion(r));
+  }
+
+  getMergeSuggestion(id: string): MergeSuggestion | null {
+    const r = this.db
+      .query(`SELECT * FROM learning_merge_suggestions WHERE id = ?`)
+      .get(id) as MergeSuggestionRow | null;
+    return r ? this.hydrateMergeSuggestion(r) : null;
+  }
+
+  setMergeSuggestionStatus(id: string, status: MergeSuggestionStatus): MergeSuggestion | null {
+    const cur = this.getMergeSuggestion(id);
+    if (!cur) return null;
+    this.db.run(`UPDATE learning_merge_suggestions SET status = ? WHERE id = ?`, [status, id]);
+    return this.getMergeSuggestion(id);
+  }
+
+  /** Signatures of pending + dismissed suggestions of a kind, so a background pass can
+   *  skip re-proposing a group the operator already has (or rejected). `intra` is scoped
+   *  to a repo; `cross` is global (repoPath ignored). */
+  mergeSuggestionSignatures(opts: { kind: MergeSuggestionKind; repoPath?: string }): Set<string> {
+    const where = [`kind = ?`, `status IN ('pending','dismissed')`];
+    const args: string[] = [opts.kind];
+    if (opts.kind === "intra" && opts.repoPath !== undefined) {
+      where.push(`repoPath = ?`);
+      args.push(opts.repoPath);
+    }
+    const rows = this.db
+      .query(`SELECT signature FROM learning_merge_suggestions WHERE ${where.join(" AND ")}`)
+      .all(...args) as { signature: string }[];
+    return new Set(rows.map((r) => r.signature));
+  }
+
+  /** Signature of the active-rule set the last merge pass processed for a scope
+   *  (`<repoPath>` for intra, `__cross__` for the global pass). Lets the background pass
+   *  skip re-spawning when nothing changed. Empty string when never run. */
+  getMergePassSignature(key: string): string {
+    return this.getSetting(`learnings:merge-pass-sig:${key}`) ?? "";
+  }
+
+  setMergePassSignature(key: string, sig: string): void {
+    this.setSetting(`learnings:merge-pass-sig:${key}`, sig);
+  }
+
+  /** Drop pending suggestions whose member rules no longer all exist (a member was hard-
+   *  deleted, or — for safety — left the schema). Keeps the drawer from offering a merge
+   *  that can't apply. Applied/dismissed rows are kept as history. */
+  pruneOrphanMergeSuggestions(): void {
+    const pending = this.listMergeSuggestions({ status: "pending" });
+    for (const s of pending) {
+      const ids = [...(s.targetId ? [s.targetId] : []), ...s.sourceIds];
+      const allExist = ids.every((id) => this.getLearning(id) !== null);
+      if (!allExist) {
+        this.db.run(`DELETE FROM learning_merge_suggestions WHERE id = ?`, [s.id]);
+      }
+    }
   }
 
   /** Retired rules for a repo, newest-updated first. */

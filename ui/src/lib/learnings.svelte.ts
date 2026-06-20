@@ -1,5 +1,10 @@
-import type { Learning, RepoInjectable, DistillerHealth } from "./types";
-import { getPendingLearnings, getInjectableLearnings, getLearningsHealth } from "./api";
+import type { Learning, RepoInjectable, DistillerHealth, MergeSuggestion } from "./types";
+import {
+  getPendingLearnings,
+  getInjectableLearnings,
+  getLearningsHealth,
+  getMergeSuggestions,
+} from "./api";
 
 /** Client cache of PROPOSED learnings (across all repos) plus the per-repo
  *  INJECTABLE view (active/promoted rules + budget meter). Loaded once on app
@@ -8,6 +13,7 @@ import { getPendingLearnings, getInjectableLearnings, getLearningsHealth } from 
 class LearningsStore {
   items = $state<Learning[]>([]);
   injectable = $state<RepoInjectable[]>([]);
+  mergeSuggestions = $state<MergeSuggestion[]>([]);
   health = $state<DistillerHealth>({ ok: true, consecutiveFailures: 0, lastFailure: null });
 
   async load() {
@@ -20,6 +26,11 @@ class LearningsStore {
         }),
       getInjectableLearnings()
         .then((v) => (this.injectable = v))
+        .catch(() => {
+          /* best-effort */
+        }),
+      getMergeSuggestions()
+        .then((v) => (this.mergeSuggestions = v))
         .catch(() => {
           /* best-effort */
         }),

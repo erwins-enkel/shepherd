@@ -69,6 +69,7 @@ import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
+import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
 import { runAutoRetire } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
 import { GitignoreAdopter } from "./gitignore-adopt";
@@ -1131,6 +1132,19 @@ setInterval(() => {
   if (maintenance.active) return;
   void optimizer.tick();
 }, 30_000);
+// Phase 4: background merge-suggestion pass (off the hot path). consider/considerCrossRepo
+// run from the daily sweep (synchronous, non-blocking — they enqueue a detached spawn);
+// the 30s tick reaps finished/timed-out runs.
+const mergeSuggest = new MergeSuggestionService({
+  store,
+  herdr,
+  scratch: defaultMergeScratch,
+  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+});
+setInterval(() => {
+  if (maintenance.active) return;
+  void mergeSuggest.tick();
+}, 30_000);
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
@@ -1146,6 +1160,12 @@ const runDailySweep = () => {
   // session housekeeping, so they survive an archived task's removal for later usage reports.
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
+  // Phase 4 merge suggestions: per-repo near-duplicate clustering (intra) + a single global
+  // cross-repo recurrence pass. Both no-op unless the active set is large enough AND changed
+  // since the last pass, and each only enqueues (never awaited here).
+  for (const repo of listRepos(config.repoRoot)) mergeSuggest.consider(repo.path);
+  mergeSuggest.considerCrossRepo();
+  store.pruneOrphanMergeSuggestions();
   // Auto-retire: soft-retire active rules whose Wilson-bounded help-rate is below the
   // repo base rate (gated on real harm evidence). Returns the retired set so we only
   // nudge clients (banner refresh) when something actually changed.
@@ -1375,6 +1395,7 @@ const appDeps: AppDeps = {
   },
   distiller,
   optimizer,
+  mergeSuggest: { mergeNow: (repoPath) => mergeSuggest.mergeNow(repoPath) },
   promoter,
   gitignoreAdopter,
   drain: {

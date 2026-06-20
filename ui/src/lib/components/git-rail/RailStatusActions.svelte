@@ -63,10 +63,16 @@
 </script>
 
 {#if git.issueUrl && issueNumber != null}
-  <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-  <a class="prlink" href={git.issueUrl} target="_blank" rel="noopener"
-    >{m.gitrail_open_issue({ number: issueNumber })}</a
+  <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+  <a
+    class="prlink"
+    href={git.issueUrl}
+    target="_blank"
+    rel="noopener"
+    title={m.gitrail_issue_label({ number: issueNumber })}
+    aria-label={m.gitrail_issue_label({ number: issueNumber })}>{m.gitrail_open_issue()}</a
   >
+  <!-- eslint-enable svelte/no-navigation-without-resolve -->
 {/if}
 {#if git.state === "none"}
   <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
@@ -84,10 +90,20 @@
   {#if local}
     <span class="prlink">{m.gitrail_ready_to_merge()} #{git.number}</span>
   {:else if git.url}
-    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-    <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+    <a
+      class="prlink"
+      href={git.url}
+      target="_blank"
+      rel="noopener"
+      title={m.prbadge_open({ number: git.number ?? 0 })}
+      aria-label={m.prbadge_open({ number: git.number ?? 0 })}>{m.gitrail_pr_link()}</a
+    >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
-    <span class="prlink">PR #{git.number}</span>
+    <span class="prlink" title={m.prbadge_open({ number: git.number ?? 0 })}
+      >{m.gitrail_pr_plain()}</span
+    >
   {/if}
   {#if !local}
     <span

@@ -4,10 +4,11 @@ The documentation site for **Shepherd**, served at `docs.shepherd.run`. Static
 [Astro](https://astro.build) + [Starlight](https://starlight.astro.build) site —
 no backend, no secrets.
 
-This is the **skeleton** scaffolded in Phase 1 of the docs epic (#875 / #877):
-the package, brand theming, and a green build. Real content, generated
-references, an `llms.txt`, and the AI-agent surfaces land in follow-up
-sub-issues.
+Built across the docs epic (#875): brand-themed off the UI tokens, with curated
+guide pages plus four generators that keep the reference sections in sync with
+the repo — the TypeScript API reference (TypeDoc over `../src`), the imported
+`reference/` markdown (`docs/*.md` + `CLAUDE.md`), the operator `herdr` CLI
+reference, and the `llms.txt` family. See **Generated content** below.
 
 ## Why `docs-site/` (not `docs/`)
 

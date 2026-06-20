@@ -83,8 +83,8 @@ export default defineConfig({
         },
       ],
       // Explicit, ordered items (not `autogenerate`) so the IA order/labels are
-      // deterministic and the two build-time-generated reference pages
-      // (external-task-api, security) resolve by slug.
+      // deterministic and the three build-time-generated reference pages
+      // (external-task-api, security, house-rules) resolve by slug.
       sidebar: [
         {
           label: "Guides",

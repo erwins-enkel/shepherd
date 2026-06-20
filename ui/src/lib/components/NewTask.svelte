@@ -96,6 +96,8 @@
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
+  // seeds once from initialBaseBranch; later branch loads / repo switches drive it
+  // (see the seededBase one-shot below) — intentionally captures the initial value
   // svelte-ignore state_referenced_locally
   let baseBranch = $state(initialBaseBranch ?? "main");
   // One-shot: keep the seeded base on the initial repo's first branch load, then
@@ -112,8 +114,12 @@
     const pick = configured && configured !== "auto" ? configured : promoDefaultModel();
     return pick === "fable" && !fableAvailable ? "default" : pick;
   }
+  // reads initialModel/fableAvailable once to compute the picker's seed (see preselectModel
+  // above); intentionally non-reactive — a one-shot value, not tracked
   // svelte-ignore state_referenced_locally
   const safeInitial = initialModel === "fable" && !fableAvailable ? "default" : initialModel;
+  // seeds the model picker once; the $effect below re-derives it from the repo/global default
+  // until the user picks one (modelTouched) — initial-value capture is intended here
   // svelte-ignore state_referenced_locally
   let model = $state(safeInitial ?? preselectModel(defaultModel));
   let modelTouched = $state(false);

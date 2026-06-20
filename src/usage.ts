@@ -30,21 +30,38 @@ export interface ParsedRecord {
 export function parseLine(line: string): ParsedRecord | null {
   const t = line.trim();
   if (!t) return null;
-  let o: any;
+  let o: unknown;
   try {
     o = JSON.parse(t);
   } catch {
     return null;
   }
-  if (o?.type !== "assistant") return null;
-  const u = o?.message?.usage;
+  if ((o as { type?: unknown })?.type !== "assistant") return null;
+  const rec = o as {
+    type: string;
+    timestamp?: unknown;
+    requestId?: unknown;
+    isSidechain?: unknown;
+    message?: {
+      role?: unknown;
+      model?: unknown;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
+      };
+    };
+  };
+  const u = rec.message?.usage;
   if (!u) return null;
   const cc = u.cache_creation ?? {};
   return {
-    ts: Date.parse(o.timestamp) || 0,
-    model: o?.message?.model ?? "unknown",
-    requestId: o.requestId ?? null,
-    isSidechain: o.isSidechain === true,
+    ts: Date.parse(rec.timestamp as string) || 0,
+    model: (rec.message?.model as string | undefined) ?? "unknown",
+    requestId: (rec.requestId as string | null | undefined) ?? null,
+    isSidechain: rec.isSidechain === true,
     input: u.input_tokens ?? 0,
     output: u.output_tokens ?? 0,
     cacheRead: u.cache_read_input_tokens ?? 0,

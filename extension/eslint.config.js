@@ -12,7 +12,6 @@ export default [
     languageOptions: {
       globals: { ...globals.browser, ...globals.webextensions },
     },
-    rules: { "@typescript-eslint/no-explicit-any": "off" },
   },
   {
     files: ["**/*.svelte", "**/*.svelte.ts"],

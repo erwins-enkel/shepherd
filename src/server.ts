@@ -3558,10 +3558,14 @@ function todoRead(repoParam: string): Response {
 
 async function todoWrite(repoParam: string, req: Request): Promise<Response> {
   const body = await req.json().catch(() => null);
-  if (body === null || typeof body !== "object" || typeof (body as any).content !== "string") {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    typeof (body as { content?: unknown }).content !== "string"
+  ) {
     return json({ error: "body must be {content: string}" }, 400);
   }
-  const ok = writeTodo(repoParam, config.repoRoot, (body as any).content);
+  const ok = writeTodo(repoParam, config.repoRoot, (body as { content: string }).content);
   if (!ok) return json({ error: "invalid repo path or content too large" }, 400);
   return json({ ok: true });
 }
@@ -4338,7 +4342,7 @@ export function serveAgentIngress(deps: AppDeps, port = 0) {
 }
 
 type WsData =
-  | { kind: "events" }
+  | { kind: "events"; unsub?: () => void }
   | { kind: "pty"; id: string; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
 
 // A pty WS closed with this code means "a newer client took over this terminal".
@@ -4435,7 +4439,7 @@ export function serve(deps: AppDeps, port: number) {
           const unsub = deps.events.subscribe((event, data) =>
             ws.send(JSON.stringify({ event, data })),
           );
-          (ws.data as any).unsub = unsub;
+          ws.data.unsub = unsub;
         } else {
           // Don't attach a terminal whose herdr agent is gone: attaching would make
           // herdr reply agent_not_found and the client would reconnect-loop on it.
@@ -4486,7 +4490,7 @@ export function serve(deps: AppDeps, port: number) {
       },
       close(ws) {
         if (ws.data.kind === "events") {
-          (ws.data as any).unsub?.();
+          ws.data.unsub?.();
           deps.presence?.drop(ws);
         } else {
           // only drop ownership if we're still the owner (a newer client may have

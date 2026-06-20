@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   Session,
   ReviewVerdict,
+  ReviewDecision,
   PlanGate,
   Recap,
   DiffFile,
@@ -189,6 +190,161 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt`;
+
+// ── SQLite row shapes ──────────────────────────────────────────────────────────
+
+/** SQLite row shape for the sessions table (INTEGER booleans, JSON strings). */
+type SessionRow = {
+  id: string;
+  desig: string;
+  name: string;
+  prompt: string;
+  repoPath: string;
+  baseBranch: string;
+  branch: string | null;
+  worktreePath: string;
+  isolated: number;
+  herdrSession: string;
+  herdrAgentId: string;
+  claudeSessionId: string | null;
+  model: string | null;
+  readyToMerge: number;
+  status: string;
+  lastState: string;
+  autopilotEnabled: number | null;
+  autopilotStepCount: number | null;
+  autopilotPaused: number;
+  autopilotComplete: number;
+  autopilotQuestion: string | null;
+  planGateEnabled: number | null;
+  planPhase: string | null;
+  autoMergeEnabled: number | null;
+  autoMergeRebaseCount: number | null;
+  autoMergeRebaseHead: string | null;
+  auto: number;
+  issueNumber: number | null;
+  sandboxApplied: string | null;
+  sandboxDegraded: number;
+  egressApplied: number;
+  egressDegraded: number;
+  research: number;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+  mergingSince: number | null;
+  mergingTrainId: string | null;
+  mergeTrainPrs: string | null;
+  mergingPrNumber: number | null;
+  haltReason: string | null;
+  haltedAt: number | null;
+};
+
+/** SQLite row shape for the reviews table. */
+type ReviewVerdictRow = {
+  sessionId: string;
+  headSha: string;
+  patchId: string | null;
+  decision: string;
+  summary: string;
+  body: string;
+  findings: string;
+  addressRound: number | null;
+  addressCap: number | null;
+  streakReviews: number | null;
+  reviewedPatchIds: string;
+  errorRound: number | null;
+  finalRoundPending: number;
+  finalRoundTimeoutMs: number | null;
+  seenNoteIds: string;
+  url: string | null;
+  updatedAt: number;
+};
+
+/** SQLite row shape for the plan_gates table. */
+type PlanGateRow = {
+  sessionId: string;
+  planHash: string | null;
+  decision: string;
+  summary: string | null;
+  body: string | null;
+  findings: string;
+  round: number | null;
+  cap: number | null;
+  approved: number;
+  plan: string | null;
+  updatedAt: number;
+  blocks: string;
+};
+
+/** SQLite row shape for the recaps table. */
+type RecapRow = {
+  sessionId: string;
+  state: string;
+  headSha: string | null;
+  verdict: string | null;
+  headline: string | null;
+  body: string | null;
+  openItems: string;
+  changedFiles: string;
+  blocks: string;
+  spawnSessionId: string | null;
+  cwd: string | null;
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null;
+  updatedAt: number;
+  pendingDiff?: string;
+};
+
+/** SQLite row shape for the herd_digests table. */
+type HerdDigestRow = {
+  dayKey: string;
+  state: string;
+  overnight: string | null;
+  decisions: string;
+  ciRework: string;
+  train: string | null;
+  focusNext: string;
+  attentionFingerprint: string;
+  spawnSessionId: string | null;
+  cwd: string | null;
+  model: string | null;
+  spawnedAt: number;
+  generatedAt: number | null;
+  updatedAt: number;
+};
+
+/** SQLite row shape for the learnings table. */
+type LearningRow = {
+  id: string;
+  repoPath: string;
+  rule: string;
+  rationale: string;
+  evidence: string;
+  status: string;
+  evidenceCount: number;
+  ineffectiveCount: number;
+  helpfulCount: number;
+  injectedCount: number;
+  lastUsedAt: number | null;
+  retiredAt: number | null;
+  retiredReason: string | null;
+  createdAt: number;
+  updatedAt: number;
+  lastEvidenceAt: number | null;
+  promotedPrUrl: string | null;
+};
+
+/** SQLite row shape for the pr_reviews table. */
+type PrReviewRow = {
+  repoPath: string;
+  prNumber: number;
+  headSha: string;
+  patchId: string | null;
+  decision: string | null;
+  reviewedPatchIds: string;
+  updatedAt: number;
+};
 
 // ── repo_config row type + helpers ────────────────────────────────────────────
 
@@ -1142,14 +1298,18 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   get(id: string): Session | null {
-    const r = this.db.query(`SELECT ${COLS} FROM sessions WHERE id = ?`).get(id) as any;
+    const r = this.db
+      .query(`SELECT ${COLS} FROM sessions WHERE id = ?`)
+      .get(id) as SessionRow | null;
     return r ? this.hydrate(r) : null;
   }
 
   list(opts?: { activeOnly?: boolean }): Session[] {
     const where = opts?.activeOnly ? `WHERE status != 'archived'` : ``;
     return (
-      this.db.query(`SELECT ${COLS} FROM sessions ${where} ORDER BY createdAt`).all() as any[]
+      this.db
+        .query(`SELECT ${COLS} FROM sessions ${where} ORDER BY createdAt`)
+        .all() as SessionRow[]
     ).map((r) => this.hydrate(r));
   }
 
@@ -1161,7 +1321,7 @@ export class SessionStore implements CapStore, CreditStore {
         .query(
           `SELECT ${COLS} FROM sessions WHERE status = 'archived' AND archivedAt >= ? ORDER BY archivedAt DESC`,
         )
-        .all(sinceMs) as any[]
+        .all(sinceMs) as SessionRow[]
     ).map((r) => this.hydrate(r));
   }
 
@@ -1347,7 +1507,7 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   // ── critic reviews ─────────────────────────────────────────────────────────
-  private hydrateReview(r: any): ReviewVerdict {
+  private hydrateReview(r: ReviewVerdictRow): ReviewVerdict {
     return {
       ...r,
       patchId: r.patchId ?? "",
@@ -1371,7 +1531,7 @@ export class SessionStore implements CapStore, CreditStore {
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
-      .get(sessionId) as any;
+      .get(sessionId) as ReviewVerdictRow | null;
     return r ? this.hydrateReview(r) : null;
   }
 
@@ -1448,14 +1608,14 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt FROM reviews`,
       )
-      .all() as any[];
+      .all() as ReviewVerdictRow[];
     const out: Record<string, ReviewVerdict> = {};
     for (const r of rows) out[r.sessionId] = this.hydrateReview(r);
     return out;
   }
 
   // ── pre-execution plan gates ─────────────────────────────────────────────────
-  private hydratePlanGate(r: any): PlanGate {
+  private hydratePlanGate(r: PlanGateRow): PlanGate {
     // Persisted blocks were already validated + server-grounded at gate finalization. Parse as
     // trusted data — do NOT re-run parseVisualBlocks, the LLM-input trust boundary, which would
     // strip the server-forced `inferred` flag off data-model/api-endpoint/mermaid blocks.
@@ -1489,7 +1649,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks
               FROM plan_gates WHERE sessionId = ?`,
       )
-      .get(sessionId) as any;
+      .get(sessionId) as PlanGateRow | null;
     return r ? this.hydratePlanGate(r) : null;
   }
 
@@ -1527,14 +1687,14 @@ export class SessionStore implements CapStore, CreditStore {
       .query(
         `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks FROM plan_gates`,
       )
-      .all() as any[];
+      .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
     for (const r of rows) out[r.sessionId] = this.hydratePlanGate(r);
     return out;
   }
 
   // ── session recaps ────────────────────────────────────────────────────────────
-  private hydrateRecap(r: any): Recap {
+  private hydrateRecap(r: RecapRow): Recap {
     let openItems: string[] = [];
     try {
       const parsed = JSON.parse(r.openItems);
@@ -1597,7 +1757,7 @@ export class SessionStore implements CapStore, CreditStore {
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
-      .get(sessionId) as any;
+      .get(sessionId) as RecapRow | null;
     return r ? this.hydrateRecap(r) : null;
   }
 
@@ -1641,7 +1801,7 @@ export class SessionStore implements CapStore, CreditStore {
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state != 'empty'`,
       )
-      .all() as any[];
+      .all() as RecapRow[];
     const out: Record<string, Recap> = {};
     for (const r of rows) out[r.sessionId] = this.hydrateRecap(r);
     return out;
@@ -1655,7 +1815,7 @@ export class SessionStore implements CapStore, CreditStore {
                 pendingDiff, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )
-      .all() as any[];
+      .all() as RecapRow[];
     return rows.map((r) => ({
       ...this.hydrateRecap(r),
       pendingDiff: this.parsePendingDiff(r.pendingDiff),
@@ -1697,7 +1857,7 @@ export class SessionStore implements CapStore, CreditStore {
     return out;
   }
 
-  private hydrateHerdDigest(r: any): HerdDigest {
+  private hydrateHerdDigest(r: HerdDigestRow): HerdDigest {
     let fingerprint: Record<string, string[]> = {};
     try {
       const parsed = JSON.parse(r.attentionFingerprint);
@@ -1734,14 +1894,14 @@ export class SessionStore implements CapStore, CreditStore {
   getHerdDigest(dayKey: string): HerdDigest | null {
     const r = this.db
       .query(`SELECT ${this.HERD_COLS} FROM herd_digests WHERE dayKey = ?`)
-      .get(dayKey) as any;
+      .get(dayKey) as HerdDigestRow | null;
     return r ? this.hydrateHerdDigest(r) : null;
   }
 
   getLatestHerdDigest(): HerdDigest | null {
     const r = this.db
       .query(`SELECT ${this.HERD_COLS} FROM herd_digests ORDER BY spawnedAt DESC LIMIT 1`)
-      .get() as any;
+      .get() as HerdDigestRow | null;
     return r ? this.hydrateHerdDigest(r) : null;
   }
 
@@ -1778,7 +1938,7 @@ export class SessionStore implements CapStore, CreditStore {
   generatingHerdDigests(): HerdDigest[] {
     const rows = this.db
       .query(`SELECT ${this.HERD_COLS} FROM herd_digests WHERE state = 'generating'`)
-      .all() as any[];
+      .all() as HerdDigestRow[];
     return rows.map((r) => this.hydrateHerdDigest(r));
   }
 
@@ -2149,7 +2309,7 @@ export class SessionStore implements CapStore, CreditStore {
     add("autoOptimizedAt", `autoOptimizedAt INTEGER`);
   }
 
-  private hydrateLearning(r: any): Learning {
+  private hydrateLearning(r: LearningRow): Learning {
     return {
       id: r.id,
       repoPath: r.repoPath,
@@ -2159,8 +2319,8 @@ export class SessionStore implements CapStore, CreditStore {
       status: r.status as LearningStatus,
       evidenceCount: r.evidenceCount,
       ineffectiveCount: r.ineffectiveCount,
-      helpfulCount: r.helpfulCount ?? 0,
-      injectedCount: r.injectedCount ?? 0,
+      helpfulCount: r.helpfulCount,
+      injectedCount: r.injectedCount,
       lastUsedAt: r.lastUsedAt ?? null,
       retiredAt: r.retiredAt ?? null,
       retiredReason: r.retiredReason ?? null,
@@ -2228,7 +2388,7 @@ export class SessionStore implements CapStore, CreditStore {
       : this.db
           .query(`SELECT * FROM learnings WHERE repoPath = ? ORDER BY updatedAt DESC`)
           .all(repoPath);
-    return (rows as any[]).map((r) => this.hydrateLearning(r));
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
   /** Active + promoted rules for a repo, for prompt injection (spec §4a). Oldest-updated first. */
@@ -2239,7 +2399,7 @@ export class SessionStore implements CapStore, CreditStore {
          ORDER BY updatedAt ASC`,
       )
       .all(repoPath);
-    return (rows as any[]).map((r) => this.hydrateLearning(r));
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
   /** Distinct repoPaths that have ≥1 active/promoted (injectable) rule, for the
@@ -2252,7 +2412,7 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   getLearning(id: string): Learning | null {
-    const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as any;
+    const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as LearningRow | null;
     return r ? this.hydrateLearning(r) : null;
   }
 
@@ -2416,7 +2576,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT * FROM learnings WHERE repoPath = ? AND status = 'retired' ORDER BY updatedAt DESC`,
       )
       .all(repoPath);
-    return (rows as any[]).map((r) => this.hydrateLearning(r));
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
   // ── unseen-retired marker ─────────────────────────────────────────────────
@@ -2480,7 +2640,7 @@ export class SessionStore implements CapStore, CreditStore {
     const rows = this.db
       .query(`SELECT * FROM learnings WHERE status = 'proposed' ORDER BY updatedAt DESC`)
       .all();
-    return (rows as any[]).map((r) => this.hydrateLearning(r));
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
   /** Resolve cited evidence signal ids to their full rows (newest first), for the
@@ -2652,14 +2812,14 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT repoPath, prNumber, headSha, patchId, decision, reviewedPatchIds, updatedAt
          FROM pr_reviews WHERE repoPath = ? AND prNumber = ?`,
       )
-      .get(repoPath, prNumber) as any;
+      .get(repoPath, prNumber) as PrReviewRow | null;
     if (!r) return null;
     return {
       repoPath: r.repoPath,
       prNumber: r.prNumber,
       headSha: r.headSha,
       patchId: r.patchId ?? "",
-      decision: r.decision ?? "",
+      decision: (r.decision ?? "") as ReviewDecision | "",
       reviewedPatchIds: parseFindings(r.reviewedPatchIds),
       updatedAt: r.updatedAt,
     };
@@ -2692,7 +2852,7 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
-  private hydrate(r: any): Session {
+  private hydrate(r: SessionRow): Session {
     return {
       ...r,
       isolated: !!r.isolated,

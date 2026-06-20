@@ -347,6 +347,15 @@ export const config = {
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
   // Staged after Phase 0 has confirmed the live payload shape (see issue #704).
   hooksSignals: process.env.SHEPHERD_HOOKS_SIGNALS === "1",
+  // PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in soak flag, mirroring
+  // SHEPHERD_HOOKS_INGEST: default-off and reversible. When off, the manual trigger
+  // (POST /api/doc-agent) 404s and the boot orphan-sweep is inert. When on, the trigger
+  // spawns a scoped, dontAsk doc agent that edits stale prose docs in a disposable worktree;
+  // the trusted server — never the agent — commits/pushes/opens a PR for human review.
+  docAgentEnabled: process.env.SHEPHERD_DOC_AGENT === "1",
+  // Model alias for the doc-agent spawn. Unset → no --model (spawn default). The agent does
+  // substantive comprehension, so a capable model is appropriate; override per deployment.
+  docAgentModel: process.env.SHEPHERD_DOC_AGENT_MODEL ?? null,
   // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
   // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
   // overlay disabling every operator-enabled plugin (drops plugin hook injections,

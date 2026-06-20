@@ -1,0 +1,26 @@
+# Pages generated at build time by scripts/sync-docs.mjs from in-repo markdown
+# (source of truth is docs/ and the repo-root CLAUDE.md; imported, not authored here).
+src/content/docs/reference/external-task-api.md
+src/content/docs/reference/security.md
+src/content/docs/reference/house-rules.md
+# TypeScript API reference generated at build time by starlight-typedoc from
+# ../src (source of truth is src/; reproducible, not authored here).
+src/content/docs/api/
+# build output
+dist/
+# generated types
+.astro/
+# dependencies
+node_modules/
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# environment variables
+.env
+.env.production
+# macOS-generated files
+.DS_Store
+# vercel
+.vercel

@@ -103,6 +103,16 @@ jobs:
       - name: Build (extension)
         run: cd extension && bun run build
 
+      # The Astro Starlight docs site (docs-site/) is a 4th in-monorepo package
+      # with its own lockfile. Unlike site/ (bound for extraction, deliberately
+      # absent from CI), docs-site/ lives here, so its build is gated. `astro
+      # check` runs type + content-collection diagnostics; `astro build` emits the
+      # static dist/. NB: this workflow triggers only on `branches: [main]`, so the
+      # step is dormant on docs-epic PRs (which target the epic branch) and first
+      # runs when the epic merges to main.
+      - name: Build (docs-site)
+        run: cd docs-site && bun install --frozen-lockfile && bun run check && bun run build
+
       - name: Fallow audit (PR delta)
         # Only new findings introduced by the PR block — inherited issues don't.
         # Skip on direct pushes to main: there's no base branch to diff against.

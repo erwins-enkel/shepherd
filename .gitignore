@@ -22,6 +22,7 @@ dist/
 
 # Plan-gate working artifacts written into the live worktree (never committed)
 .shepherd-plan.md
+.shepherd-plan-blocks.json
 .shepherd-plan-review.json
 
 # Agent-declared live-preview port hint (transient, never committed)

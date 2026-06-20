@@ -1,0 +1,100 @@
+---
+title: Getting started
+description: Install Shepherd and sign in.
+---
+
+Shepherd is interactive mission control for fleets of Claude Code agents — it runs
+sessions, drains backlogs into pull requests, and keeps a human in the loop where
+it matters.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
+```
+
+The installer provisions prerequisites, clones the repo to `~/Work/shepherd`,
+builds the UI, and on Linux installs and enables the systemd user service. It is
+**idempotent** — safe to re-run: it never clobbers an existing `~/.shepherd/`
+state dir and never force-resets a dirty checkout.
+
+### `curl|bash` trust note
+
+This is third-party `curl|bash`: the script runs unconfined as your user _before_
+any sandbox exists, and it invokes upstream installers it does not control —
+[bun.sh](https://bun.sh/install), [fnm](https://fnm.vercel.app) (Node),
+[herdr.dev](https://herdr.dev), and the [`claude` CLI](https://claude.ai/install.sh) —
+plus your distro's package manager for `git`, `unzip`, and the C/C++ build
+toolchain + `python3` (needed for the node-pty native build). In keeping with
+Shepherd's radical-transparency posture the script echoes each third-party command
+before running it. Read it first:
+[deploy/install.sh](https://github.com/erwins-enkel/shepherd/blob/main/deploy/install.sh).
+
+### Supported platforms
+
+| OS | Mode | Notes |
+| --- | --- | --- |
+| **Linux** (systemd + unprivileged userns) | Full | The only fully supported target — sandbox membrane, egress allowlist, auto-drain, Tailscale-serve previews, and the systemd user unit. |
+| **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. **No** sandbox, egress allowlist, auto-drain, previews, or systemd unit — run `bun run start` manually. |
+| **Windows** | Not supported | The installer refuses and routes you to **WSL2**. |
+
+### Installer environment knobs
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_DIR` | `~/Work/shepherd` | Where the repo is cloned / found |
+| `SHEPHERD_REF` | `main` | Git ref to clone or check out |
+| `SHEPHERD_SRC` | _(none)_ | Install from a local tarball or directory instead of cloning |
+| `SHEPHERD_NO_SERVICE` | _(none)_ | Skip the systemd unit step (set automatically on macOS) |
+
+## Finish setup
+
+The installer never runs commands that need a human secret. After it completes,
+sign in:
+
+```bash
+claude              # sign in with your Max/Pro subscription
+                    # (or configure API-key auth in Settings → Session)
+gh auth login       # GitHub integration (PR list, merge, redeploy)
+
+# remote access via Tailscale
+tailscale serve --bg 7330
+# then add the tailnet hostname to SHEPHERD_ALLOWED_HOSTS
+# (in ~/.shepherd/env or deploy/shepherd.service)
+```
+
+**Settings → DIAGNOSE** surfaces any remaining gaps with one-click fixes.
+
+## From-clone / development path
+
+To run Shepherd from a checkout instead of the installer:
+
+```bash
+# 1. install deps (root + ui)
+bun install
+cd ui && bun install && cd ..
+
+# 2. build the SPA (the core serves it statically from ui/build)
+cd ui && bun run build && cd ..
+
+# 3. run the core
+bun run start
+# → shepherd core on http://localhost:7330
+```
+
+Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
+`SHEPHERD_ALLOWED_HOSTS` to include the public hostname — see
+[Configuration](/reference/configuration/).
+
+### Requirements
+
+- [Bun](https://bun.sh) — backend runtime + package manager
+- `herdr` on `PATH` — manages the interactive `claude` panes (owns the PTYs)
+- The `claude` CLI, logged in with your Max/Pro subscription
+- Node.js — for the PTY helper subprocess
+
+## Next steps
+
+- [Operating Shepherd](/operating/) — run it as a service and deploy changes.
+- [Configuration](/reference/configuration/) — every environment variable.
+- [Concepts & glossary](/reference/glossary/) — the terms Shepherd uses.

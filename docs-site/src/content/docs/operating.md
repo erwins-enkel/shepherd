@@ -1,0 +1,65 @@
+---
+title: Operating Shepherd
+description: Run Shepherd as a systemd service, expose it over Tailscale, and deploy code changes.
+---
+
+## Run as a systemd user service
+
+Shepherd runs as a **systemd user service** — as your own user, so it keeps your
+`claude` subscription login, `~/Work`, and herdr. The installer sets this up on
+Linux. It binds to **loopback only** (`SHEPHERD_HOST=127.0.0.1`).
+
+```bash
+systemctl --user status shepherd     # check it
+systemctl --user restart shepherd    # restart it
+```
+
+The unit runs straight from the working tree, so **whatever is checked out is what
+runs**.
+
+## Expose it over the network
+
+Reach Shepherd over the network by putting it behind a trusted proxy — e.g.
+Tailscale:
+
+```bash
+tailscale serve --bg 7330    # → https://<host>.<tailnet>.ts.net proxies to 127.0.0.1:7330
+```
+
+Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the
+Tailscale name). Access control is **tailnet membership** — there is no app-level
+password.
+
+Per-deployment overrides (token, repo root, alternate hosts) go in
+`~/.shepherd/env` (`KEY=value` lines), read by the unit if present. See
+[Configuration](/reference/configuration/) for the full list.
+
+## Deploy a code change
+
+The unit runs from the working tree, so to deploy local changes in one shot
+(install deps → build UI → restart → health check):
+
+```bash
+bun run update          # deploy the current working tree (warns if dirty / off main)
+bun run update --pull   # fast-forward main from origin first (skip on a dev==prod box)
+```
+
+It is idempotent and safe to re-run — sessions survive the restart (herdr owns the
+PTYs). UI-only changes don't strictly need it: a fresh `cd ui && bun run build` is
+served on the next request, since the core reads `ui/build` from disk per request.
+
+## Host tuning — tmpfs inodes
+
+Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs
+an inode-guard sweep on **startup + daily** that, once `/tmp` inode use crosses a
+threshold, drops the compile cache and stale regenerable tool caches (but never a
+live session's scratch). As a host-level belt on long-uptime hosts, raise `/tmp`'s
+`nr_inodes` in `/etc/fstab`:
+
+```text
+tmpfs /tmp tmpfs nr_inodes=4194304 0 0
+```
+
+The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
+`SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
+listed in [Configuration](/reference/configuration/).

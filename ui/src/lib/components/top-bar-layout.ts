@@ -1,15 +1,12 @@
-// Pure responsive-layout decisions for the top bar's right-side cluster.
-// Extracted from TopBar.svelte so the #247/#322 collapse rules are unit-testable.
-// "touch-desktop" = an unfolded foldable (touch + desktop layout, ~1000px,
-// narrower than a real desktop) — the crunch the badges overflowed on.
+// Pure responsive-layout helpers for the top bar's right-side cluster.
 //
-// Scope: this pure layer only models the FIXED-WIDTH modes — touch-desktop
-// (count-based, #322) and mobile. DESKTOP compaction is NOT modeled here: real
-// desktop width varies (a ~1366px laptop gives the bar far less than the ~1436px
-// .shell cap), so a fixed count can't be correct across all desktop widths. It's
-// decided by RUNTIME MEASUREMENT in TopBar.svelte (measureFull + decideFromCache),
-// which the pure layer can't do — it has no pixel widths. So for desktop this
-// function returns both flags false; the component ORs in the measured result.
+// "touch-desktop" = a coarse-pointer device wider than 768px (an unfolded foldable, a
+// tablet). It is NOT a fixed ~1000px layout — its width varies as widely as desktop —
+// so right-cluster compaction for both desktop AND touch-desktop is decided by RUNTIME
+// MEASUREMENT in TopBar.svelte (measureFull + decideFromCache), which this pure layer
+// can't do (it has no pixel widths). Mobile WRAPS instead, via the component's `mobile`
+// flag. This module therefore only derives the layout mode and the badge count the
+// measure-effect tracks as a content-change signal.
 
 export type Mode = "mobile" | "touch-desktop" | "desktop";
 
@@ -23,13 +20,6 @@ export interface ChromeState {
   whatsNew: boolean;
   /** pending learnings to review across all repos; >0 renders the global learnings badge */
   learnings: number;
-}
-
-export interface TopBarPlan {
-  /** drop the numeric clock-time (keep the connection dot) */
-  hideClockTime: boolean;
-  /** collapse labelled badges to their compact icon/dot form */
-  compactBadges: boolean;
 }
 
 /** Derive the layout mode from the bar's mobile/touch flags. */
@@ -48,24 +38,4 @@ export function badgeCount(s: ChromeState): number {
     (s.whatsNew ? 1 : 0) +
     (s.learnings > 0 ? 1 : 0)
   );
-}
-
-/**
- * The fixed-width right-cluster render plan for a given mode + state.
- *
- * Only touch-desktop is crunched here (count-based, #322). DESKTOP compaction is
- * measurement-driven in TopBar.svelte (measureFull/decideFromCache OR the measured
- * flag into compactBadges/hideClockTime), since this pure layer can't see the bar's
- * actual pixel width — desktop therefore returns both flags false. Mobile collapses
- * via the component's `mobile` flag, not these flags.
- */
-export function topBarPlan(mode: Mode, s: ChromeState): TopBarPlan {
-  const count = badgeCount(s);
-  const touchDesktop = mode === "touch-desktop";
-  return {
-    // Any badge crowds touch-desktop, so the numeric clock is sacrificed first.
-    hideClockTime: touchDesktop && count > 0,
-    // Two+ badges won't fit even after the clock drops — collapse labels.
-    compactBadges: touchDesktop && count >= 2,
-  };
 }

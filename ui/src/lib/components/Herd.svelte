@@ -396,15 +396,16 @@
 <div class="panel bracket" class:flow>
   <div class="phead">
     <span class="micro">{m.herd_title()}</span>
-    <HerdFilterBar
-      bind:filter
-      {statusFilter}
-      {statusLabel}
-      {collapsible}
-      {flow}
-      {onstatusfilter}
-      {oncollapse}
-    />
+    {#if !flow}
+      <HerdFilterBar
+        bind:filter
+        {statusFilter}
+        {statusLabel}
+        {collapsible}
+        {onstatusfilter}
+        {oncollapse}
+      />
+    {/if}
   </div>
   {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
   <div class="units" class:flow>
@@ -511,10 +512,10 @@
   .panel.flow.bracket::after {
     display: none;
   }
-  /* On mobile (flow mode) the "THE HERD" title forces the filter row to wrap on
-     narrow phones; hide just the title span (the filter buttons are nested under
-     .right.filters, so the direct-child combinator leaves them untouched). The
-     herd_title key is still used on desktop (non-flow). */
+  /* On mobile (flow mode) the desktop filter bar isn't rendered ({#if !flow} — the
+     seg-row below replaces it); hide the "THE HERD" title span too so the .phead
+     collapses away and the seg-row leads. The herd_title key is still used on
+     desktop (non-flow). */
   .panel.flow .phead > .micro {
     display: none;
   }

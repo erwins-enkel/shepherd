@@ -8,7 +8,6 @@
     statusFilter,
     statusLabel,
     collapsible,
-    flow,
     onstatusfilter,
     oncollapse,
   }: {
@@ -16,13 +15,12 @@
     statusFilter: "running" | "idle" | "blocked" | null;
     statusLabel: string;
     collapsible: boolean;
-    flow: boolean;
     onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
     oncollapse?: () => void;
   } = $props();
 </script>
 
-<div class="right filters" class:flow>
+<div class="right filters">
   <button
     type="button"
     class="micro fbtn"
@@ -109,12 +107,6 @@
     display: flex;
     gap: 4px;
     margin-left: auto;
-  }
-  /* In flow mode the desktop .fbtn row is replaced by the segmented control row
-     below; hide the entire filters bar (and the statchip within it) on mobile.
-     Desktop keeps .phead + .filters exactly as-is. */
-  .filters.flow {
-    display: none;
   }
   /* Compact (touch / unfolded-fold) layout pins the sidebar to ~288px. There the
      .phead wraps the whole .right.filters group onto its own line, where it sizes

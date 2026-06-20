@@ -10,8 +10,6 @@
     stageRelaunchImages,
     ApiError,
     getUsageLimits,
-    replySession,
-    dismissStall,
     getUpdate,
     getUpdateLog,
     getHerdrUpdate,
@@ -26,19 +24,6 @@
     getSettings,
     listBranches,
     pickBaseBranch,
-    approveLearning,
-    dismissLearning,
-    distillRepo,
-    promoteLearning,
-    optimizeLearning,
-    optimizeRepoFlagged,
-    restoreLearning,
-    setLearningScope,
-    markRetiredSeen,
-    applyMergeSuggestion,
-    dismissMergeSuggestion,
-    promoteGlobalLearning,
-    mergeSuggestNow,
     getMergedClearable,
     clearMerged,
     getDrain,
@@ -76,8 +61,6 @@
   import { doneSessions } from "$lib/done.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
-  import TriageDrawer from "$lib/components/TriageDrawer.svelte";
-  import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import { basename, shouldCloseLearningsDrawer } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
   import {
@@ -97,16 +80,7 @@
   } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
-  import NewTask from "$lib/components/NewTask.svelte";
-  import Settings from "$lib/components/Settings.svelte";
-  import CloneRepo from "$lib/components/CloneRepo.svelte";
-  import ForkRepo from "$lib/components/ForkRepo.svelte";
-  import NewProject from "$lib/components/NewProject.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
-  import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
-  import RetryDialog from "$lib/components/RetryDialog.svelte";
-  import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
-  import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
@@ -118,10 +92,7 @@
     shouldClearRepoFilter,
   } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
-  import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
-  import UpdateModal from "$lib/components/UpdateModal.svelte";
-  import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
-  import StarPrompt from "$lib/components/StarPrompt.svelte";
+  import AppOverlays from "$lib/components/page/AppOverlays.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
@@ -132,9 +103,6 @@
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
-  import WhatsNew from "$lib/components/WhatsNew.svelte";
-  import FableArrival from "$lib/components/FableArrival.svelte";
-  import Onboarding from "$lib/components/Onboarding.svelte";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
@@ -425,6 +393,9 @@
         usageHoldPct &&
       store.sessions.filter((s) => s.status === "running").length >= 1,
   );
+  // Held only when creating fresh (not a relaunch). Pre-computed here so the
+  // ternary lives in <script>, keeping it out of the AppOverlays mount markup.
+  const composeHoldLikely = $derived(relaunchOriginalId === null ? holdLikely : false);
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
@@ -1205,6 +1176,36 @@
     composeImages = [];
   }
 
+  // NewProject partial-success warning code → message map. A lookup (not a ternary
+  // ladder) keeps onNewProjectDone under the function complexity bar; unknown codes
+  // fall back to the generic GitHub warning.
+  const NEW_PROJECT_WARNINGS: Record<string, () => string> = {
+    newproject_failed_gh_missing: m.newproject_failed_gh_missing,
+    newproject_failed_gh_auth: m.newproject_failed_gh_auth,
+    newproject_failed_gh_exists: m.newproject_failed_gh_exists,
+    newproject_failed_remote: m.newproject_failed_remote,
+    newproject_failed_timeout: m.newproject_failed_timeout,
+  };
+
+  // NewProject.ondone: auto-select the new repo in NewTask + prefill the kickoff seed.
+  // A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
+  // info toast — the flow still proceeds to NewTask with the repo preselected.
+  // Named here (not inline in the AppOverlays mount) so its branching stays out of
+  // the route template.
+  function onNewProjectDone(
+    entry: { path: string; warning?: string },
+    kickoff: KickoffChoice,
+    idea: string,
+  ) {
+    showNewProject = false;
+    composeRepoPath = entry.path;
+    composePrompt = buildKickoffSeed(kickoff, idea);
+    if (entry.warning) {
+      toasts.info((NEW_PROJECT_WARNINGS[entry.warning] ?? m.newproject_warning_github)());
+    }
+    showNew = true;
+  }
+
   // Relaunch-elsewhere submit: route to relaunchSession(originalId, overrides) instead of
   // createSession. The server owns issue handling (cross-repo drops it + releases its claim),
   // so we never pass issueRef. Errors THROW so NewTask renders them inline (keeps the dialog
@@ -1931,347 +1932,163 @@
     mobile={mobile.current}
     desktopOnly
   />
-
-  {#if showTriage}
-    <TriageDrawer
-      entries={blockedEntries}
-      {nowMs}
-      onreply={(id, text) => replySession(id, text).catch(() => {})}
-      ondismiss={(id) => dismissStall(id).catch(() => {})}
-      onopen={(id) => {
-        selectUnit(id);
-        showTriage = false;
-      }}
-      onclose={() => (showTriage = false)}
-      onresume={(id) => handleResumeQuota(id)}
-      ontakeover={(id) => handleTakeoverQuota(id)}
-      onabandon={(id) => handleAbandonQuota(id)}
-    />
-  {/if}
-
-  {#if showLearnings}
-    <LearningsDrawer
-      items={learnings.items}
-      injectable={learnings.injectable}
-      mergeSuggestions={learnings.mergeSuggestions}
-      focusRepo={learningsRepo}
-      onapprove={(id, rule) =>
-        approveLearning(id, rule)
-          .then(() => learnings.load())
-          .catch(() => {})}
-      ondismiss={(id) =>
-        dismissLearning(id)
-          .then(() => learnings.load())
-          .catch(() => {})}
-      ondistill={(repoPath) =>
-        distillRepo(repoPath)
-          .then(() => toasts.info(m.learnings_distill_started({ repo: basename(repoPath) })))
-          .catch(() => {})}
-      onpromote={(id) =>
-        promoteLearning(id)
-          .then(() => {
-            toasts.info(m.learnings_promote_started());
-            return learnings.load();
-          })
-          .catch(() => toasts.info(m.learnings_promote_failed()))}
-      onoptimize={(id) =>
-        optimizeLearning(id)
-          .then(() => toasts.info(m.learnings_optimize_started()))
-          .catch(() => toasts.info(m.learnings_optimize_failed()))}
-      onoptimizeall={(repoPath) =>
-        optimizeRepoFlagged(repoPath)
-          .then(() => toasts.info(m.learnings_optimize_started()))
-          .catch(() => toasts.info(m.learnings_optimize_failed()))}
-      onrestore={(id) =>
-        restoreLearning(id)
-          .then(() => learnings.load())
-          .catch(() => toasts.info(m.learnings_restore_failed()))}
-      onscope={(id, globs) =>
-        setLearningScope(id, globs)
-          .then(() => learnings.load())
-          .catch(() => toasts.info(m.learnings_scope_failed()))}
-      onseenretired={(repoPath) =>
-        markRetiredSeen(repoPath)
-          .then(() => learnings.load())
-          .catch(() => {})}
-      onmerge={(suggestionId) =>
-        applyMergeSuggestion(suggestionId)
-          .then(() => {
-            toasts.info(m.learnings_merge_applied());
-            return learnings.load();
-          })
-          .catch(() => toasts.info(m.learnings_merge_failed()))}
-      ondismissmerge={(suggestionId) =>
-        dismissMergeSuggestion(suggestionId)
-          .then(() => learnings.load())
-          .catch(() => {})}
-      onpromoteglobal={(suggestionId) =>
-        promoteGlobalLearning(suggestionId)
-          .then(() => {
-            toasts.info(m.learnings_recur_promote_done());
-            return learnings.load();
-          })
-          .catch(() => toasts.info(m.learnings_recur_promote_failed()))}
-      onmergenow={(repoPath) =>
-        mergeSuggestNow(repoPath)
-          .then(() => toasts.info(m.learnings_merge_now_started({ repo: basename(repoPath) })))
-          .catch(() => {})}
-      onclose={() => {
-        showLearnings = false;
-        learningsRepo = null;
-      }}
-    />
-  {/if}
 </div>
 
-{#if showUpdate && store.update && store.update.behind > 0}
-  <UpdateModal
-    update={store.update}
-    updating={store.updating}
-    {deploy}
-    onconfirm={onUpdateConfirm}
-    onclose={closeUpdate}
-  />
-{/if}
-
-{#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || herdrUpdating)}
-  <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
-       working-while-blocked agent is genuinely mid-turn, so it counts as working -->
-  <HerdrUpdateModal
-    update={store.herdrUpdate}
-    sessions={store.sessions.filter((s) => displayStatus(s, store.workingBlocked) === "running")
-      .length}
-    log={store.herdrUpdateLog}
-    done={store.herdrUpdateDone}
-    onconfirm={() => {
-      herdrUpdating = true;
-      store.herdrUpdateDone = null; // fresh run: clear any prior result
-      store.herdrUpdateLog = [];
-    }}
-    onclose={() => {
-      showHerdrUpdate = false;
-      herdrUpdating = false;
-      store.herdrUpdateDone = null;
-    }}
-  />
-{/if}
-
-{#if showOnboarding}
-  <Onboarding
-    checks={store.diagnostics?.checks ?? null}
-    failed={diagnosticsLoadFailed}
-    onretry={loadDiagnostics}
-    ondismiss={() => {
-      featureDiscovery.markSeen("onboarding");
-      showOnboarding = false;
-    }}
-  />
-{/if}
-
-{#if showWhatsNew}
-  <WhatsNew
-    entries={whatsNewEntries}
-    ondismiss={() => {
-      featureDiscovery.lastSeenVersion = version;
-      whatsNewDotOn = false;
-    }}
-    onclose={() => (showWhatsNew = false)}
-  />
-{/if}
-
-{#if showFableArrival}
-  <FableArrival
-    ontry={() => {
-      featureDiscovery.markSeen(FABLE_FEATURE_ID);
-      showFableArrival = false;
-      composeModel = "fable";
-      showNew = true;
-    }}
-    onclose={() => {
-      featureDiscovery.markSeen(FABLE_FEATURE_ID);
-      showFableArrival = false;
-    }}
-  />
-{/if}
-
-{#if showNew}
-  <!-- Preselect: explicit backlog/PR context first, else the repo the herd is
-       currently filtered to, else NewTask falls back to the most-recently-used repo. -->
-  <NewTask
-    {onsubmit}
-    relaunch={relaunchOriginalId !== null}
-    initialRepoPath={composeRepoPath ?? repoFilter ?? undefined}
-    initialBaseBranch={composeBaseBranch ?? undefined}
-    initialIssue={composeIssue ?? undefined}
-    {relaunchIssueNumber}
-    initialImages={composeImages}
-    initialPrompt={composePrompt ?? undefined}
-    initialModel={composeModel ?? undefined}
-    defaultModel={settings?.defaultModel}
-    fableAvailable={settings?.fableAvailable ?? true}
-    holdLikely={relaunchOriginalId === null ? holdLikely : false}
-    onclose={() => {
-      showNew = false;
-      resetCompose();
-    }}
-    onclone={() => {
-      // Clear stale relaunch/compose state before handing off to Clone: its ondone
-      // reopens NewTask, and a lingering relaunchOriginalId would wrongly put that
-      // fresh-create into relaunch mode (archiving the original session).
-      resetCompose();
-      showNew = false;
-      showClone = true;
-    }}
-    onfork={() => {
-      // Same handoff contract as onclone: ForkRepo.ondone reopens NewTask.
-      resetCompose();
-      showNew = false;
-      showFork = true;
-    }}
-    onnewproject={() => {
-      // Same as onclone: NewProject.ondone reopens NewTask, so drop any stale
-      // relaunch/compose seed first to avoid an unintended relaunch.
-      resetCompose();
-      showNew = false;
-      showNewProject = true;
-    }}
-  />
-{/if}
-
-{#if showSettings}
-  <Settings
-    initialTab={settingsTab}
-    initialDiagnostics={store.diagnostics?.checks ?? null}
-    onclose={() => {
-      showSettings = false;
-      loadSettings();
-    }}
-    herdrUpdate={store.herdrUpdate}
-    onherdrupdate={() => {
-      showSettings = false;
-      showHerdrUpdate = true;
-    }}
-    onclone={() => {
-      showSettings = false;
-      showClone = true;
-    }}
-    onfork={() => {
-      showSettings = false;
-      showFork = true;
-    }}
-    onwhatsnew={() => {
-      showSettings = false;
-      showWhatsNew = true;
-    }}
-  />
-{/if}
-
-{#if showClone}
-  <!-- Close whichever dialog launched Clone (NewTask or Settings) is already done
-       before we get here; ondone reopens NewTask preselected on the fresh repo. -->
-  <CloneRepo
-    onclose={() => (showClone = false)}
-    ondone={(entry) => {
-      showClone = false;
-      composeRepoPath = entry.path;
-      showNew = true;
-    }}
-    repoRootDisplay={settings?.repoRootDisplay}
-  />
-{/if}
-
-{#if showFork}
-  <!-- Same flow as CloneRepo: ondone reopens NewTask preselected on the forked repo. -->
-  <ForkRepo
-    onclose={() => (showFork = false)}
-    ondone={(entry) => {
-      showFork = false;
-      composeRepoPath = entry.path;
-      showNew = true;
-    }}
-    repoRootDisplay={settings?.repoRootDisplay}
-  />
-{/if}
-
-{#if showNewProject}
-  <!-- ondone auto-selects the new repo in NewTask + prefills the kickoff seed.
-       A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
-       info toast — the flow still proceeds to NewTask with the repo preselected. -->
-  <NewProject
-    repoRootDisplay={settings?.repoRootDisplay}
-    onclose={() => (showNewProject = false)}
-    ondone={(entry, kickoff, idea) => {
-      showNewProject = false;
-      composeRepoPath = entry.path;
-      composePrompt = buildKickoffSeed(kickoff, idea);
-      if (entry.warning) {
-        const warningMsg =
-          entry.warning === "newproject_failed_gh_missing"
-            ? m.newproject_failed_gh_missing()
-            : entry.warning === "newproject_failed_gh_auth"
-              ? m.newproject_failed_gh_auth()
-              : entry.warning === "newproject_failed_gh_exists"
-                ? m.newproject_failed_gh_exists()
-                : entry.warning === "newproject_failed_remote"
-                  ? m.newproject_failed_remote()
-                  : entry.warning === "newproject_failed_timeout"
-                    ? m.newproject_failed_timeout()
-                    : m.newproject_warning_github();
-        toasts.info(warningMsg);
-      }
-      showNew = true;
-    }}
-  />
-{/if}
-
-{#if showBroadcast}
-  <BroadcastDialog sessions={store.sessions} onclose={() => (showBroadcast = false)} />
-{/if}
-
-{#if showRetry}
-  <RetryDialog sessions={store.sessions} onclose={() => (showRetry = false)} />
-{/if}
-
-{#if clearMergedSessions}
-  <ClearMergedDialog
-    sessions={clearMergedSessions}
-    leftovers={clearMergedLeftovers}
-    onclose={() => (clearMergedSessions = null)}
-    onconfirm={confirmClearMerged}
-  />
-{/if}
-
-{#if showBacklog}
-  <BacklogOverlay
-    payload={backlog}
-    mobile={mobile.current}
-    {onissue}
-    onquick={onquickissue}
-    {onpr}
-    {onadopt}
-    {onlaunchtrain}
-    onclose={() => (showBacklog = false)}
-    epics={store.epics}
-    {inTrainPrs}
-    target={epicTarget}
-    drain={store.drain}
-  />
-{/if}
-
-{#if pendingTrain}
-  <MergeTrainConfirmDialog
-    repoLabel={pendingTrain.repoLabel}
-    items={pendingTrain.items}
-    handpicked={pendingTrain.handpicked}
-    otherRepoCount={pendingTrain.otherRepoCount}
-    onclose={() => (pendingTrain = null)}
-    onconfirm={confirmTrain}
-  />
-{/if}
-
-{#if store.starPrompt?.shouldPrompt}
-  <StarPrompt onresolve={(s) => (store.starPrompt = s)} />
-{/if}
+<AppOverlays
+  {store}
+  {settings}
+  mobile={mobile.current}
+  {showTriage}
+  {blockedEntries}
+  {nowMs}
+  ontriageopen={(id) => {
+    selectUnit(id);
+    showTriage = false;
+  }}
+  ontriageclose={() => (showTriage = false)}
+  onresumequota={(id) => handleResumeQuota(id)}
+  ontakeoverquota={(id) => handleTakeoverQuota(id)}
+  onabandonquota={(id) => handleAbandonQuota(id)}
+  {showLearnings}
+  {learningsRepo}
+  onlearningsclose={() => {
+    showLearnings = false;
+    learningsRepo = null;
+  }}
+  {showUpdate}
+  {deploy}
+  onupdateconfirm={onUpdateConfirm}
+  onupdateclose={closeUpdate}
+  {showHerdrUpdate}
+  {herdrUpdating}
+  onherdrupdateconfirm={() => {
+    herdrUpdating = true;
+    store.herdrUpdateDone = null; // fresh run: clear any prior result
+    store.herdrUpdateLog = [];
+  }}
+  onherdrupdateclose={() => {
+    showHerdrUpdate = false;
+    herdrUpdating = false;
+    store.herdrUpdateDone = null;
+  }}
+  {showOnboarding}
+  {diagnosticsLoadFailed}
+  ononboardingretry={loadDiagnostics}
+  ononboardingdismiss={() => {
+    featureDiscovery.markSeen("onboarding");
+    showOnboarding = false;
+  }}
+  {showWhatsNew}
+  {whatsNewEntries}
+  onwhatsnewdismiss={() => {
+    featureDiscovery.lastSeenVersion = version;
+    whatsNewDotOn = false;
+  }}
+  onwhatsnewclose={() => (showWhatsNew = false)}
+  {showFableArrival}
+  onfabletry={() => {
+    featureDiscovery.markSeen(FABLE_FEATURE_ID);
+    showFableArrival = false;
+    composeModel = "fable";
+    showNew = true;
+  }}
+  onfableclose={() => {
+    featureDiscovery.markSeen(FABLE_FEATURE_ID);
+    showFableArrival = false;
+  }}
+  {showNew}
+  {onsubmit}
+  relaunchOriginal={relaunchOriginalId !== null}
+  {composeRepoPath}
+  {repoFilter}
+  {composeBaseBranch}
+  {composeIssue}
+  {relaunchIssueNumber}
+  {composeImages}
+  {composePrompt}
+  {composeModel}
+  holdLikely={composeHoldLikely}
+  onnewclose={() => {
+    showNew = false;
+    resetCompose();
+  }}
+  onnewclone={() => {
+    resetCompose();
+    showNew = false;
+    showClone = true;
+  }}
+  onnewfork={() => {
+    resetCompose();
+    showNew = false;
+    showFork = true;
+  }}
+  onnewnewproject={() => {
+    resetCompose();
+    showNew = false;
+    showNewProject = true;
+  }}
+  {showSettings}
+  {settingsTab}
+  onsettingsclose={() => {
+    showSettings = false;
+    loadSettings();
+  }}
+  onsettingsherdrupdate={() => {
+    showSettings = false;
+    showHerdrUpdate = true;
+  }}
+  onsettingsclone={() => {
+    showSettings = false;
+    showClone = true;
+  }}
+  onsettingsfork={() => {
+    showSettings = false;
+    showFork = true;
+  }}
+  onsettingswhatsnew={() => {
+    showSettings = false;
+    showWhatsNew = true;
+  }}
+  {showClone}
+  oncloneclose={() => (showClone = false)}
+  onclonedone={(entry) => {
+    showClone = false;
+    composeRepoPath = entry.path;
+    showNew = true;
+  }}
+  {showFork}
+  onforkclose={() => (showFork = false)}
+  onforkdone={(entry) => {
+    showFork = false;
+    composeRepoPath = entry.path;
+    showNew = true;
+  }}
+  {showNewProject}
+  onnewprojectclose={() => (showNewProject = false)}
+  onnewprojectdone={onNewProjectDone}
+  {showBroadcast}
+  onbroadcastclose={() => (showBroadcast = false)}
+  {showRetry}
+  onretryclose={() => (showRetry = false)}
+  {clearMergedSessions}
+  {clearMergedLeftovers}
+  onclearmergedclose={() => (clearMergedSessions = null)}
+  onclearmergedconfirm={confirmClearMerged}
+  {showBacklog}
+  {backlog}
+  {epicTarget}
+  {inTrainPrs}
+  {onissue}
+  onquick={onquickissue}
+  {onpr}
+  {onadopt}
+  {onlaunchtrain}
+  onbacklogclose={() => (showBacklog = false)}
+  {pendingTrain}
+  ontrainclose={() => (pendingTrain = null)}
+  ontrainconfirm={confirmTrain}
+  onstarresolve={(s) => (store.starPrompt = s)}
+/>
 
 <Toasts aboveActionBar={mobileActionBarPresent} />
 

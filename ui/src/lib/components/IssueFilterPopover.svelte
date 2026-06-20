@@ -152,7 +152,7 @@
 </div>
 
 <style>
-  /* Trigger button — matches the .filter-chip recipe in IssuesPanel.svelte. */
+  /* Trigger button — matches the .filter-chip recipe in ProjectBacklogList.svelte. */
   .filter-chip {
     display: inline-flex;
     align-items: center;

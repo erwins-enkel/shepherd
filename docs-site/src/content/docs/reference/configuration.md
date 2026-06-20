@@ -48,10 +48,11 @@ See [Operating Shepherd](/operating/) for the host-level `/etc/fstab` belt.
 
 Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)
 spawns a tightly-scoped Claude Code agent that diffs recent source changes against the
-hand-written docs and edits the enumerated prose pages in place. Its tools are limited to
-file edits — it has **no** git, `gh`, or network access, so it can neither commit nor push;
-the trusted server stages the in-scope doc files, commits, and opens a **pull request** for
-human review (never an auto-merge). Off by default; flip on per deployment to soak it.
+hand-written docs and edits the enumerated prose pages in place. It is granted read-only
+git (`git diff`/`log`/`show`/`status`) for grounding plus file edits, but has **no git
+mutation, `gh`, or network access**, so it can neither commit nor push; the trusted server
+stages the in-scope doc files, commits, and opens a **pull request** for human review
+(never an auto-merge). Off by default; flip on per deployment to soak it.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

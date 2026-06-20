@@ -293,6 +293,11 @@ export interface AppDeps {
   };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. */
   promoter?: { promote: (id: string) => Promise<import("./promote").PromoteResult> };
+  /** PR-gated AI doc agent (issue #882). Optional + flag-gated (config.docAgentEnabled); the route
+   *  404s when the flag is off or the service is unwired. Wired to DocAgentService in index.ts. */
+  docAgent?: {
+    consider: (repoPath: string) => Promise<import("./doc-agent").DocAgentResult>;
+  };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
   gitignoreAdopter?: {
     adopt: (repoPath: string) => Promise<import("./gitignore-adopt").AdoptResult>;
@@ -868,6 +873,23 @@ async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<
   const me = (await forge?.currentUser?.()) ?? null;
   const list = (await forge?.listCollaborators?.()) ?? { logins: [], unavailable: true };
   return json({ logins: list.logins, me, collaboratorsUnavailable: list.unavailable });
+}
+
+// POST /api/doc-agent?repo= — manually trigger the PR-gated AI doc agent (issue #882).
+// Opt-in + flag-gated: when SHEPHERD_DOC_AGENT is off (or the service is unwired) the endpoint
+// 404s deliberately, so a disabled feature is unadvertised (a chosen divergence from the 403/null
+// precedent — see configuration.md). On success the server (never the agent) commits/pushes/opens a
+// PR for human review; this just kicks the run off.
+async function handleDocAgent({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "doc-agent" && !parts[2])) return null;
+  if (req.method !== "POST") return null;
+  if (!config.docAgentEnabled || !deps.docAgent) return json({ error: "not found" }, 404);
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const res = await deps.docAgent.consider(dir);
+  if (res.status === "started") return json({ ok: true }, 202);
+  if (res.status === "skipped") return json({ ok: false, reason: res.reason }, 409);
+  return json({ error: res.reason ?? "doc agent failed" }, 400);
 }
 
 // /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
@@ -4237,6 +4259,7 @@ const ROUTE_HANDLERS = [
   handleRepoRoles,
   handleRepoCollaborators,
   handleLearnings,
+  handleDocAgent,
   handlePush,
   handleSessionHooks,
   handleBuildQueue,

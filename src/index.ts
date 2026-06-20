@@ -71,6 +71,7 @@ import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { runAutoRetire } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
+import { DocAgentService } from "./doc-agent";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest } from "./hooks-ingest";
@@ -566,6 +567,24 @@ const branchPruner = new BranchPruner(store, resolveForge, () =>
 setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
 branchPruner.start();
 
+// PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in, default-off
+// (config.docAgentEnabled / SHEPHERD_DOC_AGENT). Manual trigger only; the boot orphan-sweep +
+// 15s finalize tick below are gated on the flag so the feature is fully inert when off.
+const docAgent = new DocAgentService({
+  herdr,
+  worktree,
+  resolveForge,
+  repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  model: config.docAgentModel,
+  onChange: (f) => events.emit("doc-agent:done", f),
+});
+if (config.docAgentEnabled) {
+  // Boot reconcile: clear husk tabs + orphan docs-update-* worktrees from a pre-restart run so a
+  // unique-named re-spawn never collides and stale worktrees don't accumulate (works even if the
+  // herdr daemon also restarted — it parses `git worktree list`).
+  void docAgent.sweepOrphans().catch((err) => console.warn("[doc-agent] sweepOrphans:", err));
+}
+
 const reviewService = new ReviewService({
   store,
   herdr,
@@ -784,6 +803,8 @@ setInterval(() => {
   void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
   void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
   void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
+  if (config.docAgentEnabled)
+    void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
   try {
     buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
   } catch (err) {
@@ -1376,6 +1397,7 @@ const appDeps: AppDeps = {
   distiller,
   optimizer,
   promoter,
+  docAgent: { consider: (repoPath: string) => docAgent.consider(repoPath) },
   gitignoreAdopter,
   drain: {
     snapshot: () => drain.snapshot(),

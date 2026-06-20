@@ -334,6 +334,9 @@ export const config = {
   // (and its notification noise) for agent sessions; `/remote-control` (`/rc`) still
   // works in the terminal to turn it on per-session. UI-configurable + persisted.
   remoteControlAtStartup: process.env.SHEPHERD_REMOTE_CONTROL_AT_STARTUP === "1",
+  // Reduced push mode: global; UI-configurable + persisted; when on, the push
+  // layer sends only `ready` notifications plus cost alerts (quieter devices).
+  reducedPushMode: process.env.SHEPHERD_REDUCED_PUSH_MODE === "1",
   // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
   // of polling, staged behind two default-off flags so each phase is independently reversible.
   // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned

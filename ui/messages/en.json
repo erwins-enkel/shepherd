@@ -1691,5 +1691,13 @@
   "learnings_recur_promote_done": "Rule added to your global CLAUDE.md.",
   "learnings_recur_promote_failed": "Couldn't write to your global CLAUDE.md.",
   "feat_learnings_promote_global_title": "One-click promote a rule globally",
-  "feat_learnings_promote_global_body": "A cross-repo recurrence suggestion can now be written straight into your user-global ~/.claude/CLAUDE.md with one guarded click (a two-step confirm) — no PR, applied to every repo."
+  "feat_learnings_promote_global_body": "A cross-repo recurrence suggestion can now be written straight into your user-global ~/.claude/CLAUDE.md with one guarded click (a two-step confirm) — no PR, applied to every repo.",
+  "settings_reduced_push_title": "Reduced notifications",
+  "settings_reduced_push_hint": "Mute every notification except a session waiting on you for 5s (usage and cost alerts still come through).",
+  "settings_reduced_push_on": "On",
+  "settings_reduced_push_off": "Off",
+  "settings_reduced_push_disabled_note": "Reduced mode: only ready-after-5s notifications are sent.",
+  "settings_reduced_push_save_failed": "Couldn't save reduced notifications setting.",
+  "feat_reduced_push_title": "Reduced notifications mode",
+  "feat_reduced_push_body": "A new global switch in Settings → Device silences every push notification except one: a session that's been waiting on you for 5 seconds. Usage and cost alerts still come through. Turn it on for a low-noise day where the only banner you get is \"something needs you and didn't resolve itself\"."
 }

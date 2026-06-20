@@ -20,7 +20,8 @@ export interface PushPayload {
     | "merge_attention"
     | "usage_limit"
     | "extra_credits"
-    | "learnings_retired";
+    | "learnings_retired"
+    | "ready";
   tag: string;
 }
 
@@ -40,6 +41,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   usage_limit: "agent",
   extra_credits: "agent",
   learnings_retired: "agent",
+  ready: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -55,7 +57,8 @@ export interface NotifyInput {
     | "merge_attention"
     | "usage_limit"
     | "extra_credits"
-    | "learnings_retired";
+    | "learnings_retired"
+    | "ready";
   sessionId: string;
   tag: string;
   name: string;
@@ -91,6 +94,9 @@ export interface NotifyInput {
 export type SendResult = { statusCode?: number };
 export type SendFn = (sub: PushSubInput, payload: string) => Promise<SendResult>;
 type GenKeys = () => { publicKey: string; privateKey: string };
+
+/** Kinds that are allowed through even when reducedPushMode is on. */
+const REDUCED_ALLOWED = new Set<NotifyInput["kind"]>(["ready", "usage_limit", "extra_credits"]);
 
 const defaultSend: SendFn = (sub, payload) =>
   webpush.sendNotification(sub as webpush.PushSubscription, payload) as Promise<SendResult>;
@@ -139,6 +145,8 @@ const NOTIFY_TEXT = {
     learningsRetiredTitle: "Learnings auto-retired",
     learningsRetiredBody: (n: number) =>
       `${n} ${n === 1 ? "rule" : "rules"} auto-retired — tap to review.`,
+    readyTitle: (name: string) => `${name} — your turn`,
+    readyBody: "Waiting on you for 5s — your turn.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -180,6 +188,8 @@ const NOTIFY_TEXT = {
     learningsRetiredTitle: "Learnings automatisch zurückgezogen",
     learningsRetiredBody: (n: number) =>
       `${n} ${n === 1 ? "Regel" : "Regeln"} zurückgezogen — zum Prüfen tippen.`,
+    readyTitle: (name: string) => `${name} — du bist dran`,
+    readyBody: "Wartet seit 5s auf dich — du bist dran.",
   },
 } as const;
 
@@ -310,6 +320,8 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         title: t.learningsRetiredTitle,
         body: t.learningsRetiredBody(input.retiredCount ?? 0),
       };
+    case "ready":
+      return { ...base, title: t.readyTitle(input.name), body: t.readyBody };
     default:
       return {
         ...base,
@@ -377,26 +389,33 @@ export class PushService {
     // push under userVisibleOnly:true (Android substitutes its own banner). We
     // don't touch the cooldown clock here: nothing was sent.
     if (this.isActive()) return false;
+    if (config.reducedPushMode && !REDUCED_ALLOWED.has(input.kind)) return false;
     const cooldownMs = config.pushCooldownMs;
     const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
     const t = this.now();
-    // Suppress repeats within the window of the last send that actually fired; a
-    // sustained flap stays suppressed until a full quiet window passes. Distinct
-    // kinds (done vs blocked) live under separate keys and never collapse.
-    if (cooldownMs > 0) {
-      const last = this.lastNotified.get(key);
-      if (last !== undefined && t - last < cooldownMs) return false;
-    }
+    if (this.withinCooldown(key, t, cooldownMs)) return false;
     const category = KIND_CATEGORY[input.kind];
     let sent = false;
     for (const row of this.store.listPushSubs()) {
       // Honor the device's category selection: a sub that muted this category
       // never receives the push (filtered server-side so it works app-closed).
-      if (!row.cats[category]) continue;
+      // Exception: "ready" bypasses the category filter unconditionally — it must
+      // reach all devices regardless of their agent/reviews/ci selection.
+      if (input.kind !== "ready" && !row.cats[category]) continue;
       if (await this.deliver(row, input)) sent = true;
     }
     if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
     return sent;
+  }
+
+  /** True when a prior send under `key` still falls inside the cooldown window.
+   *  Suppresses repeats within the window of the last send that actually fired; a
+   *  sustained flap stays suppressed until a full quiet window passes. Distinct
+   *  kinds (done vs blocked) live under separate keys and never collapse. */
+  private withinCooldown(key: string, t: number, cooldownMs: number): boolean {
+    if (cooldownMs <= 0) return false;
+    const last = this.lastNotified.get(key);
+    return last !== undefined && t - last < cooldownMs;
   }
 
   /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */

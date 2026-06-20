@@ -69,6 +69,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     usageHoldEnabled: true,
     usageHoldPct: 90,
     fableAvailable: true,
+    reducedPushMode: false,
     ...over,
   };
 }

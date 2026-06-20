@@ -12,6 +12,7 @@ let tmp: string;
 let savedRoot: string;
 let savedCeiling: string;
 let savedRc: boolean;
+let savedRpm: boolean;
 let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
@@ -28,6 +29,7 @@ beforeEach(() => {
   savedRoot = config.repoRoot; // PUT mutates the shared config; restore after
   savedCeiling = config.rootCeiling;
   savedRc = config.remoteControlAtStartup;
+  savedRpm = config.reducedPushMode;
   savedHk = config.sessionHousekeepingEnabled;
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
@@ -47,6 +49,7 @@ afterEach(() => {
   config.repoRoot = savedRoot;
   config.rootCeiling = savedCeiling;
   config.remoteControlAtStartup = savedRc;
+  config.reducedPushMode = savedRpm;
   config.sessionHousekeepingEnabled = savedHk;
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
@@ -223,6 +226,29 @@ test("PUT /api/settings toggles remoteControlAtStartup, persists, leaves repoRoo
 test("PUT /api/settings rejects a non-boolean remoteControlAtStartup", async () => {
   const { app } = harness();
   const res = await put(app, { remoteControlAtStartup: "yes" });
+  expect(res.status).toBe(400);
+});
+
+test('PUT /api/settings toggles reducedPushMode, persists ("1"/"0"), leaves repoRoot intact', async () => {
+  config.repoRoot = tmp;
+  config.reducedPushMode = false;
+  const { app, store } = harness();
+  const res = await put(app, { reducedPushMode: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).reducedPushMode).toBe(true);
+  expect(config.reducedPushMode).toBe(true); // live
+  expect(store.getSetting("reducedPushMode")).toBe("1"); // persisted as "1"/"0"
+  expect(config.repoRoot).toBe(tmp); // a reducedPushMode patch must not touch the repo root
+  // reflected by GET, and toggling back persists "0"
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.reducedPushMode).toBe(true);
+  await put(app, { reducedPushMode: false });
+  expect(store.getSetting("reducedPushMode")).toBe("0");
+});
+
+test("PUT /api/settings rejects a non-boolean reducedPushMode", async () => {
+  const { app } = harness();
+  const res = await put(app, { reducedPushMode: "yes" });
   expect(res.status).toBe(400);
 });
 

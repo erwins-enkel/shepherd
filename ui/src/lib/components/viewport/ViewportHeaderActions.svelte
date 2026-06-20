@@ -53,7 +53,13 @@
 
 <!-- trailing controls: on compact/phone they group + wrap together as a
      right-aligned cluster so the close button never orphans to its own row -->
-<div class="vp-actions" class:mobile={compact} class:renaming>
+<!-- while the rename editor is open on mobile the trailing cluster yields the row
+     entirely (display:none) so the decom ✕ can't sit beside the rename-cancel ✕ -->
+<div
+  class="vp-actions"
+  class:mobile={compact}
+  style:display={compact && renaming ? "none" : undefined}
+>
   {#if compact}
     {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
     <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
@@ -373,13 +379,6 @@
     gap: 7px;
     margin-left: auto;
     flex-shrink: 0;
-  }
-  /* while the rename editor is open the trailing cluster yields the row: the
-     editor claims (nearly) the full width, and the decom ✕ can't sit beside
-     the rename-cancel ✕ inviting a mistap. Blur still saves, so no control in
-     the hidden cluster is needed mid-edit. */
-  .vp-actions.mobile.renaming {
-    display: none;
   }
   /* the fold toggle is likewise a bare chevron — at --fs-base it reads as a
      dot, so it gets the same icon-size bump (hit area stays ≥44px above) */

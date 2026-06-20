@@ -159,6 +159,45 @@ const baseProps = {
   showReady: true,
 };
 
+describe("GitRail — shortened issue & PR labels", () => {
+  // The rail drops the #number from the visible label (Issue ↗ / PR ↗) to save
+  // horizontal space, keeping the external-link ↗ and stashing the full
+  // reference in the title + aria-label. These fail on the pre-change markup
+  // (no title attr; visible text still carried the number).
+  it("PR link: short visible text, ↗ kept, full ref in title + accessible name", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    // accessible name (aria-label) carries the full reference…
+    await expect.element(screen.getByRole("link", { name: "PR #12345" })).toBeVisible();
+    // …and so does the hover tooltip…
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+    // …but the rail's VISIBLE text is the short form with the arrow, no number.
+    const rail = h.querySelector<HTMLElement>(".rail")!;
+    expect(rail.textContent).toContain("PR ↗");
+    expect(rail.textContent).not.toContain("#12345");
+  });
+
+  it("issue link: short visible text, ↗ kept, full ref in title + accessible name", async () => {
+    gitStateFn.mockResolvedValue({
+      ...openPrState,
+      issueUrl: "https://github.com/acme/shepherd/issues/855",
+    });
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, issueNumber: 855 },
+    });
+    await expect.element(screen.getByRole("link", { name: "Issue #855" })).toBeVisible();
+    await expect.element(screen.getByTitle("Issue #855")).toBeVisible();
+    const rail = h.querySelector<HTMLElement>(".rail")!;
+    expect(rail.textContent).toContain("Issue ↗");
+    expect(rail.textContent).not.toContain("#855");
+  });
+});
+
 describe("GitRail — controls stay within the cell", () => {
   // ── open PR (original suite, two widths) ──────────────────────────────────
   it("desktop cell 600px — open PR, long title", async () => {
@@ -166,7 +205,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
   });
 
@@ -175,7 +214,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(400, 900);
     const h = host(360);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
   });
 
@@ -261,7 +300,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     // Merge button must still be present (just disabled)
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -281,7 +320,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(400, 900);
     const h = host(360);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
@@ -304,7 +343,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button enabled despite failing non-required check").toBe(
@@ -324,7 +363,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
@@ -343,7 +382,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
@@ -367,7 +406,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
@@ -387,7 +426,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     // unknown defers to checks: green checks → no over-block during the unknown window.
@@ -406,7 +445,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
     expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
@@ -423,7 +462,7 @@ describe("GitRail — controls stay within the cell", () => {
       target: h,
       props: { ...baseProps, mobile: false, status: "running", showReady: true },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     // ReadyToggle hidden when status === "running"
     const readyToggle = h.querySelector('[data-testid="ready-toggle"], .ready-toggle');
     // We can't rely on a testid; instead verify the rail still fits without it
@@ -439,7 +478,7 @@ describe("GitRail — controls stay within the cell", () => {
       target: h,
       props: { ...baseProps, mobile: true, status: "running", showReady: true },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
   });
 
@@ -453,7 +492,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(400, 900);
     const h = host(360);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     // Arm the merge button by clicking it once (first click arms, second confirms).
     const mergeBtn = screen.getByRole("button", { name: /^Merge$/i });
@@ -471,7 +510,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const mergeBtn = screen.getByRole("button", { name: /^Merge$/i });
     await mergeBtn.click();
@@ -487,7 +526,7 @@ describe("GitRail — mobile scroll affordance", () => {
     await page.viewport(400, 900);
     const h = host(360);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile");
     expect(rail, ".rail.mobile mounted").not.toBeNull();
@@ -505,7 +544,7 @@ describe("GitRail — mobile scroll affordance", () => {
     await page.viewport(400, 900);
     const h = host(360);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile")!;
     await vi.waitFor(() => expect(rail.style.getPropertyValue("--fade-r")).toBe("1"));
@@ -522,7 +561,7 @@ describe("GitRail — mobile scroll affordance", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail");
     expect(rail!.style.getPropertyValue("--fade-r"), "no fade var on desktop").toBe("");
@@ -541,7 +580,7 @@ describe("GitRail — plan review pulses the automation pill", () => {
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     // rail (and the pill) only renders once the mocked gitState resolves on mount
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const pill = h.querySelector<HTMLButtonElement>("button.auto-pill");
     expect(pill, "auto-pill present").not.toBeNull();
@@ -610,7 +649,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
     expect(dialog.getAttribute("role")).toBe("dialog");
@@ -622,7 +661,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
     await vi.waitFor(() => {
@@ -635,7 +674,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { chip, dialog } = await openReview(h);
     const closeBtn = dialog.querySelector<HTMLButtonElement>(
@@ -654,7 +693,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { chip } = await openReview(h);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -669,7 +708,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
     const focusables = dialog.querySelectorAll<HTMLElement>(
@@ -694,7 +733,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
     const focusables = dialog.querySelectorAll<HTMLElement>(
@@ -745,7 +784,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     // start state: no verdict, not reviewing → "Review" label (the new no-verdict path)
     await vi.waitFor(() => expect(reviewBtn(h), "review button present").not.toBeNull());
     expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_review());
@@ -756,7 +795,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     expect(reviewBtn(h), "no review button without green CI").toBeNull();
   });
 
@@ -780,7 +819,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() =>
       expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
     );
@@ -793,7 +832,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
 
     const btn = reviewBtn(h)!;
@@ -825,7 +864,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
@@ -844,7 +883,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
@@ -859,7 +898,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_skipped());
@@ -871,7 +910,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await page.viewport(600, 900);
     const h = host(600);
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
     // give any (incorrect) toast a tick to fire, then assert silence
@@ -925,7 +964,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
     expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_review_plan());
   });
@@ -939,7 +978,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: null },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() =>
       expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
     );
@@ -954,7 +993,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "executing" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() =>
       expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
     );
@@ -984,7 +1023,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
     expect(planReviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_rereview_plan());
   });
@@ -998,7 +1037,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
 
     const btn = planReviewBtn(h)!;
@@ -1024,7 +1063,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirmPlan(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_plan_skipped());
@@ -1047,7 +1086,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
     // button must be disabled → no clicks can reach the handler → no toast
     expect(planReviewBtn(h)!.disabled, "button disabled while reviewing").toBe(true);
@@ -1071,7 +1110,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirmPlan(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
@@ -1093,7 +1132,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirmPlan(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
@@ -1116,7 +1155,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirmPlan(h);
     await vi.waitFor(() => expect(reviewPlanFn).toHaveBeenCalledTimes(1));
     // give any (incorrect) toast a tick to fire, then assert silence
@@ -1134,7 +1173,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
     expect(planReviewBtn(h)!.disabled, "button disabled while reviewing").toBe(true);
   });
@@ -1152,7 +1191,7 @@ describe("GitRail — manual plan-review trigger", () => {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
-    await expect.element(screen.getByText(/PR #12345/)).toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     // Capture stable DOM node references while both buttons show initial unarmed labels.
     // The critic button starts as "Review" (no prior verdict); plan button as "Review plan".

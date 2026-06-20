@@ -32,14 +32,28 @@ export const DISTILL_LABEL = "__distill__";
 
 const HEALTH_FAILURE_THRESHOLD = 3;
 
+const MAX_UPDATES_PER_RUN = 5;
+const MAX_DELETES_PER_RUN = 5;
+
 interface RawRule {
   rule?: unknown;
   rationale?: unknown;
   evidence?: unknown;
 }
+interface RawUpdate {
+  id?: unknown;
+  rule?: unknown;
+  rationale?: unknown;
+}
+interface RawDelete {
+  id?: unknown;
+  reason?: unknown;
+}
 interface RawProposals {
   rules?: unknown;
   ineffective?: unknown;
+  updates?: unknown; // NEW
+  deletes?: unknown; // NEW
 }
 interface RawIneffective {
   id?: unknown;
@@ -66,6 +80,9 @@ export interface DistillerDeps {
     | "listActiveLearnings"
     | "getRepoConfig"
     | "incrementLearningIneffective"
+    | "mergeLearning"
+    | "retireLearning"
+    | "getLearning"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
@@ -274,7 +291,7 @@ export class DistillerService {
   }
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
-    const added = this.applyProposals(f.repoPath, raw);
+    const { added, updated, deleted } = this.applyProposals(f.repoPath, raw);
     const flagged = this.applyIneffective(f, raw);
     this.deps.herdr.stop(f.terminalId);
     this.deps.scratch.remove(f.dir);
@@ -283,13 +300,47 @@ export class DistillerService {
     } else {
       this.recordHealthFailure(f.repoPath, "timeout-no-output");
     }
-    if (added > 0 || flagged > 0) this.deps.onChange();
+    if (added + updated + deleted + flagged > 0) this.deps.onChange();
   }
 
-  /** Persist new (deduped) proposed rules from the distiller's output. Returns the count added. */
-  private applyProposals(repoPath: string, raw: RawProposals | null): number {
+  /** Persist new (deduped) proposed rules and apply UPDATE/DELETE from the distiller's output. */
+  private applyProposals(
+    repoPath: string,
+    raw: RawProposals | null,
+  ): { added: number; updated: number; deleted: number } {
     let added = 0;
+    let updated = 0;
+    let deleted = 0;
     const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
+    const activeIds = new Set(
+      this.deps.store
+        .listActiveLearnings(repoPath)
+        .filter((l) => l.status === "active")
+        .map((l) => l.id),
+    );
+
+    // UPDATE — validate id ∈ activeIds, non-blank rule, capped
+    const updates = Array.isArray(raw?.updates) ? (raw!.updates as RawUpdate[]) : [];
+    for (const u of updates) {
+      if (updated >= MAX_UPDATES_PER_RUN) break;
+      const id = typeof u?.id === "string" ? u.id : undefined;
+      if (!id || !activeIds.has(id)) continue;
+      if (typeof u.rule !== "string" || !u.rule.trim()) continue;
+      const rationale = typeof u.rationale === "string" ? u.rationale : undefined;
+      if (this.deps.store.mergeLearning(id, u.rule, rationale)) updated++;
+    }
+
+    // DELETE — validate id ∈ activeIds, re-confirm active, capped, soft-retire "superseded"
+    const deletes = Array.isArray(raw?.deletes) ? (raw!.deletes as RawDelete[]) : [];
+    for (const d of deletes) {
+      if (deleted >= MAX_DELETES_PER_RUN) break;
+      const id = typeof d?.id === "string" ? d.id : undefined;
+      if (!id || !activeIds.has(id)) continue;
+      if (this.deps.store.getLearning(id)?.status !== "active") continue; // defense-in-depth
+      if (this.deps.store.retireLearning(id, "superseded")) deleted++;
+    }
+
+    // ADD — unchanged from prior behavior (exact-text dedup backstop)
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
@@ -306,7 +357,7 @@ export class DistillerService {
       });
       added++;
     }
-    return added;
+    return { added, updated, deleted };
   }
 
   /** Bump ineffectiveCount for any active rule the distiller cited as not working,
@@ -336,18 +387,29 @@ function normalizeRule(s: string): string {
 function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
-    "It is a JSON object with three fields: `signals` — an array of past corrections, blocks,",
-    "stalls, and critic findings for one repository; `existingRules` — an array of rules",
-    "already recorded or previously dismissed (do NOT repeat any of these);",
-    "and `activeRules` — an array of currently-active house rules as {id, rule} objects.",
+    "It is a JSON object with three fields:",
+    "  `signals` — an array of past corrections, blocks, stalls, and critic findings for one repository;",
+    "  `existingRules` — all recorded/dismissed rules (do NOT ADD any of these — they are the dedup set);",
+    "  `activeRules` — currently-active house rules as {id, rule} objects (UPDATE/DELETE targets).",
+    "",
+    "For each candidate finding, choose exactly ONE action:",
+    "  ADD    → emit in `rules`   (new guidance, not already in existingRules)",
+    "  UPDATE → emit in `updates` (same topic AND same target; richer wording — keep the most informative version)",
+    "  DELETE → emit in `deletes` (the finding directly CONTRADICTS that activeRule — emit any corrected rule as a separate ADD)",
+    "  NOOP   → emit nothing      (already fully covered by an existingRule or activeRule)",
+    "",
+    "MULTI-VALUED GUARD: never UPDATE or DELETE a rule whose target (file / category / object) DIFFERS",
+    "from the candidate, even if the topic is similar. A UI rule and a migration rule about the same",
+    "feature must coexist — only the SAME target may be merged or contradicted.",
+    "",
     "If a signal shows an activeRule was violated or did not prevent the mistake, add an",
-    "`ineffective` entry: {id: the activeRule id, evidence: the signal ids that show it",
-    "failing}. Only cite signal ids present in `signals` — never invent ids.",
-    "Identify RECURRING, actionable mistakes worth a standing house rule for future agents.",
-    "Ignore one-off noise. Write at most 5 crisp imperative rules.",
+    "`ineffective` entry: {id: the activeRule id, evidence: the signal ids that show it failing}.",
+    "Only cite ids present in the data — never invent ids.",
+    "",
+    "Limits: at most 5 ADDs, 5 updates, 5 deletes.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules": [{"rule": "<=160 char imperative", "rationale": "why", "evidence": ["signalId", ...]}], "ineffective": [{"id": "activeRuleId", "evidence": ["signalId", ...]}]}',
-    'If nothing recurs, write {"rules": [], "ineffective": []}. Do not write anything else.',
+    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
+    'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[]}. Do not write anything else.',
   ].join("\n");
 }
 

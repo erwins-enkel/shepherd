@@ -382,8 +382,12 @@ export interface GitForge {
   addBlockedBy?(issueNumber: number, blockerNumber: number): Promise<void>;
   /** Cheap per-parent native sub-issue counts for the backlog epic-badge discovery
    *  (GitHub only; absent → no native-epic discovery, markdown fallback only). Map keyed
-   *  by parent issue number; only entries with total > 0 are included. */
-  listSubIssueSummaries?(): Promise<Map<number, { total: number; completed: number }>>;
+   *  by parent issue number; only entries with total > 0 are included. Also returns the
+   *  numbers of all open issues that are native sub-issues (i.e. have a non-null parent). */
+  listSubIssueSummaries?(): Promise<{
+    summaries: Map<number, { total: number; completed: number }>;
+    subIssueNumbers: number[];
+  }>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

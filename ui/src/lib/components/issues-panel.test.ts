@@ -6,7 +6,7 @@
  * delegates to.
  */
 import { describe, it, expect } from "vitest";
-import { filterIssues, hideOthers, hideActive, ACTIVE_LABEL } from "./issues-panel";
+import { filterIssues, hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
 import type { Issue } from "$lib/types";
 
 function issue(
@@ -147,5 +147,42 @@ describe("hideActive", () => {
     } as unknown as Issue;
     expect(() => hideActive([stale], true)).not.toThrow();
     expect(hideActive([stale], true)).toEqual([stale]);
+  });
+});
+
+describe("hideSubIssues", () => {
+  const subOnly = issue(1, "Sub-issue only");
+  const subAndParent = issue(2, "Mid-level epic");
+  const normalIssue = issue(3, "Regular issue");
+  const all = [subOnly, subAndParent, normalIssue];
+
+  it("when enabled, drops an issue in subIssues but not in epicParents", () => {
+    const subs = new Set<number>([1]);
+    const parents = new Set<number>([]);
+    expect(hideSubIssues(all, true, subs, parents)).toEqual([subAndParent, normalIssue]);
+  });
+
+  it("keeps an issue that is both in subIssues and epicParents (mid-level epic)", () => {
+    const subs = new Set<number>([1, 2]);
+    const parents = new Set<number>([2]);
+    expect(hideSubIssues(all, true, subs, parents)).toEqual([subAndParent, normalIssue]);
+  });
+
+  it("keeps an issue absent from subIssues", () => {
+    const subs = new Set<number>([]);
+    const parents = new Set<number>([]);
+    expect(hideSubIssues(all, true, subs, parents)).toEqual(all);
+  });
+
+  it("fails open when disabled — returns all issues unchanged", () => {
+    const subs = new Set<number>([1, 2]);
+    const parents = new Set<number>([2]);
+    expect(hideSubIssues(all, false, subs, parents)).toEqual(all);
+  });
+
+  it("fails open when subIssues is empty — returns all issues unchanged", () => {
+    const subs = new Set<number>([]);
+    const parents = new Set<number>([2]);
+    expect(hideSubIssues(all, true, subs, parents)).toEqual(all);
   });
 });

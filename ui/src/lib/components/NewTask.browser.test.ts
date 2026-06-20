@@ -76,7 +76,7 @@ beforeEach(() => {
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
   mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
-  mockGetEpics.mockResolvedValue([]);
+  mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
   mockListBranches.mockResolvedValue({ current: "main", branches: ["main"], default: null });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
@@ -159,22 +159,26 @@ describe("NewTask issue picker epic-parent rows", () => {
       issues: [issue(30, "Epic parent", ["shepherd:active"]), issue(31, "Plain issue")],
       viewer: null,
     });
-    mockGetEpics.mockResolvedValue([
-      {
-        parentIssueNumber: 30,
-        parentTitle: "Epic parent",
-        total: 2,
-        merged: 1,
-        status: "idle",
-        source: "markdown",
-      },
-    ]);
+    mockGetEpics.mockResolvedValue({
+      epics: [
+        {
+          parentIssueNumber: 30,
+          parentTitle: "Epic parent",
+          total: 2,
+          merged: 1,
+          status: "idle",
+          source: "markdown",
+        },
+      ],
+      subIssues: [],
+    });
 
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: "/repo" } });
 
     // Open the Issues tab in the picker, then wait for the rows to render.
-    await page.getByRole("button", { name: m.promptsources_issues_tab() }).click();
+    // exact: true avoids matching the "hide sub-issues" chip (accessible name contains "issues").
+    await page.getByRole("button", { name: m.promptsources_issues_tab(), exact: true }).click();
     await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBe(2);
 
     // The EPIC tag chip renders (exact match: "Epic parent" also contains "Epic").

@@ -1678,5 +1678,10 @@
   "feat_learnings_repo_glyph_title": "Repo at a glance in Learnings",
   "feat_learnings_repo_glyph_body": "Each repo's group in the Learnings drawer now shows its project emoji (or the ▣ marker) beside the name — just like session cards — so it's clear which repo a learning belongs to.",
   "feat_ios_text_size_title": "Respects your iOS text size",
-  "feat_ios_text_size_body": "On iPhone and iPad, Shepherd's home-screen app now follows the system Text Size setting (Control Center, or Settings → Display & Brightness → Text Size). The whole interface scales with the slider — larger for readability or smaller for density — preserving the current look at the default position."
+  "feat_ios_text_size_body": "On iPhone and iPad, Shepherd's home-screen app now follows the system Text Size setting (Control Center, or Settings → Display & Brightness → Text Size). The whole interface scales with the slider — larger for readability or smaller for density — preserving the current look at the default position.",
+  "issues_filter_subissues_label": "hide sub-issues",
+  "issues_filter_subissues_title": "Hide native sub-issues (children of an epic) — start an epic drain instead",
+  "issues_filter_all_sub_issues": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain",
+  "feat_issues_filter_subissues_title": "Hide sub-issues by default",
+  "feat_issues_filter_subissues_body": "The Backlog and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Use the \"hide sub-issues\" toggle to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists."
 }

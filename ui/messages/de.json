@@ -1678,5 +1678,10 @@
   "feat_learnings_repo_glyph_title": "Repo auf einen Blick in den Erkenntnissen",
   "feat_learnings_repo_glyph_body": "Jede Repo-Gruppe im Erkenntnisse-Panel zeigt jetzt das Projekt-Emoji (oder das ▣-Symbol) neben dem Namen – genau wie die Session-Karten – damit klar ist, zu welchem Repo eine Erkenntnis gehört.",
   "feat_ios_text_size_title": "Berücksichtigt deine iOS-Textgröße",
-  "feat_ios_text_size_body": "Auf iPhone und iPad folgt die Home-Bildschirm-App von Shepherd jetzt der System-Textgröße (Kontrollzentrum oder Einstellungen → Anzeige & Helligkeit → Textgröße). Die gesamte Oberfläche skaliert mit dem Regler – größer für Lesbarkeit oder kleiner für Dichte – und behält in der Standardstellung das aktuelle Erscheinungsbild bei."
+  "feat_ios_text_size_body": "Auf iPhone und iPad folgt die Home-Bildschirm-App von Shepherd jetzt der System-Textgröße (Kontrollzentrum oder Einstellungen → Anzeige & Helligkeit → Textgröße). Die gesamte Oberfläche skaliert mit dem Regler – größer für Lesbarkeit oder kleiner für Dichte – und behält in der Standardstellung das aktuelle Erscheinungsbild bei.",
+  "issues_filter_subissues_label": "Unteraufgaben ausblenden",
+  "issues_filter_subissues_title": "Native Unteraufgaben (Kinder eines Epics) ausblenden — stattdessen einen Epic-Drain starten",
+  "issues_filter_all_sub_issues": "Alle passenden Issues sind Epic-Unteraufgaben — zum Anzeigen ausschalten oder einen Epic-Drain starten",
+  "feat_issues_filter_subissues_title": "Unteraufgaben standardmäßig ausblenden",
+  "feat_issues_filter_subissues_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ blenden GitHub-native Unteraufgaben jetzt standardmäßig aus, damit du einen Epic-Drain vom übergeordneten Issue startest, statt ein einzelnes Kinder-Issue zu bearbeiten. Mit dem Schalter „Unteraufgaben ausblenden“ kannst du sie einblenden; übergeordnete Epic-Issues (einschließlich mehrstufiger Epics) bleiben sichtbar. Die Einstellung gilt für beide Listen."
 }

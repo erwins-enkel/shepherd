@@ -237,14 +237,6 @@
         "reason": "Tier 2 grandfather (#851); refactor candidate #855."
       },
       {
-        "files": ["ui/src/lib/components/AutomationSettings.svelte"],
-        "functions": ["<template>"],
-        "maxCyclomatic": 60,
-        "maxCognitive": 60,
-        "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855."
-      },
-      {
         "files": ["ui/src/lib/components/LearningsDrawer.svelte"],
         "functions": ["<template>"],
         "maxCyclomatic": 50,

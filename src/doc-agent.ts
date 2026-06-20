@@ -532,35 +532,7 @@ export class DocAgentService {
           await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
         ).trim();
         if (stagedOut.length > 0) {
-          if (!this.act) {
-            // Phase-0 OBSERVE: the agent ran + edited, but we skip every publish side-effect (no
-            // commit, no push, no openPr). Log exactly what we WOULD have opened, then fall through
-            // to cleanup. url stays null → onChange fires the same {repoPath, url:null} shape as the
-            // already-current path.
-            const staged = stagedOut.split("\n").join(", ");
-            const n = stagedOut.split("\n").length;
-            console.warn(
-              `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${n} files): ${staged}`,
-            );
-          } else {
-            // --no-verify deliberately DIVERGES from promote.ts (which commits WITH hooks): a
-            // server-side docs-only commit must not run the repo's pre-commit hooks (lint-staged
-            // etc.) on unrelated state. The change is grounded + human-reviewed via the PR.
-            await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
-            await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
-            try {
-              const status = await forge.openPr({
-                head: f.branch,
-                base: f.base,
-                title: COMMIT_MSG,
-                body: docPrBody(sentinel),
-              });
-              url = status.url ?? null;
-            } catch (err) {
-              // No net diff vs base → nothing to land; not an error.
-              if (!(err instanceof EmptyDiffError)) throw err;
-            }
-          }
+          url = await this.publishStaged(f, sentinel, forge, stagedOut);
         }
       }
     } finally {
@@ -580,6 +552,44 @@ export class DocAgentService {
       }
     }
     this.deps.onChange?.({ repoPath: f.repoPath, url });
+  }
+
+  /**
+   * Phase-gated publish of the staged in-scope doc changes. Phase-0 OBSERVE (`!act`) logs exactly
+   * what it WOULD open and returns null (no commit/push/openPr) — onChange then fires the same
+   * `{repoPath, url:null}` shape as the already-current path. Phase-1 act commits `--no-verify`
+   * (deliberately DIVERGES from promote.ts, which commits WITH hooks: a server-side docs-only
+   * commit must not run the repo's pre-commit hooks on unrelated state — the change is grounded +
+   * human-reviewed via the PR), pushes, opens the PR, and returns its url (null on no net diff).
+   */
+  private async publishStaged(
+    f: InFlight,
+    sentinel: string | null,
+    forge: GitForge,
+    stagedOut: string,
+  ): Promise<string | null> {
+    if (!this.act) {
+      const staged = stagedOut.split("\n");
+      console.warn(
+        `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${staged.length} files): ${staged.join(", ")}`,
+      );
+      return null;
+    }
+    await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
+    await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
+    try {
+      const status = await forge.openPr({
+        head: f.branch,
+        base: f.base,
+        title: COMMIT_MSG,
+        body: docPrBody(sentinel),
+      });
+      return status.url ?? null;
+    } catch (err) {
+      // No net diff vs base → nothing to land; not an error.
+      if (!(err instanceof EmptyDiffError)) throw err;
+      return null;
+    }
   }
 
   /** Drop a repo's in-flight tracking (e.g. on shutdown); does not touch the worktree. */

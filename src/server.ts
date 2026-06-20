@@ -79,6 +79,7 @@ import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
+import { buildIssueUrl } from "./forge";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
@@ -2288,9 +2289,12 @@ async function resolveGitState(
     session.mergingSince != null,
     session.mergingPrNumber ?? null,
   );
-  return trusted
+  const result = trusted
     ? git
     : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null);
+  const issueUrl = buildIssueUrl(forge.webUrl, session.issueNumber);
+  if (issueUrl) result.issueUrl = issueUrl;
+  return result;
 }
 
 /**

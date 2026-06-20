@@ -13,6 +13,17 @@ function kindFor(host: string, map: ForgeMap): ForgeKind | null {
   return null;
 }
 
+/** Web URL of a forge issue, or null when the repo has no web base (LocalForge)
+ *  or the session has no linked issue. Works for GitHub (webUrl = https://github.com/{slug})
+ *  and Gitea (webUrl = {base}/{slug}); both use the /issues/{n} path. */
+export function buildIssueUrl(
+  webUrl: string | null | undefined,
+  issueNumber: number | null | undefined,
+): string | null {
+  if (!webUrl || issueNumber == null) return null;
+  return `${webUrl}/issues/${issueNumber}`;
+}
+
 /** Build a GitForge from a remote URL + forge config map, or null if unsupported. */
 export function forgeFor(remoteUrl: string, map: ForgeMap): GitForge | null {
   const parsed = parseRemote(remoteUrl);

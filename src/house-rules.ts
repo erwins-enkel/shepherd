@@ -18,6 +18,17 @@ const HOUSE_RULES_INTRO =
 export const HOUSE_RULES_OVERHEAD =
   `<${HOUSE_RULES_TAG}>`.length + HOUSE_RULES_INTRO.length + `</${HOUSE_RULES_TAG}>`.length + 2;
 
+// ── ranking constants (env-overridable) ───────────────────────────────────────
+
+export const DAY_MS = 86_400_000;
+const RANK_W_RECENCY = Number(process.env.SHEPHERD_LEARNINGS_RANK_W_RECENCY ?? 0.5);
+const RANK_W_HELP = Number(process.env.SHEPHERD_LEARNINGS_RANK_W_HELP ?? 0.5);
+const RANK_HALF_LIFE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_RANK_HALF_LIFE_DAYS ?? 30);
+const RANK_PRIOR_STRENGTH = Number(process.env.SHEPHERD_LEARNINGS_RANK_PRIOR_STRENGTH ?? 4);
+const RANK_NEUTRAL_PRIOR = Number(process.env.SHEPHERD_LEARNINGS_RANK_NEUTRAL_PRIOR ?? 0.5);
+/** Per-day decay factor; default half-life = 30 days → 0.5^(1/30). */
+const RANK_DECAY_BASE = Math.pow(0.5, 1 / RANK_HALF_LIFE_DAYS);
+
 export interface HouseRulesPlan {
   injected: Learning[]; // priority order, fit within budget
   dropped: Learning[]; // over budget, priority order
@@ -25,24 +36,46 @@ export interface HouseRulesPlan {
   usedChars: number; // exact rendered length of the block (XML tag + intro + bullets)
 }
 
-/** Priority sort: lastEvidenceAt desc (nulls last), tie-break updatedAt desc.
- *  Stale rules with no recent evidence drop first. */
-export function prioritize(rules: Learning[]): Learning[] {
+/**
+ * Composite score for a single rule, given the current time `now` (ms since epoch).
+ *
+ * recencyDecay  ∈ (0,1] — exponential decay on lastUsedAt (falls back to lastEvidenceAt,
+ *                          then createdAt). Clamped so future timestamps don't yield >1.
+ * helpComponent ∈ [0,1] — Bayesian-smoothed mean with fixed neutral prior (0.5).
+ *                          Fixed prior keeps `proven 50/60 > lucky 1/1 > unproven 0/0 >
+ *                          unhelpful 0/2` correct independent of base rate.
+ * score = RANK_W_RECENCY * recencyDecay + RANK_W_HELP * helpComponent
+ */
+function scoreRule(r: Learning, now: number): number {
+  const effectiveLastUsed = r.lastUsedAt ?? r.lastEvidenceAt ?? r.createdAt;
+  const ageDays = Math.max(0, (now - effectiveLastUsed) / DAY_MS);
+  const recencyDecay = Math.pow(RANK_DECAY_BASE, ageDays);
+  const helpComponent =
+    (r.helpfulCount + RANK_PRIOR_STRENGTH * RANK_NEUTRAL_PRIOR) /
+    (r.injectedCount + RANK_PRIOR_STRENGTH);
+  return RANK_W_RECENCY * recencyDecay + RANK_W_HELP * helpComponent;
+}
+
+/** Priority sort: composite recency-decay + smoothed-help score, desc.
+ *  Tie-break: updatedAt desc (determinism). `now` defaults to Date.now() so
+ *  existing callers need no change. */
+export function prioritize(rules: Learning[], now: number = Date.now()): Learning[] {
   return [...rules].sort((a, b) => {
-    if (a.lastEvidenceAt !== b.lastEvidenceAt) {
-      if (a.lastEvidenceAt === null) return 1; // nulls last
-      if (b.lastEvidenceAt === null) return -1;
-      return b.lastEvidenceAt - a.lastEvidenceAt; // desc
-    }
-    return b.updatedAt - a.updatedAt; // desc
+    const diff = scoreRule(b, now) - scoreRule(a, now);
+    if (diff !== 0) return diff; // desc by score
+    return b.updatedAt - a.updatedAt; // desc by updatedAt (tie-break)
   });
 }
 
-/** Priority: lastEvidenceAt desc (nulls last) → updatedAt desc. Greedy fill: add a rule
+/** Priority: composite score desc → updatedAt desc. Greedy fill: add a rule
  *  when used + cost ≤ budget, else mark it dropped and keep checking later (shorter) rules,
  *  so `injected` is not necessarily a contiguous prefix of priority order. */
-export function planHouseRulesInjection(rules: Learning[], budgetChars: number): HouseRulesPlan {
-  const ordered = prioritize(rules);
+export function planHouseRulesInjection(
+  rules: Learning[],
+  budgetChars: number,
+  now: number = Date.now(),
+): HouseRulesPlan {
+  const ordered = prioritize(rules, now);
   const injected: Learning[] = [];
   const dropped: Learning[] = [];
   let used = HOUSE_RULES_OVERHEAD;

@@ -435,7 +435,7 @@ function defaultWriteSignals(
   dir: string,
   signals: Signal[],
   existingRules: string[],
-  activeRules: { id: string; rule: string }[],
+  activeRules: { id: string; rule: string; promoted: boolean }[],
 ): void {
   const payload = {
     signals: signals.map((s) => ({ kind: s.kind, payload: s.payload, ts: s.ts, id: s.id })),

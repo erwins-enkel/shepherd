@@ -308,9 +308,24 @@ describe("IssuesPanel expandEpic", () => {
 
 describe("IssuesPanel mine & unassigned filter (#824)", () => {
   // The toggle store is a localStorage-backed singleton shared across tests;
-  // reset it to the default (on) before each case so order can't leak state.
-  beforeEach(() => issuesFilter.set(true));
-  afterEach(() => issuesFilter.set(true));
+  // reset it to the defaults (hideOthers on, hideActive off) before each case so
+  // order can't leak state.
+  beforeEach(() => {
+    issuesFilter.set(true);
+    issuesFilter.setActive(false);
+  });
+  afterEach(() => {
+    issuesFilter.set(true);
+    issuesFilter.setActive(false);
+  });
+
+  // Resolve a filter chip by its label text — the bar can hold two chips.
+  const chipByLabel = (label: string) =>
+    [...document.querySelectorAll(".filter-chip")].find(
+      (el) => el.textContent?.trim() === label,
+    ) as HTMLButtonElement | undefined;
+  const mineChip = () => chipByLabel(m.issues_filter_mine_label());
+  const activeChip = () => chipByLabel(m.issues_filter_active_label());
 
   function withAssignees(number: number, title: string, assignees: string[]): Issue {
     return {
@@ -345,7 +360,7 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+    await expect.poll(() => mineChip()).toBeTruthy();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
     expect(titles()).toEqual(["Unassigned issue", "Mine issue"]);
     expect(titles()).not.toContain("Theirs issue");
@@ -355,20 +370,48 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+    await expect.poll(() => mineChip()).toBeTruthy();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
 
-    (document.querySelector(".filter-chip") as HTMLButtonElement).click();
+    mineChip()!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
     expect(titles()).toContain("Theirs issue");
   });
 
-  it("hides the chip and shows all issues when the viewer is unknown (fail open)", async () => {
+  it("hides the mine chip but keeps the hide-in-progress chip when viewer is unknown (fail open)", async () => {
     seedMixed(null);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
+    // mine filter fails open (viewer unknown) → all 3 show; its chip is gone, but
+    // the viewer-agnostic hide-in-progress chip still renders.
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    expect(document.querySelector(".filter-chip")).toBeNull();
+    expect(mineChip()).toBeUndefined();
+    expect(activeChip()).toBeTruthy();
+  });
+
+  it("hide-in-progress chip drops shepherd:active issues and restores them when toggled off", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: null,
+      issues: [
+        { ...withAssignees(1, "Plain issue", []), labels: [] },
+        { ...withAssignees(2, "Claimed issue", []), labels: ["shepherd:active"] },
+      ],
+    });
+    mockGetEpics.mockResolvedValue([]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // Off by default → both visible.
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+
+    activeChip()!.click();
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+    expect(titles()).toEqual(["Plain issue"]);
+
+    activeChip()!.click();
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+    expect(titles()).toContain("Claimed issue");
   });
 });

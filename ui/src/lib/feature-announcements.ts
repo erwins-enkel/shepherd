@@ -1226,4 +1226,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_ready_lens_hides_waiting_title",
     bodyKey: "feat_ready_lens_hides_waiting_body",
   },
+  {
+    // "Hide in progress" issue filter — drops shepherd:active issues on both the
+    // Backlog and New Task issue lists. v1.34.0 is the latest released tag → 1.35.0.
+    id: "issues-filter-active",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_issues_filter_active_title",
+    bodyKey: "feat_issues_filter_active_body",
+    targetId: "issues-filter-active",
+  },
 ];

@@ -6,7 +6,7 @@
  * delegates to.
  */
 import { describe, it, expect } from "vitest";
-import { filterIssues, hideOthers } from "./issues-panel";
+import { filterIssues, hideOthers, hideActive, ACTIVE_LABEL } from "./issues-panel";
 import type { Issue } from "$lib/types";
 
 function issue(
@@ -116,5 +116,36 @@ describe("hideOthers", () => {
     } as unknown as Issue;
     expect(() => hideOthers([stale], me, true)).not.toThrow();
     expect(hideOthers([stale], me, true)).toEqual([stale]);
+  });
+});
+
+describe("hideActive", () => {
+  const plain = issue(1, "Plain", "", ["bug"]);
+  const active = issue(2, "Claimed", "", ["enhancement", ACTIVE_LABEL]);
+  const all = [plain, active];
+
+  it("when enabled, drops issues labeled shepherd:active", () => {
+    expect(hideActive(all, true)).toEqual([plain]);
+  });
+
+  it("keeps an issue without the active label", () => {
+    expect(hideActive([plain], true)).toEqual([plain]);
+  });
+
+  it("fails open when disabled — returns all issues incl. active ones", () => {
+    expect(hideActive(all, false)).toEqual(all);
+  });
+
+  it("does not throw on a stale payload missing labels", () => {
+    const stale = {
+      number: 3,
+      title: "No labels field",
+      body: "",
+      url: "https://example.test/3",
+      createdAt: 0,
+      assignees: [],
+    } as unknown as Issue;
+    expect(() => hideActive([stale], true)).not.toThrow();
+    expect(hideActive([stale], true)).toEqual([stale]);
   });
 });

@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import {
@@ -16,6 +16,7 @@ import {
   type SendFn,
 } from "../src/push";
 import type { BlockReason } from "../src/blocked";
+import { config } from "../src/config";
 
 const sub = (endpoint: string) => ({ endpoint, keys: { p256dh: "p", auth: "a" } });
 const keys = () => ({ publicKey: "PUB", privateKey: "PRIV" });
@@ -967,5 +968,139 @@ test("attachMergePush notifies on merge_error and rebase_cap, ignores other stat
     desig: "TASK-09",
     tag: "merge_attention:sess-c",
     cooldownKey: "merge_error:sess-c",
+  });
+});
+
+// ── reducedPushMode tests ─────────────────────────────────────────────────────
+
+let _savedReducedPushMode: boolean;
+// Save and restore config.reducedPushMode around each test that mutates it.
+// afterEach runs for all tests; guard ensures only our mutation is restored.
+afterEach(() => {
+  if (_savedReducedPushMode !== undefined) {
+    config.reducedPushMode = _savedReducedPushMode;
+    (_savedReducedPushMode as unknown) = undefined;
+  }
+});
+function setReducedMode(on: boolean): void {
+  _savedReducedPushMode = config.reducedPushMode;
+  config.reducedPushMode = on;
+}
+
+test("reducedPushMode ON: drops blocked, done, ci, review, merge_attention, learnings_retired", async () => {
+  setReducedMode(true);
+  let count = 0;
+  const send: SendFn = async () => {
+    count++;
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("e1"), "");
+
+  await push.notify({ kind: "blocked", sessionId: "s", tag: "t", name: "T" });
+  await push.notify({ kind: "done", sessionId: "s", tag: "t", name: "T" });
+  await push.notify({ kind: "ci", sessionId: "s", tag: "t", name: "T", ciState: "success" });
+  await push.notify({ kind: "review", sessionId: "s", tag: "t", name: "T" });
+  await push.notify({
+    kind: "merge_attention",
+    sessionId: "s",
+    tag: "t",
+    name: "T",
+    mergeState: "merge_error",
+    desig: "T",
+  });
+  await push.notify({
+    kind: "learnings_retired",
+    sessionId: "",
+    tag: "lr",
+    name: "learnings",
+    retiredCount: 1,
+  });
+  expect(count).toBe(0);
+});
+
+test("reducedPushMode ON: allows ready, usage_limit, extra_credits through", async () => {
+  setReducedMode(true);
+  const sent: string[] = [];
+  const send: SendFn = async (_s, payload) => {
+    sent.push(payload);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("e1"), "");
+
+  await push.notify({ kind: "ready", sessionId: "s", tag: "t", name: "TASK-01" });
+  await push.notify({ kind: "usage_limit", sessionId: "", tag: "ul", name: "5h", pct: 85 });
+  await push.notify({
+    kind: "extra_credits",
+    sessionId: "",
+    tag: "ec",
+    name: "credits",
+    creditSpent: 1,
+    creditCap: 50,
+    currency: "$",
+  });
+  expect(sent.length).toBe(3);
+  expect(sent[0]).toContain('"kind":"ready"');
+  expect(sent[1]).toContain('"kind":"usage_limit"');
+  expect(sent[2]).toContain('"kind":"extra_credits"');
+});
+
+test("reducedPushMode OFF: blocked sends normally (guard is inert)", async () => {
+  setReducedMode(false);
+  const sent: string[] = [];
+  const send: SendFn = async (_s, payload) => {
+    sent.push(payload);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("e1"), "");
+  await push.notify({ kind: "blocked", sessionId: "s", tag: "t", name: "T" });
+  expect(sent.length).toBe(1);
+  expect(sent[0]).toContain('"kind":"blocked"');
+});
+
+test("ready bypasses category filter unconditionally (reducedPushMode ON)", async () => {
+  setReducedMode(true);
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  // Device has all categories muted
+  store.putPushSub(sub("all-muted"), "");
+  store.setPushPrefs("all-muted", { agent: false, reviews: false, ci: false });
+  await push.notify({ kind: "ready", sessionId: "s", tag: "t", name: "TASK-01" });
+  expect(sent).toEqual(["all-muted"]);
+});
+
+test("ready bypasses category filter even when reducedPushMode is OFF", async () => {
+  setReducedMode(false);
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  // Device has agent muted (ready's category is "agent")
+  store.putPushSub(sub("agent-muted"), "");
+  store.setPushPrefs("agent-muted", { agent: false, reviews: true, ci: true });
+  await push.notify({ kind: "ready", sessionId: "s", tag: "t", name: "TASK-01" });
+  // category bypass is unconditional on kind, regardless of mode
+  expect(sent).toEqual(["agent-muted"]);
+});
+
+test("buildPayload ready: localizes title + body in en and de", () => {
+  const ready: NotifyInput = { kind: "ready", sessionId: "s", tag: "t", name: "TASK-01" };
+  expect(buildPayload(ready, "en")).toMatchObject({
+    title: "TASK-01 — your turn",
+    body: "Waiting on you for 5s — your turn.",
+    kind: "ready",
+  });
+  expect(buildPayload(ready, "de")).toMatchObject({
+    title: "TASK-01 — du bist dran",
+    body: "Wartet seit 5s auf dich — du bist dran.",
+    kind: "ready",
   });
 });

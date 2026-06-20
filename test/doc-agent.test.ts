@@ -1,6 +1,11 @@
 import { test, expect } from "bun:test";
-import { DocAgentService, DOC_AGENT_LABEL, type DocAgentFinalize } from "../src/doc-agent";
-import { config } from "../src/config";
+import {
+  DocAgentService,
+  DOC_AGENT_LABEL,
+  isDocRelevantMerge,
+  type DocAgentFinalize,
+} from "../src/doc-agent";
+import { config, parseHour } from "../src/config";
 
 function withAuth(
   mode: typeof config.authMode,
@@ -35,6 +40,9 @@ interface Harness {
   openPrInputs: unknown[];
   mergeCalls: number;
   finalizes: DocAgentFinalize[];
+  ensureBaseRefCalls: { repo: string; base: string }[];
+  kv: Map<string, string>;
+  __merge: number;
 }
 
 function mkHarness(opts?: {
@@ -46,6 +54,10 @@ function mkHarness(opts?: {
   worktreeListPorcelain?: string;
   herdrAgents?: { name: string; tabId: string }[];
   repos?: string[];
+  originSha?: string | (() => string);
+  originShaThrows?: boolean;
+  now?: () => number;
+  nightlyHour?: number;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -58,6 +70,10 @@ function mkHarness(opts?: {
     worktreeListPorcelain: "",
     herdrAgents: [] as { name: string; tabId: string }[],
     repos: [] as string[],
+    originSha: "origin-sha-1" as string,
+    originShaThrows: false,
+    now: () => 1000,
+    nightlyHour: 3,
     ...opts,
   };
 
@@ -67,12 +83,24 @@ function mkHarness(opts?: {
   const removedWorktrees: string[] = [];
   const openPrInputs: unknown[] = [];
   const finalizes: DocAgentFinalize[] = [];
+  const ensureBaseRefCalls: { repo: string; base: string }[] = [];
+  const kv = new Map<string, string>();
+  const store = {
+    getSetting: (key: string) => kv.get(key) ?? null,
+    setSetting: (key: string, value: string) => {
+      kv.set(key, value);
+    },
+  };
   let mergeCalls = 0;
 
   const git = async (cwd: string, args: string[]): Promise<string> => {
     gitCalls.push({ cwd, args });
     if (args[0] === "diff" && args[1] === "--cached") return o.stagedNames;
     if (args[0] === "worktree" && args[1] === "list") return o.worktreeListPorcelain;
+    if (args[0] === "rev-parse" && args[1]?.startsWith("refs/remotes/origin/")) {
+      if (o.originShaThrows) throw new Error("no such ref");
+      return typeof o.originSha === "function" ? (o.originSha as () => string)() : o.originSha;
+    }
     return "";
   };
 
@@ -113,15 +141,18 @@ function mkHarness(opts?: {
       removedWorktrees.push(p);
     },
     gitCommonDir: (p: string) => `${p}/.git`,
-    ensureBaseRef: async (_repo: string, base: string) => ({
-      baseRef: base,
-      behind: 0,
-      ahead: 0,
-      diverged: false,
-      hasUpstream: true,
-      localExists: true,
-      localFf: "not-needed" as const,
-    }),
+    ensureBaseRef: async (repo: string, base: string) => {
+      ensureBaseRefCalls.push({ repo, base });
+      return {
+        baseRef: base,
+        behind: 0,
+        ahead: 0,
+        diverged: false,
+        hasUpstream: true,
+        localExists: true,
+        localFf: "not-needed" as const,
+      };
+    },
   };
 
   const svc = new DocAgentService({
@@ -129,9 +160,11 @@ function mkHarness(opts?: {
     worktree: worktree as any,
     resolveForge: () => forge,
     repos: () => o.repos,
+    store,
+    nightlyHour: o.nightlyHour,
     model: null,
     onChange: (f) => finalizes.push(f),
-    now: () => 1000,
+    now: o.now,
     git,
     detectBackend: () => null,
     membraneEnv: () => ({ claudeDir: "/c", home: "/h", nodeBinReal: "/n", extraEnv: {} }),
@@ -150,11 +183,17 @@ function mkHarness(opts?: {
     removedWorktrees,
     openPrInputs,
     finalizes,
+    ensureBaseRefCalls,
+    kv,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
     },
-  } as any as Harness & { __merge: number };
+  } as any as Harness & {
+    __merge: number;
+    ensureBaseRefCalls: typeof ensureBaseRefCalls;
+    kv: Map<string, string>;
+  };
 }
 
 test("happy path: in-scope edits → commit --no-verify + push + openPr (never merge)", async () => {
@@ -293,4 +332,173 @@ test("sweepOrphans: closes only __docagent__ tabs and prunes only docs-update wo
   ).toBe(true);
   // unrelated feature branch NOT deleted
   expect(h.gitCalls.some((c) => c.args.includes("shepherd/some-feature"))).toBe(false);
+});
+
+// ── cadence: scheduling (issue #904) ───────────────────────────────────────────
+
+/** Local-time timestamp at hour `h` on a fixed day → `getHours()===h` regardless of TZ. */
+const at = (h: number, day = 1) => new Date(2030, 0, day, h, 0, 0).getTime();
+const LAST_SHA = (repo: string) => `docagent:last-sha:${repo}`;
+const NIGHTLY_DAY = (repo: string) => `docagent:nightly-day:${repo}`;
+const MERGED_SEEN = (repo: string, pr: number) => `docagent:merged-seen:${repo}:${pr}`;
+
+test("isDocRelevantMerge: feat/config relevant; fix/docs/chore/bare/absent not", () => {
+  for (const t of [
+    "feat: x",
+    "feat(ui): x",
+    "feat!: x",
+    "feat(ui)!: x",
+    "config: x",
+    "config(env): x",
+    "fix(config): x",
+  ])
+    expect(isDocRelevantMerge(t)).toBe(true);
+  for (const t of [
+    "fix: x",
+    "fix(ui): x",
+    "chore: x",
+    "docs: sync docs to recent source changes",
+    "refactor(ui): x",
+    "Land epic #875: docs site",
+    "just a bare title",
+    "",
+    undefined,
+  ])
+    expect(isDocRelevantMerge(t)).toBe(false);
+});
+
+test("parseHour: valid 0–23 kept; invalid/empty/out-of-range fall back to default", () => {
+  expect(parseHour("0", 3)).toBe(0);
+  expect(parseHour("23", 3)).toBe(23);
+  expect(parseHour("5", 3)).toBe(5);
+  expect(parseHour(undefined, 3)).toBe(3);
+  expect(parseHour("", 3)).toBe(3);
+  expect(parseHour("24", 3)).toBe(3);
+  expect(parseHour("-1", 3)).toBe(3);
+  expect(parseHour("3.5", 3)).toBe(3);
+  expect(parseHour("abc", 3)).toBe(3);
+});
+
+test("nightly hour-gate: before nightlyHour → no rev-parse, no spawn, no marker writes", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(2) });
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(0);
+  expect(h.gitCalls.some((c) => c.args[0] === "rev-parse")).toBe(false);
+  expect(h.ensureBaseRefCalls).toHaveLength(0);
+  expect(h.kv.size).toBe(0);
+});
+
+test("nightly freshens origin/<base> (ensureBaseRef) before comparing, at most once/day/repo", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(4) });
+  await h.svc.sweepNightly();
+  expect(h.ensureBaseRefCalls).toContainEqual({ repo: "/repo", base: "main" });
+  const freshenCount = h.ensureBaseRefCalls.filter((c) => c.repo === "/repo").length;
+  // second sweep same day → early-skip, no extra freshen
+  await h.svc.sweepNightly();
+  expect(h.ensureBaseRefCalls.filter((c) => c.repo === "/repo").length).toBe(freshenCount);
+});
+
+test("nightly sha-gate: base advanced → spawn + last-sha stamped from origin/<base>", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(4), originSha: "new-sha" });
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(1);
+  expect(h.kv.get(LAST_SHA("/repo"))).toBe("new-sha");
+  expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-01");
+});
+
+test("nightly sha-gate: base unchanged → no spawn, dayKey stamped", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(4), originSha: "same" });
+  h.kv.set(LAST_SHA("/repo"), "same");
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(0);
+  expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-01");
+});
+
+test("nightly once/day: second sweep same day → early-skip (no rev-parse)", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(4), originSha: "same" });
+  h.kv.set(LAST_SHA("/repo"), "same");
+  await h.svc.sweepNightly();
+  const revParseCount = h.gitCalls.filter((c) => c.args[0] === "rev-parse").length;
+  await h.svc.sweepNightly();
+  expect(h.gitCalls.filter((c) => c.args[0] === "rev-parse").length).toBe(revParseCount);
+});
+
+test("nightly → consider skipped (already running): nightly-day stamped, last-sha NOT stamped", async () => {
+  const h = mkHarness({ repos: ["/repo"], nightlyHour: 3, now: () => at(4), originSha: "new-sha" });
+  // a run is already in flight for the repo → consider() returns skipped, begin() never reached
+  await h.svc.consider("/repo");
+  h.kv.delete(LAST_SHA("/repo")); // clear the stamp the in-flight run just wrote
+  await h.svc.sweepNightly();
+  expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-01");
+  expect(h.kv.has(LAST_SHA("/repo"))).toBe(false);
+  // only the one (manual) spawn — nightly did not spawn a second
+  expect(h.starts).toHaveLength(1);
+});
+
+test("nightly rev-parse failure: dayKey stamped, spawn skipped", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    nightlyHour: 3,
+    now: () => at(4),
+    originShaThrows: true,
+  });
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(0);
+  expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-01");
+});
+
+test("nightly rev-parse failure then next-day success fires", async () => {
+  let throws = true;
+  let nowVal = at(4, 1);
+  const h = mkHarness({
+    repos: ["/repo"],
+    nightlyHour: 3,
+    now: () => nowVal,
+    originSha: () => {
+      if (throws) throw new Error("no ref");
+      return "fresh";
+    },
+  });
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(0);
+  // next local day, ref resolves
+  throws = false;
+  nowVal = at(4, 2);
+  await h.svc.sweepNightly();
+  expect(h.starts).toHaveLength(1);
+  expect(h.kv.get(NIGHTLY_DAY("/repo"))).toBe("2030-01-02");
+});
+
+test("merge: feat-subject PR → spawn once + merged-seen persisted; no fetch in onMergedPr", async () => {
+  const h = mkHarness();
+  const res = await h.svc.onMergedPr("/repo", 42, "feat(ui): add thing");
+  expect(res.status).toBe("started");
+  expect(h.starts).toHaveLength(1);
+  expect(h.kv.get(MERGED_SEEN("/repo", 42))).toBe("1");
+  // onMergedPr itself does no rev-parse before consider(); begin()'s stampLastSha does the only one
+  const revParses = h.gitCalls.filter((c) => c.args[0] === "rev-parse");
+  expect(revParses).toHaveLength(1);
+});
+
+test("merge: non-doc-relevant subject → skip, no spawn, no merged-seen", async () => {
+  const h = mkHarness();
+  const res = await h.svc.onMergedPr("/repo", 7, "fix: a bug");
+  expect(res.status).toBe("skipped");
+  expect(h.starts).toHaveLength(0);
+  expect(h.kv.has(MERGED_SEEN("/repo", 7))).toBe(false);
+});
+
+test("merge restart-idempotency: merged-seen already set → skip (boot-replay no-op)", async () => {
+  const h = mkHarness();
+  h.kv.set(MERGED_SEEN("/repo", 42), "1");
+  const res = await h.svc.onMergedPr("/repo", 42, "feat: x");
+  expect(res.status).toBe("skipped");
+  expect(h.starts).toHaveLength(0);
+});
+
+test("merge: absent PR number → skip", async () => {
+  const h = mkHarness();
+  const res = await h.svc.onMergedPr("/repo", undefined, "feat: x");
+  expect(res.status).toBe("skipped");
+  expect(h.starts).toHaveLength(0);
 });

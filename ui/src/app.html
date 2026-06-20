@@ -13,6 +13,9 @@
          values; without it iOS letterboxes content and the insets stay 0. Paired with
          apple-mobile-web-app-status-bar-style=black-translucent for a full-bleed dark shell. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Standards-track opt-in (env(preferred-text-scale), Chrome Canary 2026; not
+         yet in WebKit). Harmless where unsupported; the iOS path below carries us
+         until Safari ships it. -->
     <meta name="text-scale" content="scale" />
     <title>Shepherd</title>
     <!-- Resolve the theme before first paint so there's no flash of wrong theme.
@@ -34,6 +37,52 @@
         } catch (e) {
           document.documentElement.dataset.theme = "dark";
         }
+      })();
+    </script>
+    <!-- iOS Dynamic Type bridge. The whole type scale is `calc(<px> * var(--ui-scale))`
+         in app.css; this resolves --ui-scale to the user's iOS system Text Size so the
+         UI honors that setting (the slider in Control Center / Settings → Display).
+         WebKit only exposes the preference through the `-apple-system-body` font
+         keyword — never a number — so we render a hidden probe with that font and read
+         its computed size, dividing by 17 (the iOS default "body" px) to get a ratio:
+         1.0 at the default slider (design preserved exactly), >1 / <1 as it moves.
+         Guarded to iOS Safari: `-webkit-touch-callout: default` is supported there but
+         NOT on macOS Safari (which also resolves -apple-system-body, smaller than 17,
+         and would otherwise shrink the desktop UI). Runs pre-paint to avoid a resize
+         flash; a ResizeObserver tracks live slider changes. --ui-scale defaults to 1
+         in app.css, so non-iOS and any failure here leave the px scale untouched. -->
+    <script>
+      (function () {
+        try {
+          if (
+            !(
+              window.CSS &&
+              CSS.supports &&
+              CSS.supports("font: -apple-system-body") &&
+              CSS.supports("-webkit-touch-callout: default")
+            )
+          )
+            return;
+          var probe = document.createElement("div");
+          probe.setAttribute("aria-hidden", "true");
+          probe.style.cssText =
+            "position:absolute;top:-9999px;left:-9999px;visibility:hidden;font:-apple-system-body;";
+          probe.textContent = "M";
+          document.documentElement.appendChild(probe);
+          var apply = function () {
+            var px = parseFloat(getComputedStyle(probe).fontSize);
+            if (px > 0) {
+              // Cap at 1.5. Only the type tokens scale — spacing and fixed chrome
+              // (e.g. the 44px action-bar / 28px icon-button hit targets) stay put,
+              // so the accessibility end of Dynamic Type (~3x) would overflow them.
+              // 1.5 honors a meaningfully larger choice while the dense bars hold.
+              var ratio = Math.min(px / 17, 1.5);
+              document.documentElement.style.setProperty("--ui-scale", String(ratio));
+            }
+          };
+          apply();
+          if (window.ResizeObserver) new ResizeObserver(apply).observe(probe);
+        } catch (e) {}
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />

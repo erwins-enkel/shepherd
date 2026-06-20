@@ -6,7 +6,7 @@
     HerdrUpdateStatus,
     DiagnosticState,
   } from "$lib/types";
-  import { formatReset, formatResetIn, relativeAge } from "$lib/format";
+  import { formatReset, formatResetIn } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, gaugeColor, type GaugeKey } from "./usage-gauges";
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
@@ -20,6 +20,8 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
+  import CreditGauge from "./top-bar/CreditGauge.svelte";
+  import CreditDetail from "./top-bar/CreditDetail.svelte";
 
   const reduceMotion =
     typeof window !== "undefined" &&
@@ -561,73 +563,7 @@
 
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
-<!-- CR credit gauge: the compact inline bar (label + bar + amount), reused across the
-     desktop .gauges row and the desktop hover popover. Mirrors the .gauge recipe. -->
-{#snippet creditGauge()}
-  {#if credits}
-    <div
-      class="gauge credit-gauge"
-      class:stale={credits.stale}
-      class:alert={overspend}
-      aria-label={overspend
-        ? m.topbar_credits_alert_aria({ amount: creditAmount })
-        : `${m.topbar_credits_period()} · ${creditAmount}`}
-    >
-      <span class="g-label micro">CR</span>
-      <span class="g-bar"
-        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
-        ></span></span
-      >
-      <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-    </div>
-  {/if}
-{/snippet}
-
-<!-- CR credit detail block for the popovers: full name, wide bar + amount, reset,
-     snapshot age, stale note, and an on-demand refresh button. -->
-{#snippet creditDetail()}
-  {#if credits}
-    <div class="credit-detail" class:stale={credits.stale}>
-      <div class="gp-head">
-        <span class="gp-period">{m.topbar_credits_period()}</span>
-        <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-      </div>
-      <span class="g-bar g-bar-wide"
-        ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
-        ></span></span
-      >
-      <div class="credit-sub micro">
-        {m.topbar_credits_amount({
-          spent: `${credits.currency}${credits.spent.toFixed(2)}`,
-          cap: `${credits.currency}${credits.cap.toFixed(2)}`,
-        })}
-      </div>
-      {#if credits.resetAt !== null}
-        <div class="gauge-pop-reset micro">
-          {m.topbar_gauge_reset({ reset: formatReset(credits.resetAt, nowMs) })}
-        </div>
-      {/if}
-      <div class="gauge-pop-reset micro">
-        {m.topbar_credits_age({ age: relativeAge(credits.scrapedAt, nowMs) })}
-      </div>
-      {#if credits.stale}
-        <div class="credit-stale micro">{m.topbar_credits_stale()}</div>
-      {/if}
-      <button
-        type="button"
-        class="credit-refresh micro"
-        disabled={refreshing}
-        aria-busy={refreshing}
-        onclick={doRefresh}
-      >
-        {refreshing ? m.common_loading() : m.topbar_credits_refresh()}
-      </button>
-      {#if refreshError}
-        <div class="credit-error micro" role="alert">{m.common_retry()}</div>
-      {/if}
-    </div>
-  {/if}
-{/snippet}
+<!-- CR credit gauge + detail: extracted to top-bar/ children (#855). -->
 
 <div class="hud bracket" class:mobile bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
@@ -911,7 +847,16 @@
                     })}
                   </div>
                 {/each}
-                {@render creditDetail()}
+                <CreditDetail
+                  {credits}
+                  {creditFill}
+                  {creditColor}
+                  {creditAmount}
+                  {nowMs}
+                  {refreshing}
+                  {refreshError}
+                  onRefresh={doRefresh}
+                />
               </div>
             {/if}
           </div>
@@ -937,7 +882,7 @@
                 <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
               </div>
             {/each}
-            {@render creditGauge()}
+            <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
           </div>
           {#if detailOpen}
             <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale={limits?.stale}>
@@ -967,7 +912,16 @@
               {/each}
               {#if credits}
                 <div class="gp-window">
-                  {@render creditDetail()}
+                  <CreditDetail
+                    {credits}
+                    {creditFill}
+                    {creditColor}
+                    {creditAmount}
+                    {nowMs}
+                    {refreshing}
+                    {refreshError}
+                    onRefresh={doRefresh}
+                  />
                 </div>
               {/if}
             </div>
@@ -1236,7 +1190,16 @@
                 </div>
               </div>
             {/each}
-            {@render creditDetail()}
+            <CreditDetail
+              {credits}
+              {creditFill}
+              {creditColor}
+              {creditAmount}
+              {nowMs}
+              {refreshing}
+              {refreshError}
+              onRefresh={doRefresh}
+            />
           </div>
         {/if}
         <div class="sheet-sep"></div>
@@ -2023,14 +1986,7 @@
     min-width: 30px;
     text-align: right;
   }
-  /* CR credit gauge: reuses the .gauge recipe. The amount text is wider than a
-     percentage, so it gets a larger min-width and rides on the same tabular nums. */
-  .credit-gauge.alert .g-label {
-    color: var(--color-amber);
-  }
-  .credit-gauge.stale {
-    opacity: 0.5;
-  }
+  /* credit-gauge.* rules moved to top-bar/CreditGauge.svelte (#855) */
   .credit-amount {
     min-width: max-content;
     white-space: nowrap;
@@ -2039,50 +1995,7 @@
   .gauge-btn.alert {
     border-color: var(--color-amber);
   }
-  .credit-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .credit-detail.stale {
-    opacity: 0.5;
-  }
-  .credit-sub {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-ink);
-  }
-  .credit-stale {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-amber);
-  }
-  .credit-error {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-red);
-  }
-  .credit-refresh {
-    align-self: flex-start;
-    margin-top: 2px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    text-transform: none;
-    letter-spacing: 0.04em;
-    padding: 4px 9px;
-    cursor: pointer;
-  }
-  .credit-refresh:hover:not(:disabled) {
-    background: var(--color-inset);
-  }
-  .credit-refresh:disabled {
-    cursor: default;
-    opacity: 0.5;
-  }
+  /* credit-detail.* rules moved to top-bar/CreditDetail.svelte (#855) */
   /* Touch: a single collapsed gauge rendered as a tappable button. */
   .gauge-wrap {
     position: relative;

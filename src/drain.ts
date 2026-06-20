@@ -258,11 +258,23 @@ export class DrainService {
     const struct = await this.epicStructure(repoPath, run);
     if (!struct) return null;
     const native = struct.subIssues.length > 0;
-    let openIssues: { number: number; body: string; labels: string[] }[] = [];
+    let openIssues: {
+      number: number;
+      title: string;
+      url: string;
+      body: string;
+      labels: string[];
+    }[] = [];
     let openIssuesTruncated = false;
     if (!native) {
       const open = await this.listIssues(repoPath);
-      openIssues = open.map((i) => ({ number: i.number, body: i.body, labels: i.labels }));
+      openIssues = open.map((i) => ({
+        number: i.number,
+        title: i.title,
+        url: i.url,
+        body: i.body,
+        labels: i.labels,
+      }));
       openIssuesTruncated = open.length >= 200;
     }
     const prSnap = this.deps.prCache.snapshot();

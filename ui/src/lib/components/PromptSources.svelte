@@ -3,7 +3,8 @@
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { hideOthers, hideActive, ACTIVE_LABEL } from "./issues-panel";
+  import { hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { issuesFilter } from "$lib/issues-filter.svelte";
 
   let {
@@ -12,12 +13,16 @@
     onpickissue,
     allowIssues = true,
     epicParents = new Set(),
+    nativeSubIssues = new Set(),
+    epicsLoaded = false,
   }: {
     repoPath: string;
     onpick: (prompt: string) => void;
     onpickissue: (issue: Issue) => void;
     allowIssues?: boolean;
     epicParents?: Set<number>;
+    nativeSubIssues?: Set<number>;
+    epicsLoaded?: boolean;
   } = $props();
 
   let tab = $state<"todo" | "issues" | "commands">("todo");
@@ -33,7 +38,15 @@
   // assigneeFiltered intermediate lets each empty state be attributed to the
   // filter that caused it.
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
-  let visibleIssues = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
+  let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
+  let visibleIssues = $derived(
+    hideSubIssues(
+      activeFiltered,
+      issuesFilter.hideSubIssues && epicsLoaded,
+      nativeSubIssues,
+      epicParents,
+    ),
+  );
   let allHiddenByAssignee = $derived(
     issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
   );
@@ -41,8 +54,16 @@
   let allHiddenByActive = $derived(
     !allHiddenByAssignee &&
       assigneeFiltered.length > 0 &&
-      visibleIssues.length === 0 &&
+      activeFiltered.length === 0 &&
       issuesFilter.hideActive,
+  );
+  let allHiddenBySubIssues = $derived(
+    !allHiddenByAssignee &&
+      !allHiddenByActive &&
+      activeFiltered.length > 0 &&
+      visibleIssues.length === 0 &&
+      issuesFilter.hideSubIssues &&
+      epicsLoaded,
   );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
@@ -246,11 +267,24 @@
           >
             {m.issues_filter_active_label()}
           </button>
+          <button
+            class="filter-chip"
+            class:active={issuesFilter.hideSubIssues}
+            type="button"
+            aria-pressed={issuesFilter.hideSubIssues}
+            title={m.issues_filter_subissues_title()}
+            onclick={() => issuesFilter.toggleSubIssues()}
+            use:coachTarget={"issues-filter-subissues"}
+          >
+            {m.issues_filter_subissues_label()}
+          </button>
         </div>
         {#if allHiddenByAssignee}
           <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
         {:else if allHiddenByActive}
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
+        {:else if allHiddenBySubIssues}
+          <div class="muted">{m.issues_filter_all_sub_issues()}</div>
         {/if}
         {#each visibleIssues as i (i.number)}
           {@const ordered = orderedLabels(i.labels)}

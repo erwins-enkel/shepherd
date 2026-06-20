@@ -49,7 +49,7 @@ describe("IssuesPanel repo slug link", () => {
       issues: [],
       viewer: null,
     });
-    mockGetEpics.mockResolvedValue([]);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
@@ -67,7 +67,7 @@ describe("IssuesPanel repo slug link", () => {
       issues: [],
       viewer: null,
     });
-    mockGetEpics.mockResolvedValue([]);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
@@ -108,9 +108,14 @@ describe("IssuesPanel epic badge", () => {
     };
   }
 
-  function seed(issues: Issue[], epics: EpicSummary[] = [], slug = "owner/repo") {
+  function seed(
+    issues: Issue[],
+    epics: EpicSummary[] = [],
+    slug = "owner/repo",
+    subIssues: number[] = [],
+  ) {
     mockListIssues.mockResolvedValue({ slug, webUrl: null, issues, viewer: null });
-    mockGetEpics.mockResolvedValue(epics);
+    mockGetEpics.mockResolvedValue({ epics, subIssues });
   }
 
   it("native source renders SUB-ISSUES merged/total badge", async () => {
@@ -242,7 +247,7 @@ describe("IssuesPanel expandEpic", () => {
       issues: [issue(327), issue(400)],
       viewer: null,
     });
-    mockEpics.mockResolvedValue([summary(327)]);
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
     mockEpic.mockResolvedValue(epic(327));
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
@@ -264,7 +269,7 @@ describe("IssuesPanel expandEpic", () => {
       issues: [issue(327), issue(400)],
       viewer: null,
     });
-    mockEpics.mockResolvedValue([summary(327)]);
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
     mockEpic.mockResolvedValue(epic(327));
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
@@ -294,7 +299,7 @@ describe("IssuesPanel expandEpic", () => {
       issues: [issue(327)],
       viewer: null,
     });
-    mockEpics.mockResolvedValue([summary(327)]);
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
     mockEpic.mockResolvedValue(epic(327));
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: null });
@@ -350,7 +355,7 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
         withAssignees(3, "Theirs issue", ["someone-else"]),
       ],
     });
-    mockGetEpics.mockResolvedValue([]);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
   }
 
   const titles = () =>
@@ -400,7 +405,7 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
         { ...withAssignees(2, "Claimed issue", []), labels: ["shepherd:active"] },
       ],
     });
-    mockGetEpics.mockResolvedValue([]);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     // Off by default → both visible.
@@ -413,5 +418,76 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     activeChip()!.click();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
     expect(titles()).toContain("Claimed issue");
+  });
+});
+
+describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
+  // Reset filter state before/after each test so order can't leak state.
+  // hideSubIssues defaults ON; hideOthers defaults ON; hideActive defaults OFF.
+  beforeEach(() => {
+    issuesFilter.set(true);
+    issuesFilter.setActive(false);
+    issuesFilter.setSubIssues(true);
+  });
+  afterEach(() => {
+    issuesFilter.set(true);
+    issuesFilter.setActive(false);
+    issuesFilter.setSubIssues(true);
+  });
+
+  function makeIssue(number: number, title: string): Issue {
+    return {
+      number,
+      title,
+      body: "",
+      url: `https://example.com/i/${number}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    };
+  }
+
+  function makeSummary(parentIssueNumber: number): EpicSummary {
+    return {
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      total: 2,
+      merged: 0,
+      status: "idle",
+      source: "native",
+    };
+  }
+
+  it("hides a plain sub-issue and keeps a mid-level epic visible (default ON, no toggle)", async () => {
+    // Issue 10: plain sub-issue (in subIssues, NOT an epic parent) → must be hidden
+    // Issue 20: mid-level epic (in subIssues AND an epic parent) → must stay visible
+    // Issue 30: ordinary issue (neither sub-issue nor epic parent) → must stay visible
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: null,
+      issues: [
+        makeIssue(10, "Plain sub-issue"),
+        makeIssue(20, "Mid-level epic"),
+        makeIssue(30, "Ordinary issue"),
+      ],
+    });
+    // subIssues: [10, 20]; epics has 20 as a parent (mid-level epic)
+    mockGetEpics.mockResolvedValue({
+      epics: [makeSummary(20)],
+      subIssues: [10, 20],
+    });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // Wait for epics to load (badge for issue 20 should appear)
+    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+
+    const issueTitles = () =>
+      [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim());
+
+    // Plain sub-issue (10) is hidden; mid-level epic (20) and ordinary (30) are visible
+    await expect.poll(() => issueTitles()).not.toContain("Plain sub-issue");
+    expect(issueTitles()).toContain("Mid-level epic");
+    expect(issueTitles()).toContain("Ordinary issue");
   });
 });

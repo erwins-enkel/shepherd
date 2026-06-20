@@ -1308,4 +1308,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_ios_text_size_title",
     bodyKey: "feat_ios_text_size_body",
   },
+  {
+    // Hide native sub-issues by default on both the Backlog and New Task issue lists,
+    // nudging an epic drain from the parent. v1.34.0 is the latest released tag → 1.35.0.
+    id: "hide-sub-issues-default",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_issues_filter_subissues_title",
+    bodyKey: "feat_issues_filter_subissues_body",
+    targetId: "issues-filter-subissues",
+  },
 ];

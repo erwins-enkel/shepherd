@@ -357,20 +357,28 @@
   // disabled (picking one as a manual task collides with the Epic Runner — epics
   // launch via the epic panel's Start control instead).
   let epicParents = $state<Set<number>>(new Set());
+  let nativeSubIssues = $state<Set<number>>(new Set());
+  let epicsLoaded = $state(false);
   $effect(() => {
     const rp = repoPath;
     if (!rp) {
       epicParents = new Set();
+      nativeSubIssues = new Set();
+      epicsLoaded = false;
       return;
     }
     getEpics(rp)
-      .then((summaries) => {
+      .then((r) => {
         if (rp !== repoPath) return;
-        epicParents = new Set(summaries.map((s) => s.parentIssueNumber));
+        epicParents = new Set(r.epics.map((s) => s.parentIssueNumber));
+        nativeSubIssues = new Set(r.subIssues);
+        epicsLoaded = true;
       })
       .catch(() => {
         if (rp !== repoPath) return;
         epicParents = new Set();
+        nativeSubIssues = new Set();
+        epicsLoaded = false;
       });
   });
 
@@ -734,6 +742,8 @@
       <PromptSources
         {repoPath}
         {epicParents}
+        {nativeSubIssues}
+        {epicsLoaded}
         allowIssues={!relaunch}
         onpick={(p) => {
           prompt = p;

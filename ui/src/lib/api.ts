@@ -1422,7 +1422,9 @@ export async function stopPreview(id: string): Promise<{ killed: number } | { no
 
 // ── epics ──────────────────────────────────────────────────────────────────
 
-export async function getEpics(repoPath: string): Promise<EpicSummary[]> {
+export async function getEpics(
+  repoPath: string,
+): Promise<{ epics: EpicSummary[]; subIssues: number[] }> {
   return getJson(`/api/epics?repo=${encodeURIComponent(repoPath)}`, "get epics");
 }
 

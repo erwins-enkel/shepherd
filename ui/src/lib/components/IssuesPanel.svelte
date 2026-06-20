@@ -3,7 +3,7 @@
   import { steers } from "$lib/steers.svelte";
   import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { filterIssues, hideOthers, hideActive } from "./issues-panel";
+  import { filterIssues, hideOthers, hideActive, hideSubIssues } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
@@ -48,12 +48,25 @@
   let viewer = $state<string | null>(null);
   let loading = $state(true);
   let filter = $state("");
-  // Compose the assignee filter (#824) → "hide in progress" filter → text filter.
+  // Epic summaries for this repo: number → EpicSummary.
+  let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
+  let nativeSubIssues = $state<Set<number>>(new Set());
+  let epicsLoaded = $state(false);
+  // Compose the assignee filter (#824) → "hide in progress" filter → sub-issue filter → text filter.
   // The mine chip only shows when `viewer` is known, so hideOthers is a no-op
   // identity otherwise (fail open); hideActive is viewer-agnostic.
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
-  let visibleIssues = $derived(filterIssues(activeFiltered, filter));
+  let epicParentNums = $derived(new Set(epicByNumber.keys()));
+  let subFiltered = $derived(
+    hideSubIssues(
+      activeFiltered,
+      issuesFilter.hideSubIssues && epicsLoaded,
+      nativeSubIssues,
+      epicParentNums,
+    ),
+  );
+  let visibleIssues = $derived(filterIssues(subFiltered, filter));
   // True when there ARE open issues but the assignee filter hid them all — drives
   // the distinct "all assigned to others" empty state (vs the text no-match state).
   let allHiddenByAssignee = $derived(
@@ -66,9 +79,15 @@
       activeFiltered.length === 0 &&
       issuesFilter.hideActive,
   );
-
-  // Epic summaries for this repo: number → EpicSummary.
-  let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
+  // The sub-issue filter emptied the remainder the active filter left behind.
+  let allHiddenBySubIssues = $derived(
+    !allHiddenByAssignee &&
+      !allHiddenByActive &&
+      activeFiltered.length > 0 &&
+      subFiltered.length === 0 &&
+      issuesFilter.hideSubIssues &&
+      epicsLoaded,
+  );
   // Set of expanded epic issue numbers (SvelteSet for fine-grained reactivity).
   const expanded = new SvelteSet<number>();
   // One-shot fetch cache: issue number → fetched Epic (avoids re-fetching on re-render).
@@ -80,6 +99,8 @@
     filter = "";
     expanded.clear();
     epicByNumber = new Map();
+    nativeSubIssues = new Set();
+    epicsLoaded = false;
     fetched.clear();
     listIssues(rp)
       .then((r) => {
@@ -94,9 +115,11 @@
         loading = false;
       });
     getEpics(rp)
-      .then((summaries) => {
+      .then((r) => {
         if (rp !== repoPath) return;
-        epicByNumber = new Map(summaries.map((s) => [s.parentIssueNumber, s]));
+        epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
+        nativeSubIssues = new Set(r.subIssues);
+        epicsLoaded = true;
       })
       .catch(() => {
         /* leave empty — epics are an enhancement, not blocking */
@@ -202,11 +225,24 @@
         >
           {m.issues_filter_active_label()}
         </button>
+        <button
+          class="filter-chip"
+          class:active={issuesFilter.hideSubIssues}
+          type="button"
+          aria-pressed={issuesFilter.hideSubIssues}
+          title={m.issues_filter_subissues_title()}
+          onclick={() => issuesFilter.toggleSubIssues()}
+          use:coachTarget={"issues-filter-subissues"}
+        >
+          {m.issues_filter_subissues_label()}
+        </button>
       </div>
       {#if allHiddenByAssignee}
         <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
       {:else if allHiddenByActive}
         <div class="muted">{m.issues_filter_all_in_progress()}</div>
+      {:else if allHiddenBySubIssues}
+        <div class="muted">{m.issues_filter_all_sub_issues()}</div>
       {:else if visibleIssues.length === 0}
         <div class="muted">{m.issuespanel_no_match()}</div>
       {/if}

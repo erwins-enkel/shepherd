@@ -51,6 +51,11 @@
   --sl-color-gray-6: var(--brand-panel);
   --sl-color-black: var(--brand-bg);
 
+  /* "Tip" asides — themed on-brand with the green accent (success/tip semantic). */
+  --sl-color-green: var(--brand-green);
+  --sl-color-green-high: color-mix(in srgb, var(--brand-green) 60%, var(--brand-ink-bright));
+  --sl-color-green-low: color-mix(in srgb, var(--brand-green) 25%, var(--brand-bg));
+
   /* Small UI rungs adopt the brand meta sizes; body type stays Starlight default. */
   --sl-text-xs: var(--brand-fs-micro);
   --sl-text-sm: var(--brand-fs-meta);

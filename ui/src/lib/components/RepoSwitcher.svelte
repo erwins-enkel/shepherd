@@ -143,7 +143,9 @@
             {#if chip.drain?.paused}
               <span class="rs-paused-dot" aria-hidden="true">●</span>
             {/if}
-            {#if chip.insights > 0 || chip.curate > 0}
+            {#if !active && (chip.insights > 0 || chip.curate > 0)}
+              <!-- decorative ✦ mark — suppressed on the active chip, whose actionable
+                   ✦ count already shows in the telemetry detail line below (no dup) -->
               <span class="rs-learn-mark" title={m.learnings_badge_tip()} aria-hidden="true"
                 >✦{#if chip.insights > 0}<span class="rs-learn-n">{chip.insights}</span>{/if}</span
               >
@@ -254,12 +256,10 @@
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
   }
-  /* active filter: amber text + amber underline (mirrors .qs-repo-btn.active) */
+  /* active filter: amber text + amber border carry the selection (no underline) */
   .rs-chip.active {
     color: var(--color-amber);
     border-color: var(--color-amber);
-    text-decoration: underline;
-    text-underline-offset: 3px;
   }
   /* the repo glyph is identity, not status — keep it on the ink ramp, never a
      status hue (Four-Light Rule). */

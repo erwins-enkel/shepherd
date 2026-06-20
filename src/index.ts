@@ -49,6 +49,7 @@ import {
   attachUsagePush,
   attachCreditsPush,
 } from "./push";
+import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
@@ -732,6 +733,18 @@ setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 attachMergePush(events, push);
+
+// Reduced-push "ready-after-5s" evaluator (#896): while reducedPushMode is on, fire the
+// `ready` push once a session holds the ready set for ≥5s (with warm-up + seed-on-arm guard).
+const readyNotifier = new ReadyNotifier({
+  listSessions: () => store.list({ activeOnly: true }),
+  workingBlocked: () => poller.workingBlockedSnapshot(),
+  gitSnapshot: () => prPoller.snapshot(),
+  reviewingIds: () => [...reviewService.reviewingIds(), ...planGate.reviewingIds()],
+  notify: (input) => push.notify(input),
+  reducedMode: () => config.reducedPushMode,
+});
+readyNotifier.start();
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
 events.subscribe((event, data) => {
   if (event !== "session:git") return;

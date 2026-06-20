@@ -58,21 +58,40 @@ type Stage =
  *  no session list) and falls through to the live set for "done" (handled by the page). */
 export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown";
 
+/** Lifecycle stages the "ready" lens hides: the session is NOT awaiting the operator.
+ *  A green PR handed off to a foreign reviewer/merger (`waitingOnReviewer`/`waitingOnMerger`)
+ *  is waiting on someone else, and a PR a launched merge train is carrying (`merging`) is
+ *  in Shepherd's hands — neither is "your turn", so the Ready lens drops them (the All lens
+ *  still shows them). Draft-awaiting-signoff stays: it awaits the operator's own sign-off. */
+const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
+  "waitingOnReviewer",
+  "waitingOnMerger",
+  "merging",
+]);
+
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
- *  awaiting the operator (not running, not under review); "research" keeps only sessions
- *  with `s.research` set. Single source of truth shared by Herd.svelte's list and
- *  herd-keynav's rail order, so keyboard navigation can never land on a row the rail
- *  isn't showing. Goes through `displayStatus` (a working-while-blocked session is
- *  actually mid-turn, so it is NOT awaiting the operator). */
+ *  awaiting the operator (not running, not under review, and not handed off to another
+ *  party or mid-merge-train — see NOT_YOUR_TURN); "research" keeps only sessions with
+ *  `s.research` set. Single source of truth shared by Herd.svelte's list and herd-keynav's
+ *  rail order, so keyboard navigation can never land on a row the rail isn't showing. Goes
+ *  through `displayStatus` (a working-while-blocked session is actually mid-turn, so it is
+ *  NOT awaiting the operator). `git`/`now` drive the stage check for the not-your-turn
+ *  exclusion; both default empty/now so legacy 4-arg callers keep today's behavior (no
+ *  handoff git + `mergingSince: null` → no session resolves to an excluded stage). */
 export function shownSessions(
   sessions: Session[],
   filter: HerdFilter,
   inReview: (id: string) => boolean,
   workingBlocked: Record<string, boolean> = {},
+  git: Record<string, GitState> = {},
+  now: number = Date.now(),
 ): Session[] {
   if (filter === "ready")
     return sessions.filter(
-      (s) => displayStatus(s, workingBlocked) !== "running" && !inReview(s.id),
+      (s) =>
+        displayStatus(s, workingBlocked) !== "running" &&
+        !inReview(s.id) &&
+        !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, now)),
     );
   if (filter === "research") return sessions.filter((s) => s.research);
   // Rundown is a panel-only lens (the digest, no session list) — show no rows.

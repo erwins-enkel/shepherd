@@ -1631,5 +1631,7 @@
   "settings_auto_optimize_flagged_label": "Auto-optimize flagged rules",
   "settings_auto_optimize_flagged_help": "When a rule starts failing, rewrite it once automatically before it becomes eligible for auto-retirement.",
   "feat_learnings_auto_retire_title": "Learnings auto-retirement",
-  "feat_learnings_auto_retire_body": "Rules that consistently fail to help agents are now automatically retired. Review them in the Learnings drawer and restore any that were retired by mistake."
+  "feat_learnings_auto_retire_body": "Rules that consistently fail to help agents are now automatically retired. Review them in the Learnings drawer and restore any that were retired by mistake.",
+  "feat_ready_lens_hides_waiting_title": "Ready shows only your turn",
+  "feat_ready_lens_hides_waiting_body": "The Ready filter now hides sessions that are waiting on someone else — a PR handed off to a reviewer or merger, or one a merge train is already landing. They stay visible under the All filter."
 }

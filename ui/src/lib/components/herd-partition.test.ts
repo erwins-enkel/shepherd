@@ -365,3 +365,70 @@ test('"ready" filter drops a working-while-blocked session like a running one', 
   // "all" ignores the flag entirely
   expect(shownSessions(list, "all", () => false, { wb: true })).toHaveLength(4);
 });
+
+// ── "ready" lens hides sessions that aren't the operator's turn ────────────
+// Ready = "awaiting you". A green PR handed off to a foreign reviewer/merger, or
+// one a merge train is already carrying, is NOT your turn → hidden from Ready,
+// still shown in All.
+
+test('"ready" filter hides waitingOnReviewer + waitingOnMerger, keeps awaitingMerge', () => {
+  const list = [
+    session("rev", false, "idle"),
+    session("mrg", false, "idle"),
+    session("mine", false, "idle"),
+  ];
+  const g = {
+    rev: gitHandoff("reviewer", "scoop"),
+    mrg: gitHandoff("merger", "scoop"),
+    mine: git("open", "success"), // no handoff → awaitingMerge → your turn
+  };
+  const shown = shownSessions(list, "ready", () => false, {}, g);
+  expect(shown.map((s) => s.id)).toEqual(["mine"]);
+  // All lens still lists every session regardless of handoff
+  expect(shownSessions(list, "all", () => false, {}, g).map((s) => s.id)).toEqual([
+    "rev",
+    "mrg",
+    "mine",
+  ]);
+});
+
+test('"ready" filter hides a merging session (shared now), keeps awaitingMerge', () => {
+  const now = 1_000_000;
+  const merging = { ...session("trn", false, "idle"), mergingSince: now - 1000 };
+  const list = [merging, session("mine", false, "idle")];
+  const g = { mine: git("open", "success") };
+  // same `now` threaded into shownSessions so isMerging reads the same clock
+  const shown = shownSessions(list, "ready", () => false, {}, g, now);
+  expect(shown.map((s) => s.id)).toEqual(["mine"]);
+  // All lens keeps the merging session
+  expect(shownSessions(list, "all", () => false, {}, g, now).map((s) => s.id)).toEqual([
+    "trn",
+    "mine",
+  ]);
+});
+
+test('"ready" filter keeps your-turn stages: awaitingMerge, parked ready, draft, ciFailed, blocked, idle', () => {
+  const list = [
+    session("am", false, "idle"), // green, no handoff → awaitingMerge
+    session("rdy", true, "idle"), // operator-parked ready (wins over handoff below)
+    session("drf", false, "idle"), // green draft → draftAwaitingSignoff
+    session("cf", false, "idle"), // failed CI → ciFailed
+    session("blk", false, "blocked"), // genuinely blocked
+    session("idl", false, "idle"), // plain idle, no PR
+  ];
+  const g = {
+    am: git("open", "success"),
+    rdy: gitHandoff("merger", "scoop"), // parked ready outranks the merger handoff → kept
+    drf: gitDraft(),
+    cf: git("open", "failure"),
+  };
+  const shown = shownSessions(list, "ready", () => false, {}, g);
+  expect(shown.map((s) => s.id)).toEqual(["am", "rdy", "drf", "cf", "blk", "idl"]);
+});
+
+test('"ready" filter is unchanged with no git/now args (backward compat)', () => {
+  // No handoff git + factory-default mergingSince:null → no session resolves to an
+  // excluded stage, so the legacy 4-arg call behaves exactly as before.
+  const list = [session("a", false, "idle"), session("b", false, "blocked")];
+  expect(shownSessions(list, "ready", () => false).map((s) => s.id)).toEqual(["a", "b"]);
+});

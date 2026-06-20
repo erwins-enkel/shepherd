@@ -33,7 +33,7 @@ export function railOrder(
   activeEpicKeys: Set<string> = new Set(),
   collapsedKeys: Set<string> = new Set(),
 ): string[] {
-  const shown = shownSessions(sessions, filter, isReviewing, workingBlocked);
+  const shown = shownSessions(sessions, filter, isReviewing, workingBlocked, git, now);
   const grouped = groupSessionsByEpic(shown, epics, activeEpicKeys, git, isReviewing, now);
   const groupIds = grouped.groups.flatMap((g) =>
     collapsedKeys.has(g.key) ? [] : g.sessions.map((s) => s.id),

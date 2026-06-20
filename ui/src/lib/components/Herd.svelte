@@ -168,7 +168,9 @@
   // local all/ready filter ENTIRELY — a "ready" remnant would drop running sessions
   // and empty the list under statusFilter="running" (sessions already arrive filtered).
   const shown = $derived(
-    statusFilter != null ? sessions : shownSessions(sessions, filter, inReview, workingBlocked),
+    statusFilter != null
+      ? sessions
+      : shownSessions(sessions, filter, inReview, workingBlocked, git, nowMs),
   );
   // label for the status chip + filtered empty states (only read when set)
   const statusLabel = $derived(

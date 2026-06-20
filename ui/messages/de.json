@@ -1631,5 +1631,7 @@
   "settings_auto_optimize_flagged_label": "Markierte Regeln automatisch optimieren",
   "settings_auto_optimize_flagged_help": "Wenn eine Regel zu scheitern beginnt, wird sie einmalig automatisch neu formuliert, bevor sie für die automatische Deaktivierung infrage kommt.",
   "feat_learnings_auto_retire_title": "Automatische Deaktivierung von Learnings",
-  "feat_learnings_auto_retire_body": "Regeln, die Agenten konsistent nicht helfen, werden jetzt automatisch deaktiviert. Überprüfe sie in der Learnings-Leiste und stelle fälschlicherweise deaktivierte Regeln wieder her."
+  "feat_learnings_auto_retire_body": "Regeln, die Agenten konsistent nicht helfen, werden jetzt automatisch deaktiviert. Überprüfe sie in der Learnings-Leiste und stelle fälschlicherweise deaktivierte Regeln wieder her.",
+  "feat_ready_lens_hides_waiting_title": "Bereit zeigt nur, was an dir liegt",
+  "feat_ready_lens_hides_waiting_body": "Der Bereit-Filter blendet jetzt Sitzungen aus, die auf jemand anderen warten – ein PR, der an einen Reviewer oder Merger übergeben wurde, oder einer, den ein Merge-Train bereits landet. Unter dem Filter Alle bleiben sie sichtbar."
 }

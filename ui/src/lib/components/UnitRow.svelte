@@ -17,9 +17,7 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
   import {
-    elapsed,
     STATUS_COLOR,
-    statusLabel,
     hideStatusBadge,
     autopilotBadgeShown,
     canResume,
@@ -31,10 +29,7 @@
   import { longPress } from "./longpress";
   import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
-  import PrBadge from "./PrBadge.svelte";
   import TimePopover from "./TimePopover.svelte";
-  import CriticBadge from "./CriticBadge.svelte";
-  import BuildQueueBadge from "./BuildQueueBadge.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
   import { reviews } from "$lib/reviews.svelte";
@@ -42,10 +37,8 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
-  import AutopilotBadge from "./AutopilotBadge.svelte";
-  import PlanGateBadge from "./PlanGateBadge.svelte";
-  import ResearchBadge from "./ResearchBadge.svelte";
   import { onDestroy } from "svelte";
+  import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import {
     REVEAL_PX,
     snapOffset,
@@ -407,120 +400,24 @@
       </div>
     </div>
 
-    <div class="u-right">
-      {#if ondecommission && !coarse.current}
-        <!-- Fine-pointer decommission: hover/focus-revealed ✕ in the top-right
-             corner, same two-step arm/confirm as the swipe reveal. A real <button>
-             is valid here — .u-right is a sibling of the .unit-hit overlay, not
-             nested inside it, and the existing .u-right > button z-index rule
-             raises it above the overlay; its click never reaches the row select,
-             so no propagation concern. -->
-        <button
-          class="row-decom"
-          class:armed={decom === "armed"}
-          type="button"
-          onclick={pressDecommission}
-          title={decom === "armed"
-            ? m.viewport_confirm_decommission()
-            : m.viewport_decommission_title()}
-          aria-label={decom === "armed"
-            ? m.viewport_confirm_decommission()
-            : m.viewport_decommission_aria()}
-        >
-          {decom === "armed" ? "✕?" : "✕"}
-        </button>
-      {/if}
-      {#if previewPort != null}
-        <!-- Live preview available (server reports a bound listener). Selecting +
-             opening the pane is an action distinct from the row's own select, so
-             this is an actionable control; rendered as role=button (not a nested
-             <button>, which would be invalid inside the row's own button) with
-             stopPropagation so the row's select doesn't also fire. -->
-        <span
-          class="preview-badge"
-          class:preview-badge--degraded={previewServeFailed}
-          role="button"
-          tabindex="0"
-          title={previewServeFailed
-            ? m.unitrow_preview_badge_degraded()
-            : m.unitrow_preview_badge()}
-          onclick={(e) => {
-            e.stopPropagation();
-            onpreview?.(session.id);
-          }}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-              onpreview?.(session.id);
-            }
-          }}>{m.unitrow_preview_badge()}</span
-        >
-      {/if}
-      <ResearchBadge {session} />
-      {#if !stepperTerminal}<PrBadge {git} />{/if}
-      <CriticBadge sessionId={session.id} />
-      <BuildQueueBadge sessionId={session.id} />
-      <PlanGateBadge {session} allowView={false} />
-      {#if quotaKind}
-        <span
-          class="badge quota-stalled"
-          role="img"
-          title={m.unitrow_quota_title()}
-          aria-label={m.unitrow_quota_title()}
-          >{#if quotaKind === "rework"}{m.unitrow_quota_rework()}{:else if quotaKind === "review"}{m.unitrow_quota_review()}{:else if quotaKind === "error"}{m.unitrow_quota_error()}{:else}{m.unitrow_quota_plan()}{/if}</span
-        >
-      {/if}
-      <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
-      {#if !reviewing}<AutopilotBadge {session} />{/if}
-      <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
-           are quiet informational badges (slate). Trusted-manual renders nothing. -->
-      {#if session.sandboxDegraded}
-        <span
-          class="badge sandbox-warn"
-          role="img"
-          aria-label={m.session_sandbox_degraded_label()}
-          title={m.session_sandbox_degraded_title()}>{m.session_sandbox_degraded_label()}</span
-        >
-      {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
-        <span
-          class="badge sandbox-warn"
-          role="img"
-          aria-label={m.session_sandbox_egress_degraded_label()}
-          title={m.session_sandbox_egress_degraded_title()}
-          >{m.session_sandbox_egress_degraded_label()}</span
-        >
-      {:else if session.sandboxApplied === "autonomous"}
-        <span
-          class="badge sandbox"
-          role="img"
-          aria-label={m.session_sandbox_autonomous_label()}
-          title={m.session_sandbox_autonomous_title()}>{m.session_sandbox_autonomous_label()}</span
-        >
-      {:else if session.sandboxApplied === "standard"}
-        <span
-          class="badge sandbox"
-          role="img"
-          aria-label={m.session_sandbox_standard_label()}
-          title={m.session_sandbox_standard_title()}>{m.session_sandbox_standard_label()}</span
-        >
-      {:else if session.sandboxApplied === "trusted" && session.auto}
-        <span
-          class="badge sandbox-warn"
-          role="img"
-          aria-label={m.session_sandbox_unconfined_label()}
-          title={m.session_sandbox_unconfined_title()}>{m.session_sandbox_unconfined_label()}</span
-        >
-      {/if}
-      {#if isMerging(session, nowMs)}
-        <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
-      {:else if session.readyToMerge}
-        <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
-      {:else if !hideStatus}
-        <span class="badge" id="u-status-{session.id}">{statusLabel(dStatus)}</span>
-      {/if}
-      <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
-    </div>
+    <UnitRowRight
+      {session}
+      {git}
+      {nowMs}
+      {ondecommission}
+      {previewPort}
+      {previewServeFailed}
+      {onpreview}
+      {quotaKind}
+      {reviewing}
+      {hideStatus}
+      {stepperTerminal}
+      {decom}
+      {dStatus}
+      coarsePointer={coarse.current}
+      {pressDecommission}
+      bind:elapsedEl
+    />
 
     {#if live}
       <div class="u-activity">
@@ -665,13 +562,6 @@
   .unit-hit:focus-visible {
     outline: 1.5px solid var(--color-line-bright);
     outline-offset: -1.5px;
-  }
-
-  /* Raise the interactive badge above the overlay so it's clickable. */
-  .u-right > :global(button),
-  .u-right > :global([role="button"]) {
-    position: relative;
-    z-index: 1;
   }
 
   :global(.unit + .unit),
@@ -943,148 +833,14 @@
     animation: blink 1.1s steps(1) infinite !important;
   }
 
-  .u-right {
-    grid-area: right;
-    text-align: right;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-end;
-    flex-shrink: 0;
-  }
-
-  /* Fine-pointer decommission ✕: opacity (not display) keeps it keyboard-
-     focusable while invisible — and the invisible button's reserved in-flow slot
-     at the top of every row's .u-right column is deliberate (rows stay aligned,
-     the button stays focusable); while invisible it's also click-inert
-     (pointer-events: none) so the invisible corner can't be tapped on
-     fine-pointer-but-hoverless hardware; revealed on row hover/focus-within
-     (hover-capable fine pointers only, so touch layouts never show a ghost
-     button) and forced visible while armed — every reveal state restores
-     pointer-events. Idle = quiet faint glyph; armed = red ✕? echoing the
-     swipe reveal's .decom.armed treatment. */
-  .row-decom {
-    margin: 0;
-    padding: 0 2px;
-    border: 0;
-    border-radius: 2px;
-    background: transparent;
-    color: var(--color-faint);
-    font: inherit;
-    font-size: var(--fs-meta);
-    line-height: 1.3;
-    cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.14s ease;
-  }
+  /* Cross-boundary hover reveal for the ✕ button inside UnitRowRight. The
+     .row-decom lives in a child component so we use :global() to reach it. */
   @media (hover: hover) and (pointer: fine) {
-    .unit:hover .row-decom,
-    .unit:focus-within .row-decom {
+    .unit:hover :global(.row-decom),
+    .unit:focus-within :global(.row-decom) {
       opacity: 1;
       pointer-events: auto;
     }
-  }
-  /* outside the hover/fine gate: a keyboard-focused button must never be
-     invisible on fine-pointer-but-hoverless hardware */
-  .row-decom:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .row-decom:hover,
-  .row-decom:focus-visible {
-    color: var(--color-red);
-  }
-  .row-decom.armed {
-    opacity: 1;
-    pointer-events: auto;
-    background: color-mix(in srgb, var(--color-red) 26%, transparent);
-    color: var(--color-red);
-    font-weight: 600;
-  }
-
-  /* Quiet muted text, not a colored pill — the StatusPip (left) already encodes
-     status by color + pulse, so an outlined `--rule`-tinted badge here just
-     duplicated that hue (amber for running) and added to the orange wall. */
-  .badge {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    white-space: nowrap;
-  }
-
-  /* PREVIEW: an actionable, navigational badge — opens the live app pane. Blue is
-     the non-reserved informational accent (green = READY, amber = running/critic,
-     red = blocked, slate = done are all taken), so it reads as "go look" without
-     colliding with any status hue. Outlined + pointer to signal it's clickable. */
-  .preview-badge {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 1px 6px;
-    border: 1px solid var(--color-blue);
-    border-radius: 2px;
-    color: var(--color-blue);
-    white-space: nowrap;
-    cursor: pointer;
-    background: transparent;
-  }
-  .preview-badge:hover,
-  .preview-badge:focus-visible {
-    background: color-mix(in srgb, var(--color-blue) 14%, transparent);
-  }
-
-  /* Degraded: the slot's tailscale serve mapping failed to register — the preview
-     still works on loopback but isn't exposed over Tailscale. Amber = attention/
-     degraded (not red, which is reserved for a blocked session). */
-  .preview-badge--degraded {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .preview-badge--degraded:hover,
-  .preview-badge--degraded:focus-visible {
-    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
-  }
-
-  /* MERGING: the one colored, moving badge — amber + pulse marks the in-flight
-     merge train, louder than the quiet muted text badges around it. */
-  .badge.merging {
-    color: var(--color-amber);
-    animation: merge-pulse 1.5s ease-in-out infinite;
-  }
-
-  /* SANDBOX (confined): a quiet informational badge — slate reads as "noted, parked"
-     (done-state hue), not actionable. Outlined to set it apart from plain text badges. */
-  .badge.sandbox {
-    padding: 1px 6px;
-    border: 1px solid var(--color-slate);
-    border-radius: 2px;
-    color: var(--color-slate);
-  }
-  /* SANDBOX (warn): degraded sandbox or an unattended agent running unconfined —
-     amber = attention/degraded (NOT red, reserved for a blocked session). */
-  .badge.sandbox-warn {
-    padding: 1px 6px;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-  }
-
-  /* QUOTA STALLED: session blocked on quota exhaustion — amber attention, same idiom
-     as sandbox-warn; needs a human to resume/take over/abandon. */
-  .badge.quota-stalled {
-    padding: 1px 6px;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-    font-weight: 600;
-  }
-
-  .elapsed {
-    color: var(--color-ink);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.08em;
   }
 
   .meta {
@@ -1188,29 +944,6 @@
         "pip right"
         "pip meta";
     }
-    /* badge rail → left-aligned, wrapping horizontal strip on its own row */
-    :global(.units:not(.flow)) .u-right {
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: flex-start;
-      text-align: left;
-      gap: 6px;
-    }
-    /* Pin the elapsed clock to the card's top-right, aligned with the name row,
-       instead of letting it ride along in the own-row badge strip. pointer-events
-       is none (MANDATORY, not cosmetic): .elapsed paints above the .unit-hit
-       overlay (it's later in the DOM), so without this it would swallow row-select
-       clicks in the top-right corner and starve onHitMove's mousemove — breaking
-       the TimePopover hover trigger. none passes events through to the overlay
-       while getBoundingClientRect() still measures the clock for the bounds test
-       + popover anchor. */
-    :global(.units:not(.flow)) .elapsed {
-      position: absolute;
-      top: 11px;
-      right: 14px;
-      pointer-events: none;
-    }
     /* Reserve room on the name row so a long name ellipsizes BEFORE the clock
        rather than sliding under it (the clock still paints over the name —
        pointer-events stops event capture, not painting). 72px clears realistic
@@ -1221,21 +954,6 @@
        just paints under the clock, same tradeoff as everywhere else here). */
     :global(.units:not(.flow)) .u-top {
       padding-right: 72px;
-    }
-    /* The decommission ✕ is invisible-but-keyboard-focusable (opacity:0 +
-       pointer-events:none from the base .row-decom rule, NOT display:none) so it
-       stays in the tab order and reveals on hover/focus. Keep it absolute and out
-       of flow, parked just below the pinned clock in the right gutter (on the
-       prompt's first line) so it clears the clock and doesn't indent the badge
-       strip. top: 30px = the clock's top: 11px + ~one clock line-height, dropping
-       the ✕ just under the clock onto the prompt's first line. Unlike .u-top, .u-sub
-       (the prompt) reserves no right gutter, so a very long prompt's first line can
-       run under the ✕ — acceptable: the ✕ is hover-only, tiny, and sits over muted
-       secondary text, so it merely paints over (same as the clock-over-name case). */
-    :global(.units:not(.flow)) .row-decom {
-      position: absolute;
-      top: 30px;
-      right: 12px;
     }
   }
 </style>

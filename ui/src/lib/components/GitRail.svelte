@@ -13,7 +13,7 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { criticChip, criticBadgeLabel } from "./critic-badge";
-  import ReadyToggle from "./ReadyToggle.svelte";
+  import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
@@ -554,129 +554,34 @@
   {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile use:edgeFades={mobile}>
-      {#if git.issueUrl && issueNumber != null}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-        <a class="prlink" href={git.issueUrl} target="_blank" rel="noopener"
-          >{m.gitrail_open_issue({ number: issueNumber })}</a
-        >
-      {/if}
-      {#if git.state === "none"}
-        <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
-             so the manual button is redundant. This stays hidden even while autopilot is
-             PAUSED (autopilotPaused): a paused autopilot is still on and will resume and
-             open the PR; the human escape hatch is the AP toggle in the same strip.
-             autopilotPaused is surfaced separately via AutopilotBadge — not a signal to
-             re-show this button. -->
-        {#if !autopilotOn}
-          <button class="gbtn" type="button" disabled={busy} onclick={startPr}
-            >{local ? m.gitrail_open_for_merge() : m.gitrail_open_pr()}</button
-          >
-        {/if}
-      {:else if git.state === "open"}
-        {#if local}
-          <span class="prlink">{m.gitrail_ready_to_merge()} #{git.number}</span>
-        {:else if git.url}
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-          <a class="prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a>
-        {:else}
-          <span class="prlink">PR #{git.number}</span>
-        {/if}
-        {#if !local}
-          <span
-            class="dot dot-{git.checks}"
-            title={m.gitrail_ci_status({ status: git.checks })}
-            aria-label={m.gitrail_ci_status({ status: git.checks })}
-          ></span>
-        {/if}
-        <button
-          class="gbtn"
-          class:armed={armed === "merge"}
-          type="button"
-          disabled={mergeBlocked}
-          title={mergeBlockedReason}
-          onclick={() => doMerge()}
-        >
-          {#if local}
-            {armed === "merge" ? m.gitrail_confirm_merge_locally() : m.gitrail_merge_locally()}
-          {:else}
-            {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
-          {/if}
-        </button>
-      {:else if git.state === "merged"}
-        <span class="merged">{local ? m.gitrail_merged_locally() : m.gitrail_merged()}</span>
-        {#if git.deployConfigured}
-          <button
-            class="gbtn"
-            class:armed={armed === "redeploy"}
-            type="button"
-            disabled={busy}
-            onclick={() => doRedeploy()}
-          >
-            {armed === "redeploy" ? m.gitrail_confirm_redeploy() : m.gitrail_redeploy()}
-          </button>
-        {/if}
-      {:else}
-        <span class="merged">{m.gitrail_closed()}</span>
-      {/if}
-
-      {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
-        <ReadyToggle {sessionId} {ready} {mobile} />
-      {/if}
-      <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body exists,
-           so the showReview popover below still has content); otherwise a plain status chip. -->
-      {#if chip.kind === "reviewing"}
-        {#if chip.hasFindings}
-          <button
-            class={["verdict-chip", "critic-reviewing", { armed: showReview }]}
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={showReview}
-            title={m.criticbadge_reviewing_title()}
-            onclick={(e) => toggleReview(e)}
-          >
-            <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-          </button>
-        {:else}
-          <span class="verdict-chip critic-reviewing" title={m.criticbadge_reviewing_title()}>
-            <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-          </span>
-        {/if}
-      {:else if chip.kind === "verdict"}
-        <button
-          class={["verdict-chip", `critic-${chip.decision}`, { armed: showReview }]}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={showReview}
-          title={m.gitrail_review_title()}
-          onclick={(e) => toggleReview(e)}
-        >
-          {chip.label}
-        </button>
-      {/if}
-
-      {#if canReview}
-        <button
-          class="gbtn"
-          class:armed={armed === "review"}
-          type="button"
-          onclick={() => doReview()}
-          use:coachTarget={"manual-critic-review"}
-        >
-          {reviewLabel}
-        </button>
-      {/if}
-
-      {#if canReviewPlan}
-        <button
-          class="gbtn"
-          class:armed={armed === "review-plan"}
-          type="button"
-          disabled={planReviewing}
-          onclick={() => doReviewPlan()}
-        >
-          {planReviewLabel}
-        </button>
-      {/if}
+      <RailStatusActions
+        {git}
+        {issueNumber}
+        {local}
+        {autopilotOn}
+        {busy}
+        {armed}
+        {mergeBlocked}
+        {mergeBlockedReason}
+        {ready}
+        {showReady}
+        {status}
+        {sessionId}
+        {mobile}
+        {chip}
+        {showReview}
+        {canReview}
+        {reviewLabel}
+        {canReviewPlan}
+        {planReviewing}
+        {planReviewLabel}
+        {startPr}
+        {doMerge}
+        {doRedeploy}
+        {toggleReview}
+        {doReview}
+        {doReviewPlan}
+      />
 
       {#if repoPath}
         <span class="rail-sep" aria-hidden="true"></span>
@@ -938,36 +843,6 @@
     color: var(--color-amber);
   }
 
-  /* verdict chip: .gbtn sizing, colored by decision */
-  .verdict-chip {
-    background: transparent;
-    border: 1px solid currentColor;
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 2px 8px;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      opacity 0.12s,
-      box-shadow 0.12s;
-  }
-  .verdict-chip:hover {
-    opacity: 0.8;
-  }
-  .verdict-chip.armed {
-    box-shadow: 0 0 0 1px currentColor inset;
-  }
-  /* The reviewing-with-no-prior-findings variant renders as a <span>, not a
-     <button> — nothing to open. Drop the base cursor:pointer so it doesn't
-     advertise a tap that does nothing. */
-  span.verdict-chip {
-    cursor: default;
-  }
-
   /* touch layouts: bigger tap targets + a single horizontally-scrollable row.
      Whole badges never wrap to a second line (that read as a vertical stack on
      phones); the rail (.rail.mobile below) scrolls instead. Because the strip
@@ -1018,16 +893,16 @@
   /* horizontal-scroll row: items keep natural width and overflow → scroll,
      never shrink-wrap (the PR link wrapped to 3 lines and the CI dot squished
      to 0px otherwise). Mirrors the .tab-scroll recipe. */
-  .rail.mobile > * {
+  .rail.mobile > :global(*) {
     flex-shrink: 0;
   }
   /* right-pin the badge group when it fits; under overflow the auto margin
      collapses to 0 so the row scrolls cleanly from the first badge (avoids the
      flex justify-content:flex-end + overflow-x start-clip bug) */
-  .rail.mobile > :first-child {
+  .rail.mobile > :global(:first-child) {
     margin-left: auto;
   }
-  .rail.mobile .gbtn {
+  .rail.mobile :global(.gbtn) {
     min-height: 40px;
     padding: 6px 9px;
     font-size: var(--fs-base);
@@ -1041,7 +916,7 @@
      tap target that obviously invites a tap. Scoped to button.verdict-chip so the
      non-interactive reviewing <span> (no prior findings) isn't blown up into a
      40px button-looking element that does nothing on tap. */
-  .rail.mobile button.verdict-chip {
+  .rail.mobile :global(button.verdict-chip) {
     min-height: 40px;
     padding: 6px 9px;
     font-size: var(--fs-base);
@@ -1049,47 +924,13 @@
     align-items: center;
     gap: 5px;
   }
-  .rail.mobile .prlink {
+  .rail.mobile :global(.prlink) {
     font-size: var(--fs-base);
     padding: 4px 2px;
   }
-  .rail.mobile .dot {
+  .rail.mobile :global(.dot) {
     width: 9px;
     height: 9px;
-  }
-
-  .prlink {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    text-decoration: none;
-  }
-  .prlink:hover {
-    color: var(--color-ink-bright);
-  }
-
-  .merged {
-    font-size: var(--fs-meta);
-    color: var(--color-slate);
-  }
-
-  .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    display: inline-block;
-    background: var(--color-faint);
-  }
-  .dot-pending {
-    background: var(--color-amber);
-    /* CI running — functional status motion, exempt from the reduced-motion
-       blanket (app.css): the pulse encodes "work happening", not decoration. */
-    animation: dot-pulse 1.1s ease-in-out infinite !important;
-  }
-  .dot-success {
-    background: var(--color-green);
-  }
-  .dot-failure {
-    background: var(--color-red);
   }
 
   .err,
@@ -1209,15 +1050,7 @@
     white-space: nowrap;
     color: var(--color-muted);
   }
-  .verdict-chip.critic-reviewing {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-  /* shared pulsing status dot for both the rail chip and the popover-head label */
-  .verdict-chip.critic-reviewing .rev-dot,
+  /* pulsing status dot in the popover-head label */
   .rv-label.critic-reviewing .rev-dot {
     width: 6px;
     height: 6px;
@@ -1241,16 +1074,13 @@
     align-items: center;
     gap: 5px;
   }
-  .rv-label.critic-changes_requested,
-  .verdict-chip.critic-changes_requested {
+  .rv-label.critic-changes_requested {
     color: var(--color-amber);
   }
-  .rv-label.critic-commented,
-  .verdict-chip.critic-commented {
+  .rv-label.critic-commented {
     color: var(--color-blue);
   }
-  .rv-label.critic-error,
-  .verdict-chip.critic-error {
+  .rv-label.critic-error {
     color: var(--color-faint);
   }
   .rv-prlink {

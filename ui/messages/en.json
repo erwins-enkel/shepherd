@@ -1669,5 +1669,8 @@
   "feat_learnings_merge_title": "One-click merge of duplicate rules",
   "feat_learnings_merge_body": "A background pass now clusters a repo's near-duplicate house rules and surfaces them as merge suggestions in the Learnings drawer. Consolidate a group into one rule with a single click — the survivor keeps its track record and the rest are retired with a citation back to it.",
   "feat_learnings_recur_title": "Cross-repo rule suggestions",
-  "feat_learnings_recur_body": "When the same rule recurs across several repos, the Learnings drawer now suggests promoting it to your user-global CLAUDE.md — kept as a suggestion you can dismiss."
+  "feat_learnings_recur_body": "When the same rule recurs across several repos, the Learnings drawer now suggests promoting it to your user-global CLAUDE.md — kept as a suggestion you can dismiss.",
+  "gitrail_open_issue": "Issue #{number} ↗",
+  "feat_open_linked_issue_title": "Open the linked issue",
+  "feat_open_linked_issue_body": "GitRail now shows an \"Issue #N ↗\" link for tasks spawned from a backlog issue — jump straight to the issue on GitHub or Gitea."
 }

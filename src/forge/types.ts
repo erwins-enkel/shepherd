@@ -153,6 +153,10 @@ export interface GitState extends PrStatus {
    *  `.shepherd/roles.json`); suppresses the outward issue-log comment, which
    *  stays opt-in to explicitly-configured roles. */
   handoffInferred?: boolean;
+  /** Web URL of the backlog issue this session was spawned for (session.issueNumber),
+   *  or absent when the session has no linked issue or the repo has no web forge
+   *  (LocalForge). Lets GitRail surface an "open issue" link. */
+  issueUrl?: string;
 }
 
 /** One job within a workflow run, mapped to the four-light CI vocab. */

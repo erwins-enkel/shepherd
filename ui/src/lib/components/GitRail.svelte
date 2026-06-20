@@ -37,6 +37,7 @@
     baseBranch = "",
     drain = null,
     autopilotOn = false,
+    issueNumber = null,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -54,6 +55,9 @@
     /** Effective autopilot state. When on, the agent opens the PR itself, so the manual
         Open-PR button is redundant noise and is hidden. */
     autopilotOn?: boolean;
+    /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
+        null = no linked issue. */
+    issueNumber?: number | null;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -550,6 +554,12 @@
   {/if}
   <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
     <span class="rail" class:mobile use:edgeFades={mobile}>
+      {#if git.issueUrl && issueNumber != null}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+        <a class="prlink" href={git.issueUrl} target="_blank" rel="noopener"
+          >{m.gitrail_open_issue({ number: issueNumber })}</a
+        >
+      {/if}
       {#if git.state === "none"}
         <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
              so the manual button is redundant. This stays hidden even while autopilot is

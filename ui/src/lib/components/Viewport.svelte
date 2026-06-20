@@ -1962,6 +1962,7 @@
         baseBranch={session.baseBranch}
         {drain}
         autopilotOn={autopilotEffective}
+        issueNumber={session.issueNumber}
         mobile
       />
       <span class="strip-controls">

@@ -273,7 +273,7 @@
     border-radius: 2px;
   }
 
-  /* Search field + "mine & unassigned" chip pinned above the scrolling rows. */
+  /* Search field + the IssueFilterPopover "Filters" trigger pinned above the scrolling rows. */
   .filter-bar {
     position: sticky;
     top: 0;

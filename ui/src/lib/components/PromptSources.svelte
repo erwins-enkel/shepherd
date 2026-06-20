@@ -451,12 +451,12 @@
     border-color: var(--color-line-bright);
   }
 
-  /* Sticky bar pinned above the scrolling rows — hosts the "mine & unassigned"
-     chip (Issues tab) and the search input (Commands tab). It reaches the full
-     scroll width via the flex-column .ps-body's `align-items: stretch` (no
+  /* Sticky bar pinned above the scrolling rows — hosts the IssueFilterPopover
+     "Filters" trigger (Issues tab) and the search input (Commands tab). It reaches
+     the full scroll width via the flex-column .ps-body's `align-items: stretch` (no
      explicit width here) — KEEP it a direct flex child of .ps-body, or scrolled
      rows bleed past its sides. The 0 10px padding (+ .ps-body's 2px) insets the
-     chip/input to 12px, matching the rows' text. */
+     trigger/input to 12px, matching the rows' text. */
   .ps-filter-bar {
     position: sticky;
     top: 0;

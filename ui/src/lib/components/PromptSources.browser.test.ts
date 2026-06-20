@@ -4,6 +4,7 @@ import "../../app.css";
 import type { Issue, SlashCommand } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { getTodo, listIssues, getCommands } from "$lib/api";
+import { issuesFilter } from "$lib/issues-filter.svelte";
 
 // Mock the API so no network fires; each test seeds the data it needs.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -82,21 +83,61 @@ function assertStickyCovers() {
 }
 
 describe("PromptSources sticky filter bar covers scrolling rows", () => {
-  it("Issues tab: 'mine & unassigned' chip bar covers the rows behind it", async () => {
+  it("Issues tab: Filters trigger renders, opening it shows checkboxes, toggling hides in-progress issues", async () => {
+    // Reset filter state so hide-in-progress is OFF (default) before this test.
+    issuesFilter.setActive(false);
+
+    const activeIssue = { ...issue(1), title: "Active issue", labels: ["shepherd:active"] };
+    const plainIssue = { ...issue(2), title: "Plain issue" };
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",
       webUrl: null,
-      issues: Array.from({ length: 20 }, (_, i) => issue(900 - i)),
-      viewer: "me", // non-null → the filter chip (and thus .ps-filter-bar) renders
+      issues: [activeIssue, plainIssue],
+      viewer: "me",
     });
 
     render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
 
-    // Wait for the issues tab to load its rows.
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(10);
-    await expect.poll(() => document.querySelector(".ps-body .ps-filter-bar")).toBeTruthy();
+    // Wait for the issues to load.
+    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
 
-    assertStickyCovers();
+    // The Filters trigger button renders inside .ps-filter-bar.
+    const filterBar = document.querySelector(".ps-body .ps-filter-bar");
+    expect(filterBar).not.toBeNull();
+    const triggerBtn = filterBar!.querySelector<HTMLButtonElement>("button");
+    expect(triggerBtn).not.toBeNull();
+    expect(triggerBtn!.textContent).toContain(m.issue_filter_button());
+
+    // Open the popover — the checkboxes become available.
+    triggerBtn!.click();
+    await expect
+      .poll(() => document.querySelector("[popover] input[type=checkbox]"))
+      .not.toBeNull();
+
+    // Find and click the "hide in progress" checkbox row.
+    const checkboxes = document.querySelectorAll<HTMLInputElement>(
+      "[popover] input[type=checkbox]",
+    );
+    const activeLabel = m.issues_filter_active_label();
+    const activeCheckbox = [...checkboxes].find((cb) => {
+      const row = cb.closest("label");
+      return row?.textContent?.includes(activeLabel);
+    });
+    expect(activeCheckbox).toBeTruthy();
+
+    // Both issues visible before toggling.
+    const titles = () =>
+      [...document.querySelectorAll(".ps-body .row .row-text")].map((el) => el.textContent?.trim());
+    expect(titles()).toContain("Active issue");
+    expect(titles()).toContain("Plain issue");
+
+    // Toggle hide-in-progress ON → shepherd:active issue disappears.
+    activeCheckbox!.click();
+    await expect.poll(() => titles()).not.toContain("Active issue");
+    expect(titles()).toContain("Plain issue");
+
+    // Clean up filter state.
+    issuesFilter.setActive(false);
   });
 
   it("Commands tab: search-input bar covers the rows behind it", async () => {

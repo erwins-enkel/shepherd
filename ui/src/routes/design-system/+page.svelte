@@ -15,6 +15,7 @@
   // +layout.svelte already inits the theme globally for every route; the toggles
   // below just read/drive the shared controller.
   import { theme } from "$lib/theme.svelte";
+  import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
 
   type Token = { name: string; note: string };
 
@@ -655,6 +656,23 @@ input, select, textarea {
       </div>
     </div>
     <pre><code>{scrimMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Filter popover</h2>
+    <p class="when">
+      <strong>When:</strong> collapsing a set of related list filters into a compact
+      <em>Filters · N</em> control — e.g. the issue lists in the Backlog and New Task. Uses the
+      native <code>popover="manual"</code> top-layer together with the <code>anchorPopover</code>
+      recipe from <code>$lib/floating-anchor</code> (same pattern as InfoTip). Non-modal, small,
+      anchored: no scrim, dismiss on Esc or outside pointerdown.
+      <strong>When not:</strong> don't use for a single toggle (prefer an inline chip or checkbox) or
+      for a modal dialog (use the scrim recipe above).
+    </p>
+    <div class="demo">
+      <IssueFilterPopover showMine={true} />
+    </div>
+    <pre><code>{"<IssueFilterPopover showMine={viewer != null} coachTargets />"}</code></pre>
   </section>
 </main>
 

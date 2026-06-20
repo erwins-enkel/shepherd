@@ -5,8 +5,8 @@
   import { m } from "$lib/paraglide/messages";
   import { filterIssues, hideOthers, hideActive, hideSubIssues } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
+  import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick } from "svelte";
@@ -201,41 +201,7 @@
           placeholder={m.issuespanel_filter_placeholder()}
           aria-label={m.issuespanel_filter_placeholder()}
         />
-        {#if viewer != null}
-          <button
-            class="filter-chip"
-            class:active={issuesFilter.hideOthers}
-            type="button"
-            aria-pressed={issuesFilter.hideOthers}
-            title={m.issues_filter_mine_title()}
-            onclick={() => issuesFilter.toggle()}
-            use:coachTarget={"issues-filter-toggle"}
-          >
-            {m.issues_filter_mine_label()}
-          </button>
-        {/if}
-        <button
-          class="filter-chip"
-          class:active={issuesFilter.hideActive}
-          type="button"
-          aria-pressed={issuesFilter.hideActive}
-          title={m.issues_filter_active_title()}
-          onclick={() => issuesFilter.toggleActive()}
-          use:coachTarget={"issues-filter-active"}
-        >
-          {m.issues_filter_active_label()}
-        </button>
-        <button
-          class="filter-chip"
-          class:active={issuesFilter.hideSubIssues}
-          type="button"
-          aria-pressed={issuesFilter.hideSubIssues}
-          title={m.issues_filter_subissues_title()}
-          onclick={() => issuesFilter.toggleSubIssues()}
-          use:coachTarget={"issues-filter-subissues"}
-        >
-          {m.issues_filter_subissues_label()}
-        </button>
+        <IssueFilterPopover showMine={viewer != null} coachTargets />
       </div>
       {#if allHiddenByAssignee}
         <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
@@ -335,34 +301,6 @@
   .issue-filter:focus {
     outline: none;
     border-color: var(--color-line-bright);
-  }
-
-  /* "Mine & unassigned" toggle — the .filter-chip recipe from ProjectBacklogList. */
-  .filter-chip {
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    padding: 0 10px;
-    cursor: pointer;
-    touch-action: manipulation;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-
-  .filter-chip:hover {
-    color: var(--color-ink);
-  }
-
-  .filter-chip.active {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-    background: var(--color-inset);
   }
 
   .muted {

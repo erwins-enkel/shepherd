@@ -1159,14 +1159,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     targetId: "lightweight-repo",
   },
   {
-    // targetId "issues-filter-toggle" matches use:coachTarget on the "mine & unassigned"
-    // chip in IssuesPanel; the coachmark hides silently when that anchor is unmounted
-    // (Backlog view, repo with open issues). v1.34.0 is the latest released tag → ships in 1.35.0.
+    // The filter chips (mine & unassigned, hide in progress, hide sub-issues) are now
+    // grouped into a single "Filters" menu on both the Backlog and New Task issue lists.
+    // The chip/targetId was removed; coachmark now lives on the IssueFilterPopover trigger.
     id: "issues-filter-mine",
     sinceVersion: "1.35.0",
     titleKey: "feat_issues_filter_mine_title",
     bodyKey: "feat_issues_filter_mine_body",
-    targetId: "issues-filter-toggle",
   },
   {
     // Per-repo automation settings (the in-task Automation popover) are now also a tab in
@@ -1228,12 +1227,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
   },
   {
     // "Hide in progress" issue filter — drops shepherd:active issues on both the
-    // Backlog and New Task issue lists. v1.34.0 is the latest released tag → 1.35.0.
+    // Backlog and New Task issue lists. The filter now lives in the Filters menu;
+    // the chip/targetId was removed. v1.34.0 is the latest released tag → 1.35.0.
     id: "issues-filter-active",
     sinceVersion: "1.35.0",
     titleKey: "feat_issues_filter_active_title",
     bodyKey: "feat_issues_filter_active_body",
-    targetId: "issues-filter-active",
   },
   {
     // targetId "backlog-ff-main" anchors the coachmark on the Fast-forward button
@@ -1310,12 +1309,22 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
   },
   {
     // Hide native sub-issues by default on both the Backlog and New Task issue lists,
-    // nudging an epic drain from the parent. v1.34.0 is the latest released tag → 1.35.0.
+    // nudging an epic drain from the parent. The filter now lives in the Filters menu;
+    // the chip/targetId was removed. v1.34.0 is the latest released tag → 1.35.0.
     id: "hide-sub-issues-default",
     sinceVersion: "1.35.0",
     titleKey: "feat_issues_filter_subissues_title",
     bodyKey: "feat_issues_filter_subissues_body",
-    targetId: "issues-filter-subissues",
+  },
+  {
+    // Issue filters grouped into a single "Filters" menu (was a row of chips) on both
+    // the Backlog and New Task issue lists. targetId "issue-filters" matches
+    // use:coachTarget on the IssueFilterPopover trigger (Backlog). v1.34.0 latest → 1.35.0.
+    id: "issue-filters-menu",
+    sinceVersion: "1.35.0",
+    titleKey: "feat_issue_filters_menu_title",
+    bodyKey: "feat_issue_filters_menu_body",
+    targetId: "issue-filters",
   },
   {
     // One-click global promote (#872): the cross-repo recurrence card now has a guarded

@@ -3,7 +3,7 @@
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { hideOthers } from "./issues-panel";
+  import { hideOthers, hideActive, ACTIVE_LABEL } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
 
   let {
@@ -28,10 +28,21 @@
   let viewer = $state<string | null>(null);
   let loading = $state(false);
   // "Mine & unassigned" filter (#824), shared with IssuesPanel via issuesFilter.
-  // No-op identity when the chip is hidden (viewer unknown) → fail open.
-  let visibleIssues = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
+  // No-op identity when the chip is hidden (viewer unknown) → fail open. Composed
+  // with the viewer-agnostic "hide in progress" filter; the explicit
+  // assigneeFiltered intermediate lets each empty state be attributed to the
+  // filter that caused it.
+  let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
+  let visibleIssues = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
   let allHiddenByAssignee = $derived(
-    issues.length > 0 && visibleIssues.length === 0 && viewer != null && issuesFilter.hideOthers,
+    issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
+  );
+  // The active filter emptied the remainder the assignee filter left behind.
+  let allHiddenByActive = $derived(
+    !allHiddenByAssignee &&
+      assigneeFiltered.length > 0 &&
+      visibleIssues.length === 0 &&
+      issuesFilter.hideActive,
   );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
@@ -40,11 +51,8 @@
 
   const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
 
-  // Label the drain stamps on a claimed issue (mirrors ACTIVE_LABEL in
-  // src/drain-core.ts and IssuesPanel.svelte). Surfaced first + highlighted so a
-  // taken issue reads as already-being-worked-on, same as the Issues panel.
-  const ACTIVE_LABEL = "shepherd:active";
-
+  // ACTIVE_LABEL (imported from ./issues-panel) is surfaced first + highlighted so
+  // a taken issue reads as already-being-worked-on, same as the Issues panel.
   // Active-first ordering so the claimed marker survives the 3-chip cap below.
   const orderedLabels = (labels: string[]): string[] =>
     labels.includes(ACTIVE_LABEL)
@@ -215,8 +223,8 @@
       {:else if issues.length === 0}
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
-        {#if viewer != null}
-          <div class="ps-filter-bar">
+        <div class="ps-filter-bar">
+          {#if viewer != null}
             <button
               class="filter-chip"
               class:active={issuesFilter.hideOthers}
@@ -227,10 +235,22 @@
             >
               {m.issues_filter_mine_label()}
             </button>
-          </div>
-        {/if}
+          {/if}
+          <button
+            class="filter-chip"
+            class:active={issuesFilter.hideActive}
+            type="button"
+            aria-pressed={issuesFilter.hideActive}
+            title={m.issues_filter_active_title()}
+            onclick={() => issuesFilter.toggleActive()}
+          >
+            {m.issues_filter_active_label()}
+          </button>
+        </div>
         {#if allHiddenByAssignee}
           <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+        {:else if allHiddenByActive}
+          <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {/if}
         {#each visibleIssues as i (i.number)}
           {@const ordered = orderedLabels(i.labels)}

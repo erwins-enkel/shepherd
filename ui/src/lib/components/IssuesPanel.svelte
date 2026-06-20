@@ -6,7 +6,7 @@
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { filterIssues, hideOthers } from "./issues-panel";
+  import { filterIssues, hideOthers, hideActive, ACTIVE_LABEL } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import EpicPanel from "./EpicPanel.svelte";
@@ -14,10 +14,9 @@
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick } from "svelte";
 
-  // Mirrors ACTIVE_LABEL in src/drain-core.ts — the label the drain stamps on an
+  // ACTIVE_LABEL (imported from ./issues-panel) is the label the drain stamps on an
   // issue it has claimed (auto session or human-linked task). Highlighted so a
   // claimed issue reads as "already taken" at a glance in the backlog.
-  const ACTIVE_LABEL = "shepherd:active";
 
   let {
     repoPath,
@@ -52,14 +51,23 @@
   let viewer = $state<string | null>(null);
   let loading = $state(true);
   let filter = $state("");
-  // Compose the assignee filter (#824) with the text filter. The chip only shows
-  // when `viewer` is known, so hideOthers is a no-op identity otherwise (fail open).
+  // Compose the assignee filter (#824) → "hide in progress" filter → text filter.
+  // The mine chip only shows when `viewer` is known, so hideOthers is a no-op
+  // identity otherwise (fail open); hideActive is viewer-agnostic.
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
-  let visibleIssues = $derived(filterIssues(assigneeFiltered, filter));
+  let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
+  let visibleIssues = $derived(filterIssues(activeFiltered, filter));
   // True when there ARE open issues but the assignee filter hid them all — drives
   // the distinct "all assigned to others" empty state (vs the text no-match state).
   let allHiddenByAssignee = $derived(
     issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
+  );
+  // The active filter emptied the remainder the assignee filter left behind.
+  let allHiddenByActive = $derived(
+    !allHiddenByAssignee &&
+      assigneeFiltered.length > 0 &&
+      activeFiltered.length === 0 &&
+      issuesFilter.hideActive,
   );
 
   // Epic summaries for this repo: number → EpicSummary.
@@ -186,9 +194,22 @@
             {m.issues_filter_mine_label()}
           </button>
         {/if}
+        <button
+          class="filter-chip"
+          class:active={issuesFilter.hideActive}
+          type="button"
+          aria-pressed={issuesFilter.hideActive}
+          title={m.issues_filter_active_title()}
+          onclick={() => issuesFilter.toggleActive()}
+          use:coachTarget={"issues-filter-active"}
+        >
+          {m.issues_filter_active_label()}
+        </button>
       </div>
       {#if allHiddenByAssignee}
         <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+      {:else if allHiddenByActive}
+        <div class="muted">{m.issues_filter_all_in_progress()}</div>
       {:else if visibleIssues.length === 0}
         <div class="muted">{m.issuespanel_no_match()}</div>
       {/if}

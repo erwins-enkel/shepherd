@@ -4,6 +4,13 @@
 import type { Issue } from "$lib/types";
 
 /**
+ * Label the drain stamps on an issue claimed by a running session (mirrors
+ * ACTIVE_LABEL in src/drain-core.ts). Canonical UI-side source — imported by
+ * PromptSources.svelte and IssuesPanel.svelte instead of a bare literal.
+ */
+export const ACTIVE_LABEL = "shepherd:active";
+
+/**
  * Narrow an issue list by a free-text query (the panel's search field).
  * Case-insensitive substring match against number (with or without a leading
  * `#`), title, body, and labels. A blank/whitespace query is an identity
@@ -43,4 +50,18 @@ export function hideOthers(
     const assignees = issue.assignees ?? [];
     return assignees.length === 0 || assignees.includes(viewer);
   });
+}
+
+/**
+ * Narrow an issue list to "hide in progress": drop issues already claimed by a
+ * running session (labeled `shepherd:active`). Viewer-agnostic — it keys off a
+ * label, not assignees.
+ *
+ * Fails open — returns every issue unchanged — when `enabled` is false. The
+ * `?? []` guard tolerates a stale payload that predates the `labels` field, so
+ * the helper can never throw on a missing array.
+ */
+export function hideActive(issues: readonly Issue[], enabled: boolean): Issue[] {
+  if (!enabled) return [...issues];
+  return issues.filter((issue) => !(issue.labels ?? []).includes(ACTIVE_LABEL));
 }

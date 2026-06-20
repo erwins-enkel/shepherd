@@ -4,6 +4,10 @@
 // others' issues out of the box. Mirrors build-queue-collapse.svelte.ts, but with an
 // inverted default — absence of the key means "on", so off is the value we persist.
 const KEY = "shepherd:issues-hide-others";
+// "Hide in progress" filter: drop issues labeled shepherd:active (claimed by a
+// running session). Independent of hideOthers, viewer-agnostic, and default OFF —
+// absence of the key means "off", so on is the value we persist ("1").
+const KEY_ACTIVE = "shepherd:issues-hide-active";
 
 function read(): boolean {
   try {
@@ -14,8 +18,18 @@ function read(): boolean {
   }
 }
 
+function readActive(): boolean {
+  try {
+    // Default false: only an explicit "1" turns it on.
+    return localStorage.getItem(KEY_ACTIVE) === "1";
+  } catch {
+    return false;
+  }
+}
+
 class IssuesFilter {
   hideOthers = $state(read());
+  hideActive = $state(readActive());
   toggle() {
     this.set(!this.hideOthers);
   }
@@ -24,6 +38,18 @@ class IssuesFilter {
     try {
       if (v) localStorage.removeItem(KEY);
       else localStorage.setItem(KEY, "0");
+    } catch {
+      /* private mode / SSR — preference just won't survive reload */
+    }
+  }
+  toggleActive() {
+    this.setActive(!this.hideActive);
+  }
+  setActive(v: boolean) {
+    this.hideActive = v;
+    try {
+      if (v) localStorage.setItem(KEY_ACTIVE, "1");
+      else localStorage.removeItem(KEY_ACTIVE);
     } catch {
       /* private mode / SSR — preference just won't survive reload */
     }

@@ -1633,5 +1633,10 @@
   "feat_learnings_auto_retire_title": "Learnings auto-retirement",
   "feat_learnings_auto_retire_body": "Rules that consistently fail to help agents are now automatically retired. Review them in the Learnings drawer and restore any that were retired by mistake.",
   "feat_ready_lens_hides_waiting_title": "Ready shows only your turn",
-  "feat_ready_lens_hides_waiting_body": "The Ready filter now hides sessions that are waiting on someone else — a PR handed off to a reviewer or merger, or one a merge train is already landing. They stay visible under the All filter."
+  "feat_ready_lens_hides_waiting_body": "The Ready filter now hides sessions that are waiting on someone else — a PR handed off to a reviewer or merger, or one a merge train is already landing. They stay visible under the All filter.",
+  "issues_filter_active_label": "hide in progress",
+  "issues_filter_active_title": "Hide issues already being worked on (shepherd:active)",
+  "issues_filter_all_in_progress": "All matching issues are in progress — toggle off to see them",
+  "feat_issues_filter_active_title": "Hide in-progress issues",
+  "feat_issues_filter_active_body": "The Backlog and New Task issue lists now offer a \"hide in progress\" filter that hides issues already claimed by a running session (labeled shepherd:active). Off by default; the setting is remembered across both lists."
 }

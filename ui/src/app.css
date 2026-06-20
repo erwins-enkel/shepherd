@@ -71,7 +71,12 @@
      Safari the pre-paint probe in app.html sets it to the user's Dynamic Type
      ratio (1.0 at the default slider position), so the design is preserved at
      default and scales proportionally as the slider moves. The fallback `1`
-     keeps sizing correct if the script never runs. */
+     keeps sizing correct if the script never runs.
+
+     The probe caps --ui-scale at 1.5: only type scales here, not spacing or the
+     fixed chrome heights below (--mobile-actionbar-hit, --icon-btn-hit), so the
+     accessibility end of Dynamic Type (~3x) would overflow those dense bars. The
+     cap honors a meaningfully larger choice while keeping the chrome intact. */
   --ui-scale: 1;
   --fs-micro: calc(10px * var(--ui-scale));
   --fs-meta: calc(11px * var(--ui-scale));

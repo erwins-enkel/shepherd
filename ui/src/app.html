@@ -71,7 +71,14 @@
           document.documentElement.appendChild(probe);
           var apply = function () {
             var px = parseFloat(getComputedStyle(probe).fontSize);
-            if (px > 0) document.documentElement.style.setProperty("--ui-scale", String(px / 17));
+            if (px > 0) {
+              // Cap at 1.5. Only the type tokens scale — spacing and fixed chrome
+              // (e.g. the 44px action-bar / 28px icon-button hit targets) stay put,
+              // so the accessibility end of Dynamic Type (~3x) would overflow them.
+              // 1.5 honors a meaningfully larger choice while the dense bars hold.
+              var ratio = Math.min(px / 17, 1.5);
+              document.documentElement.style.setProperty("--ui-scale", String(ratio));
+            }
           };
           apply();
           if (window.ResizeObserver) new ResizeObserver(apply).observe(probe);

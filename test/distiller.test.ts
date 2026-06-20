@@ -654,6 +654,43 @@ test("ADD carrying text just merged by an UPDATE is deduped (no duplicate active
   expect(only.status).toBe("active");
 });
 
+test("activeRules payload marks promoted rules (UPDATE/DELETE eligibility)", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const active = store.addLearning({
+    repoPath: "/r",
+    rule: "active rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(active.id, "active");
+  const promoted = store.addLearning({
+    repoPath: "/r",
+    rule: "promoted rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(promoted.id, "active");
+  store.promoteLearning(promoted.id, "https://github.com/pr/1");
+
+  let captured: { id: string; promoted: boolean }[] = [];
+  const { deps } = mkDeps(store, null);
+  (deps as any).writeSignals = (
+    _dir: string,
+    _sigs: unknown,
+    _existing: string[],
+    activeRules: { id: string; promoted: boolean }[],
+  ) => {
+    captured = activeRules;
+  };
+  const d = new DistillerService(deps as any);
+  d.consider("/r"); // begin() → writeSignals runs synchronously
+
+  const byId = new Map(captured.map((r) => [r.id, r]));
+  expect(byId.get(active.id)?.promoted).toBe(false);
+  expect(byId.get(promoted.id)?.promoted).toBe(true);
+});
+
 test("UPDATE skips promoted rules", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);

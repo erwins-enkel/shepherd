@@ -98,7 +98,7 @@ export interface DistillerDeps {
     dir: string,
     signals: Signal[],
     existingRules: string[],
-    activeRules: { id: string; rule: string }[],
+    activeRules: { id: string; rule: string; promoted: boolean }[],
   ) => void;
   readProposals?: (dir: string) => RawProposals | null;
 }
@@ -211,7 +211,7 @@ export class DistillerService {
     const existing = this.deps.store.listLearnings(repoPath).map((l) => l.rule);
     const activeRules = this.deps.store
       .listActiveLearnings(repoPath)
-      .map((l) => ({ id: l.id, rule: l.rule }));
+      .map((l) => ({ id: l.id, rule: l.rule, promoted: l.status === "promoted" }));
     try {
       this.writeSignals(dir, signals, existing, activeRules);
     } catch (err) {
@@ -408,7 +408,7 @@ function distillPrompt(): string {
     "It is a JSON object with three fields:",
     "  `signals` — an array of past corrections, blocks, stalls, and critic findings for one repository;",
     "  `existingRules` — all recorded/dismissed rules (do NOT ADD any of these — they are the dedup set);",
-    "  `activeRules` — currently-active house rules as {id, rule} objects (UPDATE/DELETE targets).",
+    "  `activeRules` — currently-active house rules as {id, rule, promoted} objects. UPDATE/DELETE may target ONLY entries with promoted:false; promoted:true rules are mirrored in CLAUDE.md and may only be flagged ineffective.",
     "",
     "For each candidate finding, choose exactly ONE action:",
     "  ADD    → emit in `rules`   (new guidance, not already in existingRules)",

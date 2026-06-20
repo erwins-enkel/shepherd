@@ -552,6 +552,11 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
+  /* keyboard focus — flat inset amber ring (never an outer glow), per design-system */
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -564,10 +569,6 @@
     gap: 4px;
     flex-shrink: 0;
     white-space: nowrap;
-  }
-  .ff-btn:focus-visible {
-    outline: 2px solid var(--color-line-bright);
-    outline-offset: 2px;
   }
 
   /* ── desktop split layout ── */

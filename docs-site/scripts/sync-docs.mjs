@@ -25,21 +25,46 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const docsSiteRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(scriptDir, "..", "..");
 
-const GITHUB_DOCS_BASE = "https://github.com/erwins-enkel/shepherd/blob/main/docs/";
+// Base for rewriting a source's repo-relative markdown links to absolute GitHub
+// URLs. Each PAGES entry picks the `linkBase` matching where its source lives, so
+// a relative link resolves against the source file's own directory (as GitHub
+// renders it): `docs/*.md` links resolve under `docs/`, root files under the repo.
+const GITHUB_BLOB_BASE = "https://github.com/erwins-enkel/shepherd/blob/main/";
+const GITHUB_DOCS_BASE = `${GITHUB_BLOB_BASE}docs/`;
 
-// source path is relative to repoRoot/docs; dest is relative to the docs collection.
+// Each entry imports one in-repo markdown file as a content page:
+//   srcDir   — directory of the source, relative to repoRoot ("docs" or "." for root).
+//   src      — file name within srcDir.
+//   dest     — path within the Starlight docs collection (src/content/docs/).
+//   linkBase — GitHub blob base its relative links rewrite against (see above).
 const PAGES = [
   {
+    srcDir: "docs",
     src: "external-task-api.md",
     dest: "reference/external-task-api.md",
+    linkBase: GITHUB_DOCS_BASE,
     title: "External Task API",
     description: "Submit tasks to Shepherd from external agents over plain HTTP.",
   },
   {
+    srcDir: "docs",
     src: "sandbox-security.md",
     dest: "reference/security.md",
+    linkBase: GITHUB_DOCS_BASE,
     title: "Security",
     description: "Sandbox membrane, egress firewall, and accepted security residuals.",
+  },
+  {
+    // The repo's house rules (CLAUDE.md, at the repo root) — single source of truth
+    // for contributor & agent conventions, rendered verbatim (no re-authoring). Its
+    // `<id>` / `{@html}` / `[[epic|epic]]` tokens all sit inside inline code spans, so
+    // this `.md` (NOT `.mdx`) renders them literally with no MDX/expansion.
+    srcDir: ".",
+    src: "CLAUDE.md",
+    dest: "reference/house-rules.md",
+    linkBase: GITHUB_BLOB_BASE,
+    title: "Project house rules",
+    description: "Shepherd's in-repo contributor & agent house rules (CLAUDE.md), rendered verbatim.",
   },
 ];
 
@@ -54,15 +79,15 @@ function stripLeadingH1(markdown) {
   return lines.join("\n");
 }
 
-/** Rewrite repo-relative markdown links (`](rel)`) to absolute GitHub URLs. */
-function rewriteRelativeLinks(markdown) {
-  return markdown.replace(/\]\((?!https?:\/\/|\/|#|mailto:)([^)]+)\)/g, (_m, rel) => `](${GITHUB_DOCS_BASE}${rel})`);
+/** Rewrite repo-relative markdown links (`](rel)`) to absolute GitHub URLs under `linkBase`. */
+function rewriteRelativeLinks(markdown, linkBase) {
+  return markdown.replace(/\]\((?!https?:\/\/|\/|#|mailto:)([^)]+)\)/g, (_m, rel) => `](${linkBase}${rel})`);
 }
 
 export function syncDocs() {
   for (const page of PAGES) {
-    const source = readFileSync(join(repoRoot, "docs", page.src), "utf8");
-    const body = rewriteRelativeLinks(stripLeadingH1(source)).replace(/^\n+/, "");
+    const source = readFileSync(join(repoRoot, page.srcDir, page.src), "utf8");
+    const body = rewriteRelativeLinks(stripLeadingH1(source), page.linkBase).replace(/^\n+/, "");
     const frontmatter = `---\ntitle: ${JSON.stringify(page.title)}\ndescription: ${JSON.stringify(
       page.description,
     )}\n---\n\n`;

@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "starlight-llms-txt": "^0.10.0",
     "starlight-typedoc": "^0.23.0",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.12.0",

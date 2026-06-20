@@ -169,14 +169,16 @@
     //   external convention exists for template thresholds — this is a deliberate
     //   judgment call. 27 of 36 components clear it; anything over it still trips, so
     //   the metric stays live for new code.
-    // Tier 2: the 2 giants that exceed Tier 1, each grandfathered just above its
+    // Tier 2: the 1 giant that exceeds Tier 1, grandfathered just above its
     //   current cyclo/cog (next multiple of 10) so it can't silently grow. Tracked for
-    //   refactor in #855 — which has paid down 11 of the original 13 (RepoSwitcher,
+    //   refactor in #855 — which has paid down 12 of the original 13 (RepoSwitcher,
     //   NewTask, AutomationSettings, Settings, IssuesPanel, BacklogView, UnitRow,
-    //   GitRail, TopBar, Herd, +page), each split into subcomponents that clear the
-    //   Tier-1 bar, so their grandfathers are removed. +page fell 78/96 -> 32/45 after
-    //   extracting page/AppOverlays (the modal/overlay tail + Triage/Learnings drawers,
-    //   33/23) — no main-region split was needed. Remaining: Viewport, LearningsDrawer.
+    //   GitRail, TopBar, Herd, +page, LearningsDrawer), each split into subcomponents
+    //   that clear the Tier-1 bar, so their grandfathers are removed. +page fell
+    //   78/96 -> 32/45 after extracting page/AppOverlays (the modal/overlay tail +
+    //   Triage/Learnings drawers, 33/23) — no main-region split was needed.
+    //   LearningsDrawer fell 63/157 -> 8/9 after extracting the learnings-drawer/
+    //   children (RepoGroup + the rule/band cards). Remaining: Viewport.
     // maxCrap is intentionally inert for templates: CRAP for uncovered code is pure
     //   CC-derived noise bounded by CC²+CC; 20000 sits above the largest template's
     //   worst case (Viewport CC 136 → ≈18632) so it never becomes the binding
@@ -206,14 +208,6 @@
         // 60 bar without splitting the nesting into unnatural sub-components, so
         // it stays grandfathered (just above current) and tracked in #855.
         "reason": "Tier 2 grandfather (#851), tightened by #855; remaining .vp-head identity/status split tracked in #855."
-      },
-      {
-        "files": ["ui/src/lib/components/LearningsDrawer.svelte"],
-        "functions": ["<template>"],
-        "maxCyclomatic": 70,
-        "maxCognitive": 160,
-        "maxCrap": 20000,
-        "reason": "Tier 2 grandfather (#851); refactor candidate #855. Cognitive bar raised 110→130 in #840 (auto-retire UI), 130→140 in #842 (glob-scoped injection UI), then 140→160 (cyclo 50→70) in #843: the background merge-suggestion cards + cross-repo recurrence band + 'Suggest merges' button landed in this component (its own UI home), per the established 'next multiple of 10 above current' convention."
       }
     ],
 

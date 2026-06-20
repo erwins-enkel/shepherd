@@ -67,3 +67,21 @@
   --sl-color-accent: color-mix(in srgb, var(--brand-amber) 72%, black);
   --sl-color-accent-high: color-mix(in srgb, var(--brand-amber) 40%, black);
 }
+
+/*
+ * Header back-link to the marketing site (src/components/SiteBacklink.astro).
+ * Theme-var only (no raw hex), matching this file's convention. Sits beside the
+ * GitHub social icon in the header; muted by default, accented on hover/focus.
+ */
+.site-backlink {
+  align-self: center;
+  white-space: nowrap;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-2);
+  text-decoration: none;
+}
+
+.site-backlink:hover,
+.site-backlink:focus-visible {
+  color: var(--sl-color-accent-high);
+}

@@ -216,6 +216,19 @@ export function helpRate(rule: {
   return { helped: rule.helpfulCount, pulls: rule.injectedCount };
 }
 
+/** Whether the open Learnings drawer should auto-close because it has nothing to show.
+ *  Gated on `loaded` (the first learnings fetch resolved): a deep-link that opens the
+ *  drawer before the async load populates the lists must NOT be closed by the still-empty
+ *  initial state (issue #852) — only once a load has confirmed there is genuinely nothing. */
+export function shouldCloseLearningsDrawer(
+  open: boolean,
+  loaded: boolean,
+  itemCount: number,
+  injectableCount: number,
+): boolean {
+  return open && loaded && itemCount === 0 && injectableCount === 0;
+}
+
 /** Stable display order for the evidence breakdown: most operator-meaningful
  *  source first (a correction you gave) down to passive ones (a stall). */
 const KIND_ORDER: SignalKind[] = ["reply", "critic", "block", "stall"];

@@ -2479,6 +2479,27 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getLearning(id);
   }
 
+  /** Deliberate inverse of `reviseLearning`: enriches a rule's text while PRESERVING all
+   *  effectiveness counters (`helpfulCount`, `injectedCount`, `ineffectiveCount`, `lastUsedAt`,
+   *  `evidenceCount`, `ineffectiveSignalIds`). Use when the distiller wants to apply an
+   *  mem0-style UPDATE — merging richer text into an existing rule so the help-rate record
+   *  carries forward. Unlike `reviseLearning`, this does NOT reset counters and does NOT stamp
+   *  `autoOptimizedAt`. Hard-guards active-only: promoted rules have their text mirrored in
+   *  CLAUDE.md verbatim and must never be silently rewritten here. */
+  mergeLearning(id: string, rule: string, rationale?: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.status !== "active") return null;
+    const text = rule.trim().slice(0, 240);
+    if (!text) return null;
+    const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET rule = ?, rationale = ?, updatedAt = ?, lastEvidenceAt = ? WHERE id = ?`,
+      [text, resolvedRationale, now, now, id],
+    );
+    return this.getLearning(id);
+  }
+
   /** Resolve the stored `ineffectiveSignalIds` for a rule to full Signal rows.
    *  Server-side only — `ineffectiveSignalIds` is intentionally absent from the
    *  Learning type and hydrateLearning. Returns [] for missing/unflagged rules. */

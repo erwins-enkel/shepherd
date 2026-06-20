@@ -348,6 +348,9 @@ test("distiller increments ineffective for cited active rule ids with validated 
         bumped.push({ id, signals });
         return {} as never;
       },
+      mergeLearning: () => null,
+      retireLearning: () => null,
+      getLearning: () => null,
     },
     herdr: { start: () => ({ terminalId: "t1" }) as never, stop: () => {} },
     scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
@@ -585,6 +588,263 @@ test("health — onChange fires on the unhealthy transition and on every further
   d.distillNow("/r4"); // 5 failures
   expect(changes).toBe(3);
   expect(d.health().consecutiveFailures).toBe(5);
+});
+
+// ── Task 3: UPDATE / DELETE / NOOP capture-time merge ────────────────────────
+
+test("UPDATE merges rule text + rationale while preserving counters", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "original rule",
+    rationale: "r1",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+  // Seed counters via attributeInjected
+  store.attributeInjected([learning.id], { good: true }); // injected=1, helpful=1
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [{ id: learning.id, rule: "enriched rule text", rationale: "r2" }],
+    deletes: [],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  const updated = store.getLearning(learning.id)!;
+  expect(updated.rule).toBe("enriched rule text");
+  expect(updated.rationale).toBe("r2");
+  expect(updated.helpfulCount).toBe(1); // preserved
+  expect(updated.injectedCount).toBe(1); // preserved
+});
+
+test("ADD carrying text just merged by an UPDATE is deduped (no duplicate active rule)", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "original rule",
+    rationale: "r1",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+
+  // The LLM both UPDATEs the rule to a richer text AND emits an ADD with that same text.
+  // The ADD must dedup against the just-merged rule — `have` is recomputed after updates.
+  const merged = "merged enriched rule text";
+  const { deps } = mkDeps(store, {
+    rules: [{ rule: merged, rationale: "dup", evidence: [] }],
+    updates: [{ id: learning.id, rule: merged, rationale: "r2" }],
+    deletes: [],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  // Exactly one rule remains (the merged one); no duplicate proposed rule was added.
+  expect(store.listLearnings("/r").length).toBe(1);
+  expect(store.listLearnings("/r", { status: "proposed" }).length).toBe(0);
+  const only = store.getLearning(learning.id)!;
+  expect(only.rule).toBe(merged);
+  expect(only.status).toBe("active");
+});
+
+test("activeRules payload marks promoted rules (UPDATE/DELETE eligibility)", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const active = store.addLearning({
+    repoPath: "/r",
+    rule: "active rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(active.id, "active");
+  const promoted = store.addLearning({
+    repoPath: "/r",
+    rule: "promoted rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(promoted.id, "active");
+  store.promoteLearning(promoted.id, "https://github.com/pr/1");
+
+  let captured: { id: string; promoted: boolean }[] = [];
+  const { deps } = mkDeps(store, null);
+  (deps as any).writeSignals = (
+    _dir: string,
+    _sigs: unknown,
+    _existing: string[],
+    activeRules: { id: string; promoted: boolean }[],
+  ) => {
+    captured = activeRules;
+  };
+  const d = new DistillerService(deps as any);
+  d.consider("/r"); // begin() → writeSignals runs synchronously
+
+  const byId = new Map(captured.map((r) => [r.id, r]));
+  expect(byId.get(active.id)?.promoted).toBe(false);
+  expect(byId.get(promoted.id)?.promoted).toBe(true);
+});
+
+test("UPDATE skips promoted rules", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "original rule",
+    rationale: "r1",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+  store.promoteLearning(learning.id, "https://github.com/pr/1");
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [{ id: learning.id, rule: "should not replace", rationale: "r2" }],
+    deletes: [],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  const unchanged = store.getLearning(learning.id)!;
+  expect(unchanged.rule).toBe("original rule"); // not changed
+});
+
+test("UPDATE and DELETE ignore bogus and non-active ids", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const proposed = store.addLearning({
+    repoPath: "/r",
+    rule: "proposed rule",
+    rationale: "",
+    evidence: [],
+  });
+  // proposed.id is valid but status is "proposed", not "active"
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [
+      { id: "nope", rule: "bogus update", rationale: "" },
+      { id: proposed.id, rule: "should not update proposed", rationale: "" },
+    ],
+    deletes: [
+      { id: "nope", reason: "bogus delete" },
+      { id: proposed.id, reason: "should not delete proposed" },
+    ],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  const unchanged = store.getLearning(proposed.id)!;
+  expect(unchanged.rule).toBe("proposed rule"); // not changed
+  expect(unchanged.status).toBe("proposed"); // not retired
+});
+
+test("DELETE soft-retires with reason 'superseded'", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "old rule",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [],
+    deletes: [{ id: learning.id, reason: "contradicted by new evidence" }],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  const retired = store.getLearning(learning.id)!;
+  expect(retired.status).toBe("retired");
+  expect(retired.retiredReason).toBe("superseded");
+});
+
+test("ADD cap: at most 5 rules added per run", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+
+  const rules = Array.from({ length: 6 }, (_, i) => ({
+    rule: `new rule ${i}`,
+    rationale: "",
+    evidence: [],
+  }));
+  const { deps } = mkDeps(store, { rules, updates: [], deletes: [], ineffective: [] });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  expect(store.listLearnings("/r", { status: "proposed" }).length).toBe(5); // capped at 5
+});
+
+test("UPDATE cap: at most 5 updates applied per run", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+
+  const ids: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const l = store.addLearning({ repoPath: "/r", rule: `rule ${i}`, rationale: "", evidence: [] });
+    store.setLearningStatus(l.id, "active");
+    ids.push(l.id);
+  }
+
+  const updates = ids.map((id, i) => ({ id, rule: `updated rule ${i}`, rationale: "" }));
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates,
+    deletes: [],
+    ineffective: [],
+  });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  const changed = ids.filter((id, i) => store.getLearning(id)!.rule === `updated rule ${i}`);
+  expect(changed.length).toBe(5); // capped at 5
+});
+
+test("onChange fires on update-only proposals (no rules, no ineffective)", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const learning = store.addLearning({
+    repoPath: "/r",
+    rule: "original",
+    rationale: "",
+    evidence: [],
+  });
+  store.setLearningStatus(learning.id, "active");
+
+  let fired = 0;
+  const { deps } = mkDeps(
+    store,
+    {
+      rules: [],
+      updates: [{ id: learning.id, rule: "updated text", rationale: "r" }],
+      deletes: [],
+      ineffective: [],
+    },
+    () => fired++,
+  );
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  await d.tick();
+
+  expect(fired).toBe(1);
 });
 
 test("health — timeout-no-output counts as failure; successful finalize resets health", async () => {

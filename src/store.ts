@@ -324,6 +324,11 @@ type LearningRow = {
   status: string;
   evidenceCount: number;
   ineffectiveCount: number;
+  helpfulCount: number;
+  injectedCount: number;
+  lastUsedAt: number | null;
+  retiredAt: number | null;
+  retiredReason: string | null;
   createdAt: number;
   updatedAt: number;
   lastEvidenceAt: number | null;
@@ -2571,7 +2576,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT * FROM learnings WHERE repoPath = ? AND status = 'retired' ORDER BY updatedAt DESC`,
       )
       .all(repoPath);
-    return (rows as any[]).map((r) => this.hydrateLearning(r));
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
   // ── unseen-retired marker ─────────────────────────────────────────────────

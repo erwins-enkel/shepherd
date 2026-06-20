@@ -52,7 +52,25 @@ hand-written docs and edits the enumerated prose pages in place. It is granted r
 git (`git diff`/`log`/`show`/`status`) for grounding plus file edits, but has **no git
 mutation, `gh`, or network access**, so it can neither commit nor push; the trusted server
 stages the in-scope doc files, commits, and opens a **pull request** for human review
-(never an auto-merge). Off by default; flip on per deployment to soak it.
+(never an auto-merge).
+
+**Phased soak (`observe → act`, mirroring `SHEPHERD_HOOKS_INGEST` → `SHEPHERD_HOOKS_SIGNALS`).**
+Roll the feature out in two stages so you can watch what it _would_ do before it touches a
+remote:
+
+1. **Observe** — set `SHEPHERD_DOC_AGENT=1` alone. The agent runs and edits on every trigger,
+   and the server computes the staged doc diff, but **finalize is log-only**: it opens **no
+   PR** and runs no `push`. Each would-be PR is logged as a one-line
+   `[doc-agent] OBSERVE: <repo> would open a doc-update PR … (<n> files): …`. Soak here until
+   the logged diffs look correct.
+2. **Act** — additionally set `SHEPHERD_DOC_AGENT_ACT=1` to escalate to actually opening PRs.
+   This flag is meaningful **only** when Phase-0 (`SHEPHERD_DOC_AGENT`) is also on. A fresh
+   enable therefore opens no PR until you explicitly opt into act.
+
+Each spawn is recorded as a durable `reviewer_spawns` row (`kind: "doc_agent"`) for cost
+attribution, and the boot reconcile **re-adopts** a run interrupted by a restart (a surviving
+worktree whose summary is already written is finalized rather than discarded) and reaps any
+orphaned remote `shepherd/docs-update-*` branch left by a crash between `push` and PR-open.
 
 **Automated cadence.** With the same flag on, two triggers run in addition to the manual
 one (a per-repo in-flight guard means at most one run per repo at a time):
@@ -72,7 +90,8 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_DOC_AGENT` | `0` (off) | Set `1` to enable the doc agent: manual trigger, nightly + merge-triggered cadence, and the boot orphan-sweep |
+| `SHEPHERD_DOC_AGENT` | `0` (off) | Set `1` to enable the doc agent (**Phase-0 observe**): manual trigger, nightly + merge-triggered cadence, and the boot reconcile. Finalize is **log-only** (no PR) until `SHEPHERD_DOC_AGENT_ACT` is also set |
+| `SHEPHERD_DOC_AGENT_ACT` | `0` (off) | **Phase-1 act.** Set `1` to escalate finalize to actually commit, push, and open the **pull request**. Meaningful only when `SHEPHERD_DOC_AGENT` is also on |
 | `SHEPHERD_DOC_AGENT_MODEL` | _(none)_ | Model alias for the doc-agent spawn; unset uses the spawn default |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 

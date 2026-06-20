@@ -1377,14 +1377,30 @@ function sessionRead(id: string, deps: AppDeps): Response {
   return s ? json(s) : json({ error: "not found" }, 404);
 }
 
+// Recently-archived sessions for the Done lens, each enriched with the web URL of its
+// linked forge issue (when derivable). The archived session row carries `issueNumber` but
+// no URL, and the live GitState.issueUrl is keyed by *active* session id — gone once
+// archived — so we derive it here. Forge `webUrl` is resolved once per unique repoPath
+// (not per session): the window can hold many sessions across a few repos, and the first
+// resolveForge() call per dir shells out to git on a cold cache. Warm cache → no shell-out.
+function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: string }> {
+  const sessions = deps.store.listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS);
+  const repoWebUrl = new Map<string, string | null>();
+  for (const path of new Set(sessions.map((s) => s.repoPath)))
+    repoWebUrl.set(path, deps.resolveForge?.(path)?.webUrl ?? null);
+  return sessions.map((s) => {
+    const issueUrl = buildIssueUrl(repoWebUrl.get(s.repoPath), s.issueNumber);
+    return issueUrl ? { ...s, issueUrl } : s;
+  });
+}
+
 // GET reads on /api/sessions[/:id[/usage|/activity|/diff|/leftovers]].
 async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2]) return json(deps.store.list({ activeOnly: true }));
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
   // Must precede the bare sessionRead fall-through so "done" isn't read as a session id.
-  if (parts[2] === "done" && !parts[3])
-    return json(deps.store.listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS));
+  if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);

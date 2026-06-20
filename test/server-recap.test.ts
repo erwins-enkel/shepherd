@@ -100,6 +100,63 @@ test("GET /api/sessions/done returns recently-archived sessions, excludes live o
   expect(ids).not.toContain(live.id);
 });
 
+test("GET /api/sessions/done enriches issueUrl when the repo resolves to a forge webUrl", async () => {
+  // resolveForge is not wired by default — inject one exposing a webUrl so the handler
+  // can derive {webUrl}/issues/{n} for the archived session's issueNumber.
+  const { app, store } = harness({
+    resolveForge: () => ({ webUrl: "https://github.com/o/r" }) as any,
+  });
+  const s = store.create({
+    name: "done-issue",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/done-issue",
+    worktreePath: join(repoDir, "done-issue"),
+    isolated: true,
+    herdrSession: "sess-done-issue",
+    herdrAgentId: "term_done-issue",
+    claudeSessionId: "claude-done-issue",
+    model: null,
+    issueNumber: 42,
+  });
+  store.archive(s.id);
+
+  const res = await app.fetch(new Request("http://x/api/sessions/done"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Array<Session & { issueUrl?: string }>;
+  expect(body).toHaveLength(1);
+  expect(body[0]!.issueUrl).toBe("https://github.com/o/r/issues/42");
+});
+
+test("GET /api/sessions/done omits issueUrl when no forge resolves (default harness)", async () => {
+  // No resolveForge dep → no webUrl → buildIssueUrl returns null → field omitted, even
+  // though the session carries an issueNumber.
+  const { app, store } = harness();
+  const s = store.create({
+    name: "done-noforge",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/done-noforge",
+    worktreePath: join(repoDir, "done-noforge"),
+    isolated: true,
+    herdrSession: "sess-done-noforge",
+    herdrAgentId: "term_done-noforge",
+    claudeSessionId: "claude-done-noforge",
+    model: null,
+    issueNumber: 7,
+  });
+  store.archive(s.id);
+
+  const res = await app.fetch(new Request("http://x/api/sessions/done"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Array<Session & { issueUrl?: string }>;
+  expect(body).toHaveLength(1);
+  expect(body[0]!.issueNumber).toBe(7);
+  expect(body[0]!.issueUrl).toBeUndefined();
+});
+
 // ── POST /api/sessions/:id/recap/regenerate ───────────────────────────────────
 
 test("POST /api/sessions/:id/recap/regenerate → 202, calls regenerate, relays status:started", async () => {

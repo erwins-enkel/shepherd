@@ -114,6 +114,7 @@
     onseenretired,
     onmerge,
     ondismissmerge,
+    onpromoteglobal,
     onmergenow,
     onclose,
   }: {
@@ -132,6 +133,7 @@
     onseenretired: (repoPath: string) => void;
     onmerge: (suggestionId: string) => void;
     ondismissmerge: (suggestionId: string) => void;
+    onpromoteglobal: (suggestionId: string) => void;
     onmergenow: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
@@ -141,6 +143,9 @@
   const crossSuggestions = $derived(mergeSuggestions.filter((s) => s.kind === "cross"));
   const intraFor = (repoPath: string): MergeSuggestion[] =>
     mergeSuggestions.filter((s) => s.kind === "intra" && s.repoPath === repoPath);
+
+  // Cross-repo card pending the inline two-step confirm before a global CLAUDE.md write (#872).
+  let confirmingGlobalId = $state<string | null>(null);
 
   let drafts = $state<Record<string, string>>({});
   const draft = (l: Learning) => drafts[l.id] ?? l.rule;
@@ -326,8 +331,8 @@
     </section>
   {/if}
 
-  <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for a
-       user-global CLAUDE.md. Display + dismiss only; the operator decides. -->
+  <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for the
+       user-global CLAUDE.md. Promote (guarded, two-step) writes the rule there; or dismiss. -->
   {#if crossSuggestions.length > 0}
     <section class="recur" aria-label={m.learnings_recur_heading()}>
       <span class="recur-title">{m.learnings_recur_heading()}</span>
@@ -341,16 +346,43 @@
               repos: (s.repoPaths ?? []).map(basename).join(", "),
             })}
           </p>
-          <div class="recur-foot">
-            <button
-              class="ms-dismiss"
-              type="button"
-              onclick={() => ondismissmerge(s.id)}
-              aria-label={m.learnings_recur_dismiss_aria()}
-            >
-              {m.learnings_dismiss()}
-            </button>
-          </div>
+          {#if confirmingGlobalId === s.id}
+            <p class="recur-confirm">{m.learnings_recur_promote_confirm()}</p>
+            <div class="recur-foot">
+              <button class="ms-dismiss" type="button" onclick={() => (confirmingGlobalId = null)}>
+                {m.common_cancel()}
+              </button>
+              <button
+                class="ms-apply"
+                type="button"
+                onclick={() => {
+                  onpromoteglobal(s.id);
+                  confirmingGlobalId = null;
+                }}
+              >
+                {m.learnings_recur_promote_action()}
+              </button>
+            </div>
+          {:else}
+            <div class="recur-foot">
+              <button
+                class="ms-dismiss"
+                type="button"
+                onclick={() => ondismissmerge(s.id)}
+                aria-label={m.learnings_recur_dismiss_aria()}
+              >
+                {m.learnings_dismiss()}
+              </button>
+              <button
+                class="ms-apply"
+                type="button"
+                onclick={() => (confirmingGlobalId = s.id)}
+                aria-label={m.learnings_recur_promote_aria()}
+              >
+                {m.learnings_recur_promote()}
+              </button>
+            </div>
+          {/if}
         </article>
       {/each}
     </section>
@@ -1331,6 +1363,11 @@
   .recur-repos {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+    line-height: 1.45;
+  }
+  .recur-confirm {
+    font-size: var(--fs-meta);
+    color: var(--color-amber);
     line-height: 1.45;
   }
   .recur-foot,

@@ -1315,6 +1315,17 @@ export async function dismissMergeSuggestion(suggestionId: string): Promise<void
   if (!r.ok) throw await failed(r, "merge dismiss");
 }
 
+/** Promote a cross-repo recurrence rule into the user-global ~/.claude/CLAUDE.md (#872).
+ *  Operator-confirmed; writes directly (no PR). Marks the suggestion applied server-side. */
+export async function promoteGlobalLearning(suggestionId: string): Promise<void> {
+  const r = await fetch(`/api/learnings/promote-global`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ suggestionId }),
+  });
+  if (!r.ok) throw await failed(r, "promote global");
+}
+
 /** Manually trigger the background merge-suggestion pass for a repo ("Suggest merges now").
  *  Fire-and-forget; suggestions arrive via the learnings:update event. */
 export async function mergeSuggestNow(repoPath: string): Promise<void> {

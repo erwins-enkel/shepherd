@@ -46,6 +46,7 @@ function harness(promoter?: AppDeps["promoter"]): {
 test("promote success → 200 with url and emits learnings:update", async () => {
   const stub: AppDeps["promoter"] = {
     promote: async (): Promise<PromoteResult> => ({ ok: true, url: "https://pr/7" }),
+    promoteGlobal: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
   };
   const { app, emitted } = harness(stub);
 
@@ -64,6 +65,7 @@ test("promote error → propagates status code from service", async () => {
       error: "only active rules can be promoted",
       status: 409,
     }),
+    promoteGlobal: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
   };
   const { app } = harness(stub);
 
@@ -83,6 +85,155 @@ test("promote with no promoter dep → 503", async () => {
   );
   expect(res.status).toBe(503);
   expect(await res.json()).toEqual({ error: "promote unavailable" });
+});
+
+// ── POST /api/learnings/promote-global (issue #872) ───────────────────────────
+
+/** Harness exposing the store so a cross suggestion can be seeded + re-read. */
+function globalHarness(promoter?: AppDeps["promoter"]): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  emitted: Array<[string, unknown]>;
+} {
+  const store = new SessionStore(":memory:");
+  const emitted: Array<[string, unknown]> = [];
+  const events = new EventHub();
+  const origEmit = events.emit.bind(events);
+  events.emit = (event: string, data: unknown) => {
+    emitted.push([event, data]);
+    return origEmit(event, data);
+  };
+  const deps: AppDeps = {
+    store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+    promoter,
+  };
+  return { app: makeApp(deps), store, emitted };
+}
+
+function seedCross(store: SessionStore) {
+  return store.addMergeSuggestion({
+    kind: "cross",
+    repoPath: null,
+    targetId: null,
+    sourceIds: ["a", "b"],
+    mergedRule: "always rebase onto main",
+    mergedRationale: "",
+    repoPaths: ["/r1", "/r2"],
+    signature: "sig-1",
+  });
+}
+
+const okGlobal: AppDeps["promoter"] = {
+  promote: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
+  promoteGlobal: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
+};
+
+test("promote-global success → marks suggestion applied + emits learnings:update", async () => {
+  let promotedRule = "";
+  const { app, store, emitted } = globalHarness({
+    promote: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
+    promoteGlobal: async (rule: string): Promise<PromoteResult> => {
+      promotedRule = rule;
+      return { ok: true, url: "" };
+    },
+  });
+  const sug = seedCross(store);
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ suggestionId: sug.id }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(promotedRule).toBe("always rebase onto main");
+  expect(store.getMergeSuggestion(sug.id)!.status).toBe("applied");
+  expect(emitted.some(([event]) => event === "learnings:update")).toBe(true);
+});
+
+test("promote-global on an already-applied suggestion → 409 (stale re-post, no re-write)", async () => {
+  let calls = 0;
+  const { app, store } = globalHarness({
+    promote: async (): Promise<PromoteResult> => ({ ok: true, url: "" }),
+    promoteGlobal: async (): Promise<PromoteResult> => {
+      calls++;
+      return { ok: true, url: "" };
+    },
+  });
+  const sug = seedCross(store);
+  store.setMergeSuggestionStatus(sug.id, "applied");
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ suggestionId: sug.id }),
+    }),
+  );
+  expect(res.status).toBe(409);
+  expect(calls).toBe(0);
+});
+
+test("promote-global with unknown suggestionId → 404", async () => {
+  const { app } = globalHarness(okGlobal);
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ suggestionId: "nope" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("promote-global on an intra suggestion → 400", async () => {
+  const { app, store } = globalHarness(okGlobal);
+  const sug = store.addMergeSuggestion({
+    kind: "intra",
+    repoPath: "/r",
+    targetId: "t",
+    sourceIds: ["a"],
+    mergedRule: "merged",
+    mergedRationale: "",
+    repoPaths: null,
+    signature: "intra-sig",
+  });
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ suggestionId: sug.id }),
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+test("promote-global with missing suggestionId → 400", async () => {
+  const { app } = globalHarness(okGlobal);
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  );
+  expect(res.status).toBe(400);
+});
+
+test("promote-global with no promoter dep → 503 (after suggestion validated)", async () => {
+  const { app, store } = globalHarness(undefined);
+  const sug = seedCross(store);
+  const res = await app.fetch(
+    new Request("http://x/api/learnings/promote-global", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ suggestionId: sug.id }),
+    }),
+  );
+  expect(res.status).toBe(503);
 });
 
 // ── optimizer routes ─────────────────────────────────────────────────────────

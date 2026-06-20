@@ -196,6 +196,32 @@ test("cross: a group whose members are all in one repo is rejected", async () =>
   void b;
 });
 
+test("cross: a group promoted to global (applied) is NOT re-suggested on a later pass (#872)", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r1", "Always write a regression test");
+  const b = seedActive(store, "/r2", "Always write a regression test first");
+  const out = {
+    groups: [{ memberIds: [a.id, b.id], canonicalRule: "Always write a regression test" }],
+  };
+  const { deps, started } = mkDeps(store, out);
+  const svc = new MergeSuggestionService(deps);
+  svc.considerCrossRepo();
+  await svc.tick();
+  const cross = store.listMergeSuggestions({ kind: "cross", status: "pending" });
+  expect(cross.length).toBe(1);
+  // Simulate promote-global: mark applied. The member rules stay ACTIVE (no retire), so the
+  // dedup set must include `applied` or the same group re-appears next pass.
+  store.setMergeSuggestionStatus(cross[0]!.id, "applied");
+
+  // Change the global active set so the cross pass isn't gated out by an unchanged signature —
+  // this forces a real second spawn that must then be suppressed by the dedup, not the gate.
+  seedActive(store, "/r3", "An entirely unrelated active rule");
+  svc.considerCrossRepo();
+  await svc.tick();
+  expect(started.length).toBe(2); // the pass genuinely re-ran (not gated out before spawn)
+  expect(store.listMergeSuggestions({ kind: "cross", status: "pending" }).length).toBe(0);
+});
+
 // ── pure helpers ────────────────────────────────────────────────────────────
 
 test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", () => {

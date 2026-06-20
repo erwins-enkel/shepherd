@@ -1683,5 +1683,13 @@
   "issues_filter_subissues_title": "Hide native sub-issues (children of an epic) — start an epic drain instead",
   "issues_filter_all_sub_issues": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain",
   "feat_issues_filter_subissues_title": "Hide sub-issues by default",
-  "feat_issues_filter_subissues_body": "The Backlog and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Use the \"hide sub-issues\" toggle to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists."
+  "feat_issues_filter_subissues_body": "The Backlog and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Use the \"hide sub-issues\" toggle to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists.",
+  "learnings_recur_promote": "Add to global CLAUDE.md",
+  "learnings_recur_promote_aria": "Add this rule to your user-global CLAUDE.md",
+  "learnings_recur_promote_confirm": "This writes the rule into ~/.claude/CLAUDE.md — a global, unversioned file applied to every repo. Shepherd owns this block and rewrites it on each promote.",
+  "learnings_recur_promote_action": "Write",
+  "learnings_recur_promote_done": "Rule added to your global CLAUDE.md.",
+  "learnings_recur_promote_failed": "Couldn't write to your global CLAUDE.md.",
+  "feat_learnings_promote_global_title": "One-click promote a rule globally",
+  "feat_learnings_promote_global_body": "A cross-repo recurrence suggestion can now be written straight into your user-global ~/.claude/CLAUDE.md with one guarded click (a two-step confirm) — no PR, applied to every repo."
 }

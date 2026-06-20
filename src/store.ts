@@ -2797,11 +2797,18 @@ export class SessionStore implements CapStore, CreditStore {
     return this.getMergeSuggestion(id);
   }
 
-  /** Signatures of pending + dismissed suggestions of a kind, so a background pass can
-   *  skip re-proposing a group the operator already has (or rejected). `intra` is scoped
-   *  to a repo; `cross` is global (repoPath ignored). */
+  /** Signatures of suggestions of a kind, so a background pass can skip re-proposing a group
+   *  the operator already has (or rejected). `intra` is scoped to a repo; `cross` is global
+   *  (repoPath ignored).
+   *
+   *  `cross` additionally includes `applied`: promoting a cross group to the global CLAUDE.md
+   *  (#872) leaves its member rules ACTIVE, so without this carve-out the next cross pass would
+   *  re-detect and re-suggest the same group. `intra`-apply retires its members, so the group
+   *  can't recur — `applied` is intentionally excluded there. */
   mergeSuggestionSignatures(opts: { kind: MergeSuggestionKind; repoPath?: string }): Set<string> {
-    const where = [`kind = ?`, `status IN ('pending','dismissed')`];
+    const statuses =
+      opts.kind === "cross" ? `('pending','dismissed','applied')` : `('pending','dismissed')`;
+    const where = [`kind = ?`, `status IN ${statuses}`];
     const args: string[] = [opts.kind];
     if (opts.kind === "intra" && opts.repoPath !== undefined) {
       where.push(`repoPath = ?`);

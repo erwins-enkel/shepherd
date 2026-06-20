@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
         payload = null;
       }
       if (!payload) return;
-      const { body, sessionId, tag } = payload;
+      const { body, sessionId, tag, kind } = payload;
       // buildPayload always sets a title; fall back to the app name so a payload
       // that somehow lacks one still surfaces a real banner rather than letting the
       // event settle (which on mobile yields the browser's generic banner).
@@ -35,7 +35,7 @@ self.addEventListener("push", (event) => {
         body: body ?? "",
         tag: tag ?? sessionId,
         renotify: true,
-        data: { sessionId },
+        data: { sessionId, kind },
         icon: "/icons/icon-192.png",
         badge: "/icons/badge-96.png",
       };
@@ -53,14 +53,24 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const sessionId = event.notification.data?.sessionId;
-  const target = sessionId ? "/?session=" + encodeURIComponent(sessionId) : "/";
+  const kind = event.notification.data?.kind;
+  // Learnings-retire pushes (issue #852) aren't session-scoped: open the Learnings drawer
+  // instead of selecting a session. An open (possibly backgrounded) window is reopened in
+  // place via postMessage; only when no window exists do we openWindow the URL-param route.
+  const learnings = kind === "learnings_retired";
+  const target = learnings
+    ? "/?learnings=1"
+    : sessionId
+      ? "/?session=" + encodeURIComponent(sessionId)
+      : "/";
   event.waitUntil(
     (async () => {
       const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const c of clients) {
         if ("focus" in c) {
           await c.focus();
-          if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
+          if (learnings) c.postMessage({ type: "open-learnings" });
+          else if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
           return;
         }
       }

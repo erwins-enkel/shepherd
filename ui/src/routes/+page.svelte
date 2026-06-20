@@ -77,7 +77,7 @@
   import TopBar from "$lib/components/TopBar.svelte";
   import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
-  import { basename } from "$lib/components/learnings-drawer";
+  import { basename, shouldCloseLearningsDrawer } from "$lib/components/learnings-drawer";
   import Herd from "$lib/components/Herd.svelte";
   import {
     railOrder,
@@ -122,7 +122,7 @@
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import StarPrompt from "$lib/components/StarPrompt.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
-  import { registerSW, onSelectSession } from "$lib/push";
+  import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
@@ -209,6 +209,10 @@
   } | null>(null);
   let showTriage = $state(false);
   let showLearnings = $state(false);
+  // True once the first learnings.load() has resolved. Gates the auto-close effect so a
+  // deep-link (issue #852: ?learnings=1 / "open-learnings") that opens the drawer before
+  // the async load populates items/injectable isn't reversed by the still-empty lists.
+  let learningsLoaded = $state(false);
   // When the learnings drawer is opened from a repo's chip (its ✦ in the RepoSwitcher
   // rail), this carries that repoPath so the drawer scrolls to the matching section;
   // null = opened globally.
@@ -367,7 +371,16 @@
   $effect(() => {
     // Close only when both the proposed list and the injected view are empty —
     // a repo can have injected rules to curate with zero outstanding proposals.
-    if (showLearnings && learnings.items.length === 0 && learnings.injectable.length === 0)
+    // Gated on learningsLoaded so a deep-link that opens the drawer before the async
+    // load resolves (empty lists) isn't immediately closed (issue #852).
+    if (
+      shouldCloseLearningsDrawer(
+        showLearnings,
+        learningsLoaded,
+        learnings.items.length,
+        learnings.injectable.length,
+      )
+    )
       showLearnings = false;
   });
   let viewMode = $state<"focus" | "all">("focus");
@@ -1041,7 +1054,11 @@
     registerSW();
     const params = new URLSearchParams(location.search);
     const deepLink = params.get("session");
+    // Learnings-retire push deep-link (issue #852): ?learnings=1 (cold open) or an
+    // "open-learnings" message from the SW (open/backgrounded window) opens the drawer.
+    if (params.get("learnings") === "1") showLearnings = true;
     const disposeSelect = onSelectSession((id) => selectUnit(id));
+    const disposeLearnings = onOpenLearnings(() => (showLearnings = true));
     listSessions()
       .then((list) => {
         store.setAll(list);
@@ -1098,7 +1115,7 @@
     planGates.load();
     recaps.load();
     herdDigest.load();
-    learnings.load();
+    learnings.load().then(() => (learningsLoaded = true));
     listHeld()
       .then((arr) => (store.heldCount = arr.length))
       .catch(() => {});
@@ -1152,6 +1169,7 @@
     return () => {
       dispose();
       disposeSelect();
+      disposeLearnings();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };

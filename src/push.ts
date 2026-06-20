@@ -19,7 +19,8 @@ export interface PushPayload {
     | "autopilot-done"
     | "merge_attention"
     | "usage_limit"
-    | "extra_credits";
+    | "extra_credits"
+    | "learnings_retired";
   tag: string;
 }
 
@@ -38,6 +39,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   merge_attention: "ci",
   usage_limit: "agent",
   extra_credits: "agent",
+  learnings_retired: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -52,7 +54,8 @@ export interface NotifyInput {
     | "autopilot-done"
     | "merge_attention"
     | "usage_limit"
-    | "extra_credits";
+    | "extra_credits"
+    | "learnings_retired";
   sessionId: string;
   tag: string;
   name: string;
@@ -79,6 +82,8 @@ export interface NotifyInput {
   creditCap?: number;
   /** For kind "extra_credits": currency symbol/prefix for the amounts. */
   currency?: string;
+  /** For kind "learnings_retired": how many rules the auto-retire sweep retired. */
+  retiredCount?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -131,6 +136,9 @@ const NOTIFY_TEXT = {
       time ? `Approaching the usage cap — resets at ${time}.` : "Approaching the usage cap.",
     extraCreditsTitle: "Extra credits in use",
     extraCreditsBody: (amount: string) => `Now spending paid extra usage — ${amount} this period.`,
+    learningsRetiredTitle: "Learnings auto-retired",
+    learningsRetiredBody: (n: number) =>
+      `${n} ${n === 1 ? "rule" : "rules"} auto-retired — tap to review.`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -169,6 +177,9 @@ const NOTIFY_TEXT = {
     extraCreditsTitle: "Zusatzguthaben aktiv",
     extraCreditsBody: (amount: string) =>
       `Kostenpflichtige Zusatznutzung läuft — ${amount} in diesem Zeitraum.`,
+    learningsRetiredTitle: "Learnings automatisch zurückgezogen",
+    learningsRetiredBody: (n: number) =>
+      `${n} ${n === 1 ? "Regel" : "Regeln"} zurückgezogen — zum Prüfen tippen.`,
   },
 } as const;
 
@@ -293,6 +304,12 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
       };
     case "extra_credits":
       return { ...base, title: t.extraCreditsTitle, body: extraCreditsBody(t, input) };
+    case "learnings_retired":
+      return {
+        ...base,
+        title: t.learningsRetiredTitle,
+        body: t.learningsRetiredBody(input.retiredCount ?? 0),
+      };
     default:
       return {
         ...base,

@@ -1672,5 +1672,7 @@
   "feat_learnings_recur_body": "When the same rule recurs across several repos, the Learnings drawer now suggests promoting it to your user-global CLAUDE.md — kept as a suggestion you can dismiss.",
   "gitrail_open_issue": "Issue #{number} ↗",
   "feat_open_linked_issue_title": "Open the linked issue",
-  "feat_open_linked_issue_body": "GitRail now shows an \"Issue #N ↗\" link for tasks spawned from a backlog issue — jump straight to the issue on GitHub or Gitea."
+  "feat_open_linked_issue_body": "GitRail now shows an \"Issue #N ↗\" link for tasks spawned from a backlog issue — jump straight to the issue on GitHub or Gitea.",
+  "feat_learnings_retire_push_title": "Auto-retire push notifications",
+  "feat_learnings_retire_push_body": "When the daily background pass retires underperforming house rules, you now get a push notification so you learn of it without opening the Learnings drawer. Tap it to review the retired rules and restore any retired by mistake."
 }

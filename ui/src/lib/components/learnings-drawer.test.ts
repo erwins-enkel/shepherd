@@ -21,6 +21,7 @@ import {
   retiredCount,
   unseenRetiredCount,
   helpRate,
+  shouldCloseLearningsDrawer,
 } from "./learnings-drawer";
 import type { Learning, LearningStatus, RepoInjectable } from "../types";
 
@@ -523,5 +524,27 @@ describe("helpRate", () => {
 
   it("helped can equal pulls (100% rate)", () => {
     expect(helpRate({ helpfulCount: 7, injectedCount: 7 })).toEqual({ helped: 7, pulls: 7 });
+  });
+});
+
+describe("shouldCloseLearningsDrawer", () => {
+  // Regression for #852: a deep-link opens the drawer (open=true) before the async
+  // learnings.load() resolves, so items/injectable are still 0. WITHOUT the loaded gate
+  // this returned true and slammed the drawer shut before retired rules arrived.
+  it("does NOT close an open drawer while the first load is still pending", () => {
+    expect(shouldCloseLearningsDrawer(true, false, 0, 0)).toBe(false);
+  });
+
+  it("closes once loaded confirms both lists are genuinely empty", () => {
+    expect(shouldCloseLearningsDrawer(true, true, 0, 0)).toBe(true);
+  });
+
+  it("stays open after load when there is content to show", () => {
+    expect(shouldCloseLearningsDrawer(true, true, 1, 0)).toBe(false);
+    expect(shouldCloseLearningsDrawer(true, true, 0, 2)).toBe(false);
+  });
+
+  it("never closes a drawer that isn't open", () => {
+    expect(shouldCloseLearningsDrawer(false, true, 0, 0)).toBe(false);
   });
 });

@@ -329,6 +329,48 @@ test("buildPayload review kind varies copy by decision", () => {
   expect(buildPayload(noDecision, "en").body).toBe("Critic requested changes on the PR.");
 });
 
+test("buildPayload learnings_retired localizes title + body and pluralizes by count", () => {
+  const one: NotifyInput = {
+    kind: "learnings_retired",
+    sessionId: "",
+    tag: "learnings-retired",
+    name: "learnings",
+    retiredCount: 1,
+  };
+  expect(buildPayload(one, "en")).toMatchObject({
+    title: "Learnings auto-retired",
+    body: "1 rule auto-retired — tap to review.",
+  });
+  expect(buildPayload(one, "de")).toMatchObject({
+    title: "Learnings automatisch zurückgezogen",
+    body: "1 Regel zurückgezogen — zum Prüfen tippen.",
+  });
+  const many: NotifyInput = { ...one, retiredCount: 3 };
+  expect(buildPayload(many, "en").body).toBe("3 rules auto-retired — tap to review.");
+  expect(buildPayload(many, "de").body).toBe("3 Regeln zurückgezogen — zum Prüfen tippen.");
+});
+
+test("notify honors the agent category opt-out for learnings_retired", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("agent-on"), "");
+  store.putPushSub(sub("agent-off"), "");
+  store.setPushPrefs("agent-off", { agent: false, reviews: true, ci: true });
+  // learnings_retired is an agent-category kind → only the device that kept agent on hears it
+  await push.notify({
+    kind: "learnings_retired",
+    sessionId: "",
+    tag: "learnings-retired",
+    name: "learnings",
+    retiredCount: 2,
+  });
+  expect(sent).toEqual(["agent-on"]);
+});
+
 test("attachReviewPush notifies on changes_requested and commented, ignores error/null", async () => {
   const calls: any[] = [];
   const { store, push } = svc(async () => ({}));

@@ -38,6 +38,9 @@ function makeLearning(o: Partial<Learning> & { id: string }): Learning {
     lastEvidenceAt: null,
     promotedPrUrl: null,
     mergedIntoId: null,
+    trialedAt: null,
+    distinctKinds: 0,
+    distinctSessions: 0,
     ...o,
   };
 }

@@ -35,6 +35,9 @@ function rule(p: Partial<Learning>): Learning {
     lastEvidenceAt: p.lastEvidenceAt ?? null,
     promotedPrUrl: p.promotedPrUrl ?? null,
     mergedIntoId: p.mergedIntoId ?? null,
+    trialedAt: p.trialedAt ?? null,
+    distinctKinds: p.distinctKinds ?? 0,
+    distinctSessions: p.distinctSessions ?? 0,
   };
 }
 

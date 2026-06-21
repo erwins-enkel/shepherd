@@ -348,6 +348,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         bumped.push({ id, signals });
         return {} as never;
       },
+      accrueProposedEvidence: () => null,
       mergeLearning: () => null,
       retireLearning: () => null,
       getLearning: () => null,
@@ -959,7 +960,6 @@ test("reaffirm: re-evidenced proposed rule accrues evidence (not NOOP)", async (
   // Use a writeSignals that captures the signal in f.signalIds by passing signals through
   const svc = new DistillerService({
     ...(deps as any),
-    // override readProposals to use the seeded signal id that is in the actual signal set
   });
   svc.distillNow("/r");
   await svc.tick();

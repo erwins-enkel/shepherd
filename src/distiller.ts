@@ -467,6 +467,8 @@ function distillPrompt(): string {
     "If a signal re-evidences an existing PROPOSED rule (matches a `proposedRules` entry), do NOT",
     "NOOP it and do NOT re-ADD it — emit a `reaffirm` entry {id: the proposedRule id, evidence: the",
     "signal ids that re-evidence it}. Only cite ids present in the data.",
+    "(Proposed rules also appear in `existingRules`; the reaffirm action overrides the do-not-re-ADD/NOOP",
+    "guidance for them — reaffirm accrues additional evidence so a proposed rule can graduate to active.)",
     "",
     "Limits: at most 5 ADDs, 5 updates, 5 deletes, 5 reaffirms.",
     "",

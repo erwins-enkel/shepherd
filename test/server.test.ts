@@ -61,6 +61,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
       calibratedAt: null,
       subscriptionOnly: false,
     }),
+    projections: () => [],
   };
   const distiller = { distillNow: () => {} };
   return { store, service, events, usageLimits, distiller };
@@ -71,17 +72,20 @@ function harness() {
   return makeApp(deps);
 }
 
-test("GET /api/usage/limits returns the limits snapshot", async () => {
+test("GET /api/usage/limits returns limits + projections", async () => {
   const res = await harness().fetch(new Request("http://x/api/usage/limits"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body).toEqual({
-    session5h: null,
-    week: null,
-    credits: null,
-    stale: true,
-    calibratedAt: null,
-    subscriptionOnly: false,
+    limits: {
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    },
+    projections: [],
   });
 });
 
@@ -256,6 +260,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
       calibratedAt: null,
       subscriptionOnly: false,
     }),
+    projections: () => [],
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };
@@ -1315,6 +1320,7 @@ function clearMergedHarness() {
       calibratedAt: null,
       subscriptionOnly: false,
     }),
+    projections: () => [],
   };
   const app = makeApp({ store, service, events, usageLimits, prCache } as any);
   const mk = (name: string, state: string) => {
@@ -1892,6 +1898,7 @@ function harnessWithPreviewStop({
       calibratedAt: null,
       subscriptionOnly: false,
     }),
+    projections: () => [],
   };
   const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
   return { app, store };

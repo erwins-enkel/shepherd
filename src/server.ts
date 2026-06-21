@@ -1165,6 +1165,10 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
   // POST /api/learnings/:id/scope — set/clear a rule's glob scope (operator edit, #842)
   if (parts[2] && parts[3] === "scope") return handleLearningScope(req, deps, parts[2]);
 
+  // POST /api/learnings/:id/revert-trial — revert an auto-trial back to proposed or dismissed
+  if (parts[2] && parts[3] === "revert-trial")
+    return handleLearningRevertTrial(req, deps, parts[2]);
+
   // POST /api/learnings/:id/approve  |  /:id/dismiss
   if (parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
     return handleLearningStatus(req, deps, parts[2], parts[3]);
@@ -1182,6 +1186,24 @@ async function handleLearningScope(req: Request, deps: AppDeps, id: string): Pro
     ? body!.globs.filter((g): g is string => typeof g === "string")
     : [];
   const updated = deps.store.setLearningScope(id, globs);
+  if (!updated) return json({ error: "not found" }, 404);
+  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  return json(updated);
+}
+
+/** POST /api/learnings/:id/revert-trial — undo an auto-trial. Body `{target:'proposed'|'dismissed'}`.
+ *  Only affects active trial rules (store guards `trialedAt != null`); 400 on a bad target,
+ *  404 when the rule isn't a revertable trial. Refreshes the drawer via learnings:update. */
+async function handleLearningRevertTrial(
+  req: Request,
+  deps: AppDeps,
+  id: string,
+): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { target?: unknown } | null;
+  const target = body?.target;
+  if (target !== "proposed" && target !== "dismissed")
+    return json({ error: "invalid target" }, 400);
+  const updated = deps.store.revertTrial(id, target);
   if (!updated) return json({ error: "not found" }, 404);
   deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
   return json(updated);

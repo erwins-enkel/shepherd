@@ -103,16 +103,6 @@ jobs:
       - name: Build (extension)
         run: cd extension && bun run build
 
-      # The Astro Starlight docs site (docs-site/) is a 4th in-monorepo package
-      # with its own lockfile. Unlike site/ (bound for extraction, deliberately
-      # absent from CI), docs-site/ lives here, so its build is gated. `astro
-      # check` runs type + content-collection diagnostics; `astro build` emits the
-      # static dist/. NB: this workflow triggers only on `branches: [main]`, so the
-      # step is dormant on docs-epic PRs (which target the epic branch) and first
-      # runs when the epic merges to main.
-      - name: Build (docs-site)
-        run: cd docs-site && bun install --frozen-lockfile && bun run check && bun run build
-
       - name: Fallow audit (PR delta)
         # Only new findings introduced by the PR block — inherited issues don't.
         # Skip on direct pushes to main: there's no base branch to diff against.
@@ -126,3 +116,69 @@ jobs:
         # with .husky/pre-push and CONTRIBUTING.md.
         if: github.event_name == 'pull_request'
         run: bunx fallow@2.100.0 audit --base origin/${{ github.base_ref }} --fail-on-issues
+
+  # The Astro Starlight docs site (docs-site/) is a 4th in-monorepo package with
+  # its own lockfile. It builds self-contained — TypeDoc reads ../src via a
+  # dedicated typedoc.tsconfig.json (own @types/bun, skipErrorChecking, disableGit)
+  # and sync-docs.mjs reads checked-in files — so it needs only a plain checkout +
+  # its own install, NOT the root/ui/extension installs. It lives in its OWN job
+  # (not a step in `verify`) so a flaky pagefind install can't red the whole suite:
+  # `pagefind` (the search indexer) ships its native binary as optional, platform-
+  # specific deps (@pagefind/linux-x64, …) whose npm-tarball extraction during
+  # `bun install` occasionally flakes (#944). NB: this workflow triggers only on
+  # `branches: [main]`, so this job is dormant on docs-epic PRs (which target the
+  # epic branch) and first runs when an epic merges to main.
+  docs-site:
+    name: docs-site
+    # Skip release-please's generated PR (version/CHANGELOG bump only), mirroring
+    # the `verify` job's guard. head_ref is empty on push-to-main, so main runs.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # Same self-hosted runner toggle as `verify`: set repo var CI_RUNNER to
+    # 'self-hosted' to use the local runner; unset falls back to ubuntu-latest.
+    # MUST be deleted before the repo goes public.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Cache bun's global store so the pagefind tarball isn't re-DOWNLOADED every
+      # run (speed + download-flake mitigation). This does NOT reduce extraction
+      # events — extraction into node_modules happens every run regardless — so the
+      # retry below, not this cache, is what absorbs the tarball-extraction flake.
+      - name: Cache bun store (docs-site)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-docs-site-${{ hashFiles('docs-site/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-docs-site-
+
+      # Retry `bun install` to absorb a one-off @pagefind tarball-extraction flake
+      # (#944). Only the install is retried — re-running check/build on a genuine
+      # type/content error would just burn 3× the time. Before the FINAL attempt the
+      # bun store is purged so a poisoned half-written tarball is re-downloaded fresh
+      # rather than re-hit identically.
+      - name: Build (docs-site)
+        run: |
+          cd docs-site
+          n=0
+          until bun install --frozen-lockfile; do
+            n=$((n + 1))
+            if [ "$n" -ge 3 ]; then
+              echo "bun install failed after $n attempts" >&2
+              exit 1
+            fi
+            if [ "$n" -eq 2 ]; then
+              echo "purging bun store before final retry…" >&2
+              rm -rf ~/.bun/install/cache
+            fi
+            echo "bun install failed (attempt $n) — retrying in 5s…" >&2
+            sleep 5
+          done
+          bun run check
+          bun run build

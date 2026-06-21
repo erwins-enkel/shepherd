@@ -284,16 +284,16 @@
 </div>
 
 {#snippet labelChips(ordered: string[])}
-  {#each ordered.slice(0, 3) as lbl (lbl)}
+  {#each ordered.slice(0, 1) as lbl (lbl)}
     <span
       class="chip"
       class:active={lbl === ACTIVE_LABEL}
       title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}>{lbl}</span
     >
   {/each}
-  {#if ordered.length > 3}
-    <span class="chip chip-more" title={ordered.slice(3).join(", ")}>
-      {m.promptsources_more_labels({ count: ordered.length - 3 })}
+  {#if ordered.length > 1}
+    <span class="chip chip-more" title={ordered.slice(1).join(", ")}>
+      {m.promptsources_more_labels({ count: ordered.length - 1 })}
     </span>
   {/if}
 {/snippet}
@@ -478,15 +478,24 @@
 
   .row-text {
     flex: 1;
+    /* Explicit floor: flex-basis is 0%, so on a very narrow row (where #num + chips
+       already fill the width) the title would otherwise grow by 0 and sit near 0px.
+       This reserves a readable minimum; the bounded, shrinkable chips yield first. */
+    min-width: 6rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  /* Single label chip + a "+N" count (labelChips caps inline chips at 1). The group
+     is bounded so the title keeps the row instead of being crushed to a character:
+     it may shrink (min-width:0), the label chip ellipsates, and the count never clips.
+     Combined with .row-text's min-width floor, the title can't collapse to nothing. */
   .chips {
     display: flex;
     gap: 3px;
-    flex-shrink: 0;
+    min-width: 0;
+    flex-shrink: 1;
   }
 
   .chip {
@@ -497,6 +506,12 @@
     border: 1px solid var(--color-faint);
     border-radius: 2px;
     padding: 0 4px;
+    /* Cap a pathologically long single label (e.g. COMPONENT/VALUEMAP…) so it
+       truncates instead of pushing the "+N" count off the row. */
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* shepherd:active — claimed work. Same semantic running/in-progress token as
@@ -513,5 +528,9 @@
     color: var(--color-muted);
     border-color: transparent;
     cursor: default;
+    /* Always visible — the count is the signal that more labels exist, so it must
+       never be the thing that gets clipped when the row is tight. */
+    flex-shrink: 0;
+    max-width: none;
   }
 </style>

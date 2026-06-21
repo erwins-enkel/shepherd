@@ -9,6 +9,7 @@ import type { GitForge } from "./forge/types";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
+import type { DocAgentOutcome, DocAgentRun } from "./types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
 import { apiKeyPassthroughEnv, isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
@@ -123,6 +124,7 @@ export interface DocAgentFinalize {
   repoPath: string;
   /** PR url when a doc-update PR was opened; null when docs were already current. */
   url: string | null;
+  outcome: DocAgentOutcome;
 }
 
 interface InFlight {
@@ -154,6 +156,8 @@ export interface DocAgentDeps extends MembraneSeams {
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listReviewerSpawns"
+    | "recordDocAgentRun"
+    | "listDocAgentRuns"
   >;
   model?: string | null;
   /** Phase-1 escalation: when false (Phase-0 observe), finalize() is log-only (no commit/push/PR). */
@@ -232,6 +236,11 @@ export class DocAgentService {
     } finally {
       this.starting.delete(repoPath);
     }
+  }
+
+  /** Whether a doc-agent run is currently active (inflight or starting) for the given repo. */
+  isRunning(repoPath: string): boolean {
+    return this.inflight.has(repoPath) || this.starting.has(repoPath);
   }
 
   /**
@@ -496,6 +505,7 @@ export class DocAgentService {
 
   private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
     let url: string | null = null;
+    let hadStagedChanges = false;
     try {
       const forge = this.deps.resolveForge(f.repoPath);
       // STRUCTURAL off-limits boundary: stage ONLY the in-scope list ∩ files that exist. An agent
@@ -529,6 +539,7 @@ export class DocAgentService {
           await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
         ).trim();
         if (stagedOut.length > 0) {
+          hadStagedChanges = true;
           url = await this.publishStaged(f, sentinel, forge, stagedOut);
         }
       }
@@ -548,7 +559,13 @@ export class DocAgentService {
         /* best-effort: a never-committed branch may already be gone */
       }
     }
-    this.deps.onChange?.({ repoPath: f.repoPath, url });
+    // Compute outcome from locals set above (after try/finally so cleanup always runs first).
+    const outcome: DocAgentOutcome =
+      url !== null ? "pr" : hadStagedChanges && !this.act ? "observe" : "nochange";
+    // Record the run in the durable per-repo history (additive alongside the cost-ledger spawn row).
+    const run: DocAgentRun = { at: this.now(), url, outcome };
+    this.deps.store.recordDocAgentRun(f.repoPath, run);
+    this.deps.onChange?.({ repoPath: f.repoPath, url, outcome });
   }
 
   /**

@@ -362,6 +362,20 @@ export interface HerdDigest {
   staleCount?: number;
 }
 
+// ── doc-agent run history ────────────────────────────────────────────────────
+/** Outcome of a completed doc-agent run, surfaced in the UI run history. */
+export type DocAgentOutcome = "pr" | "observe" | "nochange";
+
+/** One completed doc-agent run, stored newest-first in the KV under
+ *  `docagent:runs:<repoPath>` (capped at 10). */
+export interface DocAgentRun {
+  /** epoch ms when the run finalized */
+  at: number;
+  /** PR url when a doc-update PR was opened; null otherwise */
+  url: string | null;
+  outcome: DocAgentOutcome;
+}
+
 /** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
  *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
  *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —

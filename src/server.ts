@@ -308,6 +308,7 @@ export interface AppDeps {
    *  404s when the flag is off or the service is unwired. Wired to DocAgentService in index.ts. */
   docAgent?: {
     consider: (repoPath: string) => Promise<import("./doc-agent").DocAgentResult>;
+    isRunning: (repoPath: string) => boolean;
   };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
   gitignoreAdopter?: {
@@ -901,6 +902,21 @@ async function handleDocAgent({ req, parts, url, deps }: Ctx): Promise<Response 
   if (res.status === "started") return json({ ok: true }, 202);
   if (res.status === "skipped") return json({ ok: false, reason: res.reason }, 409);
   return json({ error: res.reason ?? "doc agent failed" }, 400);
+}
+
+// GET /api/doc-agent/runs?repo= — per-repo run history + live running flag (issue #906).
+// Same unadvertised 404 contract as POST /api/doc-agent when the feature is disabled or unwired.
+function handleDocAgentRuns({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(parts[0] === "api" && parts[1] === "doc-agent" && parts[2] === "runs" && !parts[3]))
+    return null;
+  if (req.method !== "GET") return null;
+  if (!config.docAgentEnabled || !deps.docAgent) return json({ error: "not found" }, 404);
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  return json({
+    running: deps.docAgent.isRunning(dir),
+    runs: deps.store.listDocAgentRuns(dir),
+  });
 }
 
 // /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
@@ -2819,6 +2835,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       usageHoldPct: config.usageHoldPct,
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
+      // doc-agent soak flags (read-only; env-driven; no PUT patch).
+      docAgentEnabled: config.docAgentEnabled,
+      docAgentAct: config.docAgentAct,
     });
   }
   if (req.method === "PUT") {
@@ -4449,6 +4468,7 @@ const ROUTE_HANDLERS = [
   handleRepoCollaborators,
   handleLearnings,
   handleDocAgent,
+  handleDocAgentRuns,
   handlePush,
   handleSessionHooks,
   handleBuildQueue,

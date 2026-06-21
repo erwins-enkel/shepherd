@@ -8,6 +8,16 @@
   let title = $state("");
   let details = $state("");
 
+  // The dialog component stays mounted (only its content is gated on the kind),
+  // so its state survives close. Clear the fields each time it (re)opens, else
+  // the previous report's title/details are still there on the next open.
+  $effect(() => {
+    if (feedbackDialog.kind) {
+      title = "";
+      details = "";
+    }
+  });
+
   const headingFor: Record<FeedbackKind, () => string> = {
     bug: m.feedback_dialog_title_bug,
     feature: m.feedback_dialog_title_feature,

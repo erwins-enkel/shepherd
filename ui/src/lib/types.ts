@@ -739,6 +739,56 @@ export interface UsageLimits {
   subscriptionOnly: boolean;
 }
 
+export type UsageRange = "24h" | "7d" | "30d" | "all";
+
+/** Raw token detail (authoring side). */
+export interface UsageTokens {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/** One task's spend within a repo. */
+export interface UsageTaskBreakdown {
+  sessionId: string;
+  desig: string; // e.g. "TASK-07" — data, never translated
+  model: string; // dominant model id, e.g. "claude-opus-4-8"
+  authoringUnits: number; // weighted units, main agent
+  satelliteUnits: number; // weighted units, reviewer/critic/etc spawns
+  tokens: UsageTokens; // raw authoring token detail
+  byModel: Record<string, number>; // weighted units per model id
+}
+
+/** A repo grouping its tasks. */
+export interface UsageRepoBreakdown {
+  repoPath: string;
+  repoName: string;
+  authoringUnits: number;
+  satelliteUnits: number;
+  tasks: UsageTaskBreakdown[];
+}
+
+/** Top-level breakdown — serves the Spend + Overhead lenses. */
+export interface UsageBreakdown {
+  range: UsageRange;
+  generatedAt: number; // ms epoch
+  totalUnits: number; // authoring + satellite, all repos
+  authoringUnits: number;
+  satelliteUnits: number;
+  cacheReadUnits: number; // cheap-cache share (Overhead b)
+  generationUnits: number; // non-cacheRead share (Overhead b)
+  repos: UsageRepoBreakdown[];
+}
+
+/** Burn-down projection for the Limits lens. */
+export interface UsageProjection {
+  window: "5H" | "WK";
+  projectedPct: number; // projected % at window reset if burn-rate holds
+  resetAt: number; // ms epoch of window reset
+  burnRatePerHour: number; // recent weighted units/hour
+}
+
 export interface UpdateCommit {
   sha: string;
   subject: string;

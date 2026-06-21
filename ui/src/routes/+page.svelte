@@ -95,7 +95,6 @@
   import BacklogView from "$lib/components/BacklogView.svelte";
   import AppOverlays from "$lib/components/page/AppOverlays.svelte";
   import FeedbackDialog from "$lib/components/FeedbackDialog.svelte";
-  import { feedbackDialog } from "$lib/feedback-dialog.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
@@ -2125,9 +2124,7 @@
   onstarresolve={(s) => (store.starPrompt = s)}
 />
 
-{#if feedbackDialog.kind}
-  <FeedbackDialog kind={feedbackDialog.kind} />
-{/if}
+<FeedbackDialog />
 
 <Toasts aboveActionBar={mobileActionBarPresent} />
 

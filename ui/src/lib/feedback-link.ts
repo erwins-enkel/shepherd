@@ -8,7 +8,7 @@
 // URLs longer than ~8 KB trigger HTTP 414 from GitHub's edge. We cap at 7000
 // bytes to leave headroom for browser/proxy overhead.
 
-import { version, sha, commitUrl } from "./build-info";
+import { version, sha, commitUrl, REPO_URL } from "./build-info";
 
 export type FeedbackKind = "bug" | "feature" | "feedback";
 
@@ -44,7 +44,7 @@ export function buildIssueUrl(
   kind: FeedbackKind,
   opts: { title?: string; description?: string },
 ): string {
-  const base = `https://github.com/erwins-enkel/shepherd/issues/new`;
+  const base = `${REPO_URL}/issues/new`;
   const fieldId = KIND_FIELD[kind];
 
   function buildUrl(description: string): string {

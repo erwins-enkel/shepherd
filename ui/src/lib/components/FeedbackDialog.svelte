@@ -1,11 +1,9 @@
 <script lang="ts">
   import type { FeedbackKind } from "$lib/feedback-link";
   import { buildIssueUrl } from "$lib/feedback-link";
-  import { closeFeedback } from "$lib/feedback-dialog.svelte";
+  import { feedbackDialog, closeFeedback } from "$lib/feedback-dialog.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-
-  let { kind }: { kind: FeedbackKind } = $props();
 
   let title = $state("");
   let details = $state("");
@@ -23,63 +21,65 @@
   };
 
   function submit() {
-    window.open(
-      buildIssueUrl(kind, { title, description: details }),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const k = feedbackDialog.kind;
+    if (!k) return;
+    window.open(buildIssueUrl(k, { title, description: details }), "_blank", "noopener,noreferrer");
     closeFeedback();
   }
 </script>
 
-<div
-  class="overlay"
-  role="presentation"
-  onclick={(e) => {
-    if (e.target === e.currentTarget) closeFeedback();
-  }}
->
+{#if feedbackDialog.kind}
+  {@const k = feedbackDialog.kind}
   <div
-    class="card"
-    role="dialog"
-    aria-modal="true"
-    aria-label={headingFor[kind]()}
-    use:dialog={{ onclose: closeFeedback }}
+    class="overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) closeFeedback();
+    }}
   >
-    <div class="chead">
-      <span class="micro">{headingFor[kind]()}</span>
-      <button type="button" class="x" onclick={closeFeedback} aria-label={m.common_close()}
-        >✕</button
-      >
-    </div>
+    <div
+      class="card"
+      role="dialog"
+      aria-modal="true"
+      aria-label={headingFor[k]()}
+      use:dialog={{ onclose: closeFeedback }}
+    >
+      <div class="chead">
+        <span class="micro">{headingFor[k]()}</span>
+        <button type="button" class="x" onclick={closeFeedback} aria-label={m.common_close()}
+          >✕</button
+        >
+      </div>
 
-    <div class="field">
-      <label class="field-label" for="feedback-title">{m.feedback_dialog_summary_label()}</label>
-      <input
-        id="feedback-title"
-        type="text"
-        placeholder={m.feedback_dialog_summary_placeholder()}
-        bind:value={title}
-      />
-    </div>
+      <div class="field">
+        <label class="field-label" for="feedback-title">{m.feedback_dialog_summary_label()}</label>
+        <input
+          id="feedback-title"
+          type="text"
+          placeholder={m.feedback_dialog_summary_placeholder()}
+          bind:value={title}
+        />
+      </div>
 
-    <div class="field">
-      <label class="field-label" for="feedback-details">{m.feedback_dialog_details_label()}</label>
-      <textarea
-        id="feedback-details"
-        rows="5"
-        placeholder={detailsPlaceholderFor[kind]()}
-        bind:value={details}></textarea>
-    </div>
+      <div class="field">
+        <label class="field-label" for="feedback-details">{m.feedback_dialog_details_label()}</label
+        >
+        <textarea
+          id="feedback-details"
+          rows="5"
+          placeholder={detailsPlaceholderFor[k]()}
+          bind:value={details}></textarea>
+      </div>
 
-    <p class="note">{m.feedback_dialog_note()}</p>
+      <p class="note">{m.feedback_dialog_note()}</p>
 
-    <div class="actions">
-      <button type="button" class="ghost" onclick={closeFeedback}>{m.common_cancel()}</button>
-      <button type="button" class="run" onclick={submit}>{m.feedback_dialog_submit()}</button>
+      <div class="actions">
+        <button type="button" class="ghost" onclick={closeFeedback}>{m.common_cancel()}</button>
+        <button type="button" class="run" onclick={submit}>{m.feedback_dialog_submit()}</button>
+      </div>
     </div>
   </div>
-</div>
+{/if}
 
 <style>
   .overlay {

@@ -285,12 +285,35 @@ export class Promoter {
 export const LEARNINGS_START = "<!-- shepherd:learnings:start -->";
 export const LEARNINGS_END = "<!-- shepherd:learnings:end -->";
 
+/** Normalize a free-form learning rule into a single Markdown list-item body that is
+ *  byte-for-byte stable under `prettier --check` (CommonMark). Target repos lint their
+ *  CLAUDE.md with prettier; an un-normalized rule could otherwise reparse as a nested
+ *  list / heading or get whitespace-collapsed, re-flagging the synced block (flowagent #418).
+ *  - collapses every whitespace run (incl. tabs/newlines) to a single space and trims ends
+ *  - backslash-escapes a leading Markdown list/heading marker so prettier keeps it as text
+ *    (a backslash-escaped marker renders identically). Idempotent. */
+export function sanitizeRule(rule: string): string {
+  return rule
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^([-*+]) /, "\\$1 ")
+    .replace(/^(\d+)([.)]) /, "$1\\$2 ")
+    .replace(/^(#+) /, "\\$1 ");
+}
+
 /** Insert or replace the managed shepherd:learnings block in CLAUDE.md content.
  *  Idempotent: replaces the existing block's contents rather than appending a
  *  duplicate; appends a fresh block when no markers are present. Each rule is one
- *  `- <rule>` bullet. */
+ *  `- <rule>` bullet. A blank line follows the start marker — prettier/CommonMark
+ *  requires it between an HTML-comment block and the list, else `prettier --check`
+ *  fails in target repos (flowagent #418). Each rule is sanitized for the same reason. */
 export function upsertLearningsBlock(content: string, rules: string[]): string {
-  const body = [LEARNINGS_START, ...rules.map((r) => `- ${r}`), LEARNINGS_END].join("\n");
+  const body = [
+    LEARNINGS_START,
+    "",
+    ...rules.map((r) => `- ${sanitizeRule(r)}`),
+    LEARNINGS_END,
+  ].join("\n");
   const start = content.indexOf(LEARNINGS_START);
   const end = content.indexOf(LEARNINGS_END);
   if (start !== -1 && end !== -1 && end > start) {

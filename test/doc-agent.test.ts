@@ -7,6 +7,8 @@ import {
   type DocAgentFinalize,
 } from "../src/doc-agent";
 import { config, parseHour } from "../src/config";
+import type { GitState } from "../src/forge/types";
+import type { Session } from "../src/types";
 
 function withAuth(
   mode: typeof config.authMode,
@@ -71,7 +73,74 @@ interface Harness {
   spawnRows: SpawnRow[];
   completedRows: CompletedRow[];
   deletedRemote: string[];
+  /** Re-target marker files written by the service, keyed by absolute path. */
+  markers: Map<string, string>;
+  /** Args of every herdr.start (incl. the wrapped argv) for prompt-grounding assertions. */
+  startArgs: { name: string; cwd: string; argv: string[] }[];
   __merge: number;
+}
+
+/** Minimal Session stub for the re-target sweep tests. */
+function mkSession(o: Partial<Session> & { id: string }): Session {
+  return {
+    desig: "TASK-01",
+    name: "task",
+    prompt: "",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "feature/x",
+    worktreePath: "/owner/wt",
+    isolated: true,
+    herdrSession: "",
+    herdrAgentId: "",
+    claudeSessionId: "",
+    model: null,
+    readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
+    mergeTrainPrs: null,
+    mergingPrNumber: null,
+    autopilotEnabled: null,
+    autopilotStepCount: 0,
+    autopilotPaused: false,
+    autopilotComplete: false,
+    autopilotQuestion: null,
+    planGateEnabled: null,
+    planPhase: null,
+    research: false,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
+    autoMergeRebaseHead: null,
+    auto: false,
+    issueNumber: null,
+    sandboxApplied: null,
+    sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
+    status: "idle",
+    lastState: "idle" as Session["lastState"],
+    createdAt: 0,
+    updatedAt: 0,
+    archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
+    ...o,
+  } as Session;
+}
+
+/** Minimal open+green+doc-relevant GitState for a re-targetable session. */
+function mkGitState(o: Partial<GitState> = {}): GitState {
+  return {
+    kind: "github",
+    state: "open",
+    checks: "success",
+    number: 7,
+    headSha: "headsha1",
+    title: "feat(ui): add thing",
+    url: "https://forge/pr/7",
+    deployConfigured: false,
+    ...o,
+  } as GitState;
 }
 
 function mkHarness(opts?: {
@@ -97,6 +166,20 @@ function mkHarness(opts?: {
   forEachRefStdout?: string;
   /** When true, the injected prettier stub throws (exercises the best-effort failure path). */
   prettierThrows?: boolean;
+  /** Sessions the re-target sweep iterates (store.list()). */
+  sessions?: Session[];
+  /** Cached PR state per session id (the gitState seam). */
+  gitStateById?: Record<string, GitState | undefined>;
+  /** Settled-idle debounce threshold (ms) for the re-target sweep. */
+  idleThresholdMs?: number;
+  /** Full prStatus (state + url) per branch — drives the re-target finalize re-check. Falls back to
+   *  prStatusByBranch (state only) when absent. */
+  prStatusFull?: Record<string, { state: "none" | "open" | "merged" | "closed"; url?: string }>;
+  /** Pre-seeded re-target marker files (abs path → JSON), read by reapOneWorktree. */
+  markerFiles?: Record<string, string>;
+  /** Owner-worktree git responses for the ff guard: porcelain status + rev-parse HEAD. */
+  ownerStatusPorcelain?: string;
+  ownerHead?: string;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -117,12 +200,19 @@ function mkHarness(opts?: {
     defaultBranchThrows: false,
     forEachRefStdout: "",
     prettierThrows: false,
+    sessions: [] as Session[],
+    gitStateById: {} as Record<string, GitState | undefined>,
+    markerFiles: {} as Record<string, string>,
+    ownerStatusPorcelain: "",
+    ownerHead: "headsha1",
     ...opts,
   };
 
   const gitCalls: GitCall[] = [];
   const prettierCalls: PrettierCall[] = [];
   const starts: { name: string; cwd: string }[] = [];
+  const startArgs: { name: string; cwd: string; argv: string[] }[] = [];
+  const markers = new Map<string, string>(Object.entries(o.markerFiles));
   const closedTabs: string[] = [];
   const removedWorktrees: string[] = [];
   const openPrInputs: unknown[] = [];
@@ -177,6 +267,7 @@ function mkHarness(opts?: {
         return [];
       }
     },
+    list: () => o.sessions,
   };
   let mergeCalls = 0;
 
@@ -212,6 +303,8 @@ function mkHarness(opts?: {
       if (o.originShaThrows) throw new Error("no such ref");
       return typeof o.originSha === "function" ? (o.originSha as () => string)() : o.originSha;
     }
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return o.ownerHead;
+    if (args[0] === "status" && args[1] === "--porcelain") return o.ownerStatusPorcelain;
     return "";
   };
 
@@ -234,14 +327,17 @@ function mkHarness(opts?: {
           // listBranches is present ONLY when remoteBranches is provided (mirrors the
           // optional GitHub matching-refs API; absent → git-fallback path exercised).
           ...(o.remoteBranches !== undefined ? { listBranches: async () => o.remoteBranches } : {}),
-          prStatus: async (branch: string) => ({
-            state: o.prStatusByBranch?.[branch] ?? "none",
-          }),
+          prStatus: async (branch: string) => {
+            const full = o.prStatusFull?.[branch];
+            if (full) return full;
+            return { state: o.prStatusByBranch?.[branch] ?? "none" };
+          },
         } as any);
 
   const herdr = {
-    start: (name: string, cwd: string) => {
+    start: (name: string, cwd: string, wrapped?: string[]) => {
       starts.push({ name, cwd });
+      startArgs.push({ name, cwd, argv: wrapped ?? [] });
       return { terminalId: "term-" + starts.length } as any;
     },
     stop: () => {},
@@ -308,6 +404,12 @@ function mkHarness(opts?: {
       return o.inScopeFilesPresent;
     },
     readSentinel: () => o.sentinel,
+    gitState: (id: string) => o.gitStateById[id],
+    idleThresholdMs: o.idleThresholdMs,
+    writeMarker: (p: string, c: string) => {
+      markers.set(p, c);
+    },
+    readMarker: (p: string) => markers.get(p) ?? null,
     readUsage: async () => ({
       input: 5,
       output: 7,
@@ -336,6 +438,8 @@ function mkHarness(opts?: {
     spawnRows,
     completedRows,
     deletedRemote,
+    markers,
+    startArgs,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -977,4 +1081,350 @@ test("finalize: no staged changes → outcome 'nochange', url null", async () =>
   const runs = h.kv.get("docagent:runs:/repo");
   const parsed = JSON.parse(runs!) as { outcome: string }[];
   expect(parsed[0]!.outcome).toBe("nochange");
+});
+
+// ── re-target: fold docs into the open code PR (issue #956 Option B) ─────────────
+
+const PR_SYNCED = (repo: string, pr: number) => `docagent:pr-synced:${repo}:${pr}`;
+const RETARGET_MARKER_FILE = ".shepherd-doc-retarget.json";
+
+/** A re-target sweep fixture: one idle session whose code PR is open+green+doc-relevant, with the
+ *  debounce threshold at 0 so a single sweep tick fires immediately (no idle-clock advance needed). */
+function mkRetargetHarness(over?: Parameters<typeof mkHarness>[0]) {
+  const session = mkSession({
+    id: "sess-1",
+    repoPath: "/repo",
+    branch: "feature/x",
+    worktreePath: "/owner/wt",
+    status: "idle",
+  });
+  return mkHarness({
+    idleThresholdMs: 0,
+    sessions: [session],
+    gitStateById: {
+      "sess-1": mkGitState({ number: 7, headSha: "headsha1", url: "https://forge/pr/7" }),
+    },
+    ...over,
+  });
+}
+
+test("re-target sweep: open+green+doc-relevant+settled → beginRetarget, claims prSyncedKey, worktree at headSha", async () => {
+  const h = mkRetargetHarness();
+  // first tick starts the idle clock (threshold 0 → still needs the second tick per the debounce model)
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(1);
+  expect(h.kv.get(PR_SYNCED("/repo", 7))).toBe("1");
+  // a durable doc_agent cost row was recorded for the re-target run
+  expect(h.spawnRows).toHaveLength(1);
+  expect(h.spawnRows[0]!.kind).toBe("doc_agent");
+  // a re-target marker was written into the new worktree root
+  const markerEntry = [...h.markers.entries()].find(([p]) => p.endsWith(RETARGET_MARKER_FILE));
+  expect(markerEntry).toBeDefined();
+  const parsed = JSON.parse(markerEntry![1]) as { prNumber: number; headBranch: string };
+  expect(parsed.prNumber).toBe(7);
+  expect(parsed.headBranch).toBe("feature/x");
+});
+
+test("re-target gate: running/blocked session → no fire, debounce reset", async () => {
+  for (const status of ["running", "blocked"] as const) {
+    const h = mkRetargetHarness({
+      sessions: [mkSession({ id: "sess-1", status })],
+    });
+    await h.svc.sweepReadyPrs();
+    await h.svc.sweepReadyPrs();
+    expect(h.starts).toHaveLength(0);
+  }
+});
+
+test("re-target gate: checks !== success → no fire", async () => {
+  const h = mkRetargetHarness({
+    gitStateById: { "sess-1": mkGitState({ checks: "pending" }) },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+});
+
+test("re-target gate: state !== open → no fire", async () => {
+  const h = mkRetargetHarness({
+    gitStateById: { "sess-1": mkGitState({ state: "merged" }) },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+});
+
+test("re-target gate: non-doc-relevant title → no fire", async () => {
+  const h = mkRetargetHarness({
+    gitStateById: { "sess-1": mkGitState({ title: "fix: a bug" }) },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+});
+
+test("re-target gate: prSyncedKey already set → no fire", async () => {
+  const h = mkRetargetHarness();
+  h.kv.set(PR_SYNCED("/repo", 7), "1");
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+});
+
+test("re-target gate: missing git / headSha / number / branch / doc-tree → no fire", async () => {
+  // no git state
+  let h = mkRetargetHarness({ gitStateById: {} });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // missing headSha
+  h = mkRetargetHarness({ gitStateById: { "sess-1": mkGitState({ headSha: undefined }) } });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // missing number
+  h = mkRetargetHarness({ gitStateById: { "sess-1": mkGitState({ number: undefined }) } });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // missing branch
+  h = mkRetargetHarness({ sessions: [mkSession({ id: "sess-1", branch: null })] });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // no doc tree
+  h = mkRetargetHarness({ docTreePresent: false });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+});
+
+test("re-target debounce: first settle tick does NOT fire; fires only after idleMs >= threshold", async () => {
+  let nowVal = 1000;
+  const h = mkRetargetHarness({ idleThresholdMs: 5000, now: () => nowVal });
+  await h.svc.sweepReadyPrs(); // first settle tick: starts the clock
+  expect(h.starts).toHaveLength(0);
+  nowVal = 1000 + 4999; // not yet settled long enough
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  nowVal = 1000 + 5000; // threshold reached
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(1);
+});
+
+test("re-target debounce: resets when the session goes running then settles again", async () => {
+  let nowVal = 1000;
+  const session = mkSession({ id: "sess-1", status: "idle" });
+  const h = mkHarness({
+    idleThresholdMs: 5000,
+    now: () => nowVal,
+    sessions: [session],
+    gitStateById: { "sess-1": mkGitState() },
+  });
+  await h.svc.sweepReadyPrs(); // start clock
+  session.status = "running"; // re-activated → debounce reset
+  nowVal = 1000 + 6000;
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // settles again — clock restarts from now
+  session.status = "idle";
+  await h.svc.sweepReadyPrs(); // restart clock
+  expect(h.starts).toHaveLength(0);
+  nowVal = nowVal + 5000;
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(1);
+});
+
+test("re-target debounce: per-repo inflight lock blocks fire WITHOUT setting fired (retries next tick)", async () => {
+  const session = mkSession({ id: "sess-1", status: "idle" });
+  const h = mkHarness({
+    idleThresholdMs: 0,
+    sessions: [session],
+    gitStateById: { "sess-1": mkGitState() },
+  });
+  // a fresh run is in flight for the repo (occupies the lock)
+  await h.svc.consider("/repo");
+  expect(h.svc.isRunning("/repo")).toBe(true);
+  await h.svc.sweepReadyPrs(); // start clock
+  await h.svc.sweepReadyPrs(); // would fire, but the lock blocks it (fired NOT set)
+  expect(h.starts).toHaveLength(1); // only the fresh consider's spawn
+  // free the lock by finalizing the fresh run, then the next sweep fires the re-target
+  await h.svc.tick();
+  expect(h.svc.isRunning("/repo")).toBe(false);
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(2);
+});
+
+test("re-target finalize, PR still open: commits + pushes HEAD:refs/heads/<headBranch>, opens NO new PR, outcome 'pr'", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  // committed --no-verify
+  expect(h.gitCalls.some((c) => c.args[0] === "commit" && c.args.includes("--no-verify"))).toBe(
+    true,
+  );
+  // pushed onto the code PR's head branch with the exact refspec (no force, no -u of docs-update)
+  const push = h.gitCalls.find((c) => c.args[0] === "push");
+  expect(push!.args).toEqual(["push", "origin", "HEAD:refs/heads/feature/x"]);
+  // NO new PR opened
+  expect(h.openPrInputs).toHaveLength(0);
+  // outcome pr with the existing PR url
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/7", outcome: "pr" }]);
+  // never force-pushed
+  expect(h.gitCalls.some((c) => c.args.includes("--force") || c.args.includes("-f"))).toBe(false);
+});
+
+test("re-target finalize cleanup: deletes the local docs-update branch, never the code PR head branch", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  const branchDeletes = h.gitCalls.filter((c) => c.args[0] === "branch" && c.args[1] === "-D");
+  expect(branchDeletes).toHaveLength(1);
+  expect(branchDeletes[0]!.args[2]).toMatch(/^shepherd\/docs-update-/);
+  // the code PR head branch is NEVER deleted
+  expect(h.gitCalls.some((c) => c.args.includes("feature/x") && c.args.includes("-D"))).toBe(false);
+});
+
+test("re-target merged-first: PR not open at finalize → ONE fresh PR (openPr + push docs-update), onMergedPr then skipped", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "merged" } },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  // fell through to the fresh path: pushed the docs-update branch + opened exactly one PR
+  expect(h.openPrInputs).toHaveLength(1);
+  expect((h.openPrInputs[0] as any).head).toMatch(/^shepherd\/docs-update-/);
+  const push = h.gitCalls.find((c) => c.args[0] === "push");
+  expect(push!.args[1]).toBe("-u");
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" }]);
+  // the prSyncedKey is set → a now-merged onMergedPr for that PR is deferred (no second doc run)
+  const res = await h.svc.onMergedPr("/repo", 7, "feat(ui): add thing", "main");
+  expect(res.status).toBe("skipped");
+  expect(res.reason).toContain("re-target already owns");
+});
+
+test("re-target owner ff: runs when owner worktree clean + at pre-push head; never force", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    ownerStatusPorcelain: "",
+    ownerHead: "headsha1", // equals git.headSha
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  // ff fetched the code branch + merged --ff-only into the owner worktree
+  const fetch = h.gitCalls.find((c) => c.args[0] === "fetch" && c.cwd === "/owner/wt");
+  expect(fetch!.args).toEqual(["fetch", "origin", "feature/x"]);
+  const ff = h.gitCalls.find((c) => c.args[0] === "merge" && c.cwd === "/owner/wt");
+  expect(ff!.args).toEqual(["merge", "--ff-only", "origin/feature/x"]);
+});
+
+test("re-target owner ff: skipped when owner worktree dirty", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    ownerStatusPorcelain: " M src/index.ts", // dirty
+    ownerHead: "headsha1",
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args[0] === "merge" && c.cwd === "/owner/wt")).toBe(false);
+  expect(h.gitCalls.some((c) => c.args[0] === "fetch" && c.cwd === "/owner/wt")).toBe(false);
+});
+
+test("re-target owner ff: skipped when owner HEAD moved off the pre-push head", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    ownerStatusPorcelain: "",
+    ownerHead: "movedsha", // != git.headSha
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args[0] === "merge" && c.cwd === "/owner/wt")).toBe(false);
+});
+
+test("onMergedPr: skips when prSyncedKey set; fires fresh consider when unset", async () => {
+  // unset → fires (current behavior)
+  const h1 = mkHarness();
+  const r1 = await h1.svc.onMergedPr("/repo", 7, "feat: x", "main");
+  expect(r1.status).toBe("started");
+  // set → defers, and crucially does NOT consume mergedSeenKey
+  const h2 = mkHarness();
+  h2.kv.set(PR_SYNCED("/repo", 7), "1");
+  const r2 = await h2.svc.onMergedPr("/repo", 7, "feat: x", "main");
+  expect(r2.status).toBe("skipped");
+  expect(h2.starts).toHaveLength(0);
+  expect(h2.kv.has(MERGED_SEEN("/repo", 7))).toBe(false);
+});
+
+test("reapOrphans: worktree with a re-target marker re-adopts as mode:retarget and pushes onto the PR head", async () => {
+  const markerPath = "/wt/docs-update-rt000001/.shepherd-doc-retarget.json";
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("rt000001"),
+    sentinel: "## Changes\n- updated configuration.md\n",
+    act: true,
+    markerFiles: {
+      [markerPath]: JSON.stringify({ prNumber: 7, headBranch: "feature/x", base: "main" }),
+    },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+  });
+  await h.svc.reapOrphans();
+  await h.svc.tick();
+  // re-adopted as a re-target run → pushed onto the code PR's head branch, opened no new PR
+  const push = h.gitCalls.find((c) => c.args[0] === "push");
+  expect(push!.args).toEqual(["push", "origin", "HEAD:refs/heads/feature/x"]);
+  expect(h.openPrInputs).toHaveLength(0);
+});
+
+test("reapOrphans: worktree WITHOUT a marker re-adopts as mode:fresh (opens a standalone PR)", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("fr000001"),
+    sentinel: "## Changes\n- updated configuration.md\n",
+    act: true,
+  });
+  await h.svc.reapOrphans();
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(1);
+  expect((h.openPrInputs[0] as any).head).toBe("shepherd/docs-update-fr000001");
+});
+
+test("re-target OBSERVE (act:false): logs, does not push or openPr", async () => {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => {
+    warns.push(a.join(" "));
+  };
+  try {
+    const h = mkRetargetHarness({
+      act: false,
+      prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    });
+    await h.svc.sweepReadyPrs();
+    await h.svc.sweepReadyPrs();
+    await h.svc.tick();
+    expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
+    expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
+    expect(h.openPrInputs).toHaveLength(0);
+    expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "observe" }]);
+    expect(warns.some((w) => w.includes("[doc-agent] OBSERVE:") && w.includes("PR #7"))).toBe(true);
+  } finally {
+    console.warn = orig;
+  }
 });

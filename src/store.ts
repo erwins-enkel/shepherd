@@ -340,6 +340,7 @@ type LearningRow = {
   promotedPrUrl: string | null;
   mergedIntoId: string | null;
   trialedAt: number | null;
+  reTrialBlockedAt: number | null;
   evidenceKindsSeen: string;
   evidenceSessionsSeen: string;
 };
@@ -2379,6 +2380,9 @@ export class SessionStore implements CapStore, CreditStore {
     add("trialedAt", `trialedAt INTEGER`);
     add("evidenceKindsSeen", `evidenceKindsSeen TEXT NOT NULL DEFAULT '[]'`);
     add("evidenceSessionsSeen", `evidenceSessionsSeen TEXT NOT NULL DEFAULT '[]'`);
+    // Re-trial block marker (#945): set on revertTrial(id,"proposed"); presence suppresses
+    // auto-re-trial until fresh evidence clears it or the rule expires.
+    add("reTrialBlockedAt", `reTrialBlockedAt INTEGER`);
   }
 
   private hydrateLearning(r: LearningRow): Learning {
@@ -2403,6 +2407,7 @@ export class SessionStore implements CapStore, CreditStore {
       promotedPrUrl: r.promotedPrUrl ?? null,
       mergedIntoId: r.mergedIntoId ?? null,
       trialedAt: r.trialedAt ?? null,
+      reTrialBlockedAt: r.reTrialBlockedAt ?? null,
       distinctKinds: parseFindings(r.evidenceKindsSeen).length,
       distinctSessions: parseFindings(r.evidenceSessionsSeen).length,
     };
@@ -2468,6 +2473,7 @@ export class SessionStore implements CapStore, CreditStore {
       promotedPrUrl: null,
       mergedIntoId: null,
       trialedAt: null,
+      reTrialBlockedAt: null,
       distinctKinds: kinds.length,
       distinctSessions: sessions.length,
     };
@@ -2537,12 +2543,14 @@ export class SessionStore implements CapStore, CreditStore {
     const cur = this.getLearning(id);
     if (!cur) return null;
     if (!LEARNING_TRANSITIONS[cur.status].includes(status)) return null;
-    this.db.run(`UPDATE learnings SET status = ?, rule = ?, updatedAt = ? WHERE id = ?`, [
-      status,
-      rule ?? cur.rule,
-      Date.now(),
-      id,
-    ]);
+    // #945 fold-in: dismissing a trial (active→dismissed) must clear the auto-trial timestamp,
+    // else the terminal row carries a stale `trialedAt` (cosmetic provenance leak). Scoped to
+    // the dismissed target per the issue; active→retired via this path is a stated deferral.
+    const clearTrialed = status === "dismissed" ? ", trialedAt = NULL" : "";
+    this.db.run(
+      `UPDATE learnings SET status = ?, rule = ?, updatedAt = ?${clearTrialed} WHERE id = ?`,
+      [status, rule ?? cur.rule, Date.now(), id],
+    );
     return this.getLearning(id);
   }
 
@@ -2999,11 +3007,14 @@ export class SessionStore implements CapStore, CreditStore {
     const cur = this.getLearning(id);
     if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
     const now = Date.now();
-    this.db.run(`UPDATE learnings SET status = ?, trialedAt = NULL, updatedAt = ? WHERE id = ?`, [
-      target,
-      now,
-      id,
-    ]);
+    // #945: when sending the rule back to the queue (target "proposed"), stamp the re-trial
+    // block marker so the auto-trial gate won't immediately re-promote it off its still-strong
+    // frozen diversity counters. "dismissed" is terminal — no marker needed (leave it null).
+    const blockedAt = target === "proposed" ? now : null;
+    this.db.run(
+      `UPDATE learnings SET status = ?, trialedAt = NULL, reTrialBlockedAt = ?, updatedAt = ? WHERE id = ?`,
+      [target, blockedAt, now, id],
+    );
     return this.getLearning(id);
   }
 
@@ -3043,9 +3054,11 @@ export class SessionStore implements CapStore, CreditStore {
     for (const k of freshKinds) existingKinds.add(k);
     const mergedSessions = [...new Set([...existingSessionsArr, ...freshSessions])].slice(0, 50);
     const now = Date.now();
+    // #945: genuinely fresh evidence (recurrence) lifts any re-trial block so the rule can
+    // re-qualify for auto-trial on its renewed strength.
     this.db.run(
       `UPDATE learnings SET evidence = ?, evidenceCount = ?, evidenceKindsSeen = ?,
-         evidenceSessionsSeen = ?, lastEvidenceAt = ?, updatedAt = ? WHERE id = ?`,
+         evidenceSessionsSeen = ?, lastEvidenceAt = ?, reTrialBlockedAt = NULL, updatedAt = ? WHERE id = ?`,
       [
         JSON.stringify(newEvidence),
         newEvidence.length,

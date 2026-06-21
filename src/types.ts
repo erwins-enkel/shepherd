@@ -539,6 +539,13 @@ export interface Learning {
   /** When the rule was auto-promoted proposed→active as a trial (trialLearning).
    *  Null for manually-approved active rules and all non-trial states. */
   trialedAt: number | null;
+  /** Presence marker (#945): set when an auto-trial is reverted back to `proposed`
+   *  (`revertTrial(id,"proposed")`). While non-null the auto-trial gate (`shouldTrial`)
+   *  suppresses re-trial, so a reverted strong proposal doesn't bounce straight back to an
+   *  active trial off its frozen diversity counters. Cleared by `accrueProposedEvidence` on
+   *  genuinely fresh evidence (recurrence re-trials it). The timestamp value is provenance
+   *  only — never compared to `now` — so the block lifts only via recurrence or normal expiry. */
+  reTrialBlockedAt: number | null;
   /** Count of distinct signal kinds in the durable evidenceKindsSeen set. */
   distinctKinds: number;
   /** Count of distinct non-null session ids in the durable evidenceSessionsSeen set. */

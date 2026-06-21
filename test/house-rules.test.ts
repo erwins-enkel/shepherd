@@ -36,6 +36,7 @@ function rule(p: Partial<Learning>): Learning {
     promotedPrUrl: p.promotedPrUrl ?? null,
     mergedIntoId: p.mergedIntoId ?? null,
     trialedAt: p.trialedAt ?? null,
+    reTrialBlockedAt: p.reTrialBlockedAt ?? null,
     distinctKinds: p.distinctKinds ?? 0,
     distinctSessions: p.distinctSessions ?? 0,
   };

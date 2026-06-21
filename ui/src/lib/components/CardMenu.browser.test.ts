@@ -49,12 +49,13 @@ describe("CardMenu relaunch action", () => {
 
     // armed: label switched to the confirm text, callback NOT yet fired
     expect(onrelaunch).not.toHaveBeenCalled();
-    await expect
-      .element(page.getByRole("menuitem", { name: m.cardmenu_relaunch_confirm() }))
-      .toBeInTheDocument();
+    const confirm = page.getByRole("menuitem", { name: m.cardmenu_relaunch_confirm() });
+    await expect.element(confirm).toBeInTheDocument();
+    // the armed item gains the danger-wash class so the second click is obviously hot
+    await expect.element(confirm).toHaveClass(/\barmed\b/);
 
     // second click within the window fires it exactly once
-    await page.getByRole("menuitem", { name: m.cardmenu_relaunch_confirm() }).click();
+    await confirm.click();
     expect(onrelaunch).toHaveBeenCalledTimes(1);
   });
 
@@ -70,11 +71,12 @@ describe("CardMenu relaunch action", () => {
         .element(page.getByRole("menuitem", { name: m.cardmenu_relaunch_confirm() }))
         .toBeInTheDocument();
 
-      // past the ~3s arm window → disarms back to the idle label, no fire
+      // past the ~3s arm window → disarms back to the idle label (and drops the
+      // armed danger-wash), no fire
       vi.advanceTimersByTime(3500);
-      await expect
-        .element(page.getByRole("menuitem", { name: m.cardmenu_relaunch() }))
-        .toBeInTheDocument();
+      const idle = page.getByRole("menuitem", { name: m.cardmenu_relaunch() });
+      await expect.element(idle).toBeInTheDocument();
+      await expect.element(idle).not.toHaveClass(/\barmed\b/);
       expect(onrelaunch).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

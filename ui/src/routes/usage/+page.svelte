@@ -27,45 +27,32 @@
       });
   });
 
-  // Fetch breakdown on mount and whenever range changes.
-  // Guard against out-of-order responses with a request token.
-  $effect(() => {
-    const requestedRange = range;
+  // Monotonic token: latest request always wins; stale requests discard their results.
+  let reqToken = 0;
+
+  async function loadBreakdown(r: UsageRange) {
+    const my = ++reqToken;
     loading = true;
     error = false;
-    getUsageBreakdown(requestedRange)
-      .then((b) => {
-        // Ignore stale responses: only accept if range hasn't changed since we fired
-        if (range === requestedRange) {
-          breakdown = b;
-          loading = false;
-        }
-      })
-      .catch(() => {
-        if (range === requestedRange) {
-          error = true;
-          loading = false;
-        }
-      });
+    try {
+      const b = await getUsageBreakdown(r);
+      if (my !== reqToken) return;
+      breakdown = b;
+    } catch {
+      if (my !== reqToken) return;
+      error = true;
+    } finally {
+      if (my === reqToken) loading = false;
+    }
+  }
+
+  // Fetch breakdown on mount and whenever range changes.
+  $effect(() => {
+    loadBreakdown(range);
   });
 
   function retry() {
-    const requestedRange = range;
-    loading = true;
-    error = false;
-    getUsageBreakdown(requestedRange)
-      .then((b) => {
-        if (range === requestedRange) {
-          breakdown = b;
-          loading = false;
-        }
-      })
-      .catch(() => {
-        if (range === requestedRange) {
-          error = true;
-          loading = false;
-        }
-      });
+    loadBreakdown(range);
   }
 </script>
 

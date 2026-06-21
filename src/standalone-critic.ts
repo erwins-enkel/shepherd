@@ -18,7 +18,6 @@
  * patch-id churn/revert set mirrors ReviewService's clean-resets-[] / findings-appends logic so an
  * identical-diff rebase is skipped and a revert-to-an-earlier-buggy-diff is re-reviewed.
  */
-import { homedir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -26,12 +25,7 @@ import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { readonlyReviewerArgv } from "./reviewer-argv";
 import { isEpicIntegrationBranch } from "./epic-branch";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeyMembraneFields,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   prReviewPrompt,
@@ -45,15 +39,7 @@ import {
   type RawVerdict,
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
-import {
-  detectBackend as realDetectBackend,
-  wrapArgv,
-  safeRealpath,
-  collectPassthroughEnv,
-  type SandboxBackend,
-  type MembraneInputs,
-} from "./sandbox";
-import { config } from "./config";
+import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
  *  finalize needs without re-querying — mirrors ReviewService's InFlight, minus the streak/note
@@ -77,7 +63,7 @@ interface InFlight {
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_CONCURRENCY = 2;
 
-export interface StandalonePrCriticDeps {
+export interface StandalonePrCriticDeps extends MembraneSeams {
   store: Pick<
     SessionStore,
     | "getRepoConfig"
@@ -119,16 +105,6 @@ export interface StandalonePrCriticDeps {
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
   /** Injectable reader of a finished reviewer's token totals (default: readSessionUsage). */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
-  /** Injectable sandbox backend probe seam (tests inject `() => null` so no real bwrap is
-   *  spawned). Presence-checked (not `??`) because the seam legitimately returns null. */
-  detectBackend?: () => SandboxBackend;
-  /** Injectable membrane env seam (tests inject a stub so no host paths are touched). */
-  membraneEnv?: () => {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  };
 }
 
 export class StandalonePrCriticService {
@@ -152,33 +128,6 @@ export class StandalonePrCriticService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
-
-  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-
-   *  checked (not `??`) because the seam legitimately returns null (no backend). */
-  private detectBackend(): SandboxBackend {
-    if (this.deps.detectBackend) return this.deps.detectBackend();
-    return realDetectBackend({
-      home: homedir(),
-      claudeDir: config.claudeDir,
-      nodeBinReal: safeRealpath(config.nodeBin),
-    });
-  }
-
-  /** Membrane env: injected seam (tests) or real host values. */
-  private membraneEnv(): {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  } {
-    if (this.deps.membraneEnv) return this.deps.membraneEnv();
-    return {
-      claudeDir: config.claudeDir,
-      home: homedir(),
-      nodeBinReal: safeRealpath(config.nodeBin),
-      extraEnv: collectPassthroughEnv(),
-    };
-  }
 
   constructor(private deps: StandalonePrCriticDeps) {
     this.now = deps.now ?? Date.now;
@@ -462,21 +411,13 @@ export class StandalonePrCriticService {
       // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
       CRITIC_THINKING_TOKENS,
     );
-    const backend = this.detectBackend();
-    const env = this.membraneEnv();
-    const membrane: MembraneInputs = {
+    const { wrapped, backend } = resolveSpawnMembrane({
+      argv,
       worktreePath,
-      gitCommonDir: this.deps.worktree.gitCommonDir(worktreePath),
-      isolated: true,
       repoPath,
-      claudeDir: env.claudeDir,
-      home: env.home,
-      nodeBinReal: env.nodeBinReal,
-      extraEnv: env.extraEnv,
-      // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
-      ...apiKeyMembraneFields(),
-    };
-    const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
+      worktree: this.deps.worktree,
+      seams: this.deps,
+    });
 
     let terminalId: string;
     try {

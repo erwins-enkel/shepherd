@@ -585,6 +585,7 @@ const docAgent = new DocAgentService({
   resolveForge,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
+  gitState: (id) => prPoller.get(id),
   nightlyHour: config.docAgentNightlyHour,
   model: config.docAgentModel,
   act: config.docAgentAct,
@@ -852,6 +853,9 @@ setInterval(() => {
     void docAgent
       .sweepNightly()
       .catch((err) => console.warn("[doc-agent] nightly sweep failed:", err)); // cadence: once/day/repo, spawn only when base advanced
+    void docAgent
+      .sweepReadyPrs()
+      .catch((err) => console.warn("[doc-agent] sweepReadyPrs failed:", err)); // pre-merge: re-target docs onto an open code PR (settled-idle)
   }
   try {
     buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)

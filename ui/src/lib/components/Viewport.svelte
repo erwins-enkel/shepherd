@@ -173,6 +173,13 @@
   // Display-side status for every header/status render below (see display-status.ts).
   const dStatus = $derived(displayStatus(session, workingBlocked));
 
+  // Branch label for the header: every session branch is cut as `shepherd/<name>`,
+  // so the prefix is pure noise that only eats the truncation budget — strip it and
+  // surface the descriptive tail (the part the user actually distinguishes by).
+  const branchLabel = $derived(
+    (session.branch ?? session.worktreePath)?.replace(/^shepherd\//, ""),
+  );
+
   const activityRecap = $derived(recaps.map[session.id]);
   // settled = the session has stopped working; a recap survives re-activation
   // (src/recap.ts), so a resumed (running) session must fall back to the live feed.
@@ -1809,7 +1816,7 @@
         <!-- hidden while the rename editor is open — the editor claims the full
              row width, so the branch label would only fight it for space -->
         <span class="sep">·</span>
-        <span class="branch">{session.branch ?? session.worktreePath}</span>
+        <span class="branch" title={session.branch ?? session.worktreePath}>{branchLabel}</span>
       {/if}
       <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
            takes the title's slot in place when active -->

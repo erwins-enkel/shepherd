@@ -11,6 +11,7 @@
     height = 28,
     ariaLabel,
     liveLast = false,
+    domain,
   }: {
     points: Point[];
     color: string;
@@ -18,6 +19,10 @@
     height?: number;
     ariaLabel: string;
     liveLast?: boolean;
+    // Fixed y-axis range. Pass {min:0,max:100} for percentage series so cross-cycle
+    // magnitude is comparable (and the inline curve shares the gauge meter's scale).
+    // Omitted → auto-scale to the series' own min/max.
+    domain?: { min: number; max: number };
   } = $props();
 
   // Padding so markers at extremes don't get clipped
@@ -30,19 +35,22 @@
 
     const tMin = pts[0].t;
     const tMax = pts[pts.length - 1].t;
-    const vMin = Math.min(...pts.map((p) => p.v));
-    const vMax = Math.max(...pts.map((p) => p.v));
+    const vMin = domain ? domain.min : Math.min(...pts.map((p) => p.v));
+    const vMax = domain ? domain.max : Math.max(...pts.map((p) => p.v));
 
     const tRange = tMax - tMin || 1;
     const vRange = vMax - vMin || 1;
 
     const innerW = width - PAD * 2;
     const innerH = height - PAD * 2;
+    // Clamp the normalized value into [0,1] so an out-of-domain point (e.g. credit
+    // spend over budget vs a fixed 0–100) renders at the edge, never outside the svg.
+    const norm = (v: number) => Math.max(0, Math.min(1, (v - vMin) / vRange));
 
     return pts.map((p) => ({
       x: PAD + ((p.t - tMin) / tRange) * innerW,
       // SVG y axis is inverted: low v → high y
-      y: PAD + (1 - (p.v - vMin) / vRange) * innerH,
+      y: PAD + (1 - norm(p.v)) * innerH,
     }));
   }
 

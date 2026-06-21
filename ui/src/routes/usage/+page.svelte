@@ -106,11 +106,14 @@
     loadBreakdown(range);
   });
 
-  // Retry re-fetches BOTH tracks so either failure surface recovers.
-  function retry() {
+  // Retry re-fetches BOTH tracks so either failure surface recovers. Rebaseline the
+  // scrape signal after the limits/history loads so the next poll tick doesn't see a
+  // stale signal and trigger a redundant /api/usage/history refetch.
+  async function retry() {
     loadBreakdown(range);
-    loadLimits();
-    loadHistory();
+    await loadLimits();
+    await loadHistory();
+    lastScrapeSig = scrapeSig();
   }
 </script>
 

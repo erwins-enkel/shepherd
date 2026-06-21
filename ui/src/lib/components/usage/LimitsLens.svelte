@@ -101,6 +101,7 @@
             points={inlinePoints(gauge.label, gauge.w.pct, gauge.w.resetAt)}
             {color}
             liveLast={true}
+            domain={{ min: 0, max: 100 }}
             ariaLabel={m.usage_history_inline_label({ window: windowLabel(gauge.label) })}
           />
         </div>

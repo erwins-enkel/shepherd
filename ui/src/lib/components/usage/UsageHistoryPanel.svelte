@@ -107,6 +107,7 @@
             <Sparkline
               points={cycle.points}
               color={isCurrent ? gaugeColor(s.latest) : "var(--color-faint)"}
+              domain={{ min: 0, max: 100 }}
               ariaLabel={s.label}
               liveLast={isCurrent}
             />

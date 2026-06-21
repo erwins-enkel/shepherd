@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { SessionStore } from "../src/store";
-import type { SessionUsageSnapshot } from "../src/types";
+import type { SessionUsageBucket, SessionUsageSnapshot } from "../src/types";
 
 const snap = (over: Partial<SessionUsageSnapshot> = {}): SessionUsageSnapshot => ({
   sessionId: "sess-1",
@@ -62,4 +62,169 @@ test("session_usage: upserting same sessionId twice yields one row with second v
 test("session_usage: listSessionUsage on empty table returns []", () => {
   const s = new SessionStore(":memory:");
   expect(s.listSessionUsage()).toEqual([]);
+});
+
+// ── session_usage_bucket tests ────────────────────────────────────────────────
+
+/** Helper: minimal bucket fixture. */
+const bucket = (over: Partial<SessionUsageBucket> = {}): SessionUsageBucket => ({
+  sessionId: "sess-1",
+  bucketStart: 3_600_000,
+  input: 100,
+  output: 50,
+  cacheRead: 20,
+  cacheWrite: 5,
+  weightedUnits: 1.5,
+  cacheReadUnits: 0.1,
+  byModel: { "claude-sonnet-4-5": 1.5 },
+  ...over,
+});
+
+test("session_usage_bucket: replaceSessionUsageBuckets inserts and round-trips rows", () => {
+  const s = new SessionStore(":memory:");
+  // Parent row required for FK
+  s.upsertSessionUsage(snap());
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 0 }),
+    bucket({ bucketStart: 3_600_000, input: 200 }),
+  ]);
+  const ids = s.bucketedSessionIds();
+  expect(ids.has("sess-1")).toBe(true);
+  expect(ids.size).toBe(1);
+});
+
+test("session_usage_bucket: replaceSessionUsageBuckets is idempotent — no PK error, old rows replaced", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+  s.replaceSessionUsageBuckets("sess-1", [bucket({ input: 100 })]);
+  // Re-call with updated data for the same bucketStart — must not throw PK error
+  s.replaceSessionUsageBuckets("sess-1", [bucket({ input: 999 })]);
+  // Only the new data should survive
+  const sums = s.sumSessionUsageBucketsSince(0);
+  expect(sums.get("sess-1")!.input).toBe(999);
+});
+
+test("session_usage_bucket: empty buckets array clears session rows", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+  s.replaceSessionUsageBuckets("sess-1", [bucket()]);
+  expect(s.bucketedSessionIds().has("sess-1")).toBe(true);
+  s.replaceSessionUsageBuckets("sess-1", []);
+  expect(s.bucketedSessionIds().has("sess-1")).toBe(false);
+});
+
+test("session_usage_bucket: FK CASCADE — deleting session_usage parent removes buckets", () => {
+  const s = new SessionStore(":memory:");
+  // Must create parent before inserting buckets
+  s.upsertSessionUsage(snap());
+  s.replaceSessionUsageBuckets("sess-1", [bucket(), bucket({ bucketStart: 7_200_000 })]);
+  expect(s.bucketedSessionIds().has("sess-1")).toBe(true);
+  // Delete parent — CASCADE should wipe child rows
+  (s as unknown as { db: import("bun:sqlite").Database }).db.run(
+    `DELETE FROM session_usage WHERE sessionId = ?`,
+    ["sess-1"],
+  );
+  expect(s.bucketedSessionIds().has("sess-1")).toBe(false);
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince includes bucket 0 and buckets >= floorHour(cutoff)", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+
+  const H = 3_600_000; // one hour in ms
+  // hour 1 = 1H, hour 2 = 2H, hour 3 = 3H; plus timeless bucket 0
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 0, input: 10, weightedUnits: 0.1 }),
+    bucket({ bucketStart: 1 * H, input: 20, weightedUnits: 0.2 }),
+    bucket({ bucketStart: 2 * H, input: 30, weightedUnits: 0.3 }),
+    bucket({ bucketStart: 3 * H, input: 40, weightedUnits: 0.4 }),
+  ]);
+
+  // cutoff at 2H + 1ms → floorHour = 2H → includes bucket 0 + bucket 2H + bucket 3H
+  const cutoff = 2 * H + 1;
+  const sums = s.sumSessionUsageBucketsSince(cutoff);
+  const w = sums.get("sess-1")!;
+  // bucket 0 (10) + bucket 2H (30) + bucket 3H (40) = 80; bucket 1H excluded
+  expect(w.input).toBe(80);
+  expect(w.weightedUnits).toBeCloseTo(0.8, 10);
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince merges byModel across rows", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+
+  const H = 3_600_000;
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 0, byModel: { sonnet: 1.0, opus: 0.5 } }),
+    bucket({ bucketStart: 2 * H, byModel: { sonnet: 2.0 } }),
+    bucket({ bucketStart: 3 * H, byModel: { haiku: 0.3 } }),
+  ]);
+
+  const sums = s.sumSessionUsageBucketsSince(2 * H);
+  const bm = sums.get("sess-1")!.byModel;
+  expect(bm["sonnet"]).toBeCloseTo(3.0, 10); // 1.0 + 2.0
+  expect(bm["opus"]).toBeCloseTo(0.5, 10); // only in bucket 0
+  expect(bm["haiku"]).toBeCloseTo(0.3, 10); // bucket 3H
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince sums multiple sessions independently", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap({ sessionId: "sess-1" }));
+  s.upsertSessionUsage(snap({ sessionId: "sess-2" }));
+
+  s.replaceSessionUsageBuckets("sess-1", [bucket({ sessionId: "sess-1", input: 100 })]);
+  s.replaceSessionUsageBuckets("sess-2", [bucket({ sessionId: "sess-2", input: 200 })]);
+
+  const sums = s.sumSessionUsageBucketsSince(0);
+  expect(sums.get("sess-1")!.input).toBe(100);
+  expect(sums.get("sess-2")!.input).toBe(200);
+  expect(sums.size).toBe(2);
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince excludes buckets before floorHour(cutoff)", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+
+  const H = 3_600_000;
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 1 * H, input: 10 }),
+    bucket({ bucketStart: 2 * H, input: 20 }),
+  ]);
+
+  // cutoff = 2H → only bucket 2H included; bucket 1H is excluded
+  const sums = s.sumSessionUsageBucketsSince(2 * H);
+  expect(sums.get("sess-1")!.input).toBe(20);
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince cutoff=0 => floorHour=0 => only bucket 0 matches bucketStart=0", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+
+  const H = 3_600_000;
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 0, input: 5 }),
+    bucket({ bucketStart: 1 * H, input: 50 }),
+  ]);
+
+  // cutoff=0 → floorHour=0 → WHERE bucketStart=0 OR bucketStart>=0 → ALL rows
+  const sums = s.sumSessionUsageBucketsSince(0);
+  expect(sums.get("sess-1")!.input).toBe(55);
+});
+
+test("session_usage_bucket: bucketedSessionIds returns distinct set", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap({ sessionId: "sess-1" }));
+  s.upsertSessionUsage(snap({ sessionId: "sess-2" }));
+
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ sessionId: "sess-1", bucketStart: 0 }),
+    bucket({ sessionId: "sess-1", bucketStart: 3_600_000 }),
+  ]);
+  s.replaceSessionUsageBuckets("sess-2", [bucket({ sessionId: "sess-2" })]);
+
+  const ids = s.bucketedSessionIds();
+  expect(ids.size).toBe(2);
+  expect(ids.has("sess-1")).toBe(true);
+  expect(ids.has("sess-2")).toBe(true);
+  expect(ids.has("sess-3")).toBe(false);
 });

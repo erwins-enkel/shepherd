@@ -142,8 +142,15 @@
     </button>
   {/if}
   {#if onrelaunch}
-    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onRelaunchClick}>
-      <span class="cm-icon" aria-hidden="true">♻</span>{relaunchArmed
+    <button
+      class="cm-item"
+      class:armed={relaunchArmed}
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onRelaunchClick}
+    >
+      <span class="cm-icon" aria-hidden="true">{relaunchArmed ? "⚠" : "♻"}</span>{relaunchArmed
         ? m.cardmenu_relaunch_confirm()
         : m.cardmenu_relaunch()}
     </button>
@@ -220,6 +227,18 @@
   .cm-item.danger:hover,
   .cm-item.danger:focus-visible {
     background: color-mix(in srgb, var(--color-red) 14%, var(--color-panel));
+  }
+  /* Armed relaunch: the first click only arms the two-step confirm (label swaps to
+     the confirm text + the ⚠ glyph). Without a colour shift the change was too quiet
+     to read as "click again to confirm" — operators saw the label toggle and thought
+     relaunch did nothing. The danger wash marks it hot so the second click is obvious. */
+  .cm-item.armed {
+    color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 14%, var(--color-panel));
+  }
+  .cm-item.armed:hover,
+  .cm-item.armed:focus-visible {
+    background: color-mix(in srgb, var(--color-red) 22%, var(--color-panel));
   }
   .cm-icon {
     font-size: var(--fs-meta);

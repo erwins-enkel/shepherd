@@ -2,7 +2,28 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { mockLimits, mockProjections } from "$lib/usage-mock";
+import type { UsageLimits, UsageProjection } from "$lib/types";
+
+const BASE = Date.now();
+const H = 3_600_000;
+
+function limitsFixture(): UsageLimits {
+  return {
+    session5h: { pct: 38, resetAt: BASE + 2.5 * H },
+    week: { pct: 22, resetAt: BASE + 58 * H },
+    credits: null,
+    stale: false,
+    calibratedAt: BASE - 5 * 60_000,
+    subscriptionOnly: false,
+  };
+}
+
+function projectionsFixture(): UsageProjection[] {
+  return [
+    { window: "5H", projectedPct: 64, resetAt: BASE + 2.5 * H, burnRatePerHour: 48_000 },
+    { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
+  ];
+}
 
 const { default: LimitsLens } = await import("./LimitsLens.svelte");
 
@@ -12,8 +33,8 @@ afterEach(() => {
 
 describe("LimitsLens", () => {
   it("renders a meter block for each window", async () => {
-    const limits = mockLimits();
-    const projections = mockProjections();
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
     render(LimitsLens, { limits, projections });
 
     // Two window blocks — one per gauge (5H and WK)
@@ -22,8 +43,8 @@ describe("LimitsLens", () => {
   });
 
   it("shows the current pct for each window", async () => {
-    const limits = mockLimits(); // session5h.pct=38, week.pct=22
-    const projections = mockProjections();
+    const limits = limitsFixture(); // session5h.pct=38, week.pct=22
+    const projections = projectionsFixture();
     render(LimitsLens, { limits, projections });
 
     await expect.element(page.getByText("38%")).toBeInTheDocument();
@@ -31,8 +52,8 @@ describe("LimitsLens", () => {
   });
 
   it("renders reset-time captions for each window", async () => {
-    const limits = mockLimits();
-    const projections = mockProjections();
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
     render(LimitsLens, { limits, projections });
 
     // Both windows should show "resets in …"
@@ -45,8 +66,8 @@ describe("LimitsLens", () => {
   });
 
   it("renders projection info for matched windows", async () => {
-    const limits = mockLimits();
-    const projections = mockProjections(); // 5H: projectedPct=64, burnRate=48_000; WK: projectedPct=41, burnRate=31_000
+    const limits = limitsFixture();
+    const projections = projectionsFixture(); // 5H: projectedPct=64, burnRate=48_000; WK: projectedPct=41, burnRate=31_000 (see projectionsFixture)
     render(LimitsLens, { limits, projections });
 
     // Projection info rows should be present for both windows
@@ -60,8 +81,8 @@ describe("LimitsLens", () => {
   });
 
   it("renders burn rate captions", async () => {
-    const limits = mockLimits();
-    const projections = mockProjections();
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
     render(LimitsLens, { limits, projections });
 
     // Both windows have projections → two burn rate captions
@@ -75,8 +96,8 @@ describe("LimitsLens", () => {
   });
 
   it("shows projection tick on the meter", async () => {
-    const limits = mockLimits();
-    const projections = mockProjections();
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
     render(LimitsLens, { limits, projections });
 
     const ticks = document.querySelectorAll(".proj-tick");

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageLimits, UsageRange } from "$lib/types";
+  import type { UsageBreakdown, UsageLimits, UsageProjection, UsageRange } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { getUsageBreakdown, getUsageLimits } from "$lib/api";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
@@ -13,6 +13,7 @@
 
   let breakdown = $state<UsageBreakdown | null>(null);
   let limits = $state<UsageLimits | null>(null);
+  let projections = $state<UsageProjection[]>([]);
   let loading = $state(true);
   let error = $state(false);
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
@@ -24,7 +25,9 @@
   async function loadLimits() {
     limitsError = false;
     try {
-      limits = await getUsageLimits();
+      const res = await getUsageLimits();
+      limits = res.limits;
+      projections = res.projections;
     } catch {
       limitsError = true;
     }
@@ -158,7 +161,7 @@
         <p class="usage-status-line">{m.common_loading()}</p>
       {/if}
     {:else if limits}
-      <LimitsLens {limits} projections={[]} />
+      <LimitsLens {limits} {projections} />
     {:else if limitsError}
       <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
       <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>

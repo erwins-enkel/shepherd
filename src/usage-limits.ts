@@ -8,6 +8,12 @@ const PERIOD_MS: Record<WindowKey, number> = {
   week: 7 * 24 * 60 * 60 * 1000,
 };
 
+const LOOKBACK_MS: Record<WindowKey, number> = {
+  session5h: 60 * 60 * 1000, // 1h trailing window for the 5H projection
+  week: 24 * 60 * 60 * 1000, // 24h trailing window for the WK projection
+};
+const WINDOW_LABEL: Record<WindowKey, "5H" | "WK"> = { session5h: "5H", week: "WK" };
+
 /** Below this scraped %, inverting to a cap is too noisy — keep the prior cap instead. */
 const MIN_CALIBRATION_PCT = 5;
 
@@ -234,6 +240,13 @@ export interface UsageLimits {
   subscriptionOnly: boolean;
 }
 
+export interface UsageProjection {
+  window: "5H" | "WK";
+  projectedPct: number; // projected % at reset if burn holds (NOT clamped; may exceed 100)
+  resetAt: number; // ms epoch of window reset
+  burnRatePerHour: number; // recent weighted units/hour
+}
+
 // Credits is scrape-fresh-only (no local signal to recompute from), so it goes stale fast —
 // 1h, unlike the 2-week cap stale that tolerates JSONL-recomputed windows drifting.
 const CREDIT_STALE_MS = 60 * 60 * 1000;
@@ -387,5 +400,31 @@ export class UsageLimitsService {
       };
     }
     return { session5h, week, credits, stale, calibratedAt, subscriptionOnly: isApiKeyMode() };
+  }
+
+  /** Burn-rate projections: projected % at window reset, based on a trailing lookback window. */
+  projections(now: number): UsageProjection[] {
+    const rows = new Map(this.caps.getCaps().map((r) => [r.window, r]));
+    const out: UsageProjection[] = [];
+    for (const key of ["session5h", "week"] as WindowKey[]) {
+      const row = rows.get(key);
+      if (!row || row.cap <= 0) continue; // mirrors limits() returning null
+      const period = PERIOD_MS[key];
+      const resetAt = rollForward(row.resetAt, period, now);
+      const windowStart = resetAt - period;
+      const curUnits = this.index.windowSum(windowStart, now);
+      const lookback = LOOKBACK_MS[key];
+      // numerator start clamped to windowStart so the trailing window never bleeds
+      // pre-reset burn into a fresh window; denominator stays the NOMINAL lookback hours
+      // (so the first hour of a fresh window yields a low, non-explosive rate that ramps).
+      const recentUnits = this.index.windowSum(Math.max(windowStart, now - lookback), now);
+      const burnRatePerHour = Math.round(recentUnits / (lookback / 3_600_000));
+      const hoursToReset = Math.max(0, (resetAt - now) / 3_600_000);
+      const projectedPct = Math.round(
+        ((curUnits + burnRatePerHour * hoursToReset) / row.cap) * 100,
+      );
+      out.push({ window: WINDOW_LABEL[key], projectedPct, resetAt, burnRatePerHour });
+    }
+    return out;
   }
 }

@@ -28,6 +28,7 @@ function makeDeps(): AppDeps {
       calibratedAt: null,
       subscriptionOnly: false,
     }),
+    projections: () => [],
   };
   return { store, service, events, usageLimits, distiller: { distillNow: () => {} } };
 }

@@ -154,7 +154,7 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
-  usageLimits: Pick<UsageLimitsService, "limits">;
+  usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits; absent in tests that
    *  don't wire the live calibrator (the route then falls back to the current snapshot). */
   refreshUsage?: () => Promise<UsageLimits>;
@@ -2453,7 +2453,11 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
     return json(limits);
   }
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
-    return json(deps.usageLimits.limits(Date.now()));
+    const now = Date.now();
+    return json({
+      limits: deps.usageLimits.limits(now),
+      projections: deps.usageLimits.projections(now),
+    });
   }
   return null;
 }

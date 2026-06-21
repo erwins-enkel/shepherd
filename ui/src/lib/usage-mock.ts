@@ -2,23 +2,10 @@
  * Mock fixtures for the /usage token-spend dashboard (Phase 0 prototype).
  * No backend — all data is hand-written for visual prototyping.
  */
-import type {
-  UsageBreakdown,
-  UsageLimits,
-  UsageProjection,
-  UsageRange,
-  UsageTaskBreakdown,
-} from "./types";
+import type { UsageBreakdown, UsageRange, UsageTaskBreakdown } from "./types";
 
 /** Single stable base to keep all timestamps deterministic across calls. */
 const BASE = Date.now();
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** ms offsets used for reset timestamps */
-const H = 3_600_000;
 
 // ---------------------------------------------------------------------------
 // Shepherd repo tasks (≥7 so "… N more" tail is exercised in the Spend lens)
@@ -554,34 +541,4 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
       };
     }
   }
-}
-
-/** Burn-down projections for the Limits lens (one 5H, one WK). */
-export function mockProjections(): UsageProjection[] {
-  return [
-    {
-      window: "5H",
-      projectedPct: 64,
-      resetAt: BASE + 2.5 * H,
-      burnRatePerHour: 48_000,
-    },
-    {
-      window: "WK",
-      projectedPct: 41,
-      resetAt: BASE + 58 * H,
-      burnRatePerHour: 31_000,
-    },
-  ];
-}
-
-/** A fixture shaped like the real UsageLimits. */
-export function mockLimits(): UsageLimits {
-  return {
-    session5h: { pct: 38, resetAt: BASE + 2.5 * H },
-    week: { pct: 22, resetAt: BASE + 58 * H },
-    credits: null,
-    stale: false,
-    calibratedAt: BASE - 5 * 60_000,
-    subscriptionOnly: false,
-  };
 }

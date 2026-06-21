@@ -10,6 +10,7 @@ import {
   CREDIT_WATCH_INTERVAL_MS,
   CALIBRATE_INTERVAL_MS,
   type UsageLimits,
+  type UsageProjection,
   UsageLimitsService,
   type CapRow,
   type CapStore,
@@ -492,4 +493,116 @@ test("limits() subscriptionOnly is true in api-key mode, false in subscription m
   } finally {
     config.authMode = prior;
   }
+});
+
+// ── projections() ────────────────────────────────────────────────────────────
+
+/** Range-aware index stub: sums records whose ts falls within [s, e] inclusive. */
+function seededIndex(records: { ts: number; units: number }[]): AccountUsageIndex {
+  return {
+    windowSum: (s: number, e: number) =>
+      records.filter((r) => r.ts >= s && r.ts <= e).reduce((a, r) => a + r.units, 0),
+  } as unknown as AccountUsageIndex;
+}
+
+test("projections: math from seeded records", () => {
+  // session5h: period=5h, cap=1000, resetAt=now+3h (windowStart=now-2h)
+  // records at now-1.5h (within window, outside 1h lookback) and now-0.5h (within both)
+  const H = 3_600_000;
+  const now = NOW;
+  const resetAt = now + 3 * H;
+  const caps = new MemCaps();
+  caps.putCap({ window: "session5h", cap: 1000, resetAt, pct: 10, scrapedAt: now });
+  const records = [
+    { ts: now - 1.5 * H, units: 60 }, // in window (windowStart=now-2h), outside 1h lookback
+    { ts: now - 0.5 * H, units: 40 }, // in both window and 1h lookback
+  ];
+  // recentUnits (last 1h) = 40; burnRatePerHour = round(40/1) = 40
+  // curUnits (full window) = 100; hoursToReset = 3
+  // projectedPct = round((100 + 40*3)/1000 * 100) = round(22) = 22
+  const svc = new UsageLimitsService(
+    seededIndex(records),
+    caps,
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  const proj = svc.projections(now);
+  expect(proj).toHaveLength(1);
+  const p = proj[0] as UsageProjection;
+  expect(p.window).toBe("5H");
+  expect(p.burnRatePerHour).toBe(40);
+  expect(p.resetAt).toBe(resetAt);
+  expect(p.projectedPct).toBe(22);
+});
+
+test("projections: will-exceed (projectedPct > 100) is NOT clamped", () => {
+  const H = 3_600_000;
+  const now = NOW;
+  const resetAt = now + 2 * H;
+  const caps = new MemCaps();
+  // cap=100, windowStart=now-3h
+  caps.putCap({ window: "session5h", cap: 100, resetAt, pct: 50, scrapedAt: now });
+  // 200 units in last 0.5h → burnRatePerHour=200, curUnits=200, hoursToReset=2
+  // projectedPct = round((200 + 200*2)/100 * 100) = 600
+  const records = [{ ts: now - 0.5 * H, units: 200 }];
+  const svc = new UsageLimitsService(
+    seededIndex(records),
+    caps,
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  const proj = svc.projections(now);
+  expect(proj[0]!.projectedPct).toBeGreaterThan(100); // NOT clamped
+  expect(proj[0]!.projectedPct).toBe(600);
+});
+
+test("projections: just-after-reset boundary excludes pre-reset records", () => {
+  const H = 3_600_000;
+  const now = NOW;
+  // resetAt=now+4.5h → windowStart=now-0.5h (fresh window, only 0.5h old)
+  // lookback=1h → now-lookback=now-1h < windowStart (now-0.5h) → Math.max clamps to windowStart
+  const resetAt = now + 4.5 * H;
+  const caps = new MemCaps();
+  caps.putCap({ window: "session5h", cap: 1000, resetAt, pct: 5, scrapedAt: now });
+  const records = [
+    // pre-reset: 0.75h ago — BEFORE windowStart (0.5h ago) but WITHIN unclamped lookback (1h)
+    { ts: now - 0.75 * H, units: 500 },
+    // post-reset: 0.25h ago — inside both window and lookback
+    { ts: now - 0.25 * H, units: 10 },
+  ];
+  const svc = new UsageLimitsService(
+    seededIndex(records),
+    caps,
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  const proj = svc.projections(now);
+  const p = proj[0]!;
+  // (a) pre-reset records excluded → curUnits=10, projectedPct = round((10 + 10*4.5)/1000*100) = 6
+  expect(p.projectedPct).toBe(6);
+  // recentUnits clamped to windowStart → only the 0.25h record = 10; burnRatePerHour = 10
+  expect(p.burnRatePerHour).toBe(10);
+  // (b) non-vacuous: unclamped windowSum(now-1h, now) WOULD include the pre-reset record
+  const idx = seededIndex(records);
+  const unclampedRecent = idx.windowSum(now - H, now);
+  expect(unclampedRecent).toBe(510); // 500 + 10 — proves the clamp matters
+});
+
+test("projections: no-cap window skipped / empty caps returns []", () => {
+  const caps = new MemCaps();
+  // only week cap present → projections returns just the WK entry
+  caps.putCap({ window: "week", cap: 500, resetAt: NOW + 3_600_000, pct: 20, scrapedAt: NOW });
+  const svc = new UsageLimitsService(fakeIndex(50), caps, new StubProbe(null), new MemCredits());
+  const proj = svc.projections(NOW);
+  expect(proj).toHaveLength(1);
+  expect(proj[0]!.window).toBe("WK");
+
+  // empty caps → []
+  const empty = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  expect(empty.projections(NOW)).toEqual([]);
 });

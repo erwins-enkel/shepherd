@@ -51,8 +51,9 @@ spawns a tightly-scoped Claude Code agent that diffs recent source changes again
 hand-written docs and edits the enumerated prose pages in place. It is granted read-only
 git (`git diff`/`log`/`show`/`status`) for grounding plus file edits, but has **no git
 mutation, `gh`, or network access**, so it can neither commit nor push; the trusted server
-stages the in-scope doc files, commits, and opens a **pull request** for human review
-(never an auto-merge).
+stages the in-scope doc files, commits, and publishes them for human review (never an
+auto-merge) — either by **folding the doc commit into an already-open code PR** or by
+opening a standalone doc-update **pull request** (see _Automated cadence_ below).
 
 **Phased soak (`observe → act`, mirroring `SHEPHERD_HOOKS_INGEST` → `SHEPHERD_HOOKS_SIGNALS`).**
 Roll the feature out in two stages so you can watch what it _would_ do before it touches a
@@ -60,9 +61,10 @@ remote:
 
 1. **Observe** — set `SHEPHERD_DOC_AGENT=1` alone. The agent runs and edits on every trigger,
    and the server computes the staged doc diff, but **finalize is log-only**: it opens **no
-   PR** and runs no `push`. Each would-be PR is logged as a one-line
-   `[doc-agent] OBSERVE: <repo> would open a doc-update PR … (<n> files): …`. Soak here until
-   the logged diffs look correct.
+   PR** and runs no `push`. Each would-be publish is logged as a one-line
+   `[doc-agent] OBSERVE: <repo> would …  (<n> files): …` — either _would open a doc-update PR_
+   (fresh path) or _would push docs onto PR #<n> …_ (pre-merge re-target). Soak here until the
+   logged diffs look correct.
 2. **Act** — additionally set `SHEPHERD_DOC_AGENT_ACT=1` to escalate to actually opening PRs.
    This flag is meaningful **only** when Phase-0 (`SHEPHERD_DOC_AGENT`) is also on. A fresh
    enable therefore opens no PR until you explicitly opt into act.
@@ -72,21 +74,31 @@ attribution, and the boot reconcile **re-adopts** a run interrupted by a restart
 worktree whose summary is already written is finalized rather than discarded) and reaps any
 orphaned remote `shepherd/docs-update-*` branch left by a crash between `push` and PR-open.
 
-**Automated cadence.** With the same flag on, two triggers run in addition to the manual
+**Automated cadence.** With the same flag on, three triggers run in addition to the manual
 one (a per-repo in-flight guard means at most one run per repo at a time):
 
+- **Pre-merge re-target** (the default — _one PR carries both code and docs_). A settled-idle
+  sweep watches every Shepherd-managed session whose code PR is **open, CI-green, and has a
+  doc-relevant (`feat`/`config`) title**. Once such a PR has stayed idle long enough (a
+  ~120 s debounce, so a still-churning PR is never touched), the doc agent checks a worktree
+  out at the PR's head, edits the in-scope docs, and — in act mode — pushes the doc commit
+  straight onto **that PR's own head branch** (never a force-push) instead of opening a second
+  `shepherd/docs-update-*` PR. If the code PR merges/closes mid-run or the push can't
+  fast-forward, it falls back to a single standalone PR, so the docs land exactly once.
 - **Nightly** — once per local day per repo that has the docs tree, at/after
   `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` (default `3`). It first freshens the repo's default
   branch from `origin`, then spawns a run **only if the branch advanced** since the last
   doc-agent run — quiet days cost a cheap fetch but no agent spawn. This is the reliable
   catch-all: it picks up **any** landed change, including `fix:` commits, config-only
   changes, and human/non-session or non-conventional merges (e.g. epic-landing PRs).
-- **Merge-triggered** — when a Shepherd-managed session's PR merges to the default branch
-  **and its title is a `feat`/`config` conventional-commit subject**, a run is considered
-  immediately (the fast path). A doc-relevant `fix:` is intentionally **not** caught here —
-  it's covered by the nightly sweep instead. `config` (type or scope) is a forward-looking
-  allowance and may not yet appear in a given repo's history. Non-conventional or untitled
-  merges simply fall through to nightly.
+- **Merge-triggered** — a fallback fast-path for when no pre-merge re-target ran: when a
+  Shepherd-managed session's PR merges to the default branch **and its title is a
+  `feat`/`config` conventional-commit subject**, a standalone doc-update run is considered
+  immediately. If a pre-merge re-target already claimed (and pushed docs onto) that PR, this
+  trigger **defers** so no duplicate PR is opened. A doc-relevant `fix:` is intentionally
+  **not** caught here — it's covered by the nightly sweep instead. `config` (type or scope)
+  is a forward-looking allowance and may not yet appear in a given repo's history.
+  Non-conventional or untitled merges simply fall through to nightly.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

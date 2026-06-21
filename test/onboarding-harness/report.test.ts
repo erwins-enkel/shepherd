@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildGapReport,
   gateGapScenarios,
+  harnessErrorScenarios,
   statusDescription,
 } from "../../ci/onboarding-harness/report";
 import type { ScenarioResult } from "../../ci/onboarding-harness/types";
@@ -259,6 +260,43 @@ describe("buildGapReport", () => {
     expect(desc).toContain("1/1 gate scenarios green");
     expect(desc).not.toContain("1/2");
     expect(desc).toContain("harness error");
+  });
+
+  it("install-e2e LAUNCH failure still gates (never de-gated as infra)", () => {
+    // installE2E=true exempts the result from isPreDetectionThrow, so a launch-failure
+    // message does NOT classify as HARNESS ERROR — it stays in the gate as INSTALL GAP.
+    const installLaunchFail: ScenarioResult = {
+      scenarioId: "install-e2e",
+      image: "images:rockylinux/9",
+      detection: { scenarioId: "install-e2e", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      installE2E: true,
+      error: "incus launch failed: image couldn't be found",
+    };
+    expect(gateGapScenarios([installLaunchFail])).toHaveLength(1);
+    const md = buildGapReport([installLaunchFail]);
+    expect(md).toContain("INSTALL GAP");
+    expect(md).not.toContain("HARNESS ERROR");
+    expect(md).not.toContain("BOOT CRASH");
+  });
+
+  it("non-gate-eligible launch failure is visible in harnessErrorScenarios but not in gateGapScenarios", () => {
+    // gateEligible=false → gateGapScenarios excludes it; but the launch-failure shape
+    // (isPreDetectionThrow + LAUNCH_FAILURE_PREFIX) makes it a harness error, so it
+    // stays visible in harnessErrorScenarios for issue/status tracking.
+    const nonGateLaunchFail: ScenarioResult = {
+      scenarioId: "fedora-git-missing",
+      image: "images:fedora/42",
+      detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: false,
+      error: "incus launch failed: name already in use",
+    };
+    expect(harnessErrorScenarios([nonGateLaunchFail])).toHaveLength(1);
+    expect(gateGapScenarios([nonGateLaunchFail])).toHaveLength(0);
   });
 
   it("classifies a by-design no-apply scenario as DETECTION-ONLY and excludes it from the denominator", () => {

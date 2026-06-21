@@ -16,6 +16,7 @@
   // below just read/drive the shared controller.
   import { theme } from "$lib/theme.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
+  import GlossaryText from "$lib/components/GlossaryText.svelte";
 
   type Token = { name: string; note: string };
 
@@ -582,18 +583,20 @@ input, select, textarea {
     <p class="when">
       <strong>When:</strong> a dashed underline marks a term that has a definition in the glossary
       registry. Internal terms (kind <code>"internal"</code>) show an in-app definition only.
-      External terms (kind <code>"external"</code>) add a locale-aware Wikipedia link. The tooltip
-      is a small anchored, <strong>non-blocking popover</strong> (no scrim) that opens on hover or
-      focus (desktop) or tap (touch), and dismisses on Esc, outside pointerdown, or scroll/resize.
+      External terms (kind <code>"external"</code>) add a locale-aware Wikipedia link. The
+      presentation is chosen <strong>per interaction</strong>: hover or focus (fine pointer) opens a
+      small anchored,
+      <strong>non-blocking popover</strong> (no scrim) that dismisses on Esc, outside pointerdown,
+      or scroll/resize; tap (coarse pointer) opens an <strong>in-flow inline disclosure</strong>
+      that pushes content down and dismisses on Esc or outside pointerdown — but not on scroll.
       <strong>When not:</strong> do not use for decorative underlines or links — every dashed-underline
       term must resolve to a glossary entry.
     </p>
     <div class="demo">
       <p class="gloss-demo-text">
-        Shepherd groups sessions under an
-        <span class="gloss-term">epic</span>
-        and posts results to a
-        <span class="gloss-term">PR</span>.
+        <GlossaryText
+          text="Shepherd groups sessions under an [[epic|epic]] and posts results to a [[pr|PR]]."
+        />
       </p>
     </div>
     <pre><code>{glossMarkup}</code></pre>
@@ -964,18 +967,6 @@ input, select, textarea {
     box-shadow: inset 0 -2px 0 var(--color-amber);
   }
 
-  /* glossary term — dashed underline trigger (mirrors GlossaryTerm.svelte) */
-  .gloss-term {
-    background: none;
-    border: none;
-    padding: 0;
-    font: inherit;
-    color: inherit;
-    cursor: help;
-    text-decoration: underline dashed;
-    text-decoration-color: var(--color-line-bright);
-    text-underline-offset: 3px;
-  }
   .gloss-demo-text {
     margin: 0;
     color: var(--color-ink);

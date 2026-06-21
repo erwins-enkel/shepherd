@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+import * as api from "$lib/api";
 
 const BASE = Date.now();
 const H = 3_600_000;
@@ -25,8 +26,10 @@ const inlineProjections: UsageProjection[] = [
 vi.mock("$lib/api", async () => {
   const { mockBreakdown } = await import("$lib/usage-mock");
   return {
-    getUsageBreakdown: (range: UsageRange) => Promise.resolve(mockBreakdown(range)),
-    getUsageLimits: () => Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
+    getUsageBreakdown: vi.fn((range: UsageRange) => Promise.resolve(mockBreakdown(range))),
+    getUsageLimits: vi.fn(() =>
+      Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
+    ),
   };
 });
 
@@ -109,28 +112,14 @@ describe("Usage modal component", () => {
   });
 
   it("shows loading state initially", async () => {
-    // Use a delayed mock so the loading state is still visible
-    vi.mock("$lib/api", async () => {
-      const { mockBreakdown } = await import("$lib/usage-mock");
-      return {
-        getUsageBreakdown: (range: UsageRange) =>
-          new Promise((resolve) => setTimeout(() => resolve(mockBreakdown(range)), 50)),
-        getUsageLimits: () =>
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ limits: inlineLimits, projections: inlineProjections }), 50),
-          ),
-      };
-    });
+    // Override both fetches with never-resolving promises so loading stays visible.
+    vi.mocked(api.getUsageBreakdown).mockImplementationOnce(() => new Promise(() => {}));
+    vi.mocked(api.getUsageLimits).mockImplementationOnce(() => new Promise(() => {}));
 
     render(Usage, { onclose: vi.fn() });
 
-    // Initially loading state should be visible before data arrives
-    await expect
-      .element(page.getByText("Loading…"))
-      .toBeInTheDocument()
-      .catch(() => {
-        // Loading may resolve too fast; test passes if it was ever shown
-      });
+    // Loading text must be present before any data resolves.
+    await expect.element(page.getByText("loading…")).toBeInTheDocument();
   });
 
   it("renders the modal overlay wrapper", async () => {

@@ -46,11 +46,11 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ## What actually gates access
 
-| Gate                 | Default                          | What Hermes must do                                                                               |
-| -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Network bind**     | `127.0.0.1:7330` (loopback only) | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC |
-| **Auth token**       | `SHEPHERD_TOKEN` unset → open    | If set, send `Authorization: Bearer <token>` on every request (timing-safe compare)               |
-| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~/Work`  | `repoPath` must resolve **inside** the root, or the request is rejected `400`                     |
+| Gate                 | Default                           | What Hermes must do                                                                               |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Network bind**     | `127.0.0.1:7330` (loopback only)  | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC |
+| **Auth token**       | `SHEPHERD_TOKEN` unset → open     | If set, send `Authorization: Bearer <token>` on every request (timing-safe compare)               |
+| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home) | `repoPath` must resolve **inside** the root, or the request is rejected `400`                     |
 
 ### Recommended setup for a remote agent
 
@@ -65,13 +65,13 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 `POST /api/sessions`, `Content-Type: application/json`. Validated by
 `validateCreate` (`src/validate.ts`); unknown keys are rejected.
 
-| Field        | Type                                    | Required | Notes                                                                        |
-| ------------ | --------------------------------------- | -------- | ---------------------------------------------------------------------------- |
-| `repoPath`   | string                                  | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`           |
-| `baseBranch` | string                                  | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                  |
-| `prompt`     | string                                  | ✅       | The task instructions; 1–8000 chars                                          |
-| `model`      | `"opus" \| "sonnet" \| "haiku" \| null` | —        | Omit/`null` = Claude's default                                               |
-| `images`     | `string[]`                              | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`) |
+| Field        | Type                                                                             | Required | Notes                                                                        |
+| ------------ | -------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------- |
+| `repoPath`   | string                                                                           | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`           |
+| `baseBranch` | string                                                                           | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                  |
+| `prompt`     | string                                                                           | ✅       | The task instructions; 1–8000 chars                                          |
+| `model`      | `"fable" \| "opus" \| "opus[1m]" \| "sonnet" \| "sonnet[1m]" \| "haiku" \| null` | —        | Omit/`null`/`"default"` = Claude's default (no `--model` flag)               |
+| `images`     | `string[]`                                                                       | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`) |
 
 ### Responses
 

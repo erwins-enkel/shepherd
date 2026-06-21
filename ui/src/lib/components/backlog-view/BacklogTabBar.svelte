@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { BacklogProject } from "$lib/types";
+  import type { BacklogProject, DocAgentRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import type { ActionsTabState } from "../backlog-view";
+  import DocAgentControl from "./DocAgentControl.svelte";
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
 
@@ -17,8 +18,13 @@
     actionsState,
     ffInFlight,
     selectedPath,
+    docAgentEnabled = false,
+    docAgentAct = false,
+    docAgentRunning = false,
+    docAgentRuns = [],
     onselecttab,
     onff,
+    ondocagent = () => {},
   }: {
     variant: "desktop" | "mobile";
     activeTab: Tab;
@@ -26,8 +32,13 @@
     actionsState: ActionsTabState;
     ffInFlight: boolean;
     selectedPath: string | null;
+    docAgentEnabled?: boolean;
+    docAgentAct?: boolean;
+    docAgentRunning?: boolean;
+    docAgentRuns?: DocAgentRun[];
     onselecttab: (tab: Tab) => void;
     onff: () => void;
+    ondocagent?: () => void;
   } = $props();
 
   // coachTarget only on the desktop variant — preserves the pre-split behavior
@@ -93,21 +104,50 @@
   >
     {m.backlog_tab_automation()}
   </button>
-  <button
-    class="gbtn ff-btn"
-    type="button"
-    disabled={ffInFlight || selectedPath === null}
-    onclick={onff}
-    title={m.backlog_ff_main_title()}
-    aria-label={m.backlog_ff_main_title()}
-    use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
-  >
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
-      <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
-    </svg>
-    {m.backlog_ff_main()}
-  </button>
+  {#if docAgentEnabled}
+    <!-- Doc-agent control + FF button in a right-aligned cluster -->
+    <div class="action-cluster">
+      <DocAgentControl
+        act={docAgentAct}
+        running={docAgentRunning}
+        runs={docAgentRuns}
+        disabled={selectedPath === null}
+        coach={variant === "desktop"}
+        ontrigger={ondocagent}
+      />
+      <button
+        class="gbtn ff-btn"
+        type="button"
+        disabled={ffInFlight || selectedPath === null}
+        onclick={onff}
+        title={m.backlog_ff_main_title()}
+        aria-label={m.backlog_ff_main_title()}
+        use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
+          <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
+        </svg>
+        {m.backlog_ff_main()}
+      </button>
+    </div>
+  {:else}
+    <button
+      class="gbtn ff-btn ff-btn-solo"
+      type="button"
+      disabled={ffInFlight || selectedPath === null}
+      onclick={onff}
+      title={m.backlog_ff_main_title()}
+      aria-label={m.backlog_ff_main_title()}
+      use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
+        <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
+      </svg>
+      {m.backlog_ff_main()}
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -187,12 +227,25 @@
   }
 
   .ff-btn {
-    margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
     white-space: nowrap;
+  }
+
+  /* Standalone ff-btn (no doc-agent) claims the auto margin itself. */
+  .ff-btn-solo {
+    margin-left: auto;
+  }
+
+  /* When doc-agent is enabled, cluster owns margin-left:auto so both controls push right. */
+  .action-cluster {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   /* ── tab strip (mobile overlay) ──

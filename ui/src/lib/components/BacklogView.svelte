@@ -1,7 +1,18 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import type {
+    BacklogPayload,
+    DocAgentOutcome,
+    DocAgentRun,
+    DrainStatus,
+    Epic,
+    Issue,
+    PullRequest,
+    Steer,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { toasts } from "$lib/toasts.svelte";
+  import { triggerDocAgent, getDocAgentRuns } from "$lib/api";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
@@ -21,6 +32,9 @@
     inTrainPrs = new Set(),
     target = null,
     drain = undefined,
+    docAgentEnabled = false,
+    docAgentAct = false,
+    docAgentDone = null,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -48,11 +62,66 @@
     /** Live drain status keyed by repoPath (store.drain), forwarded to the
      *  Automation tab so its epic banner + drain-cap reflect reality without a task. */
     drain?: Record<string, DrainStatus>;
+    /** Whether the doc-agent feature is enabled for this repo. */
+    docAgentEnabled?: boolean;
+    /** True = act/PR phase; false = observe-only phase. */
+    docAgentAct?: boolean;
+    /** Reactive signal from store: a run just finished for a repo. */
+    docAgentDone?: { repoPath: string; url: string | null; outcome: DocAgentOutcome } | null;
   } = $props();
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
   let activeTab = $state<Tab>("issues");
   let ffInFlight = $state(false);
+
+  // ── doc-agent state ──────────────────────────────────────────────────────────
+  let docAgentRunning = $state(false);
+  let docAgentRuns = $state<DocAgentRun[]>([]);
+
+  async function refreshDocAgentRuns() {
+    if (!docAgentEnabled || !selectedPath) return;
+    const path = selectedPath;
+    try {
+      const r = await getDocAgentRuns(path);
+      if (selectedPath === path) {
+        docAgentRunning = r.running;
+        docAgentRuns = r.runs;
+      }
+    } catch {
+      // best-effort display — swallow errors
+    }
+  }
+
+  // Re-fetch when repo selection or feature flag changes.
+  $effect(() => {
+    if (!docAgentEnabled || !selectedPath) {
+      docAgentRunning = false;
+      docAgentRuns = [];
+      return;
+    }
+    void refreshDocAgentRuns();
+  });
+
+  // When a run finishes for the shown repo, refresh to pick up the result.
+  $effect(() => {
+    if (docAgentDone && docAgentDone.repoPath === selectedPath) {
+      void refreshDocAgentRuns();
+    }
+  });
+
+  async function handleDocAgent() {
+    if (!selectedPath || docAgentRunning) return;
+    docAgentRunning = true; // optimistic
+    try {
+      const res = await triggerDocAgent(selectedPath);
+      if (!res.started) toasts.info(m.docagent_trigger_skipped());
+    } catch {
+      toasts.info(m.docagent_trigger_failed());
+    } finally {
+      await refreshDocAgentRuns();
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   async function handleFf() {
     if (!selectedPath || ffInFlight) return;
@@ -200,8 +269,13 @@
             {actionsState}
             {ffInFlight}
             {selectedPath}
+            {docAgentEnabled}
+            {docAgentAct}
+            {docAgentRunning}
+            {docAgentRuns}
             onselecttab={(t) => (activeTab = t)}
             onff={handleFf}
+            ondocagent={handleDocAgent}
           />
         </div>
         <div class="overlay-body">
@@ -249,8 +323,13 @@
           {actionsState}
           {ffInFlight}
           {selectedPath}
+          {docAgentEnabled}
+          {docAgentAct}
+          {docAgentRunning}
+          {docAgentRuns}
           onselecttab={(t) => (activeTab = t)}
           onff={handleFf}
+          ondocagent={handleDocAgent}
         />
         <div class="detail-pane">
           {#if selectedPath !== null}

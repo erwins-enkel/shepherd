@@ -1723,6 +1723,9 @@
               epics={store.epics}
               {inTrainPrs}
               drain={store.drain}
+              docAgentEnabled={settings?.docAgentEnabled ?? false}
+              docAgentAct={settings?.docAgentAct ?? false}
+              docAgentDone={store.docAgentDone}
             />
           {/if}
         </div>
@@ -1886,6 +1889,9 @@
             epics={store.epics}
             {inTrainPrs}
             drain={store.drain}
+            docAgentEnabled={settings?.docAgentEnabled ?? false}
+            docAgentAct={settings?.docAgentAct ?? false}
+            docAgentDone={store.docAgentDone}
           />
         {:else if selected}
           <Viewport

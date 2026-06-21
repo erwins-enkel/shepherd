@@ -542,20 +542,19 @@ export class SessionUsageRollup {
         await this.appendChunk(st, path, size);
       }
 
-      // Prune records older than cutoff (ts=0 records are never pruned)
-      const before = st.records.length;
-      if (before > 0 && st.records[0]!.ts > 0 && st.records[0]!.ts < cutoff) {
-        const kept: PerRecord[] = [];
-        for (const rec of st.records) {
-          if (rec.ts === 0 || rec.ts >= cutoff) {
-            kept.push(rec);
-          } else {
-            // Remove requestId from seen so it can be re-ingested if needed
-            if (rec.requestId) st.seen.delete(rec.requestId);
-          }
+      // Prune records older than cutoff (ts=0 records are never pruned).
+      // Walk every record — a ts=0 entry in slot 0 must not short-circuit the walk.
+      let pruned = false;
+      const kept: PerRecord[] = [];
+      for (const rec of st.records) {
+        if (rec.ts === 0 || rec.ts >= cutoff) {
+          kept.push(rec);
+        } else {
+          if (rec.requestId) st.seen.delete(rec.requestId);
+          pruned = true;
         }
-        st.records = kept;
       }
+      if (pruned) st.records = kept;
     }
   }
 

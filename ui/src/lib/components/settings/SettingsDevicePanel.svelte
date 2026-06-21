@@ -125,7 +125,7 @@
 <div class="push">
   <span class="micro">{m.settings_push_title()}</span>
   <div class="reduced-row">
-    <span class="micro">{m.settings_reduced_push_title()}</span>
+    <span class="micro sub">{m.settings_reduced_push_title()}</span>
     <p class="hint">{m.settings_reduced_push_hint()}</p>
     <button
       type="button"
@@ -152,7 +152,7 @@
     </button>
     {#if push.subscribed}
       <fieldset class="cats">
-        <legend class="micro">{m.settings_push_cat_title()}</legend>
+        <legend class="micro sub">{m.settings_push_cat_title()}</legend>
         {#if reducedPushMode}
           <p class="hint">{m.settings_reduced_push_disabled_note()}</p>
         {/if}
@@ -209,6 +209,15 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+  /* Nested sub-section headings (REDUCED NOTIFICATIONS, NOTIFY ME ABOUT) sit one
+     level below the PUSH NOTIFICATIONS section label. Demote via size + tracking
+     only — colour stays --color-muted (the AA-safe label colour, ≥4.5:1) so the
+     sub-heading reads brighter than its --color-faint hint and never regresses
+     contrast. No font-weight axis (the design system defines no weight token). */
+  .micro.sub {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
   }
   .run {
     border: 1px solid var(--color-amber);

@@ -58,6 +58,7 @@ import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
 import { sessionTokens, jsonlPathFor } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
+import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
@@ -2470,7 +2471,12 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
   const raw = url.searchParams.get("range") ?? "7d";
   if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
     return json({ error: "invalid range" }, 400);
-  const breakdown = await buildUsageBreakdown({ store: deps.store, range: raw, now: Date.now() });
+  const breakdown = await buildUsageBreakdown({
+    store: deps.store,
+    range: raw,
+    now: Date.now(),
+    apiKey: isApiKeyMode(),
+  });
   return json(breakdown);
 }
 

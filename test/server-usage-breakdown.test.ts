@@ -64,9 +64,12 @@ test("GET /api/usage/breakdown?range=7d → 200 with correct shape", async () =>
   const body = await res.json();
   exactKeys(body, USAGE_BREAKDOWN_KEYS);
   expect(body.range).toBe("7d");
+  // api-key gate: subscription harness defaults to non-api-key mode → dollars must be null
+  expect(body.dollars).toBeNull();
 
   for (const repo of body.repos) {
     exactKeys(repo, USAGE_REPO_KEYS);
+    expect(repo.dollars).toBeNull();
     for (const task of repo.tasks) {
       exactKeys(task, USAGE_TASK_KEYS);
       exactKeys(task.tokens, USAGE_TOKENS_KEYS);

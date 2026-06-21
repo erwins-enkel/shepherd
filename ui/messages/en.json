@@ -1772,5 +1772,20 @@
   "usage_range_30d": "30d",
   "usage_range_all": "All",
   "feat_repo_switch_retarget_title": "Terminal follows the repo switch",
-  "feat_repo_switch_retarget_body": "Picking a repo from the chip rail now jumps the terminal to that repo too — to the session waiting on your answer, or else the first active one. No more staring at a session from the repo you just left."
+  "feat_repo_switch_retarget_body": "Picking a repo from the chip rail now jumps the terminal to that repo too — to the session waiting on your answer, or else the first active one. No more staring at a session from the repo you just left.",
+  "feedback_dialog_title_bug": "Report a bug",
+  "feedback_dialog_title_feature": "Request a feature",
+  "feedback_dialog_title_feedback": "Send feedback",
+  "feedback_dialog_summary_label": "Title",
+  "feedback_dialog_summary_placeholder": "A short summary",
+  "feedback_dialog_details_label": "Details",
+  "feedback_dialog_details_placeholder_bug": "What went wrong? What did you expect to happen?",
+  "feedback_dialog_details_placeholder_feature": "What would you like to see, and why?",
+  "feedback_dialog_details_placeholder_feedback": "Share your thoughts…",
+  "feedback_dialog_submit": "Continue on GitHub",
+  "feedback_dialog_note": "Opens a prefilled GitHub issue in a new tab — review and edit before submitting.",
+  "settings_feedback_title": "Feedback",
+  "settings_feedback_blurb": "Found a bug or have an idea? Let us know.",
+  "feat_feedback_title": "Report bugs & send feedback",
+  "feat_feedback_body": "Found a bug or have an idea? Use the gear menu or Settings → Device to report a bug, request a feature, or send feedback — it opens a prefilled GitHub issue."
 }

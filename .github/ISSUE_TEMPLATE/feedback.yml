@@ -1,0 +1,16 @@
+name: Feedback
+description: Share general feedback
+labels: [feedback]
+body:
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your feedback
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Auto-filled by Shepherd — please leave as-is.
+      render: text

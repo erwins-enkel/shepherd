@@ -13,17 +13,20 @@
   import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { m } from "$lib/paraglide/messages";
+  import type { FeedbackKind } from "$lib/feedback-link";
 
   let {
     onwhatsnew,
     reducedPushMode = false,
     reducedPushBusy = false,
     onToggleReducedPush,
+    onfeedback,
   }: {
     onwhatsnew?: () => void;
     reducedPushMode?: boolean;
     reducedPushBusy?: boolean;
     onToggleReducedPush?: () => void;
+    onfeedback?: (kind: FeedbackKind) => void;
   } = $props();
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
@@ -170,6 +173,21 @@
       </fieldset>
     {/if}
   {/if}
+</div>
+<div class="feedback">
+  <span class="micro">{m.settings_feedback_title()}</span>
+  <p class="hint">{m.settings_feedback_blurb()}</p>
+  <div class="feedback-btns">
+    <button type="button" class="clone-trigger" onclick={() => onfeedback?.("bug")}
+      >{m.feedback_dialog_title_bug()}</button
+    >
+    <button type="button" class="clone-trigger" onclick={() => onfeedback?.("feature")}
+      >{m.feedback_dialog_title_feature()}</button
+    >
+    <button type="button" class="clone-trigger" onclick={() => onfeedback?.("feedback")}
+      >{m.feedback_dialog_title_feedback()}</button
+    >
+  </div>
 </div>
 <div class="about">
   <span class="micro">{m.settings_about_title()}</span>
@@ -399,6 +417,24 @@
   .t-opt.on {
     color: var(--color-amber);
     background: var(--color-inset);
+  }
+  .feedback {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-line);
+    padding-top: 12px;
+  }
+  .feedback .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
+  .feedback-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   /* The about block — blurb plus the version / commit / repo rows — shows on
      every viewport; desktop additionally surfaces the same metadata in the

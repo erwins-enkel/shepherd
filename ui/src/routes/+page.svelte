@@ -94,6 +94,7 @@
   } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import AppOverlays from "$lib/components/page/AppOverlays.svelte";
+  import FeedbackDialog from "$lib/components/FeedbackDialog.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
@@ -2122,6 +2123,8 @@
   ontrainconfirm={confirmTrain}
   onstarresolve={(s) => (store.starPrompt = s)}
 />
+
+<FeedbackDialog />
 
 <Toasts aboveActionBar={mobileActionBarPresent} />
 

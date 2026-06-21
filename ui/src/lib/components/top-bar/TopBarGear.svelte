@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { DOCS_URL } from "$lib/build-info";
+  import type { FeedbackKind } from "$lib/feedback-link";
 
   type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
 
@@ -19,6 +20,7 @@
     clickHalt,
     chooseSettings,
     onMenuKey,
+    onFeedback,
   }: {
     mobile: boolean;
     haltable: number;
@@ -34,6 +36,7 @@
     clickHalt: () => void;
     chooseSettings: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
+    onFeedback: (kind: FeedbackKind) => void;
   } = $props();
 </script>
 
@@ -108,6 +111,23 @@
         <span class="menu-glyph" aria-hidden="true">↗</span>
         <span class="menu-label">{m.topbar_docs()}</span>
       </a>
+      <button class="menu-item" type="button" role="menuitem" onclick={() => onFeedback("bug")}>
+        <span class="menu-glyph" aria-hidden="true">🐛</span>
+        <span class="menu-label">{m.feedback_dialog_title_bug()}</span>
+      </button>
+      <button class="menu-item" type="button" role="menuitem" onclick={() => onFeedback("feature")}>
+        <span class="menu-glyph" aria-hidden="true">✨</span>
+        <span class="menu-label">{m.feedback_dialog_title_feature()}</span>
+      </button>
+      <button
+        class="menu-item"
+        type="button"
+        role="menuitem"
+        onclick={() => onFeedback("feedback")}
+      >
+        <span class="menu-glyph" aria-hidden="true">💬</span>
+        <span class="menu-label">{m.feedback_dialog_title_feedback()}</span>
+      </button>
     </div>
   {/if}
 </div>

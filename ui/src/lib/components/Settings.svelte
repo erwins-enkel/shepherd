@@ -24,6 +24,8 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import { dialog } from "$lib/a11yDialog";
+  import { openFeedback } from "$lib/feedback-dialog.svelte";
+  import type { FeedbackKind } from "$lib/feedback-link";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -826,6 +828,10 @@
         {reducedPushMode}
         {reducedPushBusy}
         onToggleReducedPush={toggleReducedPush}
+        onfeedback={(kind: FeedbackKind) => {
+          onclose?.();
+          openFeedback(kind);
+        }}
       />
     </div>
 

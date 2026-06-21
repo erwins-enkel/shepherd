@@ -42,6 +42,13 @@ A repo Shepherd drives with local git only — no Forge, no GitHub, no PRs, no
 remote. When a task finishes, the agent's branch is squash-merged into the base
 branch locally; the operator pushes to a remote when they choose.
 
+### Trial
+
+A proposed house rule that Shepherd auto-promoted to active on strong,
+multi-source evidence, injected at the lowest priority while it proves itself.
+It is auto-removed if it underperforms (Wilson auto-retire) or stays inert, and
+can be reverted to the queue by hand.
+
 ## Industry terms
 
 ### PR

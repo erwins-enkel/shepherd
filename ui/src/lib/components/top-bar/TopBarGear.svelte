@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { DOCS_URL } from "$lib/build-info";
 
   type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
 
@@ -93,6 +94,20 @@
         <span class="menu-glyph" aria-hidden="true">⚙</span>
         <span class="menu-label">{m.settings_title()}</span>
       </button>
+      <div class="menu-sep" role="separator"></div>
+      <!-- External docs site — opens in a new tab; ↗ marks it external, matching the
+           mobile sheet + Settings → About link convention. Closes the menu on click. -->
+      <a
+        class="menu-item"
+        role="menuitem"
+        href={DOCS_URL}
+        target="_blank"
+        rel="external noreferrer noopener"
+        onclick={() => (menuOpen = false)}
+      >
+        <span class="menu-glyph" aria-hidden="true">↗</span>
+        <span class="menu-label">{m.topbar_docs()}</span>
+      </a>
     </div>
   {/if}
 </div>
@@ -134,6 +149,7 @@
     padding: 8px 10px;
     cursor: pointer;
     white-space: nowrap;
+    text-decoration: none;
   }
   .menu-item:hover,
   .menu-item:focus-visible {

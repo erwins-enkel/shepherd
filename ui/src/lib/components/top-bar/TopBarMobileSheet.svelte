@@ -7,7 +7,7 @@
   import CreditDetail from "./CreditDetail.svelte";
   import { gaugeColor } from "../usage-gauges";
   import { formatResetIn, formatReset } from "$lib/format";
-  import { REPO_URL, version } from "$lib/build-info";
+  import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
@@ -316,6 +316,17 @@
 
     <!-- Docs + version footer -->
     <div class="sheet-sep"></div>
+    <!-- Hosted documentation site (docs.shepherd.run) — distinct from the GitHub README below. -->
+    <a
+      class="sheet-item"
+      href={DOCS_URL}
+      target="_blank"
+      rel="external noreferrer noopener"
+      onclick={() => closeMenu()}
+    >
+      <span class="sheet-glyph" aria-hidden="true">↗</span>
+      <span class="sheet-label">{m.topbar_docs()}</span>
+    </a>
     <a
       class="sheet-item"
       href={REPO_URL}

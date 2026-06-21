@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { UsageBreakdown, UsageTaskBreakdown } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import InfoTip from "$lib/components/InfoTip.svelte";
   import UsageBar from "./UsageBar.svelte";
   import SplitBar from "./SplitBar.svelte";
-  import { formatUnits, formatPct } from "./format";
+  import { formatPct } from "./format";
 
   const { breakdown }: { breakdown: UsageBreakdown } = $props();
 
@@ -47,7 +47,11 @@
       <div class="split-labels">
         <span class="split-label authoring-label">{m.usage_overhead_authoring_label()}</span>
         <span class="split-label satellite-label">
-          <GlossaryText text={m.usage_overhead_satellite_label()} />
+          <span>{m.usage_overhead_satellite_label()}</span>
+          <InfoTip
+            text={m.gloss_satellite_pass_def()}
+            label={m.newtask_info_aria({ topic: m.gloss_satellite_pass_term() })}
+          />
         </span>
       </div>
       <SplitBar
@@ -88,12 +92,10 @@
       <div class="split-labels">
         <span class="split-label cacheread-label">
           <span>{m.usage_overhead_cacheread_label()}</span>
-          <span class="split-units">{formatUnits(breakdown.cacheReadUnits)}</span>
           <span class="split-share">{formatPct(cacheReadPct)}</span>
         </span>
         <span class="split-label generation-label">
           <span>{m.usage_overhead_generation_label()}</span>
-          <span class="split-units">{formatUnits(breakdown.generationUnits)}</span>
           <span class="split-share">{formatPct(generationPct)}</span>
         </span>
       </div>
@@ -151,11 +153,6 @@
     gap: 0.3rem;
   }
 
-  .split-units {
-    font-variant-numeric: tabular-nums;
-    color: var(--color-ink);
-  }
-
   .split-share {
     color: var(--color-ink-bright);
     font-weight: 500;
@@ -201,5 +198,22 @@
     color: var(--color-ink);
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 480px) {
+    .tax-task-row {
+      grid-template-columns: 1fr auto;
+      grid-template-areas: "desig pct" "bar bar";
+      row-gap: 0.25rem;
+    }
+    .tax-desig {
+      grid-area: desig;
+    }
+    .tax-pct {
+      grid-area: pct;
+    }
+    .tax-bar {
+      grid-area: bar;
+    }
   }
 </style>

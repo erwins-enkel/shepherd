@@ -2,7 +2,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { UsageBreakdown, UsageRepoBreakdown, UsageTaskBreakdown } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import InfoTip from "$lib/components/InfoTip.svelte";
   import UsageBar from "./UsageBar.svelte";
   import { formatUnits, formatPct, formatDollars } from "./format";
 
@@ -69,7 +69,11 @@
   <div class="spend-header">
     <h2 class="spend-heading">{m.usage_spend_heading()}</h2>
     <span class="units-label">
-      <GlossaryText text={m.usage_units_label()} />
+      <span>{m.usage_units_label()}</span>
+      <InfoTip
+        text={m.gloss_weighted_units_def()}
+        label={m.newtask_info_aria({ topic: m.gloss_weighted_units_term() })}
+      />
     </span>
     {#if breakdown.dollars != null}
       <span class="spend-total-cost" aria-label={m.usage_spend_cost_label()}>
@@ -155,6 +159,9 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
     text-align: right;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
   }
 
   .repo-list {
@@ -279,5 +286,55 @@
     color: var(--color-faint);
     padding: 0.2rem 0.5rem;
     font-style: italic;
+  }
+
+  @media (max-width: 480px) {
+    .spend-header {
+      flex-wrap: wrap;
+    }
+
+    .repo-row {
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-areas: "caret name pct units" "bar bar bar bar";
+      column-gap: 0.4rem;
+      row-gap: 0.3rem;
+    }
+    .repo-row.has-cost {
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      grid-template-areas: "caret name pct units cost" "bar bar bar bar bar";
+    }
+    .caret {
+      grid-area: caret;
+    }
+    .repo-name {
+      grid-area: name;
+    }
+    .repo-pct {
+      grid-area: pct;
+    }
+    .repo-units {
+      grid-area: units;
+    }
+    .repo-cost {
+      grid-area: cost;
+    }
+    .repo-bar {
+      grid-area: bar;
+    }
+
+    .task-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "desig units" "bar bar";
+      row-gap: 0.2rem;
+    }
+    .task-desig {
+      grid-area: desig;
+    }
+    .task-units {
+      grid-area: units;
+    }
+    .task-bar {
+      grid-area: bar;
+    }
   }
 </style>

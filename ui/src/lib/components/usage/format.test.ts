@@ -8,6 +8,21 @@ describe("formatUnits", () => {
     expect(formatUnits(999)).toBe("999");
   });
 
+  it("rounds fractional weighted units", () => {
+    // [0.1, 1) — one decimal
+    expect(formatUnits(0.5)).toBe("0.5");
+    expect(formatUnits(0.74)).toBe("0.7");
+    // <0.1 — clamp label
+    expect(formatUnits(0.04)).toBe("<0.1");
+    // [1, 10) decimal
+    expect(formatUnits(8.05)).toBe("8.1");
+    // ≥10 integer rounding
+    expect(formatUnits(53.9247)).toBe("54");
+    expect(formatUnits(9.96)).toBe("10");
+    // boundary: rounds to 1000 → "1K"
+    expect(formatUnits(999.6)).toBe("1K");
+  });
+
   it("renders thousands with a rounded K suffix", () => {
     expect(formatUnits(1_000)).toBe("1K");
     expect(formatUnits(12_400)).toBe("12K");

@@ -2,6 +2,7 @@
   import type { UsageBreakdown, UsageLimits, UsageProjection, UsageRange } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { getUsageBreakdown, getUsageLimits } from "$lib/api";
+  import { resolve } from "$app/paths";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
@@ -74,6 +75,7 @@
 <main class="usage-page">
   <header class="usage-header">
     <h1 class="usage-title">{m.usage_page_title()}</h1>
+    <a class="usage-close" href={resolve("/")} aria-label={m.common_close()}>✕</a>
   </header>
 
   <!-- Tab switcher -->
@@ -182,7 +184,32 @@
   }
 
   .usage-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin-bottom: 20px;
+  }
+
+  .usage-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: var(--fs-lg);
+    color: var(--color-muted);
+    text-decoration: none;
+    flex-shrink: 0;
+  }
+
+  .usage-close:hover {
+    color: var(--color-ink);
+  }
+
+  .usage-close:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .usage-title {

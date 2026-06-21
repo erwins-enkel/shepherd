@@ -1,4 +1,4 @@
-import { gateGapScenarios } from "./report";
+import { gateGapScenarios, harnessErrorScenarios } from "./report";
 import { captureSpawn, type Captured } from "./spawn";
 import type { ScenarioResult } from "./types";
 
@@ -57,6 +57,20 @@ export interface IssueOutcome {
   issueUrl: string | null;
 }
 
+/** Build the dated-comment summary naming the still-present gaps and/or harness
+ *  errors for the rolling issue's audit timeline. */
+function regressionSummary(gaps: ScenarioResult[], harnessErrors: ScenarioResult[]): string {
+  const parts: string[] = [];
+  if (gaps.length)
+    parts.push(`${gaps.length} gap(s) — ${gaps.map((g) => g.scenarioId).join(", ")}`);
+  if (harnessErrors.length) {
+    parts.push(
+      `${harnessErrors.length} harness error(s) — ${harnessErrors.map((h) => h.scenarioId).join(", ")}`,
+    );
+  }
+  return parts.join("; ");
+}
+
 /**
  * File the nightly outcome to GitHub for accountability, keeping ONE rolling
  * issue whose lifecycle mirrors the regression:
@@ -75,9 +89,10 @@ export async function reportToGitHub(
   gh: GhRunner = defaultGh,
 ): Promise<IssueOutcome> {
   const gaps = gateGapScenarios(results);
+  const harnessErrors = harnessErrorScenarios(results);
   const existing = await findOpenIssue(gh);
 
-  if (gaps.length === 0) {
+  if (gaps.length === 0 && harnessErrors.length === 0) {
     if (existing == null)
       return { summary: "clean run, no open issue — nothing to do", issueUrl: null };
     const r = await gh([
@@ -100,7 +115,7 @@ export async function reportToGitHub(
     return { summary: `opened issue: ${url}`, issueUrl: url };
   }
 
-  const scenarios = gaps.map((g) => g.scenarioId).join(", ");
+  const summary = regressionSummary(gaps, harnessErrors);
   const edit = await gh(["issue", "edit", String(existing.number), "--body", body]);
   if (edit.code !== 0) throw new Error(`gh issue edit failed: ${edit.stderr || edit.stdout}`);
   const comment = await gh([
@@ -108,7 +123,7 @@ export async function reportToGitHub(
     "comment",
     String(existing.number),
     "--body",
-    `Nightly run ${stamp}: ${gaps.length} gap(s) still present — ${scenarios}.`,
+    `Nightly run ${stamp}: ${summary}.`,
   ]);
   if (comment.code !== 0)
     throw new Error(`gh issue comment failed: ${comment.stderr || comment.stdout}`);

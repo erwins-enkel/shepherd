@@ -1,6 +1,12 @@
 import { captureSpawn } from "./spawn";
 import type { IncusExec, IncusRunner } from "./types";
 
+/** Prefix of the error `launch()` throws when an instance fails to start (image
+ *  rot, disk-full, name-collision — all "the throw-away instance never came up",
+ *  i.e. infra, not a product regression). report.ts matches this to de-gate such
+ *  failures while keeping anything that fails AFTER launch gating. */
+export const LAUNCH_FAILURE_PREFIX = "incus launch failed: ";
+
 /** The harness's `shep-onb` Incus profile, owned in-repo so a fresh/misconfigured host
  *  self-heals. limits.memory headroom (4GiB) clears the ~2GB transient peak of claude's
  *  native installer that OOM-killed the 2GiB profile (#749). */
@@ -51,7 +57,7 @@ export class IncusDriver {
     // ("No root device could be found"). See seed.ts for the canonical list.
     for (const p of opts.profiles ?? []) args.push("--profile", p);
     const r = await this.run(args);
-    if (r.code !== 0) throw new Error(`incus launch failed: ${r.stderr || r.stdout}`);
+    if (r.code !== 0) throw new Error(`${LAUNCH_FAILURE_PREFIX}${r.stderr || r.stdout}`);
   }
 
   async exec(name: string, cmd: string[]): Promise<IncusExec> {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { buildGapReport } from "../../ci/onboarding-harness/report";
+import {
+  buildGapReport,
+  gateGapScenarios,
+  harnessErrorScenarios,
+  statusDescription,
+} from "../../ci/onboarding-harness/report";
 import type { ScenarioResult } from "../../ci/onboarding-harness/types";
 
 const results: ScenarioResult[] = [
@@ -174,6 +179,124 @@ describe("buildGapReport", () => {
     expect(md).not.toContain("INSTALL GAP");
     expect(md).not.toContain("## Gaps");
     expect(md).toContain("1 / 1 scenarios reached green");
+  });
+
+  it("excludes a gate-eligible launch-failure from the gate (exact #926 shape)", () => {
+    // A gate-eligible scenario that threw with a launch failure (the #926 bug shape).
+    // Previously, gateGapScenarios returned it and flipped the gate red.
+    // Now it must be excluded: gateGapScenarios returns [].
+    const launchFail: ScenarioResult = {
+      scenarioId: "fedora-git-missing",
+      image: "images:fedora/42",
+      detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      error: "incus launch failed: image couldn't be found",
+    };
+    expect(gateGapScenarios([launchFail])).toHaveLength(0);
+  });
+
+  it("non-launch pre-detection throw (BOOT CRASH) is a gate gap that renders BOOT CRASH, not DETECTION GAP", () => {
+    // An instance that launched but crashed before detection (e.g. boot probe timeout)
+    // is NOT a harness error — it must gate. Classified as BOOT CRASH, counted in denominator.
+    const bootCrash: ScenarioResult = {
+      scenarioId: "ubuntu-bun-missing",
+      image: "images:ubuntu/24.04",
+      detection: { scenarioId: "ubuntu-bun-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      error: "Shepherd did not come up",
+    };
+    expect(gateGapScenarios([bootCrash])).toHaveLength(1);
+    const md = buildGapReport([bootCrash]);
+    expect(md).toContain("BOOT CRASH");
+    expect(md).not.toContain("DETECTION GAP");
+    // Stays in denominator: 0 / 1 reached green
+    expect(md).toContain("0 / 1 scenarios reached green");
+  });
+
+  it("any launch-failure message is de-gated (not just image-rot)", () => {
+    // A name-collision or disk-full launch failure must also be de-gated and
+    // classified as HARNESS ERROR (infra), not BOOT CRASH.
+    const nameCollision: ScenarioResult = {
+      scenarioId: "fedora-git-missing",
+      image: "images:fedora/42",
+      detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      error: "incus launch failed: name already in use",
+    };
+    expect(gateGapScenarios([nameCollision])).toHaveLength(0);
+    const md = buildGapReport([nameCollision]);
+    expect(md).toContain("HARNESS ERROR");
+    expect(md).not.toContain("BOOT CRASH");
+    expect(md).not.toContain("DETECTION GAP");
+  });
+
+  it("statusDescription excludes harness errors from denominator and appends a note", () => {
+    // One green gate scenario + one gate-eligible launch-failure harness error.
+    // statusDescription must return "1/1 gate scenarios green" (NOT "1/2") and note the harness error.
+    const greenScenario: ScenarioResult = {
+      scenarioId: "herdr-missing",
+      image: "images:archlinux",
+      detection: { scenarioId: "herdr-missing", detected: true, misses: [] },
+      appliedVia: "verbatim",
+      reachedGreen: true,
+      gateEligible: true,
+    };
+    const launchFail: ScenarioResult = {
+      scenarioId: "fedora-git-missing",
+      image: "images:fedora/42",
+      detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      error: "incus launch failed: image couldn't be found",
+    };
+    const desc = statusDescription([greenScenario, launchFail]);
+    expect(desc).toContain("1/1 gate scenarios green");
+    expect(desc).not.toContain("1/2");
+    expect(desc).toContain("harness error");
+  });
+
+  it("install-e2e LAUNCH failure still gates (never de-gated as infra)", () => {
+    // installE2E=true exempts the result from isPreDetectionThrow, so a launch-failure
+    // message does NOT classify as HARNESS ERROR — it stays in the gate as INSTALL GAP.
+    const installLaunchFail: ScenarioResult = {
+      scenarioId: "install-e2e",
+      image: "images:rockylinux/9",
+      detection: { scenarioId: "install-e2e", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: true,
+      installE2E: true,
+      error: "incus launch failed: image couldn't be found",
+    };
+    expect(gateGapScenarios([installLaunchFail])).toHaveLength(1);
+    const md = buildGapReport([installLaunchFail]);
+    expect(md).toContain("INSTALL GAP");
+    expect(md).not.toContain("HARNESS ERROR");
+    expect(md).not.toContain("BOOT CRASH");
+  });
+
+  it("non-gate-eligible launch failure is visible in harnessErrorScenarios but not in gateGapScenarios", () => {
+    // gateEligible=false → gateGapScenarios excludes it; but the launch-failure shape
+    // (isPreDetectionThrow + LAUNCH_FAILURE_PREFIX) makes it a harness error, so it
+    // stays visible in harnessErrorScenarios for issue/status tracking.
+    const nonGateLaunchFail: ScenarioResult = {
+      scenarioId: "fedora-git-missing",
+      image: "images:fedora/42",
+      detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+      appliedVia: "skipped",
+      reachedGreen: false,
+      gateEligible: false,
+      error: "incus launch failed: name already in use",
+    };
+    expect(harnessErrorScenarios([nonGateLaunchFail])).toHaveLength(1);
+    expect(gateGapScenarios([nonGateLaunchFail])).toHaveLength(0);
   });
 
   it("classifies a by-design no-apply scenario as DETECTION-ONLY and excludes it from the denominator", () => {

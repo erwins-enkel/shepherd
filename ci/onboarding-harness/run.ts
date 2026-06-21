@@ -8,7 +8,7 @@ import { seedInstance } from "./seed";
 import { assertUnitActive, bootShepherd, probeDiagnostics, waitForApi } from "./probe";
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
-import { buildGapReport, statusDescription } from "./report";
+import { buildGapReport, gateGapScenarios, statusDescription } from "./report";
 import { reportToGitHub, publishStatus } from "./issue";
 import { remediationsFor } from "../../src/remediations";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
@@ -347,10 +347,11 @@ async function main() {
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
 
-  // Verdict = the deterministic GATE subset only (structured, non-detection-only —
-  // same as onboarding-gate.sh). A prose/agent gap (git-missing) or a detection-only
-  // scenario shows in the report but never fails the run or blocks a release.
-  const gateOk = results.filter((r) => r.gateEligible).every((r) => r.reachedGreen);
+  // Release verdict = gate-eligible scenarios with a real gap; launch-failure harness
+  // errors (infra) are excluded (they stay visible via the rolling issue), so image rot
+  // never flips the gate red. Non-launch crashes (BOOT CRASH) are NOT harness errors and
+  // still gate.
+  const gateOk = gateGapScenarios(results).length === 0;
   await maybeReportRun(results, report, only, gateOk);
   process.exit(gateOk ? 0 : 1);
 }

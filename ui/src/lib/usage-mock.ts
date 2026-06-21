@@ -382,12 +382,14 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.75),
         generationUnits: Math.round(total * 0.25),
+        dollars: total,
         repos: [
           {
             repoPath: "/home/user/shepherd",
             repoName: "shepherd",
             authoringUnits: shepherdAuth24h,
             satelliteUnits: shepherdSat24h,
+            dollars: shepherdAuth24h + shepherdSat24h,
             tasks: shepherdTasks24h,
           },
           {
@@ -395,6 +397,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "web-app",
             authoringUnits: webappAuth24h,
             satelliteUnits: webappSat24h,
+            dollars: webappAuth24h + webappSat24h,
             tasks: webappTasks24h,
           },
           {
@@ -402,6 +405,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "infra",
             authoringUnits: infraAuth24h,
             satelliteUnits: infraSat24h,
+            dollars: infraAuth24h + infraSat24h,
             tasks: infraTasks24h,
           },
         ],
@@ -420,12 +424,14 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.76),
         generationUnits: Math.round(total * 0.24),
+        dollars: total,
         repos: [
           {
             repoPath: "/home/user/shepherd",
             repoName: "shepherd",
             authoringUnits: shepherdAuth7d,
             satelliteUnits: shepherdSat7d,
+            dollars: shepherdAuth7d + shepherdSat7d,
             tasks: shepherdTasks7d,
           },
           {
@@ -433,6 +439,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "web-app",
             authoringUnits: webappAuth7d,
             satelliteUnits: webappSat7d,
+            dollars: webappAuth7d + webappSat7d,
             tasks: webappTasks7d,
           },
           {
@@ -440,6 +447,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "infra",
             authoringUnits: infraAuth7d,
             satelliteUnits: infraSat7d,
+            dollars: infraAuth7d + infraSat7d,
             tasks: infraTasks7d,
           },
         ],
@@ -458,12 +466,14 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.77),
         generationUnits: Math.round(total * 0.23),
+        dollars: total,
         repos: [
           {
             repoPath: "/home/user/shepherd",
             repoName: "shepherd",
             authoringUnits: shepherdAuth30d,
             satelliteUnits: shepherdSat30d,
+            dollars: shepherdAuth30d + shepherdSat30d,
             tasks: shepherdTasks30d,
           },
           {
@@ -471,6 +481,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "web-app",
             authoringUnits: webappAuth30d,
             satelliteUnits: webappSat30d,
+            dollars: webappAuth30d + webappSat30d,
             tasks: webappTasks30d,
           },
           {
@@ -478,6 +489,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "infra",
             authoringUnits: infraAuth30d,
             satelliteUnits: infraSat30d,
+            dollars: infraAuth30d + infraSat30d,
             tasks: infraTasks30d,
           },
           {
@@ -485,6 +497,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "docs",
             authoringUnits: docsAuth30d,
             satelliteUnits: docsSat30d,
+            dollars: docsAuth30d + docsSat30d,
             tasks: docsTasks30d,
           },
         ],
@@ -503,12 +516,14 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.78),
         generationUnits: Math.round(total * 0.22),
+        dollars: total,
         repos: [
           {
             repoPath: "/home/user/shepherd",
             repoName: "shepherd",
             authoringUnits: shepherdAuthAll,
             satelliteUnits: shepherdSatAll,
+            dollars: shepherdAuthAll + shepherdSatAll,
             tasks: shepherdTasksAll,
           },
           {
@@ -516,6 +531,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "web-app",
             authoringUnits: webappAuthAll,
             satelliteUnits: webappSatAll,
+            dollars: webappAuthAll + webappSatAll,
             tasks: webappTasksAll,
           },
           {
@@ -523,6 +539,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "infra",
             authoringUnits: infraAuthAll,
             satelliteUnits: infraSatAll,
+            dollars: infraAuthAll + infraSatAll,
             tasks: infraTasksAll,
           },
           {
@@ -530,6 +547,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
             repoName: "docs",
             authoringUnits: docsAuthAll,
             satelliteUnits: docsSatAll,
+            dollars: docsAuthAll + docsSatAll,
             tasks: docsTasksAll,
           },
         ],

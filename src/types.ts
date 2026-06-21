@@ -666,6 +666,7 @@ export interface UsageRepoBreakdown {
   repoName: string;
   authoringUnits: number;
   satelliteUnits: number;
+  dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
   tasks: UsageTaskBreakdown[];
 }
 
@@ -677,6 +678,7 @@ export interface UsageBreakdown {
   satelliteUnits: number;
   cacheReadUnits: number;
   generationUnits: number;
+  dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
   repos: UsageRepoBreakdown[];
 }
 
@@ -699,6 +701,7 @@ export const USAGE_REPO_KEYS = [
   "repoName",
   "authoringUnits",
   "satelliteUnits",
+  "dollars",
   "tasks",
 ] as const;
 // Mirrors UsageBreakdown:
@@ -710,5 +713,6 @@ export const USAGE_BREAKDOWN_KEYS = [
   "satelliteUnits",
   "cacheReadUnits",
   "generationUnits",
+  "dollars",
   "repos",
 ] as const;

@@ -163,7 +163,7 @@ test("repo→task grouping, sorting, field mapping", async () => {
     }),
   );
 
-  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
 
   // Repos sorted by total desc: alpha (snapA1Wu+snapA2Wu) > beta (snapBWu)
   expect(bd.repos).toHaveLength(2);
@@ -229,17 +229,17 @@ test("persisted range filter: stale snapshot absent at 24h, present at all/30d",
     }),
   );
 
-  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW });
+  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
   const taskIds24h = bd24h.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
   expect(taskIds24h).toContain("recent");
   expect(taskIds24h).not.toContain("stale");
 
-  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
   const taskIdsAll = bdAll.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
   expect(taskIdsAll).toContain("recent");
   expect(taskIdsAll).toContain("stale");
 
-  const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW });
+  const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
   const taskIds30d = bd30d.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
   expect(taskIds30d).toContain("recent");
   expect(taskIds30d).toContain("stale");
@@ -321,7 +321,7 @@ test("satellite: targeted task accumulates spawn cost; out-of-scope spawn ignore
     NOW - 1500,
   );
 
-  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
 
   const task = bd.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "task-a");
   expect(task).toBeDefined();
@@ -403,14 +403,14 @@ test("live per-record windowing: 24h reflects only recent record; all reflects b
   writeJsonl(worktreePath, claudeSessionId, [oldRecord, recentRecord]);
 
   // 24h: only recent record
-  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW });
+  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
   const task24h = bd24h.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === liveSessionId);
   expect(task24h).toBeDefined();
   expect(task24h!.tokens.input).toBe(300);
   expect(task24h!.tokens.output).toBe(100);
 
   // all: both records
-  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
   const taskAll = bdAll.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === liveSessionId);
   expect(taskAll).toBeDefined();
   expect(taskAll!.tokens.input).toBe(800);
@@ -470,7 +470,7 @@ test("dedupe: live session also having a snapshot appears once (persisted wins)"
     }),
   );
 
-  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
   const tasks = bd.repos.flatMap((r) => r.tasks).filter((t) => t.sessionId === liveSession.id);
 
   // Only appears once (persisted wins — tokens from snapshot, not live)
@@ -513,7 +513,7 @@ test("operational-archetype live session excluded", async () => {
     asst({ requestId: "r1", ts: NOW, model: "claude-opus-4-8", input: 1000, output: 500 }),
   ]);
 
-  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
   const tasks = bd.repos.flatMap((r) => r.tasks);
   const found = tasks.find((t) => t.sessionId === mtSession.id);
   expect(found).toBeUndefined();
@@ -575,7 +575,7 @@ test("top-level invariants: cacheReadUnits + generationUnits === totalUnits, tot
     NOW - 500,
   );
 
-  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
 
   expect(bd.totalUnits).toBeCloseTo(bd.authoringUnits + bd.satelliteUnits, 10);
   expect(bd.totalUnits).toBeCloseTo(bd.cacheReadUnits + bd.generationUnits, 10);
@@ -584,7 +584,7 @@ test("top-level invariants: cacheReadUnits + generationUnits === totalUnits, tot
 
 test("empty store returns zero-valued breakdown", async () => {
   const store = new SessionStore(":memory:");
-  const bd = await buildUsageBreakdown({ store, range: "24h", now: NOW });
+  const bd = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
 
   expect(bd.range).toBe("24h");
   expect(bd.generatedAt).toBe(NOW);
@@ -594,4 +594,91 @@ test("empty store returns zero-valued breakdown", async () => {
   expect(bd.cacheReadUnits).toBe(0);
   expect(bd.generationUnits).toBe(0);
   expect(bd.repos).toHaveLength(0);
+});
+
+test("apiKey gate: dollars non-null and equals total units when true, null when false", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+
+  // Two repos, each with one task + satellite spend
+  const snapAWu = weightedUnits(
+    { input: 1000, output: 400, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "ak-s1",
+      desig: "TASK-01",
+      repoPath: "/repos/ak-alpha",
+      input: 1000,
+      output: 400,
+      weightedUnits: snapAWu,
+      cacheReadUnits: 0,
+      snapshotAt: NOW,
+    }),
+  );
+
+  const snapBWu = weightedUnits(
+    { input: 600, output: 200, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "ak-s2",
+      desig: "TASK-02",
+      repoPath: "/repos/ak-beta",
+      input: 600,
+      output: 200,
+      weightedUnits: snapBWu,
+      cacheReadUnits: 0,
+      snapshotAt: NOW,
+    }),
+  );
+
+  // Add a satellite spawn on ak-s1 to ensure satelliteUnits are included
+  const spawnInput = 200;
+  const spawnOutput = 80;
+  store.recordReviewerSpawn({
+    reviewerSessionId: "ak-rev-1",
+    taskSessionId: "ak-s1",
+    kind: "review",
+    worktreePath: "/wt",
+    model,
+    spawnedAt: NOW - 1000,
+  });
+  store.completeReviewerSpawn(
+    "ak-rev-1",
+    {
+      input: spawnInput,
+      output: spawnOutput,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: spawnInput + spawnOutput,
+      messageCount: 1,
+      lastActivity: NOW - 500,
+      byModel: { [model]: spawnInput + spawnOutput },
+      fullRecaches: 0,
+      sidechainCount: 0,
+    },
+    NOW - 500,
+  );
+
+  // apiKey: true — dollars must be non-null and equal authoringUnits + satelliteUnits
+  const bdOn = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: true });
+
+  expect(bdOn.dollars).not.toBeNull();
+  expect(bdOn.dollars).toBeCloseTo(bdOn.authoringUnits + bdOn.satelliteUnits, 10);
+
+  for (const repo of bdOn.repos) {
+    expect(repo.dollars).not.toBeNull();
+    expect(repo.dollars).toBeCloseTo(repo.authoringUnits + repo.satelliteUnits, 10);
+  }
+
+  // apiKey: false — dollars must be null at every level
+  const bdOff = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+
+  expect(bdOff.dollars).toBeNull();
+  for (const repo of bdOff.repos) {
+    expect(repo.dollars).toBeNull();
+  }
 });

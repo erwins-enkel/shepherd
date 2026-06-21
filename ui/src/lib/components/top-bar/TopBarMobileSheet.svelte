@@ -12,6 +12,7 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
+  import { resolve } from "$app/paths";
 
   // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
   // ActionBar carries these, but on phone it hides them, leaving Settings → Device the
@@ -200,6 +201,10 @@
           />
         </div>
       {/if}
+      <a class="sheet-item" href={resolve("/usage")} onclick={() => closeMenu()}>
+        <span class="sheet-glyph" aria-hidden="true">▦</span>
+        <span class="sheet-label">{m.topbar_usage_link()}</span>
+      </a>
       <div class="sheet-sep"></div>
     {/if}
 

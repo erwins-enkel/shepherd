@@ -1,9 +1,9 @@
-// Relative per-million-token weights used ONLY for the limit-% math — never displayed.
-// Absolute scale is irrelevant: the daily /usage calibration backs out the cap against these,
-// so only the ratios between models/kinds matter. Values track current public API list prices
-// ($/Mtok): Fable 5 10/50, Opus 4.8 5/25, Sonnet 4.6 3/15, Haiku 4.5 1/5 (input/output), with
-// cache kinds derived at the fixed 0.1× / 1.25× / 2× ratios. Keep the rows in price order so
-// Fable stays the heaviest tier — its weight must exceed Opus's, matching the cost copy.
+// The TABLE values are real Anthropic $/Mtok list prices and MUST stay absolute — they must NOT
+// be rescaled (e.g. normalized so a tier = 1), because /usage renders them as real currency via
+// dollars() (and as USD-denominated "units" in the spend breakdown). A rescale would silently
+// corrupt displayed money. The limit-% math (weightedUnits feeding the daily calibration) is
+// ratio-only, so it is unaffected by keeping the absolute anchor. Keep the rows in price order
+// so Fable stays the heaviest tier — its weight must exceed Opus's, matching the cost copy.
 
 interface ModelWeights {
   input: number;
@@ -62,6 +62,38 @@ export function cacheWriteUnits(
 
 /** Weighted "limit units" for one usage record, in arbitrary (per-Mtok) units. */
 export function weightedUnits(
+  c: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite5m: number;
+    cacheWrite1h: number;
+  },
+  model: string,
+): number {
+  const w = weightsFor(model);
+  return (
+    (c.input * w.input +
+      c.output * w.output +
+      c.cacheRead * w.cacheRead +
+      c.cacheWrite5m * w.cacheWrite5m +
+      c.cacheWrite1h * w.cacheWrite1h) /
+    1_000_000
+  );
+}
+
+/** Absolute USD cost of a token bundle at list price — the money view of the same weighted
+ *  units; displayed in /usage's api-key `$` column.
+ *
+ *  Intentional separation from `buildUsageBreakdown`: the breakdown's repo/total `$` is NOT
+ *  computed by calling this on aggregate tokens. The accumulated `authoringUnits`/
+ *  `satelliteUnits` ARE already list-price USD (`weightedUnits`, computed per-record from the
+ *  full per-model + 5m/1h cache split), so the breakdown sums those directly — re-deriving from
+ *  a task's flattened `cacheWrite` + dominant model would diverge from the units shown in the
+ *  same row. This helper is the canonical per-bundle money API for callers that hold a single
+ *  raw bundle (e.g. the per-task `$` follow-up, #980); `pricing-dollars.test.ts` pins
+ *  `dollars(c) === weightedUnits(c)`, so the two formulas cannot silently drift. */
+export function dollars(
   c: {
     input: number;
     output: number;

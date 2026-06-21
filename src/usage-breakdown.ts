@@ -127,7 +127,10 @@ function attributeSatellites(
 }
 
 /** Group task accumulators by repo, sort within each repo, and produce public repo breakdowns. */
-function buildRepoBreakdowns(taskMap: Map<string, TaskAccum>): UsageRepoBreakdown[] {
+function buildRepoBreakdowns(
+  taskMap: Map<string, TaskAccum>,
+  apiKey: boolean,
+): UsageRepoBreakdown[] {
   const repoMap = new Map<string, TaskAccum[]>();
   for (const task of taskMap.values()) {
     let bucket = repoMap.get(task.repoPath);
@@ -163,6 +166,9 @@ function buildRepoBreakdowns(taskMap: Map<string, TaskAccum>): UsageRepoBreakdow
       repoName,
       authoringUnits: repoAuthoring,
       satelliteUnits: repoSatellite,
+      // `$` = the accumulated list-price units themselves (NOT pricing.dollars() on aggregate
+      // tokens — that would diverge from the units shown). See dollars()'s doc in pricing.ts.
+      dollars: apiKey ? repoAuthoring + repoSatellite : null,
       tasks: publicTasks,
     });
   }
@@ -199,8 +205,9 @@ export async function buildUsageBreakdown(opts: {
   store: SessionStore;
   range: UsageRange;
   now: number;
+  apiKey: boolean;
 }): Promise<UsageBreakdown> {
-  const { store, range, now } = opts;
+  const { store, range, now, apiKey } = opts;
 
   const cutoff = rangeCutoff(range, now);
 
@@ -228,7 +235,7 @@ export async function buildUsageBreakdown(opts: {
   attributeSatellites(taskMap, store.listReviewerSpawns());
 
   // Group by repo, sort, produce public breakdowns
-  const repos = buildRepoBreakdowns(taskMap);
+  const repos = buildRepoBreakdowns(taskMap, apiKey);
 
   // Top-level aggregates
   const totals = aggregateTotals(taskMap, repos);
@@ -237,6 +244,7 @@ export async function buildUsageBreakdown(opts: {
     range,
     generatedAt: now,
     ...totals,
+    dollars: apiKey ? totals.totalUnits : null,
     repos,
   };
 }

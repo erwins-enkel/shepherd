@@ -53,6 +53,37 @@ describe("SpendLens", () => {
     expect(moreText).toMatch(/6/);
   });
 
+  it("api-key mode shows $ cost cells and total", async () => {
+    const breakdown = mockBreakdown("7d");
+    render(SpendLens, { breakdown });
+
+    // Each repo row should have a cost cell
+    const costCells = document.querySelectorAll(".repo-cost");
+    expect(costCells.length, "repo-cost cells rendered").toBeGreaterThanOrEqual(
+      breakdown.repos.length,
+    );
+
+    // Grand-total cost element should exist with $ prefix
+    const totalEl = document.querySelector(".spend-total-cost");
+    expect(totalEl, "spend-total-cost element exists").not.toBeNull();
+    expect(totalEl?.textContent?.trim().startsWith("$"), "total starts with $").toBe(true);
+  });
+
+  it("subscription mode hides $ cost cells and total", async () => {
+    const sub = {
+      ...mockBreakdown("7d"),
+      dollars: null,
+      repos: mockBreakdown("7d").repos.map((r) => ({ ...r, dollars: null })),
+    };
+    render(SpendLens, { breakdown: sub });
+
+    const costCells = document.querySelectorAll(".repo-cost");
+    expect(costCells.length, "no repo-cost cells in subscription mode").toBe(0);
+
+    const totalEl = document.querySelector(".spend-total-cost");
+    expect(totalEl, "no spend-total-cost in subscription mode").toBeNull();
+  });
+
   it("toggling a collapsed repo expands it and shows task rows", async () => {
     const breakdown = mockBreakdown("7d");
     render(SpendLens, { breakdown });

@@ -1399,4 +1399,11 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_feedback_title",
     bodyKey: "feat_feedback_body",
   },
+  {
+    id: "usage-dashboard",
+    sinceVersion: "1.36.0",
+    titleKey: "feat_usage_dashboard_title",
+    bodyKey: "feat_usage_dashboard_body",
+    targetId: "usage-link",
+  },
 ];

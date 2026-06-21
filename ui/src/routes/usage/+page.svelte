@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { UsageRange } from "$lib/types";
+  import type { UsageBreakdown, UsageLimits, UsageRange } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { mockBreakdown, mockLimits, mockProjections } from "$lib/usage-mock";
+  import { getUsageBreakdown, getUsageLimits } from "$lib/api";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
@@ -11,7 +11,57 @@
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
 
-  const breakdown = $derived(mockBreakdown(range));
+  let breakdown = $state<UsageBreakdown | null>(null);
+  let limits = $state<UsageLimits | null>(null);
+  let loading = $state(true);
+  let error = $state(false);
+  // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
+  // limits-endpoint failure surfaces an error + Retry instead of loading forever.
+  let limitsError = $state(false);
+
+  // Fetch limits once on mount (range-independent). `limits === null && !limitsError`
+  // ⇒ still loading.
+  async function loadLimits() {
+    limitsError = false;
+    try {
+      limits = await getUsageLimits();
+    } catch {
+      limitsError = true;
+    }
+  }
+  $effect(() => {
+    loadLimits();
+  });
+
+  // Monotonic token: latest request always wins; stale requests discard their results.
+  let reqToken = 0;
+
+  async function loadBreakdown(r: UsageRange) {
+    const my = ++reqToken;
+    loading = true;
+    error = false;
+    try {
+      const b = await getUsageBreakdown(r);
+      if (my !== reqToken) return;
+      breakdown = b;
+    } catch {
+      if (my !== reqToken) return;
+      error = true;
+    } finally {
+      if (my === reqToken) loading = false;
+    }
+  }
+
+  // Fetch breakdown on mount and whenever range changes.
+  $effect(() => {
+    loadBreakdown(range);
+  });
+
+  // Retry re-fetches BOTH tracks so either failure surface recovers.
+  function retry() {
+    loadBreakdown(range);
+    loadLimits();
+  }
 </script>
 
 <svelte:head>
@@ -21,7 +71,6 @@
 <main class="usage-page">
   <header class="usage-header">
     <h1 class="usage-title">{m.usage_page_title()}</h1>
-    <p class="usage-prototype-note">{m.usage_prototype_note()}</p>
   </header>
 
   <!-- Tab switcher -->
@@ -85,12 +134,36 @@
 
   <!-- Lens body -->
   <div class="lens-body">
+    <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
+         `breakdown` is still present (a failed range-change refetch) so the user isn't
+         silently left on old-range data with no indication the new range failed. -->
+    {#if error && tab !== "limits"}
+      <div class="usage-error-banner" role="alert">
+        <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
+        <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button
+        >
+      </div>
+    {/if}
+
     {#if tab === "spend"}
-      <SpendLens {breakdown} />
+      {#if breakdown}
+        <SpendLens {breakdown} />
+      {:else if loading}
+        <p class="usage-status-line">{m.common_loading()}</p>
+      {/if}
     {:else if tab === "overhead"}
-      <OverheadLens {breakdown} />
+      {#if breakdown}
+        <OverheadLens {breakdown} />
+      {:else if loading}
+        <p class="usage-status-line">{m.common_loading()}</p>
+      {/if}
+    {:else if limits}
+      <LimitsLens {limits} projections={[]} />
+    {:else if limitsError}
+      <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
+      <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>
     {:else}
-      <LimitsLens limits={mockLimits()} projections={mockProjections()} />
+      <p class="usage-status-line">{m.common_loading()}</p>
     {/if}
   </div>
 </main>
@@ -114,12 +187,6 @@
     font-size: var(--fs-xl);
     font-weight: 600;
     color: var(--color-ink);
-  }
-
-  .usage-prototype-note {
-    margin: 0;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
   }
 
   /* Segmented controls */
@@ -180,5 +247,29 @@
 
   .lens-body {
     margin-top: 0;
+  }
+
+  .usage-status-line {
+    margin: 24px 0 8px;
+    font-size: var(--fs-base);
+    color: var(--color-muted);
+  }
+
+  .usage-error {
+    color: var(--color-red);
+  }
+
+  /* Non-blocking refetch-error banner: sits above stale lens content so a failed
+     range change is visible without discarding the previous range's data. */
+  .usage-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .usage-error-banner .usage-status-line {
+    margin: 0;
   }
 </style>

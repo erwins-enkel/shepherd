@@ -98,6 +98,7 @@ import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { verifyApiKey } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
+import { snapshotSessionUsage } from "./usage-snapshot";
 
 const execFileAsync = promisify(execFile);
 
@@ -279,7 +280,10 @@ const service = new SessionService({
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
   // archive() so it can never block teardown / the merge train.
-  beforeArchive: (s) => recapService.considerForArchive(s).then(() => {}),
+  beforeArchive: (s) =>
+    Promise.all([recapService.considerForArchive(s), snapshotSessionUsage(s, store)]).then(
+      () => {},
+    ),
 });
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in

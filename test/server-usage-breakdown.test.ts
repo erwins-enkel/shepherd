@@ -165,7 +165,7 @@ test("GET /api/usage/breakdown with usageRollup: active session's units appear i
         },
       },
     });
-    Bun.write(join(rollupDir, `${claudeSessionId}.jsonl`), line1 + "\n");
+    await Bun.write(join(rollupDir, `${claudeSessionId}.jsonl`), line1 + "\n");
 
     const rollup = new TestRollup(rollupDir);
     const deps: AppDeps = {

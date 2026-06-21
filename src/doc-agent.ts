@@ -1,10 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { config } from "./config";
 import { docAgentArgv } from "./doc-agent-argv";
 import { EmptyDiffError } from "./forge/types";
 import type { GitForge } from "./forge/types";
@@ -13,20 +11,8 @@ import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
-import {
-  apiKeyMembraneFields,
-  apiKeyPassthroughEnv,
-  isApiKeyConfigured,
-  isApiKeyMode,
-} from "./spawn-auth";
-import {
-  detectBackend as realDetectBackend,
-  wrapArgv,
-  safeRealpath,
-  collectPassthroughEnv,
-  type SandboxBackend,
-  type MembraneInputs,
-} from "./sandbox";
+import { apiKeyPassthroughEnv, isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
+import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
 
 const execFileP = promisify(execFile);
@@ -152,7 +138,7 @@ interface InFlight {
   finalizing?: boolean;
 }
 
-export interface DocAgentDeps {
+export interface DocAgentDeps extends MembraneSeams {
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   worktree: Pick<WorktreeMgr, "create" | "remove" | "gitCommonDir" | "ensureBaseRef">;
   resolveForge: (repoPath: string) => GitForge | null;
@@ -182,13 +168,6 @@ export interface DocAgentDeps {
   dayKey?: (now: number) => string;
   git?: (cwd: string, args: string[]) => Promise<string>;
   prettier?: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
-  detectBackend?: () => SandboxBackend;
-  membraneEnv?: () => {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  };
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
   buildPrompt?: (base: string) => string;
@@ -240,30 +219,6 @@ export class DocAgentService {
     this.buildPrompt = deps.buildPrompt ?? ((base) => docAgentPrompt(base));
     this.act = deps.act ?? false;
     this.readUsage = deps.readUsage ?? readSessionUsage;
-  }
-
-  private detectBackend(): SandboxBackend {
-    if (this.deps.detectBackend) return this.deps.detectBackend();
-    return realDetectBackend({
-      home: homedir(),
-      claudeDir: config.claudeDir,
-      nodeBinReal: safeRealpath(config.nodeBin),
-    });
-  }
-
-  private membraneEnv(): {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  } {
-    if (this.deps.membraneEnv) return this.deps.membraneEnv();
-    return {
-      claudeDir: config.claudeDir,
-      home: homedir(),
-      nodeBinReal: safeRealpath(config.nodeBin),
-      extraEnv: collectPassthroughEnv(),
-    };
   }
 
   /** Start a doc-agent run for `repoPath` (manual trigger). At most one per repo at a time. */
@@ -497,21 +452,13 @@ export class DocAgentService {
     base: string,
   ): { terminalId: string; spawnSessionId: string } | null {
     const { argv, sessionId } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
-    const backend = this.detectBackend();
-    const env = this.membraneEnv();
-    const membrane: MembraneInputs = {
+    const { wrapped, backend } = resolveSpawnMembrane({
+      argv,
       worktreePath,
-      gitCommonDir: this.deps.worktree.gitCommonDir(worktreePath),
-      isolated: true,
       repoPath,
-      claudeDir: env.claudeDir,
-      home: env.home,
-      nodeBinReal: env.nodeBinReal,
-      extraEnv: env.extraEnv,
-      // api-key mode: a bwrap-wrapped agent masks the OAuth credential + binds the helper.
-      ...apiKeyMembraneFields(),
-    };
-    const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
+      worktree: this.deps.worktree,
+      seams: this.deps,
+    });
     try {
       const terminalId = this.deps.herdr.start(
         agentName,

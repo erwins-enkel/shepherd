@@ -1,5 +1,18 @@
 import { test, expect } from "bun:test";
-import { accumulate, parseLine, dashify, jsonlPathFor } from "../src/usage";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  accumulate,
+  parseLine,
+  dashify,
+  jsonlPathFor,
+  dominantModelOf,
+  foldSessionBuckets,
+  SessionUsageRollup,
+  type RollupSession,
+} from "../src/usage";
+import { sessionCost } from "../src/usage";
 
 function asst(opts: {
   model?: string;
@@ -165,4 +178,417 @@ test("sidechainCount tallies isSidechain accepted records", () => {
     asst({ requestId: "r3" }), // main — not counted
   ]);
   expect(u.sidechainCount).toBe(2);
+});
+
+// ── dominantModelOf ───────────────────────────────────────────────────────────
+
+test("dominantModelOf picks the model with max weighted units", () => {
+  expect(dominantModelOf({ "claude-opus-4-8": 100, "claude-sonnet-4-6": 200 })).toBe(
+    "claude-sonnet-4-6",
+  );
+});
+
+test("dominantModelOf skips the 'unknown' sentinel", () => {
+  expect(dominantModelOf({ unknown: 9999, "claude-opus-4-8": 10 })).toBe("claude-opus-4-8");
+});
+
+test("dominantModelOf returns null on empty record", () => {
+  expect(dominantModelOf({})).toBeNull();
+});
+
+test("dominantModelOf returns null when only 'unknown' is present", () => {
+  expect(dominantModelOf({ unknown: 500 })).toBeNull();
+});
+
+// ── foldSessionBuckets ────────────────────────────────────────────────────────
+
+// Fixture: two different hours + one ts=0 record, with distinct models and multiple token kinds.
+// Hour A: 2026-05-30T09:00:00.000Z
+// Hour B: 2026-05-30T10:00:00.000Z
+const TS_A = "2026-05-30T09:31:01.000Z"; // in hour A
+const TS_B = "2026-05-30T10:15:00.000Z"; // in hour B
+
+// Make a ts=0 record by using an invalid timestamp
+function asstNoTs(opts: Parameters<typeof asst>[0]): string {
+  const o = JSON.parse(asst(opts));
+  o.timestamp = "invalid"; // Date.parse("invalid") === NaN → 0
+  return JSON.stringify(o);
+}
+
+const multiHourLinesFixed = [
+  asst({
+    requestId: "r1",
+    model: "claude-opus-4-8",
+    input: 100,
+    output: 50,
+    cacheRead: 10,
+    w5m: 5,
+    w1h: 3,
+    ts: TS_A,
+  }),
+  asst({
+    requestId: "r2",
+    model: "claude-sonnet-4-6",
+    input: 200,
+    output: 80,
+    cacheRead: 20,
+    w5m: 8,
+    ts: TS_B,
+  }),
+  asst({ requestId: "r3", model: "claude-opus-4-8", input: 50, output: 30, ts: TS_B }),
+  asstNoTs({ requestId: "r4", model: "claude-haiku-4-5", input: 40, output: 20 }),
+];
+
+test("foldSessionBuckets: summing all buckets matches sessionCost totals (no window)", () => {
+  const fold = foldSessionBuckets(multiHourLinesFixed);
+  const ref = sessionCost(multiHourLinesFixed);
+
+  let input = 0,
+    output = 0,
+    cacheRead = 0,
+    cacheWrite = 0,
+    weightedUnits = 0,
+    cacheReadUnits = 0;
+  for (const b of fold.buckets.values()) {
+    input += b.input;
+    output += b.output;
+    cacheRead += b.cacheRead;
+    cacheWrite += b.cacheWrite;
+    weightedUnits += b.weightedUnits;
+    cacheReadUnits += b.cacheReadUnits;
+  }
+
+  expect(input).toBe(ref.usage.input);
+  expect(output).toBe(ref.usage.output);
+  expect(cacheRead).toBe(ref.usage.cacheRead);
+  expect(cacheWrite).toBe(ref.usage.cacheWrite);
+  expect(weightedUnits).toBeCloseTo(ref.weightedUnits, 10);
+  expect(cacheReadUnits).toBeCloseTo(ref.cacheReadUnits, 10);
+});
+
+test("foldSessionBuckets: messageCount equals sessionCost messageCount", () => {
+  const fold = foldSessionBuckets(multiHourLinesFixed);
+  const ref = sessionCost(multiHourLinesFixed);
+  expect(fold.messageCount).toBe(ref.usage.messageCount);
+});
+
+test("foldSessionBuckets: dedupes by requestId across buckets", () => {
+  const dup = [
+    asst({ requestId: "dup1", input: 100, ts: TS_A }),
+    asst({ requestId: "dup1", input: 100, ts: TS_B }), // same requestId, different hour → skipped
+  ];
+  const fold = foldSessionBuckets(dup);
+  expect(fold.messageCount).toBe(1);
+  let total = 0;
+  for (const b of fold.buckets.values()) total += b.input;
+  expect(total).toBe(100);
+});
+
+test("foldSessionBuckets: ts=0 record folds into bucket 0", () => {
+  const lines = [asstNoTs({ requestId: "r0", input: 77 })];
+  const fold = foldSessionBuckets(lines);
+  expect(fold.buckets.has(0)).toBe(true);
+  expect(fold.buckets.get(0)!.input).toBe(77);
+});
+
+// ── SessionUsageRollup ────────────────────────────────────────────────────────
+
+function makeTmpDir(): string {
+  return mkdtempSync(join(tmpdir(), "rollup-test-"));
+}
+
+function makeSession(dir: string, id: string): RollupSession {
+  return { id, worktreePath: dir, claudeSessionId: id };
+}
+
+// Override jsonlPathFor for tests by using worktreePath as the directory directly.
+// We monkey-patch via a wrapper that creates a TestRollup subclass.
+class TestRollup extends SessionUsageRollup {
+  constructor(private dir: string) {
+    super();
+  }
+  // Override to use dir+sessionId.jsonl as path
+  protected override pathFor(worktreePath: string, sessionId: string): string {
+    return join(this.dir, `${sessionId}.jsonl`);
+  }
+}
+
+test("SessionUsageRollup: incremental append — second refresh sees appended bytes", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-inc";
+  const path = join(dir, `${sessionId}.jsonl`);
+  const lines1 = [asst({ requestId: "a1", input: 100, output: 50, ts: TS_A })];
+  writeFileSync(path, lines1.join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  const w1 = r.windowedAccum(sessionId, 0);
+  expect(w1).not.toBeNull();
+  expect(w1!.input).toBe(100);
+
+  // Append more bytes
+  const lines2 = [asst({ requestId: "a2", input: 200, output: 80, ts: TS_B })];
+  writeFileSync(path, [...lines1, ...lines2].join("\n") + "\n");
+  await r.refresh(sessions, now);
+
+  const ref = sessionCost([...lines1, ...lines2]);
+  const w2 = r.windowedAccum(sessionId, 0);
+  expect(w2!.input).toBe(ref.usage.input);
+  expect(w2!.output).toBe(ref.usage.output);
+  expect(w2!.weightedUnits).toBeCloseTo(ref.weightedUnits, 10);
+});
+
+test("SessionUsageRollup: single-flight — concurrent refresh() calls don't double-count", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-sf";
+  const path = join(dir, `${sessionId}.jsonl`);
+  // Use records WITHOUT requestId so they WOULD double-count if read twice
+  const lines = [
+    asst({ input: 100, output: 50 }), // no requestId
+    asst({ input: 200, output: 80 }), // no requestId
+  ];
+  writeFileSync(path, lines.join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  // Fire two concurrent refreshes
+  await Promise.all([r.refresh(sessions, now), r.refresh(sessions, now)]);
+
+  const w = r.windowedAccum(sessionId, 0);
+  expect(w).not.toBeNull();
+  // Should only count each record once
+  expect(w!.input).toBe(300);
+  expect(w!.output).toBe(130);
+  expect(w!.messageCount).toBe(2);
+});
+
+test("SessionUsageRollup: dedupe before accumulate — duplicate requestId across chunks counted once", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-dup";
+  const path = join(dir, `${sessionId}.jsonl`);
+  const line = asst({ requestId: "dup-x", input: 100, output: 50, ts: TS_A });
+
+  // First refresh with one record
+  writeFileSync(path, line + "\n");
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  // Append the same requestId again (simulating duplicate)
+  const dup = asst({ requestId: "dup-x", input: 100, output: 50, ts: TS_B });
+  writeFileSync(path, line + "\n" + dup + "\n");
+  await r.refresh(sessions, now);
+
+  const w = r.windowedAccum(sessionId, 0);
+  expect(w!.messageCount).toBe(1);
+  expect(w!.input).toBe(100);
+});
+
+test("SessionUsageRollup: exact-cutoff windowing (cutoff>0) equals sessionCost(lines, cutoff)", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-cutoff";
+  const path = join(dir, `${sessionId}.jsonl`);
+  const lines = [
+    asst({ requestId: "c1", input: 100, output: 50, cacheRead: 10, ts: TS_A }),
+    asst({ requestId: "c2", input: 200, output: 80, ts: TS_B }),
+    asstNoTs({ requestId: "c3", input: 40, output: 20 }), // ts=0 always included
+  ];
+  writeFileSync(path, lines.join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  // cutoff = floor of hour B = exclude TS_A records
+  const hourBFloor = Math.floor(Date.parse(TS_B) / 3_600_000) * 3_600_000;
+  const ref = sessionCost(lines, hourBFloor);
+  const w = r.windowedAccum(sessionId, hourBFloor);
+  expect(w).not.toBeNull();
+  expect(w!.input).toBe(ref.usage.input);
+  expect(w!.output).toBe(ref.usage.output);
+  expect(w!.weightedUnits).toBeCloseTo(ref.weightedUnits, 10);
+  expect(w!.cacheReadUnits).toBeCloseTo(ref.cacheReadUnits, 10);
+});
+
+test("SessionUsageRollup: cutoff===0 uses unpruned running agg — old record pruned from array but still in agg", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-agg";
+  const path = join(dir, `${sessionId}.jsonl`);
+  // Use ts=1 (epoch+1ms) for an old record
+  const oldLine = JSON.stringify({
+    type: "assistant",
+    timestamp: new Date(1).toISOString(),
+    requestId: "old1",
+    message: {
+      model: "claude-opus-4-8",
+      usage: {
+        input_tokens: 500,
+        output_tokens: 100,
+        cache_read_input_tokens: 0,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 },
+      },
+    },
+  });
+  const recentLine = asst({ requestId: "new1", input: 10, ts: TS_B });
+  writeFileSync(path, [oldLine, recentLine].join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  // now = 30d + 60s + 2ms after ts=1, so the old record is prunable
+  const THIRTY_DAYS = 30 * 86_400_000;
+  const now = 1 + THIRTY_DAYS + 60_000 + 2;
+  await r.refresh(sessions, now);
+
+  const w = r.windowedAccum(sessionId, 0);
+  expect(w).not.toBeNull();
+  // cutoff===0 uses unpruned agg — both records counted
+  expect(w!.messageCount).toBe(2);
+  expect(w!.input).toBe(510);
+});
+
+test("SessionUsageRollup: 30d prune — array shrank, agg did not; requestId removed from seen", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-prune";
+  const path = join(dir, `${sessionId}.jsonl`);
+  const oldLine = JSON.stringify({
+    type: "assistant",
+    timestamp: new Date(1).toISOString(),
+    requestId: "prune1",
+    message: {
+      model: "claude-opus-4-8",
+      usage: {
+        input_tokens: 300,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 },
+      },
+    },
+  });
+  writeFileSync(path, oldLine + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const THIRTY_DAYS = 30 * 86_400_000;
+  const now = 1 + THIRTY_DAYS + 60_000 + 2;
+  await r.refresh(sessions, now);
+
+  // The windowed (cutoff>0) view returns null because the only record was pruned from records[]
+  const cutoff = now - THIRTY_DAYS;
+  const w = r.windowedAccum(sessionId, cutoff);
+  // Record ts=1 < cutoff, so not in window; ts=0 records are always included but there are none
+  expect(w).toBeNull(); // messageCount===0 → null
+
+  // But cutoff===0 still shows the agg
+  const wAgg = r.windowedAccum(sessionId, 0);
+  expect(wAgg).not.toBeNull();
+  expect(wAgg!.messageCount).toBe(1);
+});
+
+test("SessionUsageRollup: truncation reset — size < offset resets state", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-trunc";
+  const path = join(dir, `${sessionId}.jsonl`);
+  const lines = [asst({ requestId: "t1", input: 100, ts: TS_A })];
+  writeFileSync(path, lines.join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  const w1 = r.windowedAccum(sessionId, 0);
+  expect(w1!.input).toBe(100);
+
+  // Truncate: write fewer bytes (smaller file)
+  const newLines = [asst({ requestId: "t2", input: 50, ts: TS_A })];
+  writeFileSync(path, newLines.join("\n") + "\n");
+  await r.refresh(sessions, now);
+
+  // After reset, only the new content should be counted
+  const w2 = r.windowedAccum(sessionId, 0);
+  expect(w2!.input).toBe(50);
+  expect(w2!.messageCount).toBe(1);
+});
+
+test("SessionUsageRollup: drop inactive sessions not in sessions arg", async () => {
+  const dir = makeTmpDir();
+  const sessA = "sess-drop-a";
+  const sessB = "sess-drop-b";
+  writeFileSync(
+    join(dir, `${sessA}.jsonl`),
+    asst({ requestId: "da1", input: 100, ts: TS_A }) + "\n",
+  );
+  writeFileSync(
+    join(dir, `${sessB}.jsonl`),
+    asst({ requestId: "db1", input: 200, ts: TS_A }) + "\n",
+  );
+
+  const r = new TestRollup(dir);
+  const now = Date.now();
+  await r.refresh([makeSession(dir, sessA), makeSession(dir, sessB)], now);
+
+  expect(r.windowedAccum(sessA, 0)).not.toBeNull();
+  expect(r.windowedAccum(sessB, 0)).not.toBeNull();
+
+  // Drop sessB from sessions list
+  await r.refresh([makeSession(dir, sessA)], now);
+
+  expect(r.windowedAccum(sessA, 0)).not.toBeNull();
+  expect(r.windowedAccum(sessB, 0)).toBeNull();
+});
+
+test("SessionUsageRollup: windowedAccum returns null for unknown sessionId", async () => {
+  const r = new SessionUsageRollup();
+  expect(r.windowedAccum("no-such-session", 0)).toBeNull();
+});
+
+test("SessionUsageRollup: windowedAccum returns null for empty in-window set (messageCount===0)", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-empty-win";
+  const path = join(dir, `${sessionId}.jsonl`);
+  // Record is in hour A; cutoff is hour B → no in-window records
+  writeFileSync(path, asst({ requestId: "ew1", input: 100, ts: TS_A }) + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  const hourBFloor = Math.floor(Date.parse(TS_B) / 3_600_000) * 3_600_000;
+  // TS_A is in hour 09:xx, hourBFloor is 10:00; TS_A < hourBFloor → excluded
+  const w = r.windowedAccum(sessionId, hourBFloor);
+  expect(w).toBeNull();
+});
+
+test("SessionUsageRollup: dominantModel for cutoff>0 from in-window raw tokens; cutoff===0 from session-wide agg", async () => {
+  const dir = makeTmpDir();
+  const sessionId = "sess-dom";
+  const path = join(dir, `${sessionId}.jsonl`);
+  // Hour A: opus with lots of tokens
+  // Hour B: sonnet with fewer tokens
+  const lines = [
+    asst({ requestId: "dm1", model: "claude-opus-4-8", input: 1000, output: 500, ts: TS_A }),
+    asst({ requestId: "dm2", model: "claude-sonnet-4-6", input: 50, output: 20, ts: TS_B }),
+  ];
+  writeFileSync(path, lines.join("\n") + "\n");
+
+  const r = new TestRollup(dir);
+  const sessions = [makeSession(dir, sessionId)];
+  const now = Date.now();
+  await r.refresh(sessions, now);
+
+  // cutoff===0 → session-wide: opus dominates
+  const wAll = r.windowedAccum(sessionId, 0);
+  expect(wAll!.dominantModel).toBe("claude-opus-4-8");
+
+  // cutoff = hour B floor → only hour B in window → sonnet dominates
+  const hourBFloor = Math.floor(Date.parse(TS_B) / 3_600_000) * 3_600_000;
+  const wB = r.windowedAccum(sessionId, hourBFloor);
+  expect(wB!.dominantModel).toBe("claude-sonnet-4-6");
 });

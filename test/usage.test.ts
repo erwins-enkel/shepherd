@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -596,7 +596,10 @@ test("SessionUsageRollup: dominantModel for cutoff>0 from in-window raw tokens; 
 test("SessionUsageRollup: prune walks all records even when first record is ts=0", async () => {
   // Regression: the old guard `st.records[0].ts > 0 && st.records[0].ts < cutoff` would
   // skip the prune loop entirely when the first record has ts=0, leaving stale real-ts
-  // records and their requestIds in `seen` unbounded.
+  // records and their requestIds in `seen` unbounded. The observable effect of that bug:
+  // "old-real" stays in `seen`, so a later re-append of that requestId is deduped away.
+  // With the fix, "old-real" is removed from `seen` during prune, so the re-appended line
+  // IS counted. This test observes that via the in-window input total.
   const dir = makeTmpDir();
   const sessionId = "sess-prune-ts0-first";
   const path = join(dir, `${sessionId}.jsonl`);
@@ -633,19 +636,36 @@ test("SessionUsageRollup: prune walks all records even when first record is ts=0
   const now = 1 + THIRTY_DAYS + 60_000 + 2;
   await r.refresh(sessions, now);
 
-  // After prune: ts=0 kept, old real-ts pruned, recent kept.
-  // windowedAccum with cutoff>0 only sees ts=0 and ts>=cutoff records.
+  // Sanity: ts=0 record is still counted in-window (never pruned)
   const cutoff = now - THIRTY_DAYS - 60_000;
-  const w = r.windowedAccum(sessionId, cutoff);
-  // ts=0 (input=11) and recentLine (input=99) are in-window; oldLine (input=777) was pruned
-  expect(w).not.toBeNull();
-  expect(w!.input).toBe(11 + 99); // 110 — NOT 11 + 777 + 99
-  expect(w!.messageCount).toBe(2);
+  const wAfterFirst = r.windowedAccum(sessionId, cutoff);
+  expect(wAfterFirst).not.toBeNull();
+  expect(wAfterFirst!.input >= 11).toBe(true); // ts0Line still present
 
-  // Verify old requestId was removed from seen by attempting a re-ingest in a second refresh.
-  // Append oldLine again: if pruned correctly, it will be re-ingested (seen no longer has "old-real").
-  // We don't need to verify re-ingest here — the input assertion above already proves prune happened.
-  // Extra: ensure ts=0 record is still present in the window (not pruned).
-  const ts0InWindow = w!.input >= 11;
-  expect(ts0InWindow).toBe(true);
+  // KEY assertion: re-append a NEW line reusing requestId "old-real" with a recent timestamp
+  // and a distinctive input (500). If the prune correctly removed "old-real" from `seen`,
+  // the rollup will accept this line and count it. If the bug is present ("old-real" still in
+  // `seen`), the line is deduped away and the total stays at 11+99=110.
+  const reAppendedLine = JSON.stringify({
+    type: "assistant",
+    timestamp: new Date(now - 1).toISOString(), // recent: well within window (>= cutoff=3)
+    requestId: "old-real",
+    message: {
+      model: "claude-opus-4-8",
+      usage: {
+        input_tokens: 500,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 },
+      },
+    },
+  });
+  appendFileSync(path, reAppendedLine + "\n");
+  await r.refresh(sessions, now);
+
+  // With the fix: "old-real" was pruned from `seen` → re-appended line accepted → 11+99+500=610
+  // With the bug: "old-real" still in `seen` → re-appended line deduped → 11+99=110 (assertion fails)
+  const wAfterReappend = r.windowedAccum(sessionId, cutoff);
+  expect(wAfterReappend).not.toBeNull();
+  expect(wAfterReappend!.input).toBe(11 + 99 + 500); // 610
 });

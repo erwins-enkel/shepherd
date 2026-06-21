@@ -512,5 +512,5 @@ export const REVIEWER_SPAWN_RETENTION_MS = REVIEWER_SPAWN_RETENTION_DAYS * 24 * 
 // usage_caps_history / usage_credit_history: append-only per-scrape timeline for the Limits
 // trend (issue #973). 90 days matches reviewer_spawns — long enough for meaningful monthly credit
 // cycles and weekly cap patterns, bounded enough to stay cheap.
-export const USAGE_HISTORY_RETENTION_DAYS = 90;
+const USAGE_HISTORY_RETENTION_DAYS = 90; // module-local; only the _MS form is consumed
 export const USAGE_HISTORY_RETENTION_MS = USAGE_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000;

@@ -1770,5 +1770,7 @@
   "usage_range_24h": "24h",
   "usage_range_7d": "7d",
   "usage_range_30d": "30d",
-  "usage_range_all": "All"
+  "usage_range_all": "All",
+  "feat_repo_switch_retarget_title": "Terminal follows the repo switch",
+  "feat_repo_switch_retarget_body": "Picking a repo from the chip rail now jumps the terminal to that repo too — to the session waiting on your answer, or else the first active one. No more staring at a session from the repo you just left."
 }

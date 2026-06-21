@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import {
@@ -88,6 +88,7 @@
   import {
     firstCurateRepo,
     globalLearningsCounts,
+    pickRepoSwitchTarget,
     repoChipRows,
     shouldClearRepoFilter,
   } from "$lib/components/queue-strip";
@@ -200,6 +201,27 @@
   // a filter on a vanished repo would strand an empty view.
   $effect(() => {
     if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
+  });
+  // Picking a repo chip narrows the herd list to that repo — but the terminal would
+  // otherwise keep showing whatever session was selected before, which now lives in a
+  // different repo than the visible list. Re-target selection onto the chosen repo
+  // (waiting-on-you session first, then first active, then any). Tracks ONLY repoFilter
+  // (everything else is untracked) so it fires on a chip switch, never on a later
+  // session/block update that would yank the user off their session.
+  $effect(() => {
+    const rf = repoFilter;
+    if (rf == null) return; // "all repos" view keeps selection whole
+    untrack(() => {
+      const target = pickRepoSwitchTarget(
+        rf,
+        store.sessions,
+        store.blocks,
+        store.workingBlocked,
+        selected,
+      );
+      // toDetail=false: filtering the list must not fling a phone user into a terminal.
+      if (target) selectUnit(target, false, false);
+    });
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
   // Independent of the repo filter — both compose into herdSessions below. Sticky
@@ -768,14 +790,18 @@
   // keyboard back to the terminal that plain-key navigation kept it out of.
   let viewportRef: Viewport | undefined = $state();
 
-  function selectUnit(id: string, focusTerm = true) {
+  // toDetail=false re-targets the selection WITHOUT opening the mobile detail screen —
+  // used when the switch is a side effect of another action (e.g. a repo-filter change)
+  // rather than the user tapping a session row, so a list-level action doesn't fling a
+  // phone user into a terminal.
+  function selectUnit(id: string, focusTerm = true, toDetail = true) {
     // only a *real* switch remounts the terminal and consumes the intent; a
     // self-selection (e.g. plain j wrapping back to the only visible session)
     // must not park a stale `false` that would suppress a later
     // resumeEpoch-driven auto-focus.
     if (id !== selectedId) keynavFocusIntent = focusTerm;
     selectedId = id;
-    if (mobile.current) mobileScreen = "detail";
+    if (toDetail && mobile.current) mobileScreen = "detail";
   }
 
   // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens

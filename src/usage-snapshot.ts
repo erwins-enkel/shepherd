@@ -1,7 +1,40 @@
 import type { Session } from "./types";
 import type { SessionStore } from "./store";
+import type { SessionUsageBucket } from "./types";
 import { isOperationalArchetype } from "./usage-archetype";
-import { jsonlPathFor, sessionCost, dominantModel } from "./usage";
+import { jsonlPathFor, foldSessionBuckets, dominantModelOf } from "./usage";
+import type { SessionBucket } from "./usage";
+
+/** Sum all buckets (incl. bucket 0) into a flat aggregate. */
+function sumBuckets(buckets: Map<number, SessionBucket>): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  weightedUnits: number;
+  cacheReadUnits: number;
+  byModel: Record<string, number>;
+} {
+  let input = 0,
+    output = 0,
+    cacheRead = 0,
+    cacheWrite = 0,
+    weightedUnits = 0,
+    cacheReadUnits = 0;
+  const byModel: Record<string, number> = {};
+  for (const b of buckets.values()) {
+    input += b.input;
+    output += b.output;
+    cacheRead += b.cacheRead;
+    cacheWrite += b.cacheWrite;
+    weightedUnits += b.weightedUnits;
+    cacheReadUnits += b.cacheReadUnits;
+    for (const [model, units] of Object.entries(b.byModel)) {
+      byModel[model] = (byModel[model] ?? 0) + units;
+    }
+  }
+  return { input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel };
+}
 
 /** Persist a session's authoring spend into the session_usage table.
  *  Never throws — the whole body is wrapped so archive teardown is never blocked.
@@ -21,37 +54,56 @@ export async function snapshotSessionUsage(
     if (!(await file.exists())) return "skipped";
     const text = await file.text();
 
-    // 3. Compute cost from the full transcript.
-    const sc = sessionCost(text.split("\n"));
+    // 3. Single-pass fold into per-hour buckets.
+    const fold = foldSessionBuckets(text.split("\n"));
 
     // 4. Skip empty transcripts.
-    if (sc.usage.messageCount === 0) return "skipped";
+    if (fold.messageCount === 0) return "skipped";
 
-    // 5. Resolve dominant model.
-    const model = dominantModel(sc.usage) ?? s.model ?? "unknown";
+    // 5. Aggregate from buckets (Σ incl. bucket 0).
+    const agg = sumBuckets(fold.buckets);
+    const total = agg.input + agg.output + agg.cacheRead + agg.cacheWrite;
 
-    // 6. Timestamp — use opts.asOf when provided (backfill), otherwise now.
+    // 6. Resolve dominant model.
+    const model = dominantModelOf(fold.rawByModel) ?? s.model ?? "unknown";
+
+    // 7. Timestamp — use opts.asOf when provided (backfill), otherwise now.
     const asOf = opts?.asOf ?? Date.now();
 
-    // 7. Upsert the snapshot row.
+    // 8. Upsert the parent session_usage row FIRST (FK parent must exist before buckets).
     store.upsertSessionUsage({
       sessionId: s.id,
       desig: s.desig,
       repoPath: s.repoPath,
       model,
-      input: sc.usage.input,
-      output: sc.usage.output,
-      cacheRead: sc.usage.cacheRead,
-      cacheWrite: sc.usage.cacheWrite,
-      total: sc.usage.total,
-      weightedUnits: sc.weightedUnits,
-      cacheReadUnits: sc.cacheReadUnits,
-      messageCount: sc.usage.messageCount,
-      byModel: sc.weightedByModel,
+      input: agg.input,
+      output: agg.output,
+      cacheRead: agg.cacheRead,
+      cacheWrite: agg.cacheWrite,
+      total,
+      weightedUnits: agg.weightedUnits,
+      cacheReadUnits: agg.cacheReadUnits,
+      messageCount: fold.messageCount,
+      byModel: agg.byModel,
       createdAt: s.createdAt,
       archivedAt: asOf,
       snapshotAt: asOf,
     });
+
+    // 9. Persist per-hour buckets (FK child — parent row must already exist).
+    const buckets: SessionUsageBucket[] = Array.from(fold.buckets.values()).map((b) => ({
+      sessionId: s.id,
+      bucketStart: b.bucketStart,
+      input: b.input,
+      output: b.output,
+      cacheRead: b.cacheRead,
+      cacheWrite: b.cacheWrite,
+      weightedUnits: b.weightedUnits,
+      cacheReadUnits: b.cacheReadUnits,
+      byModel: b.byModel,
+    }));
+    store.replaceSessionUsageBuckets(s.id, buckets);
+
     return "snapshotted";
   } catch (err) {
     console.warn("[usage-snapshot] error snapshotting session", s.id, err);

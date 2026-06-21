@@ -197,3 +197,86 @@ test("asOf override → row stamped with historical timestamp", async () => {
   expect(r.archivedAt).toBe(T);
   expect(r.snapshotAt).toBe(T);
 });
+
+// ── New bucket tests (Task 3) ────────────────────────────────────────────────
+
+/** Build an assistant JSONL line with an explicit ISO timestamp. */
+function asstAt(ts: string, opts: Parameters<typeof asst>[0]): string {
+  const line = JSON.parse(asst(opts)) as Record<string, unknown>;
+  line.timestamp = ts;
+  return JSON.stringify(line);
+}
+
+test("buckets persisted: ≥2 hours → ≥2 bucket rows, Σ buckets == aggregate", async () => {
+  // Two records in different UTC hours
+  const session = makeSession({ id: "sess-b1", claudeSessionId: "bkt-multi" });
+  writeJsonl("/repos/foo", "bkt-multi", [
+    asstAt("2026-05-30T09:00:00.000Z", { requestId: "r1", input: 100, output: 50, cacheRead: 10 }),
+    asstAt("2026-05-30T10:00:00.000Z", { requestId: "r2", input: 200, output: 80, w5m: 5 }),
+  ]);
+  const store = new SessionStore(":memory:");
+  await snapshotSessionUsage(session, store);
+
+  // At least 2 bucket rows
+  expect(store.bucketedSessionIds().has("sess-b1")).toBe(true);
+  const sums = store.sumSessionUsageBucketsSince(0);
+  expect(sums.has("sess-b1")).toBe(true);
+
+  const bucketed = sums.get("sess-b1")!;
+  const rows = store.listSessionUsage();
+  const r = rows.find((x) => x.sessionId === "sess-b1")!;
+  expect(r).toBeDefined();
+
+  // Σ buckets == aggregate row (float-tolerant for REAL fields)
+  expect(bucketed.input).toBe(r.input);
+  expect(bucketed.output).toBe(r.output);
+  expect(bucketed.cacheRead).toBe(r.cacheRead);
+  expect(bucketed.cacheWrite).toBe(r.cacheWrite);
+  expect(bucketed.weightedUnits).toBeCloseTo(r.weightedUnits, 6);
+  expect(bucketed.cacheReadUnits).toBeCloseTo(r.cacheReadUnits, 6);
+});
+
+test("ts=0 record lands in bucket 0 and is included in aggregate", async () => {
+  const session = makeSession({ id: "sess-b2", claudeSessionId: "bkt-ts0" });
+  // One record with unparseable timestamp (ts=0), one normal
+  const line0 = JSON.stringify({
+    type: "assistant",
+    timestamp: "not-a-date",
+    requestId: "r0",
+    message: {
+      model: "claude-opus-4-8",
+      usage: { input_tokens: 50, output_tokens: 20, cache_read_input_tokens: 0 },
+    },
+  });
+  const line1 = asstAt("2026-05-30T09:00:00.000Z", { requestId: "r1", input: 100, output: 50 });
+  writeJsonl("/repos/foo", "bkt-ts0", [line0, line1]);
+
+  const store = new SessionStore(":memory:");
+  await snapshotSessionUsage(session, store);
+
+  const rows = store.listSessionUsage();
+  const r = rows.find((x) => x.sessionId === "sess-b2")!;
+  expect(r).toBeDefined();
+  expect(r.messageCount).toBe(2);
+  // Bucket 0 must exist
+  expect(store.bucketedSessionIds().has("sess-b2")).toBe(true);
+  // Σ input includes both records
+  expect(r.input).toBe(150);
+});
+
+test("idempotent re-archive: second call replaces buckets, no dup, no FK error", async () => {
+  const session = makeSession({ id: "sess-b3", claudeSessionId: "bkt-idem" });
+  writeJsonl("/repos/foo", "bkt-idem", [
+    asstAt("2026-05-30T09:00:00.000Z", { requestId: "r1", input: 100, output: 50 }),
+  ]);
+  const store = new SessionStore(":memory:");
+  await snapshotSessionUsage(session, store);
+  await snapshotSessionUsage(session, store);
+
+  // Still only one aggregate row
+  expect(store.listSessionUsage().filter((r) => r.sessionId === "sess-b3")).toHaveLength(1);
+  // Bucket sums unchanged (no double-counting)
+  const sums = store.sumSessionUsageBucketsSince(0);
+  const r = store.listSessionUsage().find((x) => x.sessionId === "sess-b3")!;
+  expect(sums.get("sess-b3")!.input).toBe(r.input);
+});

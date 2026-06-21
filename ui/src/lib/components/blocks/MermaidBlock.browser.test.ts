@@ -16,6 +16,7 @@ vi.mock("mermaid", () => ({
   },
 }));
 
+import mermaid from "mermaid";
 import MermaidBlock from "./MermaidBlock.svelte";
 
 describe("MermaidBlock", () => {
@@ -47,6 +48,18 @@ describe("MermaidBlock", () => {
     await expect.element(page.getByText("graph TD; BOOM")).toBeInTheDocument();
     // No svg injected.
     expect(document.querySelector("[data-testid='mmsvg']")).toBeNull();
+  });
+
+  it("config-pin: mermaid.initialize is called with suppressErrorRendering:true", async () => {
+    // Pins the config that triggers Mermaid's documented temp-node cleanup on
+    // failure. Proves configuration, not DOM cleanup — the real-mermaid test does that.
+    render(MermaidBlock, {
+      block: { type: "mermaid", id: "m4", source: "graph TD; A-->B" },
+    });
+    await expect.element(page.getByTestId("mmsvg")).toBeInTheDocument();
+    const calls = vi.mocked(mermaid.initialize).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.at(-1)?.[0]).toMatchObject({ suppressErrorRendering: true });
   });
 
   it("dirty id: block.id with whitespace and special chars renders success (no error fallback)", async () => {

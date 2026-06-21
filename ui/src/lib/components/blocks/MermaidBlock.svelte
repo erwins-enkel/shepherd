@@ -47,6 +47,11 @@
           startOnLoad: false,
           securityLevel: "strict",
           theme: "base",
+          // Without this, a failed render leaves Mermaid's default error graphic
+          // (the bomb / "Syntax error in text") orphaned in document.body — it leaks
+          // into the UI. With it, Mermaid removes its temp node and re-throws cleanly,
+          // so only our own .mb-error fallback shows.
+          suppressErrorRendering: true,
           themeVariables: Object.keys(themeVariables).length > 0 ? themeVariables : undefined,
         });
 
@@ -58,7 +63,11 @@
           svg = result.svg;
           error = false;
         }
-      } catch {
+      } catch (e) {
+        // Diagnostic only — Mermaid's message is English, so it must NOT reach the
+        // localized UI (that would re-leak untranslated internals). The visible
+        // fallback stays localized (m.vblock_mermaid_error) + raw source.
+        console.error("MermaidBlock render failed", e);
         if (alive) {
           svg = null;
           error = true;

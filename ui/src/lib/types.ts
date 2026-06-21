@@ -756,6 +756,7 @@ export interface UsageTaskBreakdown {
   model: string; // dominant model id, e.g. "claude-opus-4-8"
   authoringUnits: number; // weighted units, main agent
   satelliteUnits: number; // weighted units, reviewer/critic/etc spawns
+  dollars: number | null; // absolute USD spend; null unless api-key auth mode
   tokens: UsageTokens; // raw authoring token detail
   byModel: Record<string, number>; // weighted units per model id
 }

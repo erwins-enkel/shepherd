@@ -198,6 +198,10 @@ function buildRepoBreakdowns(
       model: t.model,
       authoringUnits: t.authoringUnits,
       satelliteUnits: t.satelliteUnits,
+      // `$` = the task's accumulated list-price units (authoring + satellite), exactly as the
+      // repo/total `$` does — NOT pricing.dollars() on aggregate tokens with the dominant model,
+      // which would diverge from the units shown in the same row. Sums to repo.dollars.
+      dollars: apiKey ? t.authoringUnits + t.satelliteUnits : null,
       tokens: t.tokens,
       byModel: t.byModel,
     }));

@@ -85,14 +85,16 @@ export function weightedUnits(
 /** Absolute USD cost of a token bundle at list price — the money view of the same weighted
  *  units; displayed in /usage's api-key `$` column.
  *
- *  Intentional separation from `buildUsageBreakdown`: the breakdown's repo/total `$` is NOT
- *  computed by calling this on aggregate tokens. The accumulated `authoringUnits`/
- *  `satelliteUnits` ARE already list-price USD (`weightedUnits`, computed per-record from the
- *  full per-model + 5m/1h cache split), so the breakdown sums those directly — re-deriving from
- *  a task's flattened `cacheWrite` + dominant model would diverge from the units shown in the
- *  same row. This helper is the canonical per-bundle money API for callers that hold a single
- *  raw bundle (e.g. the per-task `$` follow-up, #980); `pricing-dollars.test.ts` pins
- *  `dollars(c) === weightedUnits(c)`, so the two formulas cannot silently drift. */
+ *  Intentional separation from `buildUsageBreakdown`: the spend breakdown — repo, total, AND
+ *  per-task (#980) — sums per-record `weightedUnits` directly rather than calling `dollars()`
+ *  on aggregate tokens. The accumulated `authoringUnits`/`satelliteUnits` ARE already list-price
+ *  USD (`weightedUnits`, computed per-record from the full per-model + 5m/1h cache split), so
+ *  re-pricing a task's flattened tokens with its single dominant model would diverge from the
+ *  units shown in the same row and omit satellite units.
+ *
+ *  This function currently has no production caller and is retained as the documented canonical
+ *  per-bundle money formula. `pricing-dollars.test.ts` pins `dollars(c) === weightedUnits(c)`
+ *  so the two formulas cannot silently drift. */
 export function dollars(
   c: {
     input: number;

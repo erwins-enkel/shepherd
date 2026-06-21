@@ -578,15 +578,14 @@ test("projections: just-after-reset boundary excludes pre-reset records", () => 
   );
   const proj = svc.projections(now);
   const p = proj[0]!;
-  // (a) pre-reset records excluded → projectedPct well under 100
-  expect(p.projectedPct).toBeLessThanOrEqual(100);
+  // (a) pre-reset records excluded → curUnits=10, projectedPct = round((10 + 10*4.5)/1000*100) = 6
+  expect(p.projectedPct).toBe(6);
   // recentUnits clamped to windowStart → only the 0.25h record = 10; burnRatePerHour = 10
   expect(p.burnRatePerHour).toBe(10);
   // (b) non-vacuous: unclamped windowSum(now-1h, now) WOULD include the pre-reset record
   const idx = seededIndex(records);
   const unclampedRecent = idx.windowSum(now - H, now);
   expect(unclampedRecent).toBe(510); // 500 + 10 — proves the clamp matters
-  expect(p.burnRatePerHour).toBe(10); // clamped recent = only 10
 });
 
 test("projections: no-cap window skipped / empty caps returns []", () => {

@@ -6,7 +6,12 @@
  */
 export function formatUnits(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
-  if (n >= 1_000) return Math.round(n / 1_000) + "K";
+  if (n >= 1_000) {
+    // Guard the rounding boundary: values in [999_500, 999_999] round to
+    // 1000K — promote those to "1.00M" instead.
+    const k = Math.round(n / 1_000);
+    return k >= 1_000 ? (n / 1_000_000).toFixed(2) + "M" : k + "K";
+  }
   return String(n);
 }
 

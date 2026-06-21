@@ -4,6 +4,7 @@
   import { m } from "$lib/paraglide/messages";
   import type { InjectableRule, Learning, RepoInjectable, MergeSuggestion } from "$lib/types";
   import { learnings } from "$lib/learnings.svelte";
+  import { revertTrialLearning } from "$lib/api";
   import {
     repoAnchorId,
     mergeRepoGroups,
@@ -114,6 +115,10 @@
     onoptimize,
     onoptimizeall,
     onrestore,
+    onreverttrial: (id: string, target: "proposed" | "dismissed") =>
+      revertTrialLearning(id, target)
+        .then(() => learnings.load())
+        .catch(() => {}),
     onseenretired,
     onmerge,
     ondismissmerge,

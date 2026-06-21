@@ -1,7 +1,12 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import type { InjectableRule } from "$lib/types";
-  import { injectionBadge, showIneffective, helpRate } from "../learnings-drawer";
+  import {
+    injectionBadge,
+    showIneffective,
+    helpRate,
+    isUnprovenTrialRule,
+  } from "../learnings-drawer";
   import type { LearningsCtx } from "./ctx";
 
   let {
@@ -16,6 +21,7 @@
 
   const badge = $derived(injectionBadge(rule, enabled));
   const isEditing = $derived(ctx.editingScope === rule.id);
+  const isUnprovenTrial = $derived(isUnprovenTrialRule(rule));
 </script>
 
 <article class="irule">
@@ -42,6 +48,11 @@
         ⚠ {m.learnings_ineffective_badge({ count: rule.ineffectiveCount })}
       </span>
     {/if}
+    {#if isUnprovenTrial}
+      <span class="badge trial" title={m.learnings_trial_title()}
+        >⚗ {m.learnings_trial_badge()}</span
+      >
+    {/if}
     {#if helpRate(rule) !== null}
       {@const hr = helpRate(rule)!}
       <span class="help-rate">{m.learnings_help_rate({ helped: hr.helped, pulls: hr.pulls })}</span>
@@ -59,6 +70,16 @@
         </button>
       {/if}
       {#if rule.status === "active"}
+        {#if isUnprovenTrial}
+          <button
+            class="revert-trial"
+            type="button"
+            onclick={() => ctx.onreverttrial(rule.id, "proposed")}
+            aria-label={m.learnings_revert_trial_aria()}
+          >
+            {m.learnings_revert_trial()}
+          </button>
+        {/if}
         <!-- Change 9: de-emphasised Dismiss with margin-left gap from Promote -->
         <button class="dismiss dismiss-muted" onclick={() => ctx.ondismiss(rule.id)}>
           {m.learnings_dismiss()}
@@ -174,6 +195,11 @@
     color: var(--color-blue);
     cursor: help;
   }
+  .badge.trial {
+    border-color: var(--status-done);
+    color: var(--status-done);
+    cursor: help;
+  }
   .help-rate {
     font-size: var(--fs-micro);
     color: var(--color-muted);
@@ -239,6 +265,18 @@
   .scope-always {
     color: var(--color-muted);
     font-style: italic;
+  }
+  .revert-trial {
+    font-size: var(--fs-base);
+    padding: 5px 12px;
+    cursor: pointer;
+    border: 1px solid var(--color-line-bright);
+    background: none;
+    color: var(--color-muted);
+  }
+  .revert-trial:hover {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink-bright);
   }
   .scope-edit,
   .scope-save,

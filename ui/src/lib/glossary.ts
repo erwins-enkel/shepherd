@@ -72,6 +72,12 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_lightweight_repo_term",
     bodyKey: "gloss_lightweight_repo_def",
   },
+  {
+    id: "trial",
+    kind: "internal",
+    termKey: "gloss_trial_term",
+    bodyKey: "gloss_trial_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

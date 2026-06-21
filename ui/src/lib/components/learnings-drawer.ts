@@ -88,6 +88,16 @@ export function showIneffective(rule: { ineffectiveCount: number }): boolean {
   return rule.ineffectiveCount > 0;
 }
 
+/** A rule auto-promoted to an unproven trial: active, trialed, not yet helpful. Drives the
+ *  trial badge + one-click revert (#925). */
+export function isUnprovenTrialRule(rule: {
+  status: string;
+  trialedAt?: number | null;
+  helpfulCount: number;
+}): boolean {
+  return rule.status === "active" && rule.trialedAt != null && rule.helpfulCount === 0;
+}
+
 /** Flagged ("not working") rules in a repo's injectable view (ineffectiveCount > 0). */
 export function flaggedRules(repo: RepoInjectable | null): InjectableRule[] {
   return repo ? repo.rules.filter((r) => r.ineffectiveCount > 0) : [];

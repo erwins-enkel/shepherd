@@ -7,6 +7,7 @@ import {
   injectionBadge,
   injectedCount,
   showIneffective,
+  isUnprovenTrialRule,
   flaggedRules,
   flaggedCount,
   totalFlagged,
@@ -173,6 +174,42 @@ describe("injectedCount", () => {
 test("showIneffective true only when ineffectiveCount > 0", () => {
   expect(showIneffective({ ineffectiveCount: 0 } as never)).toBe(false);
   expect(showIneffective({ ineffectiveCount: 3 } as never)).toBe(true);
+});
+
+describe("isUnprovenTrialRule", () => {
+  it("true for active + trialed + zero helpfulCount", () => {
+    expect(
+      isUnprovenTrialRule({ status: "active", trialedAt: 1_700_000_000_000, helpfulCount: 0 }),
+    ).toBe(true);
+  });
+
+  it("false when helpfulCount > 0 (proven trial)", () => {
+    expect(
+      isUnprovenTrialRule({ status: "active", trialedAt: 1_700_000_000_000, helpfulCount: 1 }),
+    ).toBe(false);
+  });
+
+  it("false when trialedAt is null (manually approved rule, not auto-trialed)", () => {
+    expect(isUnprovenTrialRule({ status: "active", trialedAt: null, helpfulCount: 0 })).toBe(false);
+  });
+
+  it("false when trialedAt is undefined (pre-#925 payload without the field)", () => {
+    expect(isUnprovenTrialRule({ status: "active", trialedAt: undefined, helpfulCount: 0 })).toBe(
+      false,
+    );
+  });
+
+  it("false for proposed status (not yet active)", () => {
+    expect(
+      isUnprovenTrialRule({ status: "proposed", trialedAt: 1_700_000_000_000, helpfulCount: 0 }),
+    ).toBe(false);
+  });
+
+  it("false for retired status", () => {
+    expect(
+      isUnprovenTrialRule({ status: "retired", trialedAt: 1_700_000_000_000, helpfulCount: 0 }),
+    ).toBe(false);
+  });
 });
 
 describe("flaggedRules / flaggedCount", () => {

@@ -7,6 +7,12 @@ import { autoUpdate, computePosition, flip, offset, type Placement, shift } from
 // teardown live in one place rather than being duplicated per popover component.
 // `placement` defaults to "bottom"; `flip()` still re-homes it to the opposite side
 // when the preferred side lacks room.
+//
+// strategy:"fixed" matches the `position: fixed` these popovers carry in CSS (they
+// live in the top layer, whose containing block is the viewport). Without it Floating
+// UI computes document-relative coords while the browser interprets left/top as
+// viewport-relative, so inside a scrolled container the popover drifts from its anchor
+// by exactly the scroll offset.
 export function anchorPopover(
   reference: HTMLElement,
   floating: HTMLElement,
@@ -16,6 +22,7 @@ export function anchorPopover(
   const stop = autoUpdate(reference, floating, () => {
     computePosition(reference, floating, {
       placement,
+      strategy: "fixed",
       middleware: [offset(gap), flip(), shift({ padding: 8 })],
     }).then(({ x, y }) => {
       floating.style.left = x + "px";

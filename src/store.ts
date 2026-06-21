@@ -3056,7 +3056,7 @@ export class SessionStore implements CapStore, CreditStore {
   listTrialLearnings(): Learning[] {
     const rows = this.db
       .query(
-        `SELECT * FROM learnings WHERE status = 'active' AND trialedAt IS NOT NULL ORDER BY trialedAt ASC`,
+        `SELECT * FROM learnings WHERE status = 'active' AND trialedAt IS NOT NULL ORDER BY trialedAt ASC, rowid ASC`,
       )
       .all();
     return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));

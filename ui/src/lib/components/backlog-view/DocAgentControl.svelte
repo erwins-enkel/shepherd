@@ -256,11 +256,14 @@
     outline-offset: 2px;
   }
 
-  /* Running state — amber pulse (merge-pulse defined globally in app.css) */
+  /* Running state — amber pulse (merge-pulse defined globally in app.css). No
+     !important: the badge TEXT ("running") carries the state, so the pulse is
+     decorative reinforcement and must yield to the app.css prefers-reduced-motion
+     guard (matches the sibling .badge.merging in PrRow.svelte). */
   .status-badge.running {
     color: var(--color-amber);
     border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
-    animation: merge-pulse 1.5s ease-in-out infinite !important;
+    animation: merge-pulse 1.5s ease-in-out infinite;
   }
 
   /* PR opened state — green */

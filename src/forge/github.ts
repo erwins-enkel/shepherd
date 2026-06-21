@@ -729,6 +729,14 @@ export class GithubForge implements GitForge {
     await this.run(["pr", "comment", String(prNumber), "--repo", this.slug, "--body", body]);
   }
 
+  async editPr(prNumber: number, o: { title?: string; body?: string }): Promise<void> {
+    const args = ["pr", "edit", String(prNumber), "--repo", this.slug];
+    if (o.title !== undefined) args.push("--title", o.title);
+    if (o.body !== undefined) args.push("--body", o.body);
+    if (args.length === 4) return; // nothing to edit
+    await this.run(args);
+  }
+
   async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
     const body = (
       await this.run([

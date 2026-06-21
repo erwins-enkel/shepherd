@@ -1783,5 +1783,7 @@
   "feedback_dialog_details_placeholder_feature": "Was wünschen Sie sich, und warum?",
   "feedback_dialog_details_placeholder_feedback": "Teilen Sie uns Ihre Gedanken mit …",
   "feedback_dialog_submit": "Auf GitHub fortfahren",
-  "feedback_dialog_note": "Öffnet ein vorausgefülltes GitHub-Issue in einem neuen Tab – vor dem Absenden prüfen und bearbeiten."
+  "feedback_dialog_note": "Öffnet ein vorausgefülltes GitHub-Issue in einem neuen Tab – vor dem Absenden prüfen und bearbeiten.",
+  "settings_feedback_title": "Feedback",
+  "settings_feedback_blurb": "Fehler gefunden oder eine Idee? Sagen Sie uns Bescheid."
 }

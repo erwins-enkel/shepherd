@@ -8,6 +8,7 @@
   import { gaugeColor } from "../usage-gauges";
   import { formatResetIn, formatReset } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
+  import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
@@ -62,6 +63,7 @@
     onherdrupdate,
     onwhatsnew,
     onlearnings,
+    onFeedback,
   }: {
     gauges: Gauge[];
     credits: CreditWindow | null;
@@ -95,6 +97,7 @@
     onherdrupdate: (() => void) | undefined;
     onwhatsnew: (() => void) | undefined;
     onlearnings: (() => void) | undefined;
+    onFeedback: (kind: FeedbackKind) => void;
   } = $props();
 </script>
 
@@ -307,6 +310,21 @@
       </button>
       <div class="sheet-sep"></div>
     {/if}
+
+    <!-- Feedback -->
+    <button type="button" class="sheet-item" onclick={() => onFeedback("bug")}>
+      <span class="sheet-glyph" aria-hidden="true">🐛</span>
+      <span class="sheet-label">{m.feedback_dialog_title_bug()}</span>
+    </button>
+    <button type="button" class="sheet-item" onclick={() => onFeedback("feature")}>
+      <span class="sheet-glyph" aria-hidden="true">✨</span>
+      <span class="sheet-label">{m.feedback_dialog_title_feature()}</span>
+    </button>
+    <button type="button" class="sheet-item" onclick={() => onFeedback("feedback")}>
+      <span class="sheet-glyph" aria-hidden="true">💬</span>
+      <span class="sheet-label">{m.feedback_dialog_title_feedback()}</span>
+    </button>
+    <div class="sheet-sep"></div>
 
     <!-- Settings -->
     <button type="button" class="sheet-item" onclick={chooseSettings}>

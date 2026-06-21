@@ -14,6 +14,8 @@
   import { m } from "$lib/paraglide/messages";
   import { DOCS_URL } from "$lib/build-info";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { openFeedback } from "$lib/feedback-dialog.svelte";
+  import type { FeedbackKind } from "$lib/feedback-link";
   import { modeOf, badgeCount } from "./top-bar-layout";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
@@ -435,6 +437,10 @@
     if (menuOpen) closeMenu();
     else menuOpen = true;
   }
+  function onFeedback(kind: FeedbackKind) {
+    closeMenu();
+    openFeedback(kind);
+  }
   // On mobile the gear ALWAYS opens the menu — it now also hosts the quick theme /
   // contrast controls, which must be reachable with an idle herd. On desktop those
   // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
@@ -707,6 +713,7 @@
       {clickHalt}
       {chooseSettings}
       {onMenuKey}
+      {onFeedback}
     />
   </div>
 </div>
@@ -745,6 +752,7 @@
     {onherdrupdate}
     {onwhatsnew}
     {onlearnings}
+    {onFeedback}
   />
 {/if}
 

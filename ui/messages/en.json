@@ -1783,5 +1783,7 @@
   "feedback_dialog_details_placeholder_feature": "What would you like to see, and why?",
   "feedback_dialog_details_placeholder_feedback": "Share your thoughts…",
   "feedback_dialog_submit": "Continue on GitHub",
-  "feedback_dialog_note": "Opens a prefilled GitHub issue in a new tab — review and edit before submitting."
+  "feedback_dialog_note": "Opens a prefilled GitHub issue in a new tab — review and edit before submitting.",
+  "settings_feedback_title": "Feedback",
+  "settings_feedback_blurb": "Found a bug or have an idea? Let us know."
 }

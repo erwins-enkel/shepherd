@@ -1732,5 +1732,7 @@
   "docagent_history_pr_link": "PR",
   "docagent_observe_note": "Observe mode — runs log changes but open no PR",
   "docagent_trigger_skipped": "Doc agent didn't start (already running or nothing to do)",
-  "docagent_trigger_failed": "Couldn't start the doc agent"
+  "docagent_trigger_failed": "Couldn't start the doc agent",
+  "feat_doc_agent_ui_title": "Doc agent in the Backlog",
+  "feat_doc_agent_ui_body": "Trigger the PR-gated doc agent for a repo from the Backlog Actions bar. A status badge tracks the run and links the doc-update PR it opens; a popover shows recent runs. Opt-in via SHEPHERD_DOC_AGENT."
 }

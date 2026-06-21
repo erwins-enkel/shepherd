@@ -1732,5 +1732,7 @@
   "docagent_history_pr_link": "PR",
   "docagent_observe_note": "Beobachtungsmodus — Läufe protokollieren Änderungen, öffnen jedoch keine PR",
   "docagent_trigger_skipped": "Doc-Agent wurde nicht gestartet (läuft bereits oder nichts zu tun)",
-  "docagent_trigger_failed": "Doc-Agent konnte nicht gestartet werden"
+  "docagent_trigger_failed": "Doc-Agent konnte nicht gestartet werden",
+  "feat_doc_agent_ui_title": "Doc-Agent im Backlog",
+  "feat_doc_agent_ui_body": "Starte den PR-gesicherten Doc-Agent für ein Repo direkt aus der Backlog-Aktionsleiste. Ein Status-Badge verfolgt den Lauf und verlinkt die geöffnete Doku-Update-PR; ein Popover zeigt die letzten Läufe. Aktivierung über SHEPHERD_DOC_AGENT."
 }

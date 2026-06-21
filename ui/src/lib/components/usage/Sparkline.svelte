@@ -110,7 +110,7 @@
           cy={c.y}
           r={R_LIVE}
           fill={color}
-          stroke="var(--color-bg, #fff)"
+          stroke="var(--color-panel)"
           stroke-width="1"
         />
       {:else}

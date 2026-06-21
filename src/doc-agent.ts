@@ -929,6 +929,20 @@ export class DocAgentService {
   }
 
   /**
+   * Free the per-session re-target debounce on archive (mirrors RecapService.onArchived).
+   *
+   * Without this the `readyDebounce` Map leaks entries for archived sessions — they never
+   * re-enter the sweep's active-session list to be cleared (considerReady() early-returns on
+   * `status === "archived"` before touching the map).
+   *
+   * Deliberately does NOT touch `inflight`/`starting` — a doc run is keyed by repoPath, not
+   * sessionId, so archiving a session has no bearing on an in-flight run for its repo.
+   */
+  onArchived(sessionId: string): void {
+    this.readyDebounce.delete(sessionId);
+  }
+
+  /**
    * Boot reconcile (issue #905). Unlike the reviewer's reapOrphans (which DISCARDS the worktree and
    * re-kicks a fresh run), the doc agent KEEPS a finished worktree and FINALIZES the work already
    * produced — the SENTINEL edits are the deliverable, so throwing them away on a restart that

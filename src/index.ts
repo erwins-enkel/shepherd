@@ -880,6 +880,7 @@ events.subscribe((event, data) => {
     planGate.forget(id);
     recapService.onArchived(id);
     buildQueueReminder.forget(id);
+    docAgent.onArchived(id);
   }
 });
 

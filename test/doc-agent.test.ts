@@ -1428,3 +1428,20 @@ test("re-target OBSERVE (act:false): logs, does not push or openPr", async () =>
     console.warn = orig;
   }
 });
+
+test("onArchived: frees the readyDebounce entry so a re-archive session is treated as a fresh first-tick", async () => {
+  // Build a harness with idleThresholdMs=0 so the second sweep tick fires immediately.
+  const h = mkRetargetHarness({ idleThresholdMs: 0 });
+  // First tick starts the idle clock (records a readyDebounce entry, does NOT fire).
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  // Archive the session — onArchived should delete the debounce entry.
+  h.svc.onArchived("sess-1");
+  // A subsequent settled sweep must treat this as a fresh first-tick (NOT fire immediately),
+  // because the debounce entry was cleared and the idle clock needs to restart.
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0); // still on first tick post-archive
+  // One more tick crosses the threshold (idleThresholdMs=0, so any non-zero elapsed qualifies).
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(1); // fires only on the second post-archive tick
+});

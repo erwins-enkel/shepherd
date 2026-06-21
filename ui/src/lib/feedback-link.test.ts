@@ -41,6 +41,15 @@ describe("buildIssueUrl", () => {
     const decoded = params.get("what-happened") ?? "";
     expect(decoded.endsWith("\n…[truncated]")).toBe(true);
   });
+
+  it("bounds an oversized title so it can't blow the URL past the cap on its own", () => {
+    const bigTitle = "T".repeat(60_000);
+    const url = buildIssueUrl("bug", { title: bigTitle });
+    expect(url.length).toBeLessThanOrEqual(7000);
+    const title = new URL(url).searchParams.get("title") ?? "";
+    expect(title.length).toBeLessThanOrEqual(257); // 256 chars + the "…" marker
+    expect(title.endsWith("…")).toBe(true);
+  });
 });
 
 describe("buildEnvironment", () => {

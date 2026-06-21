@@ -42,6 +42,11 @@ export function buildEnvironment(): string {
 const MAX_URL_CHARS = 7000;
 const TRUNCATION_MARKER = "\n…[truncated]";
 const TRUNCATION_CHUNK = 256;
+// Hard bound on the title so a pasted, oversized title can't blow the URL past
+// MAX_URL_CHARS on its own (the description-shortening loop never trims title).
+// 256 is well under GitHub's stored-title limit; the issue form's title is a
+// short summary anyway.
+const MAX_TITLE_CHARS = 256;
 
 /** Builds a GitHub new-issue deep-link URL for the given kind and options. */
 export function buildIssueUrl(
@@ -51,10 +56,16 @@ export function buildIssueUrl(
   const base = `${REPO_URL}/issues/new`;
   const fieldId = KIND_FIELD[kind];
 
+  const rawTitle = opts.title ?? "";
+  const title =
+    rawTitle.length > MAX_TITLE_CHARS
+      ? rawTitle.slice(0, MAX_TITLE_CHARS).trimEnd() + "…"
+      : rawTitle;
+
   function buildUrl(description: string): string {
     const params = new URLSearchParams();
     params.set("template", `${kind}.yml`);
-    if (opts.title) params.set("title", opts.title);
+    if (title) params.set("title", title);
     if (description) params.set(fieldId, description);
     params.set("environment", buildEnvironment());
     return `${base}?${params.toString()}`;

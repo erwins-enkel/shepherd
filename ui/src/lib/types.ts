@@ -74,6 +74,10 @@ export interface Settings {
   fableAvailable: boolean;
   /** Global reduced-notifications mode: when on, only the ready-after-5s push (+ usage/credit alerts) is sent. */
   reducedPushMode: boolean;
+  /** Whether the PR-gated doc agent feature is enabled. */
+  docAgentEnabled: boolean;
+  /** Whether the doc agent runs in observe-only mode (no PR opened). */
+  docAgentAct: boolean;
 }
 
 export interface DirEntry {
@@ -855,6 +859,13 @@ export interface DiagnosticsSnapshot {
   overall: DiagnosticState;
 }
 
+export type DocAgentOutcome = "pr" | "observe" | "nochange";
+export interface DocAgentRun {
+  at: number;
+  url: string | null;
+  outcome: DocAgentOutcome;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
@@ -922,7 +933,11 @@ export type WsEvent =
   | { event: "epic:completed"; data: CompletedEpic }
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } }
-  | { event: "held:changed"; data: { count: number } };
+  | { event: "held:changed"; data: { count: number } }
+  | {
+      event: "doc-agent:done";
+      data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };
+    };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {

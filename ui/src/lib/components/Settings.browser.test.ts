@@ -70,6 +70,8 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     usageHoldPct: 90,
     fableAvailable: true,
     reducedPushMode: false,
+    docAgentEnabled: false,
+    docAgentAct: true,
     ...over,
   };
 }

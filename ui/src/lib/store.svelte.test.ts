@@ -829,3 +829,84 @@ test("seedCompletedEpics replaces the array", () => {
   expect(s.completedEpics).toHaveLength(2);
   expect(s.completedEpics[0].parentIssueNumber).toBe(7);
 });
+
+// ── doc-agent:done ────────────────────────────────────────────────────────────
+// Each test uses a unique repoPath to avoid key-dedup collisions on the shared
+// toasts singleton (resetting toasts.items doesn't clear its #keyed Map).
+
+test("doc-agent:done sets docAgentDone but fires no toast when docAgentEnabled=false", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = false;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-disabled", url: null, outcome: "nochange" },
+  });
+  expect(s.docAgentDone?.repoPath).toBe("/repos/da-disabled");
+  expect(s.docAgentDone?.outcome).toBe("nochange");
+  expect(toasts.items).toHaveLength(0);
+});
+
+test("doc-agent:done outcome=pr fires a toast with view-PR action when url present", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-pr-url", url: "https://github.com/x/y/pull/1", outcome: "pr" },
+  });
+  const t = toasts.items.find((x) => x.key === "doc-agent-done:/repos/da-pr-url");
+  expect(t).toBeDefined();
+  expect(t?.text).toContain("da-pr-url");
+  expect(t?.actionLabel).toBeDefined();
+});
+
+test("doc-agent:done outcome=pr with null url fires toast without action", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-pr-nourl", url: null, outcome: "pr" },
+  });
+  const t = toasts.items.find((x) => x.key === "doc-agent-done:/repos/da-pr-nourl");
+  expect(t).toBeDefined();
+  expect(t?.actionLabel).toBeUndefined();
+});
+
+test("doc-agent:done outcome=observe fires keyed toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-observe", url: null, outcome: "observe" },
+  });
+  expect(toasts.items.some((x) => x.key === "doc-agent-done:/repos/da-observe")).toBe(true);
+});
+
+test("doc-agent:done outcome=nochange fires keyed toast", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-nochange", url: null, outcome: "nochange" },
+  });
+  expect(toasts.items.some((x) => x.key === "doc-agent-done:/repos/da-nochange")).toBe(true);
+});
+
+test("doc-agent:done dedupes repeated events for the same repo (same key)", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-dedup", url: null, outcome: "nochange" },
+  });
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-dedup", url: null, outcome: "nochange" },
+  });
+  expect(toasts.items.filter((x) => x.key === "doc-agent-done:/repos/da-dedup")).toHaveLength(1);
+});

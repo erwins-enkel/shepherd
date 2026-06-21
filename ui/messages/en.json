@@ -1716,5 +1716,9 @@
   "gloss_trial_term": "trial",
   "gloss_trial_def": "A proposed house rule auto-promoted to active on strong, multi-source evidence, injected at lowest priority while it proves itself. It is auto-removed if it underperforms (Wilson auto-retire) or stays inert, and can be reverted to the queue by hand.",
   "feat_learnings_auto_trial_title": "Auto-trial for strong learnings",
-  "feat_learnings_auto_trial_body": "Strong, recurring rule proposals now auto-promote to an active [[trial|trial]] instead of waiting in the manual approval queue — and underperforming trials are removed automatically. Trials are badged and one-click revertible in the learnings drawer."
+  "feat_learnings_auto_trial_body": "Strong, recurring rule proposals now auto-promote to an active [[trial|trial]] instead of waiting in the manual approval queue — and underperforming trials are removed automatically. Trials are badged and one-click revertible in the learnings drawer.",
+  "docagent_toast_pr_opened": "{repo}: doc-update PR opened",
+  "docagent_toast_no_changes": "{repo}: docs already current",
+  "docagent_toast_observe": "{repo}: doc-agent observe run — no PR opened",
+  "docagent_toast_view_pr": "View PR"
 }

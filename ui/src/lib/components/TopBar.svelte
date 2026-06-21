@@ -438,8 +438,11 @@
   // On mobile the gear ALWAYS opens the menu — it now also hosts the quick theme /
   // contrast controls, which must be reachable with an idle herd. On desktop those
   // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
-  // opens Settings directly; only a haltable herd turns it into a menu button.
-  const gearOpensMenu = $derived(mobile || haltable > 0);
+  // opens Settings directly; only a haltable herd turns it into a menu button — EXCEPT
+  // under measured overflow (compactBadges), where the standalone docs link folds away,
+  // so the gear must open the menu (which carries Documentation + Settings) to keep the
+  // docs reachable even with an idle herd in that compact state.
+  const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges);
   // Mobile only: every gear-area signal collapses into ONE dot, colored by the
   // most serious active tier (red > orange > yellow > blue). Desktop keeps its
   // halt-pip + dedicated badges, so this stays null off-mobile.
@@ -510,6 +513,12 @@
     // On mobile the menu also hosts the quick theme/contrast controls, so it stays
     // valid with an idle herd — keep it open and just drop any armed e-stop state.
     if (mobile) {
+      disarmHalt();
+      return;
+    }
+    // Under measured overflow the gear is a menu button even with an idle herd (it hosts
+    // the folded-away docs link), so keep the menu open here too — just drop armed state.
+    if (compactBadges) {
       disarmHalt();
       return;
     }

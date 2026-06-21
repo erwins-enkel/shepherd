@@ -1405,6 +1405,18 @@ export class SessionStore implements CapStore, CreditStore {
     ).map((r) => this.hydrate(r));
   }
 
+  /** All archived sessions, newest-first by real archive time. Includes legacy rows whose
+   *  archivedAt column is NULL (a `archivedAt >= 0` filter would drop them). */
+  listArchivedSessions(): Session[] {
+    return (
+      this.db
+        .query(
+          `SELECT ${COLS} FROM sessions WHERE status = 'archived' ORDER BY COALESCE(archivedAt, updatedAt, createdAt) DESC`,
+        )
+        .all() as SessionRow[]
+    ).map((r) => this.hydrate(r));
+  }
+
   update(
     id: string,
     patch: Partial<

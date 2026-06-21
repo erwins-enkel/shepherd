@@ -153,7 +153,7 @@ test("/impeccable prompt session → no row (archetype skip)", async () => {
 test("absent JSONL → resolves without throwing and writes no row", async () => {
   const session = makeSession({ claudeSessionId: "no-file-here" });
   const store = new SessionStore(":memory:");
-  await expect(snapshotSessionUsage(session, store)).resolves.toBeUndefined();
+  await expect(snapshotSessionUsage(session, store)).resolves.toBe("skipped");
   expect(store.listSessionUsage()).toHaveLength(0);
 });
 
@@ -172,4 +172,28 @@ test("empty transcript (0 assistant records) → no row", async () => {
   const store = new SessionStore(":memory:");
   await snapshotSessionUsage(session, store);
   expect(store.listSessionUsage()).toHaveLength(0);
+});
+
+test("asOf override → row stamped with historical timestamp", async () => {
+  const T = 1_700_000_000_000;
+  const session = makeSession({
+    id: "sess-backfill",
+    desig: "TASK-99",
+    repoPath: "/repos/foo",
+    worktreePath: "/repos/foo",
+    claudeSessionId: "backfill-123",
+    createdAt: 1_000_000,
+    model: "claude-opus-4-8",
+  });
+  writeJsonl("/repos/foo", "backfill-123", [
+    asst({ requestId: "r1", model: "claude-opus-4-8", input: 100, output: 50 }),
+  ]);
+  const store = new SessionStore(":memory:");
+  const result = await snapshotSessionUsage(session, store, { asOf: T });
+  expect(result).toBe("snapshotted");
+  const rows = store.listSessionUsage();
+  expect(rows).toHaveLength(1);
+  const r = rows[0]!;
+  expect(r.archivedAt).toBe(T);
+  expect(r.snapshotAt).toBe(T);
 });

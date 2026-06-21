@@ -265,3 +265,27 @@ test("idempotent / guarded: second run after guard is set does NOT re-create del
   await runSessionUsageBackfill(store);
   expect(store.listSessionUsage()).toHaveLength(0);
 });
+
+test("errored session is one-shot: guard is set even when a snapshot fails (no permanent retry loop)", async () => {
+  const store = new SessionStore(":memory:");
+  makeArchivedSession(store, {
+    claudeSessionId: "csid-err",
+    archivedAt: 1_700_000_000_000,
+  });
+  writeJsonl(tmpDir, "csid-err", [
+    asst({ requestId: "r1", model: "claude-opus-4-8", input: 100, output: 50 }),
+  ]);
+
+  // Force snapshotSessionUsage into its catch (→ "error") by making the upsert throw — this
+  // models a deterministic failure (e.g. an unparseable transcript) that would recur every boot.
+  store.upsertSessionUsage = (() => {
+    throw new Error("boom");
+  }) as typeof store.upsertSessionUsage;
+
+  await runSessionUsageBackfill(store);
+
+  // Guard is set despite errored > 0: a deterministic failure must not trap the migration in a
+  // permanent every-boot re-scan. No row was written (the upsert threw).
+  expect(store.getSetting("backfill:session_usage_v1")).toBe("done");
+  expect(store.listSessionUsage()).toHaveLength(0);
+});

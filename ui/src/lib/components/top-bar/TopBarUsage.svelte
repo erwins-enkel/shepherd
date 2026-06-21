@@ -6,6 +6,7 @@
   import { formatResetIn, formatReset } from "$lib/format";
   import CreditGauge from "./CreditGauge.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import { resolve } from "$app/paths";
 
   let {
     subscriptionOnly,
@@ -143,8 +144,7 @@
             {refreshError}
             {onRefresh}
           />
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- internal SvelteKit route -->
-          <a class="gauge-pop-link" href="/usage" onclick={() => (popoverOpen = false)}>
+          <a class="gauge-pop-link" href={resolve("/usage")} onclick={() => (popoverOpen = false)}>
             {m.topbar_usage_link()}
           </a>
         </div>
@@ -158,8 +158,7 @@
     onmouseenter={() => (detailOpen = true)}
     onmouseleave={() => (detailOpen = false)}
   >
-    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- internal SvelteKit route -->
-    <a class="gauges-link" href="/usage" aria-label={m.topbar_usage_link_aria()}>
+    <a class="gauges-link" href={resolve("/usage")} aria-label={m.topbar_usage_link_aria()}>
       <div class="gauges" class:stale>
         {#each gauges as g (g.label)}
           <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>

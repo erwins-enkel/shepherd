@@ -3,6 +3,7 @@
   import { DOCS_URL } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { resolve } from "$app/paths";
 
   type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
 
@@ -99,18 +100,16 @@
         <span class="menu-label">{m.settings_title()}</span>
       </button>
       <div class="menu-sep" role="separator"></div>
-      <!-- eslint-disable svelte/no-navigation-without-resolve -- internal SvelteKit route -->
       <a
         class="menu-item"
         role="menuitem"
-        href="/usage"
+        href={resolve("/usage")}
         use:coachTarget={"usage-link"}
         onclick={() => (menuOpen = false)}
       >
         <span class="menu-glyph" aria-hidden="true">▦</span>
         <span class="menu-label">{m.topbar_usage_link()}</span>
       </a>
-      <!-- eslint-enable svelte/no-navigation-without-resolve -->
       <!-- External docs site — opens in a new tab; ↗ marks it external, matching the
            mobile sheet + Settings → About link convention. Closes the menu on click. -->
       <a

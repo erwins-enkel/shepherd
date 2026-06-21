@@ -104,7 +104,8 @@
 
   // When a run finishes for the shown repo, refresh to pick up the result.
   $effect(() => {
-    if (docAgentDone && docAgentDone.repoPath === selectedPath) {
+    const done = docAgentDone;
+    if (done && done.repoPath === untrack(() => selectedPath)) {
       void refreshDocAgentRuns();
     }
   });

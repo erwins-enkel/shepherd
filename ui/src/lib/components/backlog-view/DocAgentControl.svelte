@@ -260,7 +260,7 @@
   .status-badge.running {
     color: var(--color-amber);
     border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
-    animation: merge-pulse 1.5s ease-in-out infinite;
+    animation: merge-pulse 1.5s ease-in-out infinite !important;
   }
 
   /* PR opened state — green */

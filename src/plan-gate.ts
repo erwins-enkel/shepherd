@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
@@ -15,23 +14,10 @@ import {
   groundPlanBlocks,
 } from "./visual-blocks";
 import { readonlyReviewerArgv } from "./reviewer-argv";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeyMembraneFields,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
-import {
-  detectBackend as realDetectBackend,
-  wrapArgv,
-  safeRealpath,
-  collectPassthroughEnv,
-  type SandboxBackend,
-  type MembraneInputs,
-} from "./sandbox";
-import { config } from "./config";
+import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
  *  (plan unchanged / already approved / nothing to review), or a spawn attempt failed. The
@@ -113,7 +99,7 @@ export interface RawPlanVerdict {
   findings?: unknown;
 }
 
-export interface PlanGateServiceDeps {
+export interface PlanGateServiceDeps extends MembraneSeams {
   store: Pick<
     SessionStore,
     | "getPlanGate"
@@ -163,16 +149,6 @@ export interface PlanGateServiceDeps {
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
-  /** Injectable sandbox backend probe seam (tests inject `() => null` so no real bwrap is
-   *  spawned). Presence-checked (not `??`) because the seam legitimately returns null. */
-  detectBackend?: () => SandboxBackend;
-  /** Injectable membrane env seam (tests inject a stub so no host paths are touched). */
-  membraneEnv?: () => {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  };
 }
 
 interface PlanInFlight {
@@ -213,33 +189,6 @@ export class PlanGateService {
     worktreePath: string,
     reviewerSessionId: string,
   ) => Promise<SessionUsage | null>;
-
-  /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-
-   *  checked (not `??`) because the seam legitimately returns null (no backend). */
-  private detectBackend(): SandboxBackend {
-    if (this.deps.detectBackend) return this.deps.detectBackend();
-    return realDetectBackend({
-      home: homedir(),
-      claudeDir: config.claudeDir,
-      nodeBinReal: safeRealpath(config.nodeBin),
-    });
-  }
-
-  /** Membrane env: injected seam (tests) or real host values. */
-  private membraneEnv(): {
-    claudeDir: string;
-    home: string;
-    nodeBinReal: string;
-    extraEnv?: Record<string, string>;
-  } {
-    if (this.deps.membraneEnv) return this.deps.membraneEnv();
-    return {
-      claudeDir: config.claudeDir,
-      home: homedir(),
-      nodeBinReal: safeRealpath(config.nodeBin),
-      extraEnv: collectPassthroughEnv(),
-    };
-  }
 
   constructor(private deps: PlanGateServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -349,21 +298,13 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "error";
     }
-    const backend = this.detectBackend();
-    const env = this.membraneEnv();
-    const membrane: MembraneInputs = {
+    const { wrapped, backend } = resolveSpawnMembrane({
+      argv,
       worktreePath: wt.worktreePath,
-      gitCommonDir: this.deps.worktree.gitCommonDir(wt.worktreePath),
-      isolated: true,
       repoPath: session.repoPath,
-      claudeDir: env.claudeDir,
-      home: env.home,
-      nodeBinReal: env.nodeBinReal,
-      extraEnv: env.extraEnv,
-      // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
-      ...apiKeyMembraneFields(),
-    };
-    const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
+      worktree: this.deps.worktree,
+      seams: this.deps,
+    });
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(

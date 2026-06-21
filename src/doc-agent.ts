@@ -45,8 +45,12 @@ async function defaultGit(cwd: string, args: string[]): Promise<string> {
 export const SERVER_INSTALL_ROOT = resolve(import.meta.dir, "..");
 
 /** Run the server's pinned prettier `--write` over `files`. No-op when the list is empty.
- *  `cwd` should be SERVER_INSTALL_ROOT so bare plugin names in `configPath` resolve from the
- *  server's pinned node_modules. Throws on prettier error — the caller catches for best-effort. */
+ *  `cwd` should be SERVER_INSTALL_ROOT: prettier 3 resolves the bare plugin specifiers in
+ *  `configPath` (`prettier-plugin-svelte`/`-tailwindcss`) by importing from a synthetic module
+ *  anchored at the CWD (verified on 3.8.4 — a wrong cwd fails with `imported from <cwd>/noop.js`),
+ *  and those plugins are loaded for every parser, markdown included. SERVER_INSTALL_ROOT is the one
+ *  directory guaranteed to have them (co-located with this pinned prettier); the managed worktree's
+ *  own node_modules may be absent. Throws on prettier error — the caller catches for best-effort. */
 async function defaultPrettierWrite(args: {
   cwd: string;
   configPath: string;

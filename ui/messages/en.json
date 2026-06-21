@@ -1794,5 +1794,13 @@
   "topbar_usage_link": "Token usage",
   "topbar_usage_link_aria": "Open the token-usage dashboard",
   "feat_usage_dashboard_title": "Token usage dashboard",
-  "feat_usage_dashboard_body": "See where your tokens go — spend by repo and task, the cache-vs-generation overhead split, and live limit burn-down. Open it from the gear menu."
+  "feat_usage_dashboard_body": "See where your tokens go — spend by repo and task, the cache-vs-generation overhead split, and live limit burn-down. Open it from the gear menu.",
+  "usage_history_inline_label": "{window} recorded trend this cycle",
+  "usage_history_view": "View history",
+  "usage_history_hide": "Hide history",
+  "usage_history_credit_label": "Extra credit",
+  "usage_history_latest": "now {pct}%",
+  "usage_history_peak": "peak {pct}%",
+  "usage_history_span": "{from} – {to}",
+  "usage_history_empty": "No recorded history yet"
 }

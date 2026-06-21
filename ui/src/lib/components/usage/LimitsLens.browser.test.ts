@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { UsageLimits, UsageProjection } from "$lib/types";
+import type { UsageLimits, UsageProjection, UsageHistoryResponse } from "$lib/types";
 
 const BASE = Date.now();
 const H = 3_600_000;
@@ -23,6 +23,42 @@ function projectionsFixture(): UsageProjection[] {
     { window: "5H", projectedPct: 64, resetAt: BASE + 2.5 * H, burnRatePerHour: 48_000 },
     { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
   ];
+}
+
+function historyFixture(): UsageHistoryResponse {
+  const reset5h = BASE + 2.5 * H;
+  const resetWk = BASE + 58 * H;
+  return {
+    caps: {
+      session5h: [
+        { window: "session5h", cap: 100, resetAt: reset5h, pct: 12, scrapedAt: BASE - 1 * H },
+        { window: "session5h", cap: 100, resetAt: reset5h, pct: 30, scrapedAt: BASE - 0.5 * H },
+      ],
+      week: [
+        { window: "week", cap: 100, resetAt: resetWk, pct: 8, scrapedAt: BASE - 40 * H },
+        { window: "week", cap: 100, resetAt: resetWk, pct: 18, scrapedAt: BASE - 10 * H },
+      ],
+    },
+    credit: [
+      {
+        spent: 0.1,
+        cap: 50,
+        currency: "€",
+        pct: 0,
+        resetAt: BASE + 200 * H,
+        scrapedAt: BASE - 20 * H,
+      },
+      {
+        spent: 0.3,
+        cap: 50,
+        currency: "€",
+        pct: 1,
+        resetAt: BASE + 200 * H,
+        scrapedAt: BASE - 2 * H,
+      },
+    ],
+    since: BASE - 90 * 24 * H,
+  };
 }
 
 const { default: LimitsLens } = await import("./LimitsLens.svelte");
@@ -102,6 +138,40 @@ describe("LimitsLens", () => {
 
     const ticks = document.querySelectorAll(".proj-tick");
     expect(ticks.length, "one tick per matched projection").toBe(2);
+  });
+
+  it("renders inline sparklines and a working history toggle when history is present", async () => {
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
+    const history = historyFixture();
+    render(LimitsLens, { limits, projections, history });
+
+    // One inline sparkline per gauge (5H + WK)
+    expect(document.querySelectorAll(".spark-row svg").length, "inline spark per window").toBe(2);
+
+    // Toggle present, collapsed by default
+    const toggle = document.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    expect(toggle, "history toggle present").not.toBeNull();
+    expect(toggle!.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".history-panel"), "panel hidden initially").toBeNull();
+
+    // Expands the panel
+    toggle!.click();
+    await expect.poll(() => document.querySelector(".history-panel")).not.toBeNull();
+    expect(toggle!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("still renders gauges + projection and hides the toggle when history is null", async () => {
+    const limits = limitsFixture();
+    const projections = projectionsFixture();
+    render(LimitsLens, { limits, projections, history: null });
+
+    expect(document.querySelectorAll(".meter-track").length).toBe(2);
+    expect(document.querySelectorAll(".proj-tick").length).toBe(2);
+    // No recorded history ⇒ no toggle
+    expect(document.querySelector("button[aria-expanded]"), "no toggle without history").toBeNull();
+    // Inline sparkline still renders (single live "now" point)
+    expect(document.querySelectorAll(".spark-row svg").length).toBe(2);
   });
 
   it("renders 'no data' message when limits are empty", async () => {

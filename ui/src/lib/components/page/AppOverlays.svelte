@@ -15,6 +15,7 @@
     optimizeLearning,
     optimizeRepoFlagged,
     restoreLearning,
+    revertTrialLearning,
     setLearningScope,
     markRetiredSeen,
     applyMergeSuggestion,
@@ -311,6 +312,10 @@
       restoreLearning(id)
         .then(() => learnings.load())
         .catch(() => toasts.info(m.learnings_restore_failed()))}
+    onreverttrial={(id, target) =>
+      revertTrialLearning(id, target)
+        .then(() => learnings.load())
+        .catch(() => toasts.info(m.learnings_revert_failed(), { key: "learnings-revert" }))}
     onscope={(id, globs) =>
       setLearningScope(id, globs)
         .then(() => learnings.load())

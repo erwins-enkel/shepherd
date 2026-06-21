@@ -1,7 +1,19 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
+import type { UsageRange } from "$lib/types";
+
+// The page fetches live data from $lib/api; mock those two calls with the retained
+// fixtures so this suite is deterministic and backend-independent (CI has no server,
+// and a real backend would otherwise serve environment-specific data).
+vi.mock("$lib/api", async () => {
+  const { mockBreakdown, mockLimits } = await import("$lib/usage-mock");
+  return {
+    getUsageBreakdown: (range: UsageRange) => Promise.resolve(mockBreakdown(range)),
+    getUsageLimits: () => Promise.resolve(mockLimits()),
+  };
+});
 
 const { default: UsagePage } = await import("./+page.svelte");
 

@@ -3,7 +3,6 @@
   import { DOCS_URL } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { resolve } from "$app/paths";
 
   type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
 
@@ -21,6 +20,7 @@
     clickGear,
     clickHalt,
     chooseSettings,
+    chooseUsage,
     onMenuKey,
     onFeedback,
   }: {
@@ -37,6 +37,7 @@
     clickGear: () => void;
     clickHalt: () => void;
     chooseSettings: () => void;
+    chooseUsage: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
     onFeedback: (kind: FeedbackKind) => void;
   } = $props();
@@ -100,16 +101,20 @@
         <span class="menu-label">{m.settings_title()}</span>
       </button>
       <div class="menu-sep" role="separator"></div>
-      <a
+      <button
         class="menu-item"
+        type="button"
         role="menuitem"
-        href={resolve("/usage")}
+        aria-haspopup="dialog"
         use:coachTarget={"usage-link"}
-        onclick={() => (menuOpen = false)}
+        onclick={() => {
+          menuOpen = false;
+          chooseUsage();
+        }}
       >
         <span class="menu-glyph" aria-hidden="true">▦</span>
         <span class="menu-label">{m.topbar_usage_link()}</span>
-      </a>
+      </button>
       <!-- External docs site — opens in a new tab; ↗ marks it external, matching the
            mobile sheet + Settings → About link convention. Closes the menu on click. -->
       <a

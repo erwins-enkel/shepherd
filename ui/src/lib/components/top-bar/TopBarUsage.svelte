@@ -6,7 +6,6 @@
   import { formatResetIn, formatReset } from "$lib/format";
   import CreditGauge from "./CreditGauge.svelte";
   import CreditDetail from "./CreditDetail.svelte";
-  import { resolve } from "$app/paths";
 
   let {
     subscriptionOnly,
@@ -25,6 +24,7 @@
     onRefresh,
     periodLabel,
     gaugeTip,
+    onusage,
     popoverOpen = $bindable(),
     detailOpen = $bindable(),
     gaugeWrap = $bindable(null),
@@ -45,6 +45,7 @@
     onRefresh: () => void;
     periodLabel: (k: GaugeKey) => string;
     gaugeTip: (k: GaugeKey, pct: number, resetAt: number) => string;
+    onusage?: () => void;
     popoverOpen: boolean;
     detailOpen: boolean;
     gaugeWrap: HTMLElement | null;
@@ -144,9 +145,17 @@
             {refreshError}
             {onRefresh}
           />
-          <a class="gauge-pop-link" href={resolve("/usage")} onclick={() => (popoverOpen = false)}>
+          <button
+            type="button"
+            class="gauge-pop-link"
+            aria-haspopup="dialog"
+            onclick={() => {
+              popoverOpen = false;
+              onusage?.();
+            }}
+          >
             {m.topbar_usage_link()}
-          </a>
+          </button>
         </div>
       {/if}
     </div>
@@ -158,7 +167,13 @@
     onmouseenter={() => (detailOpen = true)}
     onmouseleave={() => (detailOpen = false)}
   >
-    <a class="gauges-link" href={resolve("/usage")} aria-label={m.topbar_usage_link_aria()}>
+    <button
+      type="button"
+      class="gauges-link"
+      aria-haspopup="dialog"
+      aria-label={m.topbar_usage_link_aria()}
+      onclick={() => onusage?.()}
+    >
       <div class="gauges" class:stale>
         {#each gauges as g (g.label)}
           <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
@@ -175,7 +190,7 @@
         {/each}
         <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
       </div>
-    </a>
+    </button>
     {#if detailOpen}
       <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale>
         <div class="gauge-pop-title micro">
@@ -228,19 +243,37 @@
     color: var(--color-muted);
     max-width: 22rem;
   }
-  /* Desktop: clicking the gauges cluster navigates to /usage. */
+  /* Desktop: clicking the gauges cluster opens the Usage modal. Full button-chrome
+     reset so the <button> renders byte-identically to the former <a> (no native
+     padding/border/background/font shift the gauges layout). */
   .gauges-link {
-    display: block;
-    text-decoration: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
     color: inherit;
-  }
-  /* Touch popover: quiet /usage nav link at the bottom of the breakdown popover. */
-  .gauge-pop-link {
+    cursor: pointer;
+    text-align: inherit;
     display: block;
+  }
+  /* Touch popover: quiet Usage-modal trigger at the bottom of the breakdown popover.
+     Button-chrome reset so it reads as the former quiet link, not a native button. */
+  .gauge-pop-link {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    display: block;
+    width: 100%;
     margin-top: 8px;
+    font: inherit;
     font-size: var(--fs-meta);
     color: var(--color-muted);
-    text-decoration: none;
     text-align: right;
   }
   .gauge-pop-link:hover,

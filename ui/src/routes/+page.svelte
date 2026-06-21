@@ -157,6 +157,7 @@
   }
   let showNew = $state(false);
   let showSettings = $state(false);
+  let showUsage = $state(false);
   let settingsTab = $state<"workspace" | "session" | "device" | "diagnose">("workspace");
   let showClone = $state(false);
   let showFork = $state(false);
@@ -945,6 +946,7 @@
     return (
       showNew ||
       showSettings ||
+      showUsage ||
       showBacklog ||
       showBroadcast ||
       showRetry ||
@@ -1644,6 +1646,7 @@
           settingsTab = "workspace";
           showSettings = true;
         }}
+        onusage={() => (showUsage = true)}
         onhalt={haltHerd}
         needsYou={blockedEntries.length}
         ontriage={() => (showTriage = true)}
@@ -2083,6 +2086,8 @@
     showSettings = false;
     showWhatsNew = true;
   }}
+  {showUsage}
+  onusageclose={() => (showUsage = false)}
   {showClone}
   oncloneclose={() => (showClone = false)}
   onclonedone={(entry) => {

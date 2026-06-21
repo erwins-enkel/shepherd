@@ -34,6 +34,7 @@
     touch = false,
     limits = null,
     onsettings,
+    onusage,
     onhalt,
     needsYou = 0,
     ontriage,
@@ -60,6 +61,7 @@
     touch?: boolean;
     limits?: UsageLimits | null;
     onsettings?: () => void;
+    onusage?: () => void;
     onhalt?: () => void;
     needsYou?: number;
     ontriage?: () => void;
@@ -489,6 +491,11 @@
     disarmHalt();
     onsettings?.();
   }
+  function chooseUsage() {
+    menuOpen = false;
+    disarmHalt();
+    onusage?.();
+  }
   // On open, move focus to the first menu item (proper menu-button keyboard flow).
   $effect(() => {
     if (menuOpen) menuEl?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
@@ -634,6 +641,7 @@
         onRefresh={doRefresh}
         {periodLabel}
         {gaugeTip}
+        onusage={chooseUsage}
         bind:popoverOpen
         bind:detailOpen
         bind:gaugeWrap
@@ -712,6 +720,7 @@
       {clickGear}
       {clickHalt}
       {chooseSettings}
+      {chooseUsage}
       {onMenuKey}
       {onFeedback}
     />
@@ -747,6 +756,7 @@
     {closeMenu}
     {clickHalt}
     {chooseSettings}
+    {chooseUsage}
     {ondiagnose}
     {onupdate}
     {onherdrupdate}

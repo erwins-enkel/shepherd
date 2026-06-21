@@ -40,6 +40,7 @@
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import Usage from "$lib/components/Usage.svelte";
   import CloneRepo from "$lib/components/CloneRepo.svelte";
   import ForkRepo from "$lib/components/ForkRepo.svelte";
   import NewProject from "$lib/components/NewProject.svelte";
@@ -124,6 +125,8 @@
     onsettingsclone,
     onsettingsfork,
     onsettingswhatsnew,
+    showUsage,
+    onusageclose,
     showClone,
     oncloneclose,
     onclonedone,
@@ -213,6 +216,8 @@
     onsettingsclone: () => void;
     onsettingsfork: () => void;
     onsettingswhatsnew: () => void;
+    showUsage: boolean;
+    onusageclose: () => void;
     showClone: boolean;
     oncloneclose: () => void;
     onclonedone: (entry: { path: string }) => void;
@@ -425,6 +430,10 @@
     onfork={onsettingsfork}
     onwhatsnew={onsettingswhatsnew}
   />
+{/if}
+
+{#if showUsage}
+  <Usage onclose={onusageclose} />
 {/if}
 
 {#if showClone}

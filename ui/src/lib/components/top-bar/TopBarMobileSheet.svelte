@@ -12,7 +12,6 @@
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
-  import { resolve } from "$app/paths";
 
   // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
   // ActionBar carries these, but on phone it hides them, leaving Settings → Device the
@@ -59,6 +58,7 @@
     closeMenu,
     clickHalt,
     chooseSettings,
+    chooseUsage,
     ondiagnose,
     onupdate,
     onherdrupdate,
@@ -93,6 +93,7 @@
     closeMenu: () => void;
     clickHalt: () => void;
     chooseSettings: () => void;
+    chooseUsage: () => void;
     ondiagnose: (() => void) | undefined;
     onupdate: (() => void) | undefined;
     onherdrupdate: (() => void) | undefined;
@@ -201,10 +202,18 @@
           />
         </div>
       {/if}
-      <a class="sheet-item" href={resolve("/usage")} onclick={() => closeMenu()}>
+      <button
+        type="button"
+        class="sheet-item"
+        aria-haspopup="dialog"
+        onclick={() => {
+          chooseUsage();
+          closeMenu();
+        }}
+      >
         <span class="sheet-glyph" aria-hidden="true">▦</span>
         <span class="sheet-label">{m.topbar_usage_link()}</span>
-      </a>
+      </button>
       <div class="sheet-sep"></div>
     {/if}
 

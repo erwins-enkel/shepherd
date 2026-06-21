@@ -1,4 +1,5 @@
 import type { Learning } from "./types";
+import { isUnprovenTrial } from "./learnings-lifecycle";
 
 /** XML tag wrapping the Shepherd-curated house-rules block. The block is injected into
  *  every agent's *system prompt* (not the human turn — see service.ts), so the tag lets the
@@ -174,11 +175,15 @@ export function learningMatchesScope(learning: Learning, paths: string[]): boole
   return learning.scopeGlobs.some((g) => globMatchesAnyPath(g, paths));
 }
 
-/** Priority sort: composite recency-decay + smoothed-help score, desc.
- *  Tie-break: updatedAt desc (determinism). `now` defaults to Date.now() so
- *  existing callers need no change. */
+/** Priority sort: hard trial tier (non-trials before unproven trials) as primary key,
+ *  then composite recency-decay + smoothed-help score desc, then updatedAt desc.
+ *  A proven trial (helpfulCount>0) is NOT tiered — it competes by score normally.
+ *  `now` defaults to Date.now() so existing callers need no change. */
 export function prioritize(rules: Learning[], now: number = Date.now()): Learning[] {
   return [...rules].sort((a, b) => {
+    const ta = isUnprovenTrial(a) ? 1 : 0;
+    const tb = isUnprovenTrial(b) ? 1 : 0;
+    if (ta !== tb) return ta - tb; // non-trials (0) before unproven trials (1)
     const diff = scoreRule(b, now) - scoreRule(a, now);
     if (diff !== 0) return diff; // desc by score
     return b.updatedAt - a.updatedAt; // desc by updatedAt (tie-break)
@@ -188,13 +193,16 @@ export function prioritize(rules: Learning[], now: number = Date.now()): Learnin
 /** Plan which house rules inject under the char budget, scoped to the session's target
  *  files (#842). Rules split three ways: Always-rules (no globs), matched-scoped (globs hit
  *  a `targetPaths` entry), and scope-gated (globs, no match → `scoped`, never injected and
- *  never counted against budget). Budget precedence is two-pass: **Always-rules are packed
- *  first** (guaranteed the budget), then matched-scoped fill the remainder — so a flurry of
- *  scoped matches can never evict a universal rule. Within each pass the fill is greedy by
- *  the composite score (a later, shorter rule can still fit after a longer one is dropped),
- *  so `injected` is not necessarily a contiguous prefix. `now` (test-injectable) drives the
- *  recency decay; omitting `targetPaths` (e.g. the cross-repo injectable preview, which has
- *  no session) gates every scoped rule. */
+ *  never counted against budget). Budget fill is four ordered sub-passes, all non-trials
+ *  before any unproven trial:
+ *  (A) Always non-trials → (B) matched-scoped non-trials →
+ *  (C) Always unproven-trials → (D) matched-scoped unproven-trials.
+ *  Drop-first: if ANY non-trial (A or B) was dropped for budget, ALL trial passes are skipped
+ *  (all trials go to `dropped`) — a proven/earner rule can never be crowded out by a trial.
+ *  Within each sub-pass the fill is greedy by the composite score (a later, shorter rule can
+ *  still fit after a longer one is dropped), so `injected` is not necessarily a contiguous
+ *  prefix. `now` (test-injectable) drives the recency decay; omitting `targetPaths` (e.g.
+ *  the cross-repo injectable preview, which has no session) gates every scoped rule. */
 export function planHouseRulesInjection(
   rules: Learning[],
   budgetChars: number,
@@ -210,15 +218,43 @@ export function planHouseRulesInjection(
     else if (learningMatchesScope(r, paths)) matchedScoped.push(r);
     else gated.push(r);
   }
+  const splitTier = (rules: Learning[]) => {
+    const nonTrial: Learning[] = [],
+      trial: Learning[] = [];
+    for (const r of rules) (isUnprovenTrial(r) ? trial : nonTrial).push(r);
+    return { nonTrial: prioritize(nonTrial, now), trial: prioritize(trial, now) };
+  };
+  const a = splitTier(always);
+  const b = splitTier(matchedScoped);
+
   const injected: Learning[] = [];
   const dropped: Learning[] = [];
   let used = HOUSE_RULES_OVERHEAD;
-  for (const group of [prioritize(always, now), prioritize(matchedScoped, now)]) {
+  let nonTrialDropped = false;
+  const cost = (r: Learning) => ("- " + r.rule + "\n").length;
+
+  const fillNonTrial = (group: Learning[]) => {
     for (const r of group) {
-      const cost = ("- " + r.rule + "\n").length;
-      if (used + cost <= budgetChars) {
+      if (used + cost(r) <= budgetChars) {
         injected.push(r);
-        used += cost;
+        used += cost(r);
+      } else {
+        dropped.push(r);
+        nonTrialDropped = true;
+      }
+    }
+  };
+  fillNonTrial(a.nonTrial); // A: Always non-trials
+  fillNonTrial(b.nonTrial); // B: matched-scoped non-trials
+
+  const trials = [...a.trial, ...b.trial]; // C then D
+  if (nonTrialDropped) {
+    dropped.push(...trials); // a non-trial lost → no unproven trial may take its place
+  } else {
+    for (const r of trials) {
+      if (used + cost(r) <= budgetChars) {
+        injected.push(r);
+        used += cost(r);
       } else {
         dropped.push(r);
       }

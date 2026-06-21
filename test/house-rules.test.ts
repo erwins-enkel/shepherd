@@ -111,6 +111,154 @@ test("determinism tie-break: higher updatedAt sorts first on identical score inp
   expect(prioritize([X, Y], now).map((r) => r.id)).toEqual(["y", "x"]);
 });
 
+// ── trial tier tests ──────────────────────────────────────────────────────────
+
+test("prioritize: high-score unproven trial sorts AFTER low-score non-trial", () => {
+  const now = 100 * DAY_MS;
+  // Unproven trial: trialedAt set, helpfulCount=0 (high injected → lower help score, but still a trial)
+  const trial = rule({
+    id: "trial",
+    trialedAt: now,
+    helpfulCount: 0,
+    injectedCount: 0,
+    lastUsedAt: now, // recency=1, max possible recency
+  });
+  // Non-trial: trialedAt=null, very low score (stale, unproven)
+  const nonTrial = rule({
+    id: "nonTrial",
+    trialedAt: null,
+    helpfulCount: 0,
+    injectedCount: 0,
+    lastUsedAt: 0, // very old → recency near 0
+  });
+  // Despite `trial` having better recency, `nonTrial` must sort first (non-trial tier)
+  expect(prioritize([trial, nonTrial], now).map((r) => r.id)).toEqual(["nonTrial", "trial"]);
+});
+
+test("prioritize: proven trial (helpfulCount>0) is NOT tiered, orders by score", () => {
+  const now = 100 * DAY_MS;
+  // Proven trial: trialedAt set BUT helpfulCount>0 → not an unproven trial
+  const provenTrial = rule({
+    id: "provenTrial",
+    trialedAt: now,
+    helpfulCount: 5,
+    injectedCount: 5,
+    lastUsedAt: now - 1 * DAY_MS,
+  });
+  // Non-trial with worse score
+  const nonTrial = rule({
+    id: "nonTrial",
+    trialedAt: null,
+    helpfulCount: 0,
+    injectedCount: 0,
+    lastUsedAt: 0, // very old
+  });
+  // provenTrial has better score than nonTrial → it wins by score (no tier penalty)
+  const result = prioritize([nonTrial, provenTrial], now).map((r) => r.id);
+  expect(result[0]).toBe("provenTrial");
+});
+
+test("planHouseRulesInjection: all non-trials appear before any unproven trial in injected", () => {
+  const now = 100 * DAY_MS;
+  const alwaysTrial = rule({
+    id: "aTrial",
+    rule: "always trial",
+    trialedAt: now,
+    helpfulCount: 0,
+    scopeGlobs: [],
+    lastUsedAt: now,
+  });
+  const scopedTrial = rule({
+    id: "sTrial",
+    rule: "scoped trial",
+    trialedAt: now,
+    helpfulCount: 0,
+    scopeGlobs: ["src/**"],
+    lastUsedAt: now,
+  });
+  const alwaysNonTrial = rule({
+    id: "aNT",
+    rule: "always non-trial",
+    trialedAt: null,
+    scopeGlobs: [],
+    lastUsedAt: now - 1 * DAY_MS,
+  });
+  const scopedNonTrial = rule({
+    id: "sNT",
+    rule: "scoped non-trial",
+    trialedAt: null,
+    scopeGlobs: ["src/**"],
+    lastUsedAt: now - 2 * DAY_MS,
+  });
+  const plan = planHouseRulesInjection(
+    [alwaysTrial, scopedTrial, alwaysNonTrial, scopedNonTrial],
+    10_000,
+    now,
+    ["src/foo.ts"],
+  );
+  const ids = plan.injected.map((r) => r.id);
+  // All non-trials must precede all trials
+  const nonTrialPositions = ["aNT", "sNT"].map((id) => ids.indexOf(id));
+  const trialPositions = ["aTrial", "sTrial"].map((id) => ids.indexOf(id));
+  expect(nonTrialPositions.every((p) => p !== -1)).toBe(true);
+  expect(trialPositions.every((p) => p !== -1)).toBe(true);
+  expect(Math.max(...nonTrialPositions)).toBeLessThan(Math.min(...trialPositions));
+});
+
+test("planHouseRulesInjection drop-first: once a non-trial is dropped, no trial is injected", () => {
+  const now = 100 * DAY_MS;
+  // A long non-trial Always-rule that doesn't fit, ensuring nonTrialDropped=true
+  const longNonTrial = rule({
+    id: "longNT",
+    rule: "x".repeat(500),
+    trialedAt: null,
+    scopeGlobs: [],
+  });
+  // A short unproven trial that WOULD fit on its own
+  const shortTrial = rule({
+    id: "shortTrial",
+    rule: "ok",
+    trialedAt: now,
+    helpfulCount: 0,
+    scopeGlobs: [],
+  });
+  // Budget: overhead + cost of "ok" only (no room for the long rule)
+  const budget = HOUSE_RULES_OVERHEAD + "- ok\n".length;
+  const plan = planHouseRulesInjection([longNonTrial, shortTrial], budget, now);
+  // longNT dropped → nonTrialDropped=true → shortTrial must NOT be injected
+  expect(plan.injected.map((r) => r.id)).toEqual([]);
+  expect(plan.dropped.map((r) => r.id).sort()).toEqual(["longNT", "shortTrial"].sort());
+});
+
+test("planHouseRulesInjection: proven matched-scoped injected ahead of unproven Always trial when budget forces choice", () => {
+  const now = 100 * DAY_MS;
+  // Unproven Always trial (pass C)
+  const alwaysTrial = rule({
+    id: "aTrial",
+    rule: "always trial rule here",
+    trialedAt: now,
+    helpfulCount: 0,
+    scopeGlobs: [],
+  });
+  // Proven matched-scoped non-trial (pass B)
+  const scopedProven = rule({
+    id: "sProven",
+    rule: "scoped proven",
+    trialedAt: null,
+    helpfulCount: 3,
+    injectedCount: 5,
+    scopeGlobs: ["src/**"],
+    lastUsedAt: now - 1 * DAY_MS,
+  });
+  // Budget: overhead + cost of exactly one of them (scoped proven is shorter)
+  const scopedCost = "- scoped proven\n".length;
+  const budget = HOUSE_RULES_OVERHEAD + scopedCost;
+  const plan = planHouseRulesInjection([alwaysTrial, scopedProven], budget, now, ["src/foo.ts"]);
+  // B (scoped non-trial) fills before C (always trial) → sProven injected, aTrial dropped
+  expect(plan.injected.map((r) => r.id)).toEqual(["sProven"]);
+  expect(plan.dropped.map((r) => r.id)).toEqual(["aTrial"]);
+});
+
 // ── budget / greedy / render tests (unchanged) ─────────────────────────────────
 
 test("greedy fill picks rules that fit within budget", () => {

@@ -908,3 +908,265 @@ test("mergeSuggestionSignatures: intra still EXCLUDES 'applied' (members get ret
     false,
   );
 });
+
+// ── auto-trial primitives (#925) ─────────────────────────────────────────────
+
+test("#925: addLearning populates distinctKinds/distinctSessions from multi-kind/session evidence", () => {
+  const s = new SessionStore(":memory:");
+  // Seed signals: 2 kinds (reply, block), 2 sessions
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const sig2 = s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" });
+  const sig3 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "c" }); // same kind+session as sig1
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "r",
+    rationale: "",
+    evidence: [sig1.id, sig2.id, sig3.id],
+  });
+  expect(l.distinctKinds).toBe(2); // reply + block
+  expect(l.distinctSessions).toBe(2); // s1 + s2
+});
+
+test("#925: addLearning — null sessionId signal adds a kind but NOT a session", () => {
+  const s = new SessionStore(":memory:");
+  const nullSess = s.addSignal({ repoPath: "/r", sessionId: null, kind: "critic", payload: "x" });
+  const realSess = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "y" });
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "r",
+    rationale: "",
+    evidence: [nullSess.id, realSess.id],
+  });
+  expect(l.distinctKinds).toBe(2); // critic + reply
+  expect(l.distinctSessions).toBe(1); // only s1; null excluded
+});
+
+test("#925: addLearning with no evidence produces distinctKinds=0, distinctSessions=0", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  expect(l.distinctKinds).toBe(0);
+  expect(l.distinctSessions).toBe(0);
+  expect(l.trialedAt).toBeNull();
+});
+
+test("#925: trialLearning proposed→active, sets trialedAt; rejects non-proposed", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  const before = Date.now();
+  const trialed = s.trialLearning(l.id)!;
+  expect(trialed).not.toBeNull();
+  expect(trialed.status).toBe("active");
+  expect(trialed.trialedAt).not.toBeNull();
+  expect(trialed.trialedAt!).toBeGreaterThanOrEqual(before);
+  // already active → null
+  expect(s.trialLearning(l.id)).toBeNull();
+  // dismissed → null
+  const d = s.addLearning({ repoPath: "/r", rule: "d", rationale: "", evidence: [] });
+  s.setLearningStatus(d.id, "dismissed");
+  expect(s.trialLearning(d.id)).toBeNull();
+  // missing → null
+  expect(s.trialLearning("no-such-id")).toBeNull();
+});
+
+test("#925: revertTrial active→proposed clears trialedAt (bypasses FSM allowed)", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  const reverted = s.revertTrial(l.id, "proposed")!;
+  expect(reverted).not.toBeNull();
+  expect(reverted.status).toBe("proposed");
+  expect(reverted.trialedAt).toBeNull();
+});
+
+test("#925: revertTrial active→dismissed clears trialedAt", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  const reverted = s.revertTrial(l.id, "dismissed")!;
+  expect(reverted).not.toBeNull();
+  expect(reverted.status).toBe("dismissed");
+  expect(reverted.trialedAt).toBeNull();
+});
+
+test("#925: revertTrial returns null when not a trial (trialedAt is null) even if active", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active"); // manual activation, not a trial
+  expect(s.revertTrial(l.id, "proposed")).toBeNull();
+  expect(s.getLearning(l.id)!.status).toBe("active");
+});
+
+test("#925: revertTrial returns null for proposed/dismissed/missing rows", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  expect(s.revertTrial(l.id, "proposed")).toBeNull(); // still proposed
+  expect(s.revertTrial("no-id", "proposed")).toBeNull(); // missing
+});
+
+test("#925: reapStaleTrial retires a trial with reason trial-expired, clears trialedAt", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  const before = Date.now();
+  const reaped = s.reapStaleTrial(l.id)!;
+  expect(reaped).not.toBeNull();
+  expect(reaped.status).toBe("retired");
+  expect(reaped.retiredReason).toBe("trial-expired");
+  expect(reaped.retiredAt).not.toBeNull();
+  expect(reaped.retiredAt!).toBeGreaterThanOrEqual(before);
+  expect(reaped.trialedAt).toBeNull();
+});
+
+test("#925: reapStaleTrial returns null for non-trialed active (no trialedAt)", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.reapStaleTrial(l.id)).toBeNull();
+  expect(s.getLearning(l.id)!.status).toBe("active");
+});
+
+test("#925: reapStaleTrial returns null for proposed/retired/missing", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  expect(s.reapStaleTrial(l.id)).toBeNull(); // proposed
+  expect(s.reapStaleTrial("nope")).toBeNull(); // missing
+});
+
+test("#925: accrueProposedEvidence dedups, bumps evidenceCount, merges kinds/sessions, refreshes lastEvidenceAt", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const sig2 = s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" });
+  const sig3 = s.addSignal({ repoPath: "/r", sessionId: "s3", kind: "critic", payload: "c" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  // initial state: 1 kind (reply), 1 session (s1)
+  expect(l.distinctKinds).toBe(1);
+  expect(l.distinctSessions).toBe(1);
+  expect(l.evidenceCount).toBe(1);
+
+  const before = Date.now();
+  const updated = s.accrueProposedEvidence(l.id, [sig2.id, sig3.id])!;
+  expect(updated).not.toBeNull();
+  expect(updated.evidenceCount).toBe(3);
+  expect(updated.distinctKinds).toBe(3); // reply + block + critic
+  expect(updated.distinctSessions).toBe(3); // s1 + s2 + s3
+  expect(updated.lastEvidenceAt).toBeGreaterThanOrEqual(before);
+  expect(updated.evidence).toContain(sig1.id);
+  expect(updated.evidence).toContain(sig2.id);
+  expect(updated.evidence).toContain(sig3.id);
+});
+
+test("#925: accrueProposedEvidence returns null when no fresh ids (all already counted)", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  // same id → no-op
+  expect(s.accrueProposedEvidence(l.id, [sig1.id])).toBeNull();
+  expect(s.getLearning(l.id)!.evidenceCount).toBe(1);
+});
+
+test("#925: accrueProposedEvidence returns null for non-proposed rules", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const sig2 = s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  s.setLearningStatus(l.id, "active");
+  expect(s.accrueProposedEvidence(l.id, [sig2.id])).toBeNull();
+  // missing id
+  expect(s.accrueProposedEvidence("no-id", [sig2.id])).toBeNull();
+});
+
+test("#925: accrueProposedEvidence null-sessionId signal merges kind but not session", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const sigNull = s.addSignal({ repoPath: "/r", sessionId: null, kind: "stall", payload: "b" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  const updated = s.accrueProposedEvidence(l.id, [sigNull.id])!;
+  expect(updated.distinctKinds).toBe(2); // reply + stall
+  expect(updated.distinctSessions).toBe(1); // only s1
+});
+
+test("#925: expireLearning proposed→dismissed only", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  const expired = s.expireLearning(l.id)!;
+  expect(expired).not.toBeNull();
+  expect(expired.status).toBe("dismissed");
+  // active → null
+  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(a.id, "active");
+  expect(s.expireLearning(a.id)).toBeNull();
+  expect(s.getLearning(a.id)!.status).toBe("active");
+  // missing → null
+  expect(s.expireLearning("nope")).toBeNull();
+});
+
+test("#925: listTrialLearnings returns only active+trialedAt rows, oldest-trial first", () => {
+  const s = new SessionStore(":memory:");
+  const l1 = s.addLearning({ repoPath: "/r", rule: "r1", rationale: "", evidence: [] });
+  const l2 = s.addLearning({ repoPath: "/r2", rule: "r2", rationale: "", evidence: [] });
+  const l3 = s.addLearning({ repoPath: "/r", rule: "r3", rationale: "", evidence: [] });
+  // Trial l1 first (oldest), then l2
+  s.trialLearning(l1.id);
+  s.trialLearning(l2.id);
+  // l3 is manually activated (no trialedAt)
+  s.setLearningStatus(l3.id, "active");
+  const trials = s.listTrialLearnings();
+  expect(trials.length).toBe(2);
+  expect(trials.map((t) => t.id)).toEqual([l1.id, l2.id]); // oldest first
+  expect(trials.every((t) => t.trialedAt !== null)).toBe(true);
+  expect(trials.every((t) => t.status === "active")).toBe(true);
+  // non-trialed active l3 must not appear
+  expect(trials.some((t) => t.id === l3.id)).toBe(false);
+});
+
+test("#925: listTrialLearnings returns [] when no trials exist", () => {
+  const s = new SessionStore(":memory:");
+  s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  expect(s.listTrialLearnings()).toEqual([]);
+});
+
+test("#925: listPendingLearnings orders by evidenceCount DESC then lastEvidenceAt DESC", () => {
+  const s = new SessionStore(":memory:");
+  // l_low: 0 evidence (low count), l_mid: 2 evidence (mid), l_high: 5 evidence (high)
+  const l_low = s.addLearning({ repoPath: "/r", rule: "low", rationale: "", evidence: [] });
+  // Add signals for mid and high
+  const sigs = Array.from({ length: 5 }, (_, i) =>
+    s.addSignal({ repoPath: "/r", sessionId: null, kind: "reply", payload: `p${i}` }),
+  );
+  const l_mid = s.addLearning({
+    repoPath: "/r",
+    rule: "mid",
+    rationale: "",
+    evidence: sigs.slice(0, 2).map((s) => s.id),
+  });
+  const l_high = s.addLearning({
+    repoPath: "/r",
+    rule: "high",
+    rationale: "",
+    evidence: sigs.slice(0, 5).map((s) => s.id),
+  });
+
+  const pending = s.listPendingLearnings();
+  expect(pending.length).toBe(3);
+  expect(pending[0]!.id).toBe(l_high.id); // 5 evidence
+  expect(pending[1]!.id).toBe(l_mid.id); // 2 evidence
+  expect(pending[2]!.id).toBe(l_low.id); // 0 evidence
+});
+
+test("#925: expiryFloorAt returns the stamped floor after backfill (non-zero on fresh DB)", () => {
+  const s = new SessionStore(":memory:");
+  // backfillLearningDiversity runs on construction and stamps learnings:expiry-floor
+  expect(s.expiryFloorAt()).toBeGreaterThan(0);
+});
+
+test("#925: new DB columns exist with correct defaults after migration", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  expect(l.trialedAt).toBeNull();
+  expect(l.distinctKinds).toBe(0);
+  expect(l.distinctSessions).toBe(0);
+  const fetched = s.getLearning(l.id)!;
+  expect(fetched.trialedAt).toBeNull();
+  expect(fetched.distinctKinds).toBe(0);
+  expect(fetched.distinctSessions).toBe(0);
+});

@@ -522,6 +522,13 @@ export interface Learning {
    *  citation. Null otherwise. Cleared on restore; only meaningful while the rule is
    *  `retired` with `retiredReason === "merged"`. */
   mergedIntoId: string | null;
+  /** When the rule was auto-promoted proposed→active as a trial (trialLearning).
+   *  Null for manually-approved active rules and all non-trial states. */
+  trialedAt: number | null;
+  /** Count of distinct signal kinds in the durable evidenceKindsSeen set. */
+  distinctKinds: number;
+  /** Count of distinct non-null session ids in the durable evidenceSessionsSeen set. */
+  distinctSessions: number;
 }
 
 /** Phase 4 background merge-suggestion (off the hot path, operator-applied).

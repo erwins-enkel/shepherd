@@ -1,5 +1,5 @@
 ---
-// Eight-card feature grid. Copy is faithful to the README "Opinionated by
+// Nine-card feature grid. Copy is faithful to the README "Opinionated by
 // design" + intro and the feature-announcement catalog
 // (ui/src/lib/feature-announcements.ts) — describes what ships, no invented
 // capabilities. Body text is rendered verbatim (no markdown), so copy stays
@@ -36,11 +36,15 @@ const features: Feature[] = [
   },
   {
     title: "Learnings",
-    body: "Distills past sessions' failure signals into proposed house rules; the ones you approve are injected into every new agent in the repo, so lessons compound.",
+    body: "Distills past sessions' failure signals into proposed house rules; the ones you approve are injected into every new agent in the repo. Rules that stop helping retire themselves, can be scoped to matching paths, and — when they recur across repos — promote to your global config.",
   },
   {
     title: "Merge train",
     body: "A finished PR lands only when it's open, CI-green, conflict-free, and up to date; one that has fallen behind is rebased and fully re-verified first.",
+  },
+  {
+    title: "Usage-aware",
+    body: "Run many agents on one subscription without burning it. When usage is high and a session is already running, new tasks hold and start on their own when usage resets — submit anyway to override. A session halted at a usage limit resumes in one click.",
   },
 ];
 ---

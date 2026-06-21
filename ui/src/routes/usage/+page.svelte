@@ -259,7 +259,8 @@
   .usage-back {
     display: inline-flex;
     align-items: center;
-    min-height: 40px;
+    /* 44px = iOS HIG touch-target minimum; matches the Viewport `.back` mobile size. */
+    min-height: 44px;
     padding: 0 14px;
     border: 1px solid var(--color-line-bright);
     border-radius: 6px;
@@ -294,6 +295,11 @@
   .seg-row {
     display: flex;
     border-bottom: 1px solid var(--color-line);
+    /* The row runs full-bleed, but the buttons must clear the notch in landscape on
+       notched devices. Insetting padding (0 in portrait) keeps the divider lines
+       full-width while pulling the edge buttons in. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   .seg-btn {

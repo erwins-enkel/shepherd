@@ -56,7 +56,7 @@ import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
-import { sessionTokens, jsonlPathFor } from "./usage";
+import { sessionTokens, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
@@ -158,6 +158,8 @@ export interface AppDeps {
   /** Force a `/usage` re-scrape (calibration) and return fresh limits; absent in tests that
    *  don't wire the live calibrator (the route then falls back to the current snapshot). */
   refreshUsage?: () => Promise<UsageLimits>;
+  /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
+  usageRollup?: SessionUsageRollup;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
@@ -2480,6 +2482,7 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
     range: raw,
     now: Date.now(),
     apiKey: isApiKeyMode(),
+    usageRollup: deps.usageRollup,
   });
   return json(breakdown);
 }

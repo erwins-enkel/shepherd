@@ -641,6 +641,30 @@ export interface SessionUsageSnapshot {
   snapshotAt: number;
 }
 
+/** One UTC-hour bucket of a session's spend, persisted in session_usage_bucket. */
+export interface SessionUsageBucket {
+  sessionId: string;
+  bucketStart: number; // ms epoch, floorHour(ts); 0 = timeless bucket
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  weightedUnits: number;
+  cacheReadUnits: number;
+  byModel: Record<string, number>; // weighted units per model
+}
+
+/** Per-session windowed sum returned by sumSessionUsageBucketsSince. */
+export interface WindowedBucketSum {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  weightedUnits: number;
+  cacheReadUnits: number;
+  byModel: Record<string, number>;
+}
+
 // Mirror of the UsageBreakdown contract in ui/src/lib/types.ts — keep in sync.
 export type UsageRange = "24h" | "7d" | "30d" | "all";
 

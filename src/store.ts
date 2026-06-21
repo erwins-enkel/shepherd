@@ -26,6 +26,8 @@ import type {
   CreateSessionInput,
   SessionUsageRow,
   SessionUsageSnapshot,
+  SessionUsageBucket,
+  WindowedBucketSum,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
@@ -500,6 +502,9 @@ export class SessionStore implements CapStore, CreditStore {
   private db: Database;
   constructor(path: string) {
     this.db = new Database(path);
+    // Enforce FK constraints (enforces session_usage_bucket → session_usage cascade).
+    // Must be set immediately after open, BEFORE any DDL — it is a no-op inside a transaction.
+    this.db.run("PRAGMA foreign_keys = ON");
     this.db.run(`CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
       repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
@@ -777,6 +782,22 @@ export class SessionStore implements CapStore, CreditStore {
       createdAt      INTEGER NOT NULL,
       archivedAt     INTEGER NOT NULL,
       snapshotAt     INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_usage_bucket (
+      sessionId      TEXT NOT NULL,
+      bucketStart    INTEGER NOT NULL,
+      input          INTEGER NOT NULL,
+      output         INTEGER NOT NULL,
+      cacheRead      INTEGER NOT NULL,
+      cacheWrite     INTEGER NOT NULL,
+      weightedUnits  REAL NOT NULL,
+      cacheReadUnits REAL NOT NULL,
+      byModel        TEXT NOT NULL DEFAULT '{}',
+      PRIMARY KEY (sessionId, bucketStart),
+      FOREIGN KEY (sessionId) REFERENCES session_usage(sessionId) ON DELETE CASCADE
+    )`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS session_usage_bucket_start ON session_usage_bucket (bucketStart)`,
+    );
   }
 
   // ── settings (key/value) ─────────────────────────────────────────────────
@@ -3492,5 +3513,98 @@ export class SessionStore implements CapStore, CreditStore {
       ...row,
       byModel: JSON.parse(row.byModel) as Record<string, number>,
     }));
+  }
+
+  // ── per-session usage buckets ────────────────────────────────────────────────
+
+  /** Replace all bucket rows for sessionId atomically.
+   *  DELETE existing + INSERT all new in one transaction — idempotent on re-archive.
+   *  Requires the parent session_usage row to already exist (FK). */
+  replaceSessionUsageBuckets(sessionId: string, buckets: SessionUsageBucket[]): void {
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM session_usage_bucket WHERE sessionId = ?`, [sessionId]);
+      for (const b of buckets) {
+        this.db.run(
+          `INSERT INTO session_usage_bucket
+             (sessionId, bucketStart, input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [
+            // bind the method's sessionId (which scoped the DELETE), not b.sessionId, so a
+            // bucket row can never land under a different parent than the one being replaced.
+            sessionId,
+            b.bucketStart,
+            b.input,
+            b.output,
+            b.cacheRead,
+            b.cacheWrite,
+            b.weightedUnits,
+            b.cacheReadUnits,
+            JSON.stringify(b.byModel),
+          ],
+        );
+      }
+    })();
+  }
+
+  /** Sum bucket rows per session for the given cutoff window.
+   *  Selects rows WHERE bucketStart = 0 OR bucketStart >= floorHour(cutoff).
+   *  Folds in JS (no SQL SUM) so float math matches archive-time folding. */
+  sumSessionUsageBucketsSince(cutoff: number): Map<string, WindowedBucketSum> {
+    const floorHour = cutoff - (cutoff % 3_600_000);
+    type BucketRow = {
+      sessionId: string;
+      bucketStart: number;
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      weightedUnits: number;
+      cacheReadUnits: number;
+      byModel: string;
+    };
+    const rows = this.db
+      .query(
+        `SELECT sessionId, bucketStart, input, output, cacheRead, cacheWrite,
+                weightedUnits, cacheReadUnits, byModel
+         FROM session_usage_bucket
+         WHERE bucketStart = 0 OR bucketStart >= ?`,
+      )
+      .all(floorHour) as BucketRow[];
+
+    const result = new Map<string, WindowedBucketSum>();
+    for (const row of rows) {
+      const existing = result.get(row.sessionId);
+      const rowByModel = JSON.parse(row.byModel) as Record<string, number>;
+      if (!existing) {
+        result.set(row.sessionId, {
+          input: row.input,
+          output: row.output,
+          cacheRead: row.cacheRead,
+          cacheWrite: row.cacheWrite,
+          weightedUnits: row.weightedUnits,
+          cacheReadUnits: row.cacheReadUnits,
+          byModel: { ...rowByModel },
+        });
+      } else {
+        existing.input += row.input;
+        existing.output += row.output;
+        existing.cacheRead += row.cacheRead;
+        existing.cacheWrite += row.cacheWrite;
+        existing.weightedUnits += row.weightedUnits;
+        existing.cacheReadUnits += row.cacheReadUnits;
+        for (const [model, units] of Object.entries(rowByModel)) {
+          existing.byModel[model] = (existing.byModel[model] ?? 0) + units;
+        }
+      }
+    }
+    return result;
+  }
+
+  /** Distinct sessionIds that have at least one bucket row. */
+  bucketedSessionIds(): Set<string> {
+    const rows = this.db.query(`SELECT DISTINCT sessionId FROM session_usage_bucket`).all() as {
+      sessionId: string;
+    }[];
+    return new Set(rows.map((r) => r.sessionId));
   }
 }

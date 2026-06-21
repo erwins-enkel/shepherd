@@ -31,7 +31,7 @@ import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./s
 import { makeProductionForgeResolver } from "./forge/resolve";
 import { EmptyDiffError, type GitState } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
-import { AccountUsageIndex } from "./usage";
+import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
@@ -295,6 +295,7 @@ const buildQueueReminder = new BuildQueueReminderService({
 });
 
 const accountIndex = new AccountUsageIndex();
+const usageRollup = new SessionUsageRollup();
 const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr), store);
 
 reconcile(store, herdr);
@@ -1449,6 +1450,7 @@ const appDeps: AppDeps = {
   service,
   events,
   usageLimits,
+  usageRollup,
   refreshUsage,
   updates,
   herdrUpdates,

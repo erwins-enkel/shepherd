@@ -6,9 +6,10 @@ import type {
   UsageRepoBreakdown,
   UsageTaskBreakdown,
   UsageTokens,
+  WindowedBucketSum,
 } from "./types";
 import { isOperationalArchetype } from "./usage-archetype";
-import { jsonlPathFor, sessionCost, dominantModel } from "./usage";
+import { jsonlPathFor, sessionCost, dominantModel, SessionUsageRollup } from "./usage";
 import { weightedUnits } from "./pricing";
 
 /** Internal accumulator — public fields + private cacheRead accumulators. */
@@ -50,6 +51,46 @@ function snapshotToAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[numb
     },
     byModel: snap.byModel,
     authoringCacheReadUnits: snap.cacheReadUnits,
+    satelliteCacheReadUnits: 0,
+  };
+}
+
+/** Build a TaskAccum from a persisted snapshot + windowed bucket sums. */
+function windowedSnapshotToAccum(
+  snap: ReturnType<SessionStore["listSessionUsage"]>[number],
+  w: WindowedBucketSum,
+): TaskAccum {
+  return {
+    sessionId: snap.sessionId,
+    desig: snap.desig,
+    model: snap.model,
+    repoPath: snap.repoPath,
+    authoringUnits: w.weightedUnits,
+    satelliteUnits: 0,
+    tokens: {
+      input: w.input,
+      output: w.output,
+      cacheRead: w.cacheRead,
+      cacheWrite: w.cacheWrite,
+    },
+    byModel: w.byModel,
+    authoringCacheReadUnits: w.cacheReadUnits,
+    satelliteCacheReadUnits: 0,
+  };
+}
+
+/** Build a zero-authoring TaskAccum for a spawn-parent session with no in-window activity. */
+function zeroAuthoringAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[number]): TaskAccum {
+  return {
+    sessionId: snap.sessionId,
+    desig: snap.desig,
+    model: snap.model,
+    repoPath: snap.repoPath,
+    authoringUnits: 0,
+    satelliteUnits: 0,
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    byModel: {},
+    authoringCacheReadUnits: 0,
     satelliteCacheReadUnits: 0,
   };
 }
@@ -201,11 +242,86 @@ function aggregateTotals(
   return { totalUnits, authoringUnits, satelliteUnits, cacheReadUnits, generationUnits };
 }
 
+/** Populate taskMap with windowed persisted tasks (cutoff > 0 path). */
+function addWindowedPersistedTasks(
+  taskMap: Map<string, TaskAccum>,
+  store: SessionStore,
+  snapshots: ReturnType<SessionStore["listSessionUsage"]>,
+  cutoff: number,
+): void {
+  const bucketed = store.bucketedSessionIds();
+  const sums = store.sumSessionUsageBucketsSince(cutoff);
+  const spawnParents = new Set(
+    store
+      .listReviewerSpawns()
+      .filter((sp) => sp.totalTokens != null)
+      .map((sp) => sp.taskSessionId),
+  );
+
+  for (const snap of snapshots) {
+    if (!bucketed.has(snap.sessionId)) {
+      // Legacy row (no bucket rows) — include whole iff snapshotAt >= cutoff
+      if (snap.snapshotAt >= cutoff) taskMap.set(snap.sessionId, snapshotToAccum(snap));
+      continue;
+    }
+    const w = sums.get(snap.sessionId);
+    if (w) {
+      // Has in-window bucket activity — use windowed sums
+      taskMap.set(snap.sessionId, windowedSnapshotToAccum(snap, w));
+    } else if (spawnParents.has(snap.sessionId)) {
+      // No in-window authoring but has a completed spawn — retain so satellite attaches
+      taskMap.set(snap.sessionId, zeroAuthoringAccum(snap));
+    }
+    // else: drop (no in-window activity, no spawn)
+  }
+}
+
+/** Populate taskMap with live rollup tasks (usageRollup path). */
+async function addLiveRollupTasks(
+  taskMap: Map<string, TaskAccum>,
+  rollup: SessionUsageRollup,
+  eligible: ReturnType<SessionStore["list"]>,
+  cutoff: number,
+  now: number,
+): Promise<void> {
+  await rollup.refresh(
+    eligible.map((s) => ({
+      id: s.id,
+      worktreePath: s.worktreePath,
+      claudeSessionId: s.claudeSessionId,
+    })),
+    now,
+  );
+  for (const s of eligible) {
+    if (taskMap.has(s.id)) continue; // persisted wins
+    const w = rollup.windowedAccum(s.id, cutoff);
+    if (!w) continue;
+    taskMap.set(s.id, {
+      sessionId: s.id,
+      desig: s.desig,
+      model: w.dominantModel ?? s.model ?? "unknown",
+      repoPath: s.repoPath,
+      authoringUnits: w.weightedUnits,
+      satelliteUnits: 0,
+      tokens: {
+        input: w.input,
+        output: w.output,
+        cacheRead: w.cacheRead,
+        cacheWrite: w.cacheWrite,
+      },
+      byModel: w.byModel,
+      authoringCacheReadUnits: w.cacheReadUnits,
+      satelliteCacheReadUnits: 0,
+    });
+  }
+}
+
 export async function buildUsageBreakdown(opts: {
   store: SessionStore;
   range: UsageRange;
   now: number;
   apiKey: boolean;
+  usageRollup?: SessionUsageRollup;
 }): Promise<UsageBreakdown> {
   const { store, range, now, apiKey } = opts;
 
@@ -216,22 +332,34 @@ export async function buildUsageBreakdown(opts: {
 
   // Persisted tasks
   const snapshots = store.listSessionUsage();
-  for (const snap of snapshots) {
-    if (snap.snapshotAt < cutoff) continue;
-    taskMap.set(snap.sessionId, snapshotToAccum(snap));
+
+  if (cutoff === 0) {
+    // "all" range: unchanged — aggregate rows are exact all-time totals
+    for (const snap of snapshots) {
+      taskMap.set(snap.sessionId, snapshotToAccum(snap));
+    }
+  } else {
+    addWindowedPersistedTasks(taskMap, store, snapshots, cutoff);
   }
 
-  // Live tasks — read concurrently; persisted wins on collision
+  // Live tasks — rollup path if provided, else re-parse fallback
   const activeSessions = store.list({ activeOnly: true });
-  await Promise.all(
-    activeSessions.map(async (s) => {
-      if (taskMap.has(s.id)) return; // persisted wins
-      const accum = await liveSessionToAccum(s, cutoff);
-      if (accum) taskMap.set(s.id, accum);
-    }),
-  );
+  const eligible = activeSessions.filter((s) => s.claudeSessionId && !isOperationalArchetype(s));
 
-  // Satellite spawns
+  if (opts.usageRollup) {
+    await addLiveRollupTasks(taskMap, opts.usageRollup, eligible, cutoff, now);
+  } else {
+    // Back-compat: re-parse JSONL for each active session
+    await Promise.all(
+      activeSessions.map(async (s) => {
+        if (taskMap.has(s.id)) return; // persisted wins
+        const accum = await liveSessionToAccum(s, cutoff);
+        if (accum) taskMap.set(s.id, accum);
+      }),
+    );
+  }
+
+  // Satellite spawns — runs AFTER both persisted and live loops
   attributeSatellites(taskMap, store.listReviewerSpawns());
 
   // Group by repo, sort, produce public breakdowns

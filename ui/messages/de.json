@@ -1770,5 +1770,7 @@
   "usage_range_24h": "24h",
   "usage_range_7d": "7d",
   "usage_range_30d": "30d",
-  "usage_range_all": "Alle"
+  "usage_range_all": "Alle",
+  "feat_repo_switch_retarget_title": "Repo-Wechsel nimmt das Terminal mit",
+  "feat_repo_switch_retarget_body": "Wählst du ein Repo in der Chip-Leiste, springt jetzt auch das Terminal mit — zur Session, die auf deine Antwort wartet, sonst zur ersten aktiven. Kein Starren mehr auf eine Session aus dem gerade verlassenen Repo."
 }

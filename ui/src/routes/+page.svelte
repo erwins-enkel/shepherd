@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import {
@@ -88,6 +88,7 @@
   import {
     firstCurateRepo,
     globalLearningsCounts,
+    pickRepoSwitchTarget,
     repoChipRows,
     shouldClearRepoFilter,
   } from "$lib/components/queue-strip";
@@ -200,6 +201,26 @@
   // a filter on a vanished repo would strand an empty view.
   $effect(() => {
     if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
+  });
+  // Picking a repo chip narrows the herd list to that repo — but the terminal would
+  // otherwise keep showing whatever session was selected before, which now lives in a
+  // different repo than the visible list. Re-target selection onto the chosen repo
+  // (waiting-on-you session first, then first active, then any). Tracks ONLY repoFilter
+  // (everything else is untracked) so it fires on a chip switch, never on a later
+  // session/block update that would yank the user off their session.
+  $effect(() => {
+    const rf = repoFilter;
+    if (rf == null) return; // "all repos" view keeps selection whole
+    untrack(() => {
+      const target = pickRepoSwitchTarget(
+        rf,
+        store.sessions,
+        store.blocks,
+        store.workingBlocked,
+        selected,
+      );
+      if (target) selectUnit(target, false);
+    });
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
   // Independent of the repo filter — both compose into herdSessions below. Sticky

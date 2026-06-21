@@ -9,11 +9,13 @@ import {
   mergeTrainIsAttention,
   mergeTrainLabel,
   pausedText,
+  pickRepoSwitchTarget,
   queueOpenable,
   repoChipRows,
   shouldClearRepoFilter,
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
+import type { BlockState } from "../triage";
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
@@ -550,5 +552,77 @@ describe("firstCurateRepo", () => {
       injectable({ repoPath: "/repos/b", enabled: true, rules: [rule(false)] }), // enabled → match
     ];
     expect(firstCurateRepo(injectables)).toBe("/repos/b");
+  });
+});
+
+// ─── pickRepoSwitchTarget ─────────────────────────────────────────────────────
+
+function block(since: number): BlockState {
+  return { reason: { shape: "awaiting-input", options: [], tail: [] }, since };
+}
+
+describe("pickRepoSwitchTarget", () => {
+  it("re-targets onto a session waiting on the user, oldest-blocked first", () => {
+    const sessions = [
+      session({ id: "a1", repoPath: "/repos/a", status: "running" }),
+      session({ id: "b-run", repoPath: "/repos/b", status: "running" }),
+      session({ id: "b-new", repoPath: "/repos/b", status: "blocked" }),
+      session({ id: "b-old", repoPath: "/repos/b", status: "blocked" }),
+    ];
+    const blocks = { "b-new": block(200), "b-old": block(100) };
+    const sel = sessions[0]; // currently on a session in repo a
+    expect(pickRepoSwitchTarget("/repos/b", sessions, blocks, {}, sel)).toBe("b-old");
+  });
+
+  it("falls back to the first active (running) session when none are waiting", () => {
+    const sessions = [
+      session({ id: "a1", repoPath: "/repos/a", status: "running" }),
+      session({ id: "b-idle", repoPath: "/repos/b", status: "idle" }),
+      session({ id: "b-run", repoPath: "/repos/b", status: "running" }),
+    ];
+    expect(pickRepoSwitchTarget("/repos/b", sessions, {}, {}, sessions[0])).toBe("b-run");
+  });
+
+  it("falls back to the first session in the repo when none are waiting or active", () => {
+    const sessions = [
+      session({ id: "a1", repoPath: "/repos/a", status: "running" }),
+      session({ id: "b-idle", repoPath: "/repos/b", status: "idle" }),
+      session({ id: "b-done", repoPath: "/repos/b", status: "done" }),
+    ];
+    expect(pickRepoSwitchTarget("/repos/b", sessions, {}, {}, sessions[0])).toBe("b-idle");
+  });
+
+  it("excludes a working-while-blocked session from the 'waiting' pick", () => {
+    const sessions = [
+      session({ id: "a1", repoPath: "/repos/a", status: "running" }),
+      session({ id: "b-wb", repoPath: "/repos/b", status: "blocked" }),
+      session({ id: "b-wait", repoPath: "/repos/b", status: "blocked" }),
+    ];
+    // b-wb blocked earlier (10) but actively working; b-wait blocked later (50) and truly waiting.
+    const blocks = { "b-wb": block(10), "b-wait": block(50) };
+    // Without the exclusion oldest-blocked b-wb would win; it's working, so b-wait is the real wait.
+    expect(pickRepoSwitchTarget("/repos/b", sessions, blocks, { "b-wb": true }, sessions[0])).toBe(
+      "b-wait",
+    );
+  });
+
+  it("returns null when already on a session in the chosen repo", () => {
+    const sessions = [
+      session({ id: "b1", repoPath: "/repos/b", status: "running" }),
+      session({ id: "b2", repoPath: "/repos/b", status: "blocked" }),
+    ];
+    expect(
+      pickRepoSwitchTarget("/repos/b", sessions, { b2: block(1) }, {}, sessions[0]),
+    ).toBeNull();
+  });
+
+  it("returns null when the chosen repo has no session", () => {
+    const sessions = [session({ id: "a1", repoPath: "/repos/a" })];
+    expect(pickRepoSwitchTarget("/repos/empty", sessions, {}, {}, sessions[0])).toBeNull();
+  });
+
+  it("re-targets even with no session previously selected", () => {
+    const sessions = [session({ id: "b1", repoPath: "/repos/b", status: "running" })];
+    expect(pickRepoSwitchTarget("/repos/b", sessions, {}, {}, null)).toBe("b1");
   });
 });

@@ -1,6 +1,8 @@
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
 import { m } from "$lib/paraglide/messages";
 import { droppedCount } from "./learnings-drawer";
+import { sortBlocked, type BlockState } from "../triage";
+import { displayStatus } from "../display-status";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
@@ -92,6 +94,32 @@ export function chipHasTelemetry(chip: RepoChip): boolean {
  *  session (no chip) — a filter on a vanished repo would strand an empty view. */
 export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip[]): boolean {
   return repoFilter !== null && !chips.some((c) => c.repoPath === repoFilter);
+}
+
+/**
+ * The session the terminal should re-target onto after the user picks a repo chip.
+ * Narrowing the herd to a repo would otherwise leave the terminal on whatever session
+ * was selected before — now in a *different* repo than the visible list. This chooses,
+ * within the chosen repo: a session waiting on the user's answer (oldest-blocked first,
+ * excluding working-while-blocked, which is actively running not waiting), else the first
+ * active (running) session, else the first session in the repo. Returns null when nothing
+ * should change — the user is already on a session in this repo, the repo has no session,
+ * or the best target is already selected.
+ */
+export function pickRepoSwitchTarget(
+  repoFilter: string,
+  sessions: Session[],
+  blocks: Record<string, BlockState>,
+  workingBlocked: Record<string, boolean>,
+  selected: Session | null,
+): string | null {
+  if (selected && selected.repoPath === repoFilter) return null;
+  const inRepo = sessions.filter((s) => s.repoPath === repoFilter);
+  if (inRepo.length === 0) return null;
+  const waiting = sortBlocked(inRepo, blocks).find((e) => !workingBlocked[e.session.id])?.session;
+  const active = inRepo.find((s) => displayStatus(s, workingBlocked) === "running");
+  const next = waiting ?? active ?? inRepo[0];
+  return next.id !== selected?.id ? next.id : null;
 }
 
 /** Global learnings badge counts for the TopBar: proposed rules awaiting review

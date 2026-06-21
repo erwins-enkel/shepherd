@@ -12,9 +12,20 @@
 
   const term = $derived(glossaryById.get(id));
 
+  // Definition body text, resolved from the term's message key. Computed here (not in
+  // the shared snippet) so the snippet never has to narrow the possibly-undefined term.
+  const bodyText = $derived(
+    term ? (m as unknown as Record<string, () => string>)[term.bodyKey]() : "",
+  );
+
   let open = $state(false);
+  // Presentation is chosen per interaction at open time: hover/focus → "floating"
+  // (anchored popover), touch-tap → "inline" (in-flow disclosure that pushes content
+  // down). Per-interaction (not per-device) so hybrid touch+mouse devices keep both.
+  let presentation = $state<"floating" | "inline">("floating");
   let btnEl = $state<HTMLButtonElement | null>(null);
   let popEl = $state<HTMLElement | null>(null);
+  let inlineEl = $state<HTMLElement | null>(null);
 
   // Detect touch (coarse pointer) — determines open strategy.
   // We check at pointer event time too (pointerType === "touch") for accuracy,
@@ -25,7 +36,7 @@
 
   // Floating UI: position popover relative to button whenever open + both elements exist.
   $effect(() => {
-    if (!open || !btnEl || !popEl) return;
+    if (presentation !== "floating" || !open || !btnEl || !popEl) return;
 
     try {
       popEl.showPopover();
@@ -47,9 +58,12 @@
       if (e.key === "Escape") close();
     }
     function onPointerdown(e: PointerEvent) {
+      // Test whichever panel is currently mounted (floating div XOR inline span),
+      // not a stale popEl — otherwise an outside tap in inline mode never closes.
+      const panel = popEl ?? inlineEl;
       if (
-        popEl &&
-        !popEl.contains(e.target as Node) &&
+        panel &&
+        !panel.contains(e.target as Node) &&
         btnEl &&
         !btnEl.contains(e.target as Node)
       ) {
@@ -60,19 +74,27 @@
       close();
     }
 
+    // Scroll/resize re-home the anchored popover by closing it — only relevant to the
+    // floating panel. The inline panel scrolls with content, so closing on scroll would
+    // be hostile; skip those listeners for it.
+    const floating = presentation === "floating";
     const tid = setTimeout(() => {
       window.addEventListener("keydown", onKeydown);
       window.addEventListener("pointerdown", onPointerdown);
-      window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
-      window.addEventListener("resize", onScrollOrResize, { passive: true });
+      if (floating) {
+        window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
+        window.addEventListener("resize", onScrollOrResize, { passive: true });
+      }
     }, 0);
 
     return () => {
       clearTimeout(tid);
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("pointerdown", onPointerdown);
-      window.removeEventListener("scroll", onScrollOrResize, { capture: true });
-      window.removeEventListener("resize", onScrollOrResize);
+      if (floating) {
+        window.removeEventListener("scroll", onScrollOrResize, { capture: true });
+        window.removeEventListener("resize", onScrollOrResize);
+      }
     };
   });
 
@@ -112,6 +134,7 @@
   // Desktop (fine pointer): hover open, grace-delayed close.
   function onPointerenter(e: PointerEvent) {
     if (e.pointerType === "touch") return; // coarse — handled by click
+    presentation = "floating";
     openTooltip();
   }
   function onPointerleave(e: PointerEvent) {
@@ -132,6 +155,7 @@
   // Desktop: focus open/close.
   function onFocus() {
     if (isCoarse()) return;
+    presentation = "floating";
     openTooltip();
   }
   function onBlur(e: FocusEvent) {
@@ -156,6 +180,7 @@
     if (open) {
       close();
     } else {
+      presentation = "inline";
       openTooltip();
     }
   }
@@ -176,7 +201,9 @@
     bind:this={btnEl}
     class="gloss-term"
     type="button"
-    aria-describedby={tooltipId}
+    aria-describedby={presentation === "floating" ? tooltipId : undefined}
+    aria-expanded={presentation === "inline" ? open : undefined}
+    aria-controls={presentation === "inline" && open ? tooltipId : undefined}
     onpointerenter={onPointerenter}
     onpointerleave={onPointerleave}
     onfocus={onFocus}
@@ -184,23 +211,12 @@
     onclick={onClick}>{label}</button
   >
 
-  <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
-       position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
-       Non-blocking anchored popover — no scrim (exempt per CLAUDE.md).
-       role="dialog" (without aria-modal) for external terms that contain a link;
-       role="tooltip" for internal-only terms that contain no interactive children. -->
-  <div
-    id={tooltipId}
-    bind:this={popEl}
-    class="gloss-tooltip"
-    role={term.kind === "external" ? "dialog" : "tooltip"}
-    aria-label={term.kind === "external" ? label : undefined}
-    popover="manual"
-    onpointerenter={onTipPointerenter}
-    onpointerleave={onTipPointerleave}
-  >
-    <p class="gt-body">{(m as unknown as Record<string, () => string>)[term.bodyKey]()}</p>
-    {#if term.kind === "external" && wikiHref}
+  <!-- Shared definition body, rendered by both presentation branches below.
+       .gt-body is a <span> (display:block), never a <p>: the inline branch lives inside
+       a heading <p>, where a nested <p> start tag would auto-close the heading. -->
+  {#snippet defBody()}
+    <span class="gt-body">{bodyText}</span>
+    {#if term?.kind === "external" && wikiHref}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external Wikipedia URL -->
       <a
         class="gt-wiki"
@@ -212,7 +228,40 @@
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
     {/if}
-  </div>
+  {/snippet}
+
+  {#if presentation === "floating"}
+    <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
+         position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
+         Non-blocking anchored popover — no scrim (exempt per CLAUDE.md).
+         role="dialog" (without aria-modal) for external terms that contain a link;
+         role="tooltip" for internal-only terms that contain no interactive children. -->
+    <div
+      id={tooltipId}
+      bind:this={popEl}
+      class="gloss-tooltip"
+      role={term.kind === "external" ? "dialog" : "tooltip"}
+      aria-label={term.kind === "external" ? label : undefined}
+      popover="manual"
+      onpointerenter={onTipPointerenter}
+      onpointerleave={onTipPointerleave}
+    >
+      {@render defBody()}
+    </div>
+  {:else if open}
+    <!-- Touch disclosure: an in-flow block that pushes content down instead of floating
+         over it. A <span> (block via .gloss-inline) so it stays valid inside a heading <p>.
+         role="dialog" for external terms (contain a link), role="note" for internal. -->
+    <span
+      id={tooltipId}
+      bind:this={inlineEl}
+      class="gloss-inline"
+      role={term.kind === "external" ? "dialog" : "note"}
+      aria-label={term.kind === "external" ? label : undefined}
+    >
+      {@render defBody()}
+    </span>
+  {/if}
 {/if}
 
 <style>
@@ -267,9 +316,16 @@
   }
 
   .gt-body {
+    display: block;
     margin: 0;
     font-size: var(--fs-base);
+    font-weight: 400;
     line-height: 1.5;
+    /* Read as prose even when the marker sits on a section heading, whose
+       uppercase / letter-spacing would otherwise be inherited into the definition
+       (DOM inheritance reaches the popover's top-layer body too). */
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   .gt-wiki {
@@ -280,6 +336,41 @@
 
   .gt-wiki:hover {
     opacity: 1;
+  }
+
+  /* Touch disclosure: in-flow block beneath the term (pushes content down rather than
+     floating over it). Mirrors the floating tooltip's surface; the prose typography
+     resets live on .gt-body so both presentations read as body text even when the
+     marker sits on a section heading. */
+  .gloss-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 6px 0 2px;
+    padding: 8px 10px;
+    width: min(260px, 100%);
+
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+
+    color: var(--color-ink);
+    font: inherit;
+    text-align: left;
+
+    animation: gloss-inline-in 120ms ease-out;
+  }
+
+  /* Suppressed by the global reduced-motion blanket in app.css. */
+  @keyframes gloss-inline-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   /* Entrance animation. The global blanket in app.css suppresses this with

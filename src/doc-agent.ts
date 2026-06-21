@@ -11,6 +11,8 @@ import type { GitForge } from "./forge/types";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
+import type { SessionUsage } from "./usage";
+import { readSessionUsage } from "./usage";
 import {
   apiKeyMembraneFields,
   apiKeyPassthroughEnv,
@@ -40,12 +42,20 @@ async function defaultGit(cwd: string, args: string[]): Promise<string> {
  *  orphaned husk (after a restart) can NEVER squat a stable name — a re-spawn always gets a new
  *  name, so `agent_name_taken` is impossible by construction (the distiller's fix; see
  *  DISTILL_LABEL). The underscores are load-bearing: prompt-derived session slugs are `[a-z0-9-]`
- *  only, so no real session collides, and sweepOrphans can match husks by this prefix safely. */
+ *  only, so no real session collides, and reapOrphans can match husks by this prefix safely. */
 export const DOC_AGENT_LABEL = "__docagent__";
 
 /** Worktree/branch name stem. worktree.create() prepends `shepherd/`, so the branch is
- *  `shepherd/docs-update-<8hex>`. sweepOrphans matches `shepherd/${DOC_BRANCH_PREFIX}`. */
+ *  `shepherd/docs-update-<8hex>`. reapOrphans matches `shepherd/${DOC_BRANCH_PREFIX}`. */
 const DOC_BRANCH_PREFIX = "docs-update-";
+
+/** Refname grammar (mirrors BranchPruner/worktree.ts): rejects a leading "-" so a branch name can
+ *  never smuggle a flag into `git push origin --delete <branch>`. */
+const BRANCH_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
+
+/** Max forge prStatus lookups per boot remote-reap (matches BranchPruner). The rest wait for the
+ *  next boot — orphan remote branches are durable, so an unbounded backlog never accumulates. */
+const REMOTE_REAP_CAP = 20;
 
 /** The agent writes this at the worktree root as its FINAL action: a per-change grounding bullet
  *  list + an "Uncertain / needs human judgment" section. Its presence is the completion signal; its
@@ -78,6 +88,21 @@ const COMMIT_WINDOW = 50;
 
 const COMMIT_MSG = "docs: sync docs to recent source changes";
 
+/** Zeroed usage written when a finalize completes a spawn row but the transcript is unreadable
+ *  (GC'd / partial) — so the row is never left dangling. Same shape as review.ts's zeroedUsage. */
+const ZEROED_USAGE: SessionUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total: 0,
+  messageCount: 0,
+  lastActivity: null,
+  byModel: {},
+  fullRecaches: 0,
+  sidechainCount: 0,
+};
+
 export type DocAgentStatus = "started" | "skipped" | "error";
 export interface DocAgentResult {
   status: DocAgentStatus;
@@ -96,6 +121,8 @@ interface InFlight {
   base: string;
   terminalId: string;
   agentName: string;
+  /** The agent's forced --session-id — the reviewer_spawns PK, used to complete the cost row. */
+  spawnSessionId: string;
   startedAt: number;
   finalizing?: boolean;
 }
@@ -107,9 +134,19 @@ export interface DocAgentDeps {
   /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune) and the nightly
    *  cadence sweep. */
   repos: () => string[];
-  /** Persisted per-repo cadence markers (last-sha / nightly-day / merged-seen). */
-  store: Pick<SessionStore, "getSetting" | "setSetting">;
+  /** Persisted per-repo cadence markers (last-sha / nightly-day / merged-seen) + durable
+   *  spawn-cost rows (reviewer_spawns, reused for doc-agent attribution; issue #502/#905). */
+  store: Pick<
+    SessionStore,
+    | "getSetting"
+    | "setSetting"
+    | "recordReviewerSpawn"
+    | "completeReviewerSpawn"
+    | "listReviewerSpawns"
+  >;
   model?: string | null;
+  /** Phase-1 escalation: when false (Phase-0 observe), finalize() is log-only (no commit/push/PR). */
+  act?: boolean;
   onChange?: (f: DocAgentFinalize) => void;
   now?: () => number;
   timeoutMs?: number;
@@ -129,6 +166,9 @@ export interface DocAgentDeps {
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
   buildPrompt?: (base: string) => string;
+  /** Read a spawn's token usage from its transcript at finalize (cost attribution). Mirrors
+   *  herd-digest.ts's identical dep + readSessionUsage default. */
+  readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
 }
 
 /**
@@ -142,8 +182,10 @@ export interface DocAgentDeps {
  * import("./promote").Promoter} and the spawn/membrane posture of ReviewService.
  *
  * Restart-safety: the unique-per-run herdr name (`__docagent__<8hex>`) makes name-squat impossible;
- * `sweepOrphans()` (boot) additionally clears husk tabs + orphan `shepherd/docs-update-*` worktrees,
- * working even when the herdr daemon also restarted (it parses `git worktree list`).
+ * `reapOrphans()` (boot) additionally re-adopts a finished/in-progress interrupted run, prunes dead
+ * ones (+ their husk tabs / dangling cost rows), and reaps orphan remote `shepherd/docs-update-*`
+ * branches with no PR, working even when the herdr daemon also restarted (it parses `git worktree
+ * list`).
  */
 export class DocAgentService {
   private inflight = new Map<string, InFlight>();
@@ -156,6 +198,8 @@ export class DocAgentService {
   private fileExists: (p: string) => boolean;
   private readSentinel: (worktreePath: string) => string | null;
   private buildPrompt: (base: string) => string;
+  private act: boolean;
+  private readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
 
   constructor(private deps: DocAgentDeps) {
     this.git = deps.git ?? defaultGit;
@@ -166,6 +210,8 @@ export class DocAgentService {
     this.fileExists = deps.fileExists ?? existsSync;
     this.readSentinel = deps.readSentinel ?? defaultReadSentinel;
     this.buildPrompt = deps.buildPrompt ?? ((base) => docAgentPrompt(base));
+    this.act = deps.act ?? false;
+    this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
   private detectBackend(): SandboxBackend {
@@ -346,11 +392,13 @@ export class DocAgentService {
       return { status: "error", reason: "worktree creation failed" };
     }
 
-    const terminalId = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
-    if (!terminalId) {
+    const spawned = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
+    if (!spawned) {
       this.deps.worktree.remove(wt.worktreePath);
       return { status: "error", reason: "spawn failed" };
     }
+    const { terminalId, spawnSessionId } = spawned;
+    const startedAt = this.now();
     this.inflight.set(repoPath, {
       repoPath,
       worktreePath: wt.worktreePath,
@@ -358,7 +406,19 @@ export class DocAgentService {
       base,
       terminalId,
       agentName: DOC_AGENT_LABEL + id8,
-      startedAt: this.now(),
+      spawnSessionId,
+      startedAt,
+    });
+    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
+    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
+    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: spawnSessionId,
+      taskSessionId: repoPath,
+      kind: "doc_agent",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: startedAt,
     });
     // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
     // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
@@ -398,16 +458,17 @@ export class DocAgentService {
     return { ok: true, forge };
   }
 
-  /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId, or
-   *  null on a spawn failure (logged). profile "standard": the agent needs Anthropic egress (to run
-   *  claude) but not GitHub — the server pushes/opens the PR — mirroring ReviewService's spawn. */
+  /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId +
+   *  the agent's forced --session-id (the reviewer_spawns PK), or null on a spawn failure (logged).
+   *  profile "standard": the agent needs Anthropic egress (to run claude) but not GitHub — the
+   *  server pushes/opens the PR — mirroring ReviewService's spawn. */
   private spawnAgent(
     repoPath: string,
     worktreePath: string,
     agentName: string,
     base: string,
-  ): string | null {
-    const { argv } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
+  ): { terminalId: string; spawnSessionId: string } | null {
+    const { argv, sessionId } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
     const backend = this.detectBackend();
     const env = this.membraneEnv();
     const membrane: MembraneInputs = {
@@ -424,12 +485,13 @@ export class DocAgentService {
     };
     const wrapped = wrapArgv(argv, { profile: "standard", backend, membrane });
     try {
-      return this.deps.herdr.start(
+      const terminalId = this.deps.herdr.start(
         agentName,
         worktreePath,
         wrapped,
         apiKeyPassthroughEnv(backend !== null),
       ).terminalId;
+      return { terminalId, spawnSessionId: sessionId };
     } catch (err) {
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[doc-agent] herdr unavailable for ${repoPath}:`, err);
@@ -466,28 +528,19 @@ export class DocAgentService {
       const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
       if (forge && inScope.length > 0) {
         await this.git(f.worktreePath, ["add", "--", ...inScope]);
-        const staged = (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
-        if (staged.length > 0) {
-          // --no-verify deliberately DIVERGES from promote.ts (which commits WITH hooks): a
-          // server-side docs-only commit must not run the repo's pre-commit hooks (lint-staged
-          // etc.) on unrelated state. The change is grounded + human-reviewed via the PR.
-          await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
-          await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
-          try {
-            const status = await forge.openPr({
-              head: f.branch,
-              base: f.base,
-              title: COMMIT_MSG,
-              body: docPrBody(sentinel),
-            });
-            url = status.url ?? null;
-          } catch (err) {
-            // No net diff vs base → nothing to land; not an error.
-            if (!(err instanceof EmptyDiffError)) throw err;
-          }
+        const stagedOut = (
+          await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
+        ).trim();
+        if (stagedOut.length > 0) {
+          url = await this.publishStaged(f, sentinel, forge, stagedOut);
         }
       }
     } finally {
+      // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
+      // and act) BEFORE the worktree is removed — mirrors herd-digest.ts / review.ts.
+      // completeReviewerSpawn no-ops on an unknown id, so an empty/missing id is safe.
+      const usage = await this.readUsage(f.worktreePath, f.spawnSessionId).catch(() => null);
+      this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? ZEROED_USAGE, this.now());
       // Cleanup mirrors Promoter.cleanup: stop the agent (closes its tab), remove the worktree, and
       // force-delete the local branch (the pushed remote branch backs any opened PR).
       this.deps.herdr.stop(f.terminalId);
@@ -501,6 +554,44 @@ export class DocAgentService {
     this.deps.onChange?.({ repoPath: f.repoPath, url });
   }
 
+  /**
+   * Phase-gated publish of the staged in-scope doc changes. Phase-0 OBSERVE (`!act`) logs exactly
+   * what it WOULD open and returns null (no commit/push/openPr) — onChange then fires the same
+   * `{repoPath, url:null}` shape as the already-current path. Phase-1 act commits `--no-verify`
+   * (deliberately DIVERGES from promote.ts, which commits WITH hooks: a server-side docs-only
+   * commit must not run the repo's pre-commit hooks on unrelated state — the change is grounded +
+   * human-reviewed via the PR), pushes, opens the PR, and returns its url (null on no net diff).
+   */
+  private async publishStaged(
+    f: InFlight,
+    sentinel: string | null,
+    forge: GitForge,
+    stagedOut: string,
+  ): Promise<string | null> {
+    if (!this.act) {
+      const staged = stagedOut.split("\n");
+      console.warn(
+        `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${staged.length} files): ${staged.join(", ")}`,
+      );
+      return null;
+    }
+    await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
+    await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
+    try {
+      const status = await forge.openPr({
+        head: f.branch,
+        base: f.base,
+        title: COMMIT_MSG,
+        body: docPrBody(sentinel),
+      });
+      return status.url ?? null;
+    } catch (err) {
+      // No net diff vs base → nothing to land; not an error.
+      if (!(err instanceof EmptyDiffError)) throw err;
+      return null;
+    }
+  }
+
   /** Drop a repo's in-flight tracking (e.g. on shutdown); does not touch the worktree. */
   forget(repoPath: string): void {
     this.inflight.delete(repoPath);
@@ -508,50 +599,250 @@ export class DocAgentService {
   }
 
   /**
-   * Boot reconcile. Two independent passes so it works even when the herdr daemon ALSO restarted:
-   *  1. Close any live herdr tab whose name starts with the doc-agent prefix (herdr survived).
-   *  2. herdr-independent: parse `git worktree list` per known repo and remove every
-   *     `shepherd/docs-update-*` worktree + force-delete its branch (the authoritative orphan
-   *     signal when there's no tab to read a cwd from, and no persisted run rows).
+   * Boot reconcile (issue #905). Unlike the reviewer's reapOrphans (which DISCARDS the worktree and
+   * re-kicks a fresh run), the doc agent KEEPS a finished worktree and FINALIZES the work already
+   * produced — the SENTINEL edits are the deliverable, so throwing them away on a restart that
+   * happened to land right after the agent finished would waste a whole run.
+   *
+   * Per repo (skipping any already `inflight`/`starting`), for each surviving
+   * `shepherd/docs-update-*` worktree it applies {@link reapOneWorktree}'s decision tree
+   * (re-adopt / prune / keep-across-a-forge-blip), reaps orphan REMOTE branches with no PR
+   * (the crash-between-push-and-openPr leak), and finally mops up dangling spawn rows + leftover
+   * husk tabs. Works even when the herdr daemon ALSO restarted (it parses `git worktree list`).
    * Scoped strictly to the doc-agent namespace, so it never collides with the reviewer's `review *`
    * reaper or the tmpfs sweeper.
+   *
+   * The boot callsite is best-effort (not awaited): the per-repo `starting` claim is the load-bearing
+   * double-spawn guard regardless, and a merged trigger lost during the brief reconcile window is
+   * recovered by the nightly catch-all.
    */
-  async sweepOrphans(): Promise<void> {
-    this.closeHuskTabs();
+  async reapOrphans(): Promise<void> {
     for (const repo of this.deps.repos()) {
-      if (this.inflight.has(repo)) continue; // never reap a live run
-      await this.pruneRepoOrphanWorktrees(repo);
-    }
-  }
-
-  /** Pass 1: close any live herdr tab whose name starts with the doc-agent prefix. */
-  private closeHuskTabs(): void {
-    try {
-      for (const a of this.deps.herdr.list()) {
-        if (a.name.startsWith(DOC_AGENT_LABEL)) this.deps.herdr.closeTab(a.tabId);
+      if (this.inflight.has(repo) || this.starting.has(repo)) continue; // never reap a live run
+      this.starting.add(repo); // claim BEFORE any await so a concurrent consider() short-circuits
+      let readopted = false;
+      try {
+        readopted = await this.reapRepoWorktrees(repo);
+      } catch (err) {
+        console.warn(`[doc-agent] reapOrphans: error reaping ${repo}:`, err);
+      } finally {
+        if (!readopted) this.starting.delete(repo); // re-adopt keeps the claim (handed to inflight)
       }
-    } catch (err) {
-      console.warn("[doc-agent] sweepOrphans tab pass:", err);
     }
+    await this.sweepDanglingRows();
+    this.closeHuskTabs();
   }
 
-  /** Pass 2 (per repo): remove every `shepherd/docs-update-*` worktree + force-delete its branch. */
-  private async pruneRepoOrphanWorktrees(repo: string): Promise<void> {
+  /** Per repo: walk the doc-update worktrees applying the decision tree, then reap orphan remote
+   *  branches. Returns true iff a worktree was RE-ADOPTED into `inflight` (so the caller keeps the
+   *  `starting` claim, already handed to `inflight`). At most one re-adopt per repo. */
+  private async reapRepoWorktrees(repo: string): Promise<boolean> {
     const orphanPrefix = `shepherd/${DOC_BRANCH_PREFIX}`;
     let entries: { path: string; branch: string }[];
     try {
       entries = await this.listWorktreeBranches(repo);
     } catch {
-      return;
+      return false;
     }
+    const forge = this.deps.resolveForge(repo);
+    let readopted = false;
     for (const { path, branch } of entries) {
       if (!branch.startsWith(orphanPrefix)) continue;
-      this.deps.worktree.remove(path);
-      try {
-        await this.git(repo, ["branch", "-D", branch]);
-      } catch {
-        /* best-effort */
+      if (readopted) {
+        // begin() allows one in-flight run per repo, so any extra orphan worktree is prunable.
+        await this.pruneWorktree(repo, path, branch);
+        continue;
       }
+      readopted = await this.reapOneWorktree(repo, path, branch, forge);
+    }
+    const protectedBranches = new Set<string>(readopted ? [this.inflight.get(repo)!.branch] : []);
+    if (forge && forge.kind !== "local") {
+      await this.reapOrphanRemoteBranches(repo, forge, protectedBranches);
+    }
+    return readopted;
+  }
+
+  /** Decision tree for ONE surviving doc-update worktree. Returns true iff it was re-adopted. */
+  private async reapOneWorktree(
+    repo: string,
+    path: string,
+    branch: string,
+    forge: GitForge | null,
+  ): Promise<boolean> {
+    // No PR surface (no forge / lightweight repo) → nothing to finalize against → prune.
+    if (!forge || forge.kind === "local") {
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    const sentinel = this.readSentinel(path);
+    const liveTab = this.findLiveTab(path);
+    let base: string;
+    try {
+      base = await forge.defaultBranch();
+    } catch {
+      // Transient forge failure (offline). Preserve anything worth finishing for a later boot;
+      // otherwise prune. KEEP leaves the row + tab untouched so the next reachable boot retries.
+      if (sentinel !== null || liveTab) return false;
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    if (sentinel === null && !liveTab) {
+      // Agent died mid-edit (no completion signal, no live process) → nothing to salvage.
+      await this.pruneWorktree(repo, path, branch);
+      return false;
+    }
+    // sentinel present (finished) OR a live tab (still editing after a Shepherd-only restart) →
+    // RE-ADOPT: hand the `starting` claim to `inflight`; the next tick() finalizes it (and completes
+    // the row). Recover spawnedAt + the spawn session id from the uncompleted row when present.
+    const row = this.uncompletedRowFor(path);
+    this.inflight.set(repo, {
+      repoPath: repo,
+      worktreePath: path,
+      branch,
+      base,
+      terminalId: liveTab?.terminalId ?? "",
+      agentName: liveTab?.name ?? "",
+      startedAt: row?.spawnedAt ?? this.now(),
+      spawnSessionId: row?.reviewerSessionId ?? "",
+    });
+    this.starting.delete(repo);
+    return true;
+  }
+
+  /** Reap orphan REMOTE `shepherd/docs-update-*` branches that have NO PR at all (state "none") —
+   *  the crash-between-push-and-openPr leak. open/merged/closed branches are left alone. */
+  private async reapOrphanRemoteBranches(
+    repo: string,
+    forge: GitForge,
+    protectedBranches: Set<string>,
+  ): Promise<void> {
+    let candidates: string[];
+    try {
+      candidates = await this.listRemoteDocBranches(repo, forge);
+    } catch (err) {
+      console.warn(`[doc-agent] reapOrphans: listing remote branches failed for ${repo}:`, err);
+      return;
+    }
+    let checks = 0;
+    for (const branch of candidates) {
+      if (protectedBranches.has(branch) || !BRANCH_RE.test(branch)) continue;
+      if (checks >= REMOTE_REAP_CAP) break; // bounded per sweep; the rest wait for the next boot
+      checks++;
+      let state: string;
+      try {
+        state = (await forge.prStatus(branch)).state;
+      } catch {
+        console.warn(`[doc-agent] reapOrphans: prStatus failed for ${branch}; keeping`);
+        continue;
+      }
+      if (state !== "none") continue; // an open/merged/closed PR owns the branch — keep it
+      try {
+        await this.git(repo, ["push", "origin", "--delete", branch]);
+      } catch {
+        /* best-effort: the branch may already be gone */
+      }
+    }
+  }
+
+  /** Candidate remote `shepherd/docs-update-*` short-names. Prefer the authoritative forge view
+   *  (GitHub matching-refs API, free of stale local refs); fall back to git, pruning stale
+   *  remote-tracking refs FIRST so a deleted-on-origin branch can't permanently consume the cap. */
+  private async listRemoteDocBranches(repo: string, forge: GitForge): Promise<string[]> {
+    const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;
+    if (forge.listBranches) return forge.listBranches(prefix);
+    try {
+      await this.git(repo, ["remote", "prune", "origin"]);
+    } catch {
+      /* best-effort: a prune failure just leaves stale refs in the for-each-ref read */
+    }
+    // Pattern must end on a FULL path component: `git for-each-ref` matches a literal pattern only
+    // completely or up to a slash, so a mid-component prefix (`…/shepherd/docs-update-`) matches
+    // nothing. Use the full `…/shepherd/` component (as branch-pruner does for `refs/heads/shepherd/`)
+    // and narrow to the `docs-update-` branches in code.
+    const out = await this.git(repo, [
+      "for-each-ref",
+      "--format=%(refname:short)",
+      `refs/remotes/origin/shepherd/`,
+    ]);
+    return out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/^origin\//, ""))
+      .filter((b) => b.startsWith(prefix));
+  }
+
+  /** Remove a worktree + force-delete its local branch + complete its dangling row + close any
+   *  husk tab. The terminal prune branch of the decision tree. */
+  private async pruneWorktree(repo: string, path: string, branch: string): Promise<void> {
+    await this.completeRowFor(path);
+    const tab = this.findLiveTab(path);
+    if (tab) this.deps.herdr.closeTab(tab.tabId);
+    this.deps.worktree.remove(path);
+    try {
+      await this.git(repo, ["branch", "-D", branch]);
+    } catch {
+      /* best-effort: a never-committed branch may already be gone */
+    }
+  }
+
+  /** After the worktree loop: complete any uncompleted `doc_agent` row whose worktree no longer
+   *  exists on disk (finalize ran but never completed it, or it was pruned elsewhere) so cost
+   *  attribution never leaks. Rows owned by a live in-flight run are left for tick() to complete. */
+  private async sweepDanglingRows(): Promise<void> {
+    const owned = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+    for (const row of this.deps.store.listReviewerSpawns()) {
+      if (row.kind !== "doc_agent" || row.completedAt != null) continue;
+      if (owned.has(row.worktreePath) || this.fileExists(row.worktreePath)) continue;
+      await this.completeRowFor(row.worktreePath);
+    }
+  }
+
+  /** Complete the uncompleted `doc_agent` cost row for `worktreePath` with real usage (best-effort,
+   *  zeroed fallback). No-op when no matching row exists. */
+  private async completeRowFor(worktreePath: string): Promise<void> {
+    const row = this.uncompletedRowFor(worktreePath);
+    if (!row) return;
+    const u = await this.readUsage(worktreePath, row.reviewerSessionId).catch(() => null);
+    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, u ?? ZEROED_USAGE, this.now());
+  }
+
+  /** The uncompleted `doc_agent` reviewer_spawns row for a worktree path, or undefined. */
+  private uncompletedRowFor(worktreePath: string) {
+    return this.deps.store
+      .listReviewerSpawns()
+      .find(
+        (r) => r.kind === "doc_agent" && r.completedAt == null && r.worktreePath === worktreePath,
+      );
+  }
+
+  /** A live herdr agent (doc-agent prefix) whose cwd is this worktree, or undefined. */
+  private findLiveTab(
+    worktreePath: string,
+  ): { tabId: string; terminalId: string; name: string } | undefined {
+    try {
+      return this.deps.herdr
+        .list()
+        .find((a) => a.name.startsWith(DOC_AGENT_LABEL) && a.cwd === worktreePath);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Final pass: close any leftover doc-agent husk tab NOT owned by a re-adopted in-flight run. */
+  private closeHuskTabs(): void {
+    const ownedCwds = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+    const ownedTerms = new Set(
+      [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
+    );
+    try {
+      for (const a of this.deps.herdr.list()) {
+        if (!a.name.startsWith(DOC_AGENT_LABEL)) continue;
+        if (ownedTerms.has(a.terminalId) || ownedCwds.has(a.cwd)) continue; // spare re-adopted runs
+        this.deps.herdr.closeTab(a.tabId);
+      }
+    } catch (err) {
+      console.warn("[doc-agent] reapOrphans tab pass:", err);
     }
   }
 

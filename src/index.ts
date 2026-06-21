@@ -582,13 +582,16 @@ const docAgent = new DocAgentService({
   store,
   nightlyHour: config.docAgentNightlyHour,
   model: config.docAgentModel,
+  act: config.docAgentAct,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
 if (config.docAgentEnabled) {
-  // Boot reconcile: clear husk tabs + orphan docs-update-* worktrees from a pre-restart run so a
-  // unique-named re-spawn never collides and stale worktrees don't accumulate (works even if the
-  // herdr daemon also restarted — it parses `git worktree list`).
-  void docAgent.sweepOrphans().catch((err) => console.warn("[doc-agent] sweepOrphans:", err));
+  // Boot reconcile: re-adopt a finished/in-progress interrupted run (its SENTINEL edits are the
+  // deliverable), prune dead ones + husk tabs + dangling cost rows, and reap orphan remote
+  // docs-update-* branches with no PR. Best-effort (not awaited): the per-repo `starting` claim is
+  // the load-bearing double-spawn guard, and a merged trigger lost during this brief reconcile
+  // window is recovered by the nightly catch-all. Works even if the herdr daemon also restarted.
+  void docAgent.reapOrphans().catch((err) => console.warn("[doc-agent] reapOrphans:", err));
 }
 
 const reviewService = new ReviewService({

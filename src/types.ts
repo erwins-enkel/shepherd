@@ -369,7 +369,7 @@ export interface HerdDigest {
 export interface ReviewerSpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
-  kind: "review" | "plan_gate" | "recap" | "rundown";
+  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
   worktreePath: string;
   model: string | null;
   spawnedAt: number;

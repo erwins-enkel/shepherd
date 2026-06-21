@@ -49,7 +49,7 @@ function baselineCommands(): string[] {
     // on a system path or the native build fails with "bun: not found".
     'ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun',
     // node-pty's install is `node scripts/prebuild.js || node-gyp rebuild`. When no
-    // prebuilt binary matches the instance (arch/fedora fall through to a rebuild),
+    // prebuilt binary matches the instance (arch/rockylinux fall through to a rebuild),
     // it needs `node-gyp` — which is only a node-pty *dev*dependency, so it isn't in
     // node_modules/.bin. Install it globally + expose on PATH so the rebuild works.
     '~/.bun/bin/bun add -g node-gyp && ln -sf "$HOME/.bun/bin/node-gyp" /usr/local/bin/node-gyp',

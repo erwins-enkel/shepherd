@@ -57,6 +57,20 @@ export interface IssueOutcome {
   issueUrl: string | null;
 }
 
+/** Build the dated-comment summary naming the still-present gaps and/or harness
+ *  errors for the rolling issue's audit timeline. */
+function regressionSummary(gaps: ScenarioResult[], harnessErrors: ScenarioResult[]): string {
+  const parts: string[] = [];
+  if (gaps.length)
+    parts.push(`${gaps.length} gap(s) — ${gaps.map((g) => g.scenarioId).join(", ")}`);
+  if (harnessErrors.length) {
+    parts.push(
+      `${harnessErrors.length} harness error(s) — ${harnessErrors.map((h) => h.scenarioId).join(", ")}`,
+    );
+  }
+  return parts.join("; ");
+}
+
 /**
  * File the nightly outcome to GitHub for accountability, keeping ONE rolling
  * issue whose lifecycle mirrors the regression:
@@ -101,13 +115,7 @@ export async function reportToGitHub(
     return { summary: `opened issue: ${url}`, issueUrl: url };
   }
 
-  const gapPart = gaps.length
-    ? `${gaps.length} gap(s) — ${gaps.map((g) => g.scenarioId).join(", ")}`
-    : "";
-  const harnessPart = harnessErrors.length
-    ? `${harnessErrors.length} harness error(s) — ${harnessErrors.map((h) => h.scenarioId).join(", ")}`
-    : "";
-  const summary = [gapPart, harnessPart].filter(Boolean).join("; ");
+  const summary = regressionSummary(gaps, harnessErrors);
   const edit = await gh(["issue", "edit", String(existing.number), "--body", body]);
   if (edit.code !== 0) throw new Error(`gh issue edit failed: ${edit.stderr || edit.stdout}`);
   const comment = await gh([

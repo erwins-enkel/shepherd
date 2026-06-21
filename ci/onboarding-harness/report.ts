@@ -15,8 +15,9 @@ function isPreDetectionThrow(r: ScenarioResult): boolean {
  *  but still surfaced loudly (opens/keeps the rolling issue, shown in the status line)
  *  so harness rot is never silent. A pre-detection throw with any OTHER message
  *  (file-push failure, baseline crash, "Shepherd did not come up", a probe crash) is a
- *  BOOT CRASH (see classify) that DOES gate — past launch, it could be a real regression. */
-export function isHarnessError(r: ScenarioResult): boolean {
+ *  BOOT CRASH (see classify) that DOES gate — past launch, it could be a real regression.
+ *  Private: the harness consumes harnessErrorScenarios (the list form), not this predicate. */
+function isHarnessError(r: ScenarioResult): boolean {
   return isPreDetectionThrow(r) && !!r.error && r.error.startsWith(LAUNCH_FAILURE_PREFIX);
 }
 

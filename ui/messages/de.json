@@ -1615,6 +1615,8 @@
   "topbar_held_spawn_now": "Jetzt starten",
   "topbar_held_discard": "Verwerfen",
   "topbar_held_empty": "Keine zurückgehaltenen Aufgaben",
+  "topbar_held_why": "Zurückgehalten, weil die Nutzung hoch ist – sie starten automatisch beim nächsten Reset.",
+  "topbar_held_why_at": "Nächster Reset {time}.",
   "retry_title": "Halted wiederholen",
   "retry_confirm": "{count} Sitzungen wiederholen",
   "retry_arm": "Wiederholen bestätigen ({count})?",

@@ -70,6 +70,10 @@
         tabindex="-1"
       >
         <div class="held-pop-head">{m.topbar_held_title()}</div>
+        <p class="held-pop-why">
+          {m.topbar_held_why()}{#if hotter?.w.resetAt}
+            {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
+        </p>
         {#if heldLoading}
           <div class="held-pop-empty">{m.common_loading()}</div>
         {:else if heldItems.length === 0}
@@ -140,7 +144,7 @@
     right: 0;
     z-index: 20;
     margin-top: 4px;
-    width: 300px;
+    width: 340px;
     max-width: 90vw;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
@@ -170,23 +174,30 @@
     }
   }
   .held-pop-head {
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
-    padding: 10px 12px 6px;
+    padding: 12px 14px 4px;
+  }
+  .held-pop-why {
+    margin: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+    color: var(--color-faint);
+    padding: 0 14px 10px;
   }
   .held-pop-empty {
-    font-size: var(--fs-meta);
+    font-size: var(--fs-base);
     color: var(--color-faint);
-    padding: 6px 12px 10px;
+    padding: 8px 14px 12px;
   }
   .held-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
-    padding: 6px 12px;
+    padding: 8px 14px;
     border-top: 1px solid var(--color-line);
   }
   .held-row-info {
@@ -197,15 +208,15 @@
     flex: 1;
   }
   .held-row-prompt {
-    font-size: var(--fs-meta);
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 22ch;
+    max-width: 26ch;
   }
   .held-row-repo {
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     color: var(--color-muted);
     letter-spacing: 0.04em;
     overflow: hidden;
@@ -223,9 +234,9 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     font: inherit;
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     letter-spacing: 0.06em;
-    padding: 2px 8px;
+    padding: 3px 10px;
     cursor: pointer;
     white-space: nowrap;
     color: var(--color-ink);

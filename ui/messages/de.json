@@ -1749,7 +1749,7 @@
   "gloss_weighted_units_def": "Ein modellgewichtetes Maß für den Token-Verbrauch, das angibt, was tatsächlich dein Abonnement-Limit belastet — Ausgabe-Tokens kosten deutlich mehr als Cache-Lesevorgänge, daher spiegeln gewichtete Einheiten den echten Verbrauch besser wider als rohe Token-Zahlen.",
   "usage_overhead_tax_heading": "Prüfer-Overhead",
   "usage_overhead_authoring_label": "Authoring",
-  "usage_overhead_satellite_label": "[[satellite-pass|Satelliten-Durchläufe]]",
+  "usage_overhead_satellite_label": "Satelliten-Durchläufe",
   "usage_overhead_tax_caption": "{pct} durch Satelliten-Durchläufe hinzugekommen",
   "usage_overhead_cache_heading": "Cache-Effizienz",
   "usage_overhead_cacheread_label": "Cache-Lesevorgänge",

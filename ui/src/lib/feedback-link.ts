@@ -5,18 +5,22 @@
 // silently ignored — the form opens blank. Field ids map verbatim to query param
 // names (e.g. `what-happened=...`).
 //
-// URLs longer than ~8 KB trigger HTTP 414 from GitHub's edge. We cap at 7000
-// bytes to leave headroom for browser/proxy overhead.
+// URLs longer than ~8 KB trigger HTTP 414 from GitHub's edge. We cap the URL
+// at 7000 characters to leave headroom for browser/proxy overhead. The cap is
+// byte-accurate because a GitHub deep-link URL is all-ASCII (URLSearchParams
+// percent-encodes every non-ASCII byte), so one char == one byte here.
 
 import { version, sha, commitUrl, REPO_URL } from "./build-info";
 
 export type FeedbackKind = "bug" | "feature" | "feedback";
 
 // Maps each kind to the GitHub issue-form field id that receives the user's
-// free-text description.
+// free-text description. Each is the form's REQUIRED field — routing the
+// description elsewhere would leave the required field blank and GitHub would
+// block submission.
 const KIND_FIELD: Record<FeedbackKind, string> = {
   bug: "what-happened",
-  feature: "proposal",
+  feature: "problem",
   feedback: "feedback",
 };
 
@@ -35,7 +39,7 @@ export function buildEnvironment(): string {
   return lines.join("\n");
 }
 
-const MAX_URL_BYTES = 7000;
+const MAX_URL_CHARS = 7000;
 const TRUNCATION_MARKER = "\n…[truncated]";
 const TRUNCATION_CHUNK = 256;
 
@@ -58,7 +62,7 @@ export function buildIssueUrl(
 
   let url = buildUrl(opts.description ?? "");
 
-  if (url.length <= MAX_URL_BYTES || !opts.description) {
+  if (url.length <= MAX_URL_CHARS || !opts.description) {
     return url;
   }
 
@@ -68,7 +72,7 @@ export function buildIssueUrl(
   while (length > 0) {
     const shortened = original.slice(0, length).trimEnd() + TRUNCATION_MARKER;
     url = buildUrl(shortened);
-    if (url.length <= MAX_URL_BYTES) return url;
+    if (url.length <= MAX_URL_CHARS) return url;
     length -= TRUNCATION_CHUNK;
   }
 

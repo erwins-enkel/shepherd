@@ -11,11 +11,11 @@ describe("buildIssueUrl", () => {
     expect(params.get("what-happened")).toBe("Steps to reproduce");
   });
 
-  it("feature: template=feature.yml, description in proposal", () => {
+  it("feature: template=feature.yml, description in problem (the required field)", () => {
     const url = buildIssueUrl("feature", { title: "My idea", description: "Add this" });
     const params = new URL(url).searchParams;
     expect(params.get("template")).toBe("feature.yml");
-    expect(params.get("proposal")).toBe("Add this");
+    expect(params.get("problem")).toBe("Add this");
   });
 
   it("feedback: template=feedback.yml, description in feedback", () => {

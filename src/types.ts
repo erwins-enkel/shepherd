@@ -591,3 +591,45 @@ export interface HeldTask {
   input: CreateSessionInput;
   createdAt: number;
 }
+
+// ── per-session usage snapshot ────────────────────────────────────────────────
+
+/** SQLite row type for session_usage (byModel stored as JSON TEXT). */
+export interface SessionUsageRow {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  weightedUnits: number;
+  cacheReadUnits: number;
+  messageCount: number;
+  byModel: string; // JSON: Record<string, number>
+  createdAt: number;
+  archivedAt: number;
+  snapshotAt: number;
+}
+
+/** Public snapshot of per-session authoring spend, captured at archive time. */
+export interface SessionUsageSnapshot {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  weightedUnits: number;
+  cacheReadUnits: number;
+  messageCount: number;
+  byModel: Record<string, number>; // weighted units per model id
+  createdAt: number;
+  archivedAt: number;
+  snapshotAt: number;
+}

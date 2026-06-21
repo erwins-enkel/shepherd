@@ -1,0 +1,162 @@
+---
+// The architectural payoff of the herdr/Shepherd split: Shepherd is a
+// disposable control plane, herdr durably owns the interactive claude PTYs, so
+// updating/redeploying Shepherd never touches running agents. Copy faithful to
+// the implementation:
+//   - src/herdr.ts          — herdr owns the PTYs; Shepherd bridges them.
+//   - src/update.ts         — in-app update pulls + rebuilds + restarts the
+//                             service in a detached systemd scope that survives
+//                             its own `systemctl restart shepherd`, then reports
+//                             the result back across the restart.
+//   - ui/messages/en.json   — updatemodal_status: "The server is restarting;
+//                             the page will reload automatically."
+// Scope note: this is the *Shepherd* self-update path. A *herdr* update is a
+// different action that does end live panes — deliberately not conflated here.
+interface Split {
+  title: string;
+  body: string;
+}
+
+const splits: Split[] = [
+  {
+    title: "herdr holds the sessions",
+    body: "The PTYs your claude agents run in live in herdr, not in Shepherd. A Shepherd restart never reaches into them — when the dashboard comes back, it just reattaches to the herd that kept running.",
+  },
+  {
+    title: "One click, in place",
+    body: "When new commits land on main, the in-app Update pulls, rebuilds, and restarts the service — detached, so the deploy survives its own restart and reports the result back. The page reloads on its own; your agents don't.",
+  },
+  {
+    title: "Not the cloud trade-off",
+    body: "Redeploying a hosted or SDK-driven orchestrator kills its in-flight work. Here the control plane and the work are separate processes, so shipping a Shepherd update costs you zero agent progress.",
+  },
+];
+---
+
+<section class="live" aria-labelledby="live-h">
+  <div class="inner">
+    <header class="sec-head">
+      <p class="eyebrow">Update without the outage</p>
+      <h2 id="live-h">Redeploy Shepherd mid-run. The herd never notices.</h2>
+    </header>
+
+    <div class="claim">
+      <p class="big">
+        herdr durably <strong>owns the interactive <code>claude</code> PTYs</strong>;
+        Shepherd is the <strong>control plane</strong> that bridges them to your
+        browser. So you can pull, rebuild, and restart Shepherd while agents are
+        mid-task — the dashboard reloads, the sessions <strong>keep running and
+        reattach</strong>. Nothing lost, no run interrupted.
+      </p>
+      <p class="rule">“The orchestrator is disposable. Your running agents are not.”</p>
+    </div>
+
+    <ul class="grid">
+      {
+        splits.map((s) => (
+          <li class="block">
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .live {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .sec-head {
+    max-width: 46rem;
+    margin-bottom: clamp(1.6rem, 4vw, 2.4rem);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 0.6rem;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+  }
+
+  .claim {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-left: 3px solid var(--green);
+    border-radius: 0.9rem;
+    padding: clamp(1.4rem, 3vw, 2rem);
+    margin-bottom: 1rem;
+  }
+
+  .big {
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+    color: var(--ink);
+  }
+
+  .big strong {
+    font-weight: 700;
+  }
+
+  .big code {
+    font-size: 0.92em;
+    color: var(--green);
+  }
+
+  .rule {
+    margin-top: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--ink-muted);
+  }
+
+  .grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .block {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.9rem;
+    padding: 1.4rem;
+  }
+
+  .block h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.55rem;
+  }
+
+  .block p {
+    color: var(--ink-muted);
+    font-size: 0.98rem;
+  }
+
+  @media (min-width: 760px) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>

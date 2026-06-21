@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { snapshotSessionUsage } from "../src/usage-snapshot";
-import { jsonlPathFor } from "../src/usage";
+import { jsonlPathFor, sessionCost } from "../src/usage";
 import type { Session } from "../src/types";
 
 // Build a minimal assistant JSONL line matching the shape parseLine expects.
@@ -279,4 +279,106 @@ test("idempotent re-archive: second call replaces buckets, no dup, no FK error",
   const sums = store.sumSessionUsageBucketsSince(0);
   const r = store.listSessionUsage().find((x) => x.sessionId === "sess-b3")!;
   expect(sums.get("sess-b3")!.input).toBe(r.input);
+});
+
+// ── Task-3 gap tests ─────────────────────────────────────────────────────────
+
+/** Multi-record JSONL spanning 2 models and 2 UTC hours (with realistic cache fields). */
+const MULTI_LINES = [
+  // hour 09, model opus-4-8: input+output+cacheRead+cacheWrite5m
+  asstAt("2026-05-30T09:15:00.000Z", {
+    requestId: "mx1",
+    model: "claude-opus-4-8",
+    input: 1_200,
+    output: 400,
+    cacheRead: 800,
+    w5m: 150,
+  }),
+  // hour 09, model sonnet-4-5: input+output+cacheWrite1h
+  asstAt("2026-05-30T09:45:00.000Z", {
+    requestId: "mx2",
+    model: "claude-sonnet-4-5",
+    input: 2_000,
+    output: 300,
+    cacheRead: 0,
+    w1h: 500,
+  }),
+  // hour 10, model opus-4-8: input+output+cacheRead
+  asstAt("2026-05-30T10:10:00.000Z", {
+    requestId: "mx3",
+    model: "claude-opus-4-8",
+    input: 900,
+    output: 250,
+    cacheRead: 600,
+    w5m: 0,
+  }),
+  // hour 10, model sonnet-4-5: pure input+output
+  asstAt("2026-05-30T10:55:00.000Z", {
+    requestId: "mx4",
+    model: "claude-sonnet-4-5",
+    input: 500,
+    output: 100,
+    cacheRead: 0,
+    w5m: 0,
+  }),
+];
+
+test("snapshot aggregate parity: snapshotSessionUsage matches sessionCost for same transcript", async () => {
+  const session = makeSession({ id: "sess-parity", claudeSessionId: "parity-sess" });
+  writeJsonl("/repos/foo", "parity-sess", MULTI_LINES);
+
+  // Legacy path
+  const legacy = sessionCost(MULTI_LINES);
+
+  // New path
+  const store = new SessionStore(":memory:");
+  await snapshotSessionUsage(session, store);
+  const rows = store.listSessionUsage();
+  const r = rows.find((x) => x.sessionId === "sess-parity");
+  expect(r).toBeDefined();
+  const row = r!;
+
+  // Scalar token counts must be exact
+  expect(row.input).toBe(legacy.usage.input);
+  expect(row.output).toBe(legacy.usage.output);
+  expect(row.cacheRead).toBe(legacy.usage.cacheRead);
+  expect(row.cacheWrite).toBe(legacy.usage.cacheWrite);
+  expect(row.total).toBe(legacy.usage.total);
+  expect(row.messageCount).toBe(legacy.usage.messageCount);
+
+  // Floating-point fields: match to 6 decimal places
+  expect(row.weightedUnits).toBeCloseTo(legacy.weightedUnits, 6);
+  expect(row.cacheReadUnits).toBeCloseTo(legacy.cacheReadUnits, 6);
+
+  // byModel weighted units must match per-model (float-tolerant)
+  const legacyModels = Object.keys(legacy.weightedByModel);
+  expect(Object.keys(row.byModel).sort()).toEqual(legacyModels.sort());
+  for (const model of legacyModels) {
+    expect(row.byModel[model]).toBeCloseTo(legacy.weightedByModel[model]!, 6);
+  }
+});
+
+test("bucket row count: ≥2 UTC hours produce ≥2 distinct bucket rows (cutoff-split proof)", async () => {
+  const session = makeSession({ id: "sess-bktcount", claudeSessionId: "bktcount-sess" });
+  writeJsonl("/repos/foo", "bktcount-sess", MULTI_LINES);
+
+  const store = new SessionStore(":memory:");
+  await snapshotSessionUsage(session, store);
+
+  // Sum with cutoff=0 includes ALL buckets
+  const allSums = store.sumSessionUsageBucketsSince(0);
+  const allTotal = allSums.get("sess-bktcount");
+  expect(allTotal).toBeDefined();
+
+  // Sum with cutoff between hour 09 and hour 10 (i.e. at the exact start of hour 10)
+  // — the 09:xx bucket rows are excluded by the query (bucketStart < floorHour(cutoff))
+  const cutoffMs = Date.parse("2026-05-30T10:00:00.000Z");
+  const partialSums = store.sumSessionUsageBucketsSince(cutoffMs);
+  const partialTotal = partialSums.get("sess-bktcount");
+
+  // If only one bucket row existed both queries would return the same sum.
+  // A strictly smaller partial sum proves the earlier-hour row is a separate DB row.
+  expect(partialTotal).toBeDefined();
+  expect(partialTotal!.input).toBeGreaterThan(0); // hour-10 data present
+  expect(partialTotal!.input).toBeLessThan(allTotal!.input); // hour-09 data excluded → proves ≥2 rows
 });

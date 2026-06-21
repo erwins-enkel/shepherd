@@ -200,6 +200,11 @@
           />
         </div>
       {/if}
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- internal SvelteKit route -->
+      <a class="sheet-item" href="/usage" onclick={() => closeMenu()}>
+        <span class="sheet-glyph" aria-hidden="true">▦</span>
+        <span class="sheet-label">{m.topbar_usage_link()}</span>
+      </a>
       <div class="sheet-sep"></div>
     {/if}
 

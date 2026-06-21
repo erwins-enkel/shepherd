@@ -143,6 +143,10 @@
             {refreshError}
             {onRefresh}
           />
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- internal SvelteKit route -->
+          <a class="gauge-pop-link" href="/usage" onclick={() => (popoverOpen = false)}>
+            {m.topbar_usage_link()}
+          </a>
         </div>
       {/if}
     </div>
@@ -154,22 +158,25 @@
     onmouseenter={() => (detailOpen = true)}
     onmouseleave={() => (detailOpen = false)}
   >
-    <div class="gauges" class:stale>
-      {#each gauges as g (g.label)}
-        <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
-          <span class="g-label micro">{g.label}</span>
-          <span class="g-bar"
-            ><span
-              class="g-fill"
-              style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                100});background:{gaugeColor(g.w.pct)}"
-            ></span></span
-          >
-          <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-        </div>
-      {/each}
-      <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
-    </div>
+    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- internal SvelteKit route -->
+    <a class="gauges-link" href="/usage" aria-label={m.topbar_usage_link_aria()}>
+      <div class="gauges" class:stale>
+        {#each gauges as g (g.label)}
+          <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
+            <span class="g-label micro">{g.label}</span>
+            <span class="g-bar"
+              ><span
+                class="g-fill"
+                style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                  100});background:{gaugeColor(g.w.pct)}"
+              ></span></span
+            >
+            <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+          </div>
+        {/each}
+        <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
+      </div>
+    </a>
     {#if detailOpen}
       <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale>
         <div class="gauge-pop-title micro">
@@ -221,6 +228,25 @@
   .usage-sub-only {
     color: var(--color-muted);
     max-width: 22rem;
+  }
+  /* Desktop: clicking the gauges cluster navigates to /usage. */
+  .gauges-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+  /* Touch popover: quiet /usage nav link at the bottom of the breakdown popover. */
+  .gauge-pop-link {
+    display: block;
+    margin-top: 8px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    text-decoration: none;
+    text-align: right;
+  }
+  .gauge-pop-link:hover,
+  .gauge-pop-link:focus-visible {
+    color: var(--color-ink);
   }
   .gauges-wrap {
     position: relative;

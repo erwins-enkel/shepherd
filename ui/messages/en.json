@@ -1788,5 +1788,7 @@
   "feat_feedback_title": "Report bugs & send feedback",
   "feat_feedback_body": "Found a bug or have an idea? Use the gear menu or Settings → Device to report a bug, request a feature, or send feedback — it opens a prefilled GitHub issue.",
   "usage_load_error": "Couldn't load usage data.",
-  "usage_spend_cost_label": "Cost"
+  "usage_spend_cost_label": "Cost",
+  "topbar_usage_link": "Token usage",
+  "topbar_usage_link_aria": "Open the token-usage dashboard"
 }

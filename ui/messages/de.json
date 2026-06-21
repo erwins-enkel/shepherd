@@ -1802,5 +1802,7 @@
   "usage_history_latest": "jetzt {pct}%",
   "usage_history_peak": "Spitze {pct}%",
   "usage_history_span": "{from} – {to}",
-  "usage_history_empty": "Noch kein aufgezeichneter Verlauf"
+  "usage_history_empty": "Noch kein aufgezeichneter Verlauf",
+  "feat_usage_limits_trend_title": "Aufgezeichnete Limit-Verläufe",
+  "feat_usage_limits_trend_body": "Die Limits-Ansicht zeigt jetzt einen echten aufgezeichneten Verlauf statt nur einer Prognose — eine Sparkline des laufenden Zyklus unter jeder Anzeige sowie ein aufklappbares Verlaufspanel, das darstellt, wie sich Ihr 5-Stunden-, Wochen- und Guthabenverbrauch über vergangene Zurücksetzungszyklen entwickelt hat."
 }

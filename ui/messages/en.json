@@ -1802,5 +1802,7 @@
   "usage_history_latest": "now {pct}%",
   "usage_history_peak": "peak {pct}%",
   "usage_history_span": "{from} – {to}",
-  "usage_history_empty": "No recorded history yet"
+  "usage_history_empty": "No recorded history yet",
+  "feat_usage_limits_trend_title": "Recorded limit trends",
+  "feat_usage_limits_trend_body": "The Limits lens now shows a real recorded trend, not just a projection — a current-cycle sparkline under each gauge plus an expandable history panel that charts how your 5h, weekly, and credit usage moved over past reset cycles."
 }

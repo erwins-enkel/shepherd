@@ -1756,5 +1756,15 @@
   "usage_limits_projected": "voraussichtlich {pct}% beim Reset",
   "usage_limits_burn_rate": "{rate}/h",
   "usage_limits_will_exceed": "voraussichtlich Limit überschritten",
-  "usage_limits_no_data": "Keine Nutzungsfenster-Daten"
+  "usage_limits_no_data": "Keine Nutzungsfenster-Daten",
+  "usage_page_title": "Nutzung",
+  "usage_prototype_note": "Beispieldaten · visueller Prototyp",
+  "usage_spend_tab": "Verbrauch",
+  "usage_overhead_tab": "Overhead",
+  "usage_limits_tab": "Limits",
+  "usage_range_label": "Zeitraum",
+  "usage_range_24h": "24h",
+  "usage_range_7d": "7d",
+  "usage_range_30d": "30d",
+  "usage_range_all": "Alle"
 }

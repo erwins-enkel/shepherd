@@ -9,6 +9,8 @@ import type {
   ActivityEntry,
   SessionUsage,
   UsageLimits,
+  UsageBreakdown,
+  UsageRange,
   GitState,
   PrStatus,
   MergeMethod,
@@ -485,6 +487,12 @@ export async function getDiff(id: string): Promise<DiffResult> {
 export async function getUsageLimits(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw await failed(r, "limits");
+  return r.json();
+}
+
+export async function getUsageBreakdown(range: UsageRange): Promise<UsageBreakdown> {
+  const r = await fetch(`/api/usage/breakdown?range=${range}`);
+  if (!r.ok) throw await failed(r, "breakdown");
   return r.json();
 }
 

@@ -1762,7 +1762,6 @@
   "usage_limits_will_exceed": "voraussichtlich Limit überschritten",
   "usage_limits_no_data": "Keine Nutzungsfenster-Daten",
   "usage_page_title": "Nutzung",
-  "usage_prototype_note": "Beispieldaten · visueller Prototyp",
   "usage_spend_tab": "Verbrauch",
   "usage_overhead_tab": "Overhead",
   "usage_limits_tab": "Limits",
@@ -1787,5 +1786,6 @@
   "settings_feedback_title": "Feedback",
   "settings_feedback_blurb": "Fehler gefunden oder eine Idee? Sagen Sie uns Bescheid.",
   "feat_feedback_title": "Fehler melden & Feedback senden",
-  "feat_feedback_body": "Fehler gefunden oder eine Idee? Über das Zahnrad-Menü oder Einstellungen → Gerät können Sie einen Fehler melden, eine Funktion vorschlagen oder Feedback senden – es öffnet ein vorausgefülltes GitHub-Issue."
+  "feat_feedback_body": "Fehler gefunden oder eine Idee? Über das Zahnrad-Menü oder Einstellungen → Gerät können Sie einen Fehler melden, eine Funktion vorschlagen oder Feedback senden – es öffnet ein vorausgefülltes GitHub-Issue.",
+  "usage_load_error": "Nutzungsdaten konnten nicht geladen werden."
 }

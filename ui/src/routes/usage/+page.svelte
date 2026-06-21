@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { UsageRange } from "$lib/types";
+  import type { UsageBreakdown, UsageLimits, UsageRange } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { mockBreakdown, mockLimits, mockProjections } from "$lib/usage-mock";
+  import { getUsageBreakdown, getUsageLimits } from "$lib/api";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
@@ -11,7 +11,62 @@
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
 
-  const breakdown = $derived(mockBreakdown(range));
+  let breakdown = $state<UsageBreakdown | null>(null);
+  let limits = $state<UsageLimits | null>(null);
+  let loading = $state(true);
+  let error = $state(false);
+
+  // Fetch limits once on mount (range-independent).
+  $effect(() => {
+    getUsageLimits()
+      .then((l) => {
+        limits = l;
+      })
+      .catch(() => {
+        // limits failure is non-fatal; error state is driven by breakdown
+      });
+  });
+
+  // Fetch breakdown on mount and whenever range changes.
+  // Guard against out-of-order responses with a request token.
+  $effect(() => {
+    const requestedRange = range;
+    loading = true;
+    error = false;
+    getUsageBreakdown(requestedRange)
+      .then((b) => {
+        // Ignore stale responses: only accept if range hasn't changed since we fired
+        if (range === requestedRange) {
+          breakdown = b;
+          loading = false;
+        }
+      })
+      .catch(() => {
+        if (range === requestedRange) {
+          error = true;
+          loading = false;
+        }
+      });
+  });
+
+  function retry() {
+    const requestedRange = range;
+    loading = true;
+    error = false;
+    getUsageBreakdown(requestedRange)
+      .then((b) => {
+        if (range === requestedRange) {
+          breakdown = b;
+          loading = false;
+        }
+      })
+      .catch(() => {
+        if (range === requestedRange) {
+          error = true;
+          loading = false;
+        }
+      });
+  }
 </script>
 
 <svelte:head>
@@ -21,7 +76,6 @@
 <main class="usage-page">
   <header class="usage-header">
     <h1 class="usage-title">{m.usage_page_title()}</h1>
-    <p class="usage-prototype-note">{m.usage_prototype_note()}</p>
   </header>
 
   <!-- Tab switcher -->
@@ -85,12 +139,23 @@
 
   <!-- Lens body -->
   <div class="lens-body">
-    {#if tab === "spend"}
-      <SpendLens {breakdown} />
+    {#if loading && !breakdown}
+      <p class="usage-status-line">{m.common_loading()}</p>
+    {:else if error && !breakdown}
+      <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
+      <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>
+    {:else if tab === "spend"}
+      {#if breakdown}
+        <SpendLens {breakdown} />
+      {/if}
     {:else if tab === "overhead"}
-      <OverheadLens {breakdown} />
+      {#if breakdown}
+        <OverheadLens {breakdown} />
+      {/if}
+    {:else if limits}
+      <LimitsLens {limits} projections={[]} />
     {:else}
-      <LimitsLens limits={mockLimits()} projections={mockProjections()} />
+      <p class="usage-status-line">{m.common_loading()}</p>
     {/if}
   </div>
 </main>
@@ -114,12 +179,6 @@
     font-size: var(--fs-xl);
     font-weight: 600;
     color: var(--color-ink);
-  }
-
-  .usage-prototype-note {
-    margin: 0;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
   }
 
   /* Segmented controls */
@@ -180,5 +239,15 @@
 
   .lens-body {
     margin-top: 0;
+  }
+
+  .usage-status-line {
+    margin: 24px 0 8px;
+    font-size: var(--fs-base);
+    color: var(--color-muted);
+  }
+
+  .usage-error {
+    color: var(--color-red);
   }
 </style>

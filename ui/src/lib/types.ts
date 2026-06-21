@@ -766,6 +766,7 @@ export interface UsageRepoBreakdown {
   repoName: string;
   authoringUnits: number;
   satelliteUnits: number;
+  dollars: number | null; // absolute USD spend; null unless api-key auth mode
   tasks: UsageTaskBreakdown[];
 }
 
@@ -778,6 +779,7 @@ export interface UsageBreakdown {
   satelliteUnits: number;
   cacheReadUnits: number; // cheap-cache share (Overhead b)
   generationUnits: number; // non-cacheRead share (Overhead b)
+  dollars: number | null; // absolute USD spend; null unless api-key auth mode
   repos: UsageRepoBreakdown[];
 }
 

@@ -3529,7 +3529,9 @@ export class SessionStore implements CapStore, CreditStore {
              (sessionId, bucketStart, input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel)
            VALUES (?,?,?,?,?,?,?,?,?)`,
           [
-            b.sessionId,
+            // bind the method's sessionId (which scoped the DELETE), not b.sessionId, so a
+            // bucket row can never land under a different parent than the one being replaced.
+            sessionId,
             b.bucketStart,
             b.input,
             b.output,

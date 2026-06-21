@@ -646,6 +646,10 @@ export class SessionUsageRollup {
     const byModel: Record<string, number> = {};
     const rawByModel: Record<string, number> = {};
 
+    // ts=0 ("timeless") records are always in-window; others are kept when ts >= cutoff.
+    // This dedups at ingest and filters here, whereas sessionCost filters before its dedup.
+    // The two only diverge for a duplicate requestId whose copies carry different ts — which
+    // cannot happen for a real transcript (one requestId = one API response = one ts).
     for (const rec of st.records) {
       if (rec.ts !== 0 && rec.ts < cutoff) continue;
       input += rec.input;

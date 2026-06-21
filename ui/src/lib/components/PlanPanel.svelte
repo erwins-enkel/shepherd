@@ -11,7 +11,16 @@
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
 
   const gate = $derived(planGates.map[session.id]);
-  const planBlocks = $derived(gate?.blocks ?? []);
+  // Plan blocks are the planning agent's own proposed structures. The "inferred" badge
+  // (and its glossary tooltip) is recap-specific: it warns that a recap card was
+  // model-extracted and "not verified against the real diff." In the plan-before-execution
+  // view there is no diff and no recap model, so that caveat is false and confusing here —
+  // strip the flag so the badge doesn't render in this context (it still shows in recaps).
+  const planBlocks = $derived(
+    (gate?.blocks ?? []).map((b) =>
+      "inferred" in b && b.inferred ? { ...b, inferred: false } : b,
+    ),
+  );
   const reviewing = $derived(planGates.isReviewing(session.id));
   const releasable = $derived(canRelease(session, gate));
   // Manual re-review only makes sense while still planning (not once executing).
@@ -463,6 +472,22 @@
     .bracket::before,
     .bracket::after {
       display: none;
+    }
+    /* edge-to-edge plan content: trim the body's side gutter and let the plan /
+       verdict bands span the full screen width (no side border, no rounding) so
+       long code, tables and data-model cards use every available pixel. The bands
+       keep their inner text inset; actions/notes keep the slim body gutter so
+       buttons don't collide with the screen edge. */
+    .body {
+      padding: 12px 10px;
+    }
+    .plan,
+    .verdict {
+      margin-left: -10px;
+      margin-right: -10px;
+      border-left: 0;
+      border-right: 0;
+      border-radius: 0;
     }
   }
 </style>

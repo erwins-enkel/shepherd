@@ -511,6 +511,48 @@ export class SessionUsageRollup {
     return this.inflight;
   }
 
+  /** Prune records older than cutoff from st. ts=0 records are never pruned. */
+  private pruneSession(st: SessionFileState, cutoff: number): void {
+    // Walk every record — a ts=0 entry in slot 0 must not short-circuit the walk.
+    let pruned = false;
+    const kept: PerRecord[] = [];
+    for (const rec of st.records) {
+      if (rec.ts === 0 || rec.ts >= cutoff) {
+        kept.push(rec);
+      } else {
+        if (rec.requestId) st.seen.delete(rec.requestId);
+        pruned = true;
+      }
+    }
+    if (pruned) st.records = kept;
+  }
+
+  /** Ingest one session file: stat, reset if truncated, appendChunk if grown, then prune. */
+  private async ingestSession(sess: RollupSession, cutoff: number): Promise<void> {
+    if (!sess.claudeSessionId) return;
+    const path = this.pathFor(sess.worktreePath, sess.claudeSessionId);
+
+    let size: number;
+    try {
+      size = statSync(path).size;
+    } catch {
+      return;
+    }
+
+    let st = this.sessions.get(sess.id);
+    if (!st || size < st.offset) {
+      // File truncated/rotated — reset state
+      st = { size, offset: 0, leftover: "", seen: new Set(), records: [], agg: emptyAgg() };
+      this.sessions.set(sess.id, st);
+    }
+
+    if (size > st.offset) {
+      await this.appendChunk(st, path, size);
+    }
+
+    this.pruneSession(st, cutoff);
+  }
+
   private async doRefresh(sessions: RollupSession[], now: number): Promise<void> {
     // Drop sessions not in the new list
     const liveIds = new Set(sessions.map((s) => s.id));
@@ -521,40 +563,7 @@ export class SessionUsageRollup {
     const cutoff = now - THIRTY_DAYS_MS - PRUNE_SLACK_MS;
 
     for (const sess of sessions) {
-      if (!sess.claudeSessionId) continue;
-      const path = this.pathFor(sess.worktreePath, sess.claudeSessionId);
-
-      let size: number;
-      try {
-        size = statSync(path).size;
-      } catch {
-        continue;
-      }
-
-      let st = this.sessions.get(sess.id);
-      if (!st || size < st.offset) {
-        // File truncated/rotated — reset state
-        st = { size, offset: 0, leftover: "", seen: new Set(), records: [], agg: emptyAgg() };
-        this.sessions.set(sess.id, st);
-      }
-
-      if (size > st.offset) {
-        await this.appendChunk(st, path, size);
-      }
-
-      // Prune records older than cutoff (ts=0 records are never pruned).
-      // Walk every record — a ts=0 entry in slot 0 must not short-circuit the walk.
-      let pruned = false;
-      const kept: PerRecord[] = [];
-      for (const rec of st.records) {
-        if (rec.ts === 0 || rec.ts >= cutoff) {
-          kept.push(rec);
-        } else {
-          if (rec.requestId) st.seen.delete(rec.requestId);
-          pruned = true;
-        }
-      }
-      if (pruned) st.records = kept;
+      await this.ingestSession(sess, cutoff);
     }
   }
 

@@ -242,6 +242,80 @@ function aggregateTotals(
   return { totalUnits, authoringUnits, satelliteUnits, cacheReadUnits, generationUnits };
 }
 
+/** Populate taskMap with windowed persisted tasks (cutoff > 0 path). */
+function addWindowedPersistedTasks(
+  taskMap: Map<string, TaskAccum>,
+  store: SessionStore,
+  snapshots: ReturnType<SessionStore["listSessionUsage"]>,
+  cutoff: number,
+): void {
+  const bucketed = store.bucketedSessionIds();
+  const sums = store.sumSessionUsageBucketsSince(cutoff);
+  const spawnParents = new Set(
+    store
+      .listReviewerSpawns()
+      .filter((sp) => sp.totalTokens != null)
+      .map((sp) => sp.taskSessionId),
+  );
+
+  for (const snap of snapshots) {
+    if (!bucketed.has(snap.sessionId)) {
+      // Legacy row (no bucket rows) — include whole iff snapshotAt >= cutoff
+      if (snap.snapshotAt >= cutoff) taskMap.set(snap.sessionId, snapshotToAccum(snap));
+      continue;
+    }
+    const w = sums.get(snap.sessionId);
+    if (w) {
+      // Has in-window bucket activity — use windowed sums
+      taskMap.set(snap.sessionId, windowedSnapshotToAccum(snap, w));
+    } else if (spawnParents.has(snap.sessionId)) {
+      // No in-window authoring but has a completed spawn — retain so satellite attaches
+      taskMap.set(snap.sessionId, zeroAuthoringAccum(snap));
+    }
+    // else: drop (no in-window activity, no spawn)
+  }
+}
+
+/** Populate taskMap with live rollup tasks (usageRollup path). */
+async function addLiveRollupTasks(
+  taskMap: Map<string, TaskAccum>,
+  rollup: SessionUsageRollup,
+  eligible: ReturnType<SessionStore["list"]>,
+  cutoff: number,
+  now: number,
+): Promise<void> {
+  await rollup.refresh(
+    eligible.map((s) => ({
+      id: s.id,
+      worktreePath: s.worktreePath,
+      claudeSessionId: s.claudeSessionId,
+    })),
+    now,
+  );
+  for (const s of eligible) {
+    if (taskMap.has(s.id)) continue; // persisted wins
+    const w = rollup.windowedAccum(s.id, cutoff);
+    if (!w) continue;
+    taskMap.set(s.id, {
+      sessionId: s.id,
+      desig: s.desig,
+      model: w.dominantModel ?? s.model ?? "unknown",
+      repoPath: s.repoPath,
+      authoringUnits: w.weightedUnits,
+      satelliteUnits: 0,
+      tokens: {
+        input: w.input,
+        output: w.output,
+        cacheRead: w.cacheRead,
+        cacheWrite: w.cacheWrite,
+      },
+      byModel: w.byModel,
+      authoringCacheReadUnits: w.cacheReadUnits,
+      satelliteCacheReadUnits: 0,
+    });
+  }
+}
+
 export async function buildUsageBreakdown(opts: {
   store: SessionStore;
   range: UsageRange;
@@ -265,32 +339,7 @@ export async function buildUsageBreakdown(opts: {
       taskMap.set(snap.sessionId, snapshotToAccum(snap));
     }
   } else {
-    // cutoff > 0: windowed via buckets; fall back to snapshotAt for legacy rows
-    const bucketed = store.bucketedSessionIds();
-    const sums = store.sumSessionUsageBucketsSince(cutoff);
-    const spawnParents = new Set(
-      store
-        .listReviewerSpawns()
-        .filter((sp) => sp.totalTokens != null)
-        .map((sp) => sp.taskSessionId),
-    );
-
-    for (const snap of snapshots) {
-      if (!bucketed.has(snap.sessionId)) {
-        // Legacy row (no bucket rows) — include whole iff snapshotAt >= cutoff
-        if (snap.snapshotAt >= cutoff) taskMap.set(snap.sessionId, snapshotToAccum(snap));
-        continue;
-      }
-      const w = sums.get(snap.sessionId);
-      if (w) {
-        // Has in-window bucket activity — use windowed sums
-        taskMap.set(snap.sessionId, windowedSnapshotToAccum(snap, w));
-      } else if (spawnParents.has(snap.sessionId)) {
-        // No in-window authoring but has a completed spawn — retain so satellite attaches
-        taskMap.set(snap.sessionId, zeroAuthoringAccum(snap));
-      }
-      // else: drop (no in-window activity, no spawn)
-    }
+    addWindowedPersistedTasks(taskMap, store, snapshots, cutoff);
   }
 
   // Live tasks — rollup path if provided, else re-parse fallback
@@ -298,36 +347,7 @@ export async function buildUsageBreakdown(opts: {
   const eligible = activeSessions.filter((s) => s.claudeSessionId && !isOperationalArchetype(s));
 
   if (opts.usageRollup) {
-    await opts.usageRollup.refresh(
-      eligible.map((s) => ({
-        id: s.id,
-        worktreePath: s.worktreePath,
-        claudeSessionId: s.claudeSessionId,
-      })),
-      now,
-    );
-    for (const s of eligible) {
-      if (taskMap.has(s.id)) continue; // persisted wins
-      const w = opts.usageRollup.windowedAccum(s.id, cutoff);
-      if (!w) continue;
-      taskMap.set(s.id, {
-        sessionId: s.id,
-        desig: s.desig,
-        model: w.dominantModel ?? s.model ?? "unknown",
-        repoPath: s.repoPath,
-        authoringUnits: w.weightedUnits,
-        satelliteUnits: 0,
-        tokens: {
-          input: w.input,
-          output: w.output,
-          cacheRead: w.cacheRead,
-          cacheWrite: w.cacheWrite,
-        },
-        byModel: w.byModel,
-        authoringCacheReadUnits: w.cacheReadUnits,
-        satelliteCacheReadUnits: 0,
-      });
-    }
+    await addLiveRollupTasks(taskMap, opts.usageRollup, eligible, cutoff, now);
   } else {
     // Back-compat: re-parse JSONL for each active session
     await Promise.all(

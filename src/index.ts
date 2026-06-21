@@ -66,6 +66,7 @@ import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
 import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees } from "./tmp-sweep";
+import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
@@ -1531,6 +1532,10 @@ const appDeps: AppDeps = {
 };
 const server = serve(appDeps, config.port);
 console.log(`shepherd core on http://localhost:${server.port}`);
+
+// One-time gap-fill of pre-existing archived sessions into session_usage (#965).
+// Fire-and-forget: async JSONL reads yield the event loop; never awaited at boot.
+void runSessionUsageBackfill(store);
 
 // Restricted agent-ingress listener: the autonomous netns's ONLY reachable control-plane surface.
 // Bound to loopback on an ephemeral port; slirp maps the netns's 10.0.2.2 → host 127.0.0.1. Started

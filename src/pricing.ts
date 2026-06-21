@@ -1,5 +1,5 @@
 // The TABLE values are real Anthropic $/Mtok list prices and MUST stay absolute — they must NOT
-// be rescaled (e.g. normalised so a tier = 1), because /usage renders them as real currency via
+// be rescaled (e.g. normalized so a tier = 1), because /usage renders them as real currency via
 // dollars() (and as USD-denominated "units" in the spend breakdown). A rescale would silently
 // corrupt displayed money. The limit-% math (weightedUnits feeding the daily calibration) is
 // ratio-only, so it is unaffected by keeping the absolute anchor. Keep the rows in price order

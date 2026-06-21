@@ -33,7 +33,7 @@
       <div class="window-block">
         <div class="window-header">
           <span class="window-label">{windowLabel(gauge.label)}</span>
-          <span class="window-badge micro">{gauge.label}</span>
+          <span class="micro">{gauge.label}</span>
           <span class="window-pct" style="color:{color}">{gauge.w.pct}%</span>
         </div>
 
@@ -106,13 +106,6 @@
     font-weight: 600;
     color: var(--color-ink-bright);
     flex: 1;
-  }
-
-  .window-badge {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
   }
 
   .window-pct {

@@ -118,7 +118,7 @@
 
   .usage-prototype-note {
     margin: 0;
-    font-size: var(--fs-sm);
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
 
@@ -175,7 +175,7 @@
 
   .range-row .seg-btn {
     min-height: 36px;
-    font-size: var(--fs-sm);
+    font-size: var(--fs-meta);
   }
 
   .lens-body {

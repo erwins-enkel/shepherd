@@ -219,7 +219,8 @@
         store.workingBlocked,
         selected,
       );
-      if (target) selectUnit(target, false);
+      // toDetail=false: filtering the list must not fling a phone user into a terminal.
+      if (target) selectUnit(target, false, false);
     });
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
@@ -789,14 +790,18 @@
   // keyboard back to the terminal that plain-key navigation kept it out of.
   let viewportRef: Viewport | undefined = $state();
 
-  function selectUnit(id: string, focusTerm = true) {
+  // toDetail=false re-targets the selection WITHOUT opening the mobile detail screen —
+  // used when the switch is a side effect of another action (e.g. a repo-filter change)
+  // rather than the user tapping a session row, so a list-level action doesn't fling a
+  // phone user into a terminal.
+  function selectUnit(id: string, focusTerm = true, toDetail = true) {
     // only a *real* switch remounts the terminal and consumes the intent; a
     // self-selection (e.g. plain j wrapping back to the only visible session)
     // must not park a stale `false` that would suppress a later
     // resumeEpoch-driven auto-focus.
     if (id !== selectedId) keynavFocusIntent = focusTerm;
     selectedId = id;
-    if (mobile.current) mobileScreen = "detail";
+    if (toDetail && mobile.current) mobileScreen = "detail";
   }
 
   // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens

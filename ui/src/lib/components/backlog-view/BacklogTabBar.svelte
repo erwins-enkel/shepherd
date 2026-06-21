@@ -115,40 +115,34 @@
         coach={variant === "desktop"}
         ontrigger={ondocagent}
       />
-      <button
-        class="gbtn ff-btn"
-        type="button"
-        disabled={ffInFlight || selectedPath === null}
-        onclick={onff}
-        title={m.backlog_ff_main_title()}
-        aria-label={m.backlog_ff_main_title()}
-        use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-          <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
-          <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
-        </svg>
-        {m.backlog_ff_main()}
-      </button>
+      {@render ffButton(false)}
     </div>
   {:else}
-    <button
-      class="gbtn ff-btn ff-btn-solo"
-      type="button"
-      disabled={ffInFlight || selectedPath === null}
-      onclick={onff}
-      title={m.backlog_ff_main_title()}
-      aria-label={m.backlog_ff_main_title()}
-      use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
-    >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-        <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
-        <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
-      </svg>
-      {m.backlog_ff_main()}
-    </button>
+    {@render ffButton(true)}
   {/if}
 </div>
+
+<!-- Fast-forward button, shared by both branches above. `solo` (no doc-agent) makes
+     it claim the right margin itself; in the cluster the wrapper owns the margin. Only
+     one branch renders, so there's a single instance + a single coach anchor. -->
+{#snippet ffButton(solo: boolean)}
+  <button
+    class="gbtn ff-btn"
+    class:ff-btn-solo={solo}
+    type="button"
+    disabled={ffInFlight || selectedPath === null}
+    onclick={onff}
+    title={m.backlog_ff_main_title()}
+    aria-label={m.backlog_ff_main_title()}
+    use:coachMaybe={variant === "desktop" ? "backlog-ff-main" : undefined}
+  >
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
+      <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
+    </svg>
+    {m.backlog_ff_main()}
+  </button>
+{/snippet}
 
 <style>
   /* ── tab bar (desktop) ── */

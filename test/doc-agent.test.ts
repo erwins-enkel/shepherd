@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   DocAgentService,
   DOC_AGENT_LABEL,
+  SERVER_INSTALL_ROOT,
   isDocRelevantMerge,
   type DocAgentFinalize,
 } from "../src/doc-agent";
@@ -31,6 +32,14 @@ interface GitCall {
   args: string[];
 }
 
+interface PrettierCall {
+  cwd: string;
+  configPath: string;
+  files: string[];
+  /** Snapshot of gitCalls op-names (args[0]) at the instant prettier was called. */
+  gitOpsAtCall: string[];
+}
+
 interface SpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
@@ -50,6 +59,7 @@ interface CompletedRow {
 interface Harness {
   svc: DocAgentService;
   gitCalls: GitCall[];
+  prettierCalls: PrettierCall[];
   starts: { name: string; cwd: string }[];
   closedTabs: string[];
   removedWorktrees: string[];
@@ -85,6 +95,8 @@ function mkHarness(opts?: {
   prStatusByBranch?: Record<string, "none" | "open" | "merged" | "closed">;
   /** stdout of `git for-each-ref … refs/remotes/origin/…` (git fallback path). */
   forEachRefStdout?: string;
+  /** When true, the injected prettier stub throws (exercises the best-effort failure path). */
+  prettierThrows?: boolean;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -104,10 +116,12 @@ function mkHarness(opts?: {
     act: false,
     defaultBranchThrows: false,
     forEachRefStdout: "",
+    prettierThrows: false,
     ...opts,
   };
 
   const gitCalls: GitCall[] = [];
+  const prettierCalls: PrettierCall[] = [];
   const starts: { name: string; cwd: string }[] = [];
   const closedTabs: string[] = [];
   const removedWorktrees: string[] = [];
@@ -262,6 +276,11 @@ function mkHarness(opts?: {
     onChange: (f) => finalizes.push(f),
     now: o.now,
     git,
+    prettier: async (args) => {
+      // Capture a snapshot of the git op-names at call time to assert ordering in tests.
+      prettierCalls.push({ ...args, gitOpsAtCall: gitCalls.map((c) => c.args[0]!) });
+      if (o.prettierThrows) throw new Error("prettier failed (stub)");
+    },
     detectBackend: () => null,
     membraneEnv: () => ({ claudeDir: "/c", home: "/h", nodeBinReal: "/n", extraEnv: {} }),
     fileExists: (p: string) => {
@@ -286,6 +305,7 @@ function mkHarness(opts?: {
   return {
     svc,
     gitCalls,
+    prettierCalls,
     starts,
     closedTabs,
     removedWorktrees,
@@ -830,4 +850,68 @@ test("row completed at finalize: act path completes the spawn row", async () => 
   await h.svc.tick();
   expect(h.completedRows).toHaveLength(1);
   expect(h.completedRows[0]!.reviewerSessionId).toBe(h.spawnRows[0]!.reviewerSessionId);
+});
+
+// ── prettier pre-format (fix: doc-agent auto-PRs fail CI lint gate) ─────────────
+
+test("prettier: called exactly once with cwd=SERVER_INSTALL_ROOT and worktree .prettierrc", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.prettierCalls).toHaveLength(1);
+  const call = h.prettierCalls[0]!;
+  // cwd must be the SERVER's install root (not the worktree — the worktree may have no node_modules)
+  expect(call.cwd).toBe(SERVER_INSTALL_ROOT);
+  // config must come from the managed repo's worktree so CI's own formatting rules drive the output
+  expect(call.configPath).toMatch(/^\/wt\/docs-update-[0-9a-f]{8}\/.prettierrc$/);
+});
+
+test("prettier: files are the absolute worktree paths of the root docs/*.md in-scope files", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  const call = h.prettierCalls[0]!;
+  // The three root docs/*.md entries from IN_SCOPE_PATHS (abs paths under the worktree).
+  const wtBase = call.configPath.replace("/.prettierrc", "");
+  expect(call.files).toEqual([
+    `${wtBase}/docs/external-task-api.md`,
+    `${wtBase}/docs/sandbox-security.md`,
+    `${wtBase}/docs/token-usage-analysis.md`,
+  ]);
+});
+
+test("prettier ordering: prettier runs BEFORE git add (no 'add' in gitCalls snapshot at call time)", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  const call = h.prettierCalls[0]!;
+  expect(call.gitOpsAtCall).not.toContain("add");
+});
+
+test("prettier regression: docs-site paths are never passed to prettier", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  const call = h.prettierCalls[0]!;
+  for (const f of call.files) {
+    expect(f).not.toContain("docs-site");
+  }
+});
+
+test("prettier failure path: throwing prettier stub still results in commit + push + PR (best-effort)", async () => {
+  const h = mkHarness({ act: true, prettierThrows: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  // prettier threw, but the act path is best-effort — commit/push/openPr must still fire
+  expect(h.gitCalls.some((c) => c.args[0] === "commit" && c.args.includes("--no-verify"))).toBe(
+    true,
+  );
+  expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(true);
+  expect(h.openPrInputs).toHaveLength(1);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42" }]);
 });

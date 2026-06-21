@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config";
 import { docAgentArgv } from "./doc-agent-argv";
@@ -36,6 +36,31 @@ const execFileP = promisify(execFile);
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileP("git", args, { cwd });
   return stdout;
+}
+
+/** The server's own install root (the repo root, one level above src/). Used to resolve the
+ *  pinned prettier binary + node_modules — the managed target repo may have no node_modules of its
+ *  own, so prettier MUST NOT be resolved from there (it would silently no-op or fail on missing
+ *  plugins). Mirrors the pattern at egress.ts:94 and server.ts:127. */
+export const SERVER_INSTALL_ROOT = resolve(import.meta.dir, "..");
+
+/** Run the server's pinned prettier `--write` over `files`. No-op when the list is empty.
+ *  `cwd` should be SERVER_INSTALL_ROOT: prettier 3 resolves the bare plugin specifiers in
+ *  `configPath` (`prettier-plugin-svelte`/`-tailwindcss`) by importing from a synthetic module
+ *  anchored at the CWD (verified on 3.8.4 — a wrong cwd fails with `imported from <cwd>/noop.js`),
+ *  and those plugins are loaded for every parser, markdown included. SERVER_INSTALL_ROOT is the one
+ *  directory guaranteed to have them (co-located with this pinned prettier); the managed worktree's
+ *  own node_modules may be absent. Throws on prettier error — the caller catches for best-effort. */
+async function defaultPrettierWrite(args: {
+  cwd: string;
+  configPath: string;
+  files: string[];
+}): Promise<void> {
+  if (args.files.length === 0) return;
+  const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
+  await execFileP(binary, ["--write", "--config", args.configPath, "--", ...args.files], {
+    cwd: args.cwd,
+  });
 }
 
 /** Prefix for ephemeral doc-agent herdr names. Each run appends 8 hex of a fresh UUID so an
@@ -156,6 +181,7 @@ export interface DocAgentDeps {
   /** Local `YYYY-MM-DD` for `now` — the nightly once/day key. */
   dayKey?: (now: number) => string;
   git?: (cwd: string, args: string[]) => Promise<string>;
+  prettier?: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
   detectBackend?: () => SandboxBackend;
   membraneEnv?: () => {
     claudeDir: string;
@@ -191,6 +217,7 @@ export class DocAgentService {
   private inflight = new Map<string, InFlight>();
   private starting = new Set<string>();
   private git: (cwd: string, args: string[]) => Promise<string>;
+  private prettier: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
   private now: () => number;
   private timeoutMs: number;
   private nightlyHour: number;
@@ -203,6 +230,7 @@ export class DocAgentService {
 
   constructor(private deps: DocAgentDeps) {
     this.git = deps.git ?? defaultGit;
+    this.prettier = deps.prettier ?? defaultPrettierWrite;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 20 * 60 * 1000;
     this.nightlyHour = deps.nightlyHour ?? 3;
@@ -527,6 +555,28 @@ export class DocAgentService {
       // edit to the Astro app, reference/cli/*, or a new file is never staged → can't reach the PR.
       const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
       if (forge && inScope.length > 0) {
+        // Format root docs/*.md with the server's pinned prettier BEFORE staging so the PR passes
+        // CI's `prettier --check .` gate. Constrained to the `docs/`-prefixed in-scope files (abs
+        // paths) — docs-site/** is Astro/Starlight-governed and must never be passed to root
+        // prettier. Best-effort: a failure warns loudly and the PR still opens (no worse than
+        // today's unformatted baseline).
+        const absDocs = inScope
+          .filter((p) => p.startsWith("docs/"))
+          .map((p) => join(f.worktreePath, p));
+        if (absDocs.length > 0) {
+          try {
+            await this.prettier({
+              cwd: SERVER_INSTALL_ROOT,
+              configPath: join(f.worktreePath, ".prettierrc"),
+              files: absDocs,
+            });
+          } catch (err) {
+            console.warn(
+              `[doc-agent] prettier format failed for ${f.repoPath} — PR may fail the lint gate:`,
+              err,
+            );
+          }
+        }
         await this.git(f.worktreePath, ["add", "--", ...inScope]);
         const stagedOut = (
           await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])

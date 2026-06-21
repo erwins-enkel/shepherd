@@ -830,9 +830,14 @@ export class DocAgentService {
     forge: GitForge,
     stagedOut: string,
   ): Promise<string | null> {
-    if (!(await this.observeOrCommit(f, stagedOut, `would open a doc-update PR on ${f.branch}`)))
-      return null;
-    return this.openFreshPr(f, sentinel, forge);
+    const existing = await this.findOpenDocPr(forge, f.branch);
+    const intent = existing
+      ? `would roll up docs onto existing PR #${existing.number} (${existing.headBranch})`
+      : `would open a doc-update PR on ${f.branch}`;
+    if (!(await this.observeOrCommit(f, stagedOut, intent))) return null;
+    return existing
+      ? this.rollupOnto(f, existing, sentinel, forge)
+      : this.openFreshPr(f, sentinel, forge);
   }
 
   /**
@@ -853,6 +858,86 @@ export class DocAgentService {
     }
     await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
     return true;
+  }
+
+  /**
+   * Find the single open standalone docs PR to roll a fresh run onto, or null when none exists.
+   * Keeps open PRs whose head branch is a `shepherd/docs-update-*` branch (BRANCH_RE-valid, so the
+   * branch name can't smuggle a flag into the force-push refspec) other than our own in-flight
+   * branch, and returns the LOWEST-numbered one (a stable survivor so repeated runs converge on the
+   * same PR). On a listPullRequests failure it returns null (fail-open: the caller opens a fresh PR)
+   * and warns — a transient list failure could momentarily allow a duplicate, which is manually
+   * recoverable; failing closed would silently skip a run.
+   */
+  private async findOpenDocPr(
+    forge: GitForge,
+    excludeBranch: string,
+  ): Promise<{ number: number; headBranch: string; url: string | null } | null> {
+    let prs;
+    try {
+      prs = await forge.listPullRequests();
+    } catch (err) {
+      console.warn(`[doc-agent] roll-up: listPullRequests failed — opening fresh:`, err);
+      return null;
+    }
+    const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;
+    const matches = prs.filter(
+      (p) =>
+        !!p.headRefName &&
+        p.headRefName.startsWith(prefix) &&
+        p.headRefName !== excludeBranch &&
+        BRANCH_RE.test(p.headRefName),
+    );
+    if (matches.length === 0) return null;
+    const chosen = matches.reduce((a, b) => (b.number < a.number ? b : a));
+    return { number: chosen.number, headBranch: chosen.headRefName!, url: chosen.url ?? null };
+  }
+
+  /**
+   * Roll a fresh doc-update commit onto an EXISTING open standalone docs PR (issue: never >1 open
+   * docs PR). Force-pushes our commit onto that PR's own head branch (the branch is server-owned and
+   * ephemeral — only the doc agent ever pushes `shepherd/docs-update-*` — so a force-push is safe and
+   * keeps the single PR a current "docs vs base" diff), then best-effort refreshes the PR body so it
+   * matches the new diff (title is the constant COMMIT_MSG, so it never goes stale). On a push
+   * failure it defers (returns null) rather than falling back to openFreshPr — opening a fresh PR
+   * would create the very duplicate this prevents. Returns the existing PR's url.
+   */
+  private async rollupOnto(
+    f: InFlight,
+    existing: { number: number; headBranch: string; url: string | null },
+    sentinel: string | null,
+    forge: GitForge,
+  ): Promise<string | null> {
+    try {
+      await this.git(f.worktreePath, [
+        "push",
+        "--force",
+        "origin",
+        `HEAD:refs/heads/${existing.headBranch}`,
+      ]);
+    } catch (err) {
+      console.warn(
+        `[doc-agent] roll-up: force-push onto ${existing.headBranch} failed for ${f.repoPath} — deferring:`,
+        err,
+      );
+      return null;
+    }
+    // Refresh the PR body so it matches the force-pushed diff (best-effort).
+    if (forge.editPr) {
+      try {
+        await forge.editPr(existing.number, { title: COMMIT_MSG, body: docPrBody(sentinel) });
+      } catch (err) {
+        console.warn(
+          `[doc-agent] roll-up: editPr(#${existing.number}) failed for ${f.repoPath} — PR body may be stale:`,
+          err,
+        );
+      }
+    } else {
+      console.warn(
+        `[doc-agent] roll-up: forge has no editPr — PR #${existing.number} body may be stale`,
+      );
+    }
+    return existing.url;
   }
 
   /** Push the local `shepherd/docs-update-*` branch and open a standalone doc-update PR. Shared by
@@ -913,8 +998,12 @@ export class DocAgentService {
       return null; // defer to the nightly path rather than guess
     }
     if (status.state !== "open") {
-      // PR merged/closed mid-run → open the single fresh PR instead (key already set → onMergedPr defers).
-      return this.openFreshPr(f, sentinel, forge);
+      // PR merged/closed mid-run → land the docs as exactly ONE standalone PR: roll up onto an
+      // existing open docs PR if present (never a 2nd), else open fresh. (key already set → onMergedPr defers.)
+      const existing = await this.findOpenDocPr(forge, f.branch);
+      return existing
+        ? this.rollupOnto(f, existing, sentinel, forge)
+        : this.openFreshPr(f, sentinel, forge);
     }
 
     // Push the doc commit onto the code PR's OWN head branch (never force, explicit refspec).

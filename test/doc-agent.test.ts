@@ -77,6 +77,8 @@ interface Harness {
   markers: Map<string, string>;
   /** Args of every herdr.start (incl. the wrapped argv) for prompt-grounding assertions. */
   startArgs: { name: string; cwd: string; argv: string[] }[];
+  /** Captured editPr calls (prNumber + patch). */
+  editPrCalls: { prNumber: number; title?: string; body?: string }[];
   __merge: number;
 }
 
@@ -180,6 +182,16 @@ function mkHarness(opts?: {
   /** Owner-worktree git responses for the ff guard: porcelain status + rev-parse HEAD. */
   ownerStatusPorcelain?: string;
   ownerHead?: string;
+  /** Open standalone docs PRs returned by forge.listPullRequests (roll-up tests). */
+  openDocPrs?: { number: number; headRefName: string; url?: string }[];
+  /** When true, forge.listPullRequests throws (fail-open test). */
+  listPullRequestsThrows?: boolean;
+  /** When true, `git push --force` throws (deferred roll-up test). */
+  forcePushThrows?: boolean;
+  /** When true, forge.editPr throws after recording the call. */
+  editPrThrows?: boolean;
+  /** When true, forge has no editPr method (stale-body fallback test). */
+  noEditPr?: boolean;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -205,6 +217,11 @@ function mkHarness(opts?: {
     markerFiles: {} as Record<string, string>,
     ownerStatusPorcelain: "",
     ownerHead: "headsha1",
+    openDocPrs: undefined as { number: number; headRefName: string; url?: string }[] | undefined,
+    listPullRequestsThrows: false,
+    forcePushThrows: false,
+    editPrThrows: false,
+    noEditPr: false,
     ...opts,
   };
 
@@ -222,6 +239,7 @@ function mkHarness(opts?: {
   const spawnRows: SpawnRow[] = [];
   const completedRows: CompletedRow[] = [];
   const deletedRemote: string[] = [];
+  const editPrCalls: { prNumber: number; title?: string; body?: string }[] = [];
   const store = {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
@@ -305,6 +323,8 @@ function mkHarness(opts?: {
     }
     if (args[0] === "rev-parse" && args[1] === "HEAD") return o.ownerHead;
     if (args[0] === "status" && args[1] === "--porcelain") return o.ownerStatusPorcelain;
+    if (args[0] === "push" && args[1] === "--force" && o.forcePushThrows)
+      throw new Error("non-ff (stub)");
     return "";
   };
 
@@ -332,6 +352,30 @@ function mkHarness(opts?: {
             if (full) return full;
             return { state: o.prStatusByBranch?.[branch] ?? "none" };
           },
+          listPullRequests: async () => {
+            if (o.listPullRequestsThrows) throw new Error("gh pr list failed (stub)");
+            return (o.openDocPrs ?? []).map((p) => ({
+              number: p.number,
+              title: "docs: sync docs to recent source changes",
+              url: p.url ?? `https://forge/pr/${p.number}`,
+              author: "shepherd",
+              kind: "other",
+              createdAt: 0,
+              isDraft: false,
+              mergeable: true,
+              checks: "success",
+              jobs: [],
+              headRefName: p.headRefName,
+            }));
+          },
+          ...(o.noEditPr
+            ? {}
+            : {
+                editPr: async (prNumber: number, eo: { title?: string; body?: string }) => {
+                  editPrCalls.push({ prNumber, title: eo.title, body: eo.body });
+                  if (o.editPrThrows) throw new Error("gh pr edit failed (stub)");
+                },
+              }),
         } as any);
 
   const herdr = {
@@ -440,6 +484,7 @@ function mkHarness(opts?: {
     deletedRemote,
     markers,
     startArgs,
+    editPrCalls,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -1444,4 +1489,164 @@ test("onArchived: frees the readyDebounce entry so a re-archive session is treat
   // One more tick crosses the threshold (idleThresholdMs=0, so any non-zero elapsed qualifies).
   await h.svc.sweepReadyPrs();
   expect(h.starts).toHaveLength(1); // fires only on the second post-archive tick
+});
+
+// ── roll-up: never >1 open standalone docs PR ─────────────────────────────────
+
+test("roll-up: one existing docs PR → rolls up, no openPr, body refreshed", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  // no new PR opened
+  expect(h.openPrInputs).toHaveLength(0);
+  // force-pushed onto the existing PR's head branch
+  expect(
+    h.gitCalls.some(
+      (c) =>
+        c.args[0] === "push" &&
+        c.args[1] === "--force" &&
+        c.args[2] === "origin" &&
+        c.args[3] === "HEAD:refs/heads/shepherd/docs-update-old00001",
+    ),
+  ).toBe(true);
+  // editPr called once with PR #5 and body containing expected content
+  expect(h.editPrCalls).toHaveLength(1);
+  expect(h.editPrCalls[0]!.prNumber).toBe(5);
+  expect(h.editPrCalls[0]!.body).toContain("never auto-merged");
+  expect(h.editPrCalls[0]!.body).toContain("configuration.md");
+  // finalize emits the existing PR url + outcome pr
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/5", outcome: "pr" }]);
+});
+
+test("roll-up: two existing docs PRs → rolls up onto LOWEST number, opens no PR", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [
+      { number: 9, headRefName: "shepherd/docs-update-bbb99999" },
+      { number: 4, headRefName: "shepherd/docs-update-aaa44444" },
+    ],
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  // force-pushed onto the LOWEST-numbered PR's branch
+  expect(
+    h.gitCalls.some(
+      (c) =>
+        c.args[0] === "push" &&
+        c.args[1] === "--force" &&
+        c.args[3] === "HEAD:refs/heads/shepherd/docs-update-aaa44444",
+    ),
+  ).toBe(true);
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.editPrCalls[0]!.prNumber).toBe(4);
+  expect(h.finalizes[0]!.url).toBe("https://forge/pr/4");
+});
+
+test("roll-up: zero existing docs PRs → opens fresh PR (regression)", async () => {
+  const h = mkHarness({ act: true, openDocPrs: [] });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(1);
+  expect(h.gitCalls.some((c) => c.args.includes("--force"))).toBe(false);
+});
+
+test("roll-up OBSERVE (act:false): logs roll-up intent, no side effects", async () => {
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => {
+    warnings.push(a.map(String).join(" "));
+  };
+  try {
+    const h = mkHarness({
+      openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+    });
+    await h.svc.consider("/repo");
+    await h.svc.tick();
+    // no commit, no push, no openPr, no editPr
+    expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
+    expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
+    expect(h.openPrInputs).toHaveLength(0);
+    expect(h.editPrCalls).toHaveLength(0);
+    // observe outcome
+    expect(h.finalizes[0]!.outcome).toBe("observe");
+    // OBSERVE log mentions roll-up + PR number
+    expect(warnings.some((w) => w.includes("roll up") && w.includes("#5"))).toBe(true);
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("roll-up: force-push fails → defer (null url), no fresh PR, no editPr", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+    forcePushThrows: true,
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.editPrCalls).toHaveLength(0);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "nochange" }]);
+});
+
+test("roll-up: editPr absent → push lands, outcome pr (stale-body fallback)", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+    noEditPr: true,
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  // force-push still happened
+  expect(h.gitCalls.some((c) => c.args[0] === "push" && c.args[1] === "--force")).toBe(true);
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: "https://forge/pr/5", outcome: "pr" });
+});
+
+test("roll-up: editPr throws → push lands, outcome pr, edit was attempted", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+    editPrThrows: true,
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.editPrCalls).toHaveLength(1);
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.finalizes[0]!.url).toBe("https://forge/pr/5");
+  expect(h.finalizes[0]!.outcome).toBe("pr");
+});
+
+test("roll-up: listPullRequests throws → fail-open opens fresh PR", async () => {
+  const h = mkHarness({ act: true, listPullRequestsThrows: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(1);
+  expect(h.gitCalls.some((c) => c.args.includes("--force"))).toBe(false);
+});
+
+test("roll-up: re-target merged-mid-run fallback with existing docs PR → rolls up, no fresh PR", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "merged" } },
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  // rolled up rather than opening a fresh PR
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(
+    h.gitCalls.some(
+      (c) =>
+        c.args[0] === "push" &&
+        c.args[1] === "--force" &&
+        c.args[3] === "HEAD:refs/heads/shepherd/docs-update-old00001",
+    ),
+  ).toBe(true);
+  expect(h.editPrCalls[0]!.prNumber).toBe(5);
+  expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: "https://forge/pr/5", outcome: "pr" });
 });

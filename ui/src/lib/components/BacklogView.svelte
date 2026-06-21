@@ -27,6 +27,10 @@
     onpr,
     onadopt,
     onlaunchtrain,
+    // `flow` is consumed by the `class:flow` directive on the root element below; fallow's
+    // prop-usage analyzer doesn't see Svelte `class:` shorthand, so it false-positives here
+    // (pre-existing main-wide finding surfaced by this branch's pre-push audit).
+    // fallow-ignore-next-line unused-component-props
     flow = false,
     epics = undefined,
     inTrainPrs = new Set(),

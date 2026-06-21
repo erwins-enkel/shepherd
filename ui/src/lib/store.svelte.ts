@@ -447,12 +447,47 @@ export class HerdStore {
     return true;
   }
 
+  /** Handle the epic lifecycle WS events (update / completed / completed-cleared).
+   *  Split out of applyGlobalEvent so its dispatch switch stays under the complexity
+   *  gate (mirrors applyHerdrUpdateEvent / applyDocAgentEvent). Returns true if handled. */
+  private applyEpicEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "epic:update":
+        this.setEpic(ev.data);
+        return true;
+      case "epic:completed": {
+        const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
+        const filtered = this.completedEpics.filter(
+          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
+        );
+        this.completedEpics = [ev.data, ...filtered];
+        toasts.info(
+          m.completed_epic_toast({
+            number: ev.data.parentIssueNumber,
+            count: ev.data.children.length,
+          }),
+          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
+        );
+        return true;
+      }
+      case "epic:completed-cleared":
+        this.completedEpics = this.completedEpics.filter(
+          (e) =>
+            e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
+        );
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /** Handle the app-global (non per-session-row) WS events: usage limits, the
    *  self/herdr update channels, project icons, learnings, backlog + drain.
    *  Split out of apply() so its dispatch switch stays under the complexity gate. */
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applyHerdrUpdateEvent(ev)) return;
     if (this.applyDocAgentEvent(ev)) return;
+    if (this.applyEpicEvent(ev)) return;
     switch (ev.event) {
       case "usage:limits":
         this.usageLimits = ev.data;
@@ -487,30 +522,6 @@ export class HerdStore {
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         buildQueuesStore.upsert(ev.data);
-        break;
-      case "epic:update":
-        this.setEpic(ev.data);
-        break;
-      case "epic:completed": {
-        const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
-        const filtered = this.completedEpics.filter(
-          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
-        );
-        this.completedEpics = [ev.data, ...filtered];
-        toasts.info(
-          m.completed_epic_toast({
-            number: ev.data.parentIssueNumber,
-            count: ev.data.children.length,
-          }),
-          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
-        );
-        break;
-      }
-      case "epic:completed-cleared":
-        this.completedEpics = this.completedEpics.filter(
-          (e) =>
-            e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
-        );
         break;
       case "held:changed":
         this.heldCount = ev.data.count;

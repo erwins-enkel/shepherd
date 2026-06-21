@@ -25,6 +25,15 @@ const NON_GATE_GAP = result({
   reachedGreen: false,
   gateEligible: false,
 });
+// A gate-eligible launch-failure: de-gated (not in gateGapScenarios) but must still
+// open/keep the rolling issue so harness rot is never silent.
+const HARNESS_ERROR = result({
+  scenarioId: "fedora-git-missing",
+  reachedGreen: false,
+  gateEligible: true,
+  detection: { scenarioId: "fedora-git-missing", detected: false, misses: [] },
+  error: "incus launch failed: image couldn't be found",
+});
 
 /** Fake `gh` that records argv and replies to `issue list` with `openIssue`. */
 function fakeGh(openIssue: { number: number; url: string } | null) {
@@ -92,6 +101,31 @@ describe("reportToGitHub", () => {
     const { calls, gh } = fakeGh({ number: 42, url: "https://github.com/x/y/issues/42" });
     await reportToGitHub([PASS, NON_GATE_GAP], "REPORT", "2026-06-15", gh);
     expect(calls.some((c) => c[0] === "issue" && c[1] === "close" && c[2] === "42")).toBe(true);
+  });
+
+  it("opens the issue (or keeps it open) when the only non-green result is a launch-failure harness error", async () => {
+    // A run with no real gaps but a gate-eligible launch-failure harness error must
+    // NOT take the "clean run" close/noop branch — harness rot must stay visible.
+    // When no issue is open: opens a new issue (issue create).
+    const { calls: callsCreate, gh: ghCreate } = fakeGh(null);
+    const out = await reportToGitHub([PASS, HARNESS_ERROR], "REPORT", "2026-06-21", ghCreate);
+    expect(callsCreate.some((c) => c[0] === "issue" && c[1] === "create")).toBe(true);
+    expect(callsCreate.some((c) => c[0] === "issue" && c[1] === "close")).toBe(false);
+    expect(out.issueUrl).toBe("https://github.com/x/y/issues/99");
+
+    // When an issue is already open: keeps it open (edit + comment), does not close.
+    const { calls: callsKeep, gh: ghKeep } = fakeGh({
+      number: 42,
+      url: "https://github.com/x/y/issues/42",
+    });
+    await reportToGitHub([PASS, HARNESS_ERROR], "REPORT", "2026-06-21", ghKeep);
+    expect(callsKeep.some((c) => c[0] === "issue" && c[1] === "close")).toBe(false);
+    expect(callsKeep.some((c) => c[0] === "issue" && c[1] === "comment" && c[2] === "42")).toBe(
+      true,
+    );
+    // The comment should name the harness error scenario
+    const commentCall = callsKeep.find((c) => c[0] === "issue" && c[1] === "comment");
+    expect(commentCall?.join(" ")).toContain("harness error");
   });
 });
 

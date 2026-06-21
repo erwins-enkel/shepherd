@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import type { Options } from "prettier";
 import type { SessionStore } from "./store";
 import type { WorktreeMgr, WorktreeResult } from "./worktree";
 import type { GitForge } from "./forge/types";
@@ -125,7 +126,11 @@ export class Promoter {
         const rules = [...new Set(promoted.map((l) => sanitizeRule(l.rule)))];
         const claudePath = join(wt.worktreePath, "CLAUDE.md");
         const current = this.readClaudeMd(claudePath);
-        const next = upsertLearningsBlock(current, rules);
+        // Best-effort prettier-stabilize the block against this target's config (#935).
+        const next = await formatLearningsBlockForTarget(
+          claudePath,
+          upsertLearningsBlock(current, rules),
+        );
         // Content-compare guard: skip commit/push/PR if block is already current.
         // Avoids a spurious git-commit error on an empty diff.
         if (next === current) return { ok: true, url: "" };
@@ -268,7 +273,12 @@ export class Promoter {
     // Dedup in sanitized space (matches promoteGlobal): a stored rule and the newly-promoted
     // one that collapse to the same sanitized bullet must dedup, not emit a duplicate.
     const rules = [...new Set([...promoted, learning.rule].map(sanitizeRule))];
-    this.writeClaudeMd(claudePath, upsertLearningsBlock(this.readClaudeMd(claudePath), rules));
+    // Best-effort prettier-stabilize the block against this target's config (#935).
+    const next = await formatLearningsBlockForTarget(
+      claudePath,
+      upsertLearningsBlock(this.readClaudeMd(claudePath), rules),
+    );
+    this.writeClaudeMd(claudePath, next);
 
     await this.git(worktreePath, ["add", "CLAUDE.md"]);
     await this.git(worktreePath, [
@@ -346,4 +356,67 @@ export function extractLearningsBlockRules(content: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.startsWith("- "))
     .map((line) => line.slice(2).trim());
+}
+
+/** Best-effort: re-format the managed `shepherd:learnings` block to match the target repo's
+ *  prettier config, closing the residual gap where a repo with `proseWrap: "always"` re-wraps
+ *  our single-line bullets and re-flags the synced `CLAUDE.md` under `prettier --check` (#935;
+ *  #928 only stabilized the *default* `proseWrap: "preserve"` case).
+ *
+ *  Uses Shepherd's *bundled* prettier with the *target's resolved config* — never the target's
+ *  own toolchain (that shell-out was rejected in #928 as fragile). Degrades to a no-op (today's
+ *  raw single-line block) whenever prettier or a config is absent, or on any error, so it never
+ *  regresses or crashes the promote path. Only `proseWrap: "always"` is handled — `"preserve"`
+ *  (default) and `"never"` already leave a single-line bullet byte-stable.
+ *
+ *  Formats only the block slice, not the whole file, so user-authored prose is never reformatted
+ *  and the PR diff stays limited to our block. The "passes `prettier --check CLAUDE.md`" guarantee
+ *  is therefore conditional on the rest of the file already being prettier-clean (true when the
+ *  target's CI enforces the check — the only scenario this bug bites). The formatted block is
+ *  normalized CRLF→LF before splicing so an `endOfLine: "crlf"` config can't introduce mixed line
+ *  endings over our LF-managed bytes.
+ *
+ *  `useCache: false` decouples config resolution from the per-attempt unique worktree path
+ *  (`learnings-resync-<uuid>` / `learnings-promote-<id>-<uuid>`) that currently defeats prettier's
+ *  path-keyed cache; a future stable-path refactor would otherwise risk serving stale config.
+ *
+ *  `prettier` is intentionally a `devDependency`: the deploy (`deploy/update.sh` → plain
+ *  `bun install`, no prune) keeps devDeps and the service runs from the full checkout, so it's
+ *  present at runtime. If the deploy is ever changed to prune devDeps, move `prettier` to
+ *  `dependencies` to keep this fix live (else the dynamic import below silently no-ops it).
+ *
+ *  Residuals (out of scope, best-effort): non-prettier formatters (dprint, markdownlint); prettier
+ *  major-version skew (we format with 3.x — a 2.x target may differ); a CRLF target keeps an LF
+ *  managed block (markers were always LF — unchanged from pre-#935). */
+export async function formatLearningsBlockForTarget(
+  claudePath: string,
+  content: string,
+): Promise<string> {
+  const prettier = await import("prettier").catch(() => null);
+  if (!prettier) return content;
+
+  let cfg: Options | null;
+  try {
+    cfg = await prettier.resolveConfig(claudePath, { useCache: false });
+  } catch {
+    return content;
+  }
+  if (cfg?.proseWrap !== "always") return content;
+
+  const start = content.indexOf(LEARNINGS_START);
+  const end = content.indexOf(LEARNINGS_END);
+  if (start === -1 || end === -1 || end <= start) return content;
+  const blockEnd = end + LEARNINGS_END.length;
+  const block = content.slice(start, blockEnd);
+
+  let formatted: string;
+  try {
+    // Strip plugins: a target's svelte/tailwind/etc. plugin refs can't load here and markdown
+    // formatting needs none — dropping them avoids a spurious load throw.
+    formatted = await prettier.format(block, { ...cfg, plugins: [], parser: "markdown" });
+  } catch {
+    return content;
+  }
+  const normalized = formatted.replace(/\r\n/g, "\n").trimEnd();
+  return content.slice(0, start) + normalized + content.slice(blockEnd);
 }

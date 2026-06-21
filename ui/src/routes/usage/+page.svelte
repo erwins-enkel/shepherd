@@ -15,16 +15,22 @@
   let limits = $state<UsageLimits | null>(null);
   let loading = $state(true);
   let error = $state(false);
+  // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
+  // limits-endpoint failure surfaces an error + Retry instead of loading forever.
+  let limitsError = $state(false);
 
-  // Fetch limits once on mount (range-independent).
+  // Fetch limits once on mount (range-independent). `limits === null && !limitsError`
+  // ⇒ still loading.
+  async function loadLimits() {
+    limitsError = false;
+    try {
+      limits = await getUsageLimits();
+    } catch {
+      limitsError = true;
+    }
+  }
   $effect(() => {
-    getUsageLimits()
-      .then((l) => {
-        limits = l;
-      })
-      .catch(() => {
-        // limits failure is non-fatal; error state is driven by breakdown
-      });
+    loadLimits();
   });
 
   // Monotonic token: latest request always wins; stale requests discard their results.
@@ -51,8 +57,10 @@
     loadBreakdown(range);
   });
 
+  // Retry re-fetches BOTH tracks so either failure surface recovers.
   function retry() {
     loadBreakdown(range);
+    loadLimits();
   }
 </script>
 
@@ -126,21 +134,34 @@
 
   <!-- Lens body -->
   <div class="lens-body">
-    {#if loading && !breakdown}
-      <p class="usage-status-line">{m.common_loading()}</p>
-    {:else if error && !breakdown}
-      <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
-      <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>
-    {:else if tab === "spend"}
+    <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
+         `breakdown` is still present (a failed range-change refetch) so the user isn't
+         silently left on old-range data with no indication the new range failed. -->
+    {#if error && tab !== "limits"}
+      <div class="usage-error-banner" role="alert">
+        <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
+        <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button
+        >
+      </div>
+    {/if}
+
+    {#if tab === "spend"}
       {#if breakdown}
         <SpendLens {breakdown} />
+      {:else if loading}
+        <p class="usage-status-line">{m.common_loading()}</p>
       {/if}
     {:else if tab === "overhead"}
       {#if breakdown}
         <OverheadLens {breakdown} />
+      {:else if loading}
+        <p class="usage-status-line">{m.common_loading()}</p>
       {/if}
     {:else if limits}
       <LimitsLens {limits} projections={[]} />
+    {:else if limitsError}
+      <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
+      <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>
     {:else}
       <p class="usage-status-line">{m.common_loading()}</p>
     {/if}
@@ -236,5 +257,19 @@
 
   .usage-error {
     color: var(--color-red);
+  }
+
+  /* Non-blocking refetch-error banner: sits above stale lens content so a failed
+     range change is visible without discarding the previous range's data. */
+  .usage-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .usage-error-banner .usage-status-line {
+    margin: 0;
   }
 </style>

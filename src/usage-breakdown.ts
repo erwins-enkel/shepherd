@@ -166,6 +166,8 @@ function buildRepoBreakdowns(
       repoName,
       authoringUnits: repoAuthoring,
       satelliteUnits: repoSatellite,
+      // `$` = the accumulated list-price units themselves (NOT pricing.dollars() on aggregate
+      // tokens — that would diverge from the units shown). See dollars()'s doc in pricing.ts.
       dollars: apiKey ? repoAuthoring + repoSatellite : null,
       tasks: publicTasks,
     });

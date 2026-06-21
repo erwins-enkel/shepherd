@@ -12,7 +12,11 @@ export function formatUnits(n: number): string {
     const k = Math.round(n / 1_000);
     return k >= 1_000 ? (n / 1_000_000).toFixed(2) + "M" : k + "K";
   }
-  return String(n);
+  if (n === 0) return "0";
+  if (n < 0.1) return "<0.1";
+  if (n < 10) return n.toFixed(1).replace(/\.0$/, "");
+  const rounded = Math.round(n);
+  return rounded >= 1000 ? "1K" : String(rounded);
 }
 
 /**

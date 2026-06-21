@@ -890,6 +890,36 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await expect.element(docs).toBeInTheDocument();
     await expect.element(docs).toHaveAttribute("href", DOCS_URL);
   });
+
+  it("desktop compact + idle herd: docs folds away from the bar but the gear menu carries it", async () => {
+    await page.viewport(1236, 900);
+    document.body.style.width = "1236px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      limits: fullLimits,
+      ...allBadges,
+      sessions: sessions(0), // idle herd → gear would normally open Settings directly
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    await waitNoOverflow(hud!);
+    await drainFrames(hud!);
+    // measured overflow → the standalone bar docs link folds away with the labels/clock…
+    expect(
+      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      "bar is compacted at 1236 with full chrome",
+    ).toBe(true);
+    await expect
+      .element(page.getByRole("link", { name: m.topbar_docs_aria() }))
+      .not.toBeInTheDocument();
+    // …but the gear now opens a menu (not Settings directly) that still carries Documentation,
+    // so the docs stay reachable in the compact + idle state.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const docs = page.getByRole("menuitem", { name: m.topbar_docs() });
+    await expect.element(docs).toBeInTheDocument();
+    await expect.element(docs).toHaveAttribute("href", DOCS_URL);
+  });
 });
 
 describe("TopBar — CR extra-credit gauge", () => {

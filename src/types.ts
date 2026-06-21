@@ -633,3 +633,75 @@ export interface SessionUsageSnapshot {
   archivedAt: number;
   snapshotAt: number;
 }
+
+// Mirror of the UsageBreakdown contract in ui/src/lib/types.ts — keep in sync.
+export type UsageRange = "24h" | "7d" | "30d" | "all";
+
+export interface UsageTokens {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export interface UsageTaskBreakdown {
+  sessionId: string;
+  desig: string;
+  model: string;
+  authoringUnits: number;
+  satelliteUnits: number;
+  tokens: UsageTokens;
+  byModel: Record<string, number>; // weighted units per model id
+}
+
+export interface UsageRepoBreakdown {
+  repoPath: string;
+  repoName: string;
+  authoringUnits: number;
+  satelliteUnits: number;
+  tasks: UsageTaskBreakdown[];
+}
+
+export interface UsageBreakdown {
+  range: UsageRange;
+  generatedAt: number;
+  totalUnits: number;
+  authoringUnits: number;
+  satelliteUnits: number;
+  cacheReadUnits: number;
+  generationUnits: number;
+  repos: UsageRepoBreakdown[];
+}
+
+// Runtime key-lists — drift sentinels (TS types vanish at runtime).
+// Mirrors UsageTokens:
+export const USAGE_TOKENS_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+// Mirrors UsageTaskBreakdown:
+export const USAGE_TASK_KEYS = [
+  "sessionId",
+  "desig",
+  "model",
+  "authoringUnits",
+  "satelliteUnits",
+  "tokens",
+  "byModel",
+] as const;
+// Mirrors UsageRepoBreakdown:
+export const USAGE_REPO_KEYS = [
+  "repoPath",
+  "repoName",
+  "authoringUnits",
+  "satelliteUnits",
+  "tasks",
+] as const;
+// Mirrors UsageBreakdown:
+export const USAGE_BREAKDOWN_KEYS = [
+  "range",
+  "generatedAt",
+  "totalUnits",
+  "authoringUnits",
+  "satelliteUnits",
+  "cacheReadUnits",
+  "generationUnits",
+  "repos",
+] as const;

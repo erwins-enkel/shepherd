@@ -1136,7 +1136,8 @@ async function handleLearningPromote(deps: AppDeps, id: string): Promise<Respons
   return json({ url: res.url });
 }
 
-async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+async function handleLearningsPost(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
   // POST /api/learnings/{distill,optimize,merge-suggest}?repo= — checked BEFORE :id so they aren't ids
   const repoScoped = handleRepoScopedLearningPost(parts, url, deps);
   if (repoScoped) return repoScoped;
@@ -1145,17 +1146,27 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
   const mergePost = await handleMergeSuggestionPost(parts, req, deps);
   if (mergePost) return mergePost;
 
+  // POST /api/learnings/:id/<action>
+  return handleLearningIdAction(ctx);
+}
+
+/** Dispatch the per-`:id` learning action routes (promote/optimize/restore/scope/revert-trial/
+ *  approve/dismiss). Split out of handleLearningsPost to keep each dispatcher's branch count low. */
+async function handleLearningIdAction(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (!parts[2]) return null;
+
   // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
-  if (parts[2] && parts[3] === "promote") return handleLearningPromote(deps, parts[2]);
+  if (parts[3] === "promote") return handleLearningPromote(deps, parts[2]);
 
   // POST /api/learnings/:id/optimize — optimize a single flagged rule
-  if (parts[2] && parts[3] === "optimize") {
+  if (parts[3] === "optimize") {
     deps.optimizer?.optimizeOne(parts[2]);
     return json({ ok: true });
   }
 
   // POST /api/learnings/:id/restore — restore a retired rule to its previous status
-  if (parts[2] && parts[3] === "restore") {
+  if (parts[3] === "restore") {
     const updated = deps.store.restoreLearning(parts[2]);
     if (!updated) return json({ error: "not found" }, 404);
     deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
@@ -1163,14 +1174,13 @@ async function handleLearningsPost({ req, parts, url, deps }: Ctx): Promise<Resp
   }
 
   // POST /api/learnings/:id/scope — set/clear a rule's glob scope (operator edit, #842)
-  if (parts[2] && parts[3] === "scope") return handleLearningScope(req, deps, parts[2]);
+  if (parts[3] === "scope") return handleLearningScope(req, deps, parts[2]);
 
   // POST /api/learnings/:id/revert-trial — revert an auto-trial back to proposed or dismissed
-  if (parts[2] && parts[3] === "revert-trial")
-    return handleLearningRevertTrial(req, deps, parts[2]);
+  if (parts[3] === "revert-trial") return handleLearningRevertTrial(req, deps, parts[2]);
 
   // POST /api/learnings/:id/approve  |  /:id/dismiss
-  if (parts[2] && (parts[3] === "approve" || parts[3] === "dismiss")) {
+  if (parts[3] === "approve" || parts[3] === "dismiss") {
     return handleLearningStatus(req, deps, parts[2], parts[3]);
   }
 

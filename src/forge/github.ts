@@ -733,7 +733,7 @@ export class GithubForge implements GitForge {
     const args = ["pr", "edit", String(prNumber), "--repo", this.slug];
     if (o.title !== undefined) args.push("--title", o.title);
     if (o.body !== undefined) args.push("--body", o.body);
-    if (args.length === 4) return; // nothing to edit
+    if (args.length === 5) return; // no title/body provided — nothing to edit
     await this.run(args);
   }
 

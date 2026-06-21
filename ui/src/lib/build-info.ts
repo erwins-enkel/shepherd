@@ -2,6 +2,8 @@
 // by the desktop ActionBar footer and the mobile Settings → Device "About" block.
 export const REPO = "erwins-enkel/shepherd";
 export const REPO_URL = `https://github.com/${REPO}`;
+// Hosted documentation site — distinct from REPO_URL (the GitHub source/README).
+export const DOCS_URL = "https://docs.shepherd.run/";
 export const sha = __GIT_SHA__;
 export const version = __APP_VERSION__;
 // Release tag → date (`{ "1.20.0": "2026-06-09", … }`), keyed without leading `v`.

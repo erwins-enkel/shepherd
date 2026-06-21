@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { REPO_URL, version } from "$lib/build-info";
+import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
 
 // Mock api so the manual /usage refresh path never fires a real network call —
 // individual tests stub refreshUsage's resolution/rejection per case.
@@ -843,6 +843,10 @@ describe("TopBar — idle gear opens Settings directly", () => {
     const docs = page.getByRole("link", { name: m.topbar_menu_docs() });
     await expect.element(docs).toBeInTheDocument();
     await expect.element(docs).toHaveAttribute("href", REPO_URL);
+    // plus the hosted documentation site (docs.shepherd.run), distinct from the README
+    const docsSite = page.getByRole("link", { name: m.topbar_docs() });
+    await expect.element(docsSite).toBeInTheDocument();
+    await expect.element(docsSite).toHaveAttribute("href", DOCS_URL);
     await expect.element(page.getByText(`v${version}`)).toBeInTheDocument();
   });
 
@@ -863,10 +867,28 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await expect
       .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
       .not.toBeInTheDocument();
-    // the docs link + version footer are mobile-only too (desktop has the ActionBar footer)
+    // the documentation entry (docs.shepherd.run) lives in the desktop gear menu too
+    const docs = page.getByRole("menuitem", { name: m.topbar_docs() });
+    await expect.element(docs).toBeInTheDocument();
+    await expect.element(docs).toHaveAttribute("href", DOCS_URL);
+    // the GitHub README link + version footer stay mobile-only (desktop has the ActionBar footer)
     await expect
       .element(page.getByRole("menuitem", { name: m.topbar_menu_docs() }))
       .not.toBeInTheDocument();
+  });
+
+  it("desktop: a standalone documentation link sits in the bar regardless of herd state", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(0), // idle herd → no gear menu, but the bar link is still there
+    });
+    const docs = page.getByRole("link", { name: m.topbar_docs_aria() });
+    await expect.element(docs).toBeInTheDocument();
+    await expect.element(docs).toHaveAttribute("href", DOCS_URL);
   });
 });
 

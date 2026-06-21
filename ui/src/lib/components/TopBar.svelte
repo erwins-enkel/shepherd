@@ -12,6 +12,8 @@
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
   import type { HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { DOCS_URL } from "$lib/build-info";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { modeOf, badgeCount } from "./top-bar-layout";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
@@ -656,6 +658,31 @@
            a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
            signal — red > orange > yellow > blue. Red still means "needs you",
            consistent with the rest of the bar. -->
+    {#if !mobile && !compactBadges}
+      <!-- Standing docs entry: the gear dropdown only appears with a haltable herd
+           (an idle desktop gear opens Settings directly), so the documentation link also
+           needs a home in the bar. It folds away under measured overflow alongside the
+           collapsing labels/clock; mobile reaches it via the gear bottom sheet instead. -->
+      <a
+        class="docs-link tip"
+        href={DOCS_URL}
+        target="_blank"
+        rel="external noreferrer noopener"
+        data-tip={m.topbar_docs()}
+        aria-label={m.topbar_docs_aria()}
+        use:coachTarget={"docs-link"}
+      >
+        <svg class="docs-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M4 4.5C6 3.6 9.5 3.6 12 5C14.5 3.6 18 3.6 20 4.5V19C18 18.1 14.5 18.1 12 19.5C9.5 18.1 6 18.1 4 19V4.5Z M12 5V19.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </a>
+    {/if}
     <TopBarGear
       {mobile}
       {haltable}
@@ -793,6 +820,26 @@
   /* credit-gauge.* rules moved to top-bar/CreditGauge.svelte (#855) */
   /* credit-detail.* rules moved to top-bar/CreditDetail.svelte (#855) */
   /* update-badge, up-dot, up-n, update-pulse moved to top-bar/TopBarBadges.svelte (#855) */
+  /* Standalone docs link: a quiet icon button matching the gear's at-rest muted ink,
+     going amber on hover/focus. Coarse-pointer 44px floor handled in the shared block. */
+  .docs-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-muted);
+    padding: 5px 8px;
+    flex-shrink: 0;
+  }
+  .docs-link:hover,
+  .docs-link:focus-visible {
+    color: var(--color-amber);
+    outline: none;
+  }
+  .docs-icon {
+    width: var(--fs-xl);
+    height: var(--fs-xl);
+    display: block;
+  }
   .clock {
     color: var(--color-ink-bright);
     letter-spacing: 0.16em;
@@ -895,6 +942,10 @@
     /* .gear/.menu-item moved to TopBarGear; .update-badge/.learnings-btn moved to TopBarBadges */
     .needsyou,
     .needsyou.compact {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    .docs-link {
       min-height: 44px;
       min-width: 44px;
     }

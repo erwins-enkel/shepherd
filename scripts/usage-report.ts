@@ -23,6 +23,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { accumulate, dashify, jsonlPathFor, parseLine, type SessionUsage } from "../src/usage";
 import { weightedUnits, cacheWriteUnits } from "../src/pricing";
+import { isOperationalArchetype } from "../src/usage-archetype";
 import { config } from "../src/config";
 
 // ── DB shape ────────────────────────────────────────────────────────────────
@@ -583,16 +584,6 @@ function openDb(): Database {
 const SESSION_COLS =
   "id, desig, name, prompt, baseBranch, branch, worktreePath, repoPath, model, claudeSessionId, createdAt, updatedAt, archivedAt, status";
 
-/** An operational archetype excluded from --recent: merge-train + /impeccable audits.
- *  Audits/critiques are keyed off the structural `/impeccable` prompt prefix, NOT off
- *  their auto-generated slug names (e.g. hud-ui-audit) — those vary per task, so a name
- *  list would silently leak future audit/critique tasks into the --recent sample. */
-function isExcludedArchetype(row: { name: string; prompt: string }): boolean {
-  if (row.name === "merge-train") return true;
-  if (norm(row.prompt).startsWith("/impeccable")) return true;
-  return false;
-}
-
 function fetchByDesig(db: Database, desigs: string[]): SessionRow[] {
   const stmt = db.query<SessionRow, [string]>(
     `SELECT ${SESSION_COLS} FROM sessions WHERE desig = ?`,
@@ -610,14 +601,14 @@ function fetchRecent(db: Database, n: number): SessionRow[] {
   const all = db
     .query<SessionRow, []>(`SELECT ${SESSION_COLS} FROM sessions ORDER BY createdAt DESC`)
     .all();
-  return all.filter((r) => !isExcludedArchetype(r)).slice(0, n);
+  return all.filter((r) => !isOperationalArchetype(r)).slice(0, n);
 }
 
 function fetchExcluded(db: Database, n: number): SessionRow[] {
   const all = db
     .query<SessionRow, []>(`SELECT ${SESSION_COLS} FROM sessions ORDER BY createdAt DESC`)
     .all();
-  return all.filter((r) => isExcludedArchetype(r)).slice(0, n);
+  return all.filter((r) => isOperationalArchetype(r)).slice(0, n);
 }
 
 async function resolveSession(row: SessionRow): Promise<ResolvedSession> {

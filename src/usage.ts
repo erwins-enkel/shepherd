@@ -147,6 +147,75 @@ export function accumulate(lines: Iterable<string>): SessionUsage {
   return out;
 }
 
+export interface SessionCost {
+  usage: SessionUsage; // raw token buckets (input/output/cacheRead/cacheWrite/total/messageCount/byModel raw/lastActivity)
+  weightedUnits: number; // total weighted units (per-record, honors 5m/1h split)
+  weightedByModel: Record<string, number>; // weighted units per model id
+  cacheReadUnits: number; // weighted units attributable to cacheRead tokens only
+}
+
+/** Accumulate one parsed record into the running session-cost accumulators. */
+function accumulateCostRecord(
+  r: ParsedRecord,
+  usage: SessionUsage,
+  cost: {
+    totalWeightedUnits: number;
+    weightedByModel: Record<string, number>;
+    cacheReadUnits: number;
+  },
+): void {
+  usage.input += r.input;
+  usage.output += r.output;
+  usage.cacheRead += r.cacheRead;
+  usage.cacheWrite += r.cacheWrite5m + r.cacheWrite1h;
+  usage.messageCount += 1;
+  if (r.ts) usage.lastActivity = Math.max(usage.lastActivity ?? 0, r.ts);
+  const tokens = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
+  usage.byModel[r.model] = (usage.byModel[r.model] ?? 0) + tokens;
+
+  const wu = weightedUnits(r, r.model);
+  cost.totalWeightedUnits += wu;
+  cost.weightedByModel[r.model] = (cost.weightedByModel[r.model] ?? 0) + wu;
+  // isolate cacheRead-only units using the public weightedUnits (do not expose private weightsFor)
+  cost.cacheReadUnits += weightedUnits(
+    { input: 0, output: 0, cacheRead: r.cacheRead, cacheWrite5m: 0, cacheWrite1h: 0 },
+    r.model,
+  );
+}
+
+/** Accumulate one transcript's token buckets PLUS weighted cost (total, per-model, cacheRead-only),
+ *  deduping by requestId. When sinceMs > 0, records with a known ts < sinceMs are skipped (live
+ *  per-record windowing); sinceMs = 0 means whole-session. */
+export function sessionCost(lines: Iterable<string>, sinceMs?: number): SessionCost {
+  const usage = emptyUsage();
+  // fullRecaches and sidechainCount are not tracked by this helper
+  const cost = {
+    totalWeightedUnits: 0,
+    weightedByModel: {} as Record<string, number>,
+    cacheReadUnits: 0,
+  };
+  const seen = new Set<string>();
+
+  for (const line of lines) {
+    const r = parseLine(line);
+    if (!r) continue;
+    // per-record time windowing: skip records with a known ts that is before sinceMs
+    if (sinceMs && sinceMs > 0 && r.ts > 0 && r.ts < sinceMs) continue;
+    if (r.requestId) {
+      if (seen.has(r.requestId)) continue;
+      seen.add(r.requestId);
+    }
+    accumulateCostRecord(r, usage, cost);
+  }
+  usage.total = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+  return {
+    usage,
+    weightedUnits: cost.totalWeightedUnits,
+    weightedByModel: cost.weightedByModel,
+    cacheReadUnits: cost.cacheReadUnits,
+  };
+}
+
 /** The real model that produced the most tokens in this usage, or null when none was named.
  *  A reviewer session is effectively one model, so this resolves its TRUE model from the
  *  transcript — used to backfill the spawn row whose configured model was "auto" (null).

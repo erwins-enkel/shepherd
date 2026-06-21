@@ -57,6 +57,7 @@ import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
 import { sessionTokens, jsonlPathFor } from "./usage";
+import { buildUsageBreakdown } from "./usage-breakdown";
 import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
 import { handleUpload } from "./uploads";
@@ -2456,6 +2457,23 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "GET" &&
+      parts[0] === "api" &&
+      parts[1] === "usage" &&
+      parts[2] === "breakdown"
+    )
+  )
+    return null;
+  const raw = url.searchParams.get("range") ?? "7d";
+  if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
+    return json({ error: "invalid range" }, 400);
+  const breakdown = await buildUsageBreakdown({ store: deps.store, range: raw, now: Date.now() });
+  return json(breakdown);
+}
+
 // ── self-update: status + trigger ──────────────────────────────────────
 function updateStatus(deps: AppDeps): Response {
   return json(
@@ -4475,6 +4493,7 @@ const ROUTE_HANDLERS = [
   handleSessions,
   handleSessionGit,
   handleUsageLimits,
+  handleUsageBreakdown,
   handleUpdate,
   handleHerdrUpdate,
   handleDiagnostics,

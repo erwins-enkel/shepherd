@@ -24,6 +24,8 @@ import type {
   RundownItem,
   HeldTask,
   CreateSessionInput,
+  SessionUsageRow,
+  SessionUsageSnapshot,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
@@ -758,6 +760,23 @@ export class SessionStore implements CapStore, CreditStore {
         this.db.run(`ALTER TABLE push_subscriptions ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 1`);
       }
     }
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
+      sessionId      TEXT PRIMARY KEY,
+      desig          TEXT NOT NULL,
+      repoPath       TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      input          INTEGER NOT NULL,
+      output         INTEGER NOT NULL,
+      cacheRead      INTEGER NOT NULL,
+      cacheWrite     INTEGER NOT NULL,
+      total          INTEGER NOT NULL,
+      weightedUnits  REAL NOT NULL,
+      cacheReadUnits REAL NOT NULL,
+      messageCount   INTEGER NOT NULL,
+      byModel        TEXT NOT NULL DEFAULT '{}',
+      createdAt      INTEGER NOT NULL,
+      archivedAt     INTEGER NOT NULL,
+      snapshotAt     INTEGER NOT NULL)`);
   }
 
   // ── settings (key/value) ─────────────────────────────────────────────────
@@ -3405,5 +3424,61 @@ export class SessionStore implements CapStore, CreditStore {
   countHeldTasks(): number {
     const row = this.db.query(`SELECT COUNT(*) AS n FROM held_tasks`).get() as { n: number };
     return row.n;
+  }
+
+  // ── session usage snapshots ──────────────────────────────────────────────────
+
+  /** Persist (or overwrite) a per-session authoring spend snapshot. Idempotent:
+   *  re-archiving the same sessionId overwrites, never duplicates. */
+  upsertSessionUsage(snap: SessionUsageSnapshot): void {
+    this.db.run(
+      `INSERT INTO session_usage
+         (sessionId, desig, repoPath, model, input, output, cacheRead, cacheWrite, total,
+          weightedUnits, cacheReadUnits, messageCount, byModel, createdAt, archivedAt, snapshotAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET
+         desig = excluded.desig,
+         repoPath = excluded.repoPath,
+         model = excluded.model,
+         input = excluded.input,
+         output = excluded.output,
+         cacheRead = excluded.cacheRead,
+         cacheWrite = excluded.cacheWrite,
+         total = excluded.total,
+         weightedUnits = excluded.weightedUnits,
+         cacheReadUnits = excluded.cacheReadUnits,
+         messageCount = excluded.messageCount,
+         byModel = excluded.byModel,
+         createdAt = excluded.createdAt,
+         archivedAt = excluded.archivedAt,
+         snapshotAt = excluded.snapshotAt`,
+      [
+        snap.sessionId,
+        snap.desig,
+        snap.repoPath,
+        snap.model,
+        snap.input,
+        snap.output,
+        snap.cacheRead,
+        snap.cacheWrite,
+        snap.total,
+        snap.weightedUnits,
+        snap.cacheReadUnits,
+        snap.messageCount,
+        JSON.stringify(snap.byModel),
+        snap.createdAt,
+        snap.archivedAt,
+        snap.snapshotAt,
+      ],
+    );
+  }
+
+  /** All session usage snapshots, with byModel hydrated from JSON. */
+  listSessionUsage(): SessionUsageSnapshot[] {
+    const rows = this.db.query(`SELECT * FROM session_usage`).all() as SessionUsageRow[];
+    return rows.map((row) => ({
+      ...row,
+      byModel: JSON.parse(row.byModel) as Record<string, number>,
+    }));
   }
 }

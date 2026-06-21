@@ -65,13 +65,13 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 `POST /api/sessions`, `Content-Type: application/json`. Validated by
 `validateCreate` (`src/validate.ts`); unknown keys are rejected.
 
-| Field        | Type                                    | Required | Notes                                                                        |
-| ------------ | --------------------------------------- | -------- | ---------------------------------------------------------------------------- |
-| `repoPath`   | string                                  | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`           |
-| `baseBranch` | string                                  | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                  |
-| `prompt`     | string                                  | ✅       | The task instructions; 1–8000 chars                                          |
-| `model`      | `"opus" \| "sonnet" \| "haiku" \| null` | —        | Omit/`null` = Claude's default                                               |
-| `images`     | `string[]`                              | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`) |
+| Field        | Type                                                                | Required | Notes                                                                                   |
+| ------------ | ------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `repoPath`   | string                                                              | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`                      |
+| `baseBranch` | string                                                              | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                             |
+| `prompt`     | string                                                              | ✅       | The task instructions; 1–8000 chars                                                     |
+| `model`      | one of `fable`, `opus`, `opus[1m]`, `sonnet`, `sonnet[1m]`, `haiku` | —        | Omit, `null`, or `"default"` = Claude's default (no `--model`); any other value → `400` |
+| `images`     | `string[]`                                                          | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`)            |
 
 ### Responses
 

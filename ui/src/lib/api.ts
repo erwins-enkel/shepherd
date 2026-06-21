@@ -9,6 +9,7 @@ import type {
   ActivityEntry,
   SessionUsage,
   UsageLimits,
+  UsageLimitsResponse,
   UsageBreakdown,
   UsageRange,
   GitState,
@@ -484,7 +485,7 @@ export async function getDiff(id: string): Promise<DiffResult> {
   return r.json();
 }
 
-export async function getUsageLimits(): Promise<UsageLimits> {
+export async function getUsageLimits(): Promise<UsageLimitsResponse> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw await failed(r, "limits");
   return r.json();

@@ -468,7 +468,7 @@
       .then((list) => store.setAll(list))
       .catch(() => {});
     getUsageLimits()
-      .then((l) => store.setUsageLimits(l))
+      .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
@@ -1067,7 +1067,7 @@
       })
       .catch(() => {});
     getUsageLimits()
-      .then((l) => store.setUsageLimits(l))
+      .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
     getUpdate()
       .then((u) => store.setUpdate(u))

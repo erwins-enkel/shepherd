@@ -791,6 +791,12 @@ export interface UsageProjection {
   burnRatePerHour: number; // recent weighted units/hour
 }
 
+/** Combined payload of GET /api/usage/limits: the limit windows + their live burn-rate projections. */
+export interface UsageLimitsResponse {
+  limits: UsageLimits;
+  projections: UsageProjection[];
+}
+
 export interface UpdateCommit {
   sha: string;
   subject: string;

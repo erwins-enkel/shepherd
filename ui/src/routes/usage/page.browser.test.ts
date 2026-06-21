@@ -2,16 +2,33 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { UsageRange } from "$lib/types";
+import type { UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+
+const BASE = Date.now();
+const H = 3_600_000;
+
+const inlineLimits: UsageLimits = {
+  session5h: { pct: 38, resetAt: BASE + 2.5 * H },
+  week: { pct: 22, resetAt: BASE + 58 * H },
+  credits: null,
+  stale: false,
+  calibratedAt: BASE - 5 * 60_000,
+  subscriptionOnly: false,
+};
+
+const inlineProjections: UsageProjection[] = [
+  { window: "5H", projectedPct: 64, resetAt: BASE + 2.5 * H, burnRatePerHour: 48_000 },
+  { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
+];
 
 // The page fetches live data from $lib/api; mock those two calls with the retained
 // fixtures so this suite is deterministic and backend-independent (CI has no server,
 // and a real backend would otherwise serve environment-specific data).
 vi.mock("$lib/api", async () => {
-  const { mockBreakdown, mockLimits } = await import("$lib/usage-mock");
+  const { mockBreakdown } = await import("$lib/usage-mock");
   return {
     getUsageBreakdown: (range: UsageRange) => Promise.resolve(mockBreakdown(range)),
-    getUsageLimits: () => Promise.resolve(mockLimits()),
+    getUsageLimits: () => Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
   };
 });
 

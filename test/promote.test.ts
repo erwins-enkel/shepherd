@@ -1,6 +1,12 @@
 import { test, expect } from "bun:test";
 import * as prettier from "prettier";
-import { upsertLearningsBlock, sanitizeRule, LEARNINGS_START, LEARNINGS_END } from "../src/promote";
+import {
+  upsertLearningsBlock,
+  sanitizeRule,
+  formatLearningsBlockForTarget,
+  LEARNINGS_START,
+  LEARNINGS_END,
+} from "../src/promote";
 
 test("upsertLearningsBlock appends a block when none exists", () => {
   const out = upsertLearningsBlock("# Repo\n\nintro\n", ["use bun", "rebase onto main"]);
@@ -82,7 +88,7 @@ test("upsertLearningsBlock output is byte-for-byte prettier-stable (default mark
   }
 });
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Promoter } from "../src/promote";
@@ -636,4 +642,121 @@ test("promoteGlobal returns a structured 500 (not a throw) on an fs failure", as
     expect(res.status).toBe(500);
     expect(res.error).toBe("global promote failed"); // no raw fs stderr leaked
   }
+});
+
+// ── formatLearningsBlockForTarget (#935: prettier-stable under proseWrap:"always") ───────────
+
+const PROSE_WRAP_CFG = { proseWrap: "always", printWidth: 40 };
+// Long enough to force prettier to wrap a bullet across printWidth:40 — exercises the
+// wrap × leading-marker-escape × mid-line-token interaction, not just one generic long rule.
+const WRAP_TAIL =
+  " and then a good deal of extra trailing prose so prettier reflows this bullet across the configured print width";
+
+function tmpRepoWithPrettier(cfg: object | null): string {
+  const dir = mkdtempSync(join(tmpdir(), "promote-prosewrap-"));
+  if (cfg) writeFileSync(join(dir, ".prettierrc"), JSON.stringify(cfg));
+  return dir;
+}
+
+const blockSlice = (s: string) =>
+  s.slice(s.indexOf(LEARNINGS_START), s.indexOf(LEARNINGS_END) + LEARNINGS_END.length);
+
+test("formatLearningsBlockForTarget: proseWrap:always block passes whole-file prettier --check (full battery)", async () => {
+  const claudePath = join(tmpRepoWithPrettier(PROSE_WRAP_CFG), "CLAUDE.md");
+  const cfg = await prettier.resolveConfig(claudePath, { useCache: false });
+  expect(cfg?.proseWrap).toBe("always");
+
+  // Pre-canonicalize the surrounding prose so any whole-file diff is attributable to our block.
+  const before = await prettier.format("# Project\n\nShort intro line.\n", {
+    ...cfg,
+    parser: "markdown",
+  });
+  const after = await prettier.format("## Notes\n\nShort outro line.\n", {
+    ...cfg,
+    parser: "markdown",
+  });
+
+  for (const base of PRETTIER_STABILITY_RULES) {
+    const rule = base + WRAP_TAIL;
+    const full = upsertLearningsBlock(before, [rule]) + "\n" + after;
+    const result = await formatLearningsBlockForTarget(claudePath, full);
+
+    // The bullet actually wrapped (start marker + ≥2 bullet lines) — confirms wrapping was exercised.
+    const nonEmpty = blockSlice(result)
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+    expect(nonEmpty.length).toBeGreaterThan(3);
+
+    // Whole-file `prettier --check` is a byte-for-byte no-op: passes in context, escaping + tokens intact.
+    expect(await prettier.format(result, { ...cfg, parser: "markdown" })).toBe(result);
+    // And the helper reproduces prettier's own whole-file output.
+    expect(result).toBe(await prettier.format(full, { ...cfg, parser: "markdown" }));
+  }
+});
+
+test("formatLearningsBlockForTarget: block stays prettier-clean even when surrounding prose is dirty", async () => {
+  const claudePath = join(tmpRepoWithPrettier(PROSE_WRAP_CFG), "CLAUDE.md");
+  const cfg = await prettier.resolveConfig(claudePath, { useCache: false });
+
+  // Deliberately NON-canonical surroundings: a long unwrapped paragraph prettier WOULD reflow.
+  const dirtyBefore =
+    "# Project\n\nThis surrounding paragraph is left deliberately unwrapped and far longer than the narrow print width so prettier would reflow it.\n";
+  const full = upsertLearningsBlock(dirtyBefore, [
+    "Run `bun run lint` before every push" + WRAP_TAIL,
+  ]);
+  const result = await formatLearningsBlockForTarget(claudePath, full);
+
+  const wholeFormatted = await prettier.format(result, { ...cfg, parser: "markdown" });
+  // Our block is already canonical — a whole-file pass does not touch it...
+  expect(blockSlice(wholeFormatted)).toBe(blockSlice(result));
+  // ...even though it DOES reflow the dirty surrounding prose (the clean-surroundings precondition
+  // is about the user's content, never our block).
+  expect(wholeFormatted).not.toBe(result);
+});
+
+test("formatLearningsBlockForTarget: idempotent under re-run and external reformat (no churn on resync)", async () => {
+  const claudePath = join(tmpRepoWithPrettier(PROSE_WRAP_CFG), "CLAUDE.md");
+  const cfg = await prettier.resolveConfig(claudePath, { useCache: false });
+  const before = await prettier.format("# Project\n\nShort intro line.\n", {
+    ...cfg,
+    parser: "markdown",
+  });
+  const rule = "Use `bun run lint` before push" + WRAP_TAIL;
+  const result = await formatLearningsBlockForTarget(
+    claudePath,
+    upsertLearningsBlock(before, [rule]),
+  );
+
+  // Re-running the helper is a no-op.
+  expect(await formatLearningsBlockForTarget(claudePath, result)).toBe(result);
+  // A faithful resync round-trip (regenerate single-line block from the same rule, re-stabilize)
+  // reproduces identical bytes → next === current → no churn PR.
+  expect(
+    await formatLearningsBlockForTarget(claudePath, upsertLearningsBlock(result, [rule])),
+  ).toBe(result);
+  // An external whole-file prettier pass (e.g. a target CI that auto-formats) is also a no-op.
+  expect(await prettier.format(result, { ...cfg, parser: "markdown" })).toBe(result);
+});
+
+test("formatLearningsBlockForTarget: pass-through when no config / proseWrap not 'always'", async () => {
+  const content = upsertLearningsBlock("# Repo\n", ["Use bun, not npm" + WRAP_TAIL]);
+
+  // No .prettierrc at all → unchanged.
+  expect(
+    await formatLearningsBlockForTarget(join(tmpRepoWithPrettier(null), "CLAUDE.md"), content),
+  ).toBe(content);
+  // proseWrap:"preserve" (default) → unchanged.
+  expect(
+    await formatLearningsBlockForTarget(
+      join(tmpRepoWithPrettier({ proseWrap: "preserve", printWidth: 40 }), "CLAUDE.md"),
+      content,
+    ),
+  ).toBe(content);
+  // proseWrap:"never" → unchanged (our bullet is already single-line).
+  expect(
+    await formatLearningsBlockForTarget(
+      join(tmpRepoWithPrettier({ proseWrap: "never", printWidth: 40 }), "CLAUDE.md"),
+      content,
+    ),
+  ).toBe(content);
 });

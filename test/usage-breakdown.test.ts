@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { buildUsageBreakdown } from "../src/usage-breakdown";
-import { jsonlPathFor } from "../src/usage";
+import { jsonlPathFor, SessionUsageRollup } from "../src/usage";
 import { weightedUnits } from "../src/pricing";
+import type { SessionUsageBucket } from "../src/types";
 
 const NOW = 1_750_000_000_000; // fixed epoch ms for tests
 const H24 = 86_400_000;
@@ -681,4 +682,456 @@ test("apiKey gate: dollars non-null and equals total units when true, null when 
   for (const repo of bdOff.repos) {
     expect(repo.dollars).toBeNull();
   }
+});
+
+// ── Task 4: windowed bucket + rollup tests ────────────────────────────────────
+
+// TestRollup subclass that uses worktreePath as directory directly (mirrors usage.test.ts pattern).
+class TestRollup extends SessionUsageRollup {
+  constructor(private dir: string) {
+    super();
+  }
+  protected override pathFor(worktreePath: string, claudeSessionId: string): string {
+    return join(this.dir, `${claudeSessionId}.jsonl`);
+  }
+}
+
+/** Write a JSONL file to a TestRollup-compatible location. */
+function writeRollupJsonl(dir: string, claudeSessionId: string, lines: string[]): void {
+  mkdirSync(dir, { recursive: true });
+  Bun.write(join(dir, `${claudeSessionId}.jsonl`), lines.join("\n") + "\n");
+}
+
+/** Helper to create and wire a session in the store, patching claudeSessionId via DB. */
+function createLiveSession(
+  store: SessionStore,
+  opts: {
+    sessionId?: string; // optional: use a fixed id to make test deterministic
+    worktreePath: string;
+    claudeSessionId: string;
+    repoPath: string;
+    desig?: string;
+  },
+): string {
+  const s = store.create({
+    name: opts.desig ?? "test-session",
+    prompt: "test",
+    repoPath: opts.repoPath,
+    baseBranch: "main",
+    branch: "shepherd/test",
+    worktreePath: opts.worktreePath,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t1",
+    sandboxApplied: null,
+    sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
+    research: false,
+  });
+  // @ts-expect-error accessing internal db for test setup
+  store.db.run(`UPDATE sessions SET claudeSessionId = ? WHERE id = ?`, [
+    opts.claudeSessionId,
+    s.id,
+  ]);
+  return s.id;
+}
+
+/** Insert a session_usage row + its bucket rows. */
+function insertSnapshotWithBuckets(
+  store: SessionStore,
+  snap: Parameters<typeof makeSnap>[0],
+  buckets: Omit<SessionUsageBucket, "sessionId">[],
+): void {
+  const snapRow = makeSnap(snap);
+  store.upsertSessionUsage(snapRow);
+  store.replaceSessionUsageBuckets(
+    snap.sessionId,
+    buckets.map((b) => ({ ...b, sessionId: snap.sessionId })),
+  );
+}
+
+// ── Test 1: persisted windowed sub-session ────────────────────────────────────
+
+test("persisted windowed sub-session: 24h returns only recent hour; 30d/all returns full total", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+
+  // Two hours of activity
+  const oldHour = NOW - 48 * 60 * 60 * 1000; // 48h ago (outside 24h, inside 30d)
+  const oldHourFloor = oldHour - (oldHour % 3_600_000);
+  const recentHour = NOW - 1 * 60 * 60 * 1000; // 1h ago (inside 24h)
+  const recentHourFloor = recentHour - (recentHour % 3_600_000);
+
+  const oldWu = weightedUnits(
+    { input: 500, output: 200, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const recentWu = weightedUnits(
+    { input: 300, output: 100, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const totalWu = weightedUnits(
+    { input: 800, output: 300, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+
+  insertSnapshotWithBuckets(
+    store,
+    {
+      sessionId: "bucketed-s1",
+      desig: "TASK-01",
+      repoPath: "/repos/foo",
+      model,
+      input: 800,
+      output: 300,
+      weightedUnits: totalWu,
+      cacheReadUnits: 0,
+      snapshotAt: NOW - 500, // archived recently
+    },
+    [
+      {
+        bucketStart: oldHourFloor,
+        input: 500,
+        output: 200,
+        cacheRead: 0,
+        cacheWrite: 0,
+        weightedUnits: oldWu,
+        cacheReadUnits: 0,
+        byModel: { [model]: oldWu },
+      },
+      {
+        bucketStart: recentHourFloor,
+        input: 300,
+        output: 100,
+        cacheRead: 0,
+        cacheWrite: 0,
+        weightedUnits: recentWu,
+        cacheReadUnits: 0,
+        byModel: { [model]: recentWu },
+      },
+    ],
+  );
+
+  // 24h: only recent bucket (straddling the cutoff — recentHour is inside 24h window)
+  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
+  const task24h = bd24h.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "bucketed-s1");
+  expect(task24h).toBeDefined();
+  expect(task24h!.tokens.input).toBe(300);
+  expect(task24h!.tokens.output).toBe(100);
+  expect(task24h!.authoringUnits).toBeCloseTo(recentWu, 10);
+
+  // 30d: both buckets (old hour is 48h ago, within 30d)
+  const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
+  const task30d = bd30d.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "bucketed-s1");
+  expect(task30d).toBeDefined();
+  expect(task30d!.tokens.input).toBe(800);
+  expect(task30d!.tokens.output).toBe(300);
+  expect(task30d!.authoringUnits).toBeCloseTo(totalWu, 10);
+
+  // all: uses aggregate row → same total
+  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+  const taskAll = bdAll.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "bucketed-s1");
+  expect(taskAll).toBeDefined();
+  expect(taskAll!.tokens.input).toBe(800);
+  expect(taskAll!.tokens.output).toBe(300);
+  expect(taskAll!.authoringUnits).toBeCloseTo(totalWu, 10);
+});
+
+// ── Test 2: legacy fallback (no buckets) ─────────────────────────────────────
+
+test("legacy fallback: no bucket rows → included whole iff snapshotAt >= cutoff", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+
+  const recentAt = NOW - H24 / 2; // within 24h
+  const staleAt = NOW - 2 * H24; // outside 24h
+
+  const recentWu = weightedUnits(
+    { input: 100, output: 50, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const staleWu = weightedUnits(
+    { input: 200, output: 80, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+
+  // No bucket rows inserted — legacy fallback
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "legacy-recent",
+      desig: "TASK-01",
+      repoPath: "/repos/foo",
+      model,
+      input: 100,
+      output: 50,
+      weightedUnits: recentWu,
+      cacheReadUnits: 0,
+      snapshotAt: recentAt,
+    }),
+  );
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "legacy-stale",
+      desig: "TASK-02",
+      repoPath: "/repos/foo",
+      model,
+      input: 200,
+      output: 80,
+      weightedUnits: staleWu,
+      cacheReadUnits: 0,
+      snapshotAt: staleAt,
+    }),
+  );
+
+  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
+  const ids24h = bd24h.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
+  expect(ids24h).toContain("legacy-recent");
+  expect(ids24h).not.toContain("legacy-stale");
+
+  // Both appear in 30d (stale is 2d, within 30d)
+  const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
+  const ids30d = bd30d.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
+  expect(ids30d).toContain("legacy-recent");
+  expect(ids30d).toContain("legacy-stale");
+});
+
+// ── Test 3: bucketed-zero dropped vs spawn-parent retained ────────────────────
+
+test("bucketed zero-window: dropped when no spawn; retained as zero-authoring when spawn exists", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+
+  // Two sessions: only old bucket (outside 24h). No bucket 0.
+  // Session A: no spawn → should be DROPPED from 24h
+  // Session B: has a completed spawn → should be RETAINED with authoringUnits 0
+
+  const oldHour = NOW - 48 * 60 * 60 * 1000;
+  const oldHourFloor = oldHour - (oldHour % 3_600_000);
+  const oldWu = weightedUnits(
+    { input: 400, output: 150, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const totalWu = oldWu; // only the old bucket
+
+  for (const sessId of ["dropped-s", "retained-s"]) {
+    store.upsertSessionUsage(
+      makeSnap({
+        sessionId: sessId,
+        desig: sessId === "dropped-s" ? "TASK-10" : "TASK-11",
+        repoPath: "/repos/bar",
+        model,
+        input: 400,
+        output: 150,
+        weightedUnits: totalWu,
+        cacheReadUnits: 0,
+        snapshotAt: NOW - 500,
+      }),
+    );
+    store.replaceSessionUsageBuckets(sessId, [
+      {
+        sessionId: sessId,
+        bucketStart: oldHourFloor,
+        input: 400,
+        output: 150,
+        cacheRead: 0,
+        cacheWrite: 0,
+        weightedUnits: oldWu,
+        cacheReadUnits: 0,
+        byModel: { [model]: oldWu },
+      },
+    ]);
+  }
+
+  // Add a completed spawn for retained-s
+  const spawnWu = weightedUnits(
+    { input: 200, output: 80, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  store.recordReviewerSpawn({
+    reviewerSessionId: "rev-retained",
+    taskSessionId: "retained-s",
+    kind: "review",
+    worktreePath: "/wt",
+    model,
+    spawnedAt: NOW - 2000,
+  });
+  store.completeReviewerSpawn(
+    "rev-retained",
+    {
+      input: 200,
+      output: 80,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 280,
+      messageCount: 1,
+      lastActivity: NOW - 1500,
+      byModel: { [model]: 280 },
+      fullRecaches: 0,
+      sidechainCount: 0,
+    },
+    NOW - 1500,
+  );
+
+  const bd24h = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
+  const ids24h = bd24h.repos.flatMap((r) => r.tasks.map((t) => t.sessionId));
+
+  // Session with no spawn is dropped
+  expect(ids24h).not.toContain("dropped-s");
+
+  // Session with completed spawn is retained
+  expect(ids24h).toContain("retained-s");
+  const retainedTask = bd24h.repos
+    .flatMap((r) => r.tasks)
+    .find((t) => t.sessionId === "retained-s");
+  expect(retainedTask).toBeDefined();
+  expect(retainedTask!.authoringUnits).toBe(0);
+  // Satellite cost is attributed
+  expect(retainedTask!.satelliteUnits).toBeCloseTo(spawnWu, 10);
+});
+
+// ── Test 4: live via rollup == re-parse fallback ──────────────────────────────
+
+test("live via rollup == re-parse fallback: identical authoringUnits/tokens/byModel/model", async () => {
+  const rollupDir = join(
+    tmpdir(),
+    `rollup-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  mkdirSync(rollupDir, { recursive: true });
+
+  const store = new SessionStore(":memory:");
+  const claudeSessionId = "live-rollup-csid";
+  const worktreePath = "/wt/rollup-live";
+
+  // Write JSONL fixture to tmpDir (for TestRollup) AND to the real config.claudeProjectsDir path
+  // (for the liveSessionToAccum re-parse fallback).
+  const model = "claude-opus-4-8";
+  const lines = [
+    asst({ requestId: "rr1", ts: NOW - H24 / 4, model, input: 300, output: 120, cacheRead: 50 }),
+    asst({ requestId: "rr2", ts: NOW - H24 / 8, model, input: 150, output: 60 }),
+  ];
+
+  // Write for re-parse fallback (uses config.claudeProjectsDir + dashified worktreePath)
+  writeJsonl(worktreePath, claudeSessionId, lines);
+
+  // Write for TestRollup (uses rollupDir + claudeSessionId.jsonl)
+  writeRollupJsonl(rollupDir, claudeSessionId, lines);
+
+  // Create live session in store
+  const sessId = createLiveSession(store, {
+    worktreePath,
+    claudeSessionId,
+    repoPath: "/repos/rollup-test",
+  });
+
+  const rollup = new TestRollup(rollupDir);
+
+  // Build WITH rollup
+  const bdWithRollup = await buildUsageBreakdown({
+    store,
+    range: "24h",
+    now: NOW,
+    apiKey: false,
+    usageRollup: rollup,
+  });
+  const taskWithRollup = bdWithRollup.repos
+    .flatMap((r) => r.tasks)
+    .find((t) => t.sessionId === sessId);
+
+  // Build WITHOUT rollup (re-parse fallback)
+  const bdFallback = await buildUsageBreakdown({
+    store,
+    range: "24h",
+    now: NOW,
+    apiKey: false,
+  });
+  const taskFallback = bdFallback.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === sessId);
+
+  expect(taskWithRollup).toBeDefined();
+  expect(taskFallback).toBeDefined();
+
+  // Both paths must agree on all fields
+  expect(taskWithRollup!.tokens.input).toBe(taskFallback!.tokens.input);
+  expect(taskWithRollup!.tokens.output).toBe(taskFallback!.tokens.output);
+  expect(taskWithRollup!.tokens.cacheRead).toBe(taskFallback!.tokens.cacheRead);
+  expect(taskWithRollup!.tokens.cacheWrite).toBe(taskFallback!.tokens.cacheWrite);
+  expect(taskWithRollup!.authoringUnits).toBeCloseTo(taskFallback!.authoringUnits, 10);
+  expect(taskWithRollup!.model).toBe(taskFallback!.model);
+  expect(taskWithRollup!.byModel).toEqual(taskFallback!.byModel);
+
+  // Sanity: actual values match the 24h window (both records are within 24h)
+  expect(taskWithRollup!.tokens.input).toBe(450);
+  expect(taskWithRollup!.tokens.output).toBe(180);
+
+  rmSync(rollupDir, { recursive: true, force: true });
+});
+
+// ── Test 5: cutoff===0 persisted uses aggregate rows ─────────────────────────
+
+test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggregate row)", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+
+  const oldHour = NOW - 48 * 60 * 60 * 1000;
+  const oldHourFloor = oldHour - (oldHour % 3_600_000);
+  const recentHour = NOW - 1 * 60 * 60 * 1000;
+  const recentHourFloor = recentHour - (recentHour % 3_600_000);
+
+  const oldWu = weightedUnits(
+    { input: 500, output: 200, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const recentWu = weightedUnits(
+    { input: 300, output: 100, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+  const totalWu = weightedUnits(
+    { input: 800, output: 300, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+    model,
+  );
+
+  insertSnapshotWithBuckets(
+    store,
+    {
+      sessionId: "all-time-s",
+      desig: "TASK-01",
+      repoPath: "/repos/alltime",
+      model,
+      input: 800,
+      output: 300,
+      weightedUnits: totalWu,
+      cacheReadUnits: 0,
+      snapshotAt: NOW - 500,
+    },
+    [
+      {
+        bucketStart: oldHourFloor,
+        input: 500,
+        output: 200,
+        cacheRead: 0,
+        cacheWrite: 0,
+        weightedUnits: oldWu,
+        cacheReadUnits: 0,
+        byModel: { [model]: oldWu },
+      },
+      {
+        bucketStart: recentHourFloor,
+        input: 300,
+        output: 100,
+        cacheRead: 0,
+        cacheWrite: 0,
+        weightedUnits: recentWu,
+        cacheReadUnits: 0,
+        byModel: { [model]: recentWu },
+      },
+    ],
+  );
+
+  const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+  const taskAll = bdAll.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "all-time-s");
+  expect(taskAll).toBeDefined();
+  // Must use aggregate row (input=800, output=300), not just recent bucket
+  expect(taskAll!.tokens.input).toBe(800);
+  expect(taskAll!.tokens.output).toBe(300);
+  expect(taskAll!.authoringUnits).toBeCloseTo(totalWu, 10);
 });

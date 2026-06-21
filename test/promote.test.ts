@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { upsertLearningsBlock, LEARNINGS_START, LEARNINGS_END } from "../src/promote";
+import * as prettier from "prettier";
+import { upsertLearningsBlock, sanitizeRule, LEARNINGS_START, LEARNINGS_END } from "../src/promote";
 
 test("upsertLearningsBlock appends a block when none exists", () => {
   const out = upsertLearningsBlock("# Repo\n\nintro\n", ["use bun", "rebase onto main"]);
@@ -23,6 +24,62 @@ test("upsertLearningsBlock replaces block contents idempotently", () => {
 test("upsertLearningsBlock handles empty file", () => {
   const out = upsertLearningsBlock("", ["only rule"]);
   expect(out.startsWith(LEARNINGS_START)).toBe(true);
+});
+
+test("upsertLearningsBlock puts a blank line after the start marker", () => {
+  // prettier/CommonMark requires the blank line between the HTML-comment block and the
+  // list, else `prettier --check` fails in target repos (flowagent #418).
+  const out = upsertLearningsBlock("# Repo\n", ["a", "b"]);
+  expect(out).toContain(`${LEARNINGS_START}\n\n- a\n- b\n${LEARNINGS_END}`);
+});
+
+test("sanitizeRule normalizes whitespace and escapes leading markdown markers", () => {
+  expect(sanitizeRule("  hello   world  ")).toBe("hello world");
+  expect(sanitizeRule("a\nb\tc")).toBe("a b c");
+  expect(sanitizeRule("- dash")).toBe("\\- dash");
+  expect(sanitizeRule("* star")).toBe("\\* star");
+  expect(sanitizeRule("+ plus")).toBe("\\+ plus");
+  expect(sanitizeRule("1. num")).toBe("1\\. num");
+  expect(sanitizeRule("2) paren")).toBe("2\\) paren");
+  expect(sanitizeRule("# head")).toBe("\\# head");
+  expect(sanitizeRule("Use bun.")).toBe("Use bun."); // non-marker text untouched
+  // idempotent — re-sanitizing an already-escaped rule is a no-op (matters for the
+  // global-accumulate read-back path, which re-emits extracted rules).
+  expect(sanitizeRule(sanitizeRule("- dash"))).toBe("\\- dash");
+});
+
+// Free-form rule text that would make a naive block prettier-unstable (nested-list
+// reinterpretation, whitespace collapse). Includes flowagent #418's real rule.
+const PRETTIER_STABILITY_RULES = [
+  "Use bun, not npm.",
+  "- leading dash rule",
+  "* leading asterisk rule",
+  "+ leading plus rule",
+  "1. leading numbered rule",
+  "2) paren numbered rule",
+  "# heading-like rule",
+  "internal   double   spaces",
+  "trailing whitespace here   ",
+  "line one\nline two",
+  "Use `bun run lint` before push.",
+  "Run migrations/backfills/DB tests on local Docker+mocks only, never shared Neon/Aura; scope each mutation to one org via WHERE; shared writes need approval.",
+];
+
+test("upsertLearningsBlock output is byte-for-byte prettier-stable (default markdown config)", async () => {
+  // Mirror what a target repo's `prettier --check .` does: prettier's Node API with an
+  // explicit parser uses only default options (no .prettierrc lookup), so this matches an
+  // arbitrary repo's default formatting. A stable (unchanged) result == the block won't
+  // re-trip the Lint step. Cover the whole battery in one block, each rule alone, and the
+  // empty-base case.
+  const blocks = [
+    upsertLearningsBlock("# Repo\n\nintro\n", PRETTIER_STABILITY_RULES),
+    ...PRETTIER_STABILITY_RULES.map((r) => upsertLearningsBlock("# Repo\n", [r])),
+    ...PRETTIER_STABILITY_RULES.map((r) => upsertLearningsBlock("", [r])),
+  ];
+  for (const content of blocks) {
+    const formatted = await prettier.format(content, { parser: "markdown" });
+    expect(formatted).toBe(content);
+  }
 });
 
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -267,6 +324,35 @@ test("Promoter.resyncPromoted rebuilds block and opens a PR", async () => {
   expect(store.getLearning(l2.id)!.status).toBe("promoted");
   // cleanup ran
   expect(removed).toContain(wtDir);
+});
+
+test("Promoter.resyncPromoted dedups two promoted rules that collapse to one sanitized bullet", async () => {
+  const store = new SessionStore(":memory:");
+  // Distinct raw rules that sanitize to the same bullet ("\- dash"): raw-space dedup would
+  // keep both and emit a duplicate; sanitized-space dedup collapses them to one.
+  for (const rule of ["- dash", "-  dash"]) {
+    const l = store.addLearning({ repoPath: "/repo-dup", rule, rationale: "", evidence: [] });
+    store.setLearningStatus(l.id, "active");
+    store.setLearningStatus(l.id, "promoted");
+  }
+  const wtDir = mkdtempSync(join(tmpdir(), "resync-dedup-"));
+  let written = "";
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "learnings-resync-dedup", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge(),
+    git: async () => {},
+    readClaudeMd: () => "# Repo\n",
+    writeClaudeMd: (_p, c) => {
+      written = c;
+    },
+  });
+  const res = await p.resyncPromoted("/repo-dup");
+  expect(res.ok).toBe(true);
+  expect(extractLearningsBlockRules(written)).toEqual(["\\- dash"]); // exactly one bullet
 });
 
 test("Promoter.resyncPromoted is a no-op when CLAUDE.md already has the current block", async () => {
@@ -514,6 +600,18 @@ test("promoteGlobal is an idempotent no-op when the rule is already present", as
   const res = await globalPromoter(state).promoteGlobal("rule a");
   expect(res.ok).toBe(true);
   expect(state.writes.length).toBe(0); // already current → nothing written
+});
+
+test("promoteGlobal re-promote of a sanitize-altered rule is an idempotent no-op", async () => {
+  // The stored block holds the *sanitized* form ("\- dash"); the incoming raw "- dash" must
+  // dedup against it, not write a second bullet. (Plain "rule a" wouldn't catch this — sanitize
+  // leaves it unchanged.)
+  const existing = upsertLearningsBlock("", ["- dash"]);
+  expect(extractLearningsBlockRules(existing)).toEqual(["\\- dash"]);
+  const state = { content: existing, writes: [] as string[] };
+  const res = await globalPromoter(state).promoteGlobal("- dash");
+  expect(res.ok).toBe(true);
+  expect(state.writes.length).toBe(0); // already current → no duplicate bullet, no write
 });
 
 test("promoteGlobal returns a structured 500 (not a throw) on an fs failure", async () => {

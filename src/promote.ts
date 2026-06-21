@@ -62,7 +62,11 @@ export class Promoter {
     const path = join(homedir(), ".claude", "CLAUDE.md");
     try {
       const current = this.readClaudeMd(path);
-      const rules = [...new Set([...extractLearningsBlockRules(current), rule])];
+      // Dedup in *sanitized* space: extractLearningsBlockRules returns the stored rules in
+      // their already-sanitized form, while `rule` is raw — comparing them raw would miss a
+      // rule that sanitize alters (leading marker / collapsible whitespace), writing a
+      // duplicate bullet and defeating the `next === current` no-op on re-promote.
+      const rules = [...new Set([...extractLearningsBlockRules(current), rule].map(sanitizeRule))];
       const next = upsertLearningsBlock(current, rules);
       if (next === current) return { ok: true, url: "" };
       this.writeClaudeMd(path, next);
@@ -116,7 +120,9 @@ export class Promoter {
         return { ok: false, error: "worktree creation failed", status: 500 };
       }
       try {
-        const rules = [...new Set(promoted.map((l) => l.rule))];
+        // Dedup in sanitized space (matches promoteGlobal): two stored rules that collapse to
+        // the same sanitized bullet must not both survive into the block.
+        const rules = [...new Set(promoted.map((l) => sanitizeRule(l.rule)))];
         const claudePath = join(wt.worktreePath, "CLAUDE.md");
         const current = this.readClaudeMd(claudePath);
         const next = upsertLearningsBlock(current, rules);
@@ -259,7 +265,9 @@ export class Promoter {
     const promoted = this.deps.store
       .listLearnings(learning.repoPath, { status: "promoted" })
       .map((l) => l.rule);
-    const rules = [...new Set([...promoted, learning.rule])];
+    // Dedup in sanitized space (matches promoteGlobal): a stored rule and the newly-promoted
+    // one that collapse to the same sanitized bullet must dedup, not emit a duplicate.
+    const rules = [...new Set([...promoted, learning.rule].map(sanitizeRule))];
     this.writeClaudeMd(claudePath, upsertLearningsBlock(this.readClaudeMd(claudePath), rules));
 
     await this.git(worktreePath, ["add", "CLAUDE.md"]);
@@ -285,12 +293,35 @@ export class Promoter {
 export const LEARNINGS_START = "<!-- shepherd:learnings:start -->";
 export const LEARNINGS_END = "<!-- shepherd:learnings:end -->";
 
+/** Normalize a free-form learning rule into a single Markdown list-item body that is
+ *  byte-for-byte stable under `prettier --check` (CommonMark). Target repos lint their
+ *  CLAUDE.md with prettier; an un-normalized rule could otherwise reparse as a nested
+ *  list / heading or get whitespace-collapsed, re-flagging the synced block (flowagent #418).
+ *  - collapses every whitespace run (incl. tabs/newlines) to a single space and trims ends
+ *  - backslash-escapes a leading Markdown list/heading marker so prettier keeps it as text
+ *    (a backslash-escaped marker renders identically). Idempotent. */
+export function sanitizeRule(rule: string): string {
+  return rule
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^([-*+]) /, "\\$1 ")
+    .replace(/^(\d+)([.)]) /, "$1\\$2 ")
+    .replace(/^(#+) /, "\\$1 ");
+}
+
 /** Insert or replace the managed shepherd:learnings block in CLAUDE.md content.
  *  Idempotent: replaces the existing block's contents rather than appending a
  *  duplicate; appends a fresh block when no markers are present. Each rule is one
- *  `- <rule>` bullet. */
+ *  `- <rule>` bullet. A blank line follows the start marker — prettier/CommonMark
+ *  requires it between an HTML-comment block and the list, else `prettier --check`
+ *  fails in target repos (flowagent #418). Each rule is sanitized for the same reason. */
 export function upsertLearningsBlock(content: string, rules: string[]): string {
-  const body = [LEARNINGS_START, ...rules.map((r) => `- ${r}`), LEARNINGS_END].join("\n");
+  const body = [
+    LEARNINGS_START,
+    "",
+    ...rules.map((r) => `- ${sanitizeRule(r)}`),
+    LEARNINGS_END,
+  ].join("\n");
   const start = content.indexOf(LEARNINGS_START);
   const end = content.indexOf(LEARNINGS_END);
   if (start !== -1 && end !== -1 && end > start) {

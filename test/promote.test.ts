@@ -326,6 +326,35 @@ test("Promoter.resyncPromoted rebuilds block and opens a PR", async () => {
   expect(removed).toContain(wtDir);
 });
 
+test("Promoter.resyncPromoted dedups two promoted rules that collapse to one sanitized bullet", async () => {
+  const store = new SessionStore(":memory:");
+  // Distinct raw rules that sanitize to the same bullet ("\- dash"): raw-space dedup would
+  // keep both and emit a duplicate; sanitized-space dedup collapses them to one.
+  for (const rule of ["- dash", "-  dash"]) {
+    const l = store.addLearning({ repoPath: "/repo-dup", rule, rationale: "", evidence: [] });
+    store.setLearningStatus(l.id, "active");
+    store.setLearningStatus(l.id, "promoted");
+  }
+  const wtDir = mkdtempSync(join(tmpdir(), "resync-dedup-"));
+  let written = "";
+  const p = new Promoter({
+    store,
+    worktree: {
+      create: () => ({ worktreePath: wtDir, branch: "learnings-resync-dedup", isolated: true }),
+      remove: () => {},
+    },
+    resolveForge: () => fakeForge(),
+    git: async () => {},
+    readClaudeMd: () => "# Repo\n",
+    writeClaudeMd: (_p, c) => {
+      written = c;
+    },
+  });
+  const res = await p.resyncPromoted("/repo-dup");
+  expect(res.ok).toBe(true);
+  expect(extractLearningsBlockRules(written)).toEqual(["\\- dash"]); // exactly one bullet
+});
+
 test("Promoter.resyncPromoted is a no-op when CLAUDE.md already has the current block", async () => {
   const store = new SessionStore(":memory:");
   const l = store.addLearning({

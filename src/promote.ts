@@ -120,7 +120,9 @@ export class Promoter {
         return { ok: false, error: "worktree creation failed", status: 500 };
       }
       try {
-        const rules = [...new Set(promoted.map((l) => l.rule))];
+        // Dedup in sanitized space (matches promoteGlobal): two stored rules that collapse to
+        // the same sanitized bullet must not both survive into the block.
+        const rules = [...new Set(promoted.map((l) => sanitizeRule(l.rule)))];
         const claudePath = join(wt.worktreePath, "CLAUDE.md");
         const current = this.readClaudeMd(claudePath);
         const next = upsertLearningsBlock(current, rules);
@@ -263,7 +265,9 @@ export class Promoter {
     const promoted = this.deps.store
       .listLearnings(learning.repoPath, { status: "promoted" })
       .map((l) => l.rule);
-    const rules = [...new Set([...promoted, learning.rule])];
+    // Dedup in sanitized space (matches promoteGlobal): a stored rule and the newly-promoted
+    // one that collapse to the same sanitized bullet must dedup, not emit a duplicate.
+    const rules = [...new Set([...promoted, learning.rule].map(sanitizeRule))];
     this.writeClaudeMd(claudePath, upsertLearningsBlock(this.readClaudeMd(claudePath), rules));
 
     await this.git(worktreePath, ["add", "CLAUDE.md"]);

@@ -927,3 +927,112 @@ test("#842: a proposal without scopeGlobs stays an Always-rule (empty globs)", a
   const [l] = store.listLearnings("/r", { status: "proposed" });
   expect(l!.scopeGlobs).toEqual([]);
 });
+
+// ── Task 2: reaffirm channel ─────────────────────────────────────────────────
+
+test("reaffirm: re-evidenced proposed rule accrues evidence (not NOOP)", async () => {
+  const store = new SessionStore(":memory:");
+  // Seed a proposed rule + a signal that is in the run's signal set
+  const sig = store.addSignal({
+    repoPath: "/r",
+    sessionId: null,
+    kind: "reply",
+    payload: "use bun again",
+  });
+  const proposed = store.addLearning({
+    repoPath: "/r",
+    rule: "use bun not npm",
+    rationale: "repo is bun",
+    evidence: [],
+  });
+  // Proposed rules start with status "proposed" by default
+  const before = store.getLearning(proposed.id)!;
+  expect(before.evidenceCount).toBe(0);
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [],
+    deletes: [],
+    ineffective: [],
+    reaffirm: [{ id: proposed.id, evidence: [sig.id] }],
+  });
+  // Use a writeSignals that captures the signal in f.signalIds by passing signals through
+  const svc = new DistillerService({
+    ...(deps as any),
+    // override readProposals to use the seeded signal id that is in the actual signal set
+  });
+  svc.distillNow("/r");
+  await svc.tick();
+
+  const after = store.getLearning(proposed.id)!;
+  expect(after.evidenceCount).toBe(1);
+  expect(after.evidence).toContain(sig.id);
+});
+
+test("reaffirm: evidence not in f.signalIds (fabricated id) is not accrued", async () => {
+  const store = new SessionStore(":memory:");
+  // Seed one real signal — distillNow requires >= 1
+  store.addSignal({ repoPath: "/r", sessionId: null, kind: "reply", payload: "p" });
+  const proposed = store.addLearning({
+    repoPath: "/r",
+    rule: "use bun not npm",
+    rationale: "",
+    evidence: [],
+  });
+
+  const { deps } = mkDeps(store, {
+    rules: [],
+    updates: [],
+    deletes: [],
+    ineffective: [],
+    reaffirm: [{ id: proposed.id, evidence: ["hallucinated-id-not-in-run"] }],
+  });
+  const svc = new DistillerService(deps as any);
+  svc.distillNow("/r");
+  await svc.tick();
+
+  // fabricated signal id filtered out → accrueProposedEvidence called with []  → returns null → count stays 0
+  const after = store.getLearning(proposed.id)!;
+  expect(after.evidenceCount).toBe(0);
+});
+
+test("reaffirm: proposedRules passed to writeSignals include proposed rules sorted by evidenceCount DESC capped at 30", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+
+  // Add two proposed rules with different evidence counts
+  const p1 = store.addLearning({ repoPath: "/r", rule: "rule alpha", rationale: "", evidence: [] });
+  const p2 = store.addLearning({ repoPath: "/r", rule: "rule beta", rationale: "", evidence: [] });
+  // Give p2 more evidence by accruing a fake signal id directly
+  const sig = store.addSignal({ repoPath: "/r", sessionId: null, kind: "reply", payload: "x" });
+  store.accrueProposedEvidence(p2.id, [sig.id]);
+
+  let capturedProposed: { id: string; rule: string }[] = [];
+  const deps = {
+    store,
+    herdr: { start: () => ({ terminalId: "d1" }), stop: () => {} } as any,
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 3,
+    writeSignals: (
+      _dir: string,
+      _sigs: unknown,
+      _existing: string[],
+      _activeRules: unknown,
+      proposedRules: { id: string; rule: string }[],
+    ) => {
+      capturedProposed = proposedRules;
+    },
+    readProposals: () => null,
+  };
+  const d = new DistillerService(deps as any);
+  d.distillNow("/r");
+
+  // p2 has evidenceCount=1, p1 has evidenceCount=0 → p2 should come first
+  expect(capturedProposed.length).toBe(2);
+  expect(capturedProposed[0]!.id).toBe(p2.id);
+  expect(capturedProposed[1]!.id).toBe(p1.id);
+  // Should only contain id+rule (no other fields)
+  expect(Object.keys(capturedProposed[0]!)).toEqual(["id", "rule"]);
+});

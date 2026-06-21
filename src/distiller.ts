@@ -36,6 +36,7 @@ const HEALTH_FAILURE_THRESHOLD = 3;
 const MAX_ADDS_PER_RUN = 5;
 const MAX_UPDATES_PER_RUN = 5;
 const MAX_DELETES_PER_RUN = 5;
+const MAX_REAFFIRM_PER_RUN = 5;
 
 interface RawRule {
   rule?: unknown;
@@ -58,8 +59,13 @@ interface RawProposals {
   ineffective?: unknown;
   updates?: unknown; // NEW
   deletes?: unknown; // NEW
+  reaffirm?: unknown;
 }
 interface RawIneffective {
+  id?: unknown;
+  evidence?: unknown;
+}
+interface RawReaffirm {
   id?: unknown;
   evidence?: unknown;
 }
@@ -84,6 +90,7 @@ export interface DistillerDeps {
     | "listActiveLearnings"
     | "getRepoConfig"
     | "incrementLearningIneffective"
+    | "accrueProposedEvidence"
     | "mergeLearning"
     | "retireLearning"
     | "getLearning"
@@ -102,6 +109,7 @@ export interface DistillerDeps {
     signals: Signal[],
     existingRules: string[],
     activeRules: { id: string; rule: string; promoted: boolean }[],
+    proposedRules: { id: string; rule: string }[],
   ) => void;
   readProposals?: (dir: string) => RawProposals | null;
 }
@@ -215,8 +223,13 @@ export class DistillerService {
     const activeRules = this.deps.store
       .listActiveLearnings(repoPath)
       .map((l) => ({ id: l.id, rule: l.rule, promoted: l.status === "promoted" }));
+    const proposedRules = this.deps.store
+      .listLearnings(repoPath, { status: "proposed" })
+      .sort((a, b) => b.evidenceCount - a.evidenceCount)
+      .slice(0, 30)
+      .map((l) => ({ id: l.id, rule: l.rule }));
     try {
-      this.writeSignals(dir, signals, existing, activeRules);
+      this.writeSignals(dir, signals, existing, activeRules, proposedRules);
     } catch (err) {
       console.warn(`[distill] write signals failed for ${repoPath}:`, err);
       this.deps.scratch.remove(dir);
@@ -297,6 +310,7 @@ export class DistillerService {
   private finalize(f: InFlight, raw: RawProposals | null): void {
     const { added, updated, deleted } = this.applyProposals(f.repoPath, raw);
     const flagged = this.applyIneffective(f, raw);
+    const reaffirmed = this.applyReaffirm(f, raw);
     this.deps.herdr.stop(f.terminalId);
     this.deps.scratch.remove(f.dir);
     if (raw !== null) {
@@ -304,7 +318,7 @@ export class DistillerService {
     } else {
       this.recordHealthFailure(f.repoPath, "timeout-no-output");
     }
-    if (added + updated + deleted + flagged > 0) this.deps.onChange();
+    if (added + updated + deleted + flagged + reaffirmed > 0) this.deps.onChange();
   }
 
   /** Persist new (deduped) proposed rules and apply UPDATE/DELETE from the distiller's output. */
@@ -400,6 +414,27 @@ export class DistillerService {
     }
     return flagged;
   }
+
+  /** Accrue re-evidence for proposed rules the distiller cited as reaffirmed,
+   *  passing cited evidence signal ids (validated against THIS run's signal set)
+   *  so the store can dedup them. Returns the count of proposed rules freshly reaffirmed. */
+  private applyReaffirm(f: InFlight, raw: RawProposals | null): number {
+    let reaffirmed = 0;
+    const proposedIds = new Set(
+      this.deps.store.listLearnings(f.repoPath, { status: "proposed" }).map((l) => l.id),
+    );
+    const entries = Array.isArray(raw?.reaffirm) ? (raw!.reaffirm as RawReaffirm[]) : [];
+    for (const e of entries) {
+      if (reaffirmed >= MAX_REAFFIRM_PER_RUN) break;
+      const id = typeof e?.id === "string" ? e.id : undefined;
+      if (!id || !proposedIds.has(id)) continue;
+      const evidence = Array.isArray(e.evidence)
+        ? e.evidence.filter((s): s is string => typeof s === "string" && f.signalIds.has(s))
+        : [];
+      if (this.deps.store.accrueProposedEvidence(id, evidence) !== null) reaffirmed++;
+    }
+    return reaffirmed;
+  }
 }
 
 export function normalizeRule(s: string): string {
@@ -409,10 +444,11 @@ export function normalizeRule(s: string): string {
 function distillPrompt(): string {
   return [
     "You are a code-review pattern analyst. Read `signals.json` in this directory.",
-    "It is a JSON object with three fields:",
+    "It is a JSON object with four fields:",
     "  `signals` — an array of past corrections, blocks, stalls, and critic findings for one repository;",
     "  `existingRules` — all recorded/dismissed rules (do NOT ADD any of these — they are the dedup set);",
     "  `activeRules` — currently-active house rules as {id, rule, promoted} objects. UPDATE/DELETE may target ONLY entries with promoted:false; promoted:true rules are mirrored in CLAUDE.md and may only be flagged ineffective.",
+    "  `proposedRules` — currently-proposed rules as {id, rule} objects (not yet active).",
     "",
     "For each candidate finding, choose exactly ONE action:",
     "  ADD    → emit in `rules`   (new guidance, not already in existingRules)",
@@ -428,15 +464,19 @@ function distillPrompt(): string {
     "`ineffective` entry: {id: the activeRule id, evidence: the signal ids that show it failing}.",
     "Only cite ids present in the data — never invent ids.",
     "",
-    "Limits: at most 5 ADDs, 5 updates, 5 deletes.",
+    "If a signal re-evidences an existing PROPOSED rule (matches a `proposedRules` entry), do NOT",
+    "NOOP it and do NOT re-ADD it — emit a `reaffirm` entry {id: the proposedRule id, evidence: the",
+    "signal ids that re-evidence it}. Only cite ids present in the data.",
+    "",
+    "Limits: at most 5 ADDs, 5 updates, 5 deletes, 5 reaffirms.",
     "",
     "When an ADD clearly applies only to specific files or areas (judging by the file paths",
     "mentioned in the signals), include an optional `scopeGlobs`: an array of up to 5 repo-relative",
     'glob patterns (e.g. "src/**", "ui/**/*.svelte") so the rule injects only for tasks touching',
     "those files. OMIT `scopeGlobs` (or use []) for general rules — do not invent a scope when unsure.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}]}',
-    'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[]}. Do not write anything else.',
+    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}],"reaffirm":[{"id":"proposedRuleId","evidence":["signalId",...]}]}',
+    'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[],"reaffirm":[]}. Do not write anything else.',
   ].join("\n");
 }
 
@@ -445,11 +485,13 @@ function defaultWriteSignals(
   signals: Signal[],
   existingRules: string[],
   activeRules: { id: string; rule: string; promoted: boolean }[],
+  proposedRules: { id: string; rule: string }[],
 ): void {
   const payload = {
     signals: signals.map((s) => ({ kind: s.kind, payload: s.payload, ts: s.ts, id: s.id })),
     existingRules,
     activeRules,
+    proposedRules,
   };
   writeFileSync(join(dir, "signals.json"), JSON.stringify(payload, null, 2));
 }

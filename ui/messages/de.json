@@ -1772,5 +1772,16 @@
   "usage_range_30d": "30d",
   "usage_range_all": "Alle",
   "feat_repo_switch_retarget_title": "Repo-Wechsel nimmt das Terminal mit",
-  "feat_repo_switch_retarget_body": "Wählst du ein Repo in der Chip-Leiste, springt jetzt auch das Terminal mit — zur Session, die auf deine Antwort wartet, sonst zur ersten aktiven. Kein Starren mehr auf eine Session aus dem gerade verlassenen Repo."
+  "feat_repo_switch_retarget_body": "Wählst du ein Repo in der Chip-Leiste, springt jetzt auch das Terminal mit — zur Session, die auf deine Antwort wartet, sonst zur ersten aktiven. Kein Starren mehr auf eine Session aus dem gerade verlassenen Repo.",
+  "feedback_dialog_title_bug": "Fehler melden",
+  "feedback_dialog_title_feature": "Funktion vorschlagen",
+  "feedback_dialog_title_feedback": "Feedback senden",
+  "feedback_dialog_summary_label": "Titel",
+  "feedback_dialog_summary_placeholder": "Kurze Zusammenfassung",
+  "feedback_dialog_details_label": "Details",
+  "feedback_dialog_details_placeholder_bug": "Was ist schiefgelaufen? Was hatten Sie erwartet?",
+  "feedback_dialog_details_placeholder_feature": "Was wünschen Sie sich, und warum?",
+  "feedback_dialog_details_placeholder_feedback": "Teilen Sie uns Ihre Gedanken mit …",
+  "feedback_dialog_submit": "Auf GitHub fortfahren",
+  "feedback_dialog_note": "Öffnet ein vorausgefülltes GitHub-Issue in einem neuen Tab – vor dem Absenden prüfen und bearbeiten."
 }

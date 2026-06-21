@@ -123,8 +123,10 @@
 
 <main class="usage-page">
   <header class="usage-header">
+    <a class="usage-back" href={resolve("/")} aria-label={m.viewport_back_aria()}
+      >{m.viewport_back_button()}</a
+    >
     <h1 class="usage-title">{m.usage_page_title()}</h1>
-    <a class="usage-close" href={resolve("/")} aria-label={m.common_close()}>✕</a>
   </header>
 
   <!-- Tab switcher -->
@@ -226,46 +228,66 @@
   .usage-page {
     max-width: 760px;
     margin: 0 auto;
-    padding: 24px 16px 48px;
+    /* Horizontal padding lives on the header + lens body (so the sticky title bar
+       and the segmented controls can run full-bleed); only the bottom safe-area
+       inset belongs on the page itself. */
+    padding: 0 0 calc(40px + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: 0;
   }
 
+  /* Sticky title bar: stays pinned so the back affordance is always reachable —
+     on a small-screen PWA the page used to scroll the only exit out of view. The
+     top inset clears the notch / Dynamic Island; the opaque head background hides
+     content scrolling underneath. */
   .usage-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
-    margin-bottom: 20px;
+    padding: calc(10px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px
+      max(16px, env(safe-area-inset-left));
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
   }
 
-  .usage-close {
+  /* Prominent, unmistakable exit — a bordered, filled, touch-sized button rather
+     than a dim glyph. Mirrors the Viewport `.back` idiom; navigates home (the herd). */
+  .usage-back {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-    font-size: var(--fs-lg);
-    color: var(--color-muted);
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    letter-spacing: 0.04em;
     text-decoration: none;
+    white-space: nowrap;
     flex-shrink: 0;
   }
 
-  .usage-close:hover {
-    color: var(--color-ink);
+  .usage-back:hover {
+    background: var(--color-hover);
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
 
-  .usage-close:focus-visible {
+  .usage-back:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .usage-title {
-    margin: 0 0 4px;
+    margin: 0;
     font-size: var(--fs-xl);
     font-weight: 600;
-    color: var(--color-ink);
+    color: var(--color-ink-bright);
   }
 
   /* Segmented controls */
@@ -325,7 +347,7 @@
   }
 
   .lens-body {
-    margin-top: 0;
+    padding: 16px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
   }
 
   .usage-status-line {

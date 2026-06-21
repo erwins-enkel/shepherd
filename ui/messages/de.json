@@ -1707,5 +1707,14 @@
   "issue_filter_button_aria": "Issue-Filter, {count} aktiv",
   "issue_filter_heading": "Issues filtern",
   "feat_issue_filters_menu_title": "Issue-Filter in einem Menü gebündelt",
-  "feat_issue_filters_menu_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bündeln ihre Filter — meine & nicht zugewiesen, in Arbeit ausblenden, Unteraufgaben ausblenden — jetzt in einem einzigen Filters-Menü mit Aktivzähler-Badge, statt als Chip-Reihe."
+  "feat_issue_filters_menu_body": "Die Issue-Listen im Backlog und in „Neue Aufgabe“ bündeln ihre Filter — meine & nicht zugewiesen, in Arbeit ausblenden, Unteraufgaben ausblenden — jetzt in einem einzigen Filters-Menü mit Aktivzähler-Badge, statt als Chip-Reihe.",
+  "learnings_trial_badge": "Test",
+  "learnings_trial_title": "Automatisch bei starker Evidenz aktiviert — auf Probe bis es sich bewährt; wird mit niedrigster Priorität eingefügt und bei schlechter Leistung automatisch entfernt.",
+  "learnings_revert_trial": "Zurücksetzen",
+  "learnings_revert_trial_aria": "Diesen Test in die Warteschlange der Vorschläge zurücksetzen",
+  "learnings_revert_failed": "Test konnte nicht zurückgenommen werden — bitte erneut versuchen.",
+  "gloss_trial_term": "Test",
+  "gloss_trial_def": "Eine vorgeschlagene Hausregel, die bei starker, quellenübergreifender Evidenz automatisch aktiviert wird, mit niedrigster Priorität eingefügt wird und sich bewähren muss. Sie wird automatisch entfernt, wenn sie zu wenig bringt (Wilson-Auto-Retire) oder inaktiv bleibt, und kann manuell in die Warteschlange zurückgesetzt werden.",
+  "feat_learnings_auto_trial_title": "Auto-Test für starke Lernregeln",
+  "feat_learnings_auto_trial_body": "Starke, wiederkehrende Regelvorschläge werden jetzt automatisch als aktiver [[trial|Test]] eingesetzt, anstatt in der manuellen Genehmigungswarteschlange zu warten — und schlecht performende Tests werden automatisch entfernt. Tests werden mit einem Badge markiert und können mit einem Klick in der Lernschublade zurückgesetzt werden."
 }

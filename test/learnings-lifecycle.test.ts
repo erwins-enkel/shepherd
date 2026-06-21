@@ -2,16 +2,39 @@ import { test, expect, describe } from "bun:test";
 import {
   wilsonLowerBound,
   isGoodOutcome,
+  isUnprovenTrial,
   repoBaseRate,
   shouldRetire,
+  shouldTrial,
+  shouldExpireProposed,
+  shouldReapTrial,
   runAutoRetire,
+  runAutoTrial,
+  runAutoExpire,
+  runReapStaleTrials,
   AUTO_RETIRE_REASON,
   WILSON_Z,
   RETIRE_N_MIN,
   DEFAULT_BASE_RATE,
   BASE_RATE_MIN_N,
   MAX_RETIRE_PER_SWEEP,
+  TRIAL_NMIN,
+  TRIAL_SESSION_FLOOR,
+  TRIAL_MIN_KINDS,
+  TRIAL_MIN_SESSIONS,
+  MAX_TRIAL_PER_SWEEP,
+  TRIAL_REAP_NMIN,
+  TRIAL_REAP_DAYS,
+  TRIAL_REAP_MAX_DAYS,
+  MAX_REAP_PER_SWEEP,
+  EXPIRE_DAYS,
+  MAX_EXPIRE_PER_SWEEP,
+  TRIAL_EXPIRED_REASON,
+  AUTO_TRIAL_ENABLED,
   type AutoRetireDeps,
+  type AutoTrialDeps,
+  type AutoExpireDeps,
+  type ReapTrialDeps,
 } from "../src/learnings-lifecycle";
 import type { Learning, ReviewVerdict } from "../src/types";
 import type { RepoConfig } from "../src/store";
@@ -38,6 +61,9 @@ function makeLearning(o: Partial<Learning> & { id: string }): Learning {
     lastEvidenceAt: null,
     promotedPrUrl: null,
     mergedIntoId: null,
+    trialedAt: null,
+    distinctKinds: 0,
+    distinctSessions: 0,
     ...o,
   };
 }
@@ -632,5 +658,558 @@ describe("runAutoRetire", () => {
     expect(BASE_RATE_MIN_N).toBe(20);
     expect(MAX_RETIRE_PER_SWEEP).toBe(3);
     expect(AUTO_RETIRE_REASON).toBe("auto-retire");
+  });
+});
+
+// ── isUnprovenTrial ───────────────────────────────────────────────────────────
+
+describe("isUnprovenTrial", () => {
+  test("trialedAt set + helpfulCount=0 → true", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: Date.now(),
+      helpfulCount: 0,
+    });
+    expect(isUnprovenTrial(rule)).toBe(true);
+  });
+
+  test("trialedAt set + helpfulCount>0 → false (proven)", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: Date.now(),
+      helpfulCount: 1,
+    });
+    expect(isUnprovenTrial(rule)).toBe(false);
+  });
+
+  test("trialedAt null → false (not a trial)", () => {
+    const rule = makeLearning({ id: "a", status: "active", trialedAt: null, helpfulCount: 0 });
+    expect(isUnprovenTrial(rule)).toBe(false);
+  });
+});
+
+// ── shouldTrial ───────────────────────────────────────────────────────────────
+
+describe("shouldTrial", () => {
+  test("passes when evidenceCount>=K, distinctSessions>=floor, distinctKinds>=minKinds", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 4,
+      distinctSessions: 2,
+      distinctKinds: 2,
+    });
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(true);
+  });
+
+  test("passes when evidenceCount>=K, distinctSessions>=floor, distinctSessions>=M (kinds path fails)", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 4,
+      distinctSessions: 3,
+      distinctKinds: 1, // below minKinds=2
+    });
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(true);
+  });
+
+  test("fails when evidenceCount < K", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 3,
+      distinctSessions: 3,
+      distinctKinds: 2,
+    });
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(
+      false,
+    );
+  });
+
+  test("fails when distinctSessions < floor (single-session hard floor)", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 10,
+      distinctSessions: 1,
+      distinctKinds: 5,
+    });
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(
+      false,
+    );
+  });
+
+  test("fails when neither distinctKinds>=minKinds nor distinctSessions>=M", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 4,
+      distinctSessions: 2,
+      distinctKinds: 1, // below minKinds=2
+    });
+    // distinctSessions=2 < M=3, distinctKinds=1 < minKinds=2 → fails
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(
+      false,
+    );
+  });
+
+  test("fails when status !== 'proposed'", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      evidenceCount: 10,
+      distinctSessions: 5,
+      distinctKinds: 5,
+    });
+    expect(shouldTrial(rule)).toBe(false);
+  });
+});
+
+// ── runAutoTrial ──────────────────────────────────────────────────────────────
+
+function makeFakeTrialDeps(opts: { pending?: Learning[]; cfg?: Partial<RepoConfig> }) {
+  const pending = opts.pending ?? [];
+  const cfg = makeRepoConfig(opts.cfg ?? {});
+  const trialed: string[] = [];
+
+  const store: AutoTrialDeps["store"] = {
+    listPendingLearnings: () => pending,
+    getRepoConfig: () => cfg,
+    trialLearning: (id) => {
+      const r = pending.find((x) => x.id === id);
+      if (!r) return null;
+      trialed.push(id);
+      return { ...r, status: "active", trialedAt: Date.now() };
+    },
+  };
+
+  return { store, trialed };
+}
+
+describe("runAutoTrial", () => {
+  const K = 4;
+  const floor = 2;
+  const minKinds = 2;
+  const M = 3;
+  const gate = { nMin: K, sessionFloor: floor, minKinds, minSessions: M };
+
+  function strongRule(id: string, repoPath = "/repo"): Learning {
+    return makeLearning({
+      id,
+      repoPath,
+      status: "proposed",
+      evidenceCount: K,
+      distinctSessions: floor,
+      distinctKinds: minKinds,
+    });
+  }
+
+  test("trials up to cap in strongest-first order", () => {
+    const pending = [strongRule("a"), strongRule("b"), strongRule("c"), strongRule("d")];
+    const { store, trialed } = makeFakeTrialDeps({ pending });
+    const result = runAutoTrial({ store, enabled: true, maxPerSweep: 2, gate });
+    expect(trialed).toHaveLength(2);
+    expect(result.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  test("skips repos with learningsEnabled=false", () => {
+    const pending = [strongRule("a")];
+    const { store, trialed } = makeFakeTrialDeps({ pending, cfg: { learningsEnabled: false } });
+    const result = runAutoTrial({ store, enabled: true, maxPerSweep: 5, gate });
+    expect(trialed).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+
+  test("returns [] when enabled=false (kill switch)", () => {
+    const pending = [strongRule("a"), strongRule("b")];
+    const { store, trialed } = makeFakeTrialDeps({ pending });
+    const result = runAutoTrial({ store, enabled: false, maxPerSweep: 5, gate });
+    expect(trialed).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+
+  test("records carry diversity counts", () => {
+    const rule = makeLearning({
+      id: "r1",
+      repoPath: "/myrepo",
+      rule: "Do X",
+      status: "proposed",
+      evidenceCount: 6,
+      distinctSessions: 3,
+      distinctKinds: 4,
+    });
+    const { store } = makeFakeTrialDeps({ pending: [rule] });
+    const result = runAutoTrial({ store, enabled: true, maxPerSweep: 5, gate });
+    expect(result).toHaveLength(1);
+    const rec = result[0]!;
+    expect(rec.repoPath).toBe("/myrepo");
+    expect(rec.id).toBe("r1");
+    expect(rec.evidenceCount).toBe(6);
+    expect(rec.distinctKinds).toBe(4);
+    expect(rec.distinctSessions).toBe(3);
+  });
+});
+
+// ── shouldExpireProposed ──────────────────────────────────────────────────────
+
+describe("shouldExpireProposed", () => {
+  const THIRTY_DAYS = 30 * 86_400_000;
+
+  test("expires a stale proposal (old lastEvidenceAt, beyond EXPIRE_DAYS)", () => {
+    const now = Date.now();
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      lastEvidenceAt: now - THIRTY_DAYS - 1,
+      createdAt: now - THIRTY_DAYS - 1,
+      evidenceCount: 0,
+      distinctSessions: 0,
+      distinctKinds: 0,
+    });
+    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(true);
+  });
+
+  test("not within window → no expiry", () => {
+    const now = Date.now();
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      lastEvidenceAt: now - 1000, // very fresh
+      createdAt: now - 1000,
+    });
+    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(false);
+  });
+
+  test("trial-worthy → never expire", () => {
+    const now = Date.now();
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      lastEvidenceAt: now - THIRTY_DAYS - 1,
+      createdAt: now - THIRTY_DAYS - 1,
+      evidenceCount: 4,
+      distinctSessions: 2,
+      distinctKinds: 2,
+    });
+    expect(
+      shouldExpireProposed(rule, now, {
+        expireDays: 30,
+        gate: { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 },
+      }),
+    ).toBe(false);
+  });
+
+  test("expiryFloor defers expiry (old lastEvidenceAt but floor=now → NOT expired)", () => {
+    const now = Date.now();
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      lastEvidenceAt: now - THIRTY_DAYS - 1,
+      createdAt: now - THIRTY_DAYS - 1,
+      evidenceCount: 0,
+      distinctSessions: 0,
+      distinctKinds: 0,
+    });
+    expect(shouldExpireProposed(rule, now, { expireDays: 30, expiryFloor: now })).toBe(false);
+  });
+
+  test("status !== proposed → false", () => {
+    const now = Date.now();
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      lastEvidenceAt: now - THIRTY_DAYS - 1,
+      createdAt: now - THIRTY_DAYS - 1,
+    });
+    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(false);
+  });
+});
+
+// ── runAutoExpire ─────────────────────────────────────────────────────────────
+
+function makeFakeExpireDeps(opts: {
+  pending?: Learning[];
+  cfg?: Partial<RepoConfig>;
+  expiryFloor?: number;
+}) {
+  const pending = opts.pending ?? [];
+  const cfg = makeRepoConfig(opts.cfg ?? {});
+  const expired: string[] = [];
+  const floor = opts.expiryFloor ?? 0;
+
+  const store: AutoExpireDeps["store"] = {
+    listPendingLearnings: () => pending,
+    getRepoConfig: () => cfg,
+    expiryFloorAt: () => floor,
+    expireLearning: (id) => {
+      const r = pending.find((x) => x.id === id);
+      if (!r) return null;
+      expired.push(id);
+      return { ...r, status: "dismissed" };
+    },
+  };
+
+  return { store, expired };
+}
+
+describe("runAutoExpire", () => {
+  const THIRTY_DAYS = 30 * 86_400_000;
+
+  function staleRule(id: string, repoPath = "/repo"): Learning {
+    const past = Date.now() - THIRTY_DAYS - 1;
+    return makeLearning({
+      id,
+      repoPath,
+      status: "proposed",
+      lastEvidenceAt: past,
+      createdAt: past,
+      evidenceCount: 0,
+      distinctSessions: 0,
+      distinctKinds: 0,
+    });
+  }
+
+  test("caps at maxPerSweep", () => {
+    const pending = [staleRule("a"), staleRule("b"), staleRule("c"), staleRule("d")];
+    const { store, expired } = makeFakeExpireDeps({ pending });
+    const result = runAutoExpire({ store, now: Date.now(), maxPerSweep: 2, expireDays: 30 });
+    expect(expired).toHaveLength(2);
+    expect(result).toHaveLength(2);
+  });
+
+  test("gates on learningsEnabled", () => {
+    const pending = [staleRule("a")];
+    const { store, expired } = makeFakeExpireDeps({ pending, cfg: { learningsEnabled: false } });
+    const result = runAutoExpire({ store, now: Date.now(), maxPerSweep: 5, expireDays: 30 });
+    expect(expired).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+
+  test("reads floor from expiryFloorAt() and defers expiry", () => {
+    const now = Date.now();
+    const pending = [staleRule("a")];
+    const { store, expired } = makeFakeExpireDeps({ pending, expiryFloor: now });
+    const result = runAutoExpire({ store, now, maxPerSweep: 5, expireDays: 30 });
+    expect(expired).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ── shouldReapTrial ───────────────────────────────────────────────────────────
+
+describe("shouldReapTrial", () => {
+  const NOW = Date.now();
+  const DAYS_MS = 86_400_000;
+
+  test("injection branch: injectedCount>=reapNmin and age>reapDays → true", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: NOW - 22 * DAYS_MS, // 22 days > reapDays=21
+      injectedCount: 8,
+      helpfulCount: 0,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(true);
+  });
+
+  test("time-only fallback: injectedCount<reapNmin but age>maxDays → true", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: NOW - 61 * DAYS_MS, // 61 days > maxDays=60
+      injectedCount: 2, // below reapNmin
+      helpfulCount: 0,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(true);
+  });
+
+  test("NOT when helpfulCount > 0 (proven)", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: NOW - 61 * DAYS_MS,
+      injectedCount: 10,
+      helpfulCount: 1,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(false);
+  });
+
+  test("NOT when not a trial (trialedAt=null)", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: null,
+      injectedCount: 10,
+      helpfulCount: 0,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(false);
+  });
+
+  test("NOT when status !== active", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      trialedAt: NOW - 61 * DAYS_MS,
+      injectedCount: 10,
+      helpfulCount: 0,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(false);
+  });
+
+  test("injection branch NOT triggered when age <= reapDays", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "active",
+      trialedAt: NOW - 10 * DAYS_MS, // only 10 days
+      injectedCount: 8,
+      helpfulCount: 0,
+    });
+    expect(shouldReapTrial(rule, NOW, { reapNmin: 8, reapDays: 21, reapMaxDays: 60 })).toBe(false);
+  });
+});
+
+// ── runReapStaleTrials ────────────────────────────────────────────────────────
+
+function makeFakeReapDeps(opts: { trials?: Learning[]; cfg?: Partial<RepoConfig> }) {
+  const trials = opts.trials ?? [];
+  const cfg = makeRepoConfig(opts.cfg ?? {});
+  const reaped: string[] = [];
+
+  const store: ReapTrialDeps["store"] = {
+    listTrialLearnings: () => trials,
+    getRepoConfig: () => cfg,
+    reapStaleTrial: (id) => {
+      const r = trials.find((x) => x.id === id);
+      if (!r) return null;
+      reaped.push(id);
+      return { ...r, status: "retired", retiredReason: TRIAL_EXPIRED_REASON, trialedAt: null };
+    },
+  };
+
+  return { store, reaped };
+}
+
+describe("runReapStaleTrials", () => {
+  const NOW = Date.now();
+  const DAYS_MS = 86_400_000;
+  const reap = { reapNmin: 8, reapDays: 21, reapMaxDays: 60 };
+
+  function staleTrialRule(id: string, repoPath = "/repo"): Learning {
+    return makeLearning({
+      id,
+      repoPath,
+      status: "active",
+      trialedAt: NOW - 22 * DAYS_MS,
+      injectedCount: 8,
+      helpfulCount: 0,
+    });
+  }
+
+  test("caps at maxPerSweep", () => {
+    const trials = [
+      staleTrialRule("a"),
+      staleTrialRule("b"),
+      staleTrialRule("c"),
+      staleTrialRule("d"),
+    ];
+    const { store, reaped } = makeFakeReapDeps({ trials });
+    const result = runReapStaleTrials({ store, now: NOW, maxPerSweep: 2, reap });
+    expect(reaped).toHaveLength(2);
+    expect(result).toHaveLength(2);
+  });
+
+  test("gates on learningsEnabled", () => {
+    const trials = [staleTrialRule("a")];
+    const { store, reaped } = makeFakeReapDeps({ trials, cfg: { learningsEnabled: false } });
+    const result = runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap });
+    expect(reaped).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+
+  test("calls reapStaleTrial and returns ReapedRecord with injectedCount", () => {
+    const rule = staleTrialRule("r1", "/myrepo");
+    const { store, reaped } = makeFakeReapDeps({ trials: [rule] });
+    const result = runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap });
+    expect(reaped).toEqual(["r1"]);
+    expect(result).toHaveLength(1);
+    const rec = result[0]!;
+    expect(rec.repoPath).toBe("/myrepo");
+    expect(rec.id).toBe("r1");
+    expect(rec.injectedCount).toBe(8);
+  });
+});
+
+// ── repoBaseRate: unproven trial exclusion ────────────────────────────────────
+
+describe("repoBaseRate unproven-trial exclusion", () => {
+  test("unproven trial does NOT drag down the base rate", () => {
+    // Without exclusion: unproven trial (injectedCount=10, helpfulCount=0) would add
+    // 10 to denominator with 0 numerator, pulling rate down.
+    const goodActive = makeLearning({
+      id: "good",
+      status: "active",
+      injectedCount: 20,
+      helpfulCount: 18,
+      trialedAt: null,
+    });
+    const unprovenTrial = makeLearning({
+      id: "trial",
+      status: "active",
+      injectedCount: 10,
+      helpfulCount: 0,
+      trialedAt: Date.now(), // auto-trialed but unproven
+    });
+
+    const rateWithTrial = repoBaseRate([goodActive, unprovenTrial], { defaultRate: 0.5, minN: 20 });
+    const rateWithoutTrial = repoBaseRate([goodActive], { defaultRate: 0.5, minN: 20 });
+
+    // Excluding unproven trial: rate = 18/20 = 0.9
+    // Including would give: 18/30 = 0.6
+    expect(rateWithTrial).toBeCloseTo(18 / 20, 5); // unproven trial excluded
+    expect(rateWithoutTrial).toBeCloseTo(18 / 20, 5);
+    expect(rateWithTrial).toBe(rateWithoutTrial); // same — trial had no effect
+  });
+
+  test("proven trial (helpfulCount>0) still contributes to base rate", () => {
+    const provenTrial = makeLearning({
+      id: "proven",
+      status: "active",
+      injectedCount: 10,
+      helpfulCount: 8,
+      trialedAt: Date.now(), // auto-trialed AND proven
+    });
+    const otherGood = makeLearning({
+      id: "other",
+      status: "active",
+      injectedCount: 10,
+      helpfulCount: 8,
+      trialedAt: null,
+    });
+
+    // Both contribute: (8+8)/(10+10) = 0.8
+    const rate = repoBaseRate([provenTrial, otherGood], { defaultRate: 0.5, minN: 20 });
+    expect(rate).toBeCloseTo(0.8, 5);
+  });
+});
+
+// ── new constants defaults ────────────────────────────────────────────────────
+
+describe("new constant defaults", () => {
+  test("all new constants have expected defaults", () => {
+    expect(AUTO_TRIAL_ENABLED).toBe(true);
+    expect(TRIAL_NMIN).toBe(4);
+    expect(TRIAL_SESSION_FLOOR).toBe(2);
+    expect(TRIAL_MIN_KINDS).toBe(2);
+    expect(TRIAL_MIN_SESSIONS).toBe(3);
+    expect(MAX_TRIAL_PER_SWEEP).toBe(3);
+    expect(TRIAL_REAP_NMIN).toBe(8);
+    expect(TRIAL_REAP_DAYS).toBe(21);
+    expect(TRIAL_REAP_MAX_DAYS).toBe(60);
+    expect(MAX_REAP_PER_SWEEP).toBe(5);
+    expect(EXPIRE_DAYS).toBe(30);
+    expect(MAX_EXPIRE_PER_SWEEP).toBe(5);
+    expect(TRIAL_EXPIRED_REASON).toBe("trial-expired");
   });
 });

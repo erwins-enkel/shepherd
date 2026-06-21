@@ -771,3 +771,89 @@ test("GET /api/learnings/injectable marks scoped rules and excludes them from us
   const alwaysCost = ("- " + "always" + "\n").length;
   expect(repo.usedChars).toBe(alwaysCost + HOUSE_RULES_OVERHEAD);
 });
+
+// ── POST /api/learnings/:id/revert-trial (Task 6) ────────────────────────────
+
+test("POST /api/learnings/:id/revert-trial reverts active trial to proposed, clears trialedAt", async () => {
+  const { app, store, emitted } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  store.trialLearning(l.id); // proposed → active (trial)
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/revert-trial`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "proposed" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("proposed");
+  expect(body.trialedAt).toBeNull();
+  expect(emitted.some(([e]) => e === "learnings:update")).toBe(true);
+});
+
+test("POST /api/learnings/:id/revert-trial reverts active trial to dismissed", async () => {
+  const { app, store } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  store.trialLearning(l.id);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/revert-trial`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "dismissed" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("dismissed");
+  expect(body.trialedAt).toBeNull();
+});
+
+test("POST /api/learnings/:id/revert-trial with invalid target → 400", async () => {
+  const { app, store } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  store.trialLearning(l.id);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/revert-trial`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "active" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+test("POST /api/learnings/:id/revert-trial on a non-trial active rule → 404", async () => {
+  const { app, store } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  store.setLearningStatus(l.id, "active"); // active but NOT a trial (no trialedAt)
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/revert-trial`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "proposed" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+  expect(await res.json()).toHaveProperty("error");
+});
+
+test("POST /api/learnings/:id/revert-trial on a plain proposed rule → 404", async () => {
+  const { app, store } = harnessWithStore();
+  const l = store.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  // stays proposed, never trialed
+
+  const res = await app.fetch(
+    new Request(`http://x/api/learnings/${l.id}/revert-trial`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "proposed" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});

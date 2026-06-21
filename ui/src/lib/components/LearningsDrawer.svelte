@@ -53,6 +53,7 @@
     onoptimize,
     onoptimizeall,
     onrestore,
+    onreverttrial,
     onscope,
     onseenretired,
     onmerge,
@@ -72,6 +73,7 @@
     onoptimize: (id: string) => void;
     onoptimizeall: (repoPath: string) => void;
     onrestore: (id: string) => void;
+    onreverttrial: (id: string, target: "proposed" | "dismissed") => void;
     onscope: (id: string, globs: string[]) => void;
     onseenretired: (repoPath: string) => void;
     onmerge: (suggestionId: string) => void;
@@ -114,6 +116,7 @@
     onoptimize,
     onoptimizeall,
     onrestore,
+    onreverttrial,
     onseenretired,
     onmerge,
     ondismissmerge,

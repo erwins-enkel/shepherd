@@ -21,6 +21,7 @@ export interface PushPayload {
     | "usage_limit"
     | "extra_credits"
     | "learnings_retired"
+    | "learnings_trialed"
     | "ready";
   tag: string;
 }
@@ -41,6 +42,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   usage_limit: "agent",
   extra_credits: "agent",
   learnings_retired: "agent",
+  learnings_trialed: "agent",
   ready: "agent",
 };
 
@@ -58,6 +60,7 @@ export interface NotifyInput {
     | "usage_limit"
     | "extra_credits"
     | "learnings_retired"
+    | "learnings_trialed"
     | "ready";
   sessionId: string;
   tag: string;
@@ -87,6 +90,8 @@ export interface NotifyInput {
   currency?: string;
   /** For kind "learnings_retired": how many rules the auto-retire sweep retired. */
   retiredCount?: number;
+  /** For kind "learnings_trialed": how many proposals the auto-trial sweep promoted. */
+  trialedCount?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -145,6 +150,9 @@ const NOTIFY_TEXT = {
     learningsRetiredTitle: "Learnings auto-retired",
     learningsRetiredBody: (n: number) =>
       `${n} ${n === 1 ? "rule" : "rules"} auto-retired — tap to review.`,
+    learningsTrialedTitle: "Learnings on trial",
+    learningsTrialedBody: (n: number) =>
+      `${n} ${n === 1 ? "proposal" : "proposals"} auto-promoted to trial — tap to review.`,
     readyTitle: (name: string) => `${name} — your turn`,
     readyBody: "Waiting on you for 5s — your turn.",
   },
@@ -188,6 +196,9 @@ const NOTIFY_TEXT = {
     learningsRetiredTitle: "Learnings automatisch zurückgezogen",
     learningsRetiredBody: (n: number) =>
       `${n} ${n === 1 ? "Regel" : "Regeln"} zurückgezogen — zum Prüfen tippen.`,
+    learningsTrialedTitle: "Learnings im Test",
+    learningsTrialedBody: (n: number) =>
+      `${n} ${n === 1 ? "Vorschlag" : "Vorschläge"} automatisch in den Test übernommen — zum Prüfen tippen.`,
     readyTitle: (name: string) => `${name} — du bist dran`,
     readyBody: "Wartet seit 5s auf dich — du bist dran.",
   },
@@ -319,6 +330,12 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         ...base,
         title: t.learningsRetiredTitle,
         body: t.learningsRetiredBody(input.retiredCount ?? 0),
+      };
+    case "learnings_trialed":
+      return {
+        ...base,
+        title: t.learningsTrialedTitle,
+        body: t.learningsTrialedBody(input.trialedCount ?? 0),
       };
     case "ready":
       return { ...base, title: t.readyTitle(input.name), body: t.readyBody };

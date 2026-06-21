@@ -71,7 +71,12 @@ import { listRepos, listReposPathForReal } from "./repos";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
-import { runAutoRetire } from "./learnings-lifecycle";
+import {
+  runAutoRetire,
+  runAutoTrial,
+  runAutoExpire,
+  runReapStaleTrials,
+} from "./learnings-lifecycle";
 import { Promoter } from "./promote";
 import { DocAgentService } from "./doc-agent";
 import { GitignoreAdopter } from "./gitignore-adopt";
@@ -1250,6 +1255,30 @@ const runDailySweep = () => {
         cooldownKey: "learnings_retired:all",
       })
       .catch((err) => console.warn("[push] learnings_retired notify failed:", err));
+  }
+  // Auto-trial strong proposals (#925): promote proposals with strong, multi-source evidence
+  // to active trials (kill-switch via SHEPHERD_LEARNINGS_AUTO_TRIAL); reap inert/zombie trials;
+  // expire stale dead proposals. All capped per sweep. Returns drive the client nudge + push.
+  const trialed = runAutoTrial({ store });
+  const reaped = runReapStaleTrials({ store });
+  const expired = runAutoExpire({ store });
+  if (trialed.length + reaped.length + expired.length > 0) {
+    events.emit("learnings:update", { pending: store.pendingLearningCount() });
+  }
+  if (trialed.length > 0) {
+    // Best-effort push so operators learn of background trials without opening the drawer.
+    // One summary push across all repos; suppressed while active / for muted devices. Guarded
+    // so a rejection can't crash the sweep — the in-drawer surface remains durable.
+    void push
+      .notify({
+        kind: "learnings_trialed",
+        sessionId: "",
+        tag: "learnings-trialed",
+        name: "learnings",
+        trialedCount: trialed.length,
+        cooldownKey: "learnings_trialed:all",
+      })
+      .catch((err) => console.warn("[push] learnings_trialed notify failed:", err));
   }
   // Reclaim session_injected_learnings rows for sessions that vanished without archive()
   // (force-removed/crashed) — archive() consumes the rest.

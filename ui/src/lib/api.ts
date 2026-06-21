@@ -1279,6 +1279,20 @@ export async function restoreLearning(id: string): Promise<Learning> {
   return r.json();
 }
 
+/** Revert an auto-trial back to the proposed queue or dismiss it. Trial-only server-side. */
+export async function revertTrialLearning(
+  id: string,
+  target: "proposed" | "dismissed",
+): Promise<Learning> {
+  const r = await fetch(`/api/learnings/${id}/revert-trial`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ target }),
+  });
+  if (!r.ok) throw await failed(r, "revert-trial");
+  return (await r.json()) as Learning;
+}
+
 /** Mark retired learnings as seen for a repo (clears the unseen banner). */
 export async function markRetiredSeen(repoPath: string): Promise<void> {
   const r = await fetch(`/api/learnings/seen-retired?repo=${encodeURIComponent(repoPath)}`, {

@@ -1060,6 +1060,9 @@ export interface Learning {
   injectedCount: number;
   lastUsedAt: number | null;
   retiredAt: number | null;
+  /** Timestamp (ms) when this rule was auto-promoted to an active trial; null for
+   *  manually approved rules. Present on active/injectable payloads (#925). */
+  trialedAt?: number | null;
   retiredReason: string | null;
   // Glob patterns scoping where this rule injects (repo-relative). Empty = an
   // Always-rule (every task); non-empty = injected only when the session's target

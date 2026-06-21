@@ -1707,5 +1707,14 @@
   "issue_filter_button_aria": "Issue filters, {count} active",
   "issue_filter_heading": "Filter issues",
   "feat_issue_filters_menu_title": "Issue filters grouped into a menu",
-  "feat_issue_filters_menu_body": "The Backlog and New Task issue lists now gather their filters — mine & unassigned, hide in progress, hide sub-issues — into a single Filters menu with an active-count badge, instead of a row of chips."
+  "feat_issue_filters_menu_body": "The Backlog and New Task issue lists now gather their filters — mine & unassigned, hide in progress, hide sub-issues — into a single Filters menu with an active-count badge, instead of a row of chips.",
+  "learnings_trial_badge": "Trial",
+  "learnings_trial_title": "Auto-promoted on strong evidence — on trial until it proves helpful; injected at lowest priority and auto-removed if it underperforms.",
+  "learnings_revert_trial": "Revert",
+  "learnings_revert_trial_aria": "Revert this trial to the proposed queue",
+  "learnings_revert_failed": "Couldn't revert the trial — try again.",
+  "gloss_trial_term": "trial",
+  "gloss_trial_def": "A proposed house rule auto-promoted to active on strong, multi-source evidence, injected at lowest priority while it proves itself. It is auto-removed if it underperforms (Wilson auto-retire) or stays inert, and can be reverted to the queue by hand.",
+  "feat_learnings_auto_trial_title": "Auto-trial for strong learnings",
+  "feat_learnings_auto_trial_body": "Strong, recurring rule proposals now auto-promote to an active [[trial|trial]] instead of waiting in the manual approval queue — and underperforming trials are removed automatically. Trials are badged and one-click revertible in the learnings drawer."
 }

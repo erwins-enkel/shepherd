@@ -339,6 +339,9 @@ type LearningRow = {
   lastEvidenceAt: number | null;
   promotedPrUrl: string | null;
   mergedIntoId: string | null;
+  trialedAt: number | null;
+  evidenceKindsSeen: string;
+  evidenceSessionsSeen: string;
 };
 
 /** SQLite row shape for the learning_merge_suggestions table (Phase 4). */
@@ -683,6 +686,7 @@ export class SessionStore implements CapStore, CreditStore {
       `CREATE INDEX IF NOT EXISTS merge_suggestions_kind_status ON learning_merge_suggestions (kind, status)`,
     );
     this.migrateLearningsColumns();
+    this.backfillLearningDiversity();
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
       id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
       title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
@@ -2350,6 +2354,12 @@ export class SessionStore implements CapStore, CreditStore {
     // Phase 4 merge citation (#843): on a rule soft-retired by consolidation, the id of
     // the surviving rule it was merged into. Null otherwise; cleared on restore.
     add("mergedIntoId", `mergedIntoId TEXT`);
+    // Auto-trial columns (#925): timestamp of proposed→active auto-promotion (null for
+    // manually-approved rules); durable diversity sets (JSON arrays) that survive 60-day
+    // signal pruning so the trial gate can read kind/session counts even after signals prune.
+    add("trialedAt", `trialedAt INTEGER`);
+    add("evidenceKindsSeen", `evidenceKindsSeen TEXT NOT NULL DEFAULT '[]'`);
+    add("evidenceSessionsSeen", `evidenceSessionsSeen TEXT NOT NULL DEFAULT '[]'`);
   }
 
   private hydrateLearning(r: LearningRow): Learning {
@@ -2373,6 +2383,9 @@ export class SessionStore implements CapStore, CreditStore {
       lastEvidenceAt: r.lastEvidenceAt,
       promotedPrUrl: r.promotedPrUrl ?? null,
       mergedIntoId: r.mergedIntoId ?? null,
+      trialedAt: r.trialedAt ?? null,
+      distinctKinds: parseFindings(r.evidenceKindsSeen).length,
+      distinctSessions: parseFindings(r.evidenceSessionsSeen).length,
     };
   }
 
@@ -2393,6 +2406,19 @@ export class SessionStore implements CapStore, CreditStore {
     };
   }
 
+  /** Resolve signal ids to their distinct kind + session sets for durable diversity tracking.
+   *  kinds = distinct signal.kind values; sessions = distinct non-null/non-empty sessionIds,
+   *  capped at 50 to bound row growth. Used by addLearning and accrueProposedEvidence. */
+  private resolveDiversity(signalIds: string[]): { kinds: string[]; sessions: string[] } {
+    if (signalIds.length === 0) return { kinds: [], sessions: [] };
+    const signals = this.getSignalsByIds(signalIds);
+    const kinds = [...new Set(signals.map((s) => s.kind))];
+    const sessions = [
+      ...new Set(signals.map((s) => s.sessionId).filter((id): id is string => !!id)),
+    ].slice(0, 50);
+    return { kinds, sessions };
+  }
+
   addLearning(input: {
     repoPath: string;
     rule: string;
@@ -2401,6 +2427,7 @@ export class SessionStore implements CapStore, CreditStore {
     scopeGlobs?: string[];
   }): Learning {
     const now = Date.now();
+    const { kinds, sessions } = this.resolveDiversity(input.evidence);
     const l: Learning = {
       id: randomUUID(),
       repoPath: input.repoPath,
@@ -2421,11 +2448,14 @@ export class SessionStore implements CapStore, CreditStore {
       lastEvidenceAt: input.evidence.length ? now : null,
       promotedPrUrl: null,
       mergedIntoId: null,
+      trialedAt: null,
+      distinctKinds: kinds.length,
+      distinctSessions: sessions.length,
     };
     this.db.run(
       `INSERT INTO learnings
-         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, scopeGlobs, createdAt, updatedAt, lastEvidenceAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, scopeGlobs, createdAt, updatedAt, lastEvidenceAt, evidenceKindsSeen, evidenceSessionsSeen)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         l.id,
         l.repoPath,
@@ -2439,6 +2469,8 @@ export class SessionStore implements CapStore, CreditStore {
         l.createdAt,
         l.updatedAt,
         l.lastEvidenceAt,
+        JSON.stringify(kinds),
+        JSON.stringify(sessions),
       ],
     );
     return l;
@@ -2914,9 +2946,152 @@ export class SessionStore implements CapStore, CreditStore {
 
   listPendingLearnings(): Learning[] {
     const rows = this.db
-      .query(`SELECT * FROM learnings WHERE status = 'proposed' ORDER BY updatedAt DESC`)
+      .query(
+        `SELECT * FROM learnings WHERE status = 'proposed' ORDER BY evidenceCount DESC, lastEvidenceAt DESC`,
+      )
       .all();
     return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
+  }
+
+  // ── auto-trial primitives (#925) ──────────────────────────────────────────
+
+  /** Promote a proposed rule to active as a trial (auto-trial path). Sets trialedAt
+   *  to mark it as auto-promoted — distinguishes it from manually-approved active rules.
+   *  Returns null if the rule is not currently proposed. */
+  trialLearning(id: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.status !== "proposed") return null;
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET status = 'active', trialedAt = ?, updatedAt = ? WHERE id = ?`,
+      [now, now, id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** Revert an auto-trialed active rule back to proposed or dismissed. Guards that the
+   *  rule is currently active AND was auto-trialed (trialedAt != null). Clears trialedAt.
+   *
+   *  NOTE: active→proposed is not in LEARNING_TRANSITIONS (it is a terminal-ish flow in the
+   *  normal FSM). This method deliberately bypasses that table for the auto-trial case only —
+   *  a trial is a reversible auto-promotion, not a user-driven manual promotion, so the
+   *  reverse path must be open without widening the general FSM. */
+  revertTrial(id: string, target: "proposed" | "dismissed"): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
+    const now = Date.now();
+    this.db.run(`UPDATE learnings SET status = ?, trialedAt = NULL, updatedAt = ? WHERE id = ?`, [
+      target,
+      now,
+      id,
+    ]);
+    return this.getLearning(id);
+  }
+
+  /** Retire a stale trialed rule. Guards that the rule is active and was auto-trialed
+   *  (trialedAt != null). Sets status='retired' with retiredReason='trial-expired' and clears
+   *  trialedAt. Retires (not dismisses) so it shows in the retired drawer and stays restorable. */
+  reapStaleTrial(id: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = 'trial-expired',
+         retiredFromStatus = 'active', trialedAt = NULL, updatedAt = ? WHERE id = ?`,
+      [now, now, id],
+    );
+    return this.getLearning(id);
+  }
+
+  /** Append new evidence signal ids to a proposed rule's evidence array and merge new
+   *  kind/session diversity into the durable sets. Deduplicates against stored evidence;
+   *  returns null if the rule is not proposed, or if all supplied ids are already counted
+   *  (no-op, keeps counts honest — mirrors incrementLearningIneffective). */
+  accrueProposedEvidence(id: string, signalIds: string[]): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.status !== "proposed") return null;
+    const existingSet = new Set(cur.evidence);
+    const fresh = signalIds.filter((s) => typeof s === "string" && s && !existingSet.has(s));
+    if (fresh.length === 0) return null;
+    const newEvidence = [...cur.evidence, ...fresh];
+    const { kinds: freshKinds, sessions: freshSessions } = this.resolveDiversity(fresh);
+    // Read existing diversity sets from the raw row to avoid double-parsing via hydrate.
+    const row = this.db
+      .query(`SELECT evidenceKindsSeen, evidenceSessionsSeen FROM learnings WHERE id = ?`)
+      .get(id) as { evidenceKindsSeen: string; evidenceSessionsSeen: string } | null;
+    const existingKinds = new Set(parseFindings(row?.evidenceKindsSeen));
+    const existingSessionsArr = parseFindings(row?.evidenceSessionsSeen);
+    for (const k of freshKinds) existingKinds.add(k);
+    const mergedSessions = [...new Set([...existingSessionsArr, ...freshSessions])].slice(0, 50);
+    const now = Date.now();
+    this.db.run(
+      `UPDATE learnings SET evidence = ?, evidenceCount = ?, evidenceKindsSeen = ?,
+         evidenceSessionsSeen = ?, lastEvidenceAt = ?, updatedAt = ? WHERE id = ?`,
+      [
+        JSON.stringify(newEvidence),
+        newEvidence.length,
+        JSON.stringify([...existingKinds]),
+        JSON.stringify(mergedSessions),
+        now,
+        now,
+        id,
+      ],
+    );
+    return this.getLearning(id);
+  }
+
+  /** Dismiss a stale proposed rule (expiry path). Returns null if not proposed. */
+  expireLearning(id: string): Learning | null {
+    const cur = this.getLearning(id);
+    if (!cur || cur.status !== "proposed") return null;
+    this.db.run(`UPDATE learnings SET status = 'dismissed', updatedAt = ? WHERE id = ?`, [
+      Date.now(),
+      id,
+    ]);
+    return this.getLearning(id);
+  }
+
+  /** All active rules that were auto-trialed (trialedAt IS NOT NULL), across all repos,
+   *  ordered oldest-trial first (so the most-stale trial is first in the sweep). */
+  listTrialLearnings(): Learning[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM learnings WHERE status = 'active' AND trialedAt IS NOT NULL ORDER BY trialedAt ASC, rowid ASC`,
+      )
+      .all();
+    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
+  }
+
+  /** The expiry grace floor timestamp: proposed rules created before this ts are exempt
+   *  from expiry on the first backfill sweep (kv key: "learnings:expiry-floor"). */
+  expiryFloorAt(): number {
+    return Number(this.getSetting("learnings:expiry-floor") ?? 0);
+  }
+
+  /** One-time backfill: populate evidenceKindsSeen + evidenceSessionsSeen for existing
+   *  proposed rows that still have empty sets, and stamp the expiry-grace floor so the
+   *  lifecycle sweep doesn't immediately expire pre-existing proposals.
+   *  Guarded by the kv flag "learnings:diversity-backfilled" so it runs exactly once. */
+  private backfillLearningDiversity(): void {
+    if (this.getSetting("learnings:diversity-backfilled") === "1") return;
+    const rows = this.db
+      .query(
+        `SELECT id, evidence FROM learnings WHERE status = 'proposed'
+         AND evidenceKindsSeen = '[]' AND evidenceSessionsSeen = '[]' AND evidenceCount > 0`,
+      )
+      .all() as { id: string; evidence: string }[];
+    for (const row of rows) {
+      const ids = parseFindings(row.evidence);
+      const { kinds, sessions } = this.resolveDiversity(ids);
+      if (kinds.length > 0 || sessions.length > 0) {
+        this.db.run(
+          `UPDATE learnings SET evidenceKindsSeen = ?, evidenceSessionsSeen = ? WHERE id = ?`,
+          [JSON.stringify(kinds), JSON.stringify(sessions), row.id],
+        );
+      }
+    }
+    this.setSetting("learnings:expiry-floor", String(Date.now()));
+    this.setSetting("learnings:diversity-backfilled", "1");
   }
 
   /** Resolve cited evidence signal ids to their full rows (newest first), for the

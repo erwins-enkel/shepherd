@@ -1149,6 +1149,7 @@
   "topbar_credits_period": "Zusatzguthaben",
   "topbar_credits_amount": "{spent} von {cap} verbraucht",
   "topbar_credits_age": "abgerufen vor {age}",
+  "topbar_credits_age_now": "gerade abgerufen",
   "topbar_credits_stale": "Snapshot veraltet — für Live-Verbrauch aktualisieren",
   "topbar_credits_alert_aria": "Zusatzguthaben in Nutzung: {amount}",
   "topbar_credits_refresh": "Aktualisieren",

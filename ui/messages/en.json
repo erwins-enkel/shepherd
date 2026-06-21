@@ -1149,6 +1149,7 @@
   "topbar_credits_period": "Extra credits",
   "topbar_credits_amount": "{spent} of {cap} spent",
   "topbar_credits_age": "scraped {age} ago",
+  "topbar_credits_age_now": "scraped just now",
   "topbar_credits_stale": "snapshot stale — refresh for live spend",
   "topbar_credits_alert_aria": "Extra credits in use: {amount}",
   "topbar_credits_refresh": "Refresh",

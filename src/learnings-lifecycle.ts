@@ -175,6 +175,10 @@ export function shouldTrial(
   opts?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number },
 ): boolean {
   if (rule.status !== "proposed") return false;
+  // #945: a reverted-to-proposed trial is blocked from auto-re-trial until genuinely fresh
+  // evidence clears the marker (accrueProposedEvidence) or the rule expires. Presence-only —
+  // the timestamp value is never compared to `now`, so no cooldown-vs-expire coupling exists.
+  if (rule.reTrialBlockedAt != null) return false;
   const K = opts?.nMin ?? TRIAL_NMIN;
   const floor = opts?.sessionFloor ?? TRIAL_SESSION_FLOOR;
   const minKinds = opts?.minKinds ?? TRIAL_MIN_KINDS;

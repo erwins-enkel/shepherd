@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
+import { runAutoTrial } from "../src/learnings-lifecycle";
 
 test("addSignal stores and lists newest-first within a repo", () => {
   const s = new SessionStore(":memory:");
@@ -1001,6 +1002,87 @@ test("#925: revertTrial returns null for proposed/dismissed/missing rows", () =>
   const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
   expect(s.revertTrial(l.id, "proposed")).toBeNull(); // still proposed
   expect(s.revertTrial("no-id", "proposed")).toBeNull(); // missing
+});
+
+test("#945: revertTrial('proposed') sets reTrialBlockedAt; 'dismissed' leaves it null", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  const before = Date.now();
+  const reverted = s.revertTrial(l.id, "proposed")!;
+  expect(reverted.reTrialBlockedAt).not.toBeNull();
+  expect(reverted.reTrialBlockedAt!).toBeGreaterThanOrEqual(before);
+
+  const l2 = s.addLearning({ repoPath: "/r", rule: "r2", rationale: "", evidence: [] });
+  s.trialLearning(l2.id);
+  const dismissed = s.revertTrial(l2.id, "dismissed")!;
+  expect(dismissed.reTrialBlockedAt).toBeNull();
+});
+
+test("#945: accrueProposedEvidence clears reTrialBlockedAt on genuinely fresh evidence", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const sig2 = s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  s.trialLearning(l.id);
+  const reverted = s.revertTrial(l.id, "proposed")!;
+  expect(reverted.reTrialBlockedAt).not.toBeNull();
+  const updated = s.accrueProposedEvidence(l.id, [sig2.id])!;
+  expect(updated.reTrialBlockedAt).toBeNull();
+});
+
+test("#945: accrueProposedEvidence no-op (no fresh ids) leaves the block in place", () => {
+  const s = new SessionStore(":memory:");
+  const sig1 = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [sig1.id] });
+  s.trialLearning(l.id);
+  s.revertTrial(l.id, "proposed");
+  expect(s.accrueProposedEvidence(l.id, [sig1.id])).toBeNull(); // dup → no-op
+  expect(s.getLearning(l.id)!.reTrialBlockedAt).not.toBeNull(); // block survives
+});
+
+test("#945: setLearningStatus(active→dismissed) clears stale trialedAt", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id); // active + trialedAt set
+  expect(s.getLearning(l.id)!.trialedAt).not.toBeNull();
+  const dismissed = s.setLearningStatus(l.id, "dismissed")!;
+  expect(dismissed.status).toBe("dismissed");
+  expect(dismissed.trialedAt).toBeNull();
+});
+
+test("#945: end-to-end — revert blocks the next sweep; recurrence re-trials", () => {
+  const s = new SessionStore(":memory:");
+  const gate = { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 };
+  // A strong proposal: 4 signals across 4 kinds + 4 sessions → trial-worthy.
+  const sigs = [
+    s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" }),
+    s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" }),
+    s.addSignal({ repoPath: "/r", sessionId: "s3", kind: "critic", payload: "c" }),
+    s.addSignal({ repoPath: "/r", sessionId: "s4", kind: "stall", payload: "d" }),
+  ];
+  const l = s.addLearning({
+    repoPath: "/r",
+    rule: "r",
+    rationale: "",
+    evidence: sigs.map((x) => x.id),
+  });
+  s.trialLearning(l.id); // it was auto-trialed
+  s.revertTrial(l.id, "proposed"); // operator sends it back to the queue
+
+  // Next sweep must NOT re-trial it off the frozen counters.
+  const first = runAutoTrial({ store: s, enabled: true, maxPerSweep: 5, gate });
+  expect(first).toHaveLength(0);
+  expect(s.getLearning(l.id)!.status).toBe("proposed");
+
+  // Genuine recurrence: a fresh signal lifts the block.
+  const fresh = s.addSignal({ repoPath: "/r", sessionId: "s5", kind: "reply", payload: "e" });
+  s.accrueProposedEvidence(l.id, [fresh.id]);
+
+  // Now the sweep re-trials it.
+  const second = runAutoTrial({ store: s, enabled: true, maxPerSweep: 5, gate });
+  expect(second.map((r) => r.id)).toContain(l.id);
+  expect(s.getLearning(l.id)!.status).toBe("active");
 });
 
 test("#925: reapStaleTrial retires a trial with reason trial-expired, clears trialedAt", () => {

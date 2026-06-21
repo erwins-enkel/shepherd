@@ -62,6 +62,7 @@ function makeLearning(o: Partial<Learning> & { id: string }): Learning {
     promotedPrUrl: null,
     mergedIntoId: null,
     trialedAt: null,
+    reTrialBlockedAt: null,
     distinctKinds: 0,
     distinctSessions: 0,
     ...o,
@@ -765,6 +766,20 @@ describe("shouldTrial", () => {
     });
     expect(shouldTrial(rule)).toBe(false);
   });
+
+  test("#945: fails when reTrialBlockedAt is set, even with strong counters", () => {
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      evidenceCount: 10,
+      distinctSessions: 5,
+      distinctKinds: 5,
+      reTrialBlockedAt: Date.now(),
+    });
+    expect(shouldTrial(rule, { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 })).toBe(
+      false,
+    );
+  });
 });
 
 // ── runAutoTrial ──────────────────────────────────────────────────────────────
@@ -850,6 +865,21 @@ describe("runAutoTrial", () => {
     expect(rec.distinctKinds).toBe(4);
     expect(rec.distinctSessions).toBe(3);
   });
+
+  test("#945: skips a reverted rule blocked from re-trial (reTrialBlockedAt set)", () => {
+    const blocked = makeLearning({
+      id: "blk",
+      status: "proposed",
+      evidenceCount: K,
+      distinctSessions: floor,
+      distinctKinds: minKinds,
+      reTrialBlockedAt: Date.now(),
+    });
+    const { store, trialed } = makeFakeTrialDeps({ pending: [blocked] });
+    const result = runAutoTrial({ store, enabled: true, maxPerSweep: 5, gate });
+    expect(trialed).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
 });
 
 // ── shouldExpireProposed ──────────────────────────────────────────────────────
@@ -899,6 +929,29 @@ describe("shouldExpireProposed", () => {
         gate: { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 },
       }),
     ).toBe(false);
+  });
+
+  test("#945: a blocked reverted rule is no longer trial-worthy → ages out (becomes expirable)", () => {
+    const now = Date.now();
+    // Same strong counters as the "trial-worthy → never expire" case above, but the re-trial
+    // block makes shouldTrial false, so the stale reverted proposal expires instead of being
+    // pinned in the queue — this is how Revert "durably sticks" with no recurrence.
+    const rule = makeLearning({
+      id: "a",
+      status: "proposed",
+      lastEvidenceAt: now - THIRTY_DAYS - 1,
+      createdAt: now - THIRTY_DAYS - 1,
+      evidenceCount: 4,
+      distinctSessions: 2,
+      distinctKinds: 2,
+      reTrialBlockedAt: now,
+    });
+    expect(
+      shouldExpireProposed(rule, now, {
+        expireDays: 30,
+        gate: { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 },
+      }),
+    ).toBe(true);
   });
 
   test("expiryFloor defers expiry (old lastEvidenceAt but floor=now → NOT expired)", () => {

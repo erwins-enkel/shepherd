@@ -1785,5 +1785,7 @@
   "feedback_dialog_submit": "Auf GitHub fortfahren",
   "feedback_dialog_note": "Öffnet ein vorausgefülltes GitHub-Issue in einem neuen Tab – vor dem Absenden prüfen und bearbeiten.",
   "settings_feedback_title": "Feedback",
-  "settings_feedback_blurb": "Fehler gefunden oder eine Idee? Sagen Sie uns Bescheid."
+  "settings_feedback_blurb": "Fehler gefunden oder eine Idee? Sagen Sie uns Bescheid.",
+  "feat_feedback_title": "Fehler melden & Feedback senden",
+  "feat_feedback_body": "Fehler gefunden oder eine Idee? Über das Zahnrad-Menü oder Einstellungen → Gerät können Sie einen Fehler melden, eine Funktion vorschlagen oder Feedback senden – es öffnet ein vorausgefülltes GitHub-Issue."
 }

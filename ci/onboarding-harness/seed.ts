@@ -42,6 +42,9 @@ function baselineCommands(): string[] {
     // bun's installer hard-requires `unzip`; minimal images (debian/12) lack it,
     // and without it the bun install silently no-ops and Shepherd never boots.
     ensurePkg("unzip"),
+    // minimal RPM images (rockylinux/9) ship no `tar`; we extract the working-tree
+    // tarball in the next step, so tar must be present before it runs.
+    ensurePkg("tar"),
     ensureToolchain(),
     "curl -fsSL https://bun.sh/install | bash",
     // node-gyp shells out to a BARE `bun` while building node-pty; the installer

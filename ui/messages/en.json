@@ -1790,5 +1790,7 @@
   "usage_load_error": "Couldn't load usage data.",
   "usage_spend_cost_label": "Cost",
   "topbar_usage_link": "Token usage",
-  "topbar_usage_link_aria": "Open the token-usage dashboard"
+  "topbar_usage_link_aria": "Open the token-usage dashboard",
+  "feat_usage_dashboard_title": "Token usage dashboard",
+  "feat_usage_dashboard_body": "See where your tokens go — spend by repo and task, the cache-vs-generation overhead split, and live limit burn-down. Open it from the gear menu."
 }

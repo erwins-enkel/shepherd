@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { BacklogProject } from "$lib/types";
+  import type { BacklogProject, DocAgentRun } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import type { ActionsTabState } from "../backlog-view";
+  import DocAgentControl from "./DocAgentControl.svelte";
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
 
@@ -17,8 +18,13 @@
     actionsState,
     ffInFlight,
     selectedPath,
+    docAgentEnabled = false,
+    docAgentAct = false,
+    docAgentRunning = false,
+    docAgentRuns = [],
     onselecttab,
     onff,
+    ondocagent = () => {},
   }: {
     variant: "desktop" | "mobile";
     activeTab: Tab;
@@ -26,8 +32,13 @@
     actionsState: ActionsTabState;
     ffInFlight: boolean;
     selectedPath: string | null;
+    docAgentEnabled?: boolean;
+    docAgentAct?: boolean;
+    docAgentRunning?: boolean;
+    docAgentRuns?: DocAgentRun[];
     onselecttab: (tab: Tab) => void;
     onff: () => void;
+    ondocagent?: () => void;
   } = $props();
 
   // coachTarget only on the desktop variant — preserves the pre-split behavior
@@ -93,8 +104,31 @@
   >
     {m.backlog_tab_automation()}
   </button>
+  {#if docAgentEnabled}
+    <!-- Doc-agent control + FF button in a right-aligned cluster -->
+    <div class="action-cluster">
+      <DocAgentControl
+        act={docAgentAct}
+        running={docAgentRunning}
+        runs={docAgentRuns}
+        disabled={selectedPath === null}
+        coach={variant === "desktop"}
+        ontrigger={ondocagent}
+      />
+      {@render ffButton(false)}
+    </div>
+  {:else}
+    {@render ffButton(true)}
+  {/if}
+</div>
+
+<!-- Fast-forward button, shared by both branches above. `solo` (no doc-agent) makes
+     it claim the right margin itself; in the cluster the wrapper owns the margin. Only
+     one branch renders, so there's a single instance + a single coach anchor. -->
+{#snippet ffButton(solo: boolean)}
   <button
     class="gbtn ff-btn"
+    class:ff-btn-solo={solo}
     type="button"
     disabled={ffInFlight || selectedPath === null}
     onclick={onff}
@@ -108,7 +142,7 @@
     </svg>
     {m.backlog_ff_main()}
   </button>
-</div>
+{/snippet}
 
 <style>
   /* ── tab bar (desktop) ── */
@@ -187,12 +221,25 @@
   }
 
   .ff-btn {
-    margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
     white-space: nowrap;
+  }
+
+  /* Standalone ff-btn (no doc-agent) claims the auto margin itself. */
+  .ff-btn-solo {
+    margin-left: auto;
+  }
+
+  /* When doc-agent is enabled, cluster owns margin-left:auto so both controls push right. */
+  .action-cluster {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   /* ── tab strip (mobile overlay) ──

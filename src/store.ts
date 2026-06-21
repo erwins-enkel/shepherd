@@ -775,6 +775,25 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  // ── doc-agent run history (capped KV JSON, newest-first) ─────────────────
+  recordDocAgentRun(repoPath: string, run: import("./types").DocAgentRun): void {
+    const key = `docagent:runs:${repoPath}`;
+    const existing = this.listDocAgentRuns(repoPath);
+    const updated = [run, ...existing].slice(0, 10);
+    this.setSetting(key, JSON.stringify(updated));
+  }
+
+  listDocAgentRuns(repoPath: string): import("./types").DocAgentRun[] {
+    const key = `docagent:runs:${repoPath}`;
+    const raw = this.getSetting(key);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as import("./types").DocAgentRun[];
+    } catch {
+      return [];
+    }
+  }
+
   // ── per-repo config (critic on/off) ───────────────────────────────────────
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db

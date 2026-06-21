@@ -1505,7 +1505,10 @@ const appDeps: AppDeps = {
   optimizer,
   mergeSuggest: { mergeNow: (repoPath) => mergeSuggest.mergeNow(repoPath) },
   promoter,
-  docAgent: { consider: (repoPath: string) => docAgent.consider(repoPath) },
+  docAgent: {
+    consider: (repoPath: string) => docAgent.consider(repoPath),
+    isRunning: (repoPath: string) => docAgent.isRunning(repoPath),
+  },
   gitignoreAdopter,
   drain: {
     snapshot: () => drain.snapshot(),

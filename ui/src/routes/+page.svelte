@@ -413,6 +413,7 @@
         settings = s;
         usageHoldEnabled = s.usageHoldEnabled;
         usageHoldPct = s.usageHoldPct;
+        store.docAgentEnabled = s.docAgentEnabled;
         // One-shot: loadSettings() also re-fires on tab return, so the eligibility
         // flag is consumed and `seen` re-checked here — a dismissed (or already-seen)
         // arrival must never reappear. See resolveFableArrival.
@@ -1722,6 +1723,9 @@
               epics={store.epics}
               {inTrainPrs}
               drain={store.drain}
+              docAgentEnabled={settings?.docAgentEnabled ?? false}
+              docAgentAct={settings?.docAgentAct ?? false}
+              docAgentDone={store.docAgentDone}
             />
           {/if}
         </div>
@@ -1885,6 +1889,9 @@
             epics={store.epics}
             {inTrainPrs}
             drain={store.drain}
+            docAgentEnabled={settings?.docAgentEnabled ?? false}
+            docAgentAct={settings?.docAgentAct ?? false}
+            docAgentDone={store.docAgentDone}
           />
         {:else if selected}
           <Viewport

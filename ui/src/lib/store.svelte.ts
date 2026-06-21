@@ -18,6 +18,7 @@ import type {
   BuildQueue,
   Epic,
   CompletedEpic,
+  DocAgentOutcome,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -102,6 +103,12 @@ export class HerdStore {
   /** Completed-epic records (newest first); bootstrapped via GET /api/epics/completed,
    *  kept live by the `epic:completed` / `epic:completed-cleared` WS events. */
   completedEpics = $state<CompletedEpic[]>([]);
+  /** Whether the PR-gated doc agent feature is enabled; set from loadSettings(). Gates the doc-agent toast. */
+  docAgentEnabled = $state(false);
+  /** Reactive signal set on each `doc-agent:done` WS event; Task 3 components watch this to re-fetch runs. */
+  docAgentDone = $state<{ repoPath: string; url: string | null; outcome: DocAgentOutcome } | null>(
+    null,
+  );
   /** true once the user has confirmed an update; cleared by the reload it triggers */
   updating = $state(false);
   /** SHA we booted on; a different `current` after an update means a fresh build is live */
@@ -411,11 +418,76 @@ export class HerdStore {
     }
   }
 
+  /** Handle the `doc-agent:done` WS event. Sets the reactive `docAgentDone` signal and,
+   *  when `docAgentEnabled` is true, fires an outcome-keyed toast. Returns true if handled. */
+  private applyDocAgentEvent(ev: WsEvent): boolean {
+    if (ev.event !== "doc-agent:done") return false;
+    this.docAgentDone = ev.data;
+    if (!this.docAgentEnabled) return true;
+    const repo = ev.data.repoPath.split("/").pop() ?? ev.data.repoPath;
+    const key = `doc-agent-done:${ev.data.repoPath}`;
+    if (ev.data.outcome === "pr") {
+      const url = ev.data.url;
+      toasts.info(m.docagent_toast_pr_opened({ repo }), {
+        key,
+        ...(url != null
+          ? {
+              action: {
+                label: m.docagent_toast_view_pr(),
+                run: () => window.open(url, "_blank", "noopener"),
+              },
+            }
+          : {}),
+      });
+    } else if (ev.data.outcome === "observe") {
+      toasts.info(m.docagent_toast_observe({ repo }), { key });
+    } else {
+      toasts.info(m.docagent_toast_no_changes({ repo }), { key });
+    }
+    return true;
+  }
+
+  /** Handle the epic lifecycle WS events (update / completed / completed-cleared).
+   *  Split out of applyGlobalEvent so its dispatch switch stays under the complexity
+   *  gate (mirrors applyHerdrUpdateEvent / applyDocAgentEvent). Returns true if handled. */
+  private applyEpicEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "epic:update":
+        this.setEpic(ev.data);
+        return true;
+      case "epic:completed": {
+        const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
+        const filtered = this.completedEpics.filter(
+          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
+        );
+        this.completedEpics = [ev.data, ...filtered];
+        toasts.info(
+          m.completed_epic_toast({
+            number: ev.data.parentIssueNumber,
+            count: ev.data.children.length,
+          }),
+          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
+        );
+        return true;
+      }
+      case "epic:completed-cleared":
+        this.completedEpics = this.completedEpics.filter(
+          (e) =>
+            e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
+        );
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /** Handle the app-global (non per-session-row) WS events: usage limits, the
    *  self/herdr update channels, project icons, learnings, backlog + drain.
    *  Split out of apply() so its dispatch switch stays under the complexity gate. */
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applyHerdrUpdateEvent(ev)) return;
+    if (this.applyDocAgentEvent(ev)) return;
+    if (this.applyEpicEvent(ev)) return;
     switch (ev.event) {
       case "usage:limits":
         this.usageLimits = ev.data;
@@ -450,30 +522,6 @@ export class HerdStore {
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         buildQueuesStore.upsert(ev.data);
-        break;
-      case "epic:update":
-        this.setEpic(ev.data);
-        break;
-      case "epic:completed": {
-        const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
-        const filtered = this.completedEpics.filter(
-          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
-        );
-        this.completedEpics = [ev.data, ...filtered];
-        toasts.info(
-          m.completed_epic_toast({
-            number: ev.data.parentIssueNumber,
-            count: ev.data.children.length,
-          }),
-          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
-        );
-        break;
-      }
-      case "epic:completed-cleared":
-        this.completedEpics = this.completedEpics.filter(
-          (e) =>
-            e.repoPath !== ev.data.repoPath || e.parentIssueNumber !== ev.data.parentIssueNumber,
-        );
         break;
       case "held:changed":
         this.heldCount = ev.data.count;

@@ -53,6 +53,7 @@ import type {
   HerdDigest,
   DistillerHealth,
   RawAnswer,
+  DocAgentRun,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -1529,4 +1530,29 @@ export async function ackEpicMigrations(
     { repo: repoPath, parent },
     "acknowledge epic migrations",
   );
+}
+
+/** Manually trigger the PR-gated doc agent for a repo. 202 → started; 409 → skipped
+ *  (with the server's reason); other non-2xx throws. */
+export async function triggerDocAgent(
+  repoPath: string,
+): Promise<{ started: boolean; reason?: string }> {
+  const r = await fetch(`/api/doc-agent?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (r.status === 202) return { started: true };
+  if (r.status === 409) {
+    const body = await r.json().catch(() => ({}) as Record<string, unknown>);
+    return { started: false, reason: body.reason as string };
+  }
+  throw await failed(r, "doc agent");
+}
+
+export async function getDocAgentRuns(
+  repoPath: string,
+): Promise<{ running: boolean; runs: DocAgentRun[] }> {
+  const r = await fetch(`/api/doc-agent/runs?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "doc agent runs");
+  return r.json() as Promise<{ running: boolean; runs: DocAgentRun[] }>;
 }

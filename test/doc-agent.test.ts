@@ -157,6 +157,26 @@ function mkHarness(opts?: {
       if (row) row.completedAt = completedAt;
     },
     listReviewerSpawns: () => spawnRows,
+    recordDocAgentRun: (repoPath: string, run: import("../src/types").DocAgentRun) => {
+      const key = `docagent:runs:${repoPath}`;
+      const existing: import("../src/types").DocAgentRun[] = (() => {
+        try {
+          return JSON.parse(kv.get(key) ?? "[]") as import("../src/types").DocAgentRun[];
+        } catch {
+          return [];
+        }
+      })();
+      kv.set(key, JSON.stringify([run, ...existing].slice(0, 10)));
+    },
+    listDocAgentRuns: (repoPath: string): import("../src/types").DocAgentRun[] => {
+      try {
+        return JSON.parse(
+          kv.get(`docagent:runs:${repoPath}`) ?? "[]",
+        ) as import("../src/types").DocAgentRun[];
+      } catch {
+        return [];
+      }
+    },
   };
   let mergeCalls = 0;
 
@@ -348,8 +368,8 @@ test("happy path: in-scope edits → commit --no-verify + push + openPr (never m
   // PR body carries the grounding summary + human-review banner
   expect((h.openPrInputs[0] as any).body).toContain("never auto-merged");
   expect((h.openPrInputs[0] as any).body).toContain("configuration.md");
-  // finalize emits the url
-  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42" }]);
+  // finalize emits the url + outcome
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" }]);
   // cleanup
   expect(h.removedWorktrees.length).toBeGreaterThan(0);
 });
@@ -378,7 +398,7 @@ test("nothing staged (docs already current) → no commit/push/PR, no error", as
   expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
   expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
   expect(h.openPrInputs).toHaveLength(0);
-  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null }]);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "nochange" }]);
 });
 
 test("fail-closed: api-key mode without a configured key → skip, no spawn", async () => {
@@ -804,8 +824,8 @@ test("observe mode (act:false): staged changes → OBSERVE warn, NO push, NO PR,
     expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
     // worktree still cleaned up
     expect(h.removedWorktrees.length).toBeGreaterThan(0);
-    // url stays null (same shape as already-current path)
-    expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null }]);
+    // url stays null; observe outcome because staged changes existed but act:false
+    expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "observe" }]);
     // the OBSERVE line fired
     expect(warns.some((w) => w.includes("[doc-agent] OBSERVE:"))).toBe(true);
   } finally {
@@ -913,5 +933,48 @@ test("prettier failure path: throwing prettier stub still results in commit + pu
   );
   expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(true);
   expect(h.openPrInputs).toHaveLength(1);
-  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42" }]);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" }]);
+});
+
+// ── outcome tracking (issue #906) ────────────────────────────────────────────
+test("finalize: act + staged changes → outcome 'pr', onChange carries it, run recorded", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.finalizes).toHaveLength(1);
+  expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" });
+  const runs = h.kv.get("docagent:runs:/repo");
+  expect(runs).toBeDefined();
+  const parsed = JSON.parse(runs!) as { outcome: string; url: string | null; at: number }[];
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]!.outcome).toBe("pr");
+  expect(parsed[0]!.url).toBe("https://forge/pr/42");
+});
+
+test("finalize: observe (act:false) + staged changes → outcome 'observe', url null", async () => {
+  const orig = console.warn;
+  console.warn = () => {};
+  try {
+    const h = mkHarness({ act: false });
+    await h.svc.consider("/repo");
+    await h.svc.tick();
+    expect(h.finalizes).toHaveLength(1);
+    expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: null, outcome: "observe" });
+    const runs = h.kv.get("docagent:runs:/repo");
+    const parsed = JSON.parse(runs!) as { outcome: string }[];
+    expect(parsed[0]!.outcome).toBe("observe");
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("finalize: no staged changes → outcome 'nochange', url null", async () => {
+  const h = mkHarness({ stagedNames: "" });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.finalizes).toHaveLength(1);
+  expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: null, outcome: "nochange" });
+  const runs = h.kv.get("docagent:runs:/repo");
+  const parsed = JSON.parse(runs!) as { outcome: string }[];
+  expect(parsed[0]!.outcome).toBe("nochange");
 });

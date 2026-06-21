@@ -446,13 +446,8 @@ export class DocAgentService {
     }
     // Eligibility gates (cheap, no spawn). A miss leaves the debounce untouched so it can fire once
     // the session becomes eligible without restarting the idle clock.
-    if (!s.branch) return;
-    if (!this.fileExists(join(s.repoPath, DOC_TREE_MARKER))) return;
-    const git = this.deps.gitState?.(s.id);
-    if (!git || git.state !== "open" || git.checks !== "success") return;
-    if (!git.headSha || git.number == null) return;
-    if (!isDocRelevantMerge(git.title)) return;
-    if (this.deps.store.getSetting(prSyncedKey(s.repoPath, git.number)) != null) return;
+    const git = this.retargetCandidate(s);
+    if (!git) return;
 
     // Settled-idle debounce (mirrors RecapService.considerSession).
     const e = this.readyDebounce.get(s.id);
@@ -469,6 +464,24 @@ export class DocAgentService {
 
     e.fired = true;
     await this.beginRetarget(s, git);
+  }
+
+  /**
+   * Cheap, no-spawn eligibility gate for the re-target sweep: returns the validated cached
+   * {@link GitState} when `s` is a re-target candidate (has a branch, lives in a doc-tree repo, and
+   * its cached PR state is open + green + has a head sha + number + a doc-relevant title + is not
+   * already claimed by a prior re-target), else null. A null leaves the caller's idle debounce
+   * untouched so it can fire once the session becomes eligible without restarting the idle clock.
+   */
+  private retargetCandidate(s: Session): GitState | null {
+    if (!s.branch) return null;
+    if (!this.fileExists(join(s.repoPath, DOC_TREE_MARKER))) return null;
+    const git = this.deps.gitState?.(s.id);
+    if (!git || git.state !== "open" || git.checks !== "success") return null;
+    if (!git.headSha || git.number == null) return null;
+    if (!isDocRelevantMerge(git.title)) return null;
+    if (this.deps.store.getSetting(prSyncedKey(s.repoPath, git.number)) != null) return null;
+    return git;
   }
 
   /**
@@ -503,73 +516,114 @@ export class DocAgentService {
       // re-target run's own finalize fallback opens the single fresh PR (no double PR).
       this.deps.store.setSetting(prSyncedKey(repoPath, prNumber), "1");
 
-      const id8 = randomUUID().slice(0, 8);
-      const wtName = DOC_BRANCH_PREFIX + id8;
-      let wt;
-      try {
-        wt = this.deps.worktree.create(repoPath, headSha, wtName);
-      } catch (err) {
-        console.warn(`[doc-agent] re-target worktree creation failed for ${repoPath}:`, err);
-        return { status: "error", reason: "worktree creation failed" };
-      }
-      if (!wt.isolated || !wt.branch) {
-        if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
-        return { status: "error", reason: "worktree creation failed" };
-      }
-
-      // Drop the restart marker so a boot reconcile re-adopts this as a re-target run.
-      try {
-        this.writeMarker(join(wt.worktreePath, RETARGET_MARKER), {
+      const promptCtx: RetargetPromptCtx = { prNumber, prTitle: git.title ?? "" };
+      const launched = this.launchRun(
+        repoPath,
+        headSha,
+        base,
+        {
+          mode: "retarget",
           prNumber,
           headBranch: session.branch!,
-          base,
-        });
-      } catch (err) {
-        console.warn(`[doc-agent] writing re-target marker failed for ${repoPath}:`, err);
-      }
-
-      const promptCtx: RetargetPromptCtx = { prNumber, prTitle: git.title ?? "" };
-      const spawned = this.spawnAgent(
-        repoPath,
-        wt.worktreePath,
-        DOC_AGENT_LABEL + id8,
-        base,
+          ownerWorktreePath: session.worktreePath,
+          headSha,
+        },
         promptCtx,
+        // Drop the restart marker so a boot reconcile re-adopts this as a re-target run. Runs after
+        // worktree creation, before the spawn — same position as the original inline write.
+        (worktreePath) => {
+          try {
+            this.writeMarker(join(worktreePath, RETARGET_MARKER), {
+              prNumber,
+              headBranch: session.branch!,
+              base,
+            });
+          } catch (err) {
+            console.warn(`[doc-agent] writing re-target marker failed for ${repoPath}:`, err);
+          }
+        },
       );
-      if (!spawned) {
-        this.deps.worktree.remove(wt.worktreePath);
-        return { status: "error", reason: "spawn failed" };
-      }
-      const { terminalId, spawnSessionId } = spawned;
-      const startedAt = this.now();
-      this.inflight.set(repoPath, {
-        repoPath,
-        worktreePath: wt.worktreePath,
-        branch: wt.branch,
-        base,
-        terminalId,
-        agentName: DOC_AGENT_LABEL + id8,
-        spawnSessionId,
-        startedAt,
-        mode: "retarget",
-        prNumber,
-        headBranch: session.branch!,
-        ownerWorktreePath: session.worktreePath,
-        headSha,
-      });
-      // Durable cost row (same posture as begin): attributable even if the run crashes pre-finalize.
-      this.deps.store.recordReviewerSpawn({
-        reviewerSessionId: spawnSessionId,
-        taskSessionId: repoPath,
-        kind: "doc_agent",
-        worktreePath: wt.worktreePath,
-        model: this.deps.model ?? null,
-        spawnedAt: startedAt,
-      });
+      if (!launched.ok) return launched.result;
       return { status: "started" };
     } finally {
       this.starting.delete(repoPath);
     }
+  }
+
+  /**
+   * Shared run-launch mechanics for {@link begin} (fresh) and {@link beginRetarget} (retarget):
+   * create a disposable `shepherd/docs-update-<8hex>` worktree off `baseRef`, optionally run
+   * `afterCreate` (the re-target marker write — between create and spawn), spawn the scoped agent,
+   * register it in `inflight` (merging `extra` for mode + the retarget-only fields), and persist the
+   * durable cost row. Returns `{ ok: true }` on success or `{ ok: false, result }` carrying the
+   * skip/error result the caller returns. The worktree is removed on any post-create failure.
+   *
+   * `baseRef` is the worktree start point — `resolved.baseRef` (fresh) or the PR head sha (retarget).
+   * `base` is the default-branch name stored on the run + threaded into the prompt. `promptCtx`
+   * (retarget only) grounds the agent on the open PR's diff. Callers keep their own pre/post steps
+   * (begin's stampLastSha, beginRetarget's prSyncedKey claim) outside this helper.
+   */
+  private launchRun(
+    repoPath: string,
+    baseRef: string,
+    base: string,
+    extra: Partial<InFlight>,
+    promptCtx?: RetargetPromptCtx,
+    afterCreate?: (worktreePath: string) => void,
+  ): { ok: true } | { ok: false; result: DocAgentResult } {
+    const id8 = randomUUID().slice(0, 8);
+    const wtName = DOC_BRANCH_PREFIX + id8;
+    let wt;
+    try {
+      wt = this.deps.worktree.create(repoPath, baseRef, wtName);
+    } catch (err) {
+      console.warn(`[doc-agent] worktree creation failed for ${repoPath}:`, err);
+      return { ok: false, result: { status: "error", reason: "worktree creation failed" } };
+    }
+    if (!wt.isolated || !wt.branch) {
+      if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "error", reason: "worktree creation failed" } };
+    }
+
+    afterCreate?.(wt.worktreePath);
+
+    const spawned = this.spawnAgent(
+      repoPath,
+      wt.worktreePath,
+      DOC_AGENT_LABEL + id8,
+      base,
+      promptCtx,
+    );
+    if (!spawned) {
+      this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "error", reason: "spawn failed" } };
+    }
+    const { terminalId, spawnSessionId } = spawned;
+    const startedAt = this.now();
+    this.inflight.set(repoPath, {
+      repoPath,
+      worktreePath: wt.worktreePath,
+      branch: wt.branch,
+      base,
+      terminalId,
+      agentName: DOC_AGENT_LABEL + id8,
+      spawnSessionId,
+      startedAt,
+      mode: "fresh",
+      ...extra,
+    });
+    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
+    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
+    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: spawnSessionId,
+      taskSessionId: repoPath,
+      kind: "doc_agent",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: startedAt,
+    });
+    return { ok: true };
   }
 
   private async begin(repoPath: string): Promise<DocAgentResult> {
@@ -590,49 +644,8 @@ export class DocAgentService {
 
     // forget() can't race a manual trigger here, but a second trigger could have landed during the
     // awaits above — the `starting` claim (held until this returns) prevents that double-spawn.
-    const id8 = randomUUID().slice(0, 8);
-    const wtName = DOC_BRANCH_PREFIX + id8;
-    let wt;
-    try {
-      wt = this.deps.worktree.create(repoPath, resolved.baseRef, wtName);
-    } catch (err) {
-      console.warn(`[doc-agent] worktree creation failed for ${repoPath}:`, err);
-      return { status: "error", reason: "worktree creation failed" };
-    }
-    if (!wt.isolated || !wt.branch) {
-      if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
-      return { status: "error", reason: "worktree creation failed" };
-    }
-
-    const spawned = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
-    if (!spawned) {
-      this.deps.worktree.remove(wt.worktreePath);
-      return { status: "error", reason: "spawn failed" };
-    }
-    const { terminalId, spawnSessionId } = spawned;
-    const startedAt = this.now();
-    this.inflight.set(repoPath, {
-      repoPath,
-      worktreePath: wt.worktreePath,
-      branch: wt.branch,
-      base,
-      terminalId,
-      agentName: DOC_AGENT_LABEL + id8,
-      spawnSessionId,
-      startedAt,
-      mode: "fresh",
-    });
-    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
-    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
-    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
-    this.deps.store.recordReviewerSpawn({
-      reviewerSessionId: spawnSessionId,
-      taskSessionId: repoPath,
-      kind: "doc_agent",
-      worktreePath: wt.worktreePath,
-      model: this.deps.model ?? null,
-      spawnedAt: startedAt,
-    });
+    const launched = this.launchRun(repoPath, resolved.baseRef, base, { mode: "fresh" });
+    if (!launched.ok) return launched.result;
     // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
     // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
     // name/local sha in the diverged/no-upstream case and could never reach equality with the gate's
@@ -728,41 +741,48 @@ export class DocAgentService {
     }
   }
 
+  /**
+   * Stage the in-scope doc edits and return the staged-file diff (`git diff --cached --name-only`,
+   * trimmed; "" when nothing staged or no in-scope file exists). STRUCTURAL off-limits boundary:
+   * stages ONLY {@link IN_SCOPE_PATHS} ∩ files that exist, so an agent edit to the Astro app,
+   * reference/cli/*, or a brand-new file is never staged → can't reach the PR.
+   *
+   * Before staging it formats the `docs/`-prefixed in-scope files (abs paths) with the server's
+   * pinned prettier so the PR passes CI's `prettier --check .` gate — docs-site/** is
+   * Astro/Starlight-governed and must NEVER be passed to root prettier. Prettier is best-effort: a
+   * failure warns loudly and the PR still opens (no worse than today's unformatted baseline).
+   */
+  private async stageInScope(f: InFlight): Promise<string> {
+    const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
+    if (inScope.length === 0) return "";
+    const absDocs = inScope
+      .filter((p) => p.startsWith("docs/"))
+      .map((p) => join(f.worktreePath, p));
+    if (absDocs.length > 0) {
+      try {
+        await this.prettier({
+          cwd: SERVER_INSTALL_ROOT,
+          configPath: join(f.worktreePath, ".prettierrc"),
+          files: absDocs,
+        });
+      } catch (err) {
+        console.warn(
+          `[doc-agent] prettier format failed for ${f.repoPath} — PR may fail the lint gate:`,
+          err,
+        );
+      }
+    }
+    await this.git(f.worktreePath, ["add", "--", ...inScope]);
+    return (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
+  }
+
   private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
     let url: string | null = null;
     let hadStagedChanges = false;
     try {
       const forge = this.deps.resolveForge(f.repoPath);
-      // STRUCTURAL off-limits boundary: stage ONLY the in-scope list ∩ files that exist. An agent
-      // edit to the Astro app, reference/cli/*, or a new file is never staged → can't reach the PR.
-      const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
-      if (forge && inScope.length > 0) {
-        // Format root docs/*.md with the server's pinned prettier BEFORE staging so the PR passes
-        // CI's `prettier --check .` gate. Constrained to the `docs/`-prefixed in-scope files (abs
-        // paths) — docs-site/** is Astro/Starlight-governed and must never be passed to root
-        // prettier. Best-effort: a failure warns loudly and the PR still opens (no worse than
-        // today's unformatted baseline).
-        const absDocs = inScope
-          .filter((p) => p.startsWith("docs/"))
-          .map((p) => join(f.worktreePath, p));
-        if (absDocs.length > 0) {
-          try {
-            await this.prettier({
-              cwd: SERVER_INSTALL_ROOT,
-              configPath: join(f.worktreePath, ".prettierrc"),
-              files: absDocs,
-            });
-          } catch (err) {
-            console.warn(
-              `[doc-agent] prettier format failed for ${f.repoPath} — PR may fail the lint gate:`,
-              err,
-            );
-          }
-        }
-        await this.git(f.worktreePath, ["add", "--", ...inScope]);
-        const stagedOut = (
-          await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
-        ).trim();
+      if (forge) {
+        const stagedOut = await this.stageInScope(f);
         if (stagedOut.length > 0) {
           hadStagedChanges = true;
           url =
@@ -810,15 +830,29 @@ export class DocAgentService {
     forge: GitForge,
     stagedOut: string,
   ): Promise<string | null> {
+    if (!(await this.observeOrCommit(f, stagedOut, `would open a doc-update PR on ${f.branch}`)))
+      return null;
+    return this.openFreshPr(f, sentinel, forge);
+  }
+
+  /**
+   * Shared OBSERVE-vs-commit gate for both publish paths. Phase-0 OBSERVE (`!act`) logs `intent` (the
+   * per-mode "would …" phrase) with the repo path + the staged file count/list appended, and returns
+   * false (the caller then returns null — no commit/push/PR). Phase-1 act commits `--no-verify`
+   * (deliberately DIVERGES from promote.ts, which commits WITH hooks: a server-side docs-only commit
+   * must not run the repo's pre-commit hooks on unrelated state — the change is grounded +
+   * human-reviewed via the PR) and returns true so the caller proceeds to push/open the PR.
+   */
+  private async observeOrCommit(f: InFlight, stagedOut: string, intent: string): Promise<boolean> {
     if (!this.act) {
       const staged = stagedOut.split("\n");
       console.warn(
-        `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${staged.length} files): ${staged.join(", ")}`,
+        `[doc-agent] OBSERVE: ${f.repoPath} ${intent} (${staged.length} files): ${staged.join(", ")}`,
       );
-      return null;
+      return false;
     }
     await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
-    return this.openFreshPr(f, sentinel, forge);
+    return true;
   }
 
   /** Push the local `shepherd/docs-update-*` branch and open a standalone doc-update PR. Shared by
@@ -858,14 +892,14 @@ export class DocAgentService {
     forge: GitForge,
     stagedOut: string,
   ): Promise<string | null> {
-    if (!this.act) {
-      const staged = stagedOut.split("\n");
-      console.warn(
-        `[doc-agent] OBSERVE: ${f.repoPath} would push docs onto PR #${f.prNumber} branch ${f.headBranch} (${staged.length} files): ${staged.join(", ")}`,
-      );
+    if (
+      !(await this.observeOrCommit(
+        f,
+        stagedOut,
+        `would push docs onto PR #${f.prNumber} branch ${f.headBranch}`,
+      ))
+    )
       return null;
-    }
-    await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
 
     // Re-check the PR right before the push: it may have merged/closed since the run started.
     let status;

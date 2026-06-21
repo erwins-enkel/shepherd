@@ -62,7 +62,11 @@ export class Promoter {
     const path = join(homedir(), ".claude", "CLAUDE.md");
     try {
       const current = this.readClaudeMd(path);
-      const rules = [...new Set([...extractLearningsBlockRules(current), rule])];
+      // Dedup in *sanitized* space: extractLearningsBlockRules returns the stored rules in
+      // their already-sanitized form, while `rule` is raw — comparing them raw would miss a
+      // rule that sanitize alters (leading marker / collapsible whitespace), writing a
+      // duplicate bullet and defeating the `next === current` no-op on re-promote.
+      const rules = [...new Set([...extractLearningsBlockRules(current), rule].map(sanitizeRule))];
       const next = upsertLearningsBlock(current, rules);
       if (next === current) return { ok: true, url: "" };
       this.writeClaudeMd(path, next);

@@ -573,6 +573,18 @@ test("promoteGlobal is an idempotent no-op when the rule is already present", as
   expect(state.writes.length).toBe(0); // already current → nothing written
 });
 
+test("promoteGlobal re-promote of a sanitize-altered rule is an idempotent no-op", async () => {
+  // The stored block holds the *sanitized* form ("\- dash"); the incoming raw "- dash" must
+  // dedup against it, not write a second bullet. (Plain "rule a" wouldn't catch this — sanitize
+  // leaves it unchanged.)
+  const existing = upsertLearningsBlock("", ["- dash"]);
+  expect(extractLearningsBlockRules(existing)).toEqual(["\\- dash"]);
+  const state = { content: existing, writes: [] as string[] };
+  const res = await globalPromoter(state).promoteGlobal("- dash");
+  expect(res.ok).toBe(true);
+  expect(state.writes.length).toBe(0); // already current → no duplicate bullet, no write
+});
+
 test("promoteGlobal returns a structured 500 (not a throw) on an fs failure", async () => {
   const p = new Promoter({
     store: new SessionStore(":memory:"),

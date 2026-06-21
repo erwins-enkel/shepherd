@@ -78,11 +78,19 @@
   // site/astro.config.mjs — Astro parses the package's CSS at build time and
   // self-hosts the woff2. There is no static ESM import, so fallow sees the
   // packages as unused. Build-provided, not unused (same class as the two above).
+  //
+  // typedoc-plugin-markdown is a required peer dependency of starlight-typedoc
+  // (docs-site/astro.config.mjs imports starlight-typedoc; bun.lock declares the
+  // peer ">=4.6.0"). Starlight loads it as a plugin, so there is no direct ESM
+  // import for fallow to see — it reports the devDep as unused. Removing it would
+  // break the docs-site TypeDoc → markdown API-reference build. Peer-provided,
+  // not unused (same string-loaded class as axe-core above).
   "ignoreDependencies": [
     "tailwindcss",
     "axe-core",
     "@fontsource/space-grotesk",
-    "@fontsource/jetbrains-mono"
+    "@fontsource/jetbrains-mono",
+    "typedoc-plugin-markdown"
   ],
 
   "rules": {

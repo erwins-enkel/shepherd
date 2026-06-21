@@ -961,6 +961,18 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(detail!.querySelector(".credit-refresh"), "refresh button present").not.toBeNull();
   });
 
+  it("shows 'just now' (not 'now ago') for a fresh scrape", async () => {
+    const hud = await renderDesktop(
+      limitsWithCredit({ scrapedAt: 1_700_000_000_000 - 10_000 }), // 10s before nowMs
+    );
+    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
+    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await nextFrame();
+    const txt = hud.querySelector<HTMLElement>(".credit-detail")!.textContent ?? "";
+    expect(txt, "just-now line").toContain(m.topbar_credits_age_now());
+    expect(txt, "no 'now ago'").not.toContain(m.topbar_credits_age({ age: "now" }));
+  });
+
   it("shows the stale note in the popover for a stale snapshot", async () => {
     const hud = await renderDesktop(limitsWithCredit({ stale: true }));
     const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");

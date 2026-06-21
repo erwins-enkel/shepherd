@@ -24,6 +24,10 @@
     onRefresh: () => void;
     wide?: boolean;
   } = $props();
+
+  // relativeAge returns the "now" sentinel for <60s; branch it to a natural phrase
+  // ("scraped just now") rather than feeding "now" into the "scraped {age} ago" template.
+  const age = $derived(credits ? relativeAge(credits.scrapedAt, nowMs) : "");
 </script>
 
 {#if credits}
@@ -48,7 +52,7 @@
       </div>
     {/if}
     <div class="gauge-pop-reset micro">
-      {m.topbar_credits_age({ age: relativeAge(credits.scrapedAt, nowMs) })}
+      {age === "now" ? m.topbar_credits_age_now() : m.topbar_credits_age({ age })}
     </div>
     {#if credits.stale}
       <div class="credit-stale micro">{m.topbar_credits_stale()}</div>
@@ -144,21 +148,20 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    gap: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
   .gp-period {
     color: var(--color-text);
     font-size: var(--fs-meta);
     text-transform: capitalize;
+    white-space: nowrap;
   }
   .gauge-pop-reset {
-    margin: 0 0 6px 30px;
+    margin: 0;
     text-transform: none;
     letter-spacing: 0.04em;
     color: var(--color-faint);
-  }
-  .gauge-pop-reset:last-child {
-    margin-bottom: 0;
   }
   .micro {
     font-size: var(--fs-meta);

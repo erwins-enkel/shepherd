@@ -478,6 +478,10 @@
 
   .row-text {
     flex: 1;
+    /* Explicit floor: flex-basis is 0%, so on a very narrow row (where #num + chips
+       already fill the width) the title would otherwise grow by 0 and sit near 0px.
+       This reserves a readable minimum; the bounded, shrinkable chips yield first. */
+    min-width: 6rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -485,7 +489,8 @@
 
   /* Single label chip + a "+N" count (labelChips caps inline chips at 1). The group
      is bounded so the title keeps the row instead of being crushed to a character:
-     it may shrink (min-width:0), the label chip ellipsates, and the count never clips. */
+     it may shrink (min-width:0), the label chip ellipsates, and the count never clips.
+     Combined with .row-text's min-width floor, the title can't collapse to nothing. */
   .chips {
     display: flex;
     gap: 3px;

@@ -71,7 +71,7 @@
     nowMs: number;
     onselect: (id: string) => void;
     git?: GitState;
-    // live per-session signal (heartbeat + current tool summary); undefined until first event
+    // live per-session signal (heartbeat); undefined until first event
     activity?: SessionActivity;
     // live preview-listener port; non-null surfaces the Preview badge (server-driven, no iframe inference)
     previewPort?: number | null;
@@ -185,10 +185,8 @@
       .join(" "),
   );
 
-  // live signals (heartbeat + current tool) only make sense while the agent works
+  // live signals (heartbeat) only make sense while the agent works
   const live = $derived(dStatus === "running");
-  // verbatim tool summary — NOT translated; shown as a quiet line when present
-  const summary = $derived(activity?.summary?.trim() || null);
   // stepper conveys "how close to finishing" across the active lifecycle (not archived)
   const showStepper = $derived(
     dStatus === "running" || dStatus === "blocked" || dStatus === "done",
@@ -422,10 +420,6 @@
     {#if live}
       <div class="u-activity">
         <HeartbeatStrip {activity} {nowMs} />
-        {#if summary}
-          <span class="act-sep" aria-hidden="true">·</span>
-          <span class="act-sum">{summary}</span>
-        {/if}
       </div>
     {/if}
 
@@ -762,69 +756,28 @@
     max-width: 34ch;
   }
 
-  /* Live activity sub-line: heartbeat + verbatim current-tool summary. Quiet,
-     single-line, ellipsized — the priority signal for a working row without
-     adding a colored badge. */
+  /* Live activity sub-line: the heartbeat strip. Quiet, single-line — the
+     priority signal for a working row without adding a colored badge. */
   .u-activity {
     grid-area: act;
     display: flex;
     align-items: center;
     gap: 0;
     min-width: 0;
-    /* stays on the meta rung: this is a dense single-line telemetry row (heartbeat
-       strip + verbatim tool snippet on hover), not instructional prose — at
-       --fs-base the act line grows taller and crowds the rail's row rhythm */
+    /* stays on the meta rung: this is a dense single-line telemetry row (the
+       heartbeat strip), not instructional prose — at --fs-base the act line
+       grows taller and crowds the rail's row rhythm */
     font-size: var(--fs-meta);
     line-height: 1.3;
     color: var(--color-muted);
   }
-  /* The heartbeat is the priority glance signal, so on EVERY device it claims
-     the whole activity line by default and the verbatim current-tool summary is
-     hidden. Touch ends here: full-width strip, no command (there's no hover to
-     tuck a snippet behind). Hover devices get the command back as an inline
-     reveal (see @media below). Scoped under .u-activity so the strip override
-     can't leak to a future global .strip; kept before the narrow @container
-     block so that block's 64px override still wins. */
+  /* The heartbeat claims the whole activity line on every device. Scoped under
+     .u-activity so the strip override can't leak to a future global .strip; kept
+     before the narrow @container block so that block's 64px override still wins. */
   .u-activity :global(.strip) {
     flex: 1 1 auto;
     width: auto;
     max-width: none;
-  }
-  .act-sep {
-    color: var(--color-faint);
-    flex: none;
-    display: none;
-  }
-  .act-sum {
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    display: none;
-  }
-
-  /* Hover/pointer devices: bring the demoted command back as a hover/focus
-     reveal — it expands inline while the strip yields width to it (flex), so the
-     line never grows taller. */
-  @media (hover: hover) {
-    .act-sum {
-      display: inline;
-      max-width: 0;
-      opacity: 0;
-      transition:
-        max-width 0.18s ease,
-        opacity 0.14s ease;
-    }
-    .unit:hover .act-sep,
-    .unit:focus-within .act-sep {
-      display: inline;
-      margin: 0 5px;
-    }
-    .unit:hover .act-sum,
-    .unit:focus-within .act-sum {
-      max-width: 34ch;
-      opacity: 1;
-    }
   }
 
   .car {
@@ -897,19 +850,9 @@
       -webkit-line-clamp: 1;
       line-clamp: 1;
     }
-    /* keep the heartbeat (tiny), drop the verbatim summary + separator and the
-       stepper so a narrow sidebar row stays dense and doesn't balloon */
-    .act-sum,
-    .act-sep,
+    /* keep the heartbeat (tiny), drop the stepper so a narrow sidebar row stays
+       dense and doesn't balloon */
     .meta-stepper {
-      display: none;
-    }
-    /* the hover-reveal block above un-hides the separator on :hover/:focus with
-       higher specificity (0,3,0 > 0,1,0); re-suppress it here (same specificity,
-       later in source → wins) so a hovered narrow row doesn't show a dangling
-       "·" with no summary after it. */
-    .unit:hover .act-sep,
-    .unit:focus-within .act-sep {
       display: none;
     }
     /* the strip IS the heartbeat here — keep it, just narrower. Scoped under

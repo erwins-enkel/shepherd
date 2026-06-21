@@ -314,6 +314,11 @@ export interface GitForge {
    *  with a comment API (GitHub) implement it; others omit it and the
    *  dependabot-rebase endpoint 400s. */
   comment?(prNumber: number, body: string): Promise<void>;
+  /** Edit an open PR's title and/or body (`gh pr edit`). Used to refresh a rolled-up
+   *  docs PR's body so it matches the force-pushed diff (doc agent). Optional: only hosts
+   *  with a PR-edit API (GitHub) implement it; others omit it and the caller logs that the
+   *  body may be stale. */
+  editPr?(prNumber: number, o: { title?: string; body?: string }): Promise<void>;
   /** Flip an open draft PR to ready-for-review (`gh pr ready <n>`). Optional: only
    *  hosts with a draft API implement it; the draft-reconcile service treats absence
    *  as "cannot promote on this host". */

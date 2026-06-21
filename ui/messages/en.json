@@ -1749,5 +1749,12 @@
   "usage_overhead_cacheread_label": "cached reads",
   "usage_overhead_generation_label": "generation",
   "gloss_satellite_pass_term": "satellite pass",
-  "gloss_satellite_pass_def": "An automated LLM pass Shepherd spawns alongside the main task agent — critic / PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real overhead attributed back to the task, on top of the agent's own authoring."
+  "gloss_satellite_pass_def": "An automated LLM pass Shepherd spawns alongside the main task agent — critic / PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real overhead attributed back to the task, on top of the agent's own authoring.",
+  "usage_limits_window_5h": "5-hour window",
+  "usage_limits_window_week": "Weekly window",
+  "usage_limits_resets_in": "resets in {time}",
+  "usage_limits_projected": "projected {pct}% at reset",
+  "usage_limits_burn_rate": "{rate}/h",
+  "usage_limits_will_exceed": "projected to exceed limit",
+  "usage_limits_no_data": "No usage-window data"
 }

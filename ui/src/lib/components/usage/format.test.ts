@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatUnits, formatPct } from "./format";
+import { formatUnits, formatPct, formatDollars } from "./format";
 
 describe("formatUnits", () => {
   it("renders raw counts below 1K verbatim", () => {
@@ -32,5 +32,20 @@ describe("formatPct", () => {
     expect(formatPct(0)).toBe("0%");
     expect(formatPct(0.357)).toBe("36%");
     expect(formatPct(1)).toBe("100%");
+  });
+});
+
+describe("formatDollars", () => {
+  it("renders small amounts with two decimal places", () => {
+    expect(formatDollars(5.42)).toBe("$5.42");
+    expect(formatDollars(0.28)).toBe("$0.28");
+  });
+
+  it("renders thousands with one decimal place and K suffix", () => {
+    expect(formatDollars(1500)).toBe("$1.5K");
+  });
+
+  it("renders millions with two decimal places and M suffix", () => {
+    expect(formatDollars(2_500_000)).toBe("$2.50M");
   });
 });

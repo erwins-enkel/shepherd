@@ -1787,5 +1787,6 @@
   "settings_feedback_blurb": "Fehler gefunden oder eine Idee? Sagen Sie uns Bescheid.",
   "feat_feedback_title": "Fehler melden & Feedback senden",
   "feat_feedback_body": "Fehler gefunden oder eine Idee? Über das Zahnrad-Menü oder Einstellungen → Gerät können Sie einen Fehler melden, eine Funktion vorschlagen oder Feedback senden – es öffnet ein vorausgefülltes GitHub-Issue.",
-  "usage_load_error": "Nutzungsdaten konnten nicht geladen werden."
+  "usage_load_error": "Nutzungsdaten konnten nicht geladen werden.",
+  "usage_spend_cost_label": "Kosten"
 }

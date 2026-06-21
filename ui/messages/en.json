@@ -1787,5 +1787,6 @@
   "settings_feedback_blurb": "Found a bug or have an idea? Let us know.",
   "feat_feedback_title": "Report bugs & send feedback",
   "feat_feedback_body": "Found a bug or have an idea? Use the gear menu or Settings → Device to report a bug, request a feature, or send feedback — it opens a prefilled GitHub issue.",
-  "usage_load_error": "Couldn't load usage data."
+  "usage_load_error": "Couldn't load usage data.",
+  "usage_spend_cost_label": "Cost"
 }

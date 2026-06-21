@@ -21,3 +21,13 @@ export function formatUnits(n: number): string {
 export function formatPct(fraction: number): string {
   return Math.round(fraction * 100) + "%";
 }
+
+/**
+ * Format a dollar amount as a human-readable USD string.
+ * ≥1M → 2 decimal places + "M"; ≥1K → 1 decimal place + "K"; else 2 decimal places.
+ */
+export function formatDollars(n: number): string {
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return "$" + (n / 1_000).toFixed(1) + "K";
+  return "$" + n.toFixed(2);
+}

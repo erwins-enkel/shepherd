@@ -4,7 +4,7 @@
   import { m } from "$lib/paraglide/messages";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import UsageBar from "./UsageBar.svelte";
-  import { formatUnits, formatPct } from "./format";
+  import { formatUnits, formatPct, formatDollars } from "./format";
 
   const { breakdown }: { breakdown: UsageBreakdown } = $props();
 
@@ -71,6 +71,11 @@
     <span class="units-label">
       <GlossaryText text={m.usage_units_label()} />
     </span>
+    {#if breakdown.dollars != null}
+      <span class="spend-total-cost" aria-label={m.usage_spend_cost_label()}>
+        {formatDollars(breakdown.dollars)}
+      </span>
+    {/if}
   </div>
 
   <div class="repo-list">
@@ -84,6 +89,7 @@
       <div class="repo-row-wrap">
         <button
           class="repo-row"
+          class:has-cost={breakdown.dollars != null}
           aria-expanded={expanded}
           onclick={() => toggleRepo(repo.repoPath)}
           type="button"
@@ -95,6 +101,9 @@
           </span>
           <span class="repo-pct">{formatPct(total / breakdown.totalUnits)}</span>
           <span class="repo-units">{formatUnits(total)}</span>
+          {#if breakdown.dollars != null}
+            <span class="repo-cost">{formatDollars(repo.dollars ?? 0)}</span>
+          {/if}
         </button>
 
         {#if expanded}
@@ -176,6 +185,10 @@
     width: 100%;
   }
 
+  .repo-row.has-cost {
+    grid-template-columns: 1rem 8rem 1fr 3rem 5rem 4rem;
+  }
+
   .repo-row:hover {
     background: var(--color-hover);
   }
@@ -207,6 +220,20 @@
 
   .repo-units {
     font-size: var(--fs-base);
+    color: var(--color-ink);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .repo-cost {
+    font-size: var(--fs-base);
+    color: var(--color-ink);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spend-total-cost {
+    font-size: var(--fs-meta);
     color: var(--color-ink);
     text-align: right;
     font-variant-numeric: tabular-nums;

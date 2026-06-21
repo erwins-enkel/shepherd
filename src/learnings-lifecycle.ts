@@ -10,6 +10,33 @@ import type { OptimizerService } from "./optimizer";
 
 // ── tuning constants ──────────────────────────────────────────────────────────
 
+const DAY_MS = 86_400_000;
+
+// auto-trial kill switch (default ON)
+export const AUTO_TRIAL_ENABLED = process.env.SHEPHERD_LEARNINGS_AUTO_TRIAL !== "0";
+
+// strength gate
+export const TRIAL_NMIN = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_NMIN ?? 4);
+export const TRIAL_SESSION_FLOOR = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_SESSION_FLOOR ?? 2);
+export const TRIAL_MIN_KINDS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_MIN_KINDS ?? 2);
+export const TRIAL_MIN_SESSIONS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_MIN_SESSIONS ?? 3);
+export const MAX_TRIAL_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_TRIAL_PER_SWEEP ?? 3);
+
+// trial reaper
+export const TRIAL_REAP_NMIN = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_NMIN ?? 8);
+export const TRIAL_REAP_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_DAYS ?? 21);
+export const TRIAL_REAP_MAX_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS ?? 60);
+export const MAX_REAP_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP ?? 5);
+
+// proposed expiry
+export const EXPIRE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_EXPIRE_DAYS ?? 30);
+export const MAX_EXPIRE_PER_SWEEP = Number(
+  process.env.SHEPHERD_LEARNINGS_MAX_EXPIRE_PER_SWEEP ?? 5,
+);
+
+/** Informational reason stored when a stale trial is reaped; reapStaleTrial sets it in-store. */
+export const TRIAL_EXPIRED_REASON = "trial-expired";
+
 export const WILSON_Z = Number(process.env.SHEPHERD_LEARNINGS_WILSON_Z ?? 1.96);
 export const RETIRE_N_MIN = Number(process.env.SHEPHERD_LEARNINGS_RETIRE_NMIN ?? 8);
 export const DEFAULT_BASE_RATE = Number(process.env.SHEPHERD_LEARNINGS_BASE_RATE ?? 0.5);
@@ -21,6 +48,28 @@ export const MAX_RETIRE_PER_SWEEP = Number(
 export const AUTO_RETIRE_REASON = "auto-retire";
 
 // ── types ─────────────────────────────────────────────────────────────────────
+
+export interface TrialedRecord {
+  repoPath: string;
+  id: string;
+  rule: string;
+  evidenceCount: number;
+  distinctKinds: number;
+  distinctSessions: number;
+}
+
+export interface ExpiredRecord {
+  repoPath: string;
+  id: string;
+  rule: string;
+}
+
+export interface ReapedRecord {
+  repoPath: string;
+  id: string;
+  rule: string;
+  injectedCount: number;
+}
 
 export interface RetiredRecord {
   repoPath: string;
@@ -87,6 +136,9 @@ export function isGoodOutcome(review: ReviewVerdict | null, blockingSignalCount:
  * bad rules inflates the base rate, then that higher rate retires the next-worst, etc.
  *
  * Only rules with injectedCount > 0 contribute to the denominator.
+ * Unproven trials (trialedAt set, helpfulCount=0) are excluded — they carry no proven
+ * signal and would only inflate the denominator with a 0 numerator, dragging the base
+ * rate down unfairly.
  * If total injected < minN, falls back to defaultRate (not enough data).
  */
 export function repoBaseRate(
@@ -99,7 +151,7 @@ export function repoBaseRate(
   let totalInjected = 0;
   let totalHelpful = 0;
   for (const r of rules) {
-    if (r.injectedCount > 0) {
+    if (r.injectedCount > 0 && !isUnprovenTrial(r)) {
       totalInjected += r.injectedCount;
       totalHelpful += r.helpfulCount;
     }
@@ -107,6 +159,159 @@ export function repoBaseRate(
 
   if (totalInjected < minN) return defaultRate;
   return totalHelpful / totalInjected;
+}
+
+// ── isUnprovenTrial ───────────────────────────────────────────────────────────
+
+/** Single source of truth for "auto-trialed but not yet proven helpful". Task 4 imports this. */
+export function isUnprovenTrial(rule: Learning): boolean {
+  return rule.trialedAt != null && rule.helpfulCount === 0;
+}
+
+// ── shouldTrial ───────────────────────────────────────────────────────────────
+
+export function shouldTrial(
+  rule: Learning,
+  opts?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number },
+): boolean {
+  if (rule.status !== "proposed") return false;
+  const K = opts?.nMin ?? TRIAL_NMIN;
+  const floor = opts?.sessionFloor ?? TRIAL_SESSION_FLOOR;
+  const minKinds = opts?.minKinds ?? TRIAL_MIN_KINDS;
+  const M = opts?.minSessions ?? TRIAL_MIN_SESSIONS;
+  if (rule.evidenceCount < K) return false;
+  if (rule.distinctSessions < floor) return false; // hard floor: no single-session trial
+  return rule.distinctKinds >= minKinds || rule.distinctSessions >= M;
+}
+
+// ── runAutoTrial ──────────────────────────────────────────────────────────────
+
+export interface AutoTrialDeps {
+  store: Pick<SessionStore, "listPendingLearnings" | "getRepoConfig" | "trialLearning">;
+  enabled?: boolean; // default AUTO_TRIAL_ENABLED (test-injectable kill switch)
+  maxPerSweep?: number;
+  gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
+}
+
+export function runAutoTrial(deps: AutoTrialDeps): TrialedRecord[] {
+  const enabled = deps.enabled ?? AUTO_TRIAL_ENABLED;
+  if (!enabled) return [];
+  const cap = deps.maxPerSweep ?? MAX_TRIAL_PER_SWEEP;
+  const out: TrialedRecord[] = [];
+  for (const rule of deps.store.listPendingLearnings()) {
+    // already strongest-first
+    if (out.length >= cap) break;
+    if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
+    if (!shouldTrial(rule, deps.gate)) continue;
+    const trialed = deps.store.trialLearning(rule.id);
+    if (trialed)
+      out.push({
+        repoPath: rule.repoPath,
+        id: rule.id,
+        rule: rule.rule,
+        evidenceCount: rule.evidenceCount,
+        distinctKinds: rule.distinctKinds,
+        distinctSessions: rule.distinctSessions,
+      });
+  }
+  return out;
+}
+
+// ── shouldExpireProposed + runAutoExpire ──────────────────────────────────────
+
+export function shouldExpireProposed(
+  rule: Learning,
+  now: number,
+  opts?: {
+    expireDays?: number;
+    expiryFloor?: number;
+    gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
+  },
+): boolean {
+  if (rule.status !== "proposed") return false;
+  if (shouldTrial(rule, opts?.gate)) return false; // trial-worthy → never expire
+  const expireMs = (opts?.expireDays ?? EXPIRE_DAYS) * DAY_MS;
+  const floor = opts?.expiryFloor ?? 0;
+  const effective = Math.max(rule.lastEvidenceAt ?? rule.createdAt, floor); // grace floor for backlog
+  return now - effective > expireMs;
+}
+
+export interface AutoExpireDeps {
+  store: Pick<
+    SessionStore,
+    "listPendingLearnings" | "getRepoConfig" | "expireLearning" | "expiryFloorAt"
+  >;
+  now?: number;
+  maxPerSweep?: number;
+  expireDays?: number;
+  gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
+}
+
+export function runAutoExpire(deps: AutoExpireDeps): ExpiredRecord[] {
+  const now = deps.now ?? Date.now();
+  const cap = deps.maxPerSweep ?? MAX_EXPIRE_PER_SWEEP;
+  const floor = deps.store.expiryFloorAt();
+  const out: ExpiredRecord[] = [];
+  for (const rule of deps.store.listPendingLearnings()) {
+    if (out.length >= cap) break;
+    if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
+    if (
+      !shouldExpireProposed(rule, now, {
+        expireDays: deps.expireDays,
+        expiryFloor: floor,
+        gate: deps.gate,
+      })
+    )
+      continue;
+    if (deps.store.expireLearning(rule.id))
+      out.push({ repoPath: rule.repoPath, id: rule.id, rule: rule.rule });
+  }
+  return out;
+}
+
+// ── shouldReapTrial + runReapStaleTrials ──────────────────────────────────────
+
+export function shouldReapTrial(
+  rule: Learning,
+  now: number,
+  opts?: { reapNmin?: number; reapDays?: number; reapMaxDays?: number },
+): boolean {
+  if (rule.trialedAt == null || rule.status !== "active") return false;
+  if (rule.helpfulCount > 0) return false; // graduated (proven) — leave it
+  const reapNmin = opts?.reapNmin ?? TRIAL_REAP_NMIN;
+  const reapDays = opts?.reapDays ?? TRIAL_REAP_DAYS;
+  const maxDays = opts?.reapMaxDays ?? TRIAL_REAP_MAX_DAYS;
+  const age = now - rule.trialedAt;
+  const injectionBranch = rule.injectedCount >= reapNmin && age > reapDays * DAY_MS;
+  const timeBranch = age > maxDays * DAY_MS; // fallback: no zombies even if budget-starved
+  return injectionBranch || timeBranch;
+}
+
+export interface ReapTrialDeps {
+  store: Pick<SessionStore, "listTrialLearnings" | "getRepoConfig" | "reapStaleTrial">;
+  now?: number;
+  maxPerSweep?: number;
+  reap?: { reapNmin?: number; reapDays?: number; reapMaxDays?: number };
+}
+
+export function runReapStaleTrials(deps: ReapTrialDeps): ReapedRecord[] {
+  const now = deps.now ?? Date.now();
+  const cap = deps.maxPerSweep ?? MAX_REAP_PER_SWEEP;
+  const out: ReapedRecord[] = [];
+  for (const rule of deps.store.listTrialLearnings()) {
+    // oldest-trial first
+    if (out.length >= cap) break;
+    if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
+    if (!shouldReapTrial(rule, now, deps.reap)) continue;
+    if (deps.store.reapStaleTrial(rule.id))
+      out.push({
+        repoPath: rule.repoPath,
+        id: rule.id,
+        rule: rule.rule,
+        injectedCount: rule.injectedCount,
+      });
+  }
+  return out;
 }
 
 // ── shouldRetire ──────────────────────────────────────────────────────────────

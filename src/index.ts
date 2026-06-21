@@ -5,6 +5,7 @@ import {
   SESSION_RETENTION_MS,
   SESSION_RETENTION_KEEP,
   REVIEWER_SPAWN_RETENTION_MS,
+  USAGE_HISTORY_RETENTION_MS,
   clampCap,
   PR_REVIEW_CYCLES_MIN,
   PR_REVIEW_CYCLES_MAX,
@@ -1239,6 +1240,8 @@ const runDailySweep = () => {
   // Cost-attribution records (issue #502); pruned on their own 90-day window, independent of
   // session housekeeping, so they survive an archived task's removal for later usage reports.
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
+  // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
+  store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
   for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
   // Phase 4 merge suggestions: per-repo near-duplicate clustering (intra) + a single global
   // cross-repo recurrence pass. Both no-op unless the active set is large enough AND changed

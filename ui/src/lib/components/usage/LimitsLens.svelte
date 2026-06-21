@@ -1,21 +1,61 @@
 <script lang="ts">
-  import type { UsageLimits, UsageProjection } from "$lib/types";
+  import type { UsageLimits, UsageProjection, UsageHistoryResponse } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { gaugeList, gaugeColor } from "$lib/components/usage-gauges";
   import { formatResetIn } from "$lib/format";
   import { formatUnits } from "./format";
+  import Sparkline from "./Sparkline.svelte";
+  import UsageHistoryPanel from "./UsageHistoryPanel.svelte";
 
-  const { limits, projections }: { limits: UsageLimits; projections: UsageProjection[] } = $props();
+  const {
+    limits,
+    projections,
+    history = null,
+  }: {
+    limits: UsageLimits;
+    projections: UsageProjection[];
+    history?: UsageHistoryResponse | null;
+  } = $props();
+
+  // Window period lengths (ms) — used to scope an inline sparkline to the current cycle.
+  const PERIOD_MS = { session5h: 5 * 3_600_000, week: 7 * 24 * 3_600_000 } as const;
 
   const nowMs = $derived(Date.now());
   const gauges = $derived(gaugeList(limits));
+
+  let showHistory = $state(false);
+
+  // Toggle is offered only when there's actually recorded history to show.
+  const hasHistory = $derived(
+    !!history &&
+      (history.caps.session5h.length > 0 ||
+        history.caps.week.length > 0 ||
+        history.credit.length > 0),
+  );
 
   function windowLabel(label: "5H" | "WK"): string {
     return label === "5H" ? m.usage_limits_window_5h() : m.usage_limits_window_week();
   }
 
+  function windowKey(label: "5H" | "WK"): "session5h" | "week" {
+    return label === "5H" ? "session5h" : "week";
+  }
+
   function findProjection(label: "5H" | "WK"): UsageProjection | undefined {
     return projections.find((p) => p.window === label);
+  }
+
+  /** Current-cycle inline series: in-cycle scrape samples + a synthetic live "now"
+   *  endpoint at the gauge's live pct, so the curve terminates at the number above it. */
+  function inlinePoints(label: "5H" | "WK", livePct: number, resetAt: number) {
+    const key = windowKey(label);
+    const cutoff = resetAt - PERIOD_MS[key];
+    const samples = history
+      ? history.caps[key]
+          .filter((p) => p.scrapedAt >= cutoff)
+          .map((p) => ({ t: p.scrapedAt, v: p.pct }))
+      : [];
+    return [...samples, { t: nowMs, v: livePct }];
   }
 </script>
 
@@ -55,6 +95,17 @@
           </div>
         </div>
 
+        <!-- Recorded current-cycle trend: scrape samples + a live "now" endpoint. -->
+        <div class="spark-row">
+          <Sparkline
+            points={inlinePoints(gauge.label, gauge.w.pct, gauge.w.resetAt)}
+            {color}
+            liveLast={true}
+            domain={{ min: 0, max: 100 }}
+            ariaLabel={m.usage_history_inline_label({ window: windowLabel(gauge.label) })}
+          />
+        </div>
+
         <div class="window-meta">
           <span class="reset-time"
             >{m.usage_limits_resets_in({ time: formatResetIn(gauge.w.resetAt, nowMs) })}</span
@@ -73,6 +124,22 @@
         </div>
       </div>
     {/each}
+
+    {#if hasHistory}
+      <div class="history-toggle-row">
+        <button
+          type="button"
+          class="gbtn"
+          aria-expanded={showHistory}
+          onclick={() => (showHistory = !showHistory)}
+        >
+          {showHistory ? m.usage_history_hide() : m.usage_history_view()}
+        </button>
+      </div>
+      {#if showHistory && history}
+        <UsageHistoryPanel {history} />
+      {/if}
+    {/if}
   {/if}
 </div>
 
@@ -186,5 +253,40 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+
+  .spark-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .history-toggle-row {
+    display: flex;
+  }
+
+  /* Canonical .gbtn recipe (design-system) */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 </style>

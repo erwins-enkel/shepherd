@@ -1406,4 +1406,10 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_usage_dashboard_body",
     targetId: "usage-link",
   },
+  {
+    id: "usage-limits-trend",
+    sinceVersion: "1.36.0",
+    titleKey: "feat_usage_limits_trend_title",
+    bodyKey: "feat_usage_limits_trend_body",
+  },
 ];

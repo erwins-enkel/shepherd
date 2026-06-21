@@ -533,6 +533,20 @@ export class SessionStore implements CapStore, CreditStore {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       spent REAL NOT NULL, cap REAL NOT NULL, currency TEXT NOT NULL,
       pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      window TEXT NOT NULL, cap REAL NOT NULL, resetAt INTEGER NOT NULL,
+      pct INTEGER NOT NULL, scrapedAt INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS usage_caps_history_window_ts ON usage_caps_history (window, scrapedAt)`,
+    );
+    this.db.run(`CREATE TABLE IF NOT EXISTS usage_credit_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spent REAL NOT NULL, cap REAL NOT NULL, currency TEXT NOT NULL,
+      pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS usage_credit_history_ts ON usage_credit_history (scrapedAt)`,
+    );
     this.db.run(`CREATE TABLE IF NOT EXISTS held_tasks (
       id TEXT PRIMARY KEY,
       repoPath TEXT NOT NULL,
@@ -1592,12 +1606,18 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   putCap(row: CapRow): void {
-    this.db.run(
-      `INSERT INTO usage_caps (window, cap, resetAt, pct, scrapedAt) VALUES (?,?,?,?,?)
-       ON CONFLICT(window) DO UPDATE SET cap=excluded.cap, resetAt=excluded.resetAt,
-         pct=excluded.pct, scrapedAt=excluded.scrapedAt`,
-      [row.window as WindowKey, row.cap, row.resetAt, row.pct, row.scrapedAt],
-    );
+    this.db.transaction(() => {
+      this.db.run(
+        `INSERT INTO usage_caps (window, cap, resetAt, pct, scrapedAt) VALUES (?,?,?,?,?)
+         ON CONFLICT(window) DO UPDATE SET cap=excluded.cap, resetAt=excluded.resetAt,
+           pct=excluded.pct, scrapedAt=excluded.scrapedAt`,
+        [row.window as WindowKey, row.cap, row.resetAt, row.pct, row.scrapedAt],
+      );
+      this.db.run(
+        `INSERT INTO usage_caps_history (window, cap, resetAt, pct, scrapedAt) VALUES (?,?,?,?,?)`,
+        [row.window as WindowKey, row.cap, row.resetAt, row.pct, row.scrapedAt],
+      );
+    })();
   }
 
   getCreditSnapshot(): CreditSnapshot | null {
@@ -1611,12 +1631,53 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   putCreditSnapshot(row: CreditSnapshot): void {
-    this.db.run(
-      `INSERT INTO usage_credit (id, spent, cap, currency, pct, resetAt, scrapedAt) VALUES (1, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET spent=excluded.spent, cap=excluded.cap, currency=excluded.currency,
-         pct=excluded.pct, resetAt=excluded.resetAt, scrapedAt=excluded.scrapedAt`,
-      [row.spent, row.cap, row.currency, row.pct, row.resetAt, row.scrapedAt],
-    );
+    this.db.transaction(() => {
+      this.db.run(
+        `INSERT INTO usage_credit (id, spent, cap, currency, pct, resetAt, scrapedAt) VALUES (1, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET spent=excluded.spent, cap=excluded.cap, currency=excluded.currency,
+           pct=excluded.pct, resetAt=excluded.resetAt, scrapedAt=excluded.scrapedAt`,
+        [row.spent, row.cap, row.currency, row.pct, row.resetAt, row.scrapedAt],
+      );
+      this.db.run(
+        `INSERT INTO usage_credit_history (spent, cap, currency, pct, resetAt, scrapedAt) VALUES (?,?,?,?,?,?)`,
+        [row.spent, row.cap, row.currency, row.pct, row.resetAt, row.scrapedAt],
+      );
+    })();
+  }
+
+  getCapsHistory(sinceTs: number): CapRow[] {
+    return this.db
+      .query(
+        `SELECT window, cap, resetAt, pct, scrapedAt FROM usage_caps_history
+         WHERE scrapedAt >= ? ORDER BY scrapedAt ASC`,
+      )
+      .all(sinceTs) as CapRow[];
+  }
+
+  getCreditHistory(sinceTs: number): CreditSnapshot[] {
+    return this.db
+      .query(
+        `SELECT spent, cap, currency, pct, resetAt, scrapedAt FROM usage_credit_history
+         WHERE scrapedAt >= ? ORDER BY scrapedAt ASC`,
+      )
+      .all(sinceTs) as CreditSnapshot[];
+  }
+
+  /** Delete history rows older than `beforeTs` from both tables; returns total rows removed. */
+  pruneUsageHistory(beforeTs: number): number {
+    const caps = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM usage_caps_history WHERE scrapedAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    const credits = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM usage_credit_history WHERE scrapedAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM usage_caps_history WHERE scrapedAt < ?`, [beforeTs]);
+    this.db.run(`DELETE FROM usage_credit_history WHERE scrapedAt < ?`, [beforeTs]);
+    return caps + credits;
   }
 
   // ── critic reviews ─────────────────────────────────────────────────────────

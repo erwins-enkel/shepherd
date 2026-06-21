@@ -1794,5 +1794,15 @@
   "topbar_usage_link": "Token-Nutzung",
   "topbar_usage_link_aria": "Token-Nutzungs-Dashboard öffnen",
   "feat_usage_dashboard_title": "Token-Nutzungs-Dashboard",
-  "feat_usage_dashboard_body": "Sehen Sie, wofür Ihre Tokens verbraucht werden — Verbrauch pro Repository und Task, der Cache-vs-Generierung-Overhead und die Live-Auslastung der Limits. Öffnen über das Zahnradmenü."
+  "feat_usage_dashboard_body": "Sehen Sie, wofür Ihre Tokens verbraucht werden — Verbrauch pro Repository und Task, der Cache-vs-Generierung-Overhead und die Live-Auslastung der Limits. Öffnen über das Zahnradmenü.",
+  "usage_history_inline_label": "{window} – aufgezeichneter Verlauf in diesem Zyklus",
+  "usage_history_view": "Verlauf anzeigen",
+  "usage_history_hide": "Verlauf ausblenden",
+  "usage_history_credit_label": "Zusatzguthaben",
+  "usage_history_latest": "jetzt {pct}%",
+  "usage_history_peak": "Spitze {pct}%",
+  "usage_history_span": "{from} – {to}",
+  "usage_history_empty": "Noch kein aufgezeichneter Verlauf",
+  "feat_usage_limits_trend_title": "Aufgezeichnete Limit-Verläufe",
+  "feat_usage_limits_trend_body": "Die Limits-Ansicht zeigt jetzt einen echten aufgezeichneten Verlauf statt nur einer Prognose — eine Sparkline des laufenden Zyklus unter jeder Anzeige sowie ein aufklappbares Verlaufspanel, das darstellt, wie sich Ihr 5-Stunden-, Wochen- und Guthabenverbrauch über vergangene Zurücksetzungszyklen entwickelt hat."
 }

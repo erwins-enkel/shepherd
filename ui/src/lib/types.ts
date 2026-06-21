@@ -797,6 +797,35 @@ export interface UsageLimitsResponse {
   projections: UsageProjection[];
 }
 
+/** One persisted cap-scrape sample (mirrors server CapRow). */
+export interface CapHistoryPoint {
+  window: "session5h" | "week";
+  cap: number;
+  resetAt: number;
+  pct: number;
+  scrapedAt: number;
+}
+
+/** One persisted credit-scrape sample (mirrors server CreditSnapshot). */
+export interface CreditHistoryPoint {
+  spent: number;
+  cap: number;
+  currency: string;
+  pct: number;
+  resetAt: number | null;
+  scrapedAt: number;
+}
+
+/** GET /api/usage/history response: all three recorded series, ASC by scrapedAt. */
+export interface UsageHistoryResponse {
+  caps: {
+    session5h: CapHistoryPoint[];
+    week: CapHistoryPoint[];
+  };
+  credit: CreditHistoryPoint[];
+  since: number;
+}
+
 export interface UpdateCommit {
   sha: string;
   subject: string;

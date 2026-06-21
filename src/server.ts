@@ -13,6 +13,7 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  USAGE_HISTORY_RETENTION_MS,
 } from "./config";
 import {
   validateCreate,
@@ -2460,6 +2461,20 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
       limits: deps.usageLimits.limits(now),
       projections: deps.usageLimits.projections(now),
     });
+  }
+  if (
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "history"
+  ) {
+    const now = Date.now();
+    const since = now - USAGE_HISTORY_RETENTION_MS;
+    const caps = deps.store.getCapsHistory(since);
+    const credit = deps.store.getCreditHistory(since);
+    const session5h = caps.filter((c) => c.window === "session5h");
+    const week = caps.filter((c) => c.window === "week");
+    return json({ caps: { session5h, week }, credit, since });
   }
   return null;
 }

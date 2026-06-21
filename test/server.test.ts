@@ -7,7 +7,7 @@ import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp, serve, PTY_GONE_CODE, claimLinkedIssue, type AppDeps } from "../src/server";
 import type { GitForge } from "../src/forge/types";
-import { config } from "../src/config";
+import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
@@ -2007,4 +2007,119 @@ test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router
   });
   const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/preview/stop`));
   expect(res.status).not.toBe(200);
+});
+
+// ── GET /api/usage/history ─────────────────────────────────────────────────
+
+test("GET /api/usage/history returns empty arrays when no history rows exist", async () => {
+  const res = await harness().fetch(new Request("http://x/api/usage/history"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.caps.session5h).toEqual([]);
+  expect(body.caps.week).toEqual([]);
+  expect(body.credit).toEqual([]);
+  expect(typeof body.since).toBe("number");
+});
+
+test("GET /api/usage/history returns cap rows split by window in ASC scrapedAt order", async () => {
+  const now = Date.now();
+  const deps = makeDeps();
+
+  // Insert two session5h rows at different times
+  deps.store.putCap({
+    window: "session5h",
+    cap: 100,
+    resetAt: now - 1000,
+    pct: 10,
+    scrapedAt: now - 200,
+  });
+  deps.store.putCap({
+    window: "session5h",
+    cap: 100,
+    resetAt: now - 1000,
+    pct: 20,
+    scrapedAt: now - 100,
+  });
+  // Insert one week row
+  deps.store.putCap({
+    window: "week",
+    cap: 1000,
+    resetAt: now - 5000,
+    pct: 30,
+    scrapedAt: now - 150,
+  });
+
+  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+
+  expect(body.caps.session5h).toHaveLength(2);
+  expect(body.caps.session5h[0].pct).toBe(10);
+  expect(body.caps.session5h[1].pct).toBe(20);
+  expect(body.caps.session5h[0].window).toBe("session5h");
+
+  expect(body.caps.week).toHaveLength(1);
+  expect(body.caps.week[0].pct).toBe(30);
+  expect(body.caps.week[0].window).toBe("week");
+
+  expect(body.credit).toEqual([]);
+});
+
+test("GET /api/usage/history returns credit snapshots and since equals now - USAGE_HISTORY_RETENTION_MS", async () => {
+  const now = Date.now();
+  const deps = makeDeps();
+
+  deps.store.putCreditSnapshot({
+    spent: 5,
+    cap: 50,
+    currency: "€",
+    pct: 10,
+    resetAt: now - 3000,
+    scrapedAt: now - 100,
+  });
+
+  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+
+  expect(body.credit).toHaveLength(1);
+  expect(body.credit[0]).toEqual({
+    spent: 5,
+    cap: 50,
+    currency: "€",
+    pct: 10,
+    resetAt: now - 3000,
+    scrapedAt: now - 100,
+  });
+
+  // since must be approximately now - USAGE_HISTORY_RETENTION_MS (within 1s)
+  expect(Math.abs(body.since - (Date.now() - USAGE_HISTORY_RETENTION_MS))).toBeLessThan(1000);
+});
+
+test("GET /api/usage/history does not return rows older than retention window", async () => {
+  const now = Date.now();
+  const deps = makeDeps();
+
+  const oldTs = now - USAGE_HISTORY_RETENTION_MS - 10000; // older than retention
+  // Directly insert an old row via the store's internal db to bypass putCap which writes current time
+  (deps.store as any).db.run(
+    `INSERT INTO usage_caps_history (window, cap, resetAt, pct, scrapedAt) VALUES (?,?,?,?,?)`,
+    ["session5h", 100, now - 5000, 99, oldTs],
+  );
+  // Also insert a recent row
+  deps.store.putCap({
+    window: "session5h",
+    cap: 100,
+    resetAt: now - 1000,
+    pct: 50,
+    scrapedAt: now - 50,
+  });
+
+  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+
+  // Only the recent row should appear
+  expect(body.caps.session5h).toHaveLength(1);
+  expect(body.caps.session5h[0].pct).toBe(50);
 });

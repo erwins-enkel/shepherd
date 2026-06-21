@@ -29,6 +29,8 @@ vi.mock("$lib/api", async () => {
   return {
     getUsageBreakdown: (range: UsageRange) => Promise.resolve(mockBreakdown(range)),
     getUsageLimits: () => Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
+    getUsageHistory: () =>
+      Promise.resolve({ caps: { session5h: [], week: [] }, credit: [], since: BASE }),
   };
 });
 

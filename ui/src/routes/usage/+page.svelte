@@ -1,7 +1,14 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+  import type {
+    UsageBreakdown,
+    UsageLimits,
+    UsageProjection,
+    UsageRange,
+    UsageHistoryResponse,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { getUsageBreakdown, getUsageLimits } from "$lib/api";
+  import { getUsageBreakdown, getUsageLimits, getUsageHistory } from "$lib/api";
+  import { pollWhileVisible } from "$lib/visibility";
   import { resolve } from "$app/paths";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
@@ -15,11 +22,19 @@
   let breakdown = $state<UsageBreakdown | null>(null);
   let limits = $state<UsageLimits | null>(null);
   let projections = $state<UsageProjection[]>([]);
+  let history = $state<UsageHistoryResponse | null>(null);
   let loading = $state(true);
   let error = $state(false);
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
   // limits-endpoint failure surfaces an error + Retry instead of loading forever.
   let limitsError = $state(false);
+
+  // Last-seen scrape signal — history only moves on a scrape, so the 30s poll
+  // re-fetches /api/usage/history ONLY when this advances (never every tick).
+  let lastScrapeSig = "";
+  function scrapeSig(): string {
+    return `${limits?.calibratedAt}:${limits?.credits?.scrapedAt}`;
+  }
 
   // Fetch limits once on mount (range-independent). `limits === null && !limitsError`
   // ⇒ still loading.
@@ -33,9 +48,39 @@
       limitsError = true;
     }
   }
+
+  // History augments the lens — a failed load must NOT blank it. Quiet on error.
+  async function loadHistory() {
+    try {
+      history = await getUsageHistory();
+    } catch {
+      /* augmentation only — leave prior history untouched */
+    }
+  }
   $effect(() => {
-    loadLimits();
+    // Async IIFE so the `scrapeSig()` baseline read happens AFTER the awaits — reading
+    // `limits` synchronously here would make this effect depend on `limits`, and since
+    // loadLimits() assigns a fresh object each call it would re-invalidate → refetch loop.
+    void (async () => {
+      await loadLimits();
+      // Initial unconditional history load; baseline the signal so the first poll
+      // tick doesn't redundantly refetch.
+      await loadHistory();
+      lastScrapeSig = scrapeSig();
+    })();
   });
+
+  // Live refresh while visible: gauges + projection every tick (cheap recompute);
+  // history only when the scrape signal advanced.
+  async function refresh() {
+    await loadLimits();
+    const sig = scrapeSig();
+    if (sig !== lastScrapeSig) {
+      lastScrapeSig = sig;
+      loadHistory();
+    }
+  }
+  $effect(() => pollWhileVisible(refresh, 30_000));
 
   // Monotonic token: latest request always wins; stale requests discard their results.
   let reqToken = 0;
@@ -61,10 +106,14 @@
     loadBreakdown(range);
   });
 
-  // Retry re-fetches BOTH tracks so either failure surface recovers.
-  function retry() {
+  // Retry re-fetches BOTH tracks so either failure surface recovers. Rebaseline the
+  // scrape signal after the limits/history loads so the next poll tick doesn't see a
+  // stale signal and trigger a redundant /api/usage/history refetch.
+  async function retry() {
     loadBreakdown(range);
-    loadLimits();
+    await loadLimits();
+    await loadHistory();
+    lastScrapeSig = scrapeSig();
   }
 </script>
 
@@ -163,7 +212,7 @@
         <p class="usage-status-line">{m.common_loading()}</p>
       {/if}
     {:else if limits}
-      <LimitsLens {limits} {projections} />
+      <LimitsLens {limits} {projections} {history} />
     {:else if limitsError}
       <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
       <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button>

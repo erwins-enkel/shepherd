@@ -1,15 +1,16 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { docAgentArgv } from "./doc-agent-argv";
 import { EmptyDiffError } from "./forge/types";
-import type { GitForge } from "./forge/types";
+import type { GitForge, GitState } from "./forge/types";
+import { isSettledIdle } from "./recap-core";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
-import type { DocAgentOutcome, DocAgentRun } from "./types";
+import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
 import { apiKeyPassthroughEnv, isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
@@ -78,6 +79,17 @@ const SENTINEL = ".shepherd-doc-update.md";
  *  that lacks this tree is rejected before any spawn (it would have nothing to stage). */
 const DOC_TREE_MARKER = "docs-site/src/content/docs";
 
+/** Re-target run marker (issue #956 Option B): written at the worktree root so a restart can
+ *  re-adopt a re-target run with its mode + target PR even after the in-flight map is lost. Holds
+ *  `{ prNumber, headBranch, base }`. It lives OUTSIDE {@link IN_SCOPE_PATHS}, so the staging
+ *  `git add -- <inScope>` already excludes it (same posture as {@link SENTINEL}). */
+const RETARGET_MARKER = ".shepherd-doc-retarget.json";
+
+/** Default settled-idle debounce before a re-target run fires (mirrors recap's
+ *  DEFAULT_IDLE_THRESHOLD_MS): a code-PR session must be idle+green this long before we push docs
+ *  onto its branch, so we never re-target a still-churning PR. */
+const DEFAULT_IDLE_THRESHOLD_MS = 120_000;
+
 /** The EXPLICIT in-scope file list (repo-relative). finalize() stages ONLY these (∩ files that
  *  exist), so any agent edit outside the set — the Astro app, the generated `reference/cli/*`, or a
  *  brand-new file — is never staged and can't reach the PR. This is the structural off-limits
@@ -138,6 +150,23 @@ interface InFlight {
   spawnSessionId: string;
   startedAt: number;
   finalizing?: boolean;
+  /** "fresh" = the nightly/merge path (opens a standalone `shepherd/docs-update-*` PR).
+   *  "retarget" = issue #956 Option B (pushes the doc commit onto an OPEN code PR's head branch). */
+  mode: "fresh" | "retarget";
+  /** The code PR number being re-targeted (retarget only). */
+  prNumber?: number;
+  /** The code PR's head branch = the push target for the doc commit (retarget only). */
+  headBranch?: string;
+  /** The originating session's worktree path, for the best-effort owner-branch ff (retarget only). */
+  ownerWorktreePath?: string;
+  /** The code PR head SHA at re-target start — the worktree base + the ff safety guard (retarget). */
+  headSha?: string;
+}
+
+/** Re-target grounding context: the open code PR the doc agent is checked out at the head of. */
+export interface RetargetPromptCtx {
+  prNumber: number;
+  prTitle: string;
 }
 
 export interface DocAgentDeps extends MembraneSeams {
@@ -158,6 +187,7 @@ export interface DocAgentDeps extends MembraneSeams {
     | "listReviewerSpawns"
     | "recordDocAgentRun"
     | "listDocAgentRuns"
+    | "list"
   >;
   model?: string | null;
   /** Phase-1 escalation: when false (Phase-0 observe), finalize() is log-only (no commit/push/PR). */
@@ -174,10 +204,21 @@ export interface DocAgentDeps extends MembraneSeams {
   prettier?: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
-  buildPrompt?: (base: string) => string;
+  /** Cached PR state per session (Task 2 wires it to `prPoller.get`). The re-target sweep reads it
+   *  to find open+green+doc-relevant code PRs. */
+  gitState?: (sessionId: string) => GitState | undefined;
+  /** Settled-idle debounce before a re-target run fires (default {@link DEFAULT_IDLE_THRESHOLD_MS}). */
+  idleThresholdMs?: number;
+  /** Build the agent task prompt. `ctx` (re-target only) grounds the agent on the open PR's diff
+   *  instead of the recent-commit window. */
+  buildPrompt?: (base: string, ctx?: RetargetPromptCtx) => string;
   /** Read a spawn's token usage from its transcript at finalize (cost attribution). Mirrors
    *  herd-digest.ts's identical dep + readSessionUsage default. */
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
+  /** Write the re-target marker (tests inject a fake; default `writeFileSync`). */
+  writeMarker?: (path: string, contents: string) => void;
+  /** Read the re-target marker on boot re-adopt (tests inject a fake; default `readFileSync`). */
+  readMarker?: (path: string) => string | null;
 }
 
 /**
@@ -207,9 +248,14 @@ export class DocAgentService {
   private dayKey: (now: number) => string;
   private fileExists: (p: string) => boolean;
   private readSentinel: (worktreePath: string) => string | null;
-  private buildPrompt: (base: string) => string;
+  private buildPrompt: (base: string, ctx?: RetargetPromptCtx) => string;
   private act: boolean;
   private readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
+  private idleThresholdMs: number;
+  private writeMarkerFn: (path: string, contents: string) => void;
+  private readMarkerFn: (path: string) => string | null;
+  /** Per-session settled-idle debounce for the re-target sweep (mirrors RecapService.debounce). */
+  private readyDebounce = new Map<string, { stamp: number; fired: boolean }>();
 
   constructor(private deps: DocAgentDeps) {
     this.git = deps.git ?? defaultGit;
@@ -220,9 +266,20 @@ export class DocAgentService {
     this.dayKey = deps.dayKey ?? defaultDayKey;
     this.fileExists = deps.fileExists ?? existsSync;
     this.readSentinel = deps.readSentinel ?? defaultReadSentinel;
-    this.buildPrompt = deps.buildPrompt ?? ((base) => docAgentPrompt(base));
+    this.buildPrompt = deps.buildPrompt ?? ((base, ctx) => docAgentPrompt(base, ctx));
     this.act = deps.act ?? false;
     this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
+    this.writeMarkerFn = deps.writeMarker ?? ((p, c) => writeFileSync(p, c, "utf8"));
+    this.readMarkerFn = deps.readMarker ?? defaultReadMarker;
+  }
+
+  /** Serialize + write the re-target marker JSON (best-effort caller catches). */
+  private writeMarker(
+    path: string,
+    data: { prNumber: number; headBranch: string; base: string },
+  ): void {
+    this.writeMarkerFn(path, JSON.stringify(data));
   }
 
   /** Start a doc-agent run for `repoPath` (manual trigger). At most one per repo at a time. */
@@ -278,6 +335,12 @@ export class DocAgentService {
     }
     if (!forge || baseBranch !== def)
       return { status: "skipped", reason: "merge target is not the default branch" };
+    // Re-target ownership (issue #956): a re-target run claims this PR's docs at its START (it sets
+    // prSyncedKey before spawning). If that key is set the doc commit is already (or about to be) on
+    // this PR's own branch — DEFER, and crucially do NOT consume the per-PR mergedSeenKey below, so
+    // the merge fast-path stays available should the re-target run later fall through to a fresh PR.
+    if (this.deps.store.getSetting(prSyncedKey(repoPath, prNumber)) != null)
+      return { status: "skipped", reason: "re-target already owns this PR's docs" };
     const key = mergedSeenKey(repoPath, prNumber);
     if (this.deps.store.getSetting(key) != null)
       return { status: "skipped", reason: "merge already handled" };
@@ -352,6 +415,217 @@ export class DocAgentService {
     }
   }
 
+  /**
+   * Pre-merge re-target sweep (issue #956 Option B). Called on the tick (flag-gated in index.ts).
+   * For each managed session whose code PR is OPEN + green + doc-relevant and has been settled-idle
+   * long enough, spawn a re-target run that pushes the doc commit onto THAT PR's own head branch —
+   * one PR carries both code and docs, instead of a second `shepherd/docs-update-*` PR after merge.
+   *
+   * Modeled on {@link import("./recap").RecapService.sweep}/considerSession: a per-session
+   * settled-idle debounce ({@link readyDebounce}) ensures we never re-target a still-churning PR, and
+   * the per-repo `inflight`/`starting` lock serializes against the fresh path (one doc run per repo).
+   */
+  async sweepReadyPrs(): Promise<void> {
+    const now = this.now();
+    for (const s of this.deps.store.list()) {
+      try {
+        await this.considerReady(s, now);
+      } catch (err) {
+        console.warn(`[doc-agent] re-target sweep failed for ${s.id}:`, err);
+      }
+    }
+  }
+
+  /** Per-session re-target decision: gate → settled-idle debounce → per-repo lock → beginRetarget. */
+  private async considerReady(s: Session, now: number): Promise<void> {
+    if (s.status === "archived") return;
+    // Not settled (still working) → reset the debounce so a later settle re-evaluates cleanly.
+    if (s.status === "running" || s.status === "blocked") {
+      this.readyDebounce.delete(s.id);
+      return;
+    }
+    // Eligibility gates (cheap, no spawn). A miss leaves the debounce untouched so it can fire once
+    // the session becomes eligible without restarting the idle clock.
+    const git = this.retargetCandidate(s);
+    if (!git) return;
+
+    // Settled-idle debounce (mirrors RecapService.considerSession).
+    const e = this.readyDebounce.get(s.id);
+    if (!e) {
+      this.readyDebounce.set(s.id, { stamp: now, fired: false });
+      return; // first settle tick — start the idle clock
+    }
+    if (e.fired) return; // already fired this idle episode
+    if (!isSettledIdle(s.status, now - e.stamp, this.idleThresholdMs)) return;
+
+    // Per-repo lock: don't fire while a doc run is in flight/starting for this repo. Do NOT set
+    // `fired` — retry next tick once the lock frees (a missed episode would otherwise never fire).
+    if (this.inflight.has(s.repoPath) || this.starting.has(s.repoPath)) return;
+
+    e.fired = true;
+    await this.beginRetarget(s, git);
+  }
+
+  /**
+   * Cheap, no-spawn eligibility gate for the re-target sweep: returns the validated cached
+   * {@link GitState} when `s` is a re-target candidate (has a branch, lives in a doc-tree repo, and
+   * its cached PR state is open + green + has a head sha + number + a doc-relevant title + is not
+   * already claimed by a prior re-target), else null. A null leaves the caller's idle debounce
+   * untouched so it can fire once the session becomes eligible without restarting the idle clock.
+   */
+  private retargetCandidate(s: Session): GitState | null {
+    if (!s.branch) return null;
+    if (!this.fileExists(join(s.repoPath, DOC_TREE_MARKER))) return null;
+    const git = this.deps.gitState?.(s.id);
+    if (!git || git.state !== "open" || git.checks !== "success") return null;
+    if (!git.headSha || git.number == null) return null;
+    if (!isDocRelevantMerge(git.title)) return null;
+    if (this.deps.store.getSetting(prSyncedKey(s.repoPath, git.number)) != null) return null;
+    return git;
+  }
+
+  /**
+   * Start a re-target run for `session` against its open code PR (issue #956). Mirrors {@link begin}
+   * but checks the worktree out at the PR's HEAD sha and, on finalize, pushes the doc commit onto the
+   * PR's own head branch instead of opening a standalone PR.
+   *
+   * Sets the {@link prSyncedKey} ownership claim BEFORE the spawn so {@link onMergedPr} defers even if
+   * the code PR merges mid-run. Re-checks the per-repo lock (the sweep checked it without holding it).
+   * Does NOT call stampLastSha — that is the nightly gate's marker, irrelevant to a PR-targeted run.
+   */
+  private async beginRetarget(session: Session, git: GitState): Promise<DocAgentResult> {
+    const repoPath = session.repoPath;
+    if (this.inflight.has(repoPath) || this.starting.has(repoPath))
+      return { status: "skipped", reason: "doc agent already running for this repo" };
+    this.starting.add(repoPath);
+    try {
+      const guard = this.guardRepo(repoPath);
+      if (!guard.ok) return guard.result;
+      const forge = guard.forge;
+      const prNumber = git.number!;
+      const headSha = git.headSha!;
+
+      let base: string;
+      try {
+        base = await forge.defaultBranch();
+      } catch {
+        return { status: "error", reason: "could not resolve default branch" };
+      }
+
+      // Claim ownership BEFORE the spawn: if the code PR merges mid-run, onMergedPr now defers and the
+      // re-target run's own finalize fallback opens the single fresh PR (no double PR).
+      this.deps.store.setSetting(prSyncedKey(repoPath, prNumber), "1");
+
+      const promptCtx: RetargetPromptCtx = { prNumber, prTitle: git.title ?? "" };
+      const launched = this.launchRun(
+        repoPath,
+        headSha,
+        base,
+        {
+          mode: "retarget",
+          prNumber,
+          headBranch: session.branch!,
+          ownerWorktreePath: session.worktreePath,
+          headSha,
+        },
+        promptCtx,
+        // Drop the restart marker so a boot reconcile re-adopts this as a re-target run. Runs after
+        // worktree creation, before the spawn — same position as the original inline write.
+        (worktreePath) => {
+          try {
+            this.writeMarker(join(worktreePath, RETARGET_MARKER), {
+              prNumber,
+              headBranch: session.branch!,
+              base,
+            });
+          } catch (err) {
+            console.warn(`[doc-agent] writing re-target marker failed for ${repoPath}:`, err);
+          }
+        },
+      );
+      if (!launched.ok) return launched.result;
+      return { status: "started" };
+    } finally {
+      this.starting.delete(repoPath);
+    }
+  }
+
+  /**
+   * Shared run-launch mechanics for {@link begin} (fresh) and {@link beginRetarget} (retarget):
+   * create a disposable `shepherd/docs-update-<8hex>` worktree off `baseRef`, optionally run
+   * `afterCreate` (the re-target marker write — between create and spawn), spawn the scoped agent,
+   * register it in `inflight` (merging `extra` for mode + the retarget-only fields), and persist the
+   * durable cost row. Returns `{ ok: true }` on success or `{ ok: false, result }` carrying the
+   * skip/error result the caller returns. The worktree is removed on any post-create failure.
+   *
+   * `baseRef` is the worktree start point — `resolved.baseRef` (fresh) or the PR head sha (retarget).
+   * `base` is the default-branch name stored on the run + threaded into the prompt. `promptCtx`
+   * (retarget only) grounds the agent on the open PR's diff. Callers keep their own pre/post steps
+   * (begin's stampLastSha, beginRetarget's prSyncedKey claim) outside this helper.
+   */
+  private launchRun(
+    repoPath: string,
+    baseRef: string,
+    base: string,
+    extra: Partial<InFlight>,
+    promptCtx?: RetargetPromptCtx,
+    afterCreate?: (worktreePath: string) => void,
+  ): { ok: true } | { ok: false; result: DocAgentResult } {
+    const id8 = randomUUID().slice(0, 8);
+    const wtName = DOC_BRANCH_PREFIX + id8;
+    let wt;
+    try {
+      wt = this.deps.worktree.create(repoPath, baseRef, wtName);
+    } catch (err) {
+      console.warn(`[doc-agent] worktree creation failed for ${repoPath}:`, err);
+      return { ok: false, result: { status: "error", reason: "worktree creation failed" } };
+    }
+    if (!wt.isolated || !wt.branch) {
+      if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "error", reason: "worktree creation failed" } };
+    }
+
+    afterCreate?.(wt.worktreePath);
+
+    const spawned = this.spawnAgent(
+      repoPath,
+      wt.worktreePath,
+      DOC_AGENT_LABEL + id8,
+      base,
+      promptCtx,
+    );
+    if (!spawned) {
+      this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "error", reason: "spawn failed" } };
+    }
+    const { terminalId, spawnSessionId } = spawned;
+    const startedAt = this.now();
+    this.inflight.set(repoPath, {
+      repoPath,
+      worktreePath: wt.worktreePath,
+      branch: wt.branch,
+      base,
+      terminalId,
+      agentName: DOC_AGENT_LABEL + id8,
+      spawnSessionId,
+      startedAt,
+      mode: "fresh",
+      ...extra,
+    });
+    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
+    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
+    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
+    this.deps.store.recordReviewerSpawn({
+      reviewerSessionId: spawnSessionId,
+      taskSessionId: repoPath,
+      kind: "doc_agent",
+      worktreePath: wt.worktreePath,
+      model: this.deps.model ?? null,
+      spawnedAt: startedAt,
+    });
+    return { ok: true };
+  }
+
   private async begin(repoPath: string): Promise<DocAgentResult> {
     const guard = this.guardRepo(repoPath);
     if (!guard.ok) return guard.result;
@@ -370,48 +644,8 @@ export class DocAgentService {
 
     // forget() can't race a manual trigger here, but a second trigger could have landed during the
     // awaits above — the `starting` claim (held until this returns) prevents that double-spawn.
-    const id8 = randomUUID().slice(0, 8);
-    const wtName = DOC_BRANCH_PREFIX + id8;
-    let wt;
-    try {
-      wt = this.deps.worktree.create(repoPath, resolved.baseRef, wtName);
-    } catch (err) {
-      console.warn(`[doc-agent] worktree creation failed for ${repoPath}:`, err);
-      return { status: "error", reason: "worktree creation failed" };
-    }
-    if (!wt.isolated || !wt.branch) {
-      if (wt.worktreePath !== repoPath) this.deps.worktree.remove(wt.worktreePath);
-      return { status: "error", reason: "worktree creation failed" };
-    }
-
-    const spawned = this.spawnAgent(repoPath, wt.worktreePath, DOC_AGENT_LABEL + id8, base);
-    if (!spawned) {
-      this.deps.worktree.remove(wt.worktreePath);
-      return { status: "error", reason: "spawn failed" };
-    }
-    const { terminalId, spawnSessionId } = spawned;
-    const startedAt = this.now();
-    this.inflight.set(repoPath, {
-      repoPath,
-      worktreePath: wt.worktreePath,
-      branch: wt.branch,
-      base,
-      terminalId,
-      agentName: DOC_AGENT_LABEL + id8,
-      spawnSessionId,
-      startedAt,
-    });
-    // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
-    // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
-    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
-    this.deps.store.recordReviewerSpawn({
-      reviewerSessionId: spawnSessionId,
-      taskSessionId: repoPath,
-      kind: "doc_agent",
-      worktreePath: wt.worktreePath,
-      model: this.deps.model ?? null,
-      spawnedAt: startedAt,
-    });
+    const launched = this.launchRun(repoPath, resolved.baseRef, base, { mode: "fresh" });
+    if (!launched.ok) return launched.result;
     // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
     // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
     // name/local sha in the diverged/no-upstream case and could never reach equality with the gate's
@@ -459,8 +693,12 @@ export class DocAgentService {
     worktreePath: string,
     agentName: string,
     base: string,
+    promptCtx?: RetargetPromptCtx,
   ): { terminalId: string; spawnSessionId: string } | null {
-    const { argv, sessionId } = docAgentArgv(this.deps.model ?? null, this.buildPrompt(base));
+    const { argv, sessionId } = docAgentArgv(
+      this.deps.model ?? null,
+      this.buildPrompt(base, promptCtx),
+    );
     const { wrapped, backend } = resolveSpawnMembrane({
       argv,
       worktreePath,
@@ -503,44 +741,54 @@ export class DocAgentService {
     }
   }
 
+  /**
+   * Stage the in-scope doc edits and return the staged-file diff (`git diff --cached --name-only`,
+   * trimmed; "" when nothing staged or no in-scope file exists). STRUCTURAL off-limits boundary:
+   * stages ONLY {@link IN_SCOPE_PATHS} ∩ files that exist, so an agent edit to the Astro app,
+   * reference/cli/*, or a brand-new file is never staged → can't reach the PR.
+   *
+   * Before staging it formats the `docs/`-prefixed in-scope files (abs paths) with the server's
+   * pinned prettier so the PR passes CI's `prettier --check .` gate — docs-site/** is
+   * Astro/Starlight-governed and must NEVER be passed to root prettier. Prettier is best-effort: a
+   * failure warns loudly and the PR still opens (no worse than today's unformatted baseline).
+   */
+  private async stageInScope(f: InFlight): Promise<string> {
+    const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
+    if (inScope.length === 0) return "";
+    const absDocs = inScope
+      .filter((p) => p.startsWith("docs/"))
+      .map((p) => join(f.worktreePath, p));
+    if (absDocs.length > 0) {
+      try {
+        await this.prettier({
+          cwd: SERVER_INSTALL_ROOT,
+          configPath: join(f.worktreePath, ".prettierrc"),
+          files: absDocs,
+        });
+      } catch (err) {
+        console.warn(
+          `[doc-agent] prettier format failed for ${f.repoPath} — PR may fail the lint gate:`,
+          err,
+        );
+      }
+    }
+    await this.git(f.worktreePath, ["add", "--", ...inScope]);
+    return (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
+  }
+
   private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
     let url: string | null = null;
     let hadStagedChanges = false;
     try {
       const forge = this.deps.resolveForge(f.repoPath);
-      // STRUCTURAL off-limits boundary: stage ONLY the in-scope list ∩ files that exist. An agent
-      // edit to the Astro app, reference/cli/*, or a new file is never staged → can't reach the PR.
-      const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
-      if (forge && inScope.length > 0) {
-        // Format root docs/*.md with the server's pinned prettier BEFORE staging so the PR passes
-        // CI's `prettier --check .` gate. Constrained to the `docs/`-prefixed in-scope files (abs
-        // paths) — docs-site/** is Astro/Starlight-governed and must never be passed to root
-        // prettier. Best-effort: a failure warns loudly and the PR still opens (no worse than
-        // today's unformatted baseline).
-        const absDocs = inScope
-          .filter((p) => p.startsWith("docs/"))
-          .map((p) => join(f.worktreePath, p));
-        if (absDocs.length > 0) {
-          try {
-            await this.prettier({
-              cwd: SERVER_INSTALL_ROOT,
-              configPath: join(f.worktreePath, ".prettierrc"),
-              files: absDocs,
-            });
-          } catch (err) {
-            console.warn(
-              `[doc-agent] prettier format failed for ${f.repoPath} — PR may fail the lint gate:`,
-              err,
-            );
-          }
-        }
-        await this.git(f.worktreePath, ["add", "--", ...inScope]);
-        const stagedOut = (
-          await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])
-        ).trim();
+      if (forge) {
+        const stagedOut = await this.stageInScope(f);
         if (stagedOut.length > 0) {
           hadStagedChanges = true;
-          url = await this.publishStaged(f, sentinel, forge, stagedOut);
+          url =
+            f.mode === "retarget"
+              ? await this.publishRetarget(f, sentinel, forge, stagedOut)
+              : await this.publishStaged(f, sentinel, forge, stagedOut);
         }
       }
     } finally {
@@ -582,14 +830,39 @@ export class DocAgentService {
     forge: GitForge,
     stagedOut: string,
   ): Promise<string | null> {
+    if (!(await this.observeOrCommit(f, stagedOut, `would open a doc-update PR on ${f.branch}`)))
+      return null;
+    return this.openFreshPr(f, sentinel, forge);
+  }
+
+  /**
+   * Shared OBSERVE-vs-commit gate for both publish paths. Phase-0 OBSERVE (`!act`) logs `intent` (the
+   * per-mode "would …" phrase) with the repo path + the staged file count/list appended, and returns
+   * false (the caller then returns null — no commit/push/PR). Phase-1 act commits `--no-verify`
+   * (deliberately DIVERGES from promote.ts, which commits WITH hooks: a server-side docs-only commit
+   * must not run the repo's pre-commit hooks on unrelated state — the change is grounded +
+   * human-reviewed via the PR) and returns true so the caller proceeds to push/open the PR.
+   */
+  private async observeOrCommit(f: InFlight, stagedOut: string, intent: string): Promise<boolean> {
     if (!this.act) {
       const staged = stagedOut.split("\n");
       console.warn(
-        `[doc-agent] OBSERVE: ${f.repoPath} would open a doc-update PR on ${f.branch} (${staged.length} files): ${staged.join(", ")}`,
+        `[doc-agent] OBSERVE: ${f.repoPath} ${intent} (${staged.length} files): ${staged.join(", ")}`,
       );
-      return null;
+      return false;
     }
     await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
+    return true;
+  }
+
+  /** Push the local `shepherd/docs-update-*` branch and open a standalone doc-update PR. Shared by
+   *  the fresh path and the re-target merged-first fallback. Assumes the commit is already made.
+   *  Returns the PR url (null on no net diff vs base). */
+  private async openFreshPr(
+    f: InFlight,
+    sentinel: string | null,
+    forge: GitForge,
+  ): Promise<string | null> {
     await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
     try {
       const status = await forge.openPr({
@@ -606,10 +879,101 @@ export class DocAgentService {
     }
   }
 
+  /**
+   * Re-target publish (issue #956 Option B). Commits the staged doc changes, then — IF the code PR is
+   * still open — pushes the commit onto that PR's own head branch (no new PR opened) and best-effort
+   * fast-forwards the owner session's local branch. If the PR is no longer open (merged/closed
+   * mid-run), falls through to {@link openFreshPr} so the doc change still lands as exactly ONE
+   * standalone PR. OBSERVE (`!act`) logs what it would push and returns null (no commit/push/PR).
+   */
+  private async publishRetarget(
+    f: InFlight,
+    sentinel: string | null,
+    forge: GitForge,
+    stagedOut: string,
+  ): Promise<string | null> {
+    if (
+      !(await this.observeOrCommit(
+        f,
+        stagedOut,
+        `would push docs onto PR #${f.prNumber} branch ${f.headBranch}`,
+      ))
+    )
+      return null;
+
+    // Re-check the PR right before the push: it may have merged/closed since the run started.
+    let status;
+    try {
+      status = await forge.prStatus(f.headBranch!);
+    } catch (err) {
+      console.warn(
+        `[doc-agent] re-target: prStatus(${f.headBranch}) failed for ${f.repoPath}:`,
+        err,
+      );
+      return null; // defer to the nightly path rather than guess
+    }
+    if (status.state !== "open") {
+      // PR merged/closed mid-run → open the single fresh PR instead (key already set → onMergedPr defers).
+      return this.openFreshPr(f, sentinel, forge);
+    }
+
+    // Push the doc commit onto the code PR's OWN head branch (never force, explicit refspec).
+    try {
+      await this.git(f.worktreePath, ["push", "origin", `HEAD:refs/heads/${f.headBranch}`]);
+    } catch (err) {
+      // Non-ff or other push failure → defer to the nightly fresh path; do NOT throw or force.
+      console.warn(
+        `[doc-agent] re-target: pushing onto ${f.headBranch} failed for ${f.repoPath} — deferring to nightly:`,
+        err,
+      );
+      return null;
+    }
+    // Best-effort: fast-forward the owner session's local branch so it isn't left behind origin.
+    await this.ffOwnerBranch(f);
+    return status.url ?? null;
+  }
+
+  /**
+   * Best-effort fast-forward of the originating session's local branch to the just-pushed head
+   * (issue #956). NEVER throws, NEVER force-pushes, NEVER rewrites the owner's branch: it fetches the
+   * code PR's branch and `merge --ff-only`s, but only when the owner worktree is clean AND still at
+   * the pre-push head (so an operator who resumed work mid-run is never clobbered).
+   */
+  private async ffOwnerBranch(f: InFlight): Promise<void> {
+    if (!f.ownerWorktreePath || !f.headBranch || !f.headSha) return;
+    try {
+      const dirty = (await this.git(f.ownerWorktreePath, ["status", "--porcelain"])).trim();
+      if (dirty.length > 0) return; // uncommitted work — never touch it
+      const head = (await this.git(f.ownerWorktreePath, ["rev-parse", "HEAD"])).trim();
+      if (head !== f.headSha) return; // owner moved on since we forked — leave it alone
+      await this.git(f.ownerWorktreePath, ["fetch", "origin", f.headBranch]);
+      await this.git(f.ownerWorktreePath, ["merge", "--ff-only", `origin/${f.headBranch}`]);
+    } catch (err) {
+      console.warn(
+        `[doc-agent] re-target: owner-branch ff skipped for ${f.ownerWorktreePath}:`,
+        err,
+      );
+    }
+  }
+
   /** Drop a repo's in-flight tracking (e.g. on shutdown); does not touch the worktree. */
   forget(repoPath: string): void {
     this.inflight.delete(repoPath);
     this.starting.delete(repoPath);
+  }
+
+  /**
+   * Free the per-session re-target debounce on archive (mirrors RecapService.onArchived).
+   *
+   * Without this the `readyDebounce` Map leaks entries for archived sessions — they never
+   * re-enter the sweep's active-session list to be cleared (considerReady() early-returns on
+   * `status === "archived"` before touching the map).
+   *
+   * Deliberately does NOT touch `inflight`/`starting` — a doc run is keyed by repoPath, not
+   * sessionId, so archiving a session has no bearing on an in-flight run for its repo.
+   */
+  onArchived(sessionId: string): void {
+    this.readyDebounce.delete(sessionId);
   }
 
   /**
@@ -709,6 +1073,10 @@ export class DocAgentService {
     // RE-ADOPT: hand the `starting` claim to `inflight`; the next tick() finalizes it (and completes
     // the row). Recover spawnedAt + the spawn session id from the uncompleted row when present.
     const row = this.uncompletedRowFor(path);
+    // Restart-safety (issue #956): a re-target run dropped a marker; re-adopt it as such so the next
+    // tick()→finalize routes to publishRetarget (which re-checks prStatus and either pushes onto the
+    // open PR or falls through to a fresh PR). Absent/unparseable marker → fresh path (unchanged).
+    const marker = this.readRetargetMarker(path);
     this.inflight.set(repo, {
       repoPath: repo,
       worktreePath: path,
@@ -718,6 +1086,8 @@ export class DocAgentService {
       agentName: liveTab?.name ?? "",
       startedAt: row?.spawnedAt ?? this.now(),
       spawnSessionId: row?.reviewerSessionId ?? "",
+      mode: marker ? "retarget" : "fresh",
+      ...(marker ? { prNumber: marker.prNumber, headBranch: marker.headBranch } : {}),
     });
     this.starting.delete(repo);
     return true;
@@ -860,6 +1230,25 @@ export class DocAgentService {
     }
   }
 
+  /** Read + parse the re-target marker at a worktree root, or null when absent/unparseable. */
+  private readRetargetMarker(
+    worktreePath: string,
+  ): { prNumber: number; headBranch: string; base: string } | null {
+    const raw = this.readMarkerFn(join(worktreePath, RETARGET_MARKER));
+    if (raw == null) return null;
+    try {
+      const m = JSON.parse(raw) as { prNumber?: unknown; headBranch?: unknown; base?: unknown };
+      if (typeof m.prNumber !== "number" || typeof m.headBranch !== "string") return null;
+      return {
+        prNumber: m.prNumber,
+        headBranch: m.headBranch,
+        base: typeof m.base === "string" ? m.base : "",
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** Parse `git worktree list --porcelain` → [{path, branch}] (branch "" for detached). */
   private async listWorktreeBranches(repo: string): Promise<{ path: string; branch: string }[]> {
     const out = await this.git(repo, ["worktree", "list", "--porcelain"]);
@@ -895,6 +1284,10 @@ const nightlyDayKey = (repo: string) => `docagent:nightly-day:${repo}`;
 // posture as the existing `learnings:*` per-key settings markers (e.g. learnings:retired-seen:<repo>).
 const mergedSeenKey = (repo: string, prNumber: number) =>
   `docagent:merged-seen:${repo}:${prNumber}`;
+// Re-target ownership claim (issue #956 Option B). Set at re-target START (in beginRetarget, before
+// the spawn) so onMergedPr defers even if the code PR merges mid-run. Same accept-and-grow posture
+// as mergedSeenKey — one tiny row per re-targeted PR, never cleaned up.
+const prSyncedKey = (repo: string, prNumber: number) => `docagent:pr-synced:${repo}:${prNumber}`;
 
 /** Local `YYYY-MM-DD` for `now` — the nightly once/day key (mirrors herd-digest's dayKeyFor). */
 function defaultDayKey(now: number): string {
@@ -932,6 +1325,16 @@ function defaultReadSentinel(worktreePath: string): string | null {
   }
 }
 
+/** Read the re-target marker file at an absolute path, or null when absent/unreadable. */
+function defaultReadMarker(path: string): string | null {
+  if (!existsSync(path)) return null;
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** PR body: the agent's grounding/uncertainty summary + a human-review banner. */
 function docPrBody(sentinel: string | null): string {
   const summary =
@@ -951,16 +1354,31 @@ function docPrBody(sentinel: string | null): string {
 /** The doc-agent task prompt. Grounds the agent in recent source changes, restricts edits to the
  *  enumerated existing in-scope prose, forbids touching generated docs + creating new files +
  *  running git, and asks for a grounded/uncertainty summary written to the sentinel. */
-function docAgentPrompt(base: string): string {
+function docAgentPrompt(base: string, ctx?: RetargetPromptCtx): string {
+  const grounding = ctx
+    ? [
+        "You are Shepherd's documentation-maintenance agent. Your working directory is checked out at",
+        `the HEAD of open PR #${ctx.prNumber} (\`${ctx.prTitle}\`). The change under review is`,
+        `\`git diff ${base}...HEAD\`. Focus your doc review on what THIS change made stale, and update`,
+        "ONLY the existing prose pages listed below.",
+        "",
+        "## Ground yourself in this PR's diff",
+        `Use read-only git to understand exactly what this PR changed: \`git diff ${base}...HEAD\`,`,
+        `\`git log ${base}..HEAD --stat\`, \`git show <sha>\` (these forms are what you may run).`,
+        "Pay attention to changes in:",
+      ]
+    : [
+        "You are Shepherd's documentation-maintenance agent. Your working directory is a fresh checkout",
+        `of the \`${base}\` branch. Your job: find where the documentation has gone stale relative to`,
+        "recent source changes, and update ONLY the existing prose pages listed below.",
+        "",
+        "## Ground yourself in recent changes",
+        `Use read-only git to understand what changed recently: \`git log -n ${COMMIT_WINDOW} --stat\`,`,
+        "`git show <sha>`, `git diff <ref>..<ref>` (these forms are what you are permitted to run).",
+        "Pay attention to changes in:",
+      ];
   return [
-    "You are Shepherd's documentation-maintenance agent. Your working directory is a fresh checkout",
-    `of the \`${base}\` branch. Your job: find where the documentation has gone stale relative to`,
-    "recent source changes, and update ONLY the existing prose pages listed below.",
-    "",
-    "## Ground yourself in recent changes",
-    `Use read-only git to understand what changed recently: \`git log -n ${COMMIT_WINDOW} --stat\`,`,
-    "`git show <sha>`, `git diff <ref>..<ref>` (these forms are what you are permitted to run).",
-    "Pay attention to changes in:",
+    ...grounding,
     "- `src/config.ts` — environment variables (names, defaults, behavior)",
     "- `docs/external-task-api.md`, `docs/sandbox-security.md`, `docs/token-usage-analysis.md` — the",
     "  repo-root prose sources (you may edit these directly)",

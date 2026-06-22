@@ -3158,6 +3158,9 @@ async function heldSpawn(id: string, deps: AppDeps): Promise<Response> {
     return createErrorResponse(e);
   }
   deps.store.removeHeldTask(h.id);
+  // service.create does not emit session:new (see finalizeRelaunch) — emit it here so the
+  // new session appears in the Herd live, then decrement the held badge.
+  deps.events.emit("session:new", s);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(s, 201);
 }

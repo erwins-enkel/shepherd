@@ -1,7 +1,11 @@
 import { test, expect } from "bun:test";
 import { releaseHeldTasks, type HeldReleaseDeps } from "../src/held-release";
-import type { CreateSessionInput } from "../src/types";
+import type { CreateSessionInput, Session } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
+
+// Minimal Session stub — these tests only ever read `.id` off the created session
+// (it's the session:new payload), so a full literal would be noise.
+const fakeSession = (id: string) => ({ id }) as unknown as Session;
 
 function makeInput(prompt: string): CreateSessionInput {
   return {
@@ -16,7 +20,7 @@ function makeInput(prompt: string): CreateSessionInput {
 function makeDeps(
   tasks: { id: string; input: CreateSessionInput }[],
   limits: Partial<UsageLimits> = {},
-  createFn?: (input: CreateSessionInput) => Promise<unknown>,
+  createFn?: (input: CreateSessionInput) => Promise<Session>,
 ): HeldReleaseDeps & {
   emitted: { event: string; data: unknown }[];
   creates: CreateSessionInput[];
@@ -45,10 +49,10 @@ function makeDeps(
       countHeldTasks: () => rows.length,
     },
     service: {
-      async create(input: CreateSessionInput): Promise<unknown> {
+      async create(input: CreateSessionInput): Promise<Session> {
         if (createFn) return createFn(input);
         creates.push(input);
-        return { id: "fake-session" };
+        return fakeSession("fake-session");
       },
     },
     usageLimits: { limits: () => defaultLimits },
@@ -85,7 +89,7 @@ test("usage low + 3 held → releases all 3 FIFO", async () => {
     { session5h: { pct: 30, resetAt: 0 }, week: null },
     async (input) => {
       creates.push(input);
-      return { id: "fake" };
+      return fakeSession("fake");
     },
   );
 
@@ -97,6 +101,8 @@ test("usage low + 3 held → releases all 3 FIFO", async () => {
   expect(creates[2]!.prompt).toBe("task 3");
   expect(deps.store.countHeldTasks()).toBe(0);
   expect(deps.emitted.some((e) => e.event === "held:changed")).toBe(true);
+  // each released task surfaces in the Herd via session:new (one per release)
+  expect(deps.emitted.filter((e) => e.event === "session:new")).toHaveLength(3);
 });
 
 test("5 held, maxPerTick=2 → only 2 released, 3 remain", async () => {
@@ -128,7 +134,7 @@ test("service.create throws on 2nd → 1 released, loop stops, rows intact", asy
   const deps = makeDeps(tasks, { session5h: { pct: 20, resetAt: 0 }, week: null }, async () => {
     callCount++;
     if (callCount === 2) throw new Error("spawn failed");
-    return { id: "fake" };
+    return fakeSession("fake");
   });
 
   const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 10);

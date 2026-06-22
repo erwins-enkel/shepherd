@@ -7,12 +7,12 @@
  * the operator no longer wants the gate — release everything).
  */
 import type { SessionStore } from "./store";
-import type { CreateSessionInput } from "./types";
+import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 
 export interface HeldReleaseDeps {
   store: Pick<SessionStore, "listHeldTasks" | "removeHeldTask" | "countHeldTasks">;
-  service: { create(input: CreateSessionInput): Promise<unknown> };
+  service: { create(input: CreateSessionInput): Promise<Session> };
   usageLimits: { limits(now: number): UsageLimits };
   events: { emit(event: string, data: unknown): void };
 }
@@ -41,7 +41,10 @@ export async function releaseHeldTasks(
   for (const task of tasks) {
     if (released >= maxPerTick) break;
     try {
-      await deps.service.create(task.input);
+      const s = await deps.service.create(task.input);
+      // service.create does not emit session:new — emit it so the released session
+      // appears in the Herd live; the held:changed badge update follows below.
+      deps.events.emit("session:new", s);
       deps.store.removeHeldTask(task.id);
       released++;
     } catch (err) {

@@ -273,6 +273,10 @@ test("POST /api/held/:id/spawn → calls service.create, removes row, returns 20
   expect((creates[0] as typeof input).prompt).toBe("task to spawn");
   expect(store.countHeldTasks()).toBe(0);
   expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
+  // the spawned session must surface in the Herd live via session:new (the bug: it didn't)
+  const spawned = emitted.find((e) => e.event === "session:new");
+  expect(spawned).toBeDefined();
+  expect((spawned!.data as { id: string }).id).toBe((await res.json()).id);
 });
 
 test("POST /api/held/:id/spawn with unknown id → 404", async () => {

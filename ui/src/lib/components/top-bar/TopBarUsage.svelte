@@ -231,7 +231,6 @@
               {refreshing}
               {refreshError}
               {onRefresh}
-              wide
             />
           </div>
         {/if}

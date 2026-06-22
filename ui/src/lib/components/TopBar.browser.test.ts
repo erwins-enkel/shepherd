@@ -1097,6 +1097,43 @@ describe("TopBar — CR extra-credit gauge", () => {
       true,
     );
   });
+
+  it("mobile sheet: extra-credits bar is full-width (matches sibling 5H/Weekly bars)", async () => {
+    // Regression guard for the "46px stub" bug: CreditDetail rendered its bar at 46px
+    // in any context that did not pass the `wide` prop (touch popover, mobile sheet).
+    // The fix collapses the .g-bar rule to always be 100% wide. In the mobile sheet,
+    // sibling gauge rows are `width:100%` so credit-bar and gauge-bar widths must be
+    // equal within sub-pixel rounding.
+    //
+    // Mutation check (verified): with CreditDetail's .g-bar left at `width: 46px` (no
+    // full-width rule reachable from mobile-sheet context), this test FAILS — the credit
+    // bar measures ~46px while the sibling .g-bar-wide measures the full sheet width, so
+    // the equality assertion fails. Restoring .g-bar { width: 100% } makes it pass.
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      ...sessionsProp(0),
+      limits: limitsWithCredit({}),
+    });
+    // Open the gear sheet.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // The sheet renders a usage section with gauge rows + credit detail.
+    const creditBar = document.querySelector<HTMLElement>(".credit-detail .g-bar");
+    expect(creditBar, "credit bar rendered in mobile sheet").not.toBeNull();
+    const siblingBar = document.querySelector<HTMLElement>(".sheet-gauge-row .g-bar-wide");
+    expect(siblingBar, "sibling gauge bar rendered in mobile sheet").not.toBeNull();
+    const creditWidth = creditBar!.getBoundingClientRect().width;
+    const siblingWidth = siblingBar!.getBoundingClientRect().width;
+    expect(creditWidth, "credit bar must be wider than the 46px stub").toBeGreaterThan(100);
+    // Sub-pixel rounding tolerance of 1px — both are width:100% of the same parent.
+    expect(
+      Math.abs(creditWidth - siblingWidth),
+      `credit bar (${creditWidth.toFixed(1)}px) must match sibling gauge bar (${siblingWidth.toFixed(1)}px)`,
+    ).toBeLessThanOrEqual(1);
+  });
 });
 
 describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnOutside bug)", () => {

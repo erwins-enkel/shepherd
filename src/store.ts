@@ -158,6 +158,7 @@ type NewSession = Omit<
   | "autopilotPaused"
   | "autopilotComplete"
   | "autopilotQuestion"
+  | "completionRepromptCount"
   | "planGateEnabled"
   | "planPhase"
   | "autoMergeEnabled"
@@ -191,7 +192,7 @@ type NewSession = Omit<
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
-  autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion,
+  autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
@@ -224,6 +225,7 @@ type SessionRow = {
   autopilotPaused: number;
   autopilotComplete: number;
   autopilotQuestion: string | null;
+  completionRepromptCount: number | null;
   planGateEnabled: number | null;
   planPhase: string | null;
   autoMergeEnabled: number | null;
@@ -1330,6 +1332,7 @@ export class SessionStore implements CapStore, CreditStore {
       autopilotPaused: false,
       autopilotComplete: false,
       autopilotQuestion: null,
+      completionRepromptCount: 0,
       planGateEnabled: input.planGateEnabled ?? null,
       planPhase: input.planPhase ?? null,
       autoMergeEnabled: null,
@@ -1362,7 +1365,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1385,6 +1388,7 @@ export class SessionStore implements CapStore, CreditStore {
           0, // autopilotPaused
           0, // autopilotComplete
           null, // autopilotQuestion
+          0, // completionRepromptCount
           s.planGateEnabled === null ? null : s.planGateEnabled ? 1 : 0, // planGateEnabled — inherit repo default
           s.planPhase, // planPhase — null = gate off
           null, // autoMergeEnabled — inherit repo default
@@ -1524,6 +1528,7 @@ export class SessionStore implements CapStore, CreditStore {
       paused?: boolean;
       complete?: boolean;
       question?: string | null;
+      completionReprompt?: number;
     },
   ): void {
     const cur = this.get(id);
@@ -1533,14 +1538,16 @@ export class SessionStore implements CapStore, CreditStore {
     const paused = patch.paused ?? cur.autopilotPaused;
     const complete = patch.complete ?? cur.autopilotComplete;
     const question = patch.question === undefined ? cur.autopilotQuestion : patch.question;
+    const completionReprompt = patch.completionReprompt ?? cur.completionRepromptCount;
     this.db.run(
-      `UPDATE sessions SET autopilotEnabled=?, autopilotStepCount=?, autopilotPaused=?, autopilotComplete=?, autopilotQuestion=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET autopilotEnabled=?, autopilotStepCount=?, autopilotPaused=?, autopilotComplete=?, autopilotQuestion=?, completionRepromptCount=?, updatedAt=? WHERE id=?`,
       [
         enabled === null ? null : enabled ? 1 : 0,
         stepCount,
         paused ? 1 : 0,
         complete ? 1 : 0,
         question,
+        completionReprompt,
         Date.now(),
         id,
       ],
@@ -2340,6 +2347,7 @@ export class SessionStore implements CapStore, CreditStore {
     add("autopilotPaused", `autopilotPaused INTEGER NOT NULL DEFAULT 0`);
     add("autopilotComplete", `autopilotComplete INTEGER NOT NULL DEFAULT 0`);
     add("autopilotQuestion", `autopilotQuestion TEXT`);
+    add("completionRepromptCount", `completionRepromptCount INTEGER NOT NULL DEFAULT 0`);
     // nullable: NULL = inherit / gate off, 0/1 = explicit per-session override
     add("planGateEnabled", `planGateEnabled INTEGER`);
     add("planPhase", `planPhase TEXT`);
@@ -3459,6 +3467,7 @@ export class SessionStore implements CapStore, CreditStore {
       autopilotPaused: !!r.autopilotPaused,
       autopilotComplete: !!r.autopilotComplete,
       autopilotQuestion: r.autopilotQuestion ?? null,
+      completionRepromptCount: r.completionRepromptCount ?? 0,
       planGateEnabled: nullableBool(r.planGateEnabled),
       planPhase: r.planPhase ?? null,
       autoMergeEnabled: nullableBool(r.autoMergeEnabled),

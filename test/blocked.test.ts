@@ -137,6 +137,7 @@ function makeSession(planPhase: Session["planPhase"]): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    completionRepromptCount: 0,
     planGateEnabled: null,
     planPhase,
     research: false,

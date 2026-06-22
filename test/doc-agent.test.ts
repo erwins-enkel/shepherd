@@ -107,6 +107,7 @@ function mkSession(o: Partial<Session> & { id: string }): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    completionRepromptCount: 0,
     planGateEnabled: null,
     planPhase: null,
     research: false,

@@ -28,6 +28,7 @@ function makeSession(status: Session["status"] = "idle"): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    completionRepromptCount: 0,
     planGateEnabled: null,
     planPhase: null,
     research: false,

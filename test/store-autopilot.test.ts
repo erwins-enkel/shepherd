@@ -88,6 +88,38 @@ test("hydrates a pre-autopilot row with defaults", () => {
   expect(s.autopilotQuestion).toBeNull();
 });
 
+test("new sessions default completionRepromptCount to 0", () => {
+  const store = freshStore();
+  const s = store.get(seed(store).id)!;
+  expect(s.completionRepromptCount).toBe(0);
+});
+
+test("setAutopilotState completionReprompt increments and resets", () => {
+  const store = freshStore();
+  const id = seed(store).id;
+  store.setAutopilotState(id, { completionReprompt: 1 });
+  expect(store.get(id)!.completionRepromptCount).toBe(1);
+  store.setAutopilotState(id, { completionReprompt: 2 });
+  expect(store.get(id)!.completionRepromptCount).toBe(2);
+  store.setAutopilotState(id, { completionReprompt: 0 });
+  expect(store.get(id)!.completionRepromptCount).toBe(0);
+});
+
+test("partial-patch: stepCount does not clobber completionRepromptCount and vice-versa", () => {
+  const store = freshStore();
+  const id = seed(store).id;
+  store.setAutopilotState(id, { completionReprompt: 3 });
+  store.setAutopilotState(id, { stepCount: 5 });
+  const s = store.get(id)!;
+  expect(s.autopilotStepCount).toBe(5);
+  expect(s.completionRepromptCount).toBe(3); // not clobbered by stepCount patch
+
+  store.setAutopilotState(id, { completionReprompt: 7 });
+  const s2 = store.get(id)!;
+  expect(s2.autopilotStepCount).toBe(5); // not clobbered by completionReprompt patch
+  expect(s2.completionRepromptCount).toBe(7);
+});
+
 test("repo config autopilotEnabled defaults off and round-trips", () => {
   const store = freshStore();
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(false);

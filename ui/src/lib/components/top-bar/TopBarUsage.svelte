@@ -174,9 +174,12 @@
       aria-label={m.topbar_usage_link_aria()}
       onclick={() => onusage?.()}
     >
-      <div class="gauges" class:stale>
+      <!-- Phrasing-only content: a <button> may not contain block elements, so the
+           gauge cluster + each gauge are <span>s (display:flex via class, blockified
+           as flex items — layout is identical to the former <a>-wrapped <div>s). -->
+      <span class="gauges" class:stale>
         {#each gauges as g (g.label)}
-          <div class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
+          <span class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
             <span class="g-label micro">{g.label}</span>
             <span class="g-bar"
               ><span
@@ -186,10 +189,10 @@
               ></span></span
             >
             <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-          </div>
+          </span>
         {/each}
         <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
-      </div>
+      </span>
     </button>
     {#if detailOpen}
       <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale>

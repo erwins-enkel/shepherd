@@ -21,19 +21,49 @@ jobs:
     # the local self-hosted runner is down. See ci/self-hosted-runner/README.md.
     runs-on: ubuntu-latest
     steps:
-      # Maintains a release PR that accrues a CHANGELOG from conventional
-      # commits; merging it tags the version and cuts a GitHub release.
-      # Uses the default GITHUB_TOKEN. The release PR it opens DOES trigger the
-      # CI + PR-hygiene workflows (observed: event=pull_request, actor=
-      # github-actions[bot]); both short-circuit on `release-please--*` head
-      # branches via their job `if:` guards, so verify/hygiene don't burn minutes
-      # on a generated release PR. Separately, GitHub may park those bot-authored
-      # runs behind the repo's "require approval for workflows" Actions setting
-      # ("awaiting maintainer approval") — that gate is a repo/org setting, not
-      # controllable here. Swap in a PAT via `token: secrets.RELEASE_PLEASE_TOKEN`
-      # (a maintainer's token isn't approval-gated) if you want those runs to
-      # execute without manual approval.
+      # release-please maintains a release PR that accrues a CHANGELOG from
+      # conventional commits; merging it tags the version and cuts a GitHub
+      # release. The release PR it opens DOES trigger the CI + PR-hygiene
+      # workflows; both short-circuit on `release-please--*` head branches via
+      # their job `if:` guards, so verify/hygiene don't burn minutes on a
+      # generated release PR — and a skipped required job still reports
+      # "skipped", which satisfies the branch ruleset's required
+      # `verify`/`docs-site` checks.
+      #
+      # The catch: a PR authored by the default GITHUB_TOKEN creates its CI runs
+      # in an "approval-required" state (GitHub Docs, GITHUB_TOKEN: bot-authored
+      # runs are parked behind the repo's "require approval for workflows" gate),
+      # so those required checks never report and the release PR can't merge
+      # until a maintainer clicks "Approve and run" on every release. GitHub's
+      # documented remedy is to author the PR with a GitHub App installation
+      # token or a PAT — runs from a non-github-actions[bot] identity are NOT
+      # approval-gated.
+      #
+      # We use a GitHub App token: it's the least-privilege option — repo-scoped,
+      # ~1h auto-expiring, no human identity, and down-scoped here to exactly the
+      # permissions release-please needs (contents: push the release branch +
+      # cut tags/releases; pull-requests: open/update the PR; issues: the
+      # autorelease:* labels). To enable: create a GitHub App, install it on this
+      # repo granting those three write perms, then set repo VARIABLE
+      # RELEASE_PLEASE_APP_CLIENT_ID and repo SECRET RELEASE_PLEASE_APP_PRIVATE_KEY.
+      # Until both exist, the app-token step is skipped and we fall back to the
+      # default GITHUB_TOKEN — current approval-gated behavior, safe, just still
+      # needs the manual approval.
+      - name: Mint a scoped, short-lived GitHub App token (when the App is configured)
+        id: app-token
+        if: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # Defaults to this repository only. Down-scope the token to just what
+          # release-please needs — not the App installation's full grant.
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
       - uses: googleapis/release-please-action@v5
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

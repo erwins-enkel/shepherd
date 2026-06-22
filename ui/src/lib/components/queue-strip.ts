@@ -85,9 +85,11 @@ export function chipRailVisible(chips: RepoChip[], repoFilter: string | null): b
   return chips.length >= 2 || (repoFilter !== null && chips.some((c) => c.repoPath === repoFilter));
 }
 
-/** Whether a chip carries any drain/learnings telemetry worth showing on its own. */
+/** Whether a chip carries drain telemetry worth showing on its own detail line.
+ *  Learnings are no longer surfaced here (they live on the chip's ✦ mark + the gear
+ *  menu), so an insights-only repo would otherwise render an empty detail band. */
 export function chipHasTelemetry(chip: RepoChip): boolean {
-  return chip.drain !== null || chip.insights > 0 || chip.curate > 0;
+  return chip.drain !== null;
 }
 
 /** Whether an active repo filter should be cleared because its repo no longer has any live

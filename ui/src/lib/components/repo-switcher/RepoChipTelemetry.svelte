@@ -8,18 +8,11 @@
 
   let {
     chip,
-    onlearnings,
   }: {
     chip: RepoChip;
-    // open the learnings drawer for a repo
-    onlearnings?: (repoPath: string) => void;
   } = $props();
 
   const d = $derived(chip.drain);
-  const insightsLabel = $derived(
-    chip.insights > 0 ? m.learnings_title() : m.learnings_trim_title(),
-  );
-  const insightsCount = $derived(chip.insights > 0 ? chip.insights : chip.curate);
 
   // ── inline queue expansion (mirrors QueueStrip toggle/loading/failed) ───────
   // At most one repo's queue is expanded at a time, fetched fresh on open.
@@ -79,22 +72,6 @@
     {:else}
       <span class="rs-queued">{m.drain_queued({ count: d.queued })}</span>
     {/if}
-  {/if}
-
-  {#if chip.insights > 0 || chip.curate > 0}
-    <button
-      type="button"
-      class="rs-insights"
-      title={m.learnings_badge_tip()}
-      aria-label={chip.insights > 0
-        ? m.learnings_open_aria({ count: chip.insights })
-        : m.learnings_open_curate_aria({ count: chip.curate })}
-      onclick={() => onlearnings?.(chip.repoPath)}
-    >
-      <span class="rs-insights-icon" aria-hidden="true">✦</span><span class="rs-insights-label"
-        >{insightsLabel}</span
-      ><span class="rs-insights-n">{insightsCount}</span>
-    </button>
   {/if}
 
   {#if d?.paused}
@@ -170,26 +147,6 @@
   .rs-queued-btn:hover,
   .rs-queued-btn:focus-visible {
     color: var(--color-ink-bright);
-  }
-  .rs-insights {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font: inherit;
-    letter-spacing: inherit;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-    color: var(--color-faint);
-  }
-  .rs-insights:hover,
-  .rs-insights:focus-visible {
-    color: var(--color-ink-bright);
-  }
-  .rs-insights-n {
-    font-variant-numeric: tabular-nums;
   }
   /* a paused drain is the loud thing in the detail line: red, reason inline */
   .rs-pause {
@@ -269,8 +226,7 @@
   /* Coarse pointers: ≥44px tap targets on the inline action buttons
      (mirrors the QueueStrip / TopBar coarse-pointer pattern). */
   @media (pointer: coarse) {
-    .rs-queued-btn,
-    .rs-insights {
+    .rs-queued-btn {
       min-height: 44px;
       display: inline-flex;
       align-items: center;

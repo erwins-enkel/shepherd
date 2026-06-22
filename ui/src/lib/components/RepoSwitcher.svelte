@@ -10,7 +10,6 @@
     chips,
     repoFilter,
     onrepofilter,
-    onlearnings,
     mobile = false,
   }: {
     chips: RepoChip[];
@@ -18,8 +17,6 @@
     repoFilter: string | null;
     // toggle the herd filter for a repo; null clears it
     onrepofilter: (repoPath: string | null) => void;
-    // open the learnings drawer for a repo
-    onlearnings?: (repoPath: string) => void;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
     // telemetry band (collapses into the selected-state subline instead)
     mobile?: boolean;
@@ -143,9 +140,9 @@
             {#if chip.drain?.paused}
               <span class="rs-paused-dot" aria-hidden="true">●</span>
             {/if}
-            {#if !active && (chip.insights > 0 || chip.curate > 0)}
-              <!-- decorative ✦ mark — suppressed on the active chip, whose actionable
-                   ✦ count already shows in the telemetry detail line below (no dup) -->
+            {#if chip.insights > 0 || chip.curate > 0}
+              <!-- decorative ✦ mark: this repo has pending learnings/curate. Shown on every
+                   chip including the active one — open the learnings drawer via the gear menu. -->
               <span class="rs-learn-mark" title={m.learnings_badge_tip()} aria-hidden="true"
                 >✦{#if chip.insights > 0}<span class="rs-learn-n">{chip.insights}</span>{/if}</span
               >
@@ -157,13 +154,13 @@
 
     {#if activeChip}
       {#key activeChip.repoPath}
-        <RepoChipTelemetry chip={activeChip} {onlearnings} />
+        <RepoChipTelemetry chip={activeChip} />
       {/key}
     {/if}
   </div>
 {:else if loneChip && !mobile}
   <div class="rs">
-    <RepoChipTelemetry chip={loneChip} {onlearnings} />
+    <RepoChipTelemetry chip={loneChip} />
   </div>
 {/if}
 

@@ -185,9 +185,9 @@
   // deep-link (issue #852: ?learnings=1 / "open-learnings") that opens the drawer before
   // the async load populates items/injectable isn't reversed by the still-empty lists.
   let learningsLoaded = $state(false);
-  // When the learnings drawer is opened from a repo's chip (its ✦ in the RepoSwitcher
-  // rail), this carries that repoPath so the drawer scrolls to the matching section;
-  // null = opened globally.
+  // When the learnings drawer is opened from the gear menu and there's nothing to
+  // approve, this carries the first over-budget ("curate") repoPath so the drawer scrolls
+  // to the matching section; null = opened globally with proposals to review.
   let learningsRepo = $state<string | null>(null);
   // Herd repo filter (full repo path), toggled from a RepoSwitcher chip or from a
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
@@ -1678,10 +1678,6 @@
         {repoFilter}
         mobile={mobile.current}
         onrepofilter={(repoPath) => (repoFilter = repoPath)}
-        onlearnings={(repoPath) => {
-          learningsRepo = repoPath;
-          showLearnings = true;
-        }}
       />
       <QueueStrip autoMerge={store.autoMerge} />
     </header>

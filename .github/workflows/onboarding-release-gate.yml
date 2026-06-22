@@ -37,9 +37,12 @@ jobs:
       # `issues: read` granted — every call 403s "Resource not accessible by
       # integration" (an org-level constraint on the built-in token). So mint a
       # scoped, read-only token from the release-please GitHub App (same App as
-      # release-please.yml; installed with issues + commit-statuses read). If the
-      # App isn't configured we fall back to GITHUB_TOKEN, which fails closed —
-      # the safe direction for a release gate.
+      # release-please.yml). REQUIRED App installation grants: issues read (§1),
+      # contents read + commit-statuses read (§2). The App was extended with
+      # Commit statuses: read for this gate — if that grant is ever revoked the
+      # token mint below errors and the step fails, which fails the gate CLOSED
+      # (release blocked), never a false green. If the App is unconfigured we
+      # fall back to GITHUB_TOKEN, which also fails closed — both safe for a gate.
       - name: Mint a scoped, read-only GitHub App token (when the App is configured)
         id: app-token
         if: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID != '' }}

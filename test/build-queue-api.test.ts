@@ -228,7 +228,7 @@ test("POST queue/steps/:stepId emits queue:update", async () => {
   expect(ev).toBeDefined();
 });
 
-test("POST queue/steps with unknown stepId → 404", async () => {
+test("POST queue/steps with unknown stepId → 404 with actionable message", async () => {
   const { app, store } = harness();
   const session = makeSession(store, repoDir);
 
@@ -240,6 +240,74 @@ test("POST queue/steps with unknown stepId → 404", async () => {
     }),
   );
   expect(res.status).toBe(404);
+  const body = await res.json();
+  expect(body.error).toContain("not found");
+});
+
+test("POST queue/steps with an unambiguous ≥8-char prefix resolves and updates the step", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const putRes = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ title: "Step A" }] }),
+    }),
+  );
+  const queue = await putRes.json();
+  const fullId = queue.steps[0].id;
+  const prefix = fullId.slice(0, 8);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/${prefix}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.steps[0].id).toBe(fullId);
+  expect(body.steps[0].status).toBe("done");
+});
+
+test("POST queue/steps with an ambiguous prefix → 409 with matches, no change", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  // Seed two steps whose ids share an 8-char prefix so the posted prefix is ambiguous.
+  // This is a SYNTHETIC scenario: real step ids are fixed-length random UUIDs that can't
+  // collide on an 8-char prefix, and replaceBuildQueue discards explicit ids on a fresh
+  // session (store.ts), so we insert the rows directly to construct the collision.
+  const db = (store as unknown as { db: import("bun:sqlite").Database }).db;
+  const now = Date.now();
+  for (const [pos, id, title] of [
+    [0, "abcd1234-aaaa-4e41-88b0-c4f255337d81", "A"],
+    [1, "abcd1234-bbbb-4e41-88b0-c4f255337d81", "B"],
+  ] as const) {
+    db.run(
+      `INSERT INTO build_queue_steps (id, sessionId, position, title, detail, status, createdAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [id, session.id, pos, title, "", "pending", now, now],
+    );
+  }
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/abcd1234`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    }),
+  );
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body.matches).toHaveLength(2);
+  // nothing changed — both steps still pending
+  expect(store.getBuildQueue(session.id).steps.map((x: { status: string }) => x.status)).toEqual([
+    "pending",
+    "pending",
+  ]);
 });
 
 test("POST queue/steps with invalid status → 400", async () => {

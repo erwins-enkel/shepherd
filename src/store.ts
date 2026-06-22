@@ -500,6 +500,40 @@ function localPrFromRow(r: LocalPrRow): LocalPr {
   };
 }
 
+/** Minimum length for a non-exact step-id prefix to be resolvable. 8 = the conventional
+ *  short-UUID form (the first UUID segment, e.g. `1444d473`) shown in logs/progress summaries.
+ *  Below this we refuse to resolve: a shorter unique prefix could silently bind to the WRONG
+ *  step after a re-PUT regenerates ids, so we return not-found with guidance rather than guess. */
+export const STEP_ID_PREFIX_MIN = 8;
+
+/** Outcome of resolving a posted step id against a session's actual step ids. */
+export type StepIdResolution =
+  | { ok: true; id: string }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "ambiguous"; matches: string[] };
+
+/**
+ * Pure resolver: map a posted `idOrPrefix` onto one of `ids` (a session's step ids).
+ *
+ * Exact match is checked FIRST and wins unconditionally, so an id that also happens to be a
+ * prefix of another id resolves to itself. With production UUIDs this exact-first ordering is
+ * purely defensive — all ids are fixed-length 36-char UUIDs, so a 36-char exact-match query can
+ * never also be a strict prefix of a *distinct* 36-char id (equal length ⇒ prefix ⇒ identical).
+ * It is unit-tested with synthetic ids precisely because real UUIDs can't construct the collision.
+ *
+ * Failing an exact match, an unambiguous prefix of ≥ STEP_ID_PREFIX_MIN chars resolves to the
+ * single id it prefixes; >1 match is `ambiguous`; 0 matches (or a too-short non-exact id) is
+ * `not-found`.
+ */
+export function resolveStepId(ids: string[], idOrPrefix: string): StepIdResolution {
+  if (ids.includes(idOrPrefix)) return { ok: true, id: idOrPrefix };
+  if (idOrPrefix.length < STEP_ID_PREFIX_MIN) return { ok: false, reason: "not-found" };
+  const matches = ids.filter((id) => id.startsWith(idOrPrefix));
+  if (matches.length === 1) return { ok: true, id: matches[0]! };
+  if (matches.length > 1) return { ok: false, reason: "ambiguous", matches };
+  return { ok: false, reason: "not-found" };
+}
+
 export class SessionStore implements CapStore, CreditStore {
   private db: Database;
   constructor(path: string) {
@@ -3317,6 +3351,22 @@ export class SessionStore implements CapStore, CreditStore {
       }
     })();
     return this.getBuildQueue(sessionId);
+  }
+
+  /**
+   * Resolve a posted step `idOrPrefix` against this session's actual step ids (exact match first,
+   * else an unambiguous ≥8-char prefix — see the pure `resolveStepId` helper). The POST handler
+   * uses this to turn a short/abbreviated id into the full id (or a clear 404/409) so a status
+   * update can't silently no-op on an unmatched id.
+   */
+  resolveStepId(sessionId: string, idOrPrefix: string): StepIdResolution {
+    const rows = this.db
+      .query(`SELECT id FROM build_queue_steps WHERE sessionId = ?`)
+      .all(sessionId) as { id: string }[];
+    return resolveStepId(
+      rows.map((r) => r.id),
+      idOrPrefix,
+    );
   }
 
   /**

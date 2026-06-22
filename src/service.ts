@@ -569,6 +569,12 @@ export function buildQueueDirective(args: {
     "update keeps the whole queue accurate. The operator's view of your progress depends entirely " +
     "on these. If your reported statuses ever fall behind your actual progress you may receive a " +
     "reminder to reconcile them — do so promptly.\n\n" +
+    "   The POST response echoes the full queue — confirm your step's new status in it. A 4xx body " +
+    "means the update did NOT take. IMPORTANT: any cached step id — full UUID or short prefix — is " +
+    "invalidated by a later PUT (a PUT whose steps omit `id` regenerates every UUID). After any " +
+    "PUT, take fresh ids from the PUT response (or re-GET) before posting status; never reuse ids " +
+    "from before a PUT. You may post a short id as long as it is an unambiguous prefix of ≥8 chars " +
+    "of the full id; a 409 means the prefix matched several steps (use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
     `   curl -s${authHeader} ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +

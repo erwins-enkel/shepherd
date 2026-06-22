@@ -20,7 +20,10 @@ curl -X POST http://localhost:7330/api/sessions \
 ```
 
 A `201` returns the full session, including its designation (`TASK-07`) and
-`id` — the agent spawns immediately on an isolated git worktree.
+`id` — the agent spawns immediately on an isolated git worktree. When the
+default usage-aware hold gate is active and account usage is high, the
+submission is instead **queued** and answered `200 { "held": true, … }`
+rather than spawned — see [Usage-aware hold gate](#usage-aware-hold-gate) below.
 
 ## Why no new endpoint is needed
 
@@ -46,11 +49,11 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ## What actually gates access
 
-| Gate                 | Default                          | What Hermes must do                                                                               |
-| -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Network bind**     | `127.0.0.1:7330` (loopback only) | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC |
-| **Auth token**       | `SHEPHERD_TOKEN` unset → open    | If set, send `Authorization: Bearer <token>` on every request (timing-safe compare)               |
-| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~/Work`  | `repoPath` must resolve **inside** the root, or the request is rejected `400`                     |
+| Gate                 | Default                           | What Hermes must do                                                                               |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Network bind**     | `127.0.0.1:7330` (loopback only)  | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC |
+| **Auth token**       | `SHEPHERD_TOKEN` unset → open     | If set, send `Authorization: Bearer <token>` on every request (timing-safe compare)               |
+| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home) | `repoPath` must resolve **inside** the root, or the request is rejected `400`                     |
 
 ### Recommended setup for a remote agent
 
@@ -65,23 +68,48 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 `POST /api/sessions`, `Content-Type: application/json`. Validated by
 `validateCreate` (`src/validate.ts`); unknown keys are rejected.
 
-| Field        | Type                                                                             | Required | Notes                                                                        |
-| ------------ | -------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------- |
-| `repoPath`   | string                                                                           | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`           |
-| `baseBranch` | string                                                                           | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                  |
-| `prompt`     | string                                                                           | ✅       | The task instructions; 1–8000 chars                                          |
-| `model`      | `"fable" \| "opus" \| "opus[1m]" \| "sonnet" \| "sonnet[1m]" \| "haiku" \| null` | —        | Omit/`null` = Claude's default; `[1m]` selects the 1M-context variant        |
-| `images`     | `string[]`                                                                       | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`) |
+| Field        | Type                                                                             | Required | Notes                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `repoPath`   | string                                                                           | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`                                                          |
+| `baseBranch` | string                                                                           | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                                                                 |
+| `prompt`     | string                                                                           | ✅       | The task instructions; 1–8000 chars                                                                                         |
+| `model`      | `"fable" \| "opus" \| "opus[1m]" \| "sonnet" \| "sonnet[1m]" \| "haiku" \| null` | —        | Omit/`null` = Claude's default; `[1m]` selects the 1M-context variant                                                       |
+| `images`     | `string[]`                                                                       | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`)                                                |
+| `force`      | boolean                                                                          | —        | `true` bypasses the usage-aware hold gate so the task spawns even at high usage (transport-only; not stored on the session) |
 
 ### Responses
 
-| Status | Meaning                                                                           |
-| ------ | --------------------------------------------------------------------------------- |
-| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …) |
-| `400`  | Validation failed — body `{ error }`                                              |
-| `401`  | `SHEPHERD_TOKEN` set and bearer missing/wrong                                     |
-| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                         |
-| `415`  | Missing/incorrect `Content-Type`                                                  |
+| Status | Meaning                                                                                                               |
+| ------ | --------------------------------------------------------------------------------------------------------------------- |
+| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below) |
+| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                     |
+| `400`  | Validation failed — body `{ error }`                                                                                  |
+| `401`  | `SHEPHERD_TOKEN` set and bearer missing/wrong                                                                         |
+| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                             |
+| `415`  | Missing/incorrect `Content-Type`                                                                                      |
+
+## Usage-aware hold gate
+
+Shepherd can **queue** newly submitted tasks instead of spawning them when account
+usage is already high, so an automated submitter doesn't push you over a cap. The
+gate is **on by default** and governed by two env vars (`SHEPHERD_USAGE_HOLD_ENABLED`,
+default on; `SHEPHERD_USAGE_HOLD_PCT`, default `80`).
+
+A submission is held only when **all** of these hold (`src/usage-hold.ts`):
+
+- the gate is enabled, and the request did not set `force: true`;
+- at least one session is already **running**; and
+- the higher of the 5-hour and weekly usage windows is at or above
+  `SHEPHERD_USAGE_HOLD_PCT`.
+
+When usage can't be measured (api-key auth, or caps not yet calibrated) the windows
+read `0`, so a task is **never** held — Shepherd won't freeze work it can't measure.
+
+A held submission returns **`200 { "held": true, "id", "count" }`** (not `201`) and no
+agent spawns yet. Held tasks are released **FIFO automatically** by a ~30 s sweeper once
+usage drops back below the threshold; an operator can also list, release, or drop them via
+`GET /api/held`, `POST /api/held/:id/spawn`, and `DELETE /api/held/:id`. To bypass the gate
+for a single submission, send `"force": true` in the create body.
 
 ## Steering and ending a task
 

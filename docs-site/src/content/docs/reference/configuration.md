@@ -22,6 +22,8 @@ lines), read by the systemd unit if present.
 | `SHEPHERD_FORGES` | `~/.shepherd/forges.json` | Path to the git-host config |
 | `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `trusted` | Default sandbox profile for every spawned agent (`trusted` / `standard` / `autonomous`) — see below |
 | `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (skill catalog + optional plugins disabled per-spawn). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
+| `SHEPHERD_USAGE_HOLD_ENABLED` | `true` | Queue newly submitted tasks instead of spawning them while account usage is high (auto-released as usage falls). Set `0`/`false` to always spawn immediately |
+| `SHEPHERD_USAGE_HOLD_PCT` | `80` | Hold threshold: when the higher of the 5-hour / weekly usage window reaches this percent (and ≥1 session is running), new tasks are held. Range `0`–`100` |
 
 ## Live preview
 

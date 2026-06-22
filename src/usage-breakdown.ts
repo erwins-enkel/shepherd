@@ -3,6 +3,7 @@ import type { SessionStore } from "./store";
 import type {
   UsageRange,
   UsageBreakdown,
+  UsageKindUnits,
   UsageRepoBreakdown,
   UsageTaskBreakdown,
   UsageTokens,
@@ -165,6 +166,51 @@ function attributeSatellites(
     task.satelliteUnits += wu;
     task.satelliteCacheReadUnits += cru;
   }
+}
+
+/**
+ * Global per-kind satellite tally, filtered by the spawn's OWN timestamp
+ * (`completedAt ?? spawnedAt >= cutoff`; `cutoff === 0` ⇒ all-time).
+ *
+ * Deliberately independent of `attributeSatellites`: that path only counts a spawn when its
+ * parent task is in the in-range task map, which silently drops the three unattributed
+ * shapes — `rundown` (taskSessionId ""), `doc_agent` (repo path), and the standalone PR
+ * critic ("pr:<repo>#<n>"). Here every completed spawn is counted by its kind, so those
+ * surface. Because the filter axis differs (spawn time vs parent presence), the sum of this
+ * tally is NOT comparable in any fixed direction to the per-task `satelliteUnits` total.
+ */
+function satelliteUnitsByKind(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageKindUnits[] {
+  const byKind = new Map<string, { units: number; count: number }>();
+  for (const sp of spawns) {
+    if (sp.totalTokens == null) continue; // not yet finalized
+    if ((sp.completedAt ?? sp.spawnedAt) < cutoff) continue;
+
+    const model = sp.model ?? "unknown";
+    // Map ReviewerSpawnRow fields explicitly into weightedUnits' shape — a spread would not
+    // match (row uses inputTokens/.../cacheWriteTokens; the fn wants input/.../cacheWrite5m).
+    const wu = weightedUnits(
+      {
+        input: sp.inputTokens ?? 0,
+        output: sp.outputTokens ?? 0,
+        cacheRead: sp.cacheReadTokens ?? 0,
+        cacheWrite5m: sp.cacheWriteTokens ?? 0,
+        cacheWrite1h: 0,
+      },
+      model,
+    );
+
+    const bucket = byKind.get(sp.kind) ?? { units: 0, count: 0 };
+    bucket.units += wu;
+    bucket.count += 1;
+    byKind.set(sp.kind, bucket);
+  }
+
+  return [...byKind.entries()]
+    .map(([kind, b]) => ({ kind, units: b.units, count: b.count }))
+    .sort((a, b) => b.units - a.units);
 }
 
 /** Group task accumulators by repo, sort within each repo, and produce public repo breakdowns. */
@@ -364,7 +410,8 @@ export async function buildUsageBreakdown(opts: {
   }
 
   // Satellite spawns — runs AFTER both persisted and live loops
-  attributeSatellites(taskMap, store.listReviewerSpawns());
+  const spawns = store.listReviewerSpawns();
+  attributeSatellites(taskMap, spawns);
 
   // Group by repo, sort, produce public breakdowns
   const repos = buildRepoBreakdowns(taskMap, apiKey);
@@ -372,10 +419,14 @@ export async function buildUsageBreakdown(opts: {
   // Top-level aggregates
   const totals = aggregateTotals(taskMap, repos);
 
+  // Global per-kind satellite tally — spawn-timestamp-filtered, independent of attribution.
+  const satelliteByKind = satelliteUnitsByKind(spawns, cutoff);
+
   return {
     range,
     generatedAt: now,
     ...totals,
+    satelliteByKind,
     dollars: apiKey ? totals.totalUnits : null,
     repos,
   };

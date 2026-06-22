@@ -2,10 +2,22 @@
  * Mock fixtures for the /usage token-spend dashboard (Phase 0 prototype).
  * No backend — all data is hand-written for visual prototyping.
  */
-import type { UsageBreakdown, UsageRange, UsageTaskBreakdown } from "./types";
+import type { UsageBreakdown, UsageKindUnits, UsageRange, UsageTaskBreakdown } from "./types";
 
 /** Single stable base to keep all timestamps deterministic across calls. */
 const BASE = Date.now();
+
+/** Plausible per-kind satellite split for prototyping — sorted desc by units. */
+function byKind(totalSat: number): UsageKindUnits[] {
+  const split: Array<[string, number, number]> = [
+    ["review", 0.52, 9],
+    ["recap", 0.21, 12],
+    ["plan_gate", 0.14, 5],
+    ["rundown", 0.08, 3],
+    ["doc_agent", 0.05, 2],
+  ];
+  return split.map(([kind, frac, count]) => ({ kind, units: Math.round(totalSat * frac), count }));
+}
 
 /**
  * Build a mock task, deriving api-key-mode `dollars` from its own weighted units
@@ -378,6 +390,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.75),
         generationUnits: Math.round(total * 0.25),
+        satelliteByKind: byKind(totalS),
         dollars: total,
         repos: [
           {
@@ -420,6 +433,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.76),
         generationUnits: Math.round(total * 0.24),
+        satelliteByKind: byKind(totalS),
         dollars: total,
         repos: [
           {
@@ -462,6 +476,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.77),
         generationUnits: Math.round(total * 0.23),
+        satelliteByKind: byKind(totalS),
         dollars: total,
         repos: [
           {
@@ -512,6 +527,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         satelliteUnits: totalS,
         cacheReadUnits: Math.round(total * 0.78),
         generationUnits: Math.round(total * 0.22),
+        satelliteByKind: byKind(totalS),
         dollars: total,
         repos: [
           {

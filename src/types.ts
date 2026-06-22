@@ -695,6 +695,15 @@ export interface UsageRepoBreakdown {
   tasks: UsageTaskBreakdown[];
 }
 
+// One satellite-pass kind's global, spawn-timestamp-filtered tally. Independent of the
+// per-task `satelliteUnits` attribution (different filter axis + includes unattributed
+// buckets like rundown/doc_agent/standalone-critic) — see buildUsageBreakdown.
+export interface UsageKindUnits {
+  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" — data, not translated
+  units: number; // weighted units for that kind, in range
+  count: number; // number of completed passes of that kind, in range
+}
+
 export interface UsageBreakdown {
   range: UsageRange;
   generatedAt: number;
@@ -703,6 +712,7 @@ export interface UsageBreakdown {
   satelliteUnits: number;
   cacheReadUnits: number;
   generationUnits: number;
+  satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
   repos: UsageRepoBreakdown[];
 }
@@ -730,6 +740,8 @@ export const USAGE_REPO_KEYS = [
   "dollars",
   "tasks",
 ] as const;
+// Mirrors UsageKindUnits:
+export const USAGE_KIND_UNITS_KEYS = ["kind", "units", "count"] as const;
 // Mirrors UsageBreakdown:
 export const USAGE_BREAKDOWN_KEYS = [
   "range",
@@ -739,6 +751,7 @@ export const USAGE_BREAKDOWN_KEYS = [
   "satelliteUnits",
   "cacheReadUnits",
   "generationUnits",
+  "satelliteByKind",
   "dollars",
   "repos",
 ] as const;

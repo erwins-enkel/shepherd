@@ -771,6 +771,13 @@ export interface UsageRepoBreakdown {
   tasks: UsageTaskBreakdown[];
 }
 
+/** One satellite-pass kind's global, spawn-timestamp-filtered tally (Overhead lens). */
+export interface UsageKindUnits {
+  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" — data, not translated
+  units: number; // weighted units for that kind, in range
+  count: number; // number of completed passes of that kind, in range
+}
+
 /** Top-level breakdown — serves the Spend + Overhead lenses. */
 export interface UsageBreakdown {
   range: UsageRange;
@@ -780,6 +787,7 @@ export interface UsageBreakdown {
   satelliteUnits: number;
   cacheReadUnits: number; // cheap-cache share (Overhead b)
   generationUnits: number; // non-cacheRead share (Overhead b)
+  satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode
   repos: UsageRepoBreakdown[];
 }

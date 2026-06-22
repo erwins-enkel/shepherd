@@ -54,6 +54,37 @@ describe("OverheadLens", () => {
     }
   });
 
+  it("satellite-by-type section renders one row per kind, sorted desc by units, with a count", async () => {
+    const breakdown = mockBreakdown("7d");
+    render(OverheadLens, { breakdown });
+
+    await expect.element(page.getByText("Satellite by type")).toBeInTheDocument();
+
+    const rows = document.querySelectorAll(".bykind-row");
+    expect(rows.length, "one row per kind").toBe(breakdown.satelliteByKind.length);
+    expect(rows.length).toBeGreaterThan(0);
+
+    // First row is the largest kind (mock is review-led) and carries a count label "N×".
+    const firstLabel = rows[0]?.querySelector(".bykind-label")?.textContent ?? "";
+    expect(firstLabel).toBe("Review");
+    const firstCount = rows[0]?.querySelector(".bykind-count")?.textContent ?? "";
+    expect(firstCount).toMatch(/^\d+×$/);
+
+    // Each row shows a % share.
+    rows.forEach((row, i) => {
+      const pct = row.querySelector(".bykind-pct")?.textContent ?? "";
+      expect(pct, `row ${i} has a % share`).toMatch(/%$/);
+    });
+  });
+
+  it("satellite-by-type section is absent when there are no satellite passes", async () => {
+    const breakdown = { ...mockBreakdown("7d"), satelliteByKind: [] };
+    render(OverheadLens, { breakdown });
+
+    expect(document.querySelectorAll(".bykind-row").length).toBe(0);
+    expect(page.getByText("Satellite by type").elements().length).toBe(0);
+  });
+
   it("cacheRead ratio section renders both cached-reads and generation shares", async () => {
     const breakdown = mockBreakdown("7d");
     render(OverheadLens, { breakdown });

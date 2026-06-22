@@ -58,6 +58,7 @@ import type {
   RawAnswer,
   DocAgentRun,
   UsageHistoryResponse,
+  HoldReason,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 
@@ -785,6 +786,13 @@ export async function claudeAliveStates(): Promise<Record<string, boolean>> {
 export async function workingBlockedStates(): Promise<Record<string, boolean>> {
   const r = await fetch("/api/working-blocked");
   if (!r.ok) throw await failed(r, "working-blocked states");
+  return r.json();
+}
+
+/** Snapshot of per-session hold reasons keyed by session id (client bootstrap). */
+export async function holdStates(): Promise<Record<string, HoldReason>> {
+  const r = await fetch("/api/holds");
+  if (!r.ok) throw await failed(r, "hold reasons");
   return r.json();
 }
 

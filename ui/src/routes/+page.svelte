@@ -18,6 +18,7 @@
     activityStates,
     claudeAliveStates,
     workingBlockedStates,
+    holdStates,
     subagentStates,
     previewStates,
     getBacklog,
@@ -482,6 +483,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    holdStates()
+      .then((m) => store.setHolds(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
@@ -1092,6 +1096,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    holdStates()
+      .then((m) => store.setHolds(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))

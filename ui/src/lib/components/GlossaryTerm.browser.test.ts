@@ -103,4 +103,39 @@ describe("GlossaryTerm — activation-only inline disclosure", () => {
     const href = await link.element().getAttribute("href");
     expect(href).toContain("/wiki/Distributed_version_control#Pull_requests");
   });
+
+  // Regression: the floating popover is always mounted, so its closed state must be
+  // display:none. A base display:flex used to override the UA closed-popover rule,
+  // leaving the definition visibly pinned over content with no interaction (it
+  // "auto-opened" and "wouldn't close"). The :popover-open assertions above pass even
+  // with that bug, so these test rendered VISIBILITY rather than popover-open state.
+  it("closed floating tooltip is display:none — no auto-open / stuck overlay", () => {
+    render(GlossaryTerm, { id: "epic", label: "epic" });
+
+    const tip = document.querySelector<HTMLElement>(".gloss-tooltip");
+    expect(tip).not.toBeNull();
+    expect(getComputedStyle(tip!).display).toBe("none");
+  });
+
+  it("floating tooltip display tracks :popover-open (open shows, closed hides)", async () => {
+    render(GlossaryTerm, { id: "epic", label: "epic" });
+
+    const btn = page.getByRole("button", { name: "epic" });
+    const tip = document.querySelector<HTMLElement>(".gloss-tooltip");
+    expect(tip).not.toBeNull();
+
+    // hover opens it → :popover-open → visible
+    btn
+      .element()
+      .dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+    await expect.poll(() => tip!.matches(":popover-open")).toBe(true);
+    expect(getComputedStyle(tip!).display).not.toBe("none");
+
+    // Once no longer open it must hide again — the "won't close" half. Drive the
+    // popover-open state directly so the assertion tests the CSS contract itself,
+    // not the event/timer-driven close path (that path is covered live + by the
+    // mouse-leave/Escape dismiss handlers; synthetic-event timing is racy here).
+    tip!.hidePopover();
+    expect(getComputedStyle(tip!).display).toBe("none");
+  });
 });

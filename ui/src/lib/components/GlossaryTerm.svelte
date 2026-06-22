@@ -283,6 +283,15 @@
     font: inherit;
   }
 
+  /* A closed manual popover must not render. The base rule's display:flex would
+     otherwise override the UA closed-popover display:none, leaving the definition
+     visibly pinned at its last anchored (or in-flow) position — the "auto-opens /
+     won't-close" tooltip obscuring content. Sibling InfoTip avoids this by setting
+     no base display at all; this guard restores the same closed-state behavior. */
+  [popover].gloss-tooltip:not(:popover-open) {
+    display: none;
+  }
+
   .gt-body {
     display: block;
     margin: 0;

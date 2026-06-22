@@ -1838,6 +1838,6 @@
   "hold_merging": "Im Merge-Train.",
   "hold_merge_rebasing": "Rebase im Merge-Train (Versuch {rebaseCount}).",
   "hold_ready_merge": "Bereit zum Mergen — wartet auf Sie.",
-  "feat_why_parked_title": "Warum ist dies parkiert?",
-  "feat_why_parked_body": "Gehaltene, blockierte und von einem Gate aufgehaltene Sitzungen zeigen jetzt einen einzeiligen Grund auf der Karte und in der Triage-Schublade — damit Sie auf einen Blick sehen, warum eine Sitzung Ihre Aufmerksamkeit benötigt."
+  "feat_why_parked_title": "Warum wartet diese Sitzung?",
+  "feat_why_parked_body": "Gehaltene, blockierte und von einem Gate aufgehaltene Sitzungen zeigen jetzt einen einzeiligen Grund auf der Karte und in der Triage-Schublade — damit du auf einen Blick siehst, warum eine Sitzung deine Aufmerksamkeit braucht."
 }

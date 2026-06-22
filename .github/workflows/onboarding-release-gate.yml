@@ -48,8 +48,15 @@ jobs:
           # the human-facing active-regression signal.
 
           # (1) Active regression?
-          if [ "$(gh issue list --repo "$REPO" --label onboarding-regression --state open --json url --jq 'length')" -gt 0 ]; then
-            url=$(gh issue list --repo "$REPO" --label onboarding-regression --state open --json url --jq '.[0].url')
+          # Use the REST issues endpoint via `gh api` (not `gh issue list`): under the
+          # Actions GITHUB_TOKEN, gh's GraphQL-backed `issue list` 403s "Resource not
+          # accessible by integration" even with `issues: read` granted, whereas the REST
+          # endpoint honors it cleanly. `select(.pull_request|not)` drops any PR that shares
+          # the label (the REST issues endpoint returns PRs too).
+          open=$(gh api "repos/$REPO/issues?labels=onboarding-regression&state=open&per_page=100" \
+            --jq '[.[] | select(.pull_request|not)]')
+          if [ "$(printf '%s' "$open" | jq 'length')" -gt 0 ]; then
+            url=$(printf '%s' "$open" | jq -r '.[0].html_url')
             echo "::error::Onboarding harness is RED (open regression issue) — resolve before releasing: $url"
             exit 1
           fi

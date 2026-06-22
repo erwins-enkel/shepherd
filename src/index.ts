@@ -1342,7 +1342,7 @@ setInterval(async () => {
   releasingHeld = true;
   try {
     await releaseHeldTasks(
-      { store, service, usageLimits, events },
+      { store, service, usageLimits, events, resolveForge },
       { enabled: config.usageHoldEnabled, holdPct: config.usageHoldPct },
       Date.now(),
     );

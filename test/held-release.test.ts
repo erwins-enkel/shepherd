@@ -7,13 +7,16 @@ import type { UsageLimits } from "../src/usage-limits";
 // (it's the session:new payload), so a full literal would be noise.
 const fakeSession = (id: string) => ({ id }) as unknown as Session;
 
-function makeInput(prompt: string): CreateSessionInput {
+function makeInput(prompt: string, issueNumber?: number): CreateSessionInput {
   return {
     repoPath: "/tmp/repo",
     baseBranch: "main",
     prompt,
     model: null,
     images: [],
+    ...(issueNumber
+      ? { issueRef: { number: issueNumber, url: "http://x/i", title: "t", body: "" } }
+      : {}),
   };
 }
 
@@ -24,10 +27,12 @@ function makeDeps(
 ): HeldReleaseDeps & {
   emitted: { event: string; data: unknown }[];
   creates: CreateSessionInput[];
+  labeled: number[];
 } {
   const rows = tasks.map((t, i) => ({ ...t, repoPath: "/tmp/repo", createdAt: i + 1 }));
   const emitted: { event: string; data: unknown }[] = [];
   const creates: CreateSessionInput[] = [];
+  const labeled: number[] = [];
 
   const defaultLimits: UsageLimits = {
     session5h: null,
@@ -57,10 +62,20 @@ function makeDeps(
     },
     usageLimits: { limits: () => defaultLimits },
     events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) },
+    resolveForge: () =>
+      ({
+        async addIssueLabel(n: number) {
+          labeled.push(n);
+        },
+      }) as unknown as import("../src/forge/types").GitForge,
     emitted,
     creates,
+    labeled,
   };
 }
+
+// Flush the setTimeout(0) macrotask the claim-stamp is deferred onto.
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 // ── held-release tests ────────────────────────────────────────────────────────
 
@@ -159,4 +174,20 @@ test("disabled + tasks present → releases them (below-threshold behavior)", as
   const result = await releaseHeldTasks(deps, { enabled: false, holdPct: 80 }, Date.now(), 10);
   expect(result.released).toBe(2);
   expect(deps.store.countHeldTasks()).toBe(0);
+});
+
+test("released task with linked issue → re-stamps the drain claim", async () => {
+  const deps = makeDeps(
+    [
+      { id: "t1", input: makeInput("linked", 42) },
+      { id: "t2", input: makeInput("unlinked") },
+    ],
+    { session5h: { pct: 20, resetAt: 0 }, week: null },
+  );
+
+  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 10);
+  await flush();
+  expect(result.released).toBe(2);
+  // only the issue-linked task stamps ACTIVE_LABEL (one claim, for #42)
+  expect(deps.labeled).toEqual([42]);
 });

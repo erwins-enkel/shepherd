@@ -3162,6 +3162,17 @@ async function heldSpawn(id: string, deps: AppDeps): Promise<Response> {
   // new session appears in the Herd live, then decrement the held badge.
   deps.events.emit("session:new", s);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  // A human linked an issue before the task was held: stamp the drain claim now that it's
+  // spawning, matching handleSessionCreate — so the board reflects it's being worked and the
+  // drain won't double-spawn it. Deferred (macrotask) + best-effort: addIssueLabel shells out
+  // synchronously, so setTimeout(0) lets json(s, 201) flush first.
+  if (h.input.issueRef) {
+    const { repoPath, issueRef } = h.input;
+    setTimeout(
+      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+      0,
+    );
+  }
   return json(s, 201);
 }
 

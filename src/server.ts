@@ -2172,9 +2172,28 @@ async function postBuildStepStatus(
   if (ctErr) return ctErr;
   const status = validateBuildStepStatus(await req.json().catch(() => null));
   if (status === null) return json({ error: "invalid status" }, 400);
-  if (!deps.store.setBuildStepStatus(id, stepId, status)) {
-    return json({ error: "step not found" }, 404);
+  // Resolve the posted id (full UUID or unambiguous ≥8-char prefix) before updating, so a
+  // short/abbreviated or stale id returns a clear 4xx instead of silently no-op'ing.
+  const resolved = deps.store.resolveStepId(id, stepId);
+  if (!resolved.ok) {
+    if (resolved.reason === "ambiguous") {
+      return json(
+        {
+          error: `ambiguous step id prefix "${stepId}" matches ${resolved.matches.length} steps — use a longer prefix or the full id`,
+          matches: resolved.matches,
+        },
+        409,
+      );
+    }
+    return json(
+      {
+        error: `step "${stepId}" not found — use a full or unambiguous (≥8-char) prefix step id from the PUT/GET response`,
+      },
+      404,
+    );
   }
+  // resolved.ok ⇒ the row exists, so setBuildStepStatus returns true; ignore its boolean.
+  deps.store.setBuildStepStatus(id, resolved.id, status);
   const q = deps.store.getBuildQueue(id);
   deps.events?.emit("queue:update", q);
   return json(q);

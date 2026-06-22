@@ -421,7 +421,7 @@ describe("chipHasTelemetry", () => {
     return { repoPath: "/repos/a", count: 1, drain: null, insights: 0, curate: 0, ...over };
   }
 
-  it("false when no drain, no insights, no curate", () => {
+  it("false when no drain", () => {
     expect(chipHasTelemetry(chip({}))).toBe(false);
   });
 
@@ -429,12 +429,14 @@ describe("chipHasTelemetry", () => {
     expect(chipHasTelemetry(chip({ drain: drain({}) }))).toBe(true);
   });
 
-  it("true when insights > 0", () => {
-    expect(chipHasTelemetry(chip({ insights: 1 }))).toBe(true);
+  // learnings no longer surface on the detail line (they live on the chip ✦ mark + the
+  // gear menu), so insights/curate alone do not warrant a telemetry band.
+  it("false when only insights > 0 (no drain)", () => {
+    expect(chipHasTelemetry(chip({ insights: 1 }))).toBe(false);
   });
 
-  it("true when curate > 0", () => {
-    expect(chipHasTelemetry(chip({ curate: 2 }))).toBe(true);
+  it("false when only curate > 0 (no drain)", () => {
+    expect(chipHasTelemetry(chip({ curate: 2 }))).toBe(false);
   });
 });
 

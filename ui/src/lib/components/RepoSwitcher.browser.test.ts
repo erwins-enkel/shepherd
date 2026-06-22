@@ -148,25 +148,24 @@ describe("RepoSwitcher — filter rail", () => {
       .toBeVisible();
   });
 
-  it("active chip with insights shows the ✦ count ONCE — telemetry line only, no chip mark (no dup)", async () => {
+  it("the active chip keeps its ✦ mark and renders no learnings bar", async () => {
     const learnChip = chip({ repoPath: "/repo/alpha", insights: 31 });
     const { container } = render(RepoSwitcher, {
       chips: [learnChip, chip({ repoPath: "/repo/beta" })],
       repoFilter: "/repo/alpha",
       onrepofilter: () => {},
     });
-    // the active chip drops its decorative mark...
-    expect(
-      container.querySelector(".rs-learn-mark"),
-      "no decorative ✦ mark on the active chip",
-    ).toBeNull();
-    // ...the actionable ✦ count lives once, in the telemetry detail line below
-    const insightsBtns = container.querySelectorAll(".rs-insights");
-    expect(insightsBtns.length, "exactly one actionable ✦ count").toBe(1);
-    expect(insightsBtns[0].querySelector(".rs-insights-n")?.textContent).toBe("31");
+    // the active chip keeps its decorative ✦ mark (no dedicated bar to dup with anymore)
+    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
+    expect(mark, "✦ mark on the active chip").not.toBeNull();
+    expect(mark!.querySelector(".rs-learn-n")?.textContent).toBe("31");
+    // the dedicated learnings bar is gone (learnings live on the gear menu)
+    expect(container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
+    // insights-only repo (no drain) → no telemetry detail line at all
+    expect(container.querySelector(".rs-tele"), "no detail line for insights-only repo").toBeNull();
   });
 
-  it("a NON-active chip with insights keeps its ✦ mark even while another repo is filtered", async () => {
+  it("every chip with insights keeps its ✦ mark, including the active one", async () => {
     const { container } = render(RepoSwitcher, {
       chips: [
         chip({ repoPath: "/repo/alpha", insights: 5 }),
@@ -175,10 +174,11 @@ describe("RepoSwitcher — filter rail", () => {
       repoFilter: "/repo/beta",
       onrepofilter: () => {},
     });
-    // beta is active → its chip mark is gone; alpha (inactive) keeps its mark
+    // both alpha (inactive) AND beta (active) now carry marks — no active-chip suppression
     const marks = container.querySelectorAll(".rs-learn-mark");
-    expect(marks.length, "one mark — on the inactive chip only").toBe(1);
+    expect(marks.length, "a mark on each chip with insights").toBe(2);
     expect(marks[0].querySelector(".rs-learn-n")?.textContent).toBe("5");
+    expect(marks[1].querySelector(".rs-learn-n")?.textContent).toBe("9");
   });
 
   it("the active filter chip carries no underline text-decoration", async () => {
@@ -254,30 +254,25 @@ describe("RepoSwitcher — filter rail", () => {
     expect(live!.textContent?.trim()).toBe("");
   });
 
-  it("lone-repo with insights > 0 shows 'LEARNINGS' label and insights count in the telemetry button", async () => {
-    const { container } = render(RepoSwitcher, {
+  it("a lone-repo with only learnings (insights/curate, no drain) renders no bar and no detail line", async () => {
+    // insights-only
+    const insightsRender = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 5 })],
       repoFilter: null,
       onrepofilter: () => {},
     });
-    const btn = container.querySelector<HTMLElement>(".rs-insights");
-    expect(btn, "insights button present").not.toBeNull();
-    expect(btn!.querySelector(".rs-insights-label")?.textContent?.trim()).toBe(m.learnings_title());
-    expect(btn!.querySelector(".rs-insights-n")?.textContent?.trim()).toBe("5");
-  });
+    expect(insightsRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
+    expect(insightsRender.container.querySelector(".rs-tele"), "no detail line").toBeNull();
+    insightsRender.unmount();
 
-  it("lone-repo with insights: 0, curate > 0 shows 'TRIM' label and curate count in the telemetry button", async () => {
-    const { container } = render(RepoSwitcher, {
+    // curate-only
+    const curateRender = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 0, curate: 3 })],
       repoFilter: null,
       onrepofilter: () => {},
     });
-    const btn = container.querySelector<HTMLElement>(".rs-insights");
-    expect(btn, "insights button present").not.toBeNull();
-    expect(btn!.querySelector(".rs-insights-label")?.textContent?.trim()).toBe(
-      m.learnings_trim_title(),
-    );
-    expect(btn!.querySelector(".rs-insights-n")?.textContent?.trim()).toBe("3");
+    expect(curateRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
+    expect(curateRender.container.querySelector(".rs-tele"), "no detail line").toBeNull();
   });
 
   it("clicking the queued button expands the inline queue (fetches via getDrainQueue)", async () => {

@@ -77,6 +77,8 @@ test("GET /api/usage/breakdown?range=7d → 200 with correct shape", async () =>
     for (const task of repo.tasks) {
       exactKeys(task, USAGE_TASK_KEYS);
       exactKeys(task.tokens, USAGE_TOKENS_KEYS);
+      // subscription harness is non-api-key mode → task dollars must be null
+      expect(task.dollars).toBeNull();
     }
   }
 });

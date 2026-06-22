@@ -681,6 +681,7 @@ export interface UsageTaskBreakdown {
   model: string;
   authoringUnits: number;
   satelliteUnits: number;
+  dollars: number | null; // absolute USD spend (= weighted units); null unless api-key auth mode
   tokens: UsageTokens;
   byModel: Record<string, number>; // weighted units per model id
 }
@@ -716,6 +717,7 @@ export const USAGE_TASK_KEYS = [
   "model",
   "authoringUnits",
   "satelliteUnits",
+  "dollars",
   "tokens",
   "byModel",
 ] as const;

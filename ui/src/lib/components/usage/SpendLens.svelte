@@ -114,12 +114,15 @@
           <div class="task-list">
             {#each tasks as task (task.sessionId)}
               {@const tTotal = taskTotal(task)}
-              <div class="task-row">
+              <div class="task-row" class:has-cost={breakdown.dollars != null}>
                 <span class="task-desig">{task.desig}</span>
                 <span class="task-bar">
                   <UsageBar value={tTotal} max={maxTask} tone="var(--color-slate)" />
                 </span>
                 <span class="task-units">{formatUnits(tTotal)}</span>
+                {#if breakdown.dollars != null}
+                  <span class="task-cost">{formatDollars(task.dollars ?? 0)}</span>
+                {/if}
               </div>
             {/each}
             {#if remaining > 0}
@@ -262,6 +265,10 @@
     font-size: var(--fs-meta);
   }
 
+  .task-row.has-cost {
+    grid-template-columns: 6rem 1fr 5rem 4rem;
+  }
+
   .task-desig {
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
@@ -276,6 +283,12 @@
   }
 
   .task-units {
+    color: var(--color-ink);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .task-cost {
     color: var(--color-ink);
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -327,11 +340,18 @@
       grid-template-areas: "desig units" "bar bar";
       row-gap: 0.2rem;
     }
+    .task-row.has-cost {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-areas: "desig units cost" "bar bar bar";
+    }
     .task-desig {
       grid-area: desig;
     }
     .task-units {
       grid-area: units;
+    }
+    .task-cost {
+      grid-area: cost;
     }
     .task-bar {
       grid-area: bar;

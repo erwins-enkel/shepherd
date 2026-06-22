@@ -673,6 +673,14 @@ test("apiKey gate: dollars non-null and equals total units when true, null when 
   for (const repo of bdOn.repos) {
     expect(repo.dollars).not.toBeNull();
     expect(repo.dollars).toBeCloseTo(repo.authoringUnits + repo.satelliteUnits, 10);
+    // per-task dollars must equal each task's own weighted units and sum to repo.dollars
+    let taskDollarsSum = 0;
+    for (const task of repo.tasks) {
+      expect(task.dollars).not.toBeNull();
+      expect(task.dollars).toBeCloseTo(task.authoringUnits + task.satelliteUnits, 10);
+      taskDollarsSum += task.dollars!;
+    }
+    expect(taskDollarsSum).toBeCloseTo(repo.dollars!, 10);
   }
 
   // apiKey: false — dollars must be null at every level
@@ -681,6 +689,9 @@ test("apiKey gate: dollars non-null and equals total units when true, null when 
   expect(bdOff.dollars).toBeNull();
   for (const repo of bdOff.repos) {
     expect(repo.dollars).toBeNull();
+    for (const task of repo.tasks) {
+      expect(task.dollars).toBeNull();
+    }
   }
 });
 

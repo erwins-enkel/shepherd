@@ -1804,5 +1804,7 @@
   "usage_history_span": "{from} – {to}",
   "usage_history_empty": "Noch kein aufgezeichneter Verlauf",
   "feat_usage_limits_trend_title": "Aufgezeichnete Limit-Verläufe",
-  "feat_usage_limits_trend_body": "Die Limits-Ansicht zeigt jetzt einen echten aufgezeichneten Verlauf statt nur einer Prognose — eine Sparkline des laufenden Zyklus unter jeder Anzeige sowie ein aufklappbares Verlaufspanel, das darstellt, wie sich Ihr 5-Stunden-, Wochen- und Guthabenverbrauch über vergangene Zurücksetzungszyklen entwickelt hat."
+  "feat_usage_limits_trend_body": "Die Limits-Ansicht zeigt jetzt einen echten aufgezeichneten Verlauf statt nur einer Prognose — eine Sparkline des laufenden Zyklus unter jeder Anzeige sowie ein aufklappbares Verlaufspanel, das darstellt, wie sich Ihr 5-Stunden-, Wochen- und Guthabenverbrauch über vergangene Zurücksetzungszyklen entwickelt hat.",
+  "feat_spend_per_task_dollars_title": "Kosten pro Aufgabe in Dollar",
+  "feat_spend_per_task_dollars_body": "Die Verbrauchsansicht zeigt jetzt für jede Aufgabe einen Dollarbetrag – nicht nur pro Repository und als Gesamtsumme –, sodass du die teuersten Aufgaben auf einen Blick erkennst. Nur im API-Key-Modus sichtbar."
 }

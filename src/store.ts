@@ -516,10 +516,12 @@ export type StepIdResolution =
  * Pure resolver: map a posted `idOrPrefix` onto one of `ids` (a session's step ids).
  *
  * Exact match is checked FIRST and wins unconditionally, so an id that also happens to be a
- * prefix of another id resolves to itself. With production UUIDs this exact-first ordering is
- * purely defensive — all ids are fixed-length 36-char UUIDs, so a 36-char exact-match query can
- * never also be a strict prefix of a *distinct* 36-char id (equal length ⇒ prefix ⇒ identical).
- * It is unit-tested with synthetic ids precisely because real UUIDs can't construct the collision.
+ * prefix of another id resolves to itself. This exact-first ordering is LOAD-BEARING: step ids
+ * are no longer all fixed-length UUIDs — an agent may own a short stable id (e.g. "s1") via a
+ * verbatim `id` on PUT (see `replaceBuildQueue`). A short id is below `STEP_ID_PREFIX_MIN`, so it
+ * never prefix-resolves; it resolves only by this exact match. (Server-generated ids remain
+ * 36-char UUIDs, for which equal-length ⇒ prefix ⇒ identical, so exact-first is also defensive
+ * there.) It is unit-tested with both a synthetic UUID-prefix collision and a short exact id.
  *
  * Failing an exact match, an unambiguous prefix of ≥ STEP_ID_PREFIX_MIN chars resolves to the
  * single id it prefixes; >1 match is `ambiguous`; 0 matches (or a too-short non-exact id) is
@@ -745,11 +747,16 @@ export class SessionStore implements CapStore, CreditStore {
     );
     this.migrateLearningsColumns();
     this.backfillLearningDiversity();
+    // PK is composite (sessionId, id): step ids are scoped to a session so an agent may own a
+    // short stable id (e.g. "s1") that survives a re-PUT, without colliding with the same id in
+    // another session. Every build_queue_steps query is already session-scoped.
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_steps (
-      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
+      id TEXT NOT NULL, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
       title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
-      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (sessionId, id))`);
+    this.migrateBuildQueueStepsPk();
     this.db.run(
       `CREATE INDEX IF NOT EXISTS build_queue_steps_session ON build_queue_steps (sessionId, position)`,
     );
@@ -2407,6 +2414,34 @@ export class SessionStore implements CapStore, CreditStore {
     add("haltedAt", `haltedAt INTEGER`);
   }
 
+  // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
+  // `PRIMARY KEY (sessionId, id)`. SQLite can't ALTER a primary key, so this rebuilds the table
+  // once. Detect the legacy shape via PRAGMA (the `id` column carries pk=1 while `sessionId`
+  // carries pk=0); a table already on the composite PK reports sessionId with pk>0 and is skipped.
+  // Idempotent + transactional; existing ids are globally-unique UUIDs, so they migrate trivially.
+  private migrateBuildQueueStepsPk(): void {
+    const cols = this.db.query(`PRAGMA table_info(build_queue_steps)`).all() as {
+      name: string;
+      pk: number;
+    }[];
+    const sessionIdInPk = cols.some((c) => c.name === "sessionId" && c.pk > 0);
+    if (sessionIdInPk) return; // already composite (or freshly created above)
+    this.db.transaction(() => {
+      this.db.run(`CREATE TABLE build_queue_steps_new (
+        id TEXT NOT NULL, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
+        title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+        PRIMARY KEY (sessionId, id))`);
+      this.db.run(
+        `INSERT INTO build_queue_steps_new (id, sessionId, position, title, detail, status, createdAt, updatedAt)
+         SELECT id, sessionId, position, title, detail, status, createdAt, updatedAt FROM build_queue_steps`,
+      );
+      this.db.run(`DROP TABLE build_queue_steps`);
+      this.db.run(`ALTER TABLE build_queue_steps_new RENAME TO build_queue_steps`);
+    })();
+  }
+
   // migrate repo_config that predates these opt-in columns. auto-address defaults
   // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
   private migrateRepoConfigColumns(): void {
@@ -3324,23 +3359,76 @@ export class SessionStore implements CapStore, CreditStore {
     return { sessionId, steps, approved: state ? !!state.approved : false };
   }
 
+  /**
+   * Replace a session's whole queue, preserving step identity across the re-PUT two ways:
+   *
+   *  1. **Verbatim client ids.** A step posted WITH an `id` keeps that id as-is (matched or new),
+   *     so an agent that owns stable ids (e.g. "s1") survives reorder/insert/delete with no
+   *     regeneration. A matched id also preserves its prior `status` + `createdAt` (unless an
+   *     explicit `status` is given — that still wins).
+   *  2. **Conservative carry-over for an OMITTED id.** Reuse the existing step's id only when the
+   *     step at the SAME position has the SAME title (position AND title must agree). This never
+   *     mis-binds; any insert/delete/rename/reorder falls back to a fresh UUID. It is the safe
+   *     synthesis of the two single-key heuristics (positional / title-keyed) that are each unsafe
+   *     alone, and it keeps cached ids valid for the common "revise the tail, keep finished steps"
+   *     re-PUT even when the agent omits ids.
+   *
+   * Duplicate explicit ids are rejected upstream (`validateBuildSteps`); the `reserved`/`used`
+   * guards below additionally ensure no two rows resolve to the same id (which would throw on the
+   * composite PK): an omitted-id step never carries over an id another step claims explicitly, nor
+   * one already assigned earlier in this PUT.
+   */
   replaceBuildQueue(sessionId: string, steps: BuildStepInput[]): BuildQueue {
     const now = Date.now();
     this.db.transaction(() => {
-      // read existing rows (inside the txn) to preserve status + createdAt for id-matching entries
-      const existing = new Map<string, { status: BuildStepStatus; createdAt: number }>();
+      // read existing rows (inside the txn) to preserve status + createdAt across the replace
+      const byId = new Map<string, { status: BuildStepStatus; createdAt: number }>();
+      const byPosition = new Map<
+        number,
+        { id: string; title: string; status: BuildStepStatus; createdAt: number }
+      >();
       const existingRows = this.db
-        .query(`SELECT id, status, createdAt FROM build_queue_steps WHERE sessionId = ?`)
-        .all(sessionId) as { id: string; status: string; createdAt: number }[];
+        .query(
+          `SELECT id, position, title, status, createdAt FROM build_queue_steps WHERE sessionId = ?`,
+        )
+        .all(sessionId) as {
+        id: string;
+        position: number;
+        title: string;
+        status: string;
+        createdAt: number;
+      }[];
       for (const r of existingRows) {
-        existing.set(r.id, { status: r.status as BuildStepStatus, createdAt: r.createdAt });
+        byId.set(r.id, { status: r.status as BuildStepStatus, createdAt: r.createdAt });
+        byPosition.set(r.position, {
+          id: r.id,
+          title: r.title,
+          status: r.status as BuildStepStatus,
+          createdAt: r.createdAt,
+        });
       }
+      // ids the agent claims explicitly this PUT — an omitted-id carry-over must not steal one.
+      const reserved = new Set(steps.filter((s) => s.id).map((s) => s.id!));
+      const used = new Set<string>();
+
       this.db.run(`DELETE FROM build_queue_steps WHERE sessionId = ?`, [sessionId]);
       for (let i = 0; i < steps.length; i++) {
         const input = steps[i]!;
-        const matchId = input.id && existing.has(input.id) ? input.id : null;
-        const prior = matchId ? existing.get(matchId)! : null;
-        const id = matchId ?? randomUUID();
+        let id: string;
+        let prior: { status: BuildStepStatus; createdAt: number } | null = null;
+        if (input.id) {
+          id = input.id; // verbatim
+          prior = byId.get(id) ?? null;
+        } else {
+          const cand = byPosition.get(i);
+          if (cand && cand.title === input.title && !reserved.has(cand.id) && !used.has(cand.id)) {
+            id = cand.id; // position+title carry-over
+            prior = { status: cand.status, createdAt: cand.createdAt };
+          } else {
+            id = randomUUID();
+          }
+        }
+        used.add(id);
         const status = input.status ?? prior?.status ?? "pending";
         const createdAt = prior?.createdAt ?? now;
         this.db.run(

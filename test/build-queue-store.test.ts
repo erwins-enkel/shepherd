@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore, resolveStepId, STEP_ID_PREFIX_MIN } from "../src/store";
 
 function mk() {
@@ -72,6 +76,120 @@ test("replaceBuildQueue: explicit input.status overrides the preserved status", 
   // re-replace with the same id but an explicit status — the explicit value wins
   const q2 = s.replaceBuildQueue(sess.id, [{ id: idA, title: "Step A", status: "active" }]);
   expect(q2.steps[0]!.status).toBe("active");
+});
+
+// ── identity model: verbatim client ids + position+title carry-over (#1014) ───
+
+test("replaceBuildQueue: an explicit client id is stored verbatim on a fresh session", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { id: "s1", title: "Step A" },
+    { id: "s2", title: "Step B" },
+  ]);
+  expect(q.steps.map((x) => x.id)).toEqual(["s1", "s2"]);
+});
+
+test("replaceBuildQueue: client ids survive a re-PUT (verbatim), preserving status", () => {
+  const s = mk();
+  const sess = s.create(base);
+  s.replaceBuildQueue(sess.id, [
+    { id: "s1", title: "Step A" },
+    { id: "s2", title: "Step B" },
+  ]);
+  s.setBuildStepStatus(sess.id, "s1", "done");
+  // re-PUT reordered + an insert, all carrying their own ids
+  const q = s.replaceBuildQueue(sess.id, [
+    { id: "s2", title: "Step B" },
+    { id: "s3", title: "Step C (new)" },
+    { id: "s1", title: "Step A renamed" },
+  ]);
+  expect(q.steps.map((x) => x.id)).toEqual(["s2", "s3", "s1"]);
+  const s1 = q.steps.find((x) => x.id === "s1")!;
+  expect(s1.status).toBe("done"); // preserved across reorder + rename
+  expect(s1.title).toBe("Step A renamed");
+});
+
+test("carry-over: omitted id keeps the existing id when position AND title match", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  const idA = q.steps[0]!.id;
+  const idB = q.steps[1]!.id;
+  s.setBuildStepStatus(sess.id, idB, "done"); // B done (forward-fills A → done too)
+  // re-PUT WITHOUT ids, same order + titles, revising only the pending tail
+  const q2 = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" },
+    { title: "Step B" },
+    { title: "Step C (new)" },
+  ]);
+  expect(q2.steps[0]!.id).toBe(idA); // carried over
+  expect(q2.steps[1]!.id).toBe(idB); // carried over
+  expect(q2.steps[0]!.status).toBe("done"); // status preserved with the id
+  expect(q2.steps[1]!.status).toBe("done");
+  expect(q2.steps[2]!.id).not.toBe(idA);
+  expect(q2.steps[2]!.id).not.toBe(idB);
+  expect(q2.steps[2]!.status).toBe("pending");
+});
+
+test("carry-over: a renamed step at the same position gets a fresh id (no mis-bind)", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }]);
+  const idA = q.steps[0]!.id;
+  const q2 = s.replaceBuildQueue(sess.id, [{ title: "Step A — reworded" }]);
+  expect(q2.steps[0]!.id).not.toBe(idA); // title differs → no carry-over
+});
+
+test("carry-over: an insert shifting positions gives the shifted step a fresh id", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  const idA = q.steps[0]!.id;
+  const idB = q.steps[1]!.id;
+  // insert a new step at the front, omitting ids → positions shift
+  const q2 = s.replaceBuildQueue(sess.id, [
+    { title: "Step 0 (new)" },
+    { title: "Step A" },
+    { title: "Step B" },
+  ]);
+  // position 0 now has title "Step 0 (new)" — old idA was at pos 0 with title "Step A" → no match
+  expect(q2.steps[0]!.id).not.toBe(idA);
+  expect(q2.steps[1]!.id).not.toBe(idA); // pos 1 had title "Step B", now "Step A" → no match
+  expect(q2.steps[2]!.id).not.toBe(idB); // pos 2 had no existing step → fresh
+});
+
+test("carry-over: an omitted-id step never steals an id an explicit step claims this PUT", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  const idA = q.steps[0]!.id;
+  // Step B (omitted) sits at position 0 with the SAME title as old position-0 "Step A"? No —
+  // construct the clash: explicit step reclaims idA at position 1, while an omitted step at
+  // position 0 has title "Step A" (would otherwise carry over idA). reserved must win.
+  const q2 = s.replaceBuildQueue(sess.id, [
+    { title: "Step A" }, // omitted id, pos 0, title matches old pos-0 "Step A" → candidate idA
+    { id: idA, title: "Step A" }, // explicit reclaim of idA at pos 1
+  ]);
+  // idA is reserved by the explicit step → the omitted step must NOT carry it over.
+  expect(q2.steps[1]!.id).toBe(idA);
+  expect(q2.steps[0]!.id).not.toBe(idA);
+  // all ids unique
+  expect(new Set(q2.steps.map((x) => x.id)).size).toBe(2);
+});
+
+test("replaceBuildQueue: the same client id may exist in two different sessions (composite PK)", () => {
+  const s = mk();
+  const sess1 = s.create(base);
+  const sess2 = s.create({ ...base, herdrAgentId: "term_2" });
+  const q1 = s.replaceBuildQueue(sess1.id, [{ id: "s1", title: "A1" }]);
+  const q2 = s.replaceBuildQueue(sess2.id, [{ id: "s1", title: "A2" }]);
+  expect(q1.steps[0]!.id).toBe("s1");
+  expect(q2.steps[0]!.id).toBe("s1");
+  // independent rows: status on one does not leak to the other
+  s.setBuildStepStatus(sess1.id, "s1", "done");
+  expect(s.getBuildQueue(sess1.id).steps[0]!.status).toBe("done");
+  expect(s.getBuildQueue(sess2.id).steps[0]!.status).toBe("pending");
 });
 
 test("setBuildStepStatus: true on hit, false for unknown id, false for wrong sessionId", () => {
@@ -215,6 +333,15 @@ test("resolveStepId: exact match resolves to itself", () => {
   });
 });
 
+test("resolveStepId: a short agent id (< prefix-min) resolves by exact match", () => {
+  // verbatim agent ids like "s1" are below STEP_ID_PREFIX_MIN, so they never prefix-resolve —
+  // exact-first matching is load-bearing for them.
+  expect("s1".length).toBeLessThan(STEP_ID_PREFIX_MIN);
+  expect(resolveStepId(["s1", "s2"], "s1")).toEqual({ ok: true, id: "s1" });
+  // a short id that is NOT an exact member stays not-found (never prefix-resolves)
+  expect(resolveStepId(["s1", "s2"], "s")).toEqual({ ok: false, reason: "not-found" });
+});
+
 test("resolveStepId: exact match WINS over being a prefix of another id (defensive ordering)", () => {
   // Synthetic ids: "abcd1234" is both an exact id AND a prefix of "abcd1234ef". Exact wins.
   // Real fixed-length 36-char UUIDs can't construct this collision, so this guards implementation
@@ -356,4 +483,42 @@ test("pruneArchivedSessions removes build_queue_steps and build_queue_state for 
 
   // survivor's queue intact
   expect(s.getBuildQueue(keep.id).steps).toHaveLength(1);
+});
+
+test("migration: legacy global-PK build_queue_steps rebuilds to composite PK, preserving rows", () => {
+  const path = join(tmpdir(), `shepherd-bq-migrate-${process.pid}-${Date.now()}.db`);
+  rmSync(path, { force: true });
+  try {
+    // Seed the OLD schema: global `PRIMARY KEY (id)`, with one row.
+    const raw = new Database(path);
+    raw.run(`CREATE TABLE build_queue_steps (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, position INTEGER NOT NULL,
+      title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+    raw.run(
+      `INSERT INTO build_queue_steps (id, sessionId, position, title, detail, status, createdAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      ["uuid-legacy-1", "sessLegacy", 0, "Legacy Step", "", "done", 1, 1],
+    );
+    raw.close();
+
+    // Opening a SessionStore runs migrateBuildQueueStepsPk() in the constructor.
+    const s = new SessionStore(path);
+    const db = (s as unknown as { db: Database }).db;
+    const cols = db.query(`PRAGMA table_info(build_queue_steps)`).all() as {
+      name: string;
+      pk: number;
+    }[];
+    // sessionId now participates in the (composite) primary key.
+    expect(cols.find((c) => c.name === "sessionId")!.pk).toBeGreaterThan(0);
+    // the legacy row survived the rebuild.
+    const q = s.getBuildQueue("sessLegacy");
+    expect(q.steps).toHaveLength(1);
+    expect(q.steps[0]!.id).toBe("uuid-legacy-1");
+    expect(q.steps[0]!.status).toBe("done");
+    db.close();
+  } finally {
+    rmSync(path, { force: true });
+  }
 });

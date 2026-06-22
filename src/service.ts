@@ -550,9 +550,12 @@ export function buildQueueDirective(args: {
     "1. Author / replace the whole plan (do this first, before starting any work):\n" +
     `   curl -s -X PUT${authHeader} \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
-    `     -d '{"steps":[{"title":"Step title","detail":"Optional detail"}]}' \\\n` +
+    `     -d '{"steps":[{"id":"s1","title":"Step title","detail":"Optional detail"}]}' \\\n` +
     `     ${queueUrl}\n` +
-    "   The response returns each step with a generated `id` and the queue's `approved` flag.\n\n" +
+    "   Assign each step your own short, stable `id` (`s1`, `s2`, …) and ALWAYS resend a step with " +
+    "the SAME `id` on every PUT: an id you own is stored verbatim and never regenerated, so your " +
+    "cached ids stay valid across re-PUTs. The response echoes each step's `id` and the queue's " +
+    "`approved` flag.\n\n" +
     "2. Mark a step's progress (use the `id` values from the PUT/GET response):\n" +
     `   curl -s -X POST${authHeader} \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
@@ -570,16 +573,20 @@ export function buildQueueDirective(args: {
     "on these. If your reported statuses ever fall behind your actual progress you may receive a " +
     "reminder to reconcile them — do so promptly.\n\n" +
     "   The POST response echoes the full queue — confirm your step's new status in it. A 4xx body " +
-    "means the update did NOT take. IMPORTANT: any cached step id — full UUID or short prefix — is " +
-    "invalidated by a later PUT (a PUT whose steps omit `id` regenerates every UUID). After any " +
-    "PUT, take fresh ids from the PUT response (or re-GET) before posting status; never reuse ids " +
-    "from before a PUT. You may post a short id as long as it is an unambiguous prefix of ≥8 chars " +
-    "of the full id; a 409 means the prefix matched several steps (use a longer prefix or the full id).\n\n" +
+    "means the update did NOT take. IMPORTANT: ids you assign yourself (`s1`, `s2`, …) are kept " +
+    "verbatim across every PUT, so always reuse them — that is what keeps your cached ids valid. " +
+    "Only a step PUT WITHOUT an `id` gets a server-generated one, and an omitted id survives a " +
+    "re-PUT only when that step keeps the same position AND title; otherwise it is regenerated. " +
+    "So the rule is: assign and resend your own ids. Fallback only if you didn't — re-GET (or read " +
+    "the PUT response) to pick up the current ids before posting status. A short id resolves by " +
+    "exact match; a server UUID may also be posted as an unambiguous prefix of ≥8 chars (a 409 " +
+    "means the prefix matched several steps — use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
     `   curl -s${authHeader} ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
-    "Only add, change, or remove steps that are still PENDING. To preserve a completed step, " +
-    "include it with its existing `id` (its status is kept server-side).\n\n" +
+    "Only add, change, or remove steps that are still PENDING. ALWAYS include each carried step " +
+    "with its existing `id` (its status is kept server-side) — that is how completed and " +
+    "in-progress steps keep their identity across the revision.\n\n" +
     "Runaway guard: keep the plan small and focused (a handful of steps). " +
     "Do not let self-revision loop indefinitely — each PUT should reflect a genuine course correction, " +
     "not iterative micro-adjustment.\n\n" +

@@ -132,6 +132,48 @@ test("PUT queue with bad body → 400", async () => {
   expect(res.status).toBe(400);
 });
 
+test("PUT queue with duplicate explicit step ids → 400, queue unchanged", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+  // seed a valid queue first
+  store.replaceBuildQueue(session.id, [{ id: "s1", title: "A" }]);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        steps: [
+          { id: "dup", title: "A" },
+          { id: "dup", title: "B" },
+        ],
+      }),
+    }),
+  );
+  expect(res.status).toBe(400);
+  // the rejected PUT did not replace the existing queue
+  expect(store.getBuildQueue(session.id).steps.map((x) => x.id)).toEqual(["s1"]);
+});
+
+test("POST queue/steps resolves a short verbatim agent id by exact match", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+  store.replaceBuildQueue(session.id, [
+    { id: "s1", title: "A" },
+    { id: "s2", title: "B" },
+  ]);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/steps/s1`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "active" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(store.getBuildQueue(session.id).steps[0]!.status).toBe("active");
+});
+
 test("PUT queue with missing steps → 400", async () => {
   const { app, store } = harness();
   const session = makeSession(store, repoDir);
@@ -277,21 +319,13 @@ test("POST queue/steps with an ambiguous prefix → 409 with matches, no change"
   const session = makeSession(store, repoDir);
 
   // Seed two steps whose ids share an 8-char prefix so the posted prefix is ambiguous.
-  // This is a SYNTHETIC scenario: real step ids are fixed-length random UUIDs that can't
-  // collide on an 8-char prefix, and replaceBuildQueue discards explicit ids on a fresh
-  // session (store.ts), so we insert the rows directly to construct the collision.
-  const db = (store as unknown as { db: import("bun:sqlite").Database }).db;
-  const now = Date.now();
-  for (const [pos, id, title] of [
-    [0, "abcd1234-aaaa-4e41-88b0-c4f255337d81", "A"],
-    [1, "abcd1234-bbbb-4e41-88b0-c4f255337d81", "B"],
-  ] as const) {
-    db.run(
-      `INSERT INTO build_queue_steps (id, sessionId, position, title, detail, status, createdAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [id, session.id, pos, title, "", "pending", now, now],
-    );
-  }
+  // This is a SYNTHETIC scenario: server-generated ids are fixed-length random UUIDs that can't
+  // collide on an 8-char prefix. replaceBuildQueue now stores explicit ids VERBATIM (store.ts),
+  // so we just PUT the colliding ids directly rather than poking the DB.
+  store.replaceBuildQueue(session.id, [
+    { id: "abcd1234-aaaa-4e41-88b0-c4f255337d81", title: "A" },
+    { id: "abcd1234-bbbb-4e41-88b0-c4f255337d81", title: "B" },
+  ]);
 
   const res = await app.fetch(
     new Request(`http://x/api/sessions/${session.id}/queue/steps/abcd1234`, {

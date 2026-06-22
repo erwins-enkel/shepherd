@@ -129,6 +129,15 @@
   .held-badge:hover {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
+  /* Compact (mobile / measured-overflow) variant: a single-digit count in a
+     square box. Mirror .needsyou.compact (TopBar.svelte) so the digit centers —
+     base .held-badge only centers vertically, and its letter-spacing trails the
+     lone glyph leftward. */
+  .held-badge.compact {
+    justify-content: center;
+    min-width: 44px;
+    letter-spacing: 0;
+  }
   .held-badge .held-n {
     font-weight: 600;
     font-variant-numeric: tabular-nums;

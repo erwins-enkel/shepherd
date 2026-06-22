@@ -163,6 +163,70 @@ export function classifyAttention(
 
 // ── explainHold ───────────────────────────────────────────────────────────────
 
+const SIGNAL_TO_HOLD: Record<
+  Exclude<SignalCode, "in-flight">,
+  (session: Session, caches: ClassifyCaches) => HoldReason
+> = {
+  "blocked-decision": (session, caches) => {
+    if (session.autopilotPaused && session.autopilotQuestion) {
+      return { code: "autopilot-paused", params: { question: session.autopilotQuestion } };
+    }
+    if (caches.block) {
+      return { code: blockReasonToHoldCode(caches.block) };
+    }
+    return { code: "blocked-generic" };
+  },
+  "plan-rework": (_session, caches) => {
+    const params: Record<string, number> = {};
+    if (caches.gate?.round !== undefined) params.round = caches.gate.round;
+    if (caches.gate?.cap !== undefined) params.cap = caches.gate.cap;
+    return Object.keys(params).length > 0
+      ? { code: "plan-rework", params }
+      : { code: "plan-rework" };
+  },
+  "critic-rework": (_session, caches) => {
+    const count = caches.review?.findings?.length;
+    return count !== undefined
+      ? { code: "critic-rework", params: { findings: count } }
+      : { code: "critic-rework" };
+  },
+  "ci-red": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "ci-red", params: { pr } } : { code: "ci-red" };
+  },
+  "awaiting-merge": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined
+      ? { code: "awaiting-merge", params: { pr } }
+      : { code: "awaiting-merge" };
+  },
+  "train-error": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "train-error", params: { pr } } : { code: "train-error" };
+  },
+  "ready-merge": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "ready-merge", params: { pr } } : { code: "ready-merge" };
+  },
+  stalled: () => ({ code: "stalled" }),
+  "recap-attention": () => ({ code: "recap-attention" }),
+  "halted-error": () => ({ code: "halted-error" }),
+  "halted-usage": (_session, caches) =>
+    caches.resetAt !== undefined
+      ? { code: "halted-usage", params: { resetAt: caches.resetAt } }
+      : { code: "halted-usage" },
+  merging: (session) => {
+    if (session.autoMergeRebaseHead != null) {
+      return {
+        code: "merge-rebasing",
+        params: { rebaseCount: session.autoMergeRebaseCount },
+      };
+    }
+    const pr = session.mergingPrNumber ?? undefined;
+    return pr !== undefined ? { code: "merging", params: { pr } } : { code: "merging" };
+  },
+};
+
 /** Map a primary signal to a HoldReason. Internal to explainHold.
  *  `primary` is guaranteed never to be "in-flight" — the caller filters it out. */
 function renderSignalToHold(
@@ -170,74 +234,7 @@ function renderSignalToHold(
   session: Session,
   caches: ClassifyCaches,
 ): HoldReason {
-  switch (primary) {
-    case "blocked-decision": {
-      if (session.autopilotPaused && session.autopilotQuestion) {
-        return { code: "autopilot-paused", params: { question: session.autopilotQuestion } };
-      }
-      if (caches.block) {
-        return { code: blockReasonToHoldCode(caches.block) };
-      }
-      return { code: "blocked-generic" };
-    }
-    case "plan-rework": {
-      const params: Record<string, number> = {};
-      if (caches.gate?.round !== undefined) params.round = caches.gate.round;
-      if (caches.gate?.cap !== undefined) params.cap = caches.gate.cap;
-      return Object.keys(params).length > 0
-        ? { code: "plan-rework", params }
-        : { code: "plan-rework" };
-    }
-    case "critic-rework": {
-      const count = caches.review?.findings?.length;
-      return count !== undefined
-        ? { code: "critic-rework", params: { findings: count } }
-        : { code: "critic-rework" };
-    }
-    case "ci-red": {
-      const pr = caches.git?.number;
-      return pr !== undefined ? { code: "ci-red", params: { pr } } : { code: "ci-red" };
-    }
-    case "awaiting-merge": {
-      const pr = caches.git?.number;
-      return pr !== undefined
-        ? { code: "awaiting-merge", params: { pr } }
-        : { code: "awaiting-merge" };
-    }
-    case "train-error": {
-      const pr = caches.git?.number;
-      return pr !== undefined ? { code: "train-error", params: { pr } } : { code: "train-error" };
-    }
-    case "ready-merge": {
-      const pr = caches.git?.number;
-      return pr !== undefined ? { code: "ready-merge", params: { pr } } : { code: "ready-merge" };
-    }
-    case "stalled":
-      return { code: "stalled" };
-    case "recap-attention":
-      return { code: "recap-attention" };
-    case "halted-error":
-      return { code: "halted-error" };
-    case "halted-usage": {
-      return caches.resetAt !== undefined
-        ? { code: "halted-usage", params: { resetAt: caches.resetAt } }
-        : { code: "halted-usage" };
-    }
-    case "merging": {
-      if (session.autoMergeRebaseHead != null) {
-        return {
-          code: "merge-rebasing",
-          params: { rebaseCount: session.autoMergeRebaseCount },
-        };
-      }
-      const pr = session.mergingPrNumber ?? undefined;
-      return pr !== undefined ? { code: "merging", params: { pr } } : { code: "merging" };
-    }
-    default: {
-      const _exhaustive: never = primary;
-      return _exhaustive;
-    }
-  }
+  return SIGNAL_TO_HOLD[primary](session, caches);
 }
 
 /** Derive the hold reason for a session from its primary attention signal. Returns null

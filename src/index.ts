@@ -34,6 +34,7 @@ import { EmptyDiffError, type GitState } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
+import { singleFlight } from "./single-flight";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
@@ -1328,23 +1329,27 @@ setInterval(async () => {
 }, 30_000);
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`.
-// The `/usage` probe is a single ephemeral agent — a manual refresh and a scheduled
-// calibrate racing each other would double-spawn it and conflict, so guard with a flag.
-let calibrating = false;
-const calibrate = async (): Promise<UsageLimits> => {
-  if (maintenance.active || calibrating) return usageLimits.limits(Date.now());
+// The `/usage` probe is a single ephemeral agent, so concurrent calls must never double-spawn it.
+// `singleFlight` coalesces them onto one run AND — unlike the old early-return-stale guard — makes
+// a manual refresh landing mid-scrape AWAIT that scrape's completed result instead of returning the
+// stale pre-scrape snapshot (the "refresh looks fine but stays stale" bug).
+const runCalibrate = async (): Promise<{ limits: UsageLimits; scraped: boolean }> => {
+  if (maintenance.active) return { limits: usageLimits.limits(Date.now()), scraped: false };
+  const now = Date.now();
   try {
-    calibrating = true;
-    await accountIndex.refresh(Date.now());
-    const ok = await usageLimits.calibrate(Date.now());
-    if (ok) events.emit("usage:limits", usageLimits.limits(Date.now()));
+    await accountIndex.refresh(now);
+    await usageLimits.calibrate(now); // boolean ignored — emit/fresh keys off the scrape, not a cap-write
   } catch (err) {
     console.warn("[usage] calibration failed:", err);
-  } finally {
-    calibrating = false;
   }
-  return usageLimits.limits(Date.now());
+  // Emit on ANY usable frame (not just a cap-write) so a fresh scrape always pushes the updated
+  // scrapedAt/stale to clients — even the degenerate "frame but nothing to write" case. Safe: the
+  // 30s recompute tick already emits unconditionally and both usage:limits push consumers dedup.
+  const scraped = usageLimits.lastScrapeAt === now;
+  if (scraped) events.emit("usage:limits", usageLimits.limits(Date.now()));
+  return { limits: usageLimits.limits(Date.now()), scraped };
 };
+const calibrate = singleFlight(runCalibrate);
 setTimeout(calibrate, 3_000);
 // self-rescheduling so the cadence escalates while the weekly window nears its cap (keeping
 // paid extra-credit spend fresh) and relaxes back to daily once it's clear of the cap.

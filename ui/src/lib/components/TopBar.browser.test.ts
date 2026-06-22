@@ -959,15 +959,47 @@ describe("TopBar — CR extra-credit gauge", () => {
     return hud!;
   }
 
-  it("renders the CR gauge on desktop when credits are present", async () => {
-    const hud = await renderDesktop(limitsWithCredit({}));
-    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
-    expect(cr, "CR gauge present").not.toBeNull();
-    expect(cr!.textContent ?? "", "CR label + amount").toContain("CR");
-    expect(cr!.textContent ?? "", "amount text").toContain("€0.29");
+  // Capped limits: a window pinned at 100% → desktop inline swaps the percentages for the CR amount.
+  function cappedLimitsWithCredit(credit: Partial<Credit> = {}): UsageLimits {
+    return {
+      ...limitsWithCredit(credit),
+      session5h: { pct: 100, resetAt: 1_700_003_600_000 },
+      week: { pct: 100, resetAt: 1_700_600_000_000 },
+    };
+  }
+  // Credits-only: no usage windows scraped, but extra spend present.
+  function creditsOnly(credit: Partial<Credit> = {}): UsageLimits {
+    return { ...limitsWithCredit(credit), session5h: null, week: null };
+  }
+
+  it("below cap: shows the percentages inline, NOT the CR amount (CR lives in the popover)", async () => {
+    const hud = await renderDesktop(limitsWithCredit({})); // 88% / 64% → not capped
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "gauges toggle present").not.toBeNull();
+    expect(hud.querySelector(".credit-gauge"), "no inline CR amount below cap").toBeNull();
+    expect(toggle!.textContent ?? "", "percentages inline").toContain("88%");
   });
 
-  it("does NOT render the CR gauge when credits is null", async () => {
+  it("at cap: inline swaps the percentages for the CR amount", async () => {
+    const hud = await renderDesktop(cappedLimitsWithCredit());
+    const cr = hud.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr, "inline CR amount shown at cap").not.toBeNull();
+    expect(cr!.textContent ?? "", "CR label + amount").toContain("€0.29");
+    // percentages are swapped out — the inline cluster shows "CR …", not the "5H"/"WK" windows
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle!.textContent ?? "", "no inline window label at cap").not.toContain("5H");
+  });
+
+  it("credits-only (no usage windows): toggle shows the CR amount, never blank", async () => {
+    const hud = await renderDesktop(creditsOnly());
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "toggle present in credits-only state").not.toBeNull();
+    const cr = toggle!.querySelector<HTMLElement>(".credit-gauge");
+    expect(cr, "credits-only toggle renders the CR amount (not blank)").not.toBeNull();
+    expect(toggle!.textContent ?? "", "toggle is named by the CR amount").toContain("€0.29");
+  });
+
+  it("does NOT render the CR gauge inline when credits is null", async () => {
     const hud = await renderDesktop(fullLimits); // fullLimits.credits === null
     expect(hud.querySelector(".credit-gauge"), "no CR gauge without credits").toBeNull();
   });
@@ -978,47 +1010,67 @@ describe("TopBar — CR extra-credit gauge", () => {
   });
 
   it("flags the alert state when spend > 0 on a fresh snapshot", async () => {
-    const hud = await renderDesktop(limitsWithCredit({ spent: 0.29, stale: false }));
+    const hud = await renderDesktop(cappedLimitsWithCredit({ spent: 0.29, stale: false }));
     const cr = hud.querySelector<HTMLElement>(".credit-gauge");
     expect(cr!.classList.contains("alert"), "CR gauge alert when overspending").toBe(true);
   });
 
   it("does NOT flag alert when spend is zero", async () => {
-    const hud = await renderDesktop(limitsWithCredit({ spent: 0, stale: false }));
+    const hud = await renderDesktop(cappedLimitsWithCredit({ spent: 0, stale: false }));
     const cr = hud.querySelector<HTMLElement>(".credit-gauge");
     expect(cr!.classList.contains("alert"), "no alert without spend").toBe(false);
   });
 
   it("renders muted/stale (no alert) on a stale snapshot even with spend", async () => {
-    const hud = await renderDesktop(limitsWithCredit({ spent: 5, stale: true }));
+    const hud = await renderDesktop(cappedLimitsWithCredit({ spent: 5, stale: true }));
     const cr = hud.querySelector<HTMLElement>(".credit-gauge");
     expect(cr!.classList.contains("stale"), "CR gauge stale class").toBe(true);
     expect(cr!.classList.contains("alert"), "stale never alerts").toBe(false);
   });
 
-  it("shows the amount + age text in the hover detail popover", async () => {
+  // Desktop now opens the breakdown on CLICK (not hover), so the REFRESH inside stays reachable.
+  const openDesktopPopover = (hud: HTMLElement) => {
+    const toggle = hud.querySelector<HTMLButtonElement>(".gauges-toggle");
+    expect(toggle, "gauges toggle present").not.toBeNull();
+    toggle!.click();
+  };
+
+  it("clicking the cluster opens the popover with the amount + age + reachable REFRESH", async () => {
     const hud = await renderDesktop(limitsWithCredit({}));
-    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
-    expect(wrap, "gauges-wrap present").not.toBeNull();
-    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    expect(hud.querySelector(".credit-detail"), "popover closed before click").toBeNull();
+    openDesktopPopover(hud);
     await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop, "popover is a dialog").not.toBeNull();
+    expect(pop!.getAttribute("role"), "role=dialog (interactive, not tooltip)").toBe("dialog");
     const detail = hud.querySelector<HTMLElement>(".credit-detail");
-    expect(detail, "credit detail rendered on hover").not.toBeNull();
+    expect(detail, "credit detail rendered on click").not.toBeNull();
     const txt = detail!.textContent ?? "";
     expect(txt, "amount line").toContain("€0.29");
     // 2-decimal precision, aligned with the server push copy (src/push.ts extraCreditsBody)
     expect(txt, "cap").toContain("€50.00");
     expect(txt, "snapshot age (5m)").toContain(m.topbar_credits_age({ age: "5m" }));
-    // refresh control present
-    expect(detail!.querySelector(".credit-refresh"), "refresh button present").not.toBeNull();
+    // REFRESH is reachable — present in the open, clickable dialog (the bug was it closed on mouseout)
+    expect(detail!.querySelector(".credit-refresh"), "refresh button reachable").not.toBeNull();
+  });
+
+  it("the per-window reset detail is present in the dialog the instant it opens", async () => {
+    const hud = await renderDesktop(limitsWithCredit({}));
+    openDesktopPopover(hud);
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    // reset-time text is rendered (visible) inside the dialog — in the a11y tree on open, not
+    // behind a hover/aria-label
+    const resets = pop!.querySelectorAll(".gauge-pop-reset");
+    expect(resets.length, "per-window reset lines present").toBeGreaterThan(0);
+    expect(pop!.textContent ?? "", "period name present").toContain(m.topbar_gauge_period_5h());
   });
 
   it("shows 'just now' (not 'now ago') for a fresh scrape", async () => {
     const hud = await renderDesktop(
       limitsWithCredit({ scrapedAt: 1_700_000_000_000 - 10_000 }), // 10s before nowMs
     );
-    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
-    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    openDesktopPopover(hud);
     await nextFrame();
     const txt = hud.querySelector<HTMLElement>(".credit-detail")!.textContent ?? "";
     expect(txt, "just-now line").toContain(m.topbar_credits_age_now());
@@ -1027,11 +1079,28 @@ describe("TopBar — CR extra-credit gauge", () => {
 
   it("shows the stale note in the popover for a stale snapshot", async () => {
     const hud = await renderDesktop(limitsWithCredit({ stale: true }));
-    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
-    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    openDesktopPopover(hud);
     await nextFrame();
     const detail = hud.querySelector<HTMLElement>(".credit-detail");
     expect(detail!.textContent ?? "", "stale note").toContain(m.topbar_credits_stale());
+  });
+
+  it("credits-only: clicking the toggle opens the popover with REFRESH (no usage windows)", async () => {
+    const hud = await renderDesktop(creditsOnly());
+    openDesktopPopover(hud);
+    await nextFrame();
+    const detail = hud.querySelector<HTMLElement>(".credit-detail");
+    expect(detail, "credit detail in credits-only popover").not.toBeNull();
+    expect(
+      detail!.querySelector(".credit-refresh"),
+      "refresh reachable in credits-only",
+    ).not.toBeNull();
+    // no usage windows → the popover carries no 5-Hour/Weekly window blocks (only the credit detail,
+    // whose own header reads "Extra credits", not a window period label)
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop!.textContent ?? "", "no 5-Hour window block").not.toContain(
+      m.topbar_gauge_period_5h(),
+    );
   });
 
   it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {
@@ -1040,11 +1109,10 @@ describe("TopBar — CR extra-credit gauge", () => {
     // sees the refresh FAILED rather than it looking like a success.
     vi.mocked(refreshUsage).mockRejectedValueOnce(new Error("network down"));
     const hud = await renderDesktop(limitsWithCredit({}));
-    const wrap = hud.querySelector<HTMLElement>(".gauges-wrap");
-    wrap!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    openDesktopPopover(hud);
     await nextFrame();
     const detail = hud.querySelector<HTMLElement>(".credit-detail");
-    expect(detail, "credit detail rendered on hover").not.toBeNull();
+    expect(detail, "credit detail rendered on click").not.toBeNull();
     // No error before the refresh is attempted.
     expect(detail!.querySelector(".credit-error"), "no error before refresh").toBeNull();
 

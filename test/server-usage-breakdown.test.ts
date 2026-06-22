@@ -7,6 +7,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import {
   USAGE_BREAKDOWN_KEYS,
+  USAGE_KIND_UNITS_KEYS,
   USAGE_REPO_KEYS,
   USAGE_TASK_KEYS,
   USAGE_TOKENS_KEYS,
@@ -81,6 +82,11 @@ test("GET /api/usage/breakdown?range=7d → 200 with correct shape", async () =>
       expect(task.dollars).toBeNull();
     }
   }
+
+  expect(Array.isArray(body.satelliteByKind)).toBe(true);
+  for (const k of body.satelliteByKind) {
+    exactKeys(k, USAGE_KIND_UNITS_KEYS);
+  }
 });
 
 test("GET /api/usage/breakdown (no range) → 200 with range=7d default", async () => {
@@ -101,6 +107,115 @@ test("GET /api/usage/breakdown?range=bogus → 400", async () => {
   expect(res.status).toBe(400);
   const body = await res.json();
   expect(body.error).toBe("invalid range");
+});
+
+// ── satelliteByKind: global per-kind tally incl. unattributed buckets ─────────
+
+/** Insert a completed reviewer-spawn row directly (full control over totals + completedAt). */
+function seedSpawn(
+  store: SessionStore,
+  r: {
+    id: string;
+    taskSessionId: string;
+    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+    model: string;
+    inputTokens: number | null; // null totalTokens ⇒ unfinalized (must be excluded)
+    completedAt: number;
+  },
+): void {
+  const total = r.inputTokens == null ? null : r.inputTokens;
+  // @ts-expect-error accessing internal db for test setup
+  store.db.run(
+    `INSERT INTO reviewer_spawns
+       (reviewerSessionId, taskSessionId, kind, worktreePath, model, spawnedAt,
+        completedAt, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      r.id,
+      r.taskSessionId,
+      r.kind,
+      "/wt/" + r.id,
+      r.model,
+      r.completedAt - 1000,
+      r.completedAt,
+      r.inputTokens,
+      0,
+      0,
+      0,
+      total,
+    ],
+  );
+}
+
+test("GET /api/usage/breakdown → satelliteByKind groups all kinds incl. unattributed buckets", async () => {
+  const { app, store } = harness();
+  const M = "claude-opus-4-8";
+
+  // Two reviews — one a managed-session critic, one a STANDALONE PR critic ("pr:<repo>#<n>",
+  // no parent session). Both must fold into a single review entry with count 2.
+  seedSpawn(store, {
+    id: "rv-1",
+    taskSessionId: "sess-x",
+    kind: "review",
+    model: M,
+    inputTokens: 1000,
+    completedAt: NOW - 1_000,
+  });
+  seedSpawn(store, {
+    id: "rv-2",
+    taskSessionId: "pr:/home/user/repos/my-project#5",
+    kind: "review",
+    model: M,
+    inputTokens: 2000,
+    completedAt: NOW - 2_000,
+  });
+  // Herd-wide rundown (taskSessionId "") — unattributed today; must still be counted.
+  seedSpawn(store, {
+    id: "rd-1",
+    taskSessionId: "",
+    kind: "rundown",
+    model: M,
+    inputTokens: 9000,
+    completedAt: NOW - 3_000,
+  });
+  seedSpawn(store, {
+    id: "rc-1",
+    taskSessionId: "sess-x",
+    kind: "recap",
+    model: M,
+    inputTokens: 500,
+    completedAt: NOW - 4_000,
+  });
+  // Unfinalized spawn (null totals) — must be excluded.
+  seedSpawn(store, {
+    id: "pg-1",
+    taskSessionId: "sess-x",
+    kind: "plan_gate",
+    model: M,
+    inputTokens: null,
+    completedAt: NOW - 5_000,
+  });
+
+  const res = await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+
+  const kinds: Array<{ kind: string; units: number; count: number }> = body.satelliteByKind;
+  const byKind = new Map(kinds.map((k) => [k.kind, k]));
+
+  // plan_gate excluded (unfinalized); review folded to one entry, count 2.
+  expect([...byKind.keys()].sort()).toEqual(["recap", "review", "rundown"]);
+  expect(byKind.get("review")!.count).toBe(2);
+  expect(byKind.get("rundown")!.count).toBe(1); // herd-wide bucket surfaces
+  expect(byKind.get("recap")!.count).toBe(1);
+
+  // Sorted desc by units — rundown has the most input, so it leads; recap the least.
+  expect(kinds).toHaveLength(3);
+  expect(kinds[0]!.kind).toBe("rundown");
+  expect(kinds[kinds.length - 1]!.kind).toBe("recap");
+  for (let i = 1; i < kinds.length; i++) {
+    expect(kinds[i - 1]!.units).toBeGreaterThanOrEqual(kinds[i]!.units);
+  }
 });
 
 // ── deps.usageRollup forwarded into buildUsageBreakdown ───────────────────────

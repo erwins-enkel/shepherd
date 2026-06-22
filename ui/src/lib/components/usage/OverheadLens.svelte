@@ -4,9 +4,37 @@
   import InfoTip from "$lib/components/InfoTip.svelte";
   import UsageBar from "./UsageBar.svelte";
   import SplitBar from "./SplitBar.svelte";
-  import { formatPct } from "./format";
+  import { formatPct, formatUnits } from "./format";
 
   const { breakdown }: { breakdown: UsageBreakdown } = $props();
+
+  // ─── Satellite by type ─────────────────────────────────────────────────────────
+
+  /** Translated label for a satellite-pass kind; falls back to the raw id for unknowns. */
+  function kindLabel(kind: string): string {
+    switch (kind) {
+      case "review":
+        return m.usage_kind_review();
+      case "plan_gate":
+        return m.usage_kind_plan_gate();
+      case "recap":
+        return m.usage_kind_recap();
+      case "rundown":
+        return m.usage_kind_rundown();
+      case "doc_agent":
+        return m.usage_kind_doc_agent();
+      default:
+        return kind;
+    }
+  }
+
+  /** Sum of by-kind units — the denominator for each kind's share. */
+  const byKindTotal = $derived(breakdown.satelliteByKind.reduce((s, k) => s + k.units, 0));
+
+  /** Largest kind's units — bar scale reference. */
+  const maxKindUnits = $derived(
+    breakdown.satelliteByKind.length > 0 ? breakdown.satelliteByKind[0].units : 1,
+  );
 
   // ─── Reviewer tax ────────────────────────────────────────────────────────────
 
@@ -83,6 +111,27 @@
       </div>
     {/if}
   </section>
+
+  <!-- ── Section (a2): Satellite by type ── -->
+  {#if breakdown.satelliteByKind.length > 0}
+    <section class="panel overhead-section">
+      <h2 class="section-heading">{m.usage_overhead_bykind_heading()}</h2>
+      <div class="bykind-list">
+        {#each breakdown.satelliteByKind as k (k.kind)}
+          <div class="bykind-row">
+            <span class="bykind-label">{kindLabel(k.kind)}</span>
+            <span class="bykind-count">{m.usage_overhead_bykind_count({ count: k.count })}</span>
+            <span class="bykind-bar">
+              <UsageBar value={k.units} max={maxKindUnits} tone="var(--color-amber)" />
+            </span>
+            <span class="bykind-units">{formatUnits(k.units)}</span>
+            <span class="bykind-pct">{formatPct(byKindTotal > 0 ? k.units / byKindTotal : 0)}</span>
+          </div>
+        {/each}
+      </div>
+      <p class="tax-caption">{m.usage_overhead_bykind_caption()}</p>
+    </section>
+  {/if}
 
   <!-- ── Section (b): Cache efficiency ── -->
   <section class="panel overhead-section">
@@ -200,6 +249,52 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* ── Satellite by type ── */
+  .bykind-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .bykind-row {
+    display: grid;
+    grid-template-columns: 6rem 2.5rem 1fr 4rem 3rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: var(--fs-meta);
+  }
+
+  .bykind-label {
+    color: var(--color-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bykind-count {
+    color: var(--color-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bykind-bar {
+    display: flex;
+    align-items: center;
+  }
+
+  .bykind-units {
+    color: var(--color-ink);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bykind-pct {
+    color: var(--color-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
   @media (max-width: 480px) {
     .tax-task-row {
       grid-template-columns: 1fr auto;
@@ -214,6 +309,27 @@
     }
     .tax-bar {
       grid-area: bar;
+    }
+
+    .bykind-row {
+      grid-template-columns: 1fr auto auto;
+      grid-template-areas: "label count pct" "bar bar units";
+      row-gap: 0.25rem;
+    }
+    .bykind-label {
+      grid-area: label;
+    }
+    .bykind-count {
+      grid-area: count;
+    }
+    .bykind-bar {
+      grid-area: bar;
+    }
+    .bykind-units {
+      grid-area: units;
+    }
+    .bykind-pct {
+      grid-area: pct;
     }
   }
 </style>

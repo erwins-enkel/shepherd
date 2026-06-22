@@ -943,6 +943,8 @@ const autopilot = new AutopilotService({
       console.warn("[autopilot] openLocalPr:", err);
     }
   },
+  // TODO(task-4): wire hasCommittedChanges from src/diff.ts for real completion verification
+  hasDiff: async () => true,
   prGit: (id) => prPoller.snapshot()[id] ?? null,
   fullAuto: (id) => {
     const s = store.get(id);

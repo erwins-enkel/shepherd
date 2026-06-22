@@ -24,7 +24,7 @@
 
   // ── render branch selection ────────────────────────────────────────────────
   const railVisible = $derived(chipRailVisible(chips, repoFilter));
-  // Lone-repo telemetry: one repo with no active filter, carrying drain/learnings.
+  // Lone-repo telemetry: one repo with no active filter, carrying drain telemetry.
   // (When that lone repo IS the active filter, the rail shows instead — see railVisible.)
   const loneChip = $derived(chips.length === 1 && chipHasTelemetry(chips[0]) ? chips[0] : null);
   // The active chip whose detail line shows below the rail — only when it has telemetry.

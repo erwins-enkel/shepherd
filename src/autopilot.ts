@@ -204,6 +204,32 @@ export class AutopilotService {
   /** Empty-completion handler (#1009): the session reported complete with no diff and no PR. Re-prompt
    *  the agent exactly once (bounded by the persisted completionRepromptCount), then hand it to a
    *  human rather than silently filing it as done. */
+  /** Accept (or gate) a `complete` verdict. Pre-completion verification gate (#1009): for a
+   *  DRAIN/auto session with no PR, verify deterministically (no LLM) that something happened — a
+   *  committed diff — before marking done; on empty, re-prompt once then route to needs-human.
+   *  Attended sessions are exempt: a non-code `complete` (issue creation / one-off answer) is
+   *  legitimate there and must not be false-flagged, so they complete unconditionally. */
+  private async verifyAndComplete(s: Session, summary: string): Promise<void> {
+    if (s.auto && !this.deps.hasPr(s.id)) {
+      const empty = !(await this.deps.hasDiff(s.id));
+      // hasDiff is async — re-read the session and PR state after the await (it may have been
+      // archived / toggled off, or a PR may have appeared during the await).
+      const cur = this.deps.store.get(s.id);
+      if (!cur || cur.status === "archived") return;
+      // Re-derive empty/PR on the fresh row rather than reusing eligible(): a full-auto session
+      // stays eligible past PR-open, so eligible() would not stand it down here — we want a PR that
+      // appeared during the await to fall through to markComplete. Don't "simplify" this to
+      // eligible() without accounting for that fullAuto interaction (it would change behavior).
+      if (empty && !this.deps.hasPr(cur.id)) {
+        await this.handleEmptyCompletion(cur);
+        return;
+      }
+      this.markComplete(cur, summary);
+      return;
+    }
+    this.markComplete(s, summary);
+  }
+
   private async handleEmptyCompletion(s: Session): Promise<void> {
     if (s.completionRepromptCount >= 1) {
       this.pause(s, EMPTY_COMPLETION_MESSAGE); // re-prompt already spent → needs-human
@@ -253,27 +279,9 @@ export class AutopilotService {
           openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
         );
         return;
-      case "complete": {
-        // Pre-completion verification gate (#1009): for a DRAIN/auto session, don't accept "done"
-        // unless something actually happened — a committed diff or an associated PR. The check is
-        // deterministic (no LLM). Attended sessions are exempt: a non-code `complete` (issue
-        // creation / one-off answer) is legitimate there and must not be false-flagged.
-        if (s.auto && !this.deps.hasPr(s.id)) {
-          const empty = !(await this.deps.hasDiff(s.id));
-          // hasDiff is async — re-read the session and PR state after the await (it may have been
-          // archived / toggled off, or a PR may have appeared during the await).
-          const cur = this.deps.store.get(s.id);
-          if (!cur || cur.status === "archived") return;
-          if (empty && !this.deps.hasPr(cur.id)) {
-            await this.handleEmptyCompletion(cur);
-            return;
-          }
-          this.markComplete(cur, v.summary || COMPLETE_MESSAGE);
-          return;
-        }
-        this.markComplete(s, v.summary || COMPLETE_MESSAGE);
+      case "complete":
+        await this.verifyAndComplete(s, v.summary || COMPLETE_MESSAGE);
         return;
-      }
       default: // "question" | "unknown" → bias to surface
         this.pause(s, v.summary || SURFACE_MESSAGE);
     }

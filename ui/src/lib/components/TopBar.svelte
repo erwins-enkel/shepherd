@@ -6,7 +6,6 @@
     HerdrUpdateStatus,
     DiagnosticState,
   } from "$lib/types";
-  import { formatReset, formatResetIn } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
@@ -237,15 +236,6 @@
   const periodLabel = (k: GaugeKey) =>
     k === "5H" ? m.topbar_gauge_period_5h() : m.topbar_gauge_period_weekly();
 
-  function gaugeTip(k: GaugeKey, pct: number, resetAt: number): string {
-    return `${m.topbar_gauge_title({
-      period: periodLabel(k),
-      pct,
-      rel: formatResetIn(resetAt, nowMs),
-      abs: formatReset(resetAt, nowMs),
-    })}${limits?.stale ? m.topbar_gauge_stale_suffix() : ""}`;
-  }
-
   // Desktop (fine pointer) shows both windows with hover tooltips. Touch has no
   // hover, so it collapses to the window closest to its cap and exposes the full
   // breakdown — including reset times — through a tap popover instead.
@@ -297,13 +287,10 @@
     }
   }
 
+  // Click-toggled usage breakdown popover, shared by desktop (fine pointer) and touch. Opens on
+  // click of the inline gauges cluster; dismissed on Esc / outside-click (handlers below) so the
+  // REFRESH control inside it stays reachable. `gaugeWrap` anchors the outside-click test.
   let popoverOpen = $state(false);
-  // Desktop (fine pointer): hovering the inline gauges opens a richer detail
-  // card — full window names, wide bars, percentages and reset times — in place
-  // of the bare one-line text tooltip. Hover-only, matching the prior CSS
-  // tooltip; screen readers still get the full tip via each gauge's aria-label.
-  // The inline bars stay for the at-a-glance read; the card is the detail view.
-  let detailOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
 
   // ── Held-tasks popover ────────────────────────────────────────────────────
@@ -407,8 +394,10 @@
     if (heldPopOpen) loadHeld();
   });
   $effect(() => {
-    // close the popover when it can no longer be opened (no gauge AND no credit, or off touch)
-    if (!touch || (!hotter && !credits)) popoverOpen = false;
+    // Close the popover when there's nothing left to show. Both desktop and touch drive
+    // popoverOpen now, so the only force-close is "no usage windows AND no credits" (a non-empty
+    // `gauges` implies `hotter`, so this also covers the touch collapse case).
+    if (!gauges.length && !credits) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -640,10 +629,8 @@
         {refreshError}
         onRefresh={doRefresh}
         {periodLabel}
-        {gaugeTip}
         onusage={chooseUsage}
         bind:popoverOpen
-        bind:detailOpen
         bind:gaugeWrap
       />
     {/if}

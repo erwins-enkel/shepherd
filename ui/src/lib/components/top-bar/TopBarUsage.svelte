@@ -4,6 +4,7 @@
   import { gaugeColor, type GaugeKey } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import { formatResetIn, formatReset } from "$lib/format";
+  import { dialog } from "$lib/a11yDialog";
   import CreditGauge from "./CreditGauge.svelte";
   import CreditDetail from "./CreditDetail.svelte";
 
@@ -23,10 +24,8 @@
     refreshError,
     onRefresh,
     periodLabel,
-    gaugeTip,
     onusage,
     popoverOpen = $bindable(),
-    detailOpen = $bindable(),
     gaugeWrap = $bindable(null),
   }: {
     subscriptionOnly: boolean;
@@ -44,12 +43,16 @@
     refreshError: boolean;
     onRefresh: () => void;
     periodLabel: (k: GaugeKey) => string;
-    gaugeTip: (k: GaugeKey, pct: number, resetAt: number) => string;
     onusage?: () => void;
     popoverOpen: boolean;
-    detailOpen: boolean;
     gaugeWrap: HTMLElement | null;
   } = $props();
+
+  // Desktop compact rule: show 5H+WK percentages inline, but swap to the CR amount when a window
+  // is pinned at its cap (% is uninformative there and the live credit € is the actionable number)
+  // OR when there are no usage windows at all (credits-only state — otherwise the toggle is blank).
+  const capped = $derived(gauges.some((g) => g.w.pct >= 100));
+  const showCreditsInline = $derived((capped || gauges.length === 0) && !!credits);
 </script>
 
 {#if subscriptionOnly}
@@ -161,41 +164,49 @@
     </div>
   {/if}
 {:else if gauges.length || credits}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="gauges-wrap"
-    onmouseenter={() => (detailOpen = true)}
-    onmouseleave={() => (detailOpen = false)}
-  >
+  <!-- Desktop: the inline cluster is a click toggle (not hover) so the popover stays open while
+       you move into it to reach REFRESH. Dismiss on Esc / outside-click is shared with the touch
+       path (popoverOpen + gaugeWrap, handled in TopBar.svelte). -->
+  <div class="gauges-wrap" bind:this={gaugeWrap}>
     <button
       type="button"
-      class="gauges-link"
+      class="gauges-link gauges-toggle"
       aria-haspopup="dialog"
-      aria-label={m.topbar_usage_link_aria()}
-      onclick={() => onusage?.()}
+      aria-expanded={popoverOpen}
+      onclick={() => (popoverOpen = !popoverOpen)}
     >
       <!-- Phrasing-only content: a <button> may not contain block elements, so the
            gauge cluster + each gauge are <span>s (display:flex via class, blockified
-           as flex items — layout is identical to the former <a>-wrapped <div>s). -->
+           as flex items). Compact rule: percentages inline, swapped to the CR amount
+           when capped or credits-only (see showCreditsInline). -->
       <span class="gauges" class:stale>
-        {#each gauges as g (g.label)}
-          <span class="gauge" aria-label={gaugeTip(g.label, g.w.pct, g.w.resetAt)}>
-            <span class="g-label micro">{g.label}</span>
-            <span class="g-bar"
-              ><span
-                class="g-fill"
-                style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                  100});background:{gaugeColor(g.w.pct)}"
-              ></span></span
-            >
-            <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-          </span>
-        {/each}
-        <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
+        {#if showCreditsInline}
+          <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
+        {:else}
+          {#each gauges as g (g.label)}
+            <span class="gauge">
+              <span class="g-label micro">{g.label}</span>
+              <span class="g-bar"
+                ><span
+                  class="g-fill"
+                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                    100});background:{gaugeColor(g.w.pct)}"
+                ></span></span
+              >
+              <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+            </span>
+          {/each}
+        {/if}
       </span>
     </button>
-    {#if detailOpen}
-      <div class="gauge-pop gauge-pop-desk" role="tooltip" class:stale>
+    {#if popoverOpen}
+      <div
+        class="gauge-pop gauge-pop-desk"
+        role="dialog"
+        aria-label={m.topbar_gauge_popover_title()}
+        class:stale
+        use:dialog={{ onclose: () => (popoverOpen = false) }}
+      >
         <div class="gauge-pop-title micro">
           {m.topbar_gauge_popover_title()}{stale ? m.topbar_gauge_stale_suffix() : ""}
         </div>
@@ -234,6 +245,17 @@
             />
           </div>
         {/if}
+        <button
+          type="button"
+          class="gauge-pop-link"
+          aria-haspopup="dialog"
+          onclick={() => {
+            popoverOpen = false;
+            onusage?.();
+          }}
+        >
+          {m.topbar_usage_link()}
+        </button>
       </div>
     {/if}
   </div>
@@ -245,8 +267,8 @@
     color: var(--color-muted);
     max-width: 22rem;
   }
-  /* Desktop: clicking the gauges cluster opens the Usage modal. Full button-chrome
-     reset so the <button> renders byte-identically to the former <a> (no native
+  /* Desktop: clicking the gauges cluster toggles the breakdown popover. Full button-chrome
+     reset so the <button> renders byte-identically to the former inline cluster (no native
      padding/border/background/font shift the gauges layout). */
   .gauges-link {
     appearance: none;
@@ -260,6 +282,17 @@
     cursor: pointer;
     text-align: inherit;
     display: block;
+  }
+  /* Subtle focus-visible ring so keyboard users see the toggle target; hover/expanded dim the
+     cluster slightly to read as an actionable control without adding chrome that shifts layout. */
+  .gauges-toggle:hover .gauges,
+  .gauges-toggle[aria-expanded="true"] .gauges {
+    opacity: 0.85;
+  }
+  .gauges-toggle:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: 3px;
+    border-radius: 2px;
   }
   /* Touch popover: quiet Usage-modal trigger at the bottom of the breakdown popover.
      Button-chrome reset so it reads as the former quiet link, not a native button. */

@@ -282,6 +282,44 @@ test("calibrate returns false when the probe fails", async () => {
   expect(await svc.calibrate(NOW)).toBe(false);
 });
 
+test("lastScrapeAt advances on a frame-returning scrape, not on a failed (null) scrape", async () => {
+  const raw =
+    "Current session\n10% used\nResets 9:30pm (x)\nCurrent week\n20% used\nResets Jun 6 (x)";
+  const ok = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+  );
+  expect(ok.lastScrapeAt).toBe(0); // none yet
+  await ok.calibrate(NOW);
+  expect(ok.lastScrapeAt).toBe(NOW); // a usable frame → stamped
+
+  const fail = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+  );
+  await fail.calibrate(NOW);
+  expect(fail.lastScrapeAt).toBe(0); // probe failed → never stamped
+});
+
+test("a usable frame that writes no cap still stamps lastScrapeAt (degenerate scrape)", async () => {
+  // Frame parses but pct is below MIN_CALIBRATION_PCT and there's no prior cap / credits → calibrate
+  // returns false (nothing written), yet a real scrape happened: lastScrapeAt must advance so the
+  // refresh reads as a success (scraped), not a silent stale.
+  const raw = "Current session\n2% used\nResets 9:30pm (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(5),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+  );
+  expect(await svc.calibrate(NOW)).toBe(false); // nothing to write
+  expect(svc.lastScrapeAt).toBe(NOW); // but a frame WAS scraped
+});
+
 test("limits computes pct = units/cap and rolls the reset anchor forward", () => {
   const caps = new MemCaps();
   // anchor reset 2h before now → rolls forward by 5h to 3h after now

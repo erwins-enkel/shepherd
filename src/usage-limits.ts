@@ -297,6 +297,16 @@ export class UsageLimitsService {
     private creditStore: CreditStore,
   ) {}
 
+  // `now` of the last calibrate whose probe returned a usable frame. A manual-refresh caller
+  // reads this right after awaiting calibrate() to tell a real re-scrape (the snapshot advanced)
+  // from a skipped/failed one (stale) — without overloading calibrate()'s boolean (which conflates
+  // "scraped but wrote no cap" with "scrape failed"). Distinct from a successful cap-write.
+  private _lastScrapeAt = 0;
+  /** `now` of the most recent frame-returning scrape (0 if none yet). */
+  get lastScrapeAt(): number {
+    return this._lastScrapeAt;
+  }
+
   /** Scrape `/usage` and recalibrate the per-window caps from local JSONL. */
   async calibrate(now: number): Promise<boolean> {
     // Subscription-only: never spawn the probe under api-key auth — the /usage panel doesn't
@@ -304,6 +314,7 @@ export class UsageLimitsService {
     if (isApiKeyMode()) return false;
     const raw = await this.probe.scrape();
     if (!raw) return false;
+    this._lastScrapeAt = now; // a usable frame was scraped this run
     const parsed = parseUsageFrame(raw, now);
     const prior = new Map(this.caps.getCaps().map((r) => [r.window, r]));
     let any = false;

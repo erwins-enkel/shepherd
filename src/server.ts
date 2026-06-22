@@ -156,9 +156,10 @@ export interface AppDeps {
   service: SessionService;
   events: EventHub;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
-  /** Force a `/usage` re-scrape (calibration) and return fresh limits; absent in tests that
-   *  don't wire the live calibrator (the route then falls back to the current snapshot). */
-  refreshUsage?: () => Promise<UsageLimits>;
+  /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
+   *  actually returned a usable frame this run; absent in tests that don't wire the live
+   *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
+  refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Resolve the git forge for a repo dir; null when none is configured. */
@@ -2450,10 +2451,17 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
     parts[1] === "usage" &&
     parts[2] === "refresh"
   ) {
-    const limits = deps.refreshUsage
+    // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
+    const { limits, scraped } = deps.refreshUsage
       ? await deps.refreshUsage()
-      : deps.usageLimits.limits(Date.now());
-    return json(limits);
+      : { limits: deps.usageLimits.limits(Date.now()), scraped: true };
+    // Fail closed: a refresh that didn't actually re-scrape (probe failed, or skipped) must NOT
+    // look like success — return non-OK so the client surfaces its retry state instead of silently
+    // keeping the stale numbers. Subscription-only attempts no scrape, so it never trips.
+    if (!scraped && !limits.subscriptionOnly) {
+      return json({ error: "usage refresh did not re-scrape", code: "refresh_stale" }, 503);
+    }
+    return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
   }
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
     const now = Date.now();

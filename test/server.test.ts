@@ -109,14 +109,62 @@ test("POST /api/usage/refresh calls refreshUsage and returns its fresh limits", 
   const deps = makeDeps();
   deps.refreshUsage = async () => {
     called++;
-    return fresh as any;
+    return { limits: fresh, scraped: true } as any;
   };
   const res = await makeApp(deps).fetch(
     new Request("http://x/api/usage/refresh", { method: "POST" }),
   );
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual(fresh);
+  expect(await res.json()).toEqual(fresh); // success returns the UNWRAPPED bare limits
   expect(called).toBe(1);
+});
+
+test("POST /api/usage/refresh fails closed (503) when the probe did not re-scrape", async () => {
+  // A refresh that didn't actually re-scrape (scraped:false) must surface as an error, not a
+  // silent 200 with stale numbers — so the client shows its retry state instead of "looks fine".
+  const fresh = {
+    session5h: null,
+    week: null,
+    credits: {
+      pct: 0,
+      spent: 79.16,
+      cap: 100,
+      currency: "€",
+      resetAt: 789,
+      scrapedAt: 1,
+      stale: true,
+    },
+    stale: true,
+    calibratedAt: 1,
+    subscriptionOnly: false,
+  };
+  const deps = makeDeps();
+  deps.refreshUsage = async () => ({ limits: fresh, scraped: false }) as any;
+  const res = await makeApp(deps).fetch(
+    new Request("http://x/api/usage/refresh", { method: "POST" }),
+  );
+  expect(res.status).toBe(503);
+  expect((await res.json()).code).toBe("refresh_stale");
+});
+
+test("POST /api/usage/refresh stays 200 for subscription-only even when scraped:false", async () => {
+  // Subscription-only (api-key) attempts no scrape, so scraped:false there is expected, not a
+  // failure — it must not trip the fail-closed path.
+  const fresh = {
+    session5h: null,
+    week: null,
+    credits: null,
+    stale: true,
+    calibratedAt: null,
+    subscriptionOnly: true,
+  };
+  const deps = makeDeps();
+  deps.refreshUsage = async () => ({ limits: fresh, scraped: false }) as any;
+  const res = await makeApp(deps).fetch(
+    new Request("http://x/api/usage/refresh", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(fresh);
 });
 
 test("POST /api/usage/refresh without refreshUsage falls back to current limits snapshot", async () => {

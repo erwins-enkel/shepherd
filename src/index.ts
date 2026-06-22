@@ -102,6 +102,7 @@ import { jsonlPathFor } from "./usage";
 import { verifyApiKey } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { snapshotSessionUsage } from "./usage-snapshot";
+import { hasCommittedChanges } from "./diff";
 
 const execFileAsync = promisify(execFile);
 
@@ -943,8 +944,19 @@ const autopilot = new AutopilotService({
       console.warn("[autopilot] openLocalPr:", err);
     }
   },
-  // TODO(task-4): wire hasCommittedChanges from src/diff.ts for real completion verification
-  hasDiff: async () => true,
+  // Deterministic completion verifier (#1009): true when the session's branch has a committed diff
+  // vs base. Fails OPEN (returns true) on any git error so a systemic failure can't false-route a
+  // genuinely-complete session to needs-human — but logs, so the bypass is observable, not silent.
+  hasDiff: async (id) => {
+    const s = store.get(id);
+    if (!s) return true;
+    try {
+      return await hasCommittedChanges(s.worktreePath, s.baseBranch, s.branch);
+    } catch (err) {
+      console.warn("[autopilot] hasDiff:", err);
+      return true;
+    }
+  },
   prGit: (id) => prPoller.snapshot()[id] ?? null,
   fullAuto: (id) => {
     const s = store.get(id);

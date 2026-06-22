@@ -19,20 +19,14 @@
   );
 
   let open = $state(false);
-  // Presentation is chosen per interaction at open time: hover/focus → "floating"
-  // (anchored popover), touch-tap → "inline" (in-flow disclosure that pushes content
-  // down). Per-interaction (not per-device) so hybrid touch+mouse devices keep both.
+  // Presentation is chosen per interaction at open time: mouse-hover → "floating"
+  // (transient anchored popover), activation (click / tap / Enter / Space) → "inline"
+  // (in-flow disclosure that pushes content down, never obscures). Bare focus opens
+  // nothing. Per-interaction (not per-device) so detection can't misfire.
   let presentation = $state<"floating" | "inline">("floating");
   let btnEl = $state<HTMLButtonElement | null>(null);
   let popEl = $state<HTMLElement | null>(null);
   let inlineEl = $state<HTMLElement | null>(null);
-
-  // Detect touch (coarse pointer) — determines open strategy.
-  // We check at pointer event time too (pointerType === "touch") for accuracy,
-  // but a module-level media query covers the button enter/leave handlers.
-  function isCoarse(): boolean {
-    return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
-  }
 
   // Floating UI: position popover relative to button whenever open + both elements exist.
   $effect(() => {
@@ -131,14 +125,16 @@
     open = false;
   }
 
-  // Desktop (fine pointer): hover open, grace-delayed close.
+  // Hover (non-touch): open floating tooltip. Don't override a pinned inline.
   function onPointerenter(e: PointerEvent) {
-    if (e.pointerType === "touch") return; // coarse — handled by click
+    if (e.pointerType === "touch") return;
+    if (open && presentation === "inline") return;
     presentation = "floating";
     openTooltip();
   }
   function onPointerleave(e: PointerEvent) {
     if (e.pointerType === "touch") return;
+    if (presentation !== "floating") return;
     scheduleClose();
   }
 
@@ -152,32 +148,11 @@
     scheduleClose();
   }
 
-  // Desktop: focus open/close.
-  function onFocus() {
-    if (isCoarse()) return;
-    presentation = "floating";
-    openTooltip();
-  }
-  function onBlur(e: FocusEvent) {
-    if (isCoarse()) return;
-    // Don't close if focus moved into the tooltip (e.g. keyboard Tab to the Wikipedia link).
-    if (popEl?.contains(e.relatedTarget as Node)) return;
-    close();
-  }
-
-  // Wikipedia link blur — close only when focus leaves both the popover and the trigger button.
-  function onWikiBlur(e: FocusEvent) {
-    const target = e.relatedTarget as Node | null;
-    if (popEl?.contains(target) || btnEl?.contains(target)) return;
-    close();
-  }
-
-  // Touch (coarse pointer): tap-toggle.
+  // Click / keyboard Enter / Space / touch tap → inline push-down.
+  // A native <button> fires click for Enter (keydown) and Space (keyup) automatically.
   function onClick(e: MouseEvent & { currentTarget: HTMLButtonElement }) {
-    // Only toggle on coarse — fine pointer already handled by hover/focus.
-    if (!isCoarse()) return;
     e.stopPropagation();
-    if (open) {
+    if (open && presentation === "inline") {
       close();
     } else {
       presentation = "inline";
@@ -206,8 +181,6 @@
     aria-controls={presentation === "inline" && open ? tooltipId : undefined}
     onpointerenter={onPointerenter}
     onpointerleave={onPointerleave}
-    onfocus={onFocus}
-    onblur={(e) => onBlur(e)}
     onclick={onClick}>{label}</button
   >
 
@@ -218,12 +191,7 @@
     <span class="gt-body">{bodyText}</span>
     {#if term?.kind === "external" && wikiHref}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external Wikipedia URL -->
-      <a
-        class="gt-wiki"
-        href={wikiHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        onblur={onWikiBlur}
+      <a class="gt-wiki" href={wikiHref} target="_blank" rel="noopener noreferrer"
         >{(m as unknown as Record<string, () => string>)["gloss_wikipedia_link"]()}</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->

@@ -103,6 +103,7 @@ import { verifyApiKey } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
+import { HoldReasonService } from "./hold-service";
 
 const execFileAsync = promisify(execFile);
 
@@ -1170,6 +1171,16 @@ const herdDigestService = new HerdDigestService({
   },
 });
 
+const holdService = new HoldReasonService({
+  store,
+  events,
+  gitSnapshot: () => prPoller.snapshot(),
+  reviewSnapshot: () => reviewService.snapshot(),
+  gateSnapshot: () => planGate.snapshot(),
+  recapSnapshot: () => recapService.snapshot(),
+  onChange: (id, hold) => events.emit("session:hold", { id, hold }),
+});
+
 const draftReconcile = new DraftReconcileService({
   store,
   resolveForge,
@@ -1553,6 +1564,7 @@ const appDeps: AppDeps = {
     tick: () => drain.tick(),
   },
   autoMerge: { snapshot: () => autoMerge.snapshot() },
+  holds: { snapshot: () => holdService.snapshot() },
 };
 const server = serve(appDeps, config.port);
 console.log(`shepherd core on http://localhost:${server.port}`);

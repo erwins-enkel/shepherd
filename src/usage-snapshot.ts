@@ -74,6 +74,7 @@ export async function snapshotSessionUsage(
     store.upsertSessionUsage({
       sessionId: s.id,
       desig: s.desig,
+      name: s.name,
       repoPath: s.repoPath,
       model,
       input: agg.input,

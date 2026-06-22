@@ -825,6 +825,7 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
+      name           TEXT NOT NULL DEFAULT '',
       repoPath       TEXT NOT NULL,
       model          TEXT NOT NULL,
       input          INTEGER NOT NULL,
@@ -855,6 +856,12 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS session_usage_bucket_start ON session_usage_bucket (bucketStart)`,
     );
+    // migrate session_usage rows that predate the human-readable name column (legacy rows
+    // default to '' — the usage UI falls back to showing the desig alone for those)
+    const usageCols = this.db.query(`PRAGMA table_info(session_usage)`).all() as { name: string }[];
+    if (!usageCols.some((c) => c.name === "name")) {
+      this.db.run(`ALTER TABLE session_usage ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+    }
   }
 
   // ── settings (key/value) ─────────────────────────────────────────────────
@@ -3674,11 +3681,12 @@ export class SessionStore implements CapStore, CreditStore {
   upsertSessionUsage(snap: SessionUsageSnapshot): void {
     this.db.run(
       `INSERT INTO session_usage
-         (sessionId, desig, repoPath, model, input, output, cacheRead, cacheWrite, total,
+         (sessionId, desig, name, repoPath, model, input, output, cacheRead, cacheWrite, total,
           weightedUnits, cacheReadUnits, messageCount, byModel, createdAt, archivedAt, snapshotAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET
          desig = excluded.desig,
+         name = excluded.name,
          repoPath = excluded.repoPath,
          model = excluded.model,
          input = excluded.input,
@@ -3696,6 +3704,7 @@ export class SessionStore implements CapStore, CreditStore {
       [
         snap.sessionId,
         snap.desig,
+        snap.name,
         snap.repoPath,
         snap.model,
         snap.input,

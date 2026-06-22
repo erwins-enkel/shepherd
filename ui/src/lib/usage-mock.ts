@@ -36,6 +36,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-001",
     desig: "TASK-07",
+    name: "add-auth-flow",
     model: "claude-opus-4-8",
     authoringUnits: 84_000,
     satelliteUnits: 18_000,
@@ -45,6 +46,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-002",
     desig: "TASK-12",
+    name: "fix-toast-dedupe",
     model: "claude-opus-4-8",
     authoringUnits: 72_000,
     satelliteUnits: 14_500,
@@ -54,6 +56,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-003",
     desig: "TASK-15",
+    name: "usage-task-names",
     model: "claude-opus-4-8",
     authoringUnits: 61_000,
     satelliteUnits: 12_000,
@@ -63,6 +66,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-004",
     desig: "TASK-18",
+    name: "refactor-store",
     model: "claude-sonnet-4-5",
     authoringUnits: 28_000,
     satelliteUnits: 6_000,
@@ -72,6 +76,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-005",
     desig: "TASK-21",
+    name: "plan-gate-restart",
     model: "claude-opus-4-8",
     authoringUnits: 22_000,
     satelliteUnits: 4_500,
@@ -81,6 +86,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-006",
     desig: "TASK-24",
+    name: "merge-train-marker",
     model: "claude-opus-4-8",
     authoringUnits: 17_000,
     satelliteUnits: 3_500,
@@ -90,6 +96,7 @@ const shepherdTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-007",
     desig: "TASK-27",
+    name: "egress-allowlist",
     model: "claude-sonnet-4-5",
     authoringUnits: 11_000,
     satelliteUnits: 2_200,
@@ -106,6 +113,7 @@ const webappTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-008",
     desig: "TASK-03",
+    name: "glossary-popover",
     model: "claude-opus-4-8",
     authoringUnits: 76_000,
     satelliteUnits: 15_000,
@@ -115,6 +123,7 @@ const webappTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-009",
     desig: "TASK-04",
+    name: "doc-agent-pr",
     model: "claude-sonnet-4-5",
     authoringUnits: 60_000,
     satelliteUnits: 12_200,
@@ -130,6 +139,7 @@ const infraTasks24h: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-010",
     desig: "TASK-01",
+    name: "readiness-tab",
     model: "claude-sonnet-4-5",
     authoringUnits: 38_000,
     satelliteUnits: 8_000,
@@ -149,6 +159,7 @@ const shepherdTasks7d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-101",
     desig: "TASK-30",
+    name: "epic-integration",
     model: "claude-opus-4-8",
     authoringUnits: 95_000,
     satelliteUnits: 19_000,
@@ -158,6 +169,7 @@ const shepherdTasks7d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-102",
     desig: "TASK-33",
+    name: "critic-effort",
     model: "claude-opus-4-8",
     authoringUnits: 78_000,
     satelliteUnits: 16_000,
@@ -174,6 +186,7 @@ const webappTasks7d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-110",
     desig: "TASK-05",
+    name: "preview-serve",
     model: "claude-opus-4-8",
     authoringUnits: 88_000,
     satelliteUnits: 17_500,
@@ -189,6 +202,7 @@ const infraTasks7d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-120",
     desig: "TASK-02",
+    name: "tmpfs-guard",
     model: "claude-sonnet-4-5",
     authoringUnits: 42_000,
     satelliteUnits: 8_500,
@@ -208,6 +222,7 @@ const shepherdTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-201",
     desig: "TASK-36",
+    name: "feature-catalog-gate",
     model: "claude-opus-4-8",
     authoringUnits: 110_000,
     satelliteUnits: 22_000,
@@ -217,6 +232,7 @@ const shepherdTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-202",
     desig: "TASK-39",
+    name: "learnings-decay",
     model: "claude-opus-4-8",
     authoringUnits: 92_000,
     satelliteUnits: 18_500,
@@ -226,6 +242,7 @@ const shepherdTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-203",
     desig: "TASK-42",
+    name: "rundown-digest",
     model: "claude-sonnet-4-5",
     authoringUnits: 45_000,
     satelliteUnits: 9_000,
@@ -241,6 +258,7 @@ const webappTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-210",
     desig: "TASK-06",
+    name: "api-key-auth",
     model: "claude-opus-4-8",
     authoringUnits: 98_000,
     satelliteUnits: 19_600,
@@ -250,6 +268,7 @@ const webappTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-211",
     desig: "TASK-07",
+    name: "backlog-badges",
     model: "claude-opus-4-8",
     authoringUnits: 75_000,
     satelliteUnits: 15_000,
@@ -265,6 +284,7 @@ const infraTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-220",
     desig: "TASK-03",
+    name: "union-merge-driver",
     model: "claude-haiku-4-5",
     authoringUnits: 18_000,
     satelliteUnits: 3_600,
@@ -279,6 +299,7 @@ const docsTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-230",
     desig: "TASK-01",
+    name: "recap-done-lens",
     model: "claude-sonnet-4-5",
     authoringUnits: 32_000,
     satelliteUnits: 6_400,
@@ -298,6 +319,7 @@ const shepherdTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-301",
     desig: "TASK-45",
+    name: "onboarding-harness",
     model: "claude-opus-4-8",
     authoringUnits: 130_000,
     satelliteUnits: 26_000,
@@ -307,6 +329,7 @@ const shepherdTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-302",
     desig: "TASK-48",
+    name: "installer-fix",
     model: "claude-opus-4-8",
     authoringUnits: 115_000,
     satelliteUnits: 23_000,
@@ -316,6 +339,7 @@ const shepherdTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-303",
     desig: "TASK-51",
+    name: "i18n-parity",
     model: "claude-sonnet-4-5",
     authoringUnits: 58_000,
     satelliteUnits: 11_600,
@@ -331,6 +355,7 @@ const webappTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-310",
     desig: "TASK-08",
+    name: "fable-guard",
     model: "claude-opus-4-8",
     authoringUnits: 108_000,
     satelliteUnits: 21_600,
@@ -346,6 +371,7 @@ const infraTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-320",
     desig: "TASK-04",
+    name: "spend-lens",
     model: "claude-sonnet-4-5",
     authoringUnits: 55_000,
     satelliteUnits: 11_000,
@@ -361,6 +387,7 @@ const docsTasksAll: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-330",
     desig: "TASK-02",
+    name: "overhead-lens",
     model: "claude-haiku-4-5",
     authoringUnits: 14_000,
     satelliteUnits: 2_800,

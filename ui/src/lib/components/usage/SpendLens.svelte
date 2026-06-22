@@ -115,7 +115,12 @@
             {#each tasks as task (task.sessionId)}
               {@const tTotal = taskTotal(task)}
               <div class="task-row" class:has-cost={breakdown.dollars != null}>
-                <span class="task-desig">{task.desig}</span>
+                <span class="task-label">
+                  <span class="task-desig">{task.desig}</span>
+                  {#if task.name}
+                    <span class="task-name" title={task.name}>{task.name}</span>
+                  {/if}
+                </span>
                 <span class="task-bar">
                   <UsageBar value={tTotal} max={maxTask} tone="var(--color-slate)" />
                 </span>
@@ -258,7 +263,7 @@
 
   .task-row {
     display: grid;
-    grid-template-columns: 6rem 1fr 5rem;
+    grid-template-columns: 11rem 1fr 5rem;
     align-items: center;
     gap: 0.5rem;
     padding: 0.25rem 0.5rem;
@@ -266,12 +271,26 @@
   }
 
   .task-row.has-cost {
-    grid-template-columns: 6rem 1fr 5rem 4rem;
+    grid-template-columns: 11rem 1fr 5rem 4rem;
+  }
+
+  .task-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.375rem;
+    min-width: 0;
   }
 
   .task-desig {
+    flex: none;
     color: var(--color-muted);
+    font-size: var(--fs-micro);
     font-variant-numeric: tabular-nums;
+  }
+
+  .task-name {
+    min-width: 0;
+    color: var(--color-ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -344,7 +363,7 @@
       grid-template-columns: minmax(0, 1fr) auto auto;
       grid-template-areas: "desig units cost" "bar bar bar";
     }
-    .task-desig {
+    .task-label {
       grid-area: desig;
     }
     .task-units {

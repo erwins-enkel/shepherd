@@ -794,6 +794,7 @@ export interface UsageTokens {
 export interface UsageTaskBreakdown {
   sessionId: string;
   desig: string; // e.g. "TASK-07" — data, never translated
+  name: string; // human-readable short name, e.g. "add-auth-flow"; "" for legacy rows — data, never translated
   model: string; // dominant model id, e.g. "claude-opus-4-8"
   authoringUnits: number; // weighted units, main agent
   satelliteUnits: number; // weighted units, reviewer/critic/etc spawns

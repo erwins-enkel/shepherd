@@ -1839,5 +1839,7 @@
   "hold_merge_rebasing": "Rebasing in the merge train (attempt {rebaseCount}).",
   "hold_ready_merge": "Ready to merge — waiting on you.",
   "feat_why_parked_title": "Why is this parked?",
-  "feat_why_parked_body": "Held, blocked and gate-stuck sessions now show a one-line reason on the card and in the triage drawer — so you can see why a session needs you at a glance."
+  "feat_why_parked_body": "Held, blocked and gate-stuck sessions now show a one-line reason on the card and in the triage drawer — so you can see why a session needs you at a glance.",
+  "feat_usage_task_names_title": "Task names in Usage",
+  "feat_usage_task_names_body": "The per-task rows in the Usage → Spend and Overhead lenses now show each task's short name alongside its designation — so you can tell tasks apart at a glance instead of reading IDs."
 }

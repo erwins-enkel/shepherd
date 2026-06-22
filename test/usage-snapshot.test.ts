@@ -89,6 +89,7 @@ test("normal session → one row with correct fields", async () => {
   const session = makeSession({
     id: "sess-1",
     desig: "TASK-01",
+    name: "add-button",
     repoPath: "/repos/foo",
     worktreePath: "/repos/foo",
     claudeSessionId: "abc-123",
@@ -117,6 +118,7 @@ test("normal session → one row with correct fields", async () => {
   const r = rows[0]!;
   expect(r.sessionId).toBe("sess-1");
   expect(r.desig).toBe("TASK-01");
+  expect(r.name).toBe("add-button");
   expect(r.repoPath).toBe("/repos/foo");
   expect(r.model).toBe("claude-opus-4-8");
   expect(r.messageCount).toBe(2);

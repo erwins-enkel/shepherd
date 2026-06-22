@@ -5,6 +5,7 @@ import type { SessionUsageBucket, SessionUsageSnapshot } from "../src/types";
 const snap = (over: Partial<SessionUsageSnapshot> = {}): SessionUsageSnapshot => ({
   sessionId: "sess-1",
   desig: "TASK-01",
+  name: "round-trip-fields",
   repoPath: "/repos/foo",
   model: "claude-sonnet-4-5",
   input: 1000,
@@ -30,6 +31,7 @@ test("session_usage: upsert then list round-trips all fields", () => {
   const r = rows[0]!;
   expect(r.sessionId).toBe("sess-1");
   expect(r.desig).toBe("TASK-01");
+  expect(r.name).toBe("round-trip-fields");
   expect(r.repoPath).toBe("/repos/foo");
   expect(r.model).toBe("claude-sonnet-4-5");
   expect(r.input).toBe(1000);

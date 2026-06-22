@@ -611,6 +611,7 @@ export interface HeldTask {
 export interface SessionUsageRow {
   sessionId: string;
   desig: string;
+  name: string;
   repoPath: string;
   model: string;
   input: number;
@@ -631,6 +632,7 @@ export interface SessionUsageRow {
 export interface SessionUsageSnapshot {
   sessionId: string;
   desig: string;
+  name: string;
   repoPath: string;
   model: string;
   input: number;
@@ -684,6 +686,7 @@ export interface UsageTokens {
 export interface UsageTaskBreakdown {
   sessionId: string;
   desig: string;
+  name: string;
   model: string;
   authoringUnits: number;
   satelliteUnits: number;
@@ -730,6 +733,7 @@ export const USAGE_TOKENS_KEYS = ["input", "output", "cacheRead", "cacheWrite"] 
 export const USAGE_TASK_KEYS = [
   "sessionId",
   "desig",
+  "name",
   "model",
   "authoringUnits",
   "satelliteUnits",

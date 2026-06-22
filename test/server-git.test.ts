@@ -354,6 +354,24 @@ test("GET /api/subagents → {} when no hooks dep is wired", async () => {
   expect(await res.json()).toEqual({});
 });
 
+test("GET /api/holds returns the holds snapshot", async () => {
+  const snap: Record<string, import("../src/types").HoldReason> = {
+    s1: { code: "halted-usage", params: { resetAt: 1700000000000 } },
+  };
+  const deps = Object.assign(makeDeps(fakeForge()), { holds: { snapshot: () => snap } });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/holds"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(snap);
+});
+
+test("GET /api/holds → {} when no holds dep is wired", async () => {
+  const app = makeApp(makeDeps(fakeForge()));
+  const res = await app.fetch(new Request("http://localhost/api/holds"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
+});
+
 test("POST git/pr writes cache + emits session:git", async () => {
   const deps = makeDeps(fakeForge());
   const app = makeApp(deps);

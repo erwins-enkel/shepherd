@@ -135,6 +135,47 @@ export interface BlockReason {
   quotaKind?: "rework" | "review" | "error" | "plan";
 }
 
+export type HoldCode =
+  | "halted-error"
+  | "halted-usage"
+  | "autopilot-paused"
+  | "blocked-menu"
+  | "blocked-yes-no"
+  | "blocked-awaiting-input"
+  | "blocked-stall"
+  | "blocked-generic"
+  | "quota-rework"
+  | "quota-review"
+  | "quota-error"
+  | "quota-plan"
+  | "plan-rework"
+  | "critic-rework"
+  | "ci-red"
+  | "awaiting-merge"
+  | "train-error"
+  | "stalled"
+  | "recap-attention"
+  | "merging"
+  | "merge-rebasing"
+  | "ready-merge";
+
+/** Display params interpolated into the localized hold line. All optional; each code
+ *  uses the subset it needs. `question` is verbatim agent text (not translated). */
+export interface HoldParams {
+  round?: number; // plan-rework: current adversarial round
+  cap?: number; // plan-rework: round cap
+  findings?: number; // critic-rework: open finding count
+  resetAt?: number; // halted-usage: epoch ms the usage window resets
+  pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
+  rebaseCount?: number; // merge-rebasing: auto-rebase attempts
+  question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+}
+
+export interface HoldReason {
+  code: HoldCode;
+  params?: HoldParams;
+}
+
 export type ForgeKind = "github" | "gitea" | "local";
 export type MergeMethod = "merge" | "squash" | "rebase";
 export type ChecksState = "none" | "pending" | "success" | "failure";
@@ -984,6 +1025,7 @@ export type WsEvent =
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
+  | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
   | {
       event: "session:halt";
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };

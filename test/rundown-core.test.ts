@@ -12,10 +12,12 @@ import {
   RUNDOWN_LABEL_MAX,
   RUNDOWN_DECISIONS_CAP,
   RUNDOWN_FOCUSNEXT_CAP,
+  explainHold,
   type ClassifyCaches,
 } from "../src/rundown-core";
 import type { Session } from "../src/types";
 import type { GitState } from "../src/forge/types";
+import type { BlockReason } from "../src/blocked";
 
 const NOW = 1_000_000_000;
 
@@ -452,4 +454,214 @@ test("classifyAttention + assemble: planning session with same at-cap gate still
   });
   const item = out.sessions.find((s) => s.sessionId === "s1");
   expect(item?.planRound).toBe(3); // planRound still set during planning
+});
+
+// ── halt classification ──────────────────────────────────────────────────────
+
+test("classifyAttention: haltReason:error → halted-error signal, tier 1", () => {
+  const r = classifyAttention(session({ haltReason: "error", status: "idle" }), {}, NOW);
+  expect(r.signals).toContain("halted-error");
+  expect(r.tier).toBe(1);
+});
+
+test("classifyAttention: haltReason:usage_limit → halted-usage signal, tier 2", () => {
+  const r = classifyAttention(session({ haltReason: "usage_limit", status: "idle" }), {}, NOW);
+  expect(r.signals).toContain("halted-usage");
+  expect(r.tier).toBe(2);
+});
+
+test("classifyAttention: haltReason:operator → no halt signal", () => {
+  const r = classifyAttention(session({ haltReason: "operator", status: "idle" }), {}, NOW);
+  expect(r.signals).not.toContain("halted-error");
+  expect(r.signals).not.toContain("halted-usage");
+});
+
+test("classifyAttention: haltReason:completed → no halt signal", () => {
+  const r = classifyAttention(session({ haltReason: "completed", status: "idle" }), {}, NOW);
+  expect(r.signals).not.toContain("halted-error");
+  expect(r.signals).not.toContain("halted-usage");
+});
+
+// ── block-aware blocked-decision ─────────────────────────────────────────────
+
+test("classifyAttention: running session + caches.block → blocked-decision tier 1", () => {
+  const block: BlockReason = {
+    shape: "menu",
+    options: [
+      { label: "a", send: "1" },
+      { label: "b", send: "2" },
+    ],
+    tail: [],
+  };
+  const r = classifyAttention(session({ status: "running" }), { block }, NOW);
+  expect(r.signals).toContain("blocked-decision");
+  expect(r.tier).toBe(1);
+});
+
+test("classifyAttention: running session without block → no blocked-decision", () => {
+  const r = classifyAttention(session({ status: "running" }), {}, NOW);
+  expect(r.signals).not.toContain("blocked-decision");
+});
+
+// ── explainHold coverage ─────────────────────────────────────────────────────
+
+test("explainHold: blocked-decision + block:{shape:menu} → blocked-menu", () => {
+  const block: BlockReason = {
+    shape: "menu",
+    options: [
+      { label: "a", send: "1" },
+      { label: "b", send: "2" },
+    ],
+    tail: [],
+  };
+  const hold = explainHold(session({ status: "running" }), { block }, NOW);
+  expect(hold?.code).toBe("blocked-menu");
+});
+
+test("explainHold: blocked-decision + autopilotPaused + question → autopilot-paused with question", () => {
+  const hold = explainHold(
+    session({ autopilotPaused: true, autopilotQuestion: "Which approach?" }),
+    {},
+    NOW,
+  );
+  expect(hold?.code).toBe("autopilot-paused");
+  expect(hold?.params?.question).toBe("Which approach?");
+});
+
+test("explainHold: plan-rework → plan-rework with round/cap from gate", () => {
+  const hold = explainHold(
+    session({ planPhase: "planning", status: "idle" }),
+    { gate: { decision: "changes_requested", round: 2, cap: 3 } as any },
+    NOW,
+  );
+  expect(hold?.code).toBe("plan-rework");
+  expect(hold?.params?.round).toBe(2);
+  expect(hold?.params?.cap).toBe(3);
+});
+
+test("explainHold: critic-rework → critic-rework with findings count", () => {
+  const hold = explainHold(
+    session({ status: "idle" }),
+    { review: { decision: "changes_requested", findings: ["a", "b"] } as any },
+    NOW,
+  );
+  expect(hold?.code).toBe("critic-rework");
+  expect(hold?.params?.findings).toBe(2);
+});
+
+test("explainHold: ci-red → ci-red with pr when git.number set", () => {
+  const hold = explainHold(
+    session({ status: "idle" }),
+    { git: git({ checks: "failure", number: 99 }) },
+    NOW,
+  );
+  expect(hold?.code).toBe("ci-red");
+  expect(hold?.params?.pr).toBe(99);
+});
+
+test("explainHold: merging + autoMergeRebaseHead → merge-rebasing with rebaseCount (realistic running status)", () => {
+  // A merge-train session is normally running/idle; in-flight must not shadow merging.
+  const hold = explainHold(
+    session({
+      status: "running",
+      mergingSince: NOW - 1000,
+      autoMergeRebaseHead: "abc123",
+      autoMergeRebaseCount: 2,
+    }),
+    {},
+    NOW,
+  );
+  expect(hold?.code).toBe("merge-rebasing");
+  expect(hold?.params?.rebaseCount).toBe(2);
+});
+
+test("explainHold: merging + no rebaseHead + mergingPrNumber → merging pr (realistic idle status)", () => {
+  // A merge-train session is normally running/idle; in-flight must not shadow merging.
+  const hold = explainHold(
+    session({
+      status: "idle",
+      mergingSince: NOW - 1000,
+      autoMergeRebaseHead: null,
+      mergingPrNumber: 42,
+    }),
+    {},
+    NOW,
+  );
+  expect(hold?.code).toBe("merging");
+  expect(hold?.params?.pr).toBe(42);
+});
+
+test("explainHold: halted-usage with resetAt in caches → halted-usage with resetAt", () => {
+  const resetAt = NOW + 3600_000;
+  const hold = explainHold(
+    session({ haltReason: "usage_limit", status: "idle" }),
+    { resetAt },
+    NOW,
+  );
+  expect(hold?.code).toBe("halted-usage");
+  expect(hold?.params?.resetAt).toBe(resetAt);
+});
+
+test("explainHold: only in-flight signal → null", () => {
+  const hold = explainHold(session({ status: "running" }), {}, NOW);
+  expect(hold).toBeNull();
+});
+
+test("explainHold: no signals → null", () => {
+  const hold = explainHold(session({ status: "done" }), {}, NOW);
+  expect(hold).toBeNull();
+});
+
+// ── rundown attach: assembleHerdState sets hold ──────────────────────────────
+
+test("assembleHerdState: plan-rework session gets hold with correct code", () => {
+  const s = session({ planPhase: "planning", status: "idle" });
+  const out = assembleHerdState({
+    sessions: [s],
+    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-22",
+    now: NOW,
+  });
+  const item = out.sessions.find((s) => s.sessionId === "s1");
+  expect(item?.hold?.code).toBe("plan-rework");
+});
+
+// ── prompt render: why field ─────────────────────────────────────────────────
+
+test("buildRundownPrompt: plan-rework session renders English 'why', raw hold object absent", () => {
+  const s = session({ planPhase: "planning", status: "idle" });
+  const out = assembleHerdState({
+    sessions: [s],
+    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-22",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  // Should contain the rendered English phrase (not the raw hold code object)
+  expect(prompt).toContain("Plan review");
+  // The raw hold key must not be serialized into the prompt JSON
+  expect(prompt).not.toContain('"hold"');
+  // The "why" key should be present instead
+  expect(prompt).toContain('"why"');
+});
+
+test("buildRundownPrompt: prompt instructs model about the 'why' field and renders English phrase (not raw code)", () => {
+  // Use a plan-rework session so the assembled state carries a hold → "why" in prompt JSON.
+  const s = session({ planPhase: "planning", status: "idle" });
+  const out = assembleHerdState({
+    sessions: [s],
+    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-22",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  // Instruction prose mentions the "why" field
+  expect(prompt).toContain('"why"');
+  // Rendered English phrase present (from renderHold, not the raw hold object)
+  expect(prompt).toContain("Plan review");
+  // The "hold" object must NOT appear in prompt JSON — it's replaced by the "why" string
+  expect(prompt).not.toContain('"hold"');
 });

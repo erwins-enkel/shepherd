@@ -758,3 +758,48 @@ export const USAGE_BREAKDOWN_KEYS = [
   "dollars",
   "repos",
 ] as const;
+
+// ── per-session hold reason ("Why parked?") ──────────────────────────────────
+/** Closed set of reasons a session is parked/blocked/gate-held. One per session,
+ *  derived (see explainHold in rundown-core.ts). UI localizes via m.hold_<code>(params);
+ *  server (push + rundown prompt) via renderHold() in hold.ts. */
+export type HoldCode =
+  | "halted-error"
+  | "halted-usage"
+  | "autopilot-paused"
+  | "blocked-menu"
+  | "blocked-yes-no"
+  | "blocked-awaiting-input"
+  | "blocked-stall"
+  | "blocked-generic"
+  | "quota-rework"
+  | "quota-review"
+  | "quota-error"
+  | "quota-plan"
+  | "plan-rework"
+  | "critic-rework"
+  | "ci-red"
+  | "awaiting-merge"
+  | "train-error"
+  | "stalled"
+  | "recap-attention"
+  | "merging"
+  | "merge-rebasing"
+  | "ready-merge";
+
+/** Display params interpolated into the localized hold line. All optional; each code
+ *  uses the subset it needs. `question` is verbatim agent text (not translated). */
+export interface HoldParams {
+  round?: number; // plan-rework: current adversarial round
+  cap?: number; // plan-rework: round cap
+  findings?: number; // critic-rework: open finding count
+  resetAt?: number; // halted-usage: epoch ms the usage window resets
+  pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
+  rebaseCount?: number; // merge-rebasing: auto-rebase attempts
+  question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+}
+
+export interface HoldReason {
+  code: HoldCode;
+  params?: HoldParams;
+}

@@ -5,8 +5,18 @@
  * The Rundown synthesizes a cross-session attention digest answering "what needs a
  * human right now?" across the whole live agent herd, keyed by calendar day.
  */
-import type { Session, ReviewVerdict, PlanGate, Recap, RundownItem, RundownVerdict } from "./types";
+import type {
+  Session,
+  ReviewVerdict,
+  PlanGate,
+  Recap,
+  RundownItem,
+  RundownVerdict,
+  HoldReason,
+} from "./types";
 import type { GitState } from "./forge/types";
+import type { BlockReason } from "./blocked";
+import { blockReasonToHoldCode, renderHold } from "./hold";
 
 export const RUNDOWN_VERDICT_FILE = ".shepherd-rundown.json";
 
@@ -34,6 +44,8 @@ export function isMerging(s: Pick<Session, "mergingSince">, now: number = Date.n
 export type AttentionTier = 1 | 2 | 3;
 
 export type SignalCode =
+  | "halted-error"
+  | "halted-usage"
   | "blocked-decision"
   | "plan-rework"
   | "critic-rework"
@@ -50,10 +62,12 @@ export type SignalCode =
  *  its signals. Tier 1 = CRITICAL (blocked on operator), 2 = HIGH (needs a look soon),
  *  3 = NORMAL (routine in-flight / queued). */
 const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
+  "halted-error": 1,
   "blocked-decision": 1,
   "plan-rework": 1,
   "critic-rework": 1,
   "ci-red": 1,
+  "halted-usage": 2,
   "awaiting-merge": 2,
   stalled: 2,
   "recap-attention": 2,
@@ -73,6 +87,13 @@ export interface ClassifyCaches {
   /** Precomputed stall flag — kept as input so classifyAttention stays pure (stall
    *  detection reads terminal buffers / files, which belongs to the caller). */
   stalled?: boolean;
+  /** Live BlockReason for this session (WS-only; supplied by the live HoldReasonService).
+   *  Makes blocked-decision fire for a running-but-stalled session whose status hasn't
+   *  flipped to "blocked". Absent in the rundown (no block snapshot). */
+  block?: BlockReason | null;
+  /** Epoch ms the usage window resets — used ONLY by explainHold for the halted-usage
+   *  param; classifyAttention ignores it. */
+  resetAt?: number;
 }
 
 /** Ordered (signal, predicate) rules. classifyAttention pushes each signal whose predicate
@@ -84,9 +105,13 @@ const ATTENTION_RULES: Array<{
   when: (s: Session, c: ClassifyCaches, now: number) => boolean;
 }> = [
   // Tier 1: CRITICAL — forward progress blocked on the operator.
+  { signal: "halted-error", when: (s) => s.haltReason === "error" },
   {
     signal: "blocked-decision",
-    when: (s) => s.status === "blocked" || Boolean(s.autopilotPaused && s.autopilotQuestion),
+    when: (s, c) =>
+      s.status === "blocked" ||
+      Boolean(s.autopilotPaused && s.autopilotQuestion) ||
+      Boolean(c.block),
   },
   {
     signal: "plan-rework",
@@ -95,6 +120,7 @@ const ATTENTION_RULES: Array<{
   { signal: "critic-rework", when: (_s, c) => c.review?.decision === "changes_requested" },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // Tier 2: HIGH — needs a look soon, not yet a hard stop.
+  { signal: "halted-usage", when: (s) => s.haltReason === "usage_limit" },
   // awaiting-merge: operator's turn — the server has handed the PR off to a merger.
   { signal: "awaiting-merge", when: (_s, c) => c.git?.handoff === "merger" },
   { signal: "stalled", when: (_s, c) => Boolean(c.stalled) },
@@ -133,6 +159,98 @@ export function classifyAttention(
     3,
   );
   return { tier, signals };
+}
+
+// ── explainHold ───────────────────────────────────────────────────────────────
+
+const SIGNAL_TO_HOLD: Record<
+  Exclude<SignalCode, "in-flight">,
+  (session: Session, caches: ClassifyCaches) => HoldReason
+> = {
+  "blocked-decision": (session, caches) => {
+    if (session.autopilotPaused && session.autopilotQuestion) {
+      return { code: "autopilot-paused", params: { question: session.autopilotQuestion } };
+    }
+    if (caches.block) {
+      return { code: blockReasonToHoldCode(caches.block) };
+    }
+    return { code: "blocked-generic" };
+  },
+  "plan-rework": (_session, caches) => {
+    const params: Record<string, number> = {};
+    if (caches.gate?.round !== undefined) params.round = caches.gate.round;
+    if (caches.gate?.cap !== undefined) params.cap = caches.gate.cap;
+    return Object.keys(params).length > 0
+      ? { code: "plan-rework", params }
+      : { code: "plan-rework" };
+  },
+  "critic-rework": (_session, caches) => {
+    const count = caches.review?.findings?.length;
+    return count !== undefined
+      ? { code: "critic-rework", params: { findings: count } }
+      : { code: "critic-rework" };
+  },
+  "ci-red": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "ci-red", params: { pr } } : { code: "ci-red" };
+  },
+  "awaiting-merge": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined
+      ? { code: "awaiting-merge", params: { pr } }
+      : { code: "awaiting-merge" };
+  },
+  "train-error": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "train-error", params: { pr } } : { code: "train-error" };
+  },
+  "ready-merge": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "ready-merge", params: { pr } } : { code: "ready-merge" };
+  },
+  stalled: () => ({ code: "stalled" }),
+  "recap-attention": () => ({ code: "recap-attention" }),
+  "halted-error": () => ({ code: "halted-error" }),
+  "halted-usage": (_session, caches) =>
+    caches.resetAt !== undefined
+      ? { code: "halted-usage", params: { resetAt: caches.resetAt } }
+      : { code: "halted-usage" },
+  merging: (session) => {
+    if (session.autoMergeRebaseHead != null) {
+      return {
+        code: "merge-rebasing",
+        params: { rebaseCount: session.autoMergeRebaseCount },
+      };
+    }
+    const pr = session.mergingPrNumber ?? undefined;
+    return pr !== undefined ? { code: "merging", params: { pr } } : { code: "merging" };
+  },
+};
+
+/** Map a primary signal to a HoldReason. Internal to explainHold.
+ *  `primary` is guaranteed never to be "in-flight" — the caller filters it out. */
+function renderSignalToHold(
+  primary: Exclude<SignalCode, "in-flight">,
+  session: Session,
+  caches: ClassifyCaches,
+): HoldReason {
+  return SIGNAL_TO_HOLD[primary](session, caches);
+}
+
+/** Derive the hold reason for a session from its primary attention signal. Returns null
+ *  when the session is routine (in-flight / no signals). Single source of truth —
+ *  delegates to classifyAttention rather than re-deciding. */
+export function explainHold(
+  session: Session,
+  caches: ClassifyCaches,
+  now?: number,
+): HoldReason | null {
+  const { signals } = classifyAttention(session, caches, now);
+  // Skip "in-flight" — it fires for any running/idle session and should never shadow a
+  // co-occurring signal (e.g. a merging session that is also running/idle).
+  const primary = signals.find((s) => s !== "in-flight");
+  if (!primary) return null; // no signals, or only in-flight (routine) → no hold
+  return renderSignalToHold(primary, session, caches);
 }
 
 /** Map sessionId → sorted signal codes, for the attention-bearing sessions only. The
@@ -179,6 +297,7 @@ export interface AssembledSession {
   prUrl?: string;
   findings?: string[];
   planRound?: number;
+  hold?: HoldReason;
 }
 
 export interface AssembledHerdState {
@@ -233,11 +352,15 @@ function toAssembledSession(
   const review = input.reviews?.[s.id];
   const gate = input.gates?.[s.id];
   const recap = input.recaps?.[s.id];
-  const { tier, signals } = classifyAttention(
-    s,
-    { git, review, gate, recap, train: input.trains?.[s.id], stalled: input.stalled?.has(s.id) },
-    now,
-  );
+  const caches: ClassifyCaches = {
+    git,
+    review,
+    gate,
+    recap,
+    train: input.trains?.[s.id],
+    stalled: input.stalled?.has(s.id),
+  };
+  const { tier, signals } = classifyAttention(s, caches, now);
   if (tier === null) return null;
   const item: AssembledSession = {
     desig: s.desig,
@@ -253,6 +376,8 @@ function toAssembledSession(
   if (review?.findings?.length) item.findings = review.findings;
   if (s.planPhase === "planning" && gate && gate.decision === "changes_requested")
     item.planRound = gate.round;
+  const hold = explainHold(s, caches, now);
+  if (hold !== null) item.hold = hold;
   return item;
 }
 
@@ -345,6 +470,7 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
   }
 
   lines.push(
+    'Each session may carry a "why" line — the system\'s reason it is held/blocked; use it to phrase the operator-facing items.',
     "",
     "Write your synthesis as JSON to the file `" +
       RUNDOWN_VERDICT_FILE +
@@ -363,7 +489,18 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     "Write the file as your final action, then stop.",
     "",
     "Herd state (already significance-ranked):",
-    JSON.stringify(assembled, null, 2),
+    JSON.stringify(
+      {
+        ...assembled,
+        sessions: assembled.sessions.map((s) => {
+          const { hold, ...rest } = s;
+          if (hold) return { ...rest, why: renderHold(hold, "en") };
+          return rest;
+        }),
+      },
+      null,
+      2,
+    ),
   );
 
   return lines.join("\n");

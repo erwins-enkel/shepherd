@@ -19,6 +19,7 @@ import type {
   Epic,
   CompletedEpic,
   DocAgentOutcome,
+  HoldReason,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -72,6 +73,10 @@ export class HerdStore {
    *  dialog). Used ONLY to derive the display status (see display-status.ts) —
    *  never behavioral. Entries drop on working=false and on archive. */
   workingBlocked = $state<Record<string, boolean>>({});
+  /** Live per-session hold reasons (sessionId → HoldReason), pushed by the
+   *  server's `session:hold` event; bootstrapped via GET /api/holds.
+   *  Absent = no hold active for that session. */
+  holds = $state<Record<string, HoldReason>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
@@ -136,6 +141,10 @@ export class HerdStore {
   /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
   setWorkingBlocked(map: Record<string, boolean>) {
     this.workingBlocked = map;
+  }
+  /** Seed (or replace) the hold-reason map after a bootstrap GET. */
+  setHolds(map: Record<string, HoldReason>): void {
+    this.holds = map;
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -296,6 +305,7 @@ export class HerdStore {
         this.subagents = dropKey(this.subagents, ev.data.id);
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
+        this.holds = dropKey(this.holds, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
@@ -320,6 +330,10 @@ export class HerdStore {
         break;
       case "session:block":
         this.setBlock(ev.data.id, ev.data.block);
+        break;
+      case "session:hold":
+        if (ev.data.hold) this.holds = { ...this.holds, [ev.data.id]: ev.data.hold };
+        else this.holds = dropKey(this.holds, ev.data.id);
         break;
       case "session:egress-drop":
         toasts.info(m.toast_egress_drop({ host: ev.data.host }), {

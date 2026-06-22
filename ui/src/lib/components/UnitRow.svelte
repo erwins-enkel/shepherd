@@ -15,7 +15,7 @@
 </script>
 
 <script lang="ts">
-  import type { Session, GitState, SessionActivity } from "$lib/types";
+  import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
   import {
     STATUS_COLOR,
     hideStatusBadge,
@@ -39,6 +39,7 @@
   import { modelLabel } from "$lib/model-label";
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
+  import { holdLine } from "$lib/hold";
   import {
     REVEAL_PX,
     snapOffset,
@@ -65,6 +66,7 @@
     onrepofilter,
     workingBlocked = {},
     quotaKind = null,
+    hold = undefined,
   }: {
     session: Session;
     selected: boolean;
@@ -98,6 +100,8 @@
     workingBlocked?: Record<string, boolean>;
     // quota block kind for this session; non-null surfaces the quota badge
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
+    // hold reason for this session; when present renders a muted "why parked" subline
+    hold?: HoldReason;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -396,6 +400,9 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
+      {#if hold}
+        <div class="u-hold">{holdLine(hold)}</div>
+      {/if}
     </div>
 
     <UnitRowRight
@@ -753,6 +760,20 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
+    max-width: 34ch;
+  }
+
+  /* Muted one-liner explaining why this session is parked / held.
+     Shown only when a hold reason is present (server-set); mirrors the
+     `.u-repo` density — same muted color and meta-size font, single line. */
+  .u-hold {
+    margin-top: 3px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.3;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     max-width: 34ch;
   }
 

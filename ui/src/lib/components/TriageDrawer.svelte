@@ -3,6 +3,7 @@
   import type { BlockedEntry } from "$lib/triage";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import { holdLine } from "$lib/hold";
 
   // Slide the drawer in/out from the right edge. The {#if showTriage} guard in
   // +page.svelte mounts/unmounts us, so this transition runs on both open and
@@ -127,6 +128,10 @@
         <span class="name">{e.session.name}</span>
         <span class="waited">{waited(e.since)}</span>
       </div>
+
+      {#if e.hold}
+        <p class="why">{holdLine(e.hold)}</p>
+      {/if}
 
       {#if e.reason.shape === "quota"}
         <p class="quota-note">{quotaNote(e.reason.quotaKind)}</p>
@@ -265,6 +270,16 @@
     font-variant-numeric: tabular-nums;
     font-size: var(--fs-base);
   }
+  /* Unified "why parked" line — sits above the shape-specific detail so the
+     reason is always the first thing the operator reads in each entry. Uses
+     the drawer's standard ink color (stronger than muted) at base size. */
+  .why {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    font-weight: 500;
+  }
+
   .quota-note {
     margin: 0;
     color: var(--color-amber);

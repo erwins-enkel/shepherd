@@ -256,6 +256,8 @@ export interface AppDeps {
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
+  /** Live hold-reason snapshot keyed by session id; absent in tests that skip it. */
+  holds?: { snapshot(): Record<string, import("./types").HoldReason> };
   /** Herd Rundown digest — the daily cross-session attention synthesis. Absent in tests
    *  that don't exercise it. `snapshot` is the latest stored digest (null when none yet);
    *  `currentFingerprint` re-derives the herd's live attention surface so the GET route can
@@ -419,6 +421,13 @@ function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
     return json(deps.workingBlocked?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleHoldsSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "holds" && !parts[2]) {
+    return json(deps.holds?.snapshot() ?? {});
   }
   return null;
 }
@@ -4500,6 +4509,7 @@ const ROUTE_HANDLERS = [
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
   handleWorkingBlockedSnapshot,
+  handleHoldsSnapshot,
   handleSubagentsSnapshot,
   handlePreviewSnapshot,
   handleQueuesSnapshot,

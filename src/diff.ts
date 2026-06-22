@@ -236,6 +236,46 @@ async function resolveBaseRef(
 }
 
 /**
+ * Cheap, no-network check: does this branch have any committed changes vs base?
+ *
+ * Ref resolution: prefers `origin/<base>` when the local remote-tracking ref
+ * exists (avoids a fetch — three-dot merge-base diff means a stale local base
+ * can never produce a *false* diff, so no fetch is needed for correctness).
+ * Falls back to `<base>` when no remote-tracking ref is present.
+ *
+ * Exit-code semantics: `git diff --quiet` exits 0 (no diff → false) or 1 (diff
+ * exists → true). Any other non-zero exit is a real error and is rethrown so the
+ * caller can log it and fail open — never swallow unexpected git errors.
+ *
+ * Non-isolated sessions (branch == null) have no branch and return false
+ * immediately without invoking git.
+ */
+export async function hasCommittedChanges(
+  worktreePath: string,
+  base: string,
+  branch: string | null,
+): Promise<boolean> {
+  if (branch === null) return false;
+
+  const remoteRef = `${REMOTE}/${base}`;
+  const ref = (await refExists(worktreePath, remoteRef)) ? remoteRef : base;
+
+  try {
+    await timedAsync("git diff --quiet", () =>
+      execFileAsync("git", ["diff", "--quiet", `${ref}...HEAD`], {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }),
+    );
+    return false; // exit 0 → no diff
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    if (code === 1) return true; // exit 1 → diff exists
+    throw err; // unexpected error (e.g. not a repo, git missing)
+  }
+}
+
+/**
  * Structured diff of a session's branch against its (freshly fetched) base.
  * Uses three-dot `<baseRef>...HEAD` = merge-base→HEAD = "what would merge".
  * Non-isolated sessions (no branch) return an empty result for the empty state.

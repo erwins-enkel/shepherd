@@ -219,3 +219,104 @@ test("computeDiff: non-isolated session (no branch) → empty result", async () 
   expect(r.head).toBeNull();
   expect(r.fetchFailed).toBe(false);
 });
+
+import { hasCommittedChanges } from "../src/diff";
+
+test("hasCommittedChanges: null branch → false without invoking git", async () => {
+  // /nonexistent is not a git repo; if git were called it would throw
+  expect(await hasCommittedChanges("/nonexistent", "main", null)).toBe(false);
+});
+
+test("hasCommittedChanges: branch at same tree as base → false", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-hcc-nochange-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "hello\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    // no additional commits on feature — same tree as main
+
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(false);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("hasCommittedChanges: branch has a committed change vs base → true", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-hcc-change-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "hello\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), "hello\nworld\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "feature change");
+
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("hasCommittedChanges: uncommitted-only changes are not counted → false", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-hcc-dirty-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "hello\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    // dirty working tree — not staged/committed
+    writeFileSync(join(repo, "a.txt"), "hello\nworld\n");
+
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(false);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("hasCommittedChanges: prefers origin/<base> when present, falls back to local base", async () => {
+  // Test the local fallback path: no remote → falls back to local base ref
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-hcc-fallback-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "hello\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), "hello\nworld\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "feature change");
+    // No remote → no origin/main → should fall back to local "main"
+
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+
+  // Also test origin/<base> preference when a local remote-tracking ref exists
+  const remote = mkdtempSync(join(tmpdir(), "shepherd-hcc-remote-"));
+  const repo2 = mkdtempSync(join(tmpdir(), "shepherd-hcc-origin-"));
+  try {
+    git(remote, "init", "-q", "--bare", "-b", "main");
+    git(repo2, "init", "-q", "-b", "main");
+    writeFileSync(join(repo2, "a.txt"), "hello\n");
+    git(repo2, "add", "-A");
+    git(repo2, "commit", "-q", "-m", "base");
+    git(repo2, "remote", "add", "origin", remote);
+    git(repo2, "push", "-q", "origin", "main");
+    git(repo2, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo2, "a.txt"), "hello\nworld\n");
+    git(repo2, "add", "-A");
+    git(repo2, "commit", "-q", "-m", "feature change");
+    // origin/main exists (pushed above, no fetch needed since push populated it)
+
+    expect(await hasCommittedChanges(repo2, "main", "feature")).toBe(true);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+    rmSync(repo2, { recursive: true, force: true });
+  }
+});

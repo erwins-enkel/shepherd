@@ -78,6 +78,8 @@ function baseProps(): Props {
     onsettingsclone: vi.fn(),
     onsettingsfork: vi.fn(),
     onsettingswhatsnew: vi.fn(),
+    showUsage: false,
+    onusageclose: vi.fn(),
     showClone: false,
     oncloneclose: vi.fn(),
     onclonedone: vi.fn(),

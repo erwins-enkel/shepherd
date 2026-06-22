@@ -18,7 +18,9 @@
 </script>
 
 {#if credits}
-  <div
+  <!-- <span> (not <div>) so it is valid phrasing content inside the gauges-cluster
+       <button> on desktop; display:flex via the .gauge class keeps it identical. -->
+  <span
     class="gauge credit-gauge"
     class:stale={credits.stale}
     class:alert={overspend}
@@ -32,7 +34,7 @@
       ></span></span
     >
     <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
-  </div>
+  </span>
 {/if}
 
 <style>

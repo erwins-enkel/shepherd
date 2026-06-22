@@ -13,20 +13,48 @@ name: Onboarding release gate
 on:
   pull_request:
     branches: [main]
+  # Manually runnable so the gate can be exercised on demand. It otherwise fires
+  # only on release-please PRs, whose bot-authored CI runs are approval-parked —
+  # which made this gate effectively untestable until now.
+  workflow_dispatch:
 
+# Governs the GITHUB_TOKEN fallback only; the gate normally runs under the App
+# token minted below (which carries its own grant). statuses:read covers the
+# section-2 commit-status read.
 permissions:
   issues: read
   contents: read
+  statuses: read
 
 jobs:
   onboarding-release-gate:
-    # Only the release-please release PR is gated; every other PR is unaffected.
-    if: ${{ startsWith(github.head_ref, 'release-please--') }}
+    # Gate the release-please PR; also allow manual dispatch for on-demand testing.
+    # Every other PR is unaffected.
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
+      # The Actions GITHUB_TOKEN cannot read this repo's issues even with
+      # `issues: read` granted — every call 403s "Resource not accessible by
+      # integration" (an org-level constraint on the built-in token). So mint a
+      # scoped, read-only token from the release-please GitHub App (same App as
+      # release-please.yml; installed with issues + commit-statuses read). If the
+      # App isn't configured we fall back to GITHUB_TOKEN, which fails closed —
+      # the safe direction for a release gate.
+      - name: Mint a scoped, read-only GitHub App token (when the App is configured)
+        id: app-token
+        if: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # Down-scope to exactly what the gate reads — not the App's full grant.
+          permission-issues: read
+          permission-contents: read
+          permission-statuses: read
+
       - name: Require the onboarding harness to be fresh-green
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           # Max age of the latest nightly verdict before it's "stale" (nightly is
           # daily, so this allows one missed run of slack).
@@ -48,11 +76,11 @@ jobs:
           # the human-facing active-regression signal.
 
           # (1) Active regression?
-          # Use the REST issues endpoint via `gh api` (not `gh issue list`): under the
-          # Actions GITHUB_TOKEN, gh's GraphQL-backed `issue list` 403s "Resource not
-          # accessible by integration" even with `issues: read` granted, whereas the REST
-          # endpoint honors it cleanly. `select(.pull_request|not)` drops any PR that shares
-          # the label (the REST issues endpoint returns PRs too).
+          # Read the rolling `onboarding-regression` issue via the REST issues
+          # endpoint (`gh api`). This runs under the App token (see above); the
+          # built-in GITHUB_TOKEN 403s on issues regardless of REST vs gh's
+          # GraphQL `issue list`. `select(.pull_request|not)` drops any PR that
+          # shares the label (the REST issues endpoint returns PRs too).
           open=$(gh api "repos/$REPO/issues?labels=onboarding-regression&state=open&per_page=100" \
             --jq '[.[] | select(.pull_request|not)]')
           if [ "$(printf '%s' "$open" | jq 'length')" -gt 0 ]; then

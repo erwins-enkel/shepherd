@@ -321,6 +321,12 @@ export class PlanGateService {
       return "error";
     }
     const blocks = this.readPlanBlocks(session.worktreePath);
+    // Observe-only telemetry for #804: how often the live planning agent actually emits a usable
+    // (grounded, ≥1-block) plan-blocks sidecar. The `plan_gates` row is a lossy upsert snapshot, so
+    // this durable per-capture log is the reliable activation-rate surface for the strengthen/close call.
+    console.log(
+      `[plan-gate] plan-blocks captured session=${session.id} planHash=${planHash.slice(0, 8)} blocks=${blocks.length}`,
+    );
     this.inflight.set(session.id, {
       sessionId: session.id,
       repoPath: session.repoPath,

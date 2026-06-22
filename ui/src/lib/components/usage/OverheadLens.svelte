@@ -101,7 +101,12 @@
         {#each topTaxTasks as task (task.sessionId)}
           {@const tax = taskTax(task)}
           <div class="tax-task-row">
-            <span class="tax-desig">{task.desig}</span>
+            <span class="tax-label">
+              <span class="tax-desig">{task.desig}</span>
+              {#if task.name}
+                <span class="tax-name" title={task.name}>{task.name}</span>
+              {/if}
+            </span>
             <span class="tax-bar">
               <UsageBar value={tax} max={maxTax} tone="var(--color-amber)" />
             </span>
@@ -223,16 +228,30 @@
 
   .tax-task-row {
     display: grid;
-    grid-template-columns: 6rem 1fr 4rem;
+    grid-template-columns: 11rem 1fr 4rem;
     align-items: center;
     gap: 0.5rem;
     padding: 0.25rem 0.5rem;
     font-size: var(--fs-meta);
   }
 
+  .tax-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
   .tax-desig {
+    flex: none;
     color: var(--color-muted);
+    font-size: var(--fs-micro);
     font-variant-numeric: tabular-nums;
+  }
+
+  .tax-name {
+    min-width: 0;
+    color: var(--color-ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -301,7 +320,7 @@
       grid-template-areas: "desig pct" "bar bar";
       row-gap: 0.25rem;
     }
-    .tax-desig {
+    .tax-label {
       grid-area: desig;
     }
     .tax-pct {

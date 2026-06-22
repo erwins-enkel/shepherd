@@ -134,6 +134,7 @@ test("skip existing: archived session with pre-existing usage row is NOT overwri
   store.upsertSessionUsage({
     sessionId: s!.id,
     desig: "TASK-SENTINEL",
+    name: "sentinel-name",
     repoPath: tmpDir,
     model: "sentinel-model",
     input: 9999,

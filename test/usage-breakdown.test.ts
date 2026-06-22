@@ -71,6 +71,7 @@ afterEach(() => {
 function makeSnap(over: {
   sessionId: string;
   desig: string;
+  name?: string;
   repoPath: string;
   model?: string;
   input: number;
@@ -90,6 +91,7 @@ function makeSnap(over: {
   return {
     sessionId: over.sessionId,
     desig: over.desig,
+    name: over.name ?? `name-${over.desig}`,
     repoPath: over.repoPath,
     model,
     input,
@@ -184,6 +186,7 @@ test("repo→task grouping, sorting, field mapping", async () => {
   // Task field mapping
   const t1 = alphaTasks[1]!; // TASK-01
   expect(t1.sessionId).toBe("s1");
+  expect(t1.name).toBe("name-TASK-01"); // short name threads snapshot → breakdown
   expect(t1.authoringUnits).toBeCloseTo(snapA1Wu, 10);
   expect(t1.satelliteUnits).toBe(0);
   expect(t1.tokens.input).toBe(1000);

@@ -17,6 +17,7 @@ import { weightedUnits } from "./pricing";
 interface TaskAccum {
   sessionId: string;
   desig: string;
+  name: string;
   model: string;
   repoPath: string;
   authoringUnits: number;
@@ -40,6 +41,7 @@ function snapshotToAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[numb
   return {
     sessionId: snap.sessionId,
     desig: snap.desig,
+    name: snap.name,
     model: snap.model,
     repoPath: snap.repoPath,
     authoringUnits: snap.weightedUnits,
@@ -64,6 +66,7 @@ function windowedSnapshotToAccum(
   return {
     sessionId: snap.sessionId,
     desig: snap.desig,
+    name: snap.name,
     model: snap.model,
     repoPath: snap.repoPath,
     authoringUnits: w.weightedUnits,
@@ -85,6 +88,7 @@ function zeroAuthoringAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[n
   return {
     sessionId: snap.sessionId,
     desig: snap.desig,
+    name: snap.name,
     model: snap.model,
     repoPath: snap.repoPath,
     authoringUnits: 0,
@@ -115,6 +119,7 @@ async function liveSessionToAccum(
   return {
     sessionId: s.id,
     desig: s.desig,
+    name: s.name,
     model: dominantModel(sc.usage) ?? s.model ?? "unknown",
     repoPath: s.repoPath,
     authoringUnits: sc.weightedUnits,
@@ -241,6 +246,7 @@ function buildRepoBreakdowns(
     const publicTasks: UsageTaskBreakdown[] = tasks.map((t) => ({
       sessionId: t.sessionId,
       desig: t.desig,
+      name: t.name,
       model: t.model,
       authoringUnits: t.authoringUnits,
       satelliteUnits: t.satelliteUnits,
@@ -349,6 +355,7 @@ async function addLiveRollupTasks(
     taskMap.set(s.id, {
       sessionId: s.id,
       desig: s.desig,
+      name: s.name,
       model: w.dominantModel ?? s.model ?? "unknown",
       repoPath: s.repoPath,
       authoringUnits: w.weightedUnits,

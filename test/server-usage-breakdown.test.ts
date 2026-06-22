@@ -38,6 +38,7 @@ function seedSnapshot(store: SessionStore, overrides: Partial<SessionUsageSnapsh
   const snap: SessionUsageSnapshot = {
     sessionId: "sess-usage-1",
     desig: "TASK-01",
+    name: "my-feature",
     repoPath: "/home/user/repos/my-project",
     model: "claude-sonnet-4",
     input: 1000,

@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, Epic, CompletedEpic } from "$lib/types";
+  import type {
+    Session,
+    GitState,
+    SessionActivity,
+    Epic,
+    CompletedEpic,
+    HoldReason,
+  } from "$lib/types";
   import type { BlockState } from "$lib/triage";
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
@@ -49,6 +56,7 @@
     onstatusfilter = undefined,
     workingBlocked = {},
     blocks = {},
+    holds = {},
     collapsible = false,
     oncollapse = undefined,
     completedEpics = [],
@@ -124,6 +132,8 @@
     workingBlocked?: Record<string, boolean>;
     // live quota blocks map (store.blocks); only "quota"-shape entries surface a badge
     blocks?: Record<string, BlockState>;
+    // live hold reasons map (store.holds); surfaced as a muted subline on each held card
+    holds?: Record<string, HoldReason>;
     // when true, renders a collapse arrow at the trailing end of the filters bar —
     // only set on touch-primary wide devices where collapsing is meaningful
     collapsible?: boolean;
@@ -159,6 +169,9 @@
     const b = blocks[id];
     return b?.reason.shape === "quota" ? (b.reason.quotaKind ?? null) : null;
   };
+
+  // Returns the hold reason for a session, or undefined if none.
+  const holdFor = (id: string): HoldReason | undefined => holds[id];
 
   // sidebar list filter (bindable prop): "all" or "ready" (only sessions not actively
   // working — anything but a running agent: idle, blocked, done → awaiting the operator;
@@ -265,6 +278,7 @@
     onrepofilter,
     workingBlocked,
     quotaKindFor,
+    holdFor,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

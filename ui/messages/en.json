@@ -1837,5 +1837,7 @@
   "hold_recap_attention": "Recap flagged this for your attention.",
   "hold_merging": "In the merge train.",
   "hold_merge_rebasing": "Rebasing in the merge train (attempt {rebaseCount}).",
-  "hold_ready_merge": "Ready to merge — waiting on you."
+  "hold_ready_merge": "Ready to merge — waiting on you.",
+  "feat_why_parked_title": "Why is this parked?",
+  "feat_why_parked_body": "Held, blocked and gate-stuck sessions now show a one-line reason on the card and in the triage drawer — so you can see why a session needs you at a glance."
 }

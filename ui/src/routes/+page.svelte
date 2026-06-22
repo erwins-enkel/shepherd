@@ -356,7 +356,7 @@
         if (!store.diagnostics) diagnosticsLoadFailed = true;
       });
   }
-  const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks));
+  const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks, store.holds));
   // Once every "needs you" item is handled the drawer has nothing left to show —
   // close it so it slides out instead of lingering on an empty state.
   $effect(() => {
@@ -1732,6 +1732,7 @@
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             blocks={store.blocks}
+            holds={store.holds}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             doneList={doneSessions.sessions}
@@ -1888,6 +1889,7 @@
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             blocks={store.blocks}
+            holds={store.holds}
             collapsible={canCollapse}
             oncollapse={toggleSidebar}
             completedEpics={completedEpicsShown}

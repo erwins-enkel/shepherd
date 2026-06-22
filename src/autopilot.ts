@@ -57,6 +57,21 @@ export const CI_FIX_STEER = [
   "can't resolve, and then say exactly what you need.",
 ].join("\n");
 
+/** Agent-facing steer when a drain session reports complete but produced NO diff and NO PR. NOT UI
+ *  chrome — typed into the agent PTY, never i18n'd (Shepherd owns this text). */
+export const EMPTY_COMPLETION_STEER = [
+  "You're in autopilot and you reported the task complete, but there's no committed diff against the",
+  "base branch and no pull request — nothing was actually produced. Either do the work and commit it",
+  "(then open a PR if the task calls for one), or if the task genuinely required no code change, say",
+  "precisely why so a human can confirm.",
+].join("\n");
+
+/** Hand-back text when the empty-completion gate gives up after its one re-prompt and routes the
+ *  session to a human. Plain English, mirrors CAP_MESSAGE/COMPLETE_MESSAGE (stored as the
+ *  autopilotQuestion hand-back summary). */
+export const EMPTY_COMPLETION_MESSAGE =
+  "Autopilot reported the task complete but produced no changes and no PR — over to you.";
+
 /** Steers autopilot will only consider for these block shapes. menu/stall always surface. */
 const STEERABLE_SHAPES = new Set(["awaiting-input", "yes-no"]);
 
@@ -79,6 +94,10 @@ export interface AutopilotDeps {
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
+  /** Deterministic completion verifier: true when the session's branch has a committed diff vs its
+   *  base (no LLM, no fetch). Paired with hasPr to answer "did anything happen" before autopilot
+   *  accepts a `complete` verdict for a drain session. */
+  hasDiff: (id: string) => Promise<boolean>;
   /** Register a lightweight (local) session's pseudo-PR server-side. Replaces the forge-mode
    *  open-a-PR steer for a `lightweight` repo: the agent has no `gh`, so the deliberate
    *  completion barrier runs here instead of being typed into the PTY. Best-effort — the
@@ -182,6 +201,44 @@ export class AutopilotService {
     this.deps.store.setAutopilotState(s.id, { stepCount: s.autopilotStepCount + 1 });
   }
 
+  /** Empty-completion handler (#1009): the session reported complete with no diff and no PR. Re-prompt
+   *  the agent exactly once (bounded by the persisted completionRepromptCount), then hand it to a
+   *  human rather than silently filing it as done. */
+  /** Accept (or gate) a `complete` verdict. Pre-completion verification gate (#1009): for a
+   *  DRAIN/auto session with no PR, verify deterministically (no LLM) that something happened — a
+   *  committed diff — before marking done; on empty, re-prompt once then route to needs-human.
+   *  Attended sessions are exempt: a non-code `complete` (issue creation / one-off answer) is
+   *  legitimate there and must not be false-flagged, so they complete unconditionally. */
+  private async verifyAndComplete(s: Session, summary: string): Promise<void> {
+    if (s.auto && !this.deps.hasPr(s.id)) {
+      const empty = !(await this.deps.hasDiff(s.id));
+      // hasDiff is async — re-read the session and PR state after the await (it may have been
+      // archived / toggled off, or a PR may have appeared during the await).
+      const cur = this.deps.store.get(s.id);
+      if (!cur || cur.status === "archived") return;
+      // Re-derive empty/PR on the fresh row rather than reusing eligible(): a full-auto session
+      // stays eligible past PR-open, so eligible() would not stand it down here — we want a PR that
+      // appeared during the await to fall through to markComplete. Don't "simplify" this to
+      // eligible() without accounting for that fullAuto interaction (it would change behavior).
+      if (empty && !this.deps.hasPr(cur.id)) {
+        await this.handleEmptyCompletion(cur);
+        return;
+      }
+      this.markComplete(cur, summary);
+      return;
+    }
+    this.markComplete(s, summary);
+  }
+
+  private async handleEmptyCompletion(s: Session): Promise<void> {
+    if (s.completionRepromptCount >= 1) {
+      this.pause(s, EMPTY_COMPLETION_MESSAGE); // re-prompt already spent → needs-human
+      return;
+    }
+    this.deps.store.setAutopilotState(s.id, { completionReprompt: s.completionRepromptCount + 1 });
+    await this.driveSteer(s, EMPTY_COMPLETION_STEER);
+  }
+
   /** Send `text` into the session, resuming an exited pane first. Returns whether the steer
    *  landed; does NOT bump the step (the caller decides whether the attempt counts). */
   private async sendSteer(s: Session, text: string): Promise<boolean> {
@@ -223,7 +280,7 @@ export class AutopilotService {
         );
         return;
       case "complete":
-        this.markComplete(s, v.summary || COMPLETE_MESSAGE);
+        await this.verifyAndComplete(s, v.summary || COMPLETE_MESSAGE);
         return;
       default: // "question" | "unknown" → bias to surface
         this.pause(s, v.summary || SURFACE_MESSAGE);
@@ -298,6 +355,7 @@ export class AutopilotService {
       complete: false,
       question: null,
       stepCount: 0,
+      completionReprompt: 0,
     });
     this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
     this.deps.onState?.(id);
@@ -313,6 +371,7 @@ export class AutopilotService {
       complete: false,
       question: null,
       stepCount: 0,
+      completionReprompt: 0,
     });
     this.deps.onState?.(id);
   }

@@ -7,6 +7,8 @@ import {
   epicBaseDirective,
   CI_FIX_STEER,
   CI_CAP_MESSAGE,
+  EMPTY_COMPLETION_STEER,
+  EMPTY_COMPLETION_MESSAGE,
 } from "../src/autopilot";
 import { DRAFT_PR_NOTE } from "../src/service";
 
@@ -41,6 +43,7 @@ function sess(over: Partial<Session> = {}): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    completionRepromptCount: 0,
     planGateEnabled: null,
     planPhase: null,
     autoMergeEnabled: null,
@@ -81,6 +84,8 @@ function harness(opts: {
   fullAuto?: boolean;
   /** Cached PR snapshot returned by the prGit dep (the tick / reEngageCi source). */
   prGit?: GitState | null;
+  /** Whether the session's branch has a committed diff vs base (default true = work exists). */
+  hasDiff?: boolean;
 }) {
   let cur = opts.session;
   const events: any[] = [];
@@ -107,6 +112,7 @@ function harness(opts: {
           paused?: boolean;
           complete?: boolean;
           question?: string | null;
+          completionReprompt?: number;
         },
       ) => {
         cur = {
@@ -116,6 +122,7 @@ function harness(opts: {
           autopilotPaused: patch.paused ?? cur.autopilotPaused,
           autopilotComplete: patch.complete ?? cur.autopilotComplete,
           autopilotQuestion: patch.question === undefined ? cur.autopilotQuestion : patch.question,
+          completionRepromptCount: patch.completionReprompt ?? cur.completionRepromptCount,
         };
       },
       setAutoMergeState: (
@@ -146,6 +153,7 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     readTail: () => ["finished, nothing else"],
     hasPr: () => opts.openPr ?? false,
+    hasDiff: async () => opts.hasDiff ?? true,
     openLocalPr: async (id) => {
       events.push({ openLocalPr: id });
     },
@@ -550,6 +558,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     paneAlive: () => true,
     readTail: () => [],
     hasPr: () => false,
+    hasDiff: async () => true,
     openLocalPr: async () => {},
     prGit: () => null,
     fullAuto: () => false,
@@ -1030,4 +1039,114 @@ test("merge-train: gate/classify path is NOT suppressed by the mark (CI-fix-only
   await h.svc.onBlock("s1", block());
   expect(h.events).toContainEqual({ steer: PROCEED_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
+});
+
+// ───────────────────── completion-verification gate (#1009) ─────────────────────
+// For drain (auto:true) sessions, a `complete` verdict is only accepted when something
+// actually happened — a committed diff vs base OR an associated PR. On empty: re-prompt
+// the agent once, then route to needs-human. Attended sessions are exempt.
+
+test("completion gate: diff exists → markComplete (no gate trip)", async () => {
+  // auto:true + hasDiff:true + no PR → gate passes, markComplete fires
+  const h = harness({
+    session: sess({ auto: true, status: "done" }),
+    verdict: { kind: "complete", summary: "All done." },
+    repoEnabled: true,
+    openPr: false,
+    hasDiff: true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ complete: "s1", summary: "All done." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().completionRepromptCount).toBe(0);
+});
+
+test("completion gate: PR exists → markComplete (hasPr short-circuits before hasDiff)", async () => {
+  // auto:true + openPr:true + hasDiff:false + fullAuto:true (keeps eligible past PR) →
+  // hasPr short-circuit inside dispatch, markComplete fires, hasDiff never called
+  const h = harness({
+    session: sess({ auto: true, status: "done" }),
+    verdict: { kind: "complete", summary: "PR already open." },
+    repoEnabled: true,
+    openPr: true,
+    hasDiff: false,
+    fullAuto: true,
+  });
+  let hasDiffCalled = false;
+  (h.svc as any).deps.hasDiff = async () => {
+    hasDiffCalled = true;
+    return false;
+  };
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ complete: "s1", summary: "PR already open." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().completionRepromptCount).toBe(0);
+  expect(hasDiffCalled).toBe(false); // hasPr short-circuits before hasDiff is called
+});
+
+test("completion gate: empty first time → steer EMPTY_COMPLETION_STEER, reprompt count 1", async () => {
+  // auto:true + openPr:false + hasDiff:false + count:0 → re-prompt, NOT complete, NOT paused
+  const h = harness({
+    session: sess({ auto: true, status: "done", completionRepromptCount: 0 }),
+    verdict: { kind: "complete", summary: "Nothing to do." },
+    repoEnabled: true,
+    openPr: false,
+    hasDiff: false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: EMPTY_COMPLETION_STEER });
+  expect(h.state().completionRepromptCount).toBe(1);
+  expect(h.state().autopilotComplete).toBe(false);
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("completion gate: empty second time → pause with EMPTY_COMPLETION_MESSAGE, no steer", async () => {
+  // auto:true + openPr:false + hasDiff:false + count:1 → pause, no steer
+  const h = harness({
+    session: sess({ auto: true, status: "done", completionRepromptCount: 1 }),
+    verdict: { kind: "complete", summary: "Nothing to do." },
+    repoEnabled: true,
+    openPr: false,
+    hasDiff: false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ pause: "s1", q: EMPTY_COMPLETION_MESSAGE });
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotComplete).toBe(false);
+});
+
+test("completion gate: attended session exempt (auto:false, hasDiff:false → still markComplete)", async () => {
+  // Non-drain (auto:false): gate is skipped regardless of diff/PR state
+  const h = harness({
+    session: sess({ auto: false, status: "done" }),
+    verdict: { kind: "complete", summary: "Created issue #99." },
+    repoEnabled: true,
+    openPr: false,
+    hasDiff: false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Created issue #99." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().completionRepromptCount).toBe(0);
+});
+
+test("completion gate: counter resets on onStatus running", () => {
+  // Operator re-engages a paused session → completionRepromptCount reset to 0
+  const h = harness({
+    session: sess({ autopilotPaused: true, completionRepromptCount: 1 }),
+  });
+  h.svc.onStatus("s1", "running");
+  expect(h.state().completionRepromptCount).toBe(0);
+});
+
+test("completion gate: counter resets on onPrOpen", () => {
+  // Critic handoff → completionRepromptCount reset to 0
+  const h = harness({
+    session: sess({ completionRepromptCount: 1 }),
+  });
+  h.svc.onPrOpen("s1");
+  expect(h.state().completionRepromptCount).toBe(0);
 });

@@ -30,6 +30,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     autopilotPaused: false,
     autopilotComplete: false,
     autopilotQuestion: null,
+    completionRepromptCount: 0,
     planGateEnabled: null,
     planPhase: null,
     research: false,

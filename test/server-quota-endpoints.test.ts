@@ -34,6 +34,7 @@ const SESSION: Session = {
   autopilotPaused: false,
   autopilotComplete: false,
   autopilotQuestion: null,
+  completionRepromptCount: 0,
   planGateEnabled: null,
   planPhase: null,
   autoMergeEnabled: null,

@@ -43,6 +43,9 @@ export interface Session {
   /** The classifier's 1–2 sentence hand-back summary — what the agent is waiting for (paused)
    *  or what it delivered (complete); null in neither state. */
   autopilotQuestion: string | null;
+  /** Count of empty-completion re-prompts autopilot has spent on this session (gate runaway guard;
+   *  reset on PR-open / operator reply, alongside autopilotStepCount). */
+  completionRepromptCount: number;
   /** Plan-gate opt-in: true/false override, or null to inherit the repo default. */
   planGateEnabled: boolean | null;
   /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */

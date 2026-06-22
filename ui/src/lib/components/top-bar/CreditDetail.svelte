@@ -12,7 +12,6 @@
     refreshing,
     refreshError,
     onRefresh,
-    wide = false,
   }: {
     credits: CreditWindow | null;
     creditFill: number;
@@ -22,7 +21,6 @@
     refreshing: boolean;
     refreshError: boolean;
     onRefresh: () => void;
-    wide?: boolean;
   } = $props();
 
   // relativeAge returns the "now" sentinel for <60s; branch it to a natural phrase
@@ -36,7 +34,7 @@
       <span class="gp-period">{m.topbar_credits_period()}</span>
       <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
     </div>
-    <span class="g-bar g-bar-wide {wide ? 'wide' : ''}"
+    <span class="g-bar"
       ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
       ></span></span
     >
@@ -74,8 +72,8 @@
 
 <style>
   .g-bar {
-    width: 46px;
-    height: 5px;
+    width: 100%;
+    height: 6px;
     background: var(--color-line);
     border: 1px solid var(--color-line-bright);
     overflow: hidden;
@@ -91,10 +89,6 @@
     font-size: var(--fs-meta);
     min-width: 30px;
     text-align: right;
-  }
-  .g-bar.wide {
-    width: 100%;
-    height: 6px;
   }
   .credit-amount {
     min-width: max-content;

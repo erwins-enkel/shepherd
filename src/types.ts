@@ -427,9 +427,12 @@ export interface BuildQueue {
   approved: boolean;
 }
 
-/** Input shape for replacing a queue. `id` present + matching an existing step
- *  preserves that step's status (unless `status` is given). New entries get a
- *  fresh id and default to "pending". */
+/** Input shape for replacing a queue. A present `id` is kept VERBATIM as the step's id
+ *  (scoped per session), so an agent can own a stable id that survives a re-PUT; a present
+ *  `id` matching an existing step also preserves that step's status (unless `status` is given).
+ *  When `id` is OMITTED, the server reuses the existing step's id only when the step at the same
+ *  position has the same title (position+title carry-over); otherwise it mints a fresh UUID.
+ *  Either way a brand-new step defaults to "pending". */
 export interface BuildStepInput {
   id?: string;
   title: string;

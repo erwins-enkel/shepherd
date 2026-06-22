@@ -2962,6 +2962,23 @@ test("buildQueueDirective states the ordered contract that forward-fill relies o
   expect(d).toMatch(/reminder to reconcile/);
 });
 
+test("buildQueueDirective makes assign-and-resend-your-own-ids the primary id rule", () => {
+  const d = buildQueueDirective({
+    sessionId: "sess-1",
+    baseUrl: "http://127.0.0.1:7330",
+    token: null,
+    autopilot: true,
+  });
+  // Primary instruction: agent owns short stable ids and resends them.
+  expect(d).toMatch(/short, stable `id`/);
+  expect(d).toMatch(/ALWAYS resend a step with the SAME `id`/);
+  expect(d).toContain('"id":"s1"');
+  // Verbatim-stored, never regenerated.
+  expect(d).toMatch(/stored verbatim and never regenerated/);
+  // re-GET is demoted to a fallback, not an equal option.
+  expect(d).toMatch(/Fallback only if you didn't/);
+});
+
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
   const sp = composeSystemPrompt(null, true, { buildQueue: "bq-text" });
   const autopilotPos = sp.indexOf("<autopilot-directive>");

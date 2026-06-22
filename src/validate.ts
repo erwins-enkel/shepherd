@@ -823,9 +823,16 @@ export function validateBuildSteps(body: unknown): BuildStepInput[] | null {
   const o = body as Record<string, unknown>;
   if (!Array.isArray(o.steps) || o.steps.length > STEPS_MAX) return null;
   const out: BuildStepInput[] = [];
+  const seenIds = new Set<string>();
   for (const it of o.steps) {
     const step = validateBuildStepItem(it);
     if (step === null) return null;
+    // Explicit ids are stored verbatim and must be unique within a queue (the composite PK
+    // (sessionId, id) would otherwise throw on insert) — reject duplicates as an invalid body.
+    if (step.id !== undefined) {
+      if (seenIds.has(step.id)) return null;
+      seenIds.add(step.id);
+    }
     out.push(step);
   }
   return out;

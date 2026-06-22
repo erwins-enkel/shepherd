@@ -52,6 +52,12 @@ jobs:
       - name: Mint a scoped, short-lived GitHub App token (when the App is configured)
         id: app-token
         if: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID != '' }}
+        # Don't let a token-mint failure (rotated key, App uninstalled, GitHub
+        # API blip) block releases: on failure the step is non-fatal, its `token`
+        # output is empty, and release-please falls back to GITHUB_TOKEN below —
+        # i.e. it degrades to the (approval-gated but working) default path
+        # instead of hard-failing every release.
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}

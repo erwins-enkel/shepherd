@@ -4,6 +4,7 @@ import type { SessionStore, PushSubInput, StoredPushSub } from "./store";
 import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
 import type { ChecksState, GitState } from "./forge/types";
+import { blockReasonToHoldCode, renderHold } from "./hold";
 
 export interface PushPayload {
   title: string;
@@ -115,13 +116,6 @@ const NOTIFY_TEXT = {
     doneTitle: (name: string) => `${name} — waiting`,
     doneBody: "Agent finished its turn.",
     blockedTitle: (name: string) => `${name} — needs you`,
-    menu: "Waiting on a menu choice.",
-    "yes-no": "Waiting on a yes/no.",
-    stall: "Quiet — no recent activity; may be stuck.",
-    quotaRework: "Auto-fix hit its limit — open findings still need you.",
-    quotaReview: "Critic keeps finding issues — auto-review paused.",
-    quotaError: "Critic can't review this PR — needs you.",
-    quotaPlan: "Plan review stuck — keeps requesting changes.",
     other: "Waiting on your input.",
     reviewTitle: (name: string) => `${name} — review`,
     reviewBody: "Critic requested changes on the PR.",
@@ -160,13 +154,6 @@ const NOTIFY_TEXT = {
     doneTitle: (name: string) => `${name} — wartet`,
     doneBody: "Agent hat seinen Zug beendet.",
     blockedTitle: (name: string) => `${name} — braucht dich`,
-    menu: "Wartet auf eine Menüauswahl.",
-    "yes-no": "Wartet auf ein Ja/Nein.",
-    stall: "Ruhig — keine Aktivität; möglicherweise hängengeblieben.",
-    quotaRework: "Auto-Fix am Limit — offene Punkte brauchen dich.",
-    quotaReview: "Kritiker findet weiter Probleme — Auto-Review pausiert.",
-    quotaError: "Kritiker kann den PR nicht prüfen — braucht dich.",
-    quotaPlan: "Plan-Review hängt — fordert weiter Änderungen.",
     other: "Wartet auf deine Eingabe.",
     reviewTitle: (name: string) => `${name} — Review`,
     reviewBody: "Kritiker fordert Änderungen am PR an.",
@@ -226,30 +213,7 @@ function humanReviewBody(t: NotifyText, state: NotifyInput["reviewState"]): stri
 
 /** Short human line describing why an agent is blocked, for the notification body. */
 export function blockSummary(reason: BlockReason, locale: string = "en"): string {
-  const t = NOTIFY_TEXT[asLocale(locale)];
-  switch (reason.shape) {
-    case "menu":
-      return t.menu;
-    case "yes-no":
-      return t["yes-no"];
-    case "stall":
-      return t.stall;
-    case "quota":
-      switch (reason.quotaKind) {
-        case "rework":
-          return t.quotaRework;
-        case "review":
-          return t.quotaReview;
-        case "error":
-          return t.quotaError;
-        case "plan":
-          return t.quotaPlan;
-        default:
-          return t.other;
-      }
-    default:
-      return t.other;
-  }
+  return renderHold({ code: blockReasonToHoldCode(reason) }, locale);
 }
 
 /** Autopilot body: the agent's summary when present, else the locale fallback line. */

@@ -1,0 +1,23 @@
+● Output:
+
+  START
+  DONE
+
+✻ Churned for 14s
+
+❯ Using the Bash tool, run exactly: echo START &&
+  sleep 20 && echo DONE
+
+  Running 1 shell command…
+  ⎿  $ echo START && sleep 20 && echo DONE (10s · 2
+     lines)
+     (ctrl+b to run in background)
+
+✽ Newspapering… (12s · ↓ 123 tokens)
+  ⎿  Tip: Use /theme to change the color theme
+
+──────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────
+  …/scratchpad/fs-spike-repo main   [░░░░░░░░░░] 3% …
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

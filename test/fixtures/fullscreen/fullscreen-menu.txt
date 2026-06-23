@@ -1,0 +1,23 @@
+
+  Tue Jun 23 10:10:37 PM CEST 2026
+
+✻ Worked for 5s
+
+❯ Create a new file called notes.txt containing
+  exactly: hello-world
+
+● Write(notes.txt)
+
+──────────────────────────────────────────────────────
+ Create file
+ notes.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hello-world
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create notes.txt?
+ ❯ 1. Yes
+   2.Yes, allow all edits during this session
+     (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend

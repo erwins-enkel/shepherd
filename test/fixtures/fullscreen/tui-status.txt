@@ -1,0 +1,23 @@
+│                                                    │
+│               Welcome back Patrick!                │
+│                                                    │
+│                       ▐▛███▜▌                      │
+│                      ▝▜█████▛▘                     │
+│                        ▘▘ ▝▝                       │
+│                                                    │
+│               Opus 4.8 (1M context)                │
+│                    Claude Team                     │
+│            /…/scratchpad/fs-spike-repo             │
+│                                                    │
+╰────────────────────────────────────────────────────╯
+
+
+❯ /tui
+  ⎿  Current renderer: fullscreen. Usage: /tui
+     <default|fullscreen>
+
+──────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────
+  …/scratchpad/fs-spike-repo main   Opus 4.8 (1M con…
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

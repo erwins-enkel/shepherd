@@ -1,0 +1,22 @@
+❯ Create a new file called
+  notes2.txt containing
+  exactly: hello-world
+
+● Write(notes2.txt)
+
+───────────────────────────
+ Create file
+ notes2.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hello-world
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create
+ notes2.txt?
+ ❯ 1. Yes
+   2. Yes, allow all edits
+      during this session
+      (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to
+ amend

@@ -1,0 +1,22 @@
+
+❯ Using the Bash tool, run
+  exactly: echo GO &&
+  sleep 25 && echo END
+
+● Bash(echo GO && sleep 25
+      && echo END)
+  ⎿  GO
+     (6s · timeout 30s)
+     (ctrl+b to run in
+     background)
+
+✢ Skedaddling… (9s)
+  ⎿  Tip: Press Shift+Enter
+     to send a multi-line
+     message
+
+───────────────────────────
+❯
+───────────────────────────
+  …/scratchpad/fs-spike-…
+  ← for agents

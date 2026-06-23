@@ -416,6 +416,49 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     expect(checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
   });
 
+  // Assignee chips (#824 follow-up): exposed per issue row only when the mine &
+  // unassigned filter isn't hiding others' issues.
+  const assigneeChips = () => document.querySelectorAll(".label-chip.assignee");
+  const assigneeText = () => [...assigneeChips()].map((el) => el.textContent ?? "");
+
+  it("shows no assignee chips while the mine & unassigned filter is active", async () => {
+    seedMixed("octocat");
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+    // Filter on + viewer known → every visible issue is mine-or-unassigned, so chips
+    // would be redundant and are suppressed.
+    expect(assigneeChips().length).toBe(0);
+  });
+
+  it("reveals assignee chips when the mine & unassigned filter is toggled off", async () => {
+    seedMixed("octocat");
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
+
+    openPopover();
+    await expect.poll(() => checkboxByLabel(m.issues_filter_mine_label())).toBeTruthy();
+    checkboxByLabel(m.issues_filter_mine_label())!.click();
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
+    // One chip per assignee login; the unassigned issue contributes none.
+    await expect.poll(() => assigneeChips().length).toBe(2);
+    expect(assigneeText().some((t) => t.includes("octocat"))).toBe(true);
+    expect(assigneeText().some((t) => t.includes("someone-else"))).toBe(true);
+  });
+
+  it("shows assignee chips when the viewer is unknown even with the filter on (fail open)", async () => {
+    seedMixed(null);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // Fail open: all 3 issues show AND the chips render without toggling the filter —
+    // guards the `|| viewer == null` clause in IssuesPanel's showAssignees.
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
+    await expect.poll(() => assigneeChips().length).toBe(2);
+    expect(assigneeText().some((t) => t.includes("someone-else"))).toBe(true);
+  });
+
   it("hide-in-progress checkbox drops shepherd:active issues and restores them when toggled off", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

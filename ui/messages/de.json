@@ -1856,5 +1856,8 @@
   "feat_first_task_confirm_title": "Einstellungen vor der ersten Aufgabe prüfen",
   "feat_first_task_confirm_body": "Das Starten einer Aufgabe in einem neuen Repository zeigt nun einen kurzen Überprüfungsschritt, damit du die Automatisierungseinstellungen vor dem ersten Durchlauf prüfen kannst. Nach einmaliger Bestätigung starten weitere Aufgaben im selben Repository ohne Unterbrechung.",
   "toast_broadcast_delivered": "Broadcast hat {delivered} Agenten sofort gesteuert.",
-  "toast_broadcast_result": "Broadcast · {delivered} sofort gesteuert, {queued} bei beschäftigten Agenten in Warteschlange (wird nach aktuellem Zug ausgeführt), {offline} nicht erreichbar."
+  "toast_broadcast_result": "Broadcast · {delivered} sofort gesteuert, {queued} bei beschäftigten Agenten in Warteschlange (wird nach aktuellem Zug ausgeführt), {offline} nicht erreichbar.",
+  "issuerow_assignee_title": "Zugewiesen an {login}",
+  "feat_issue_assignee_title": "Sieh, wer welchem Issue zugewiesen ist",
+  "feat_issue_assignee_body": "Wenn der Filter „meine & nicht zugewiesen“ ausgeschaltet ist, zeigt jedes Issue im Backlog nun einen Chip für jede zugewiesene Person, sodass du auf einen Blick erkennst, wer bereits an einer Aufgabe arbeitet."
 }

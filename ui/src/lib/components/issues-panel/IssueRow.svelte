@@ -18,6 +18,7 @@
     repoPath,
     bodyPreview = false,
     age = false,
+    showAssignees = false,
     issueActions,
     onnewtask,
     onquick = undefined,
@@ -33,6 +34,9 @@
     repoPath: string;
     bodyPreview?: boolean;
     age?: boolean;
+    /** Show a chip per assignee login — set only when the "mine & unassigned" filter
+     *  isn't hiding others' issues (#824), so the assignee isn't redundant noise. */
+    showAssignees?: boolean;
     issueActions: Steer[];
     onnewtask: (issue: Issue) => void;
     onquick?: (issue: Issue, action: Steer) => void;
@@ -86,8 +90,15 @@
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
   {/if}
-  {#if issue.labels.length > 0 || age}
+  {#if issue.labels.length > 0 || age || (showAssignees && issue.assignees.length > 0)}
     <div class="label-row">
+      {#if showAssignees}
+        {#each issue.assignees as login (login)}
+          <span class="label-chip assignee" title={m.issuerow_assignee_title({ login })}
+            ><span class="assignee-glyph" aria-hidden="true">👤</span>{login}</span
+          >
+        {/each}
+      {/if}
       {#each issue.labels as label (label)}
         <span
           class="label-chip"
@@ -200,6 +211,21 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 1px 5px;
+  }
+
+  /* Assignee chip — reuses the label-chip recipe but keeps the login verbatim (logins are
+     mixed-case, so no uppercasing/letter-spacing) and leads the row with a person glyph.
+     Shown only when the "mine & unassigned" filter isn't hiding others' issues (#824). */
+  .label-chip.assignee {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .assignee-glyph {
+    font-size: var(--fs-micro);
   }
 
   /* shepherd:active — claimed work. Uses the semantic running/in-progress token so a

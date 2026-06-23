@@ -467,9 +467,10 @@
   // can't gate on store.connected.
   //
   // The held-tasks badge counts off `store.heldCount`, seeded once in onMount and
-  // otherwise kept live by delta-only `held:changed` events. A restart/deploy that
-  // auto-releases held tasks (usage reset) emits those events while the socket is
-  // down, so the badge sits stale until reload — unless resync() re-pulls the count.
+  // otherwise kept live by `held:changed` events (each carries an absolute count).
+  // Those events are push-on-change only — there's no snapshot on reconnect — so a
+  // restart/deploy that auto-releases held tasks (usage reset) emits them while the
+  // socket is down, leaving the badge stale until reload unless resync() re-pulls it.
   function refreshHeldCount() {
     listHeld()
       .then((arr) => (store.heldCount = arr.length))

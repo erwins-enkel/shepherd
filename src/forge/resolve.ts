@@ -16,6 +16,56 @@ export interface ForgeResolverDeps {
   makeLocalForge: (dir: string) => LocalForge;
 }
 
+/** Default window before a negative (null) forge result is re-probed. */
+const DEFAULT_NEGATIVE_TTL_MS = 30_000;
+
+/**
+ * Memoize `detect(dir)` with **asymmetric** caching:
+ *  - **Positive** results (a real forge) are cached for the process lifetime — a
+ *    detected forge identity never changes for a given dir, and the `git` shell-out
+ *    is expensive, so once per path is enough.
+ *  - **Negative** results (null — e.g. a repo seen before its `origin` remote was
+ *    added) are cached only for `negativeTtlMs`, then re-probed. This is the #1023
+ *    fix: a permanent negative cache left a later `git remote add origin` invisible
+ *    until a process restart. We do NOT re-probe on literally every miss (that would
+ *    add a recurring synchronous git shell-out to poll paths like
+ *    `backlog-poller.isForgeBacked`, which runs the resolver for every repo each
+ *    tick); the TTL bounds re-probes to at most once per window per dir while still
+ *    self-healing on the next poll after a remote appears.
+ *
+ * `now` is injectable purely so tests can drive the TTL deterministically.
+ *
+ * Note: positive caching is intentionally permanent — a dir that *later* gains a
+ * differing-slug `upstream` remote (the fork topology `detectForge` re-targets to)
+ * will not re-target without a restart. Pre-existing behavior, out of scope for #1023.
+ */
+export function makeForgeMemo(
+  detect: (dir: string) => GitForge | null,
+  opts: { negativeTtlMs?: number; now?: () => number } = {},
+): (dir: string) => GitForge | null {
+  const positive = new Map<string, GitForge>();
+  const negativeAt = new Map<string, number>();
+  const ttl = opts.negativeTtlMs ?? DEFAULT_NEGATIVE_TTL_MS;
+  const now = opts.now ?? Date.now;
+
+  return (dir: string): GitForge | null => {
+    const hit = positive.get(dir);
+    if (hit) return hit;
+
+    const at = negativeAt.get(dir);
+    if (at !== undefined && now() - at < ttl) return null;
+
+    const f = detect(dir);
+    if (f) {
+      positive.set(dir, f);
+      negativeAt.delete(dir);
+      return f;
+    }
+    negativeAt.set(dir, now());
+    return null;
+  };
+}
+
 /**
  * Build the mode-aware `resolveForge` closure used in src/index.ts.
  *
@@ -28,12 +78,12 @@ export interface ForgeResolverDeps {
  *  - `localForgeCache`: reuse the LocalForge instance across calls while the
  *    repo stays in lightweight mode. If the mode flips to "forge", the local
  *    entry is simply skipped; if it flips back, the same instance is reused.
- *  - `forgeCache`: the existing detectForge memoization (git shell-out is
- *    expensive — once per path is enough for forge repos).
+ *  - `forgeMemo`: detectForge memoization — positives cached for the process
+ *    lifetime, negatives re-probed after a TTL (see `makeForgeMemo`).
  */
 export function makeForgeResolver(deps: ForgeResolverDeps): (dir: string) => GitForge | null {
   const localForgeCache = new Map<string, LocalForge>();
-  const forgeCache = new Map<string, GitForge | null>();
+  const forgeMemo = makeForgeMemo(deps.detectForge);
 
   return (dir: string): GitForge | null => {
     const { repoMode } = deps.getRepoConfig(dir);
@@ -47,11 +97,8 @@ export function makeForgeResolver(deps: ForgeResolverDeps): (dir: string) => Git
       return local;
     }
 
-    // forge mode — memoized detectForge
-    if (!forgeCache.has(dir)) {
-      forgeCache.set(dir, deps.detectForge(dir));
-    }
-    return forgeCache.get(dir) ?? null;
+    // forge mode — memoized detectForge (positives permanent, negatives TTL-bounded)
+    return forgeMemo(dir);
   };
 }
 

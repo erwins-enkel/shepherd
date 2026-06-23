@@ -38,8 +38,11 @@ export class BacklogPoller {
   private isForgeBacked(path: string): boolean {
     // Not forge-backed: no forge, or a local forge (no remote issues/PRs to count).
     // Computed per tick with no local cache so a repoMode flip propagates without a
-    // restart; the underlying `git remote get-url` shell-out is memoized upstream in
-    // the production `resolveForge` (makeForgeResolver), so this stays cheap.
+    // restart. The underlying `git remote get-url` shell-out is memoized upstream in
+    // the production `resolveForge` (makeForgeResolver): a detected forge is cached for
+    // the process lifetime, and a negative (no-origin) result is re-probed only after a
+    // TTL (< this poll cadence) — so an `origin` added later is picked up on the next
+    // tick (#1023) while the per-tick cost stays at most a handful of cheap shell-outs.
     const forge = this.resolveForge(path);
     return forge != null && forge.kind !== "local";
   }

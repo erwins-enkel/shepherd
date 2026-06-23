@@ -360,7 +360,26 @@ export class HerdrDriver {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([k, v]) => `${k}=${v}`)
         : [];
-      const wrapped = ["env", `NODE_COMPILE_CACHE=${compileCacheDir()}`, ...envTokens, ...argv];
+      // Pin the CLASSIC renderer for every spawned claude. Claude Code's opt-in fullscreen
+      // renderer (v2.1.89+) draws on the terminal's ALTERNATE screen buffer and captures the
+      // mouse — Shepherd's whole integration assumes the classic renderer: the poller/blocked
+      // classifier scrape the rendered viewport (`agent read --source visible`) with a layout
+      // tuned to the classic prompt, and the web terminal forwards xterm keystrokes (mouse
+      // capture would inject click/scroll escape sequences into claude's input). Fullscreen
+      // turns on via a persisted `tui` setting or ambient CLAUDE_CODE_NO_FLICKER, either of
+      // which a spawned agent would inherit from the operator's global config/env — and the
+      // docs warn the default may flip. CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 forces the
+      // classic renderer regardless of the saved setting or NO_FLICKER, immunizing us against
+      // both. (Shepherd attaches via `herdr agent attach`, not `claude attach`, so the docs'
+      // "background sessions always use fullscreen" carve-out — which ignores this var — does
+      // not apply to our foreground spawns.)
+      const wrapped = [
+        "env",
+        `NODE_COMPILE_CACHE=${compileCacheDir()}`,
+        "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+        ...envTokens,
+        ...argv,
+      ];
       // Collision-breaker: if herdr rejects with `agent_name_taken` (a stale same-named
       // agent is still registered — e.g. shepherd restarted while an interactive `claude`
       // was running), resolve the squatter(s) by name from `list()`, close their tabs

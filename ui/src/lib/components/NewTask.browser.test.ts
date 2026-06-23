@@ -1137,7 +1137,7 @@ describe("FirstTaskAutomationConfirm", () => {
     const onconfirm = vi.fn();
     const oncancel = vi.fn();
     render(FirstTaskAutomationConfirm, {
-      props: { repoPath: "/home/user/my-project", onconfirm, oncancel },
+      props: { active: true, repoPath: "/home/user/my-project", onconfirm, oncancel },
     });
 
     await expect.element(page.getByText(m.firsttask_confirm_title())).toBeInTheDocument();
@@ -1154,7 +1154,7 @@ describe("FirstTaskAutomationConfirm", () => {
     const onconfirm = vi.fn();
     const oncancel = vi.fn();
     render(FirstTaskAutomationConfirm, {
-      props: { repoPath: "/repo/test", onconfirm, oncancel },
+      props: { active: true, repoPath: "/repo/test", onconfirm, oncancel },
     });
 
     await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
@@ -1166,7 +1166,7 @@ describe("FirstTaskAutomationConfirm", () => {
     const onconfirm = vi.fn();
     const oncancel = vi.fn();
     render(FirstTaskAutomationConfirm, {
-      props: { repoPath: "/repo/test", onconfirm, oncancel },
+      props: { active: true, repoPath: "/repo/test", onconfirm, oncancel },
     });
 
     await page.getByRole("button", { name: m.common_cancel() }).click();
@@ -1178,7 +1178,7 @@ describe("FirstTaskAutomationConfirm", () => {
     const onconfirm = vi.fn();
     const oncancel = vi.fn();
     render(FirstTaskAutomationConfirm, {
-      props: { repoPath: "/repo/test", onconfirm, oncancel, submitting: true },
+      props: { active: true, repoPath: "/repo/test", onconfirm, oncancel, submitting: true },
     });
 
     const confirmBtn = document.querySelector<HTMLButtonElement>(`button[disabled]`);

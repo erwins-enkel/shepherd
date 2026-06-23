@@ -3,12 +3,14 @@
   import AutomationSettings from "./AutomationSettings.svelte";
 
   let {
+    active = false,
     repoPath,
     onconfirm,
     oncancel,
     submitting = false,
     error = null,
   }: {
+    active?: boolean;
     repoPath: string;
     onconfirm: () => void;
     oncancel: () => void;
@@ -20,29 +22,31 @@
   const repoBaseName = $derived(repoPath.split("/").filter(Boolean).at(-1) ?? repoPath);
 </script>
 
-<div class="ftac">
-  <p class="ftac-title micro">{m.firsttask_confirm_title()}</p>
-  <p class="ftac-intro">{m.firsttask_confirm_intro({ repo: repoBaseName })}</p>
+{#if active}
+  <div class="ftac">
+    <p class="ftac-title micro">{m.firsttask_confirm_title()}</p>
+    <p class="ftac-intro">{m.firsttask_confirm_intro({ repo: repoBaseName })}</p>
 
-  <div class="ftac-settings">
-    <AutomationSettings {repoPath} showHeader={false} />
-  </div>
-
-  {#if error}
-    <div class="err" role="alert">
-      <span>{error}</span>
+    <div class="ftac-settings">
+      <AutomationSettings {repoPath} showHeader={false} />
     </div>
-  {/if}
 
-  <div class="ftac-actions">
-    <button type="button" class="gbtn" onclick={oncancel}>
-      {m.common_cancel()}
-    </button>
-    <button type="button" class="gbtn primary" disabled={submitting} onclick={onconfirm}>
-      {m.firsttask_confirm_cta()}
-    </button>
+    {#if error}
+      <div class="err" role="alert">
+        <span>{error}</span>
+      </div>
+    {/if}
+
+    <div class="ftac-actions">
+      <button type="button" class="gbtn" onclick={oncancel}>
+        {m.common_cancel()}
+      </button>
+      <button type="button" class="gbtn primary" disabled={submitting} onclick={onconfirm}>
+        {m.firsttask_confirm_cta()}
+      </button>
+    </div>
   </div>
-</div>
+{/if}
 
 <style>
   .ftac {

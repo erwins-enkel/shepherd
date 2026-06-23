@@ -691,18 +691,18 @@
       >
     </div>
 
-    {#if confirmStep}
-      <FirstTaskAutomationConfirm
-        repoPath={repoPath.trim()}
-        {submitting}
-        {error}
-        onconfirm={confirmAndSpawn}
-        oncancel={() => {
-          confirmStep = false;
-          error = null;
-        }}
-      />
-    {:else}
+    <FirstTaskAutomationConfirm
+      active={confirmStep}
+      repoPath={repoPath.trim()}
+      {submitting}
+      {error}
+      onconfirm={confirmAndSpawn}
+      oncancel={() => {
+        confirmStep = false;
+        error = null;
+      }}
+    />
+    <div class="composer" class:hidden={confirmStep}>
       <div class="repo-field" use:coachTarget={"nt-repo"}>
         <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
         <RepoSelect
@@ -926,11 +926,19 @@
           {/if}
         </button>
       {/if}
-    {/if}
+    </div>
   </form>
 </div>
 
 <style>
+  /* Boxless wrapper for the compose body — display:contents passes flex layout
+     straight through to children so the card's column gap is undisturbed. */
+  .composer {
+    display: contents;
+  }
+  .composer.hidden {
+    display: none;
+  }
   .overlay {
     position: fixed;
     inset: 0;

@@ -7,11 +7,13 @@
     onconfirm,
     oncancel,
     submitting = false,
+    error = null,
   }: {
     repoPath: string;
     onconfirm: () => void;
     oncancel: () => void;
     submitting?: boolean;
+    error?: string | null;
   } = $props();
 
   /** Last path segment of the repo path — the repo's base name shown in the intro. */
@@ -25,6 +27,12 @@
   <div class="ftac-settings">
     <AutomationSettings {repoPath} showHeader={false} />
   </div>
+
+  {#if error}
+    <div class="err" role="alert">
+      <span>{error}</span>
+    </div>
+  {/if}
 
   <div class="ftac-actions">
     <button type="button" class="gbtn" onclick={oncancel}>
@@ -63,6 +71,15 @@
     border-radius: 2px;
     background: var(--color-inset);
     overflow: hidden;
+  }
+
+  .err {
+    color: var(--color-red);
+    font-size: var(--fs-meta);
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .ftac-actions {

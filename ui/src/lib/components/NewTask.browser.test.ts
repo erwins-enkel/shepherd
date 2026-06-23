@@ -1023,6 +1023,35 @@ describe("NewTask first-task confirm step", () => {
     expect(onsubmit).not.toHaveBeenCalled();
   });
 
+  it("confirm PUT fails: onsubmit NOT called, confirm step still shown, error visible", async () => {
+    const repoPath = "/repo/ftac-confirm-reject";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    // seedNewRepoDefaults call (first put)
+    mockPutRepoConfig.mockResolvedValueOnce(unconfirmedNewRepoConfig());
+    // confirmAutomation call (second put) rejects
+    mockPutRepoConfig.mockRejectedValueOnce(new Error("network error"));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Confirm step appears
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+
+    // Click Confirm — the PUT will reject
+    const confirmBtn = page.getByRole("button", { name: m.firsttask_confirm_cta() });
+    await confirmBtn.click();
+
+    // onsubmit must NOT have been called
+    expect(onsubmit).not.toHaveBeenCalled();
+    // Confirm step must still be shown
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    // Error must be visible inside the confirm step
+    await expect.poll(() => document.querySelector(".ftac .err")).toBeTruthy();
+    expect(document.querySelector(".ftac .err")?.textContent).toBeTruthy();
+  });
+
   it("settle race: ensure resolving to confirmed repo spawns directly with no spurious step", async () => {
     const repoPath = "/repo/ftac-settle-race";
 

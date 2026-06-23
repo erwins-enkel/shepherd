@@ -618,6 +618,7 @@
 
   async function confirmAndSpawn() {
     const repo = repoPath.trim();
+    error = null;
     try {
       await repoConfig.confirmAutomation(repo);
     } catch (err) {
@@ -633,7 +634,10 @@
   class="overlay"
   role="presentation"
   onclick={(e) => {
-    if (e.target === e.currentTarget) onclose?.();
+    if (e.target === e.currentTarget) {
+      confirmStep = false;
+      onclose?.();
+    }
   }}
 >
   <!-- The modal card is a <form> so the prompt submits natively; role="dialog"
@@ -647,7 +651,12 @@
     role="dialog"
     aria-modal="true"
     aria-label={heading}
-    use:dialog={{ onclose: () => onclose?.() }}
+    use:dialog={{
+      onclose: () => {
+        confirmStep = false;
+        onclose?.();
+      },
+    }}
     onsubmit={submit}
     onkeydown={onRepoShortcut}
     ondragover={(e) => {
@@ -665,8 +674,14 @@
            44px line with the ✕ instead of leaving an empty band above it. Hidden
            on desktop, where the stacked label in .repo-field shows instead. -->
       <label class="micro chead-repo" for="nt-repo">{m.newtask_repo_label()}</label>
-      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-        >✕</button
+      <button
+        type="button"
+        class="x"
+        onclick={() => {
+          confirmStep = false;
+          onclose?.();
+        }}
+        aria-label={m.common_close()}>✕</button
       >
     </div>
 
@@ -674,8 +689,12 @@
       <FirstTaskAutomationConfirm
         repoPath={repoPath.trim()}
         {submitting}
+        {error}
         onconfirm={confirmAndSpawn}
-        oncancel={() => (confirmStep = false)}
+        oncancel={() => {
+          confirmStep = false;
+          error = null;
+        }}
       />
     {:else}
       <div class="repo-field" use:coachTarget={"nt-repo"}>

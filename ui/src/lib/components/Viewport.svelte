@@ -2768,6 +2768,11 @@
     position: relative;
     flex: 1;
     overflow: hidden;
+    /* Floor so an expanded, scrollable SessionRecap (a sibling flex item that
+       can shrink to its content) can't squeeze the body to 0px — a sliver of
+       terminal/diff/todo/preview always remains. Only bites under the
+       expanded-recap takeover; normal body content is far taller. */
+    min-height: 4rem;
   }
 
   /* faint amber scan line: full-height layer with a 70px amber band at its top,

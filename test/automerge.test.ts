@@ -31,6 +31,7 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     service: {
       archive: mock(() => 1),
@@ -195,6 +196,7 @@ test("multi-session: merges ready A then steers rebase for behind B", async () =
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     service: { archive, reply, resume: mock(() => true), resolveMerging: mock(() => {}) } as any,
     resolveForge: () =>
@@ -264,6 +266,7 @@ test("rebase_cap: behind session at cap → no reply steer, emitStatus rebase_ca
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => true } as any,
     service: {
@@ -300,6 +303,7 @@ test("reset-on-progress: behind=false + mergeable=true → rebaseCount reset to 
       getReview: () => null,
       setAutoMergeState: setState,
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => false } as any,
     resolveForge: () =>
@@ -334,6 +338,7 @@ test("reset-on-progress NEGATIVE: behind=false + mergeable=false → counter NOT
       getReview: () => null,
       setAutoMergeState: setState,
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => false } as any,
     // PR is open+green but mergeable=false (conflict)
@@ -407,6 +412,7 @@ test("tick: skips repo with no full-auto session (no merge/steer)", async () => 
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     resolveForge: () =>
       ({
@@ -446,6 +452,7 @@ test("per-session override true + repo default false → merges (repoHasFullAuto
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
@@ -482,6 +489,7 @@ test("rebase outstanding: same head not re-steered / not re-bumped on a second p
       getReview: () => null,
       setAutoMergeState: setState as any,
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => true } as any,
     service: {
@@ -531,6 +539,7 @@ test("merge-error backoff: after CAP failures the stuck PR is skipped, a ready s
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     resolveForge: () => forge as any,
     service: {
@@ -583,6 +592,7 @@ test("status payload carries sessionId on rebase_cap hold", async () => {
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => true } as any,
     emitStatus,
@@ -609,6 +619,7 @@ test("rebase steer references origin/<baseBranch> from the session", async () =>
       getReview: () => null,
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
     } as any,
     worktree: { behindBase: async () => true } as any,
     service: {

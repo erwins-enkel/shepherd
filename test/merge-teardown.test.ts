@@ -8,6 +8,7 @@ function deps(over: Partial<MergeTeardownDeps> = {}): MergeTeardownDeps {
     dropPrCache: mock(() => {}),
     emitArchived: mock(() => {}),
     retainClaim: mock(() => {}),
+    isIntegratedEpicChild: () => false,
     ...over,
   };
 }
@@ -30,6 +31,18 @@ test("closeIssue throws → retain claim (issue still open)", async () => {
   });
   await settleMergedSession({ id: "s1", auto: true, issueNumber: 9, repoPath: "/r" } as any, d);
   expect((d.retainClaim as any).mock.calls).toEqual([["s1"]]);
+  expect((d.archive as any).mock.calls.length).toBe(1);
+});
+
+test("integrated epic child: archives + retains claim, NEVER closes the issue (#1037)", async () => {
+  const close = mock(async () => {});
+  const d = deps({
+    resolveForge: () => ({ closeIssue: close }) as any,
+    isIntegratedEpicChild: () => true,
+  });
+  await settleMergedSession({ id: "s1", auto: true, issueNumber: 12, repoPath: "/r" } as any, d);
+  expect(close.mock.calls.length).toBe(0); // close reserved for the landing PR merge
+  expect((d.retainClaim as any).mock.calls).toEqual([["s1"]]); // still-open issue must not re-spawn
   expect((d.archive as any).mock.calls.length).toBe(1);
 });
 

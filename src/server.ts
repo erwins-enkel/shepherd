@@ -2391,6 +2391,10 @@ async function forgeMerge(
       dropPrCache: (id) => deps.prCache?.drop(id),
       emitArchived: (id) => deps.events.emit("session:archived", { id }),
       retainClaim: (id) => deps.drain?.retainClaim(id),
+      // #1037: never close an integrated epic child out of band on the local-merge path either.
+      isIntegratedEpicChild: (sess) =>
+        sess.issueNumber != null &&
+        deps.store.isEpicIntegratedChild(sess.repoPath, sess.issueNumber),
     });
     return json({ ...cur, state: "merged" as const });
   }

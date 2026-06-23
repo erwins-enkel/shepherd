@@ -11,6 +11,11 @@ export interface MergeTeardownDeps {
   emitArchived: (id: string) => void;
   /** Mark the session so onArchived KEEPS its claim label (issue still open). */
   retainClaim: (id: string) => void;
+  /** #1037: true when this session's issue is an integrated epic child (its PR already
+   *  squash-merged into the epic's integration branch). Such a child must NEVER be closed
+   *  out of band here — its issue closes only when the landing PR merges into the default
+   *  branch. When true we archive + retain the claim and skip `closeIssue` entirely. */
+  isIntegratedEpicChild: (s: Session) => boolean;
 }
 
 /**
@@ -22,6 +27,18 @@ export interface MergeTeardownDeps {
  */
 export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): Promise<void> {
   let closed = false;
+  // #1037: an integrated epic child is closed ONLY by the landing-PR merge (Closes #N into the
+  // default branch). The merge here landed it into the integration branch, so closing now —
+  // whether on a poller-observed merge mid-archive (the race) or on the archive-failure recovery
+  // path — would close the child out of band, violating that invariant. Archive + retain the
+  // claim (the still-open issue's label is what stops a re-spawn) and skip closeIssue entirely.
+  if (s.auto && s.issueNumber != null && deps.isIntegratedEpicChild(s)) {
+    deps.retainClaim(s.id);
+    await deps.archive(s.id);
+    deps.dropPrCache(s.id);
+    deps.emitArchived(s.id);
+    return;
+  }
   if (s.auto && s.issueNumber != null) {
     const forge = deps.resolveForge(s.repoPath);
     // Gate on the method existing: a forge without closeIssue leaves the issue

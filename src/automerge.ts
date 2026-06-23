@@ -43,7 +43,13 @@ const MERGE_ERROR_BACKOFF_MS = 300_000;
 export interface AutoMergeDeps {
   store: Pick<
     SessionStore,
-    "get" | "list" | "getRepoConfig" | "getReview" | "setAutoMergeState" | "setAutopilotState"
+    | "get"
+    | "list"
+    | "getRepoConfig"
+    | "getReview"
+    | "setAutoMergeState"
+    | "setAutopilotState"
+    | "isEpicIntegratedChild"
   >;
   service: {
     archive(id: string): Promise<number>;
@@ -303,6 +309,10 @@ export class AutoMergeService {
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: this.deps.retainClaim,
+      // #1037: defense-in-depth — never close an integrated epic child out of band here either.
+      isIntegratedEpicChild: (sess) =>
+        sess.issueNumber != null &&
+        this.deps.store.isEpicIntegratedChild(sess.repoPath, sess.issueNumber),
     });
     return true;
   }

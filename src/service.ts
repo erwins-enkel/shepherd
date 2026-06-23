@@ -6,7 +6,7 @@ import { basename, extname, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
@@ -2134,14 +2134,44 @@ export class SessionService {
     return { resumed, steered, total: ids.length };
   }
 
-  /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.
-   *  Lists herdr's live agents ONCE up front rather than per id, so a wide fan-out
-   *  doesn't spawn one blocking `herdr agent list` per target. */
-  broadcast(ids: string[], text: string): { sent: number; total: number } {
-    const live = this.liveTerminalIds();
-    let sent = 0;
-    for (const id of ids) if (this.replyToLive(id, text, live)) sent++;
-    return { sent, total: ids.length };
+  /** Fan a steer out to many sessions (human-style), classifying the outcome per target so
+   *  the operator gets honest feedback instead of a flat "sent N". Lists herdr's live agents
+   *  ONCE up front (both the live id set AND each agent's status) rather than per id, so a
+   *  wide fan-out doesn't spawn one blocking `herdr agent list` per target. Each live target's
+   *  steer is delivered identically to a single reply (delivery is unchanged); the count it
+   *  lands in just reflects the agent's status at send time:
+   *   - delivered: a live agent that is NOT `working` (idle/blocked/done) — acts on the steer ~now.
+   *   - queued:    a live `working` agent — Claude Code queues the steer; it acts after the
+   *                current turn ends (correct behavior, but invisible immediately — the reason a
+   *                busy-herd broadcast looked like a no-op).
+   *   - offline:   unknown id or dead pane — the steer wasn't delivered.
+   *  `delivered + queued + offline === total`. */
+  broadcast(
+    ids: string[],
+    text: string,
+  ): { delivered: number; queued: number; offline: number; total: number } {
+    let agents: HerdrAgent[];
+    try {
+      agents = this.deps.herdr.list();
+    } catch {
+      agents = []; // herdr unreachable → every target is offline (the steer can't land)
+    }
+    const live = new Set(agents.map((a) => a.terminalId));
+    const statusByTerminal = new Map(agents.map((a) => [a.terminalId, a.agentStatus]));
+    let delivered = 0;
+    let queued = 0;
+    let offline = 0;
+    for (const id of ids) {
+      if (!this.replyToLive(id, text, live)) {
+        offline++;
+        continue;
+      }
+      // replyToLive already confirmed the session + live pane; classify by its status.
+      const term = this.deps.store.get(id)?.herdrAgentId;
+      if (term && statusByTerminal.get(term) === "working") queued++;
+      else delivered++;
+    }
+    return { delivered, queued, offline, total: ids.length };
   }
 
   /**

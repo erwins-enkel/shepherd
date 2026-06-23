@@ -4,7 +4,10 @@ import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
 
 function harness(
-  broadcast?: (ids: string[], text: string) => { sent: number; total: number },
+  broadcast?: (
+    ids: string[],
+    text: string,
+  ) => { delivered: number; queued: number; offline: number; total: number },
   haltAll?: () => { halted: number },
 ) {
   const store = new SessionStore(":memory:");
@@ -65,16 +68,16 @@ test("POST /api/broadcast returns the service counts", async () => {
   const calls: { ids: string[]; text: string }[] = [];
   const { app } = harness((ids, text) => {
     calls.push({ ids, text });
-    return { sent: ids.length, total: ids.length };
+    return { delivered: ids.length, queued: 0, offline: 0, total: ids.length };
   });
   const res = await app.fetch(jsonReq("/api/broadcast", "POST", { text: "go", ids: ["a", "b"] }));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ sent: 2, total: 2 });
+  expect(await res.json()).toEqual({ delivered: 2, queued: 0, offline: 0, total: 2 });
   expect(calls).toEqual([{ ids: ["a", "b"], text: "go" }]);
 });
 
 test("POST /api/broadcast rejects a bad body with 400", async () => {
-  const { app } = harness(() => ({ sent: 0, total: 0 }));
+  const { app } = harness(() => ({ delivered: 0, queued: 0, offline: 0, total: 0 }));
   const res = await app.fetch(jsonReq("/api/broadcast", "POST", { text: "", ids: [] }));
   expect(res.status).toBe(400);
 });

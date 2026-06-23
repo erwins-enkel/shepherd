@@ -1814,20 +1814,109 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
     } as any,
     herdr: {
       start: () => ({}) as any,
-      list: () => [{ terminalId: "term_a" }, { terminalId: "term_b" }], // both panes live
+      list: () => [
+        { terminalId: "term_a", agentStatus: "idle" },
+        { terminalId: "term_b", agentStatus: "idle" },
+      ], // both panes live + idle
       stop: () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
     } as any,
   });
 
+  // term_a + term_b are live & idle → delivered; "ghost" has no live pane → offline.
   const res = svc.broadcast([a.id, "ghost", b.id], "run tests");
-  expect(res).toEqual({ sent: 2, total: 3 });
+  expect(res).toEqual({ delivered: 2, queued: 0, offline: 1, total: 3 });
   expect(sent).toEqual([
     { target: "term_a", text: "\x1b[200~run tests\x1b[201~" },
     { target: "term_a", text: "\r" },
     { target: "term_b", text: "\x1b[200~run tests\x1b[201~" },
     { target: "term_b", text: "\r" },
   ]);
+});
+
+test("broadcast classifies working agents as queued, non-working as delivered", () => {
+  const store = new SessionStore(":memory:");
+  const mk = (name: string, agent: string) =>
+    store.create({
+      name,
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: agent,
+    });
+  const idle = mk("idle", "term_idle");
+  const busy = mk("busy", "term_busy");
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [
+        { terminalId: "term_idle", agentStatus: "idle" },
+        { terminalId: "term_busy", agentStatus: "working" },
+      ],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+
+  // working pane → queued (acts after its current turn); idle pane → delivered (acts now).
+  expect(svc.broadcast([idle.id, busy.id], "go")).toEqual({
+    delivered: 1,
+    queued: 1,
+    offline: 0,
+    total: 2,
+  });
+});
+
+test("broadcast reports every target offline when no panes are live", () => {
+  const sent: unknown[] = [];
+  const store = new SessionStore(":memory:");
+  const a = store.create({
+    name: "a",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/a",
+    worktreePath: "/wt/a",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: () => ({}) as any,
+      list: () => [], // herdr lists nothing live
+      stop: () => {},
+      send: (t: string, x: string) => sent.push({ t, x }),
+    } as any,
+  });
+
+  expect(svc.broadcast([a.id, "ghost"], "go")).toEqual({
+    delivered: 0,
+    queued: 0,
+    offline: 2,
+    total: 2,
+  });
+  expect(sent).toEqual([]); // nothing delivered
 });
 
 test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouched; emits count", () => {

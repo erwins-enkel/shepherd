@@ -208,16 +208,12 @@ export class CountsService {
     return promise;
   }
 
-  private resolveForge(repoPath: string): GitForge | null {
-    return this.resolveForgeCached(repoPath);
-  }
-
   private async fetch(repoPath: string): Promise<RepoCounts> {
     // Lightweight repos have no remote forge — skip counts regardless of origin URL.
     // Read repoMode per call so a runtime toggle propagates without a restart.
     if (this.getRepoConfig?.(repoPath)?.repoMode === "lightweight") return NULL_COUNTS;
 
-    const forge = this.resolveForge(repoPath);
+    const forge = this.resolveForgeCached(repoPath);
     if (!forge) return NULL_COUNTS;
 
     if (forge.kind === "github") {

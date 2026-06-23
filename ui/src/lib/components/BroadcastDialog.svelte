@@ -57,8 +57,28 @@
     failed = false;
     try {
       const r = await apiBroadcast(text.trim(), [...selected]);
-      // Confirmation outlives the dialog: a toast names the reach after close.
-      toasts.info(m.toast_broadcast_sent({ sent: r.sent, total: r.total }));
+      if (r.delivered + r.queued === 0) {
+        // Nothing reached any agent (all targets offline/dead-pane) — a literal no-op.
+        // Surface it like a failure so the dialog stays open with Retry, not a "sent 0" toast.
+        result = m.broadcast_failed();
+        failed = true;
+        sending = false;
+        return;
+      }
+      // Confirmation outlives the dialog: a toast names the reach after close. Honest about
+      // queued-on-busy (those agents act only after their current turn) so a busy-herd
+      // broadcast no longer reads as a no-op.
+      if (r.queued === 0 && r.offline === 0) {
+        toasts.info(m.toast_broadcast_delivered({ delivered: r.delivered }));
+      } else {
+        toasts.info(
+          m.toast_broadcast_result({
+            delivered: r.delivered,
+            queued: r.queued,
+            offline: r.offline,
+          }),
+        );
+      }
       onclose();
     } catch {
       result = m.broadcast_failed();

@@ -6,7 +6,7 @@ import { basename, extname, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
 import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
@@ -2134,14 +2134,44 @@ export class SessionService {
     return { resumed, steered, total: ids.length };
   }
 
-  /** Fan a steer out to many sessions (human-style). Skips unknown ids and dead panes.
-   *  Lists herdr's live agents ONCE up front rather than per id, so a wide fan-out
-   *  doesn't spawn one blocking `herdr agent list` per target. */
-  broadcast(ids: string[], text: string): { sent: number; total: number } {
-    const live = this.liveTerminalIds();
-    let sent = 0;
-    for (const id of ids) if (this.replyToLive(id, text, live)) sent++;
-    return { sent, total: ids.length };
+  /** Fan a steer out to many sessions (human-style), classifying the outcome per target so
+   *  the operator gets honest feedback instead of a flat "sent N". Lists herdr's live agents
+   *  ONCE up front (both the live id set AND each agent's status) rather than per id, so a
+   *  wide fan-out doesn't spawn one blocking `herdr agent list` per target. Each live target's
+   *  steer is delivered identically to a single reply (delivery is unchanged); the count it
+   *  lands in just reflects the agent's status at send time:
+   *   - delivered: a live agent that is NOT `working` (idle/blocked/done) — acts on the steer ~now.
+   *   - queued:    a live `working` agent — Claude Code queues the steer; it acts after the
+   *                current turn ends (correct behavior, but invisible immediately — the reason a
+   *                busy-herd broadcast looked like a no-op).
+   *   - offline:   unknown id or dead pane — the steer wasn't delivered.
+   *  `delivered + queued + offline === total`. */
+  broadcast(
+    ids: string[],
+    text: string,
+  ): { delivered: number; queued: number; offline: number; total: number } {
+    let agents: HerdrAgent[];
+    try {
+      agents = this.deps.herdr.list();
+    } catch {
+      agents = []; // herdr unreachable → every target is offline (the steer can't land)
+    }
+    const live = new Set(agents.map((a) => a.terminalId));
+    const statusByTerminal = new Map(agents.map((a) => [a.terminalId, a.agentStatus]));
+    let delivered = 0;
+    let queued = 0;
+    let offline = 0;
+    for (const id of ids) {
+      const s = this.deps.store.get(id);
+      if (!s || !live.has(s.herdrAgentId)) {
+        offline++; // unknown id or dead pane — the steer can't land
+        continue;
+      }
+      this.sendSteerTo(s, text);
+      if (statusByTerminal.get(s.herdrAgentId) === "working") queued++;
+      else delivered++;
+    }
+    return { delivered, queued, offline, total: ids.length };
   }
 
   /**
@@ -2197,6 +2227,15 @@ export class SessionService {
   private replyToLive(id: string, text: string, live: Set<string>): boolean {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
+    this.sendSteerTo(s, text);
+    return true;
+  }
+
+  /** Deliver a human-style steer to an already-resolved, live session: record the reply
+   *  signal, then bracket-paste the text and submit with a CR. Single source for the send
+   *  used by replyToLive (reply/retry) and broadcast (which resolves the session itself so
+   *  it can classify the outcome without a second store lookup). */
+  private sendSteerTo(s: Session, text: string): void {
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
@@ -2208,7 +2247,6 @@ export class SessionService {
     const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
     this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
     this.deps.herdr.send(s.herdrAgentId, "\r");
-    return true;
   }
 
   /**

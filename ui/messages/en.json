@@ -686,7 +686,6 @@
   "broadcast_confirm_send": "Confirm · send to {count}",
   "broadcast_result_sent": "sent {sent}/{total}",
   "broadcast_failed": "Broadcast failed: no steers delivered. Check the targets, then retry.",
-  "toast_broadcast_sent": "Broadcast sent · {sent}/{total}",
   "toast_decommissioned": "Decommissioned {name}",
   "toast_decommission_failed": "Couldn't decommission {name}",
   "toast_cleared_merged": "Cleared {count} merged sessions",
@@ -1855,5 +1854,7 @@
   "firsttask_confirm_intro": "Shepherd hasn't driven {repo} before. Review the automation settings below — they apply to every task on this repo — then confirm to start this one.",
   "firsttask_confirm_cta": "Confirm & start task",
   "feat_first_task_confirm_title": "Review settings before the first task",
-  "feat_first_task_confirm_body": "Starting a task on a new repo now shows a quick review step so you can check automation settings before the first run. After confirming once, future tasks on the same repo start without interruption."
+  "feat_first_task_confirm_body": "Starting a task on a new repo now shows a quick review step so you can check automation settings before the first run. After confirming once, future tasks on the same repo start without interruption.",
+  "toast_broadcast_delivered": "Broadcast steered {delivered} agents now.",
+  "toast_broadcast_result": "Broadcast · {delivered} steered now, {queued} queued on busy agents (act after current turn), {offline} unreachable."
 }

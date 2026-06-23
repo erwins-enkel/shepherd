@@ -4610,6 +4610,52 @@ async function handleEpicsCompletedAckMigrations({
   return json({ ok: true });
 }
 
+// Validate + resolve everything needed to perform a land merge. Returns { error: Response } on any
+// failure (wrong body, missing row, wrong state, no forge, no branch, prStatus throw, not ready),
+// or the resolved targets on success. Extracted to keep handleEpicsCompletedLand below the
+// cyclomatic/cognitive thresholds.
+type LandTarget = {
+  dir: string;
+  parent: number;
+  row: ReturnType<AppDeps["store"]["listEpicCompleted"]>[number];
+  forge: GitForge;
+  branch: string;
+  pr: PrStatus;
+};
+async function resolveLandTarget(
+  deps: AppDeps,
+  body: { repo?: string; parent?: number } | null,
+): Promise<{ error: Response } | LandTarget> {
+  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
+  if (!dir) return { error: json({ error: "invalid repo" }, 400) };
+  const parent = body?.parent;
+  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
+    return { error: json({ error: "parent must be a positive integer" }, 400) };
+
+  const row = deps.store.listEpicCompleted(dir).find((r) => r.parentIssueNumber === parent);
+  if (!row) return { error: json({ error: "no completed epic" }, 409) };
+  if (row.landingState !== "open" || row.landingPrNumber == null)
+    return { error: json({ error: "landing not open" }, 409) };
+
+  const forge = deps.resolveForge?.(dir);
+  if (!forge) return { error: json({ error: "no forge" }, 409) };
+
+  const branch = deps.store.getEpicIntegrationBranch(dir, parent);
+  if (branch === null) return { error: json({ error: "no integration branch" }, 409) };
+
+  let pr: PrStatus;
+  try {
+    pr = await forge.prStatus(branch);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: json({ error: msg }, 502) };
+  }
+
+  if (!computeLandingReady(pr)) return { error: json({ error: "landing PR not ready" }, 409) };
+
+  return { dir, parent, row, forge, branch, pr };
+}
+
 // POST /api/epics/completed/land — body { repo, parent }. Merge the open landing PR using
 // method:"merge" to preserve per-child commit history (squash, the host default, would flatten it).
 // Fail-closed: only merges when computeLandingReady confirms the PR is green + unblocked.
@@ -4625,37 +4671,14 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
   )
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
-  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = body?.parent;
-  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
-
-  const row = deps.store.listEpicCompleted(dir).find((r) => r.parentIssueNumber === parent);
-  if (!row) return json({ error: "no completed epic" }, 409);
-  if (row.landingState !== "open" || row.landingPrNumber == null)
-    return json({ error: "landing not open" }, 409);
-
-  const forge = deps.resolveForge?.(dir);
-  if (!forge) return json({ error: "no forge" }, 409);
-
-  const branch = deps.store.getEpicIntegrationBranch(dir, parent);
-  if (branch === null) return json({ error: "no integration branch" }, 409);
-
-  let pr;
-  try {
-    pr = await forge.prStatus(branch);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return json({ error: msg }, 502);
-  }
-
-  if (!computeLandingReady(pr)) return json({ error: "landing PR not ready" }, 409);
+  const r = await resolveLandTarget(deps, body);
+  if ("error" in r) return r.error;
+  const { dir, parent, row, forge } = r;
 
   try {
     // Use method:"merge" deliberately — a merge commit preserves the epic's per-child commit
     // history; squash (the host default) would flatten all child commits into one.
-    await forge.merge(row.landingPrNumber, { method: "merge", deleteBranch: true });
+    await forge.merge(row.landingPrNumber!, { method: "merge", deleteBranch: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return json({ error: msg }, 502);
@@ -4663,7 +4686,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
 
   deps.store.setEpicLandingPr(dir, parent, {
     state: "merged",
-    prNumber: row.landingPrNumber,
+    prNumber: row.landingPrNumber!,
     prUrl: row.landingPrUrl,
     attempts: row.landingAttempts,
   });

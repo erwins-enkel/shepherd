@@ -17,6 +17,12 @@ concurrency:
 jobs:
   verify:
     name: verify
+    # ── KEEP IN SYNC WITH .husky/pre-push (scripts/pre-push.ts) ──────────────────
+    # The local pre-push hook no longer shares this job's shell body — it runs the
+    # same gate set in parallel lanes via scripts/pre-push.ts. When you add/remove/
+    # reorder a step here, mirror it there (and vice-versa). Deliberate differences:
+    # the hook scopes prettier/eslint to the push delta and pins fallow to 2.100.0;
+    # CI keeps the whole-repo checks. Keep the fallow version in sync across both.
     # Don't run the full suite on release-please's generated PR: it only bumps the
     # version + CHANGELOG, so verify is wasted minutes. That PR DOES trigger this
     # workflow (event=pull_request, actor=github-actions[bot]) — see release-please.yml.

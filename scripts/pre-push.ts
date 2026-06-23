@@ -206,7 +206,10 @@ function makeStarter(logDir: string, stamp: string): (lane: LaneSpec) => LaneHan
 
     const done: Promise<StepResult> = (async () => {
       for (const step of lane.steps) {
-        if (killed) return { ok: false, logPath };
+        if (killed) {
+          log.end();
+          return { ok: false, logPath };
+        }
         log.write(`\n▶ ${lane.name}: ${step.label}\n   $ ${step.cmd} ${step.args.join(" ")}\n`);
         const code = await new Promise<number>((resolve) => {
           // detached → own process group, so kill(-pid) reaps the whole subtree

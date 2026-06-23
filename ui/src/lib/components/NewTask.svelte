@@ -617,15 +617,21 @@
   }
 
   async function confirmAndSpawn() {
-    const repo = repoPath.trim();
+    if (submitting) return;
+    submitting = true;
     error = null;
+    const repo = repoPath.trim();
     try {
       await repoConfig.confirmAutomation(repo);
     } catch (err) {
       error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+      submitting = false; // re-enable so the user can retry
       return; // stay on the step; do NOT spawn if the confirm PUT failed
     }
     confirmStep = false;
+    // doSpawn sets submitting=true at entry and resets it in its finally; since we
+    // already set it true above, doSpawn must NOT bail on the guard — it sets it
+    // unconditionally at entry so there is no double-true problem.
     await doSpawn(false);
   }
 </script>

@@ -1052,6 +1052,48 @@ describe("NewTask first-task confirm step", () => {
     expect(document.querySelector(".ftac .err")?.textContent).toBeTruthy();
   });
 
+  it("double-click Confirm spawns exactly once (re-entry guard)", async () => {
+    const repoPath = "/repo/ftac-double-click";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    // seedNewRepoDefaults
+    mockPutRepoConfig.mockResolvedValueOnce(unconfirmedNewRepoConfig());
+
+    // confirmAutomation: use a deferred promise so both clicks arrive before it resolves
+    let resolveConfirm!: (
+      v: RepoConfig & { automationConfirmed: boolean; automationRowExists: boolean },
+    ) => void;
+    const confirmPromise = new Promise<
+      RepoConfig & { automationConfirmed: boolean; automationRowExists: boolean }
+    >((res) => {
+      resolveConfirm = res;
+    });
+    mockPutRepoConfig.mockReturnValueOnce(confirmPromise);
+
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Confirm step must appear
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+
+    // Find the Confirm button by its text content (it has no aria-label — text node only)
+    const confirmBtn = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".ftac button"),
+    ).find((b) => b.textContent?.trim() === m.firsttask_confirm_cta())!;
+    // Click Confirm twice in rapid succession before the promise resolves
+    confirmBtn.click();
+    confirmBtn.click();
+
+    // Now resolve the confirm promise
+    resolveConfirm(confirmedRepoConfig());
+
+    // onsubmit must be called at most once (not twice)
+    await expect.poll(() => onsubmit.mock.calls.length, { timeout: 3000 }).toBe(1);
+    expect(onsubmit.mock.calls.length).toBe(1);
+  });
+
   it("settle race: ensure resolving to confirmed repo spawns directly with no spurious step", async () => {
     const repoPath = "/repo/ftac-settle-race";
 

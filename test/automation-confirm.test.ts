@@ -73,10 +73,7 @@ test("migrateRepoConfigColumns backfill: pre-existing rows get automationConfirm
   }
 });
 
-test("migrateRepoConfigColumns backfill is one-time: re-opening does not re-confirm a NULL row", () => {
-  // We can't test the column-missing branch directly on :memory: (it's always fresh),
-  // but we can verify that markAutomationConfirmed → NULL reset is respected on re-open:
-  // i.e., the migrate code checks column-missing, not value-null, so a NULL row stays NULL.
+test("isAutomationConfirmed returns false when automationConfirmedAt is NULL and no session exists", () => {
   const s = new SessionStore(":memory:");
   s.setRepoConfig("/repo/b", s.getRepoConfig("/repo/b"));
   // Manually clear automationConfirmedAt via the internal DB (simulates a freshly-seeded
@@ -84,11 +81,8 @@ test("migrateRepoConfigColumns backfill is one-time: re-opening does not re-conf
   (s as any).db.run(
     `UPDATE repo_config SET automationConfirmedAt = NULL WHERE repoPath = '/repo/b'`,
   );
-  // isAutomationConfirmed uses the session fallback — no sessions → should be false.
+  // No sessions for this repo → both fallbacks miss → false.
   expect(s.isAutomationConfirmed("/repo/b")).toBe(false);
-  // A new store instance opening the same :memory: DB is not possible, but we can verify
-  // the store doesn't re-backfill by re-calling migrate via a second store (isolated DB).
-  // The gist: the branch is column-missing, and since the column exists now, it won't re-run.
 });
 
 test("isAutomationConfirmed: true when automationConfirmedAt is set", () => {

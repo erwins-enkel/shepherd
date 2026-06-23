@@ -785,7 +785,10 @@ async function parseRepoConfigPatch(req: Request): Promise<
  *  field overrides and absent fields keep the current value. */
 function mergeRepoConfig(
   cur: RepoConfig,
-  patch: Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
+  patch: Omit<
+    Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
+    "automationConfirmed"
+  >,
 ): RepoConfig {
   const out: RepoConfig = { ...cur };
   const writable = out as unknown as Record<string, unknown>;
@@ -812,6 +815,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
+  // Load-bearing destructure: keeps the metadata flag off the RepoConfig written by mergeRepoConfig.
   const { automationConfirmed, ...cfgPatch } = patch;
   const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), cfgPatch);
   if (merged.draftMode && merged.autoMergeEnabled) {

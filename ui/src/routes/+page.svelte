@@ -465,7 +465,20 @@
   // comes back so launching from a notification or unlocking shows current state
   // without one. Always fires — a half-open socket can read as connected, so we
   // can't gate on store.connected.
+  //
+  // The held-tasks badge counts off `store.heldCount`, seeded once in onMount and
+  // otherwise kept live by `held:changed` events (each carries an absolute count).
+  // Those events are push-on-change only — there's no snapshot on reconnect — so a
+  // restart/deploy that auto-releases held tasks (usage reset) emits them while the
+  // socket is down, leaving the badge stale until reload unless resync() re-pulls it.
+  function refreshHeldCount() {
+    listHeld()
+      .then((arr) => (store.heldCount = arr.length))
+      .catch(() => {});
+  }
+
   function resync() {
+    refreshHeldCount();
     listSessions()
       .then((list) => store.setAll(list))
       .catch(() => {});
@@ -1125,9 +1138,7 @@
     recaps.load();
     herdDigest.load();
     learnings.load().then(() => (learningsLoaded = true));
-    listHeld()
-      .then((arr) => (store.heldCount = arr.length))
-      .catch(() => {});
+    refreshHeldCount();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().
     // hydrate() reads localStorage; version + featureAnnouncements are compile-time constants.

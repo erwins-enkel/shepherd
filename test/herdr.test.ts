@@ -105,6 +105,7 @@ test("start gives each agent its own full-width tab, not a shared split pane", (
     "--",
     "env",
     "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "claude",
     "--dangerously-skip-permissions",
     "go",
@@ -123,8 +124,29 @@ test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tm
   d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
   const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
   const post = startCall.slice(startCall.indexOf("--") + 1);
-  // env shim is the first three post-`--` tokens, and claude is still argv[0] after it
-  expect(post.slice(0, 3)).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude"]);
+  // env shim is the first four post-`--` tokens (env + two pinned vars), and claude is
+  // still argv[0] after it
+  expect(post.slice(0, 4)).toEqual([
+    "env",
+    "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "claude",
+  ]);
+});
+
+test("start pins the classic renderer (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1) for every spawn", () => {
+  // Claude Code's fullscreen renderer draws on the alternate screen buffer and captures the
+  // mouse; Shepherd's poller/blocked scraping + xterm web terminal assume the classic
+  // renderer. The pin forces classic regardless of the operator's persisted `tui` setting or
+  // ambient CLAUDE_CODE_NO_FLICKER, so it must be present on EVERY spawned claude.
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x" });
+  const post = extractPost(calls);
+  expect(post).toContain("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1");
 });
 
 test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restarted daemon)", () => {
@@ -412,7 +434,13 @@ test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE
   });
   d.start("flatten", "/wt/a", ["claude", "go"]);
   const post = extractPost(calls);
-  expect(post).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude", "go"]);
+  expect(post).toEqual([
+    "env",
+    "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "claude",
+    "go",
+  ]);
 });
 
 test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by key, before argv", () => {
@@ -423,10 +451,11 @@ test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by 
   });
   d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x", FOO: "bar" });
   const post = extractPost(calls);
-  // Keys sorted: CLAUDE_CONFIG_DIR < FOO
+  // Keys sorted: CLAUDE_CONFIG_DIR < FOO; both pinned vars precede caller-supplied env
   expect(post).toEqual([
     "env",
     "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "CLAUDE_CONFIG_DIR=/x",
     "FOO=bar",
     "claude",
@@ -442,7 +471,13 @@ test("start with empty env {}: wrapped is identical to no-env case", () => {
   });
   d.start("flatten", "/wt/a", ["claude", "go"], {});
   const post = extractPost(calls);
-  expect(post).toEqual(["env", "NODE_COMPILE_CACHE=/disk/ncc", "claude", "go"]);
+  expect(post).toEqual([
+    "env",
+    "NODE_COMPILE_CACHE=/disk/ncc",
+    "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "claude",
+    "go",
+  ]);
 });
 
 // -- panes() tests --

@@ -6,6 +6,8 @@
  * regardless of current usage (they were held while enabled; disabled means
  * the operator no longer wants the gate — release everything).
  */
+import type { GitForge } from "./forge/types";
+import { claimLinkedIssue } from "./server";
 import type { SessionStore } from "./store";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
@@ -15,6 +17,8 @@ export interface HeldReleaseDeps {
   service: { create(input: CreateSessionInput): Promise<Session> };
   usageLimits: { limits(now: number): UsageLimits };
   events: { emit(event: string, data: unknown): void };
+  /** Resolve the forge for a repo so a released task's linked issue can be re-claimed. */
+  resolveForge?: (repoDir: string) => GitForge | null;
 }
 
 /**
@@ -47,6 +51,18 @@ export async function releaseHeldTasks(
       deps.events.emit("session:new", s);
       deps.store.removeHeldTask(task.id);
       released++;
+      // A human linked an issue before the task was held: stamp the drain claim now that it's
+      // spawning, matching handleSessionCreate/heldSpawn — so the board reflects it's being
+      // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
+      // addIssueLabel shells out synchronously, so setTimeout(0) keeps it off this sweep tick.
+      const issueRef = task.input.issueRef;
+      if (issueRef) {
+        const { repoPath } = task.input;
+        setTimeout(
+          () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+          0,
+        );
+      }
     } catch (err) {
       console.warn("[held] spawn failed for task", task.id, err);
       // Head-of-line blocking: a task whose service.create throws (e.g. repo deleted

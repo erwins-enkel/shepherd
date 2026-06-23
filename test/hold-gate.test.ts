@@ -38,10 +38,12 @@ function harness(limitsOverride?: Partial<UsageLimits>): {
   store: SessionStore;
   emitted: { event: string; data: unknown }[];
   creates: unknown[];
+  labeled: number[];
 } {
   const store = new SessionStore(":memory:");
   const emitted: { event: string; data: unknown }[] = [];
   const creates: unknown[] = [];
+  const labeled: number[] = [];
 
   const hub = new EventHub();
   hub.subscribe((event, data) => emitted.push({ event, data }));
@@ -73,8 +75,14 @@ function harness(limitsOverride?: Partial<UsageLimits>): {
     service: fakeService as any,
     events: hub,
     usageLimits: { limits: () => defaultLimits } as any,
+    resolveForge: () =>
+      ({
+        async addIssueLabel(n: number) {
+          labeled.push(n);
+        },
+      }) as any,
   };
-  return { app: makeApp(deps), store, emitted, creates };
+  return { app: makeApp(deps), store, emitted, creates, labeled };
 }
 
 function postSession(app: ReturnType<typeof makeApp>, extra?: Record<string, unknown>) {
@@ -277,6 +285,30 @@ test("POST /api/held/:id/spawn → calls service.create, removes row, returns 20
   const spawned = emitted.find((e) => e.event === "session:new");
   expect(spawned).toBeDefined();
   expect((spawned!.data as { id: string }).id).toBe((await res.json()).id);
+});
+
+test("POST /api/held/:id/spawn with linked issue → re-stamps the drain claim", async () => {
+  const { app, store, labeled } = harness();
+
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "linked task",
+      model: null,
+      images: [],
+      issueRef: { number: 99, url: "http://x/i/99", title: "t", body: "" },
+    },
+    createdAt: 1000,
+  });
+
+  const res = await app.fetch(new Request("http://x/api/held/held-1/spawn", { method: "POST" }));
+  expect(res.status).toBe(201);
+  // claim stamp is deferred onto setTimeout(0) — flush the macrotask before asserting
+  await new Promise((r) => setTimeout(r, 0));
+  expect(labeled).toEqual([99]);
 });
 
 test("POST /api/held/:id/spawn with unknown id → 404", async () => {

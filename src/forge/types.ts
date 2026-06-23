@@ -42,6 +42,13 @@ export const AUTHOR_RESPONSE_MARKER = "<!-- shepherd-author-note -->";
  *  rebase it onto the base branch. Posted by the dependabot-rebase endpoint. */
 export const DEPENDABOT_REBASE_COMMAND = "@dependabot rebase";
 
+/** Invisible marker appended to every issue-log comment Shepherd authors (the
+ *  ⏸️ waiting / ✅ merged workflow notes). Lets a task spawned from that issue
+ *  filter Shepherd's own machine chatter back out of the comment thread it feeds
+ *  to the agent — they're posted under the operator's gh identity (so not `[bot]`)
+ *  and would otherwise read as discussion. HTML comments don't render in GitHub's UI. */
+export const SHEPHERD_ISSUE_LOG_MARKER = "<!-- shepherd-issue-log -->";
+
 /** One issue comment on a PR (author responses to review rounds). */
 export interface PrComment {
   /** Host-stable comment id, used to inject each author note into the critic exactly
@@ -49,6 +56,19 @@ export interface PrComment {
    *  comment on every re-review. Empty when the host can't supply one. */
   id: string;
   author: string;
+  body: string;
+  createdAt: number; // epoch ms
+}
+
+/** One comment on an issue (the human discussion that refines the original request),
+ *  fed into a task spawned from that issue alongside the body. `authorAssociation` is
+ *  GitHub's per-comment relationship enum (OWNER | MEMBER | COLLABORATOR | CONTRIBUTOR |
+ *  FIRST_TIME_CONTRIBUTOR | FIRST_TIMER | MANNEQUIN | NONE), used to scope the included
+ *  comments to repo-standing authors — bounding the prompt-injection surface, which would
+ *  otherwise widen from the single issue author to any GitHub commenter. */
+export interface IssueComment {
+  author: string;
+  authorAssociation: string;
   body: string;
   createdAt: number; // epoch ms
 }
@@ -375,6 +395,12 @@ export interface GitForge {
    *  null when the issue is gone/unreadable. Best-effort and optional — hosts without it
    *  (or a transient failure → null) fall back to the cached candidate set + local dedup. */
   getIssue?(issueNumber: number): Promise<Issue | null>;
+  /** Issue comments (oldest first), fed into a task spawned from the issue so the
+   *  agent sees the discussion that refined the request, not just the body. Optional:
+   *  only hosts with a comments API (GitHub) implement it; others omit it and the spawn
+   *  prompt stays body-only. Best-effort — the caller wraps the call so a failure never
+   *  blocks or fails a spawn. */
+  listIssueComments?(issueNumber: number): Promise<IssueComment[]>;
   /** Open a new issue (capture-extension delivery path). Returns the created
    *  issue's number + URL. Optional: hosts without an issue-create API omit it
    *  and POST /api/issues 400s. */

@@ -8,6 +8,7 @@ import type {
   ForgeConfig,
   GitForge,
   Issue,
+  IssueComment,
   MergeInput,
   MergeMethod,
   MergeStateStatus,
@@ -266,6 +267,35 @@ export class GithubForge implements GitForge {
     } catch {
       return null;
     }
+  }
+
+  async listIssueComments(issueNumber: number): Promise<IssueComment[]> {
+    // `gh issue view <n> --json comments` returns the thread oldest-first. authorAssociation
+    // rides in the same payload (no extra call) so the spawn filter can scope to repo-standing
+    // authors. Parse mirrors listPrComments.
+    const out = await this.run([
+      "issue",
+      "view",
+      String(issueNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      "comments",
+    ]);
+    const parsed = JSON.parse(out || "{}") as {
+      comments?: {
+        author?: { login?: string } | null;
+        authorAssociation?: string | null;
+        body?: string | null;
+        createdAt?: string | null;
+      }[];
+    };
+    return (parsed.comments ?? []).map((c) => ({
+      author: c.author?.login ?? "",
+      authorAssociation: c.authorAssociation ?? "NONE",
+      body: c.body ?? "",
+      createdAt: c.createdAt ? Date.parse(c.createdAt) : 0,
+    }));
   }
 
   async listPullRequests(): Promise<PullRequest[]> {

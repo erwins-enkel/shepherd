@@ -1,9 +1,14 @@
 import { test, expect, mock } from "bun:test";
 import { issueLogEntries, createIssueLogger } from "../src/issue-log";
 import { SessionStore } from "../src/store";
+import { SHEPHERD_ISSUE_LOG_MARKER } from "../src/forge/types";
 import type { GitState } from "../src/forge/types";
 
 const never = () => false;
+
+// Every issue-log body carries the invisible marker so a task spawned from the issue can
+// filter Shepherd's own workflow notes back out of the comment thread it feeds the agent.
+const stamped = (body: string) => `${body}\n\n${SHEPHERD_ISSUE_LOG_MARKER}`;
 
 function open(over: Partial<GitState> = {}): GitState {
   return {
@@ -20,22 +25,33 @@ function open(over: Partial<GitState> = {}): GitState {
 
 test("open+green+reviewer handoff → one waiting entry naming the reviewer", () => {
   const e = issueLogEntries(open({ handoff: "reviewer", handoffWho: "scoop" }), never);
-  expect(e).toEqual([{ key: "waiting:7", body: "⏸️ Waiting on review of PR #7 by @scoop." }]);
+  expect(e).toEqual([
+    { key: "waiting:7", body: stamped("⏸️ Waiting on review of PR #7 by @scoop.") },
+  ]);
 });
 
 test("open+green+merger handoff → one waiting entry naming the merger", () => {
   const e = issueLogEntries(open({ handoff: "merger", handoffWho: "scoop" }), never);
-  expect(e).toEqual([{ key: "waiting:7", body: "⏸️ Waiting on @scoop to merge PR #7." }]);
+  expect(e).toEqual([{ key: "waiting:7", body: stamped("⏸️ Waiting on @scoop to merge PR #7.") }]);
 });
 
 test("handoff without a login → generic waiting wording", () => {
   const e = issueLogEntries(open({ handoff: "merger" }), never);
-  expect(e).toEqual([{ key: "waiting:7", body: "⏸️ Waiting on PR #7 to merge." }]);
+  expect(e).toEqual([{ key: "waiting:7", body: stamped("⏸️ Waiting on PR #7 to merge.") }]);
 });
 
 test("merged → one merged entry, phrased issue-state-agnostic", () => {
   const e = issueLogEntries(open({ state: "merged" }), never);
-  expect(e).toEqual([{ key: "merged:7", body: "✅ PR #7 merged." }]);
+  expect(e).toEqual([{ key: "merged:7", body: stamped("✅ PR #7 merged.") }]);
+});
+
+test("every authored body carries the invisible issue-log marker", () => {
+  const waiting = issueLogEntries(open({ handoff: "merger", handoffWho: "scoop" }), never);
+  const merged = issueLogEntries(open({ state: "merged" }), never);
+  expect(waiting[0]?.body).toContain(SHEPHERD_ISSUE_LOG_MARKER);
+  expect(merged[0]?.body).toContain(SHEPHERD_ISSUE_LOG_MARKER);
+  // marker is appended, not prepended — leading wording stays intact for the spawn filter
+  expect(waiting[0]?.body.startsWith("⏸️ Waiting on")).toBe(true);
 });
 
 test("auto-inferred handoff (no roles.json) → NO waiting entry (gated to configured roles)", () => {
@@ -44,7 +60,7 @@ test("auto-inferred handoff (no roles.json) → NO waiting entry (gated to confi
   // the SAME state without the inferred flag (configured) → comments as before
   const configured = open({ handoff: "merger", handoffWho: "scoop" });
   expect(issueLogEntries(configured, never)).toEqual([
-    { key: "waiting:7", body: "⏸️ Waiting on @scoop to merge PR #7." },
+    { key: "waiting:7", body: stamped("⏸️ Waiting on @scoop to merge PR #7.") },
   ]);
 });
 
@@ -86,7 +102,7 @@ test("posts the owed comment once, stamps it, and never re-posts", async () => {
   const git = open({ handoff: "merger", handoffWho: "scoop" });
   await log(session, git);
   await log(session, git); // flap / restart replay
-  expect(comment.mock.calls).toEqual([[42, "⏸️ Waiting on @scoop to merge PR #7."]]);
+  expect(comment.mock.calls).toEqual([[42, stamped("⏸️ Waiting on @scoop to merge PR #7.")]]);
   expect(store.hasIssueLog("s1", "waiting:7")).toBe(true);
 });
 

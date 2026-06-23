@@ -795,6 +795,15 @@ test("epic:completed adds to completedEpics and enqueues a toast", () => {
   expect(toasts.items.some((t) => t.key === "epic-complete:/r#42")).toBe(true);
 });
 
+test("epic:completed with landingState=merged enqueues a landed toast (not completion)", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  const epic = { ...completedEpic("/r", 42), landingState: "merged" as const };
+  s.apply({ event: "epic:completed", data: epic });
+  expect(toasts.items.some((t) => t.key === "epic-landed:/r#42")).toBe(true);
+  expect(toasts.items.some((t) => t.key === "epic-complete:/r#42")).toBe(false);
+});
+
 test("epic:completed with same key replaces (no duplicates)", () => {
   const s = new HerdStore();
   const v1 = completedEpic("/r", 42);

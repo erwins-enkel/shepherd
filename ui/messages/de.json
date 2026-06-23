@@ -1872,5 +1872,6 @@
   "integrated_epics_land_stranded": "gestrandet vor {ago}",
   "integrated_epics_land_failed": "Epic konnte nicht gelandet werden — erneut versuchen",
   "feat_land_epic_title": "Integrierte Epics direkt in der App landen",
-  "feat_land_epic_body": "Wenn der Landing-PR eines Epics offen ist und alle Checks bestanden haben, ermöglicht ein neuer 'Epic landen'-Button im Band der integrierten Epics das Mergen mit einem Klick — kein Wechsel zu GitHub nötig."
+  "feat_land_epic_body": "Wenn der Landing-PR eines Epics offen ist und alle Checks bestanden haben, ermöglicht ein neuer 'Epic landen'-Button im Band der integrierten Epics das Mergen mit einem Klick — kein Wechsel zu GitHub nötig.",
+  "landed_epic_toast": "Epic #{number} gelandet — in den Standardbranch gemergt"
 }

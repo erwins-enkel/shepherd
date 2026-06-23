@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   conclusionOutcome,
+  criticConclusionShows,
   criticInFlightShows,
   reviewBannerState,
   type ReviewBannerInput,
@@ -20,6 +21,24 @@ describe("criticInFlightShows", () => {
   it("hides once the streak reaches the cap (stalled)", () => {
     expect(criticInFlightShows(true, { addressRound: 3, addressCap: 3 })).toBe(false);
     expect(criticInFlightShows(true, { addressRound: 4, addressCap: 3 })).toBe(false);
+  });
+});
+
+describe("criticConclusionShows", () => {
+  it("auto-address off + nothing delivered → no conclusion banner", () => {
+    expect(criticConclusionShows(false, { addressRound: 0, addressCap: 3 }, false)).toBe(false);
+    expect(criticConclusionShows(false, undefined, false)).toBe(false);
+  });
+  it("stalled at cap + nothing delivered → no conclusion banner", () => {
+    expect(criticConclusionShows(true, { addressRound: 3, addressCap: 3 }, false)).toBe(false);
+  });
+  it("a delivered steer always confirms, even on the final round at cap", () => {
+    expect(criticConclusionShows(true, { addressRound: 3, addressCap: 3 }, true)).toBe(true);
+    expect(criticConclusionShows(false, { addressRound: 3, addressCap: 3 }, true)).toBe(true);
+  });
+  it("auto-address on + under cap → conclusion shows (e.g. clean review)", () => {
+    expect(criticConclusionShows(true, { addressRound: 0, addressCap: 3 }, false)).toBe(true);
+    expect(criticConclusionShows(true, undefined, false)).toBe(true);
   });
 });
 

@@ -56,6 +56,22 @@ export function criticInFlightShows(
 }
 
 /**
+ * Whether a concluded critic review should flash a conclusion tier. Same gate as
+ * the in-flight tier (so auto-address off, or a streak stalled at the cap, stays
+ * silent and the "no banner when auto-address off" criterion holds) — EXCEPT a
+ * steer that actually landed (`delivered`) is always worth confirming, even on the
+ * final round where the streak has just reached the cap. Plan-gate always shows,
+ * so this gate is critic-only.
+ */
+export function criticConclusionShows(
+  autoAddressOn: boolean,
+  verdict: Pick<ReviewVerdict, "addressRound" | "addressCap"> | undefined,
+  delivered: boolean,
+): boolean {
+  return delivered || criticInFlightShows(autoAddressOn, verdict);
+}
+
+/**
  * The outcome a concluded review resolves to. Derived from whether the steer was
  * actually `delivered` (the round advanced past the in-flight-entry snapshot),
  * NOT from re-derived toggle predicates — the server also gates a paste on

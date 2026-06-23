@@ -3,7 +3,12 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { reviewBannerState, type BannerState, type ReviewKind } from "$lib/review-banner";
+  import {
+    reviewBannerState,
+    criticConclusionShows,
+    type BannerState,
+    type ReviewKind,
+  } from "$lib/review-banner";
 
   // Non-blocking signal that an in-flight PR-critic / plan-gate review may steer
   // this session when it concludes (issue #1022). Shown only when a paste could
@@ -50,6 +55,22 @@
       ? (verdict as { round: number }).round
       : (verdict as { addressRound: number }).addressRound;
     const delivered = newRound > snapshotRound;
+    // Critic conclusion is gated on the SAME predicate as the in-flight tier: if
+    // auto-address is off (or the streak is stalled at the cap) the banner never
+    // warned in-flight, so it must not flash a conclusion either — unless a steer
+    // actually landed (delivered), which is always worth confirming. Plan-gate
+    // always shows, so no gate there. (issue #1022)
+    if (
+      !isPlan &&
+      !criticConclusionShows(
+        repoConfig.autoAddress[session.repoPath] ?? false,
+        verdict as { addressRound: number; addressCap: number },
+        delivered,
+      )
+    ) {
+      conclusion = null;
+      return;
+    }
     conclusion = reviewBannerState({
       kind,
       phase: "conclusion",
@@ -162,7 +183,6 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
     border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
-    backdrop-filter: blur(2px);
     animation: rb-in 0.14s ease;
   }
   .rb-icon {

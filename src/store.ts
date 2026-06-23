@@ -1174,6 +1174,19 @@ export class SessionStore implements CapStore, CreditStore {
     return new Set(rows.map((r) => r.childNumber));
   }
 
+  /** True when this issue was already squash-merged into an epic's integration branch (#1037).
+   *  Single source of truth for "this is an integrated epic child" — the merged-PR teardown path
+   *  consults it to ARCHIVE-ONLY (never `closeIssue`) such a child, keeping the invariant that an
+   *  epic child closes only when the landing PR merges into the default branch. Keyed by
+   *  (repoPath, childNumber): a child belongs to exactly one epic per repo. */
+  isEpicIntegratedChild(repoPath: string, childNumber: number): boolean {
+    return (
+      this.db
+        .query(`SELECT 1 FROM epic_integrated WHERE repoPath = ? AND childNumber = ? LIMIT 1`)
+        .get(repoPath, childNumber) != null
+    );
+  }
+
   /** All integrated child rows for one epic, with PR details and mergedAt timestamp. */
   listEpicIntegratedDetails(
     repoPath: string,

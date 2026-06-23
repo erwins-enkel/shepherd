@@ -12,6 +12,15 @@ test("records and lists integration-merged children per epic parent", () => {
   expect([...s.listEpicIntegrated("/other", 327)]).toEqual([]); // scoped by repo
 });
 
+test("isEpicIntegratedChild: true once recorded, scoped by repo + child (#1037)", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.isEpicIntegratedChild("/r", 12)).toBe(false); // not recorded
+  s.recordEpicIntegrated("/r", 1, 12); // child #12 of epic #1
+  expect(s.isEpicIntegratedChild("/r", 12)).toBe(true);
+  expect(s.isEpicIntegratedChild("/r", 99)).toBe(false); // different child
+  expect(s.isEpicIntegratedChild("/other", 12)).toBe(false); // different repo
+});
+
 test("recordEpicIntegrated persists prNumber/prUrl; listEpicIntegratedDetails returns them", () => {
   const s = new SessionStore(":memory:");
   s.recordEpicIntegrated("/r", 100, 10, { number: 42, url: "https://github.com/r/pull/42" });

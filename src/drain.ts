@@ -116,6 +116,7 @@ export interface DrainDeps {
     | "setEpicRun"
     | "getOrInitEpicIntegrationBranch"
     | "listEpicIntegrated"
+    | "isEpicIntegratedChild"
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
@@ -1084,10 +1085,12 @@ export class DrainService {
       // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
       // session stays live AND polled (pr-poller skips only archived rows). The poller re-observes
       // the merged PR and settles it via reapMerged → settleMergedSession (archive + teardown) —
-      // the same path any out-of-band merge takes. That recovery closes the child issue instead of
-      // keeping it open, but the integration is already recorded above, so dependents unblock
-      // either way. The session can NOT be re-selected by the retire gate (readyToRetire requires
-      // state==="open"; the PR is merged), hence the poller is the recovery, not a retry.
+      // the same path any out-of-band merge takes. #1037: because the integration is already
+      // recorded above, settleMergedSession's isIntegratedEpicChild guard sees this child as
+      // integrated and ARCHIVES-ONLY (never closes the issue) — so this recovery keeps the child
+      // open until the landing PR merges, just like the happy path. The session can NOT be
+      // re-selected by the retire gate (readyToRetire requires state==="open"; the PR is merged),
+      // hence the poller is the recovery, not a retry.
       console.warn(
         `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
         err,
@@ -1333,6 +1336,10 @@ export class DrainService {
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: (sid) => this.retainClaimOnArchive.add(sid),
+      // #1037: an integrated epic child observed merged mid-archive must archive-only, never close.
+      isIntegratedEpicChild: (sess) =>
+        sess.issueNumber != null &&
+        this.deps.store.isEpicIntegratedChild(sess.repoPath, sess.issueNumber),
     });
   }
 

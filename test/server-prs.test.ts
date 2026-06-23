@@ -53,7 +53,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
 
 function makeDeps(resolveForge: AppDeps["resolveForge"]): AppDeps {
   return {
-    store: {} as SessionStore,
+    store: { isEpicIntegratedChild: () => false } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
     usageLimits: { limits: () => ({}) } as never,

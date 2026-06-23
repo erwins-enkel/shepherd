@@ -7,15 +7,18 @@
     epic,
     ondismiss,
     onackmigrations,
+    onland,
     nowMs = Date.now(),
   }: {
     epic: CompletedEpic;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
+    onland: (repoPath: string, parent: number) => void;
     nowMs?: number;
   } = $props();
 
   let open = $state(false);
+  let confirming = $state(false);
 
   // Migration-awareness checkpoint (#645): the landing PR carries unacknowledged migration
   // files. The harness never runs them (read-only critic, no DB), so the operator must verify +
@@ -41,12 +44,30 @@
     if (!ref) return null;
     return ref.replace(/\/\d+(?=\/?$)/, `/${epic.parentIssueNumber}`);
   });
+
+  // Whether this row is in "action needed" open-landing state.
+  const isOpen = $derived(epic.landingState === "open");
+
+  // Derive a tooltip for the disabled Land button when not ready.
+  const landNotReadyReason = $derived.by((): string => {
+    if (epic.landingChecks === "failure") return m.integrated_epics_land_not_ready_ci_failing();
+    if (epic.landingChecks === "pending" || epic.landingMergeable === null)
+      return m.integrated_epics_land_not_ready_computing();
+    if (epic.landingMergeable === false) return m.integrated_epics_land_not_ready_conflicts();
+    return m.integrated_epics_land_not_ready_generic();
+  });
+
+  function handleLandConfirm() {
+    confirming = false;
+    onland(epic.repoPath, epic.parentIssueNumber);
+  }
 </script>
 
 <div class="row" role="region" aria-label={epic.parentTitle}>
   <button
     type="button"
     class="row-head"
+    class:row-head-open={isOpen}
     aria-expanded={open}
     aria-label={open
       ? m.integrated_epics_collapse_aria({ number: epic.parentIssueNumber })
@@ -57,7 +78,13 @@
     <span class="repo" title={repoName}>{repoName}</span>
     <span class="title">{epic.parentTitle}</span>
     <span class="num">#{epic.parentIssueNumber}</span>
-    <span class="chip chip-done">{m.integrated_epics_chip({ merged, total })}</span>
+    {#if isOpen}
+      <span class="chip chip-warn">{m.integrated_epics_awaiting_landing_pill()}</span>
+      <span class="chip chip-done chip-secondary">{m.integrated_epics_chip({ merged, total })}</span
+      >
+    {:else}
+      <span class="chip chip-done">{m.integrated_epics_chip({ merged, total })}</span>
+    {/if}
     <span class="ago"
       >{m.integrated_epics_finished_ago({ ago: formatAgo(nowMs - epic.completedAt) })}</span
     >
@@ -99,7 +126,76 @@
     </ul>
 
     <div class="actions">
-      {#if pendingAck}
+      {#if isOpen}
+        <!-- open state: Land CTA (+ Dismiss); Ack-migrations path suppressed here to avoid
+             silently clearing an unlanded epic (the bug #1039 fixes). Migration advisory
+             moves into the Land confirm step instead. -->
+        {#if epic.landingPrNumber != null}
+          {#if confirming}
+            <span class="confirm-prompt">
+              {m.integrated_epics_land_confirm_prompt()}
+              {#if pendingAck}
+                <span class="confirm-migration-warn"
+                  >{m.integrated_epics_land_confirm_migration_warn({
+                    count: migrationCount,
+                  })}</span
+                >
+              {/if}
+            </span>
+            <button class="gbtn gbtn-primary" type="button" onclick={handleLandConfirm}>
+              {m.integrated_epics_land_confirm()}
+            </button>
+            <button class="gbtn" type="button" onclick={() => (confirming = false)}>
+              {m.common_cancel()}
+            </button>
+          {:else}
+            {#if epic.landingStranded}
+              <span class="chip-stranded"
+                >{m.integrated_epics_land_stranded({
+                  ago: formatAgo(nowMs - epic.completedAt),
+                })}</span
+              >
+            {/if}
+            {#if epic.landingReady === true}
+              <button class="gbtn" type="button" onclick={() => (confirming = true)}>
+                {m.integrated_epics_land()}
+              </button>
+            {:else}
+              <button
+                class="gbtn"
+                type="button"
+                disabled
+                title={landNotReadyReason}
+                aria-disabled="true"
+              >
+                {m.integrated_epics_land()}
+              </button>
+            {/if}
+          {/if}
+        {/if}
+        <!-- Always show Dismiss in open state (explicit operator hide) -->
+        {#if !confirming}
+          <button
+            class="gbtn"
+            type="button"
+            title={m.integrated_epics_dismiss()}
+            onclick={() => ondismiss(epic.repoPath, epic.parentIssueNumber)}
+          >
+            {m.integrated_epics_dismiss()}
+          </button>
+        {/if}
+        {#if epic.landingPrUrl}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+          <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber! })}</a
+          >
+        {:else if epic.landingPrNumber != null}
+          <span class="awaiting"
+            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</span
+          >
+        {/if}
+      {:else if pendingAck && epic.landingState !== "open"}
+        <!-- legacy/rare Ack-migrations path: only for non-open states with pending migrations -->
         <span class="chip-migrations" title={m.epic_migrations_pending({ count: migrationCount })}>
           {m.epic_migrations_pending({ count: migrationCount })}
         </span>
@@ -111,7 +207,7 @@
         >
           {m.integrated_epics_ack_migrations()}
         </button>
-      {:else}
+      {:else if epic.landingState !== "open"}
         <button
           class="gbtn"
           type="button"
@@ -121,39 +217,30 @@
           {m.integrated_epics_dismiss()}
         </button>
       {/if}
-      {#if epic.landingState === "open" && epic.landingPrNumber != null}
-        {#if epic.landingPrUrl}
+      {#if !isOpen}
+        {#if epic.landingState === "merged" && epic.landingPrNumber != null}
+          {#if epic.landingPrUrl}
+            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+            <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+              >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</a
+            >
+          {:else}
+            <span class="awaiting"
+              >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</span
+            >
+          {/if}
+        {:else if epic.landingState === "error"}
+          <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
+        {:else if parentUrl}
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-          <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
-            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</a
+          <a class="awaiting" href={parentUrl} target="_blank" rel="noopener noreferrer"
+            >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</a
           >
         {:else}
           <span class="awaiting"
-            >{m.integrated_epics_landing_pr({ number: epic.landingPrNumber })}</span
+            >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</span
           >
         {/if}
-      {:else if epic.landingState === "merged" && epic.landingPrNumber != null}
-        {#if epic.landingPrUrl}
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-          <a class="awaiting" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
-            >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</a
-          >
-        {:else}
-          <span class="awaiting"
-            >{m.integrated_epics_landing_pr_merged({ number: epic.landingPrNumber })}</span
-          >
-        {/if}
-      {:else if epic.landingState === "error"}
-        <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
-      {:else if parentUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="awaiting" href={parentUrl} target="_blank" rel="noopener noreferrer"
-          >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</a
-        >
-      {:else}
-        <span class="awaiting"
-          >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</span
-        >
       {/if}
     </div>
   {/if}
@@ -181,6 +268,10 @@
     text-align: left;
     cursor: pointer;
     padding: 4px 8px;
+  }
+  /* Open-landing re-tone: action-needed warn hue on the head */
+  .row-head.row-head-open {
+    color: var(--status-warn);
   }
   .row-head:focus-visible {
     outline: none;
@@ -238,6 +329,15 @@
   .chip-done {
     color: var(--status-done);
     background: color-mix(in oklab, var(--status-done) 12%, transparent);
+  }
+  /* Secondary (smaller, less prominent) done chip alongside the warn pill */
+  .chip-secondary {
+    opacity: 0.7;
+  }
+  /* Warn chip for "Awaiting landing" action-needed state */
+  .chip-warn {
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
 
   /* Expanded rollup. */
@@ -313,6 +413,32 @@
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
 
+  /* Stranded escalation badge — open+unlanded past 6h threshold */
+  .chip-stranded {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+    text-transform: uppercase;
+  }
+
+  /* Inline confirm step — prompt text + migration warning */
+  .confirm-prompt {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .confirm-migration-warn {
+    color: var(--status-warn);
+  }
+
   /* Canonical .gbtn recipe (scoped per-component; see /design-system). */
   .gbtn {
     background: transparent;
@@ -339,5 +465,14 @@
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* Primary confirm button — slightly elevated */
+  .gbtn-primary {
+    border-color: var(--status-warn);
+    color: var(--status-warn);
+  }
+  .gbtn-primary:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
 </style>

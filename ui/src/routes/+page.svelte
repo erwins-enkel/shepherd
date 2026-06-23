@@ -32,6 +32,7 @@
     getCompletedEpics,
     dismissCompletedEpic,
     ackEpicMigrations,
+    landEpic,
     getEpic,
     getDiagnostics,
     halt as apiHalt,
@@ -1567,6 +1568,22 @@
     }
   }
 
+  // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
+  // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
+  async function onLandEpic(repoPath: string, parent: number) {
+    try {
+      await landEpic(repoPath, parent);
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.message ? err.message : m.integrated_epics_land_failed();
+      toasts.info(msg, {
+        alert: true,
+        duration: null,
+        key: `epic-land-fail:${repoPath}#${parent}`,
+      });
+    }
+  }
+
   // Confirmed: clear the dialog state (before the await, so it can't double-submit),
   // then run the bulk archive.
   function confirmClearMerged() {
@@ -1746,6 +1763,7 @@
             holds={store.holds}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            onlandepic={onLandEpic}
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => {
@@ -1905,6 +1923,7 @@
             oncollapse={toggleSidebar}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            onlandepic={onLandEpic}
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}

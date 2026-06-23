@@ -41,6 +41,7 @@ describe("IntegratedEpicRow", () => {
       epic: epic([child({ number: 1 }), child({ number: 2 })]),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     await expect.element(page.getByText("INTEGRATED 2/2")).toBeInTheDocument();
     const chip = document.querySelector(".chip") as HTMLElement;
@@ -67,6 +68,7 @@ describe("IntegratedEpicRow", () => {
       ]),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     // mixed epic: merged counts only integrated children, total counts all → 1/2 (not 2/2)
     await expect.element(page.getByText("INTEGRATED 1/2")).toBeInTheDocument();
@@ -100,6 +102,7 @@ describe("IntegratedEpicRow", () => {
       ]),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -127,6 +130,7 @@ describe("IntegratedEpicRow", () => {
       ]),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -143,31 +147,33 @@ describe("IntegratedEpicRow", () => {
     expect(document.querySelector(".child .closed")).toBeNull();
   });
 
-  it("landingState 'open' with a PR number renders the Landing PR link to landingPrUrl", async () => {
+  it("landingState 'open' with a PR number renders the Land button + awaiting-landing link", async () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], {
         landingState: "open",
         landingPrNumber: 42,
         landingPrUrl: "https://github.com/o/r/pull/42",
+        landingReady: true,
       }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
-    const link = await vi.waitFor(() => {
-      const a = [...document.querySelectorAll(".actions a")].find((el) =>
-        el.textContent?.includes("Landing PR #42"),
-      ) as HTMLAnchorElement | undefined;
-      if (!a) throw new Error("no landing pr link yet");
-      return a;
+    // Land button must be present and enabled
+    const landBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Land epic"));
+      if (!b) throw new Error("no land button yet");
+      return b;
     });
-    expect(link.getAttribute("href")).toBe("https://github.com/o/r/pull/42");
+    expect(landBtn.disabled).toBe(false);
     // not the fallback awaiting-landing copy
     expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting landing");
   });
 
-  it("landingState 'merged' renders the merged Landing PR link, not the awaiting copy", async () => {
+  it("landingState 'merged' renders the merged Landing PR link, no Land button", async () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], {
         landingState: "merged",
@@ -176,6 +182,7 @@ describe("IntegratedEpicRow", () => {
       }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -191,6 +198,9 @@ describe("IntegratedEpicRow", () => {
     // not the "awaiting merge" copy, not the awaiting-landing fallback
     expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting merge");
     expect(document.querySelector(".actions")?.textContent).not.toContain("awaiting landing");
+    // No Land button in merged state
+    const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+    expect(btns.find((b) => b.textContent?.includes("Land epic"))).toBeUndefined();
   });
 
   it("landingState 'error' renders the failure note and NO PR link", async () => {
@@ -202,6 +212,7 @@ describe("IntegratedEpicRow", () => {
       }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -220,6 +231,7 @@ describe("IntegratedEpicRow", () => {
       epic: epic([child({ number: 1 })], { landingState: "pending" }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -238,10 +250,12 @@ describe("IntegratedEpicRow", () => {
       epic: epic([child({ number: 1 })], { repoPath: "/x/y/zrepo", parentIssueNumber: 42 }),
       ondismiss,
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
     const btn = await vi.waitFor(() => {
-      const b = document.querySelector(".actions .gbtn") as HTMLButtonElement | null;
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Dismiss"));
       if (!b) throw new Error("no dismiss yet");
       return b;
     });
@@ -257,9 +271,12 @@ describe("IntegratedEpicRow", () => {
       epic: epic([child({ number: 1 })], {
         migrationPaths: ["server/migrations/001.sql", "drizzle/0002.sql"],
         migrationsAckedAt: null,
+        // landingState defaults to "pending" — ack path is for non-open states
+        landingState: "pending",
       }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
 
@@ -287,6 +304,7 @@ describe("IntegratedEpicRow", () => {
       }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
     await vi.waitFor(() => {
@@ -302,6 +320,7 @@ describe("IntegratedEpicRow", () => {
       epic: epic([child({ number: 1 })], { migrationPaths: [], migrationsAckedAt: null }),
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
     await vi.waitFor(() => {
@@ -319,9 +338,11 @@ describe("IntegratedEpicRow", () => {
         parentIssueNumber: 42,
         migrationPaths: ["migrations/001.sql"],
         migrationsAckedAt: null,
+        landingState: "pending",
       }),
       ondismiss: vi.fn(),
       onackmigrations,
+      onland: vi.fn(),
     });
     (document.querySelector(".row-head") as HTMLButtonElement).click();
     const btn = await vi.waitFor(() => {
@@ -332,5 +353,228 @@ describe("IntegratedEpicRow", () => {
     btn.click();
     expect(onackmigrations).toHaveBeenCalledTimes(1);
     expect(onackmigrations).toHaveBeenCalledWith("/x/y/zrepo", 42);
+  });
+
+  // ── Land epic CTA (#1039) ──────────────────────────────────────────────────
+
+  it("open+ready: Land button present, enabled; clicking shows confirm step; confirming calls onland", async () => {
+    const onland = vi.fn();
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        repoPath: "/x/y/zrepo",
+        parentIssueNumber: 42,
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: true,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland,
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const landBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Land epic"));
+      if (!b) throw new Error("no land button");
+      return b;
+    });
+    expect(landBtn.disabled).toBe(false);
+
+    // click → confirm step appears
+    landBtn.click();
+    const confirmBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.trim() === "Confirm");
+      if (!b) throw new Error("no confirm button");
+      return b;
+    });
+    expect(document.querySelector(".actions")?.textContent).toContain(
+      "Merge the landing PR and close the epic?",
+    );
+
+    // confirm → calls onland with correct args
+    confirmBtn.click();
+    expect(onland).toHaveBeenCalledTimes(1);
+    expect(onland).toHaveBeenCalledWith("/x/y/zrepo", 42);
+  });
+
+  it("open+not-ready: Land button is disabled with a tooltip", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: false,
+        landingChecks: "failure",
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const landBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Land epic"));
+      if (!b) throw new Error("no land button");
+      return b;
+    });
+    expect(landBtn.disabled).toBe(true);
+    expect(landBtn.title).toBeTruthy();
+    expect(landBtn.title).toContain("CI");
+  });
+
+  it("open+landingReady undefined: Land button disabled with generic tooltip", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        // landingReady undefined (forge unreachable)
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const landBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Land epic"));
+      if (!b) throw new Error("no land button");
+      return b;
+    });
+    expect(landBtn.disabled).toBe(true);
+    expect(landBtn.title).toBeTruthy();
+  });
+
+  it("landingStranded: stranded badge is rendered", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: false,
+        landingStranded: true,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const badge = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-stranded") as HTMLElement | null;
+      if (!el) throw new Error("no stranded badge");
+      return el;
+    });
+    expect(badge.textContent?.toLowerCase()).toContain("stranded");
+  });
+
+  it("open+pendingAck: Ack-migrations button NOT rendered; Land button shown; migration warn in confirm step", async () => {
+    const onland = vi.fn();
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: true,
+        migrationPaths: ["migrations/001.sql", "migrations/002.sql"],
+        migrationsAckedAt: null,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland,
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      if (!btns.find((b) => b.textContent?.includes("Land epic"))) throw new Error("no land btn");
+    });
+
+    const actionText = document.querySelector(".actions")?.textContent ?? "";
+    // Ack-migrations button must NOT appear in open state
+    expect(actionText).not.toContain("Acknowledge migrations");
+
+    // click Land → confirm step with migration warning
+    const landBtn = [...document.querySelectorAll(".actions .gbtn")].find((b) =>
+      b.textContent?.includes("Land epic"),
+    ) as HTMLButtonElement;
+    landBtn.click();
+
+    const confirmText = await vi.waitFor(() => {
+      const t = document.querySelector(".actions")?.textContent ?? "";
+      if (!t.includes("migration")) throw new Error("no migration warn in confirm");
+      return t;
+    });
+    expect(confirmText).toContain("2 migration");
+  });
+
+  it("pendingAck+landingState NOT open: Ack-migrations button still rendered (legacy unchanged)", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "pending",
+        migrationPaths: ["migrations/001.sql"],
+        migrationsAckedAt: null,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const ackBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Acknowledge migrations"));
+      if (!b) throw new Error("no ack button");
+      return b;
+    });
+    expect(ackBtn).toBeTruthy();
+    // No Land button when landingState is not "open"
+    const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+    expect(btns.find((b) => b.textContent?.includes("Land epic"))).toBeUndefined();
+  });
+
+  it("confirm cancel: clicking Cancel resets confirming state without calling onland", async () => {
+    const onland = vi.fn();
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: true,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland,
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const landBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.includes("Land epic"));
+      if (!b) throw new Error("no land button");
+      return b;
+    });
+    landBtn.click();
+
+    // Cancel should be visible
+    const cancelBtn = await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      const b = btns.find((el) => el.textContent?.trim() === "Cancel");
+      if (!b) throw new Error("no cancel button");
+      return b;
+    });
+    cancelBtn.click();
+
+    // Land button reappears, onland not called
+    await vi.waitFor(() => {
+      const btns = [...document.querySelectorAll(".actions .gbtn")] as HTMLButtonElement[];
+      if (!btns.find((b) => b.textContent?.includes("Land epic"))) throw new Error("land not back");
+    });
+    expect(onland).not.toHaveBeenCalled();
   });
 });

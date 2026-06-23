@@ -3,8 +3,9 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
+import { makeForgeMemo } from "./forge/resolve";
 import { classifyPr } from "./forge/pr-kind";
-import type { ForgeMap } from "./forge/types";
+import type { ForgeMap, GitForge } from "./forge/types";
 
 /** Default-branch CI rollup state, or null when unknown / no CI / non-GitHub. */
 export type CiStatus = "success" | "failure" | "pending" | null;
@@ -125,8 +126,10 @@ function mapRollupState(state: string | undefined | null): CiStatus {
 }
 
 export class CountsService {
-  /** Resolved forge per repoPath, null = not a supported forge. Immutable once set. */
-  private readonly forgeCache = new Map<string, ReturnType<typeof detectForge>>();
+  /** Forge resolver: positives cached for the process lifetime, negatives (e.g. a repo
+   *  whose `origin` is added later) re-probed after a TTL so they self-heal without a
+   *  restart (#1023). Built in the ctor so `now`/TTL can be injected for tests. */
+  private readonly resolveForgeCached: (repoPath: string) => GitForge | null;
   /** TTL read-through cache: repoPath → {at, value}. */
   private readonly cache = new Map<string, CacheEntry>();
   /** Single-flight: repoPath → in-flight Promise. */
@@ -142,8 +145,11 @@ export class CountsService {
     /** Optional: when provided, lightweight repos are treated as not-forge-backed.
      *  Read per call so a runtime repoMode toggle propagates without a restart. */
     private readonly getRepoConfig?: (repoPath: string) => { repoMode: string },
+    /** Optional clock-seam injection for the negative-forge re-probe TTL (tests only). */
+    forgeMemoOpts?: { negativeTtlMs?: number; now?: () => number },
   ) {
     this.gate = new Semaphore(maxConcurrency);
+    this.resolveForgeCached = makeForgeMemo((dir) => detectForge(dir, this.forges), forgeMemoOpts);
   }
 
   /**
@@ -202,11 +208,8 @@ export class CountsService {
     return promise;
   }
 
-  private resolveForge(repoPath: string): ReturnType<typeof detectForge> {
-    if (!this.forgeCache.has(repoPath)) {
-      this.forgeCache.set(repoPath, detectForge(repoPath, this.forges));
-    }
-    return this.forgeCache.get(repoPath)!;
+  private resolveForge(repoPath: string): GitForge | null {
+    return this.resolveForgeCached(repoPath);
   }
 
   private async fetch(repoPath: string): Promise<RepoCounts> {

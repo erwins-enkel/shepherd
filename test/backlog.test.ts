@@ -553,3 +553,40 @@ test("CountsService: repoMode toggle propagates — flip lightweight→forge tri
   expect(r2.openIssues).toBe(7);
   expect(runnerCalled).toBe(1);
 });
+
+// 11. #1023: a forge dir seen before its `origin` was added re-resolves without a
+// restart — the negative forge result is re-probed once the injected TTL elapses.
+test("CountsService: null forge re-resolves after origin is added past the TTL (#1023)", async () => {
+  const repoDir = join(tmpBase, "late-origin");
+  mkdirSync(repoDir, { recursive: true });
+  spawnSync("git", ["init", "-q"], { cwd: repoDir }); // no `origin` yet
+  const forges: ForgeMap = {};
+
+  let forgeClock = 1_000;
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 12 }, pullRequests: { totalCount: 2 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService(forges, run, fetch, undefined, undefined, {
+    negativeTtlMs: 30_000,
+    now: () => forgeClock,
+  });
+
+  // 1) No origin → no forge → null counts.
+  const before = await svc.refresh(repoDir);
+  expect(before.openIssues).toBeNull();
+
+  // 2) Add origin, but stay inside the negative-TTL window → still treated as no forge.
+  spawnSync("git", ["remote", "add", "origin", "https://github.com/o/late"], { cwd: repoDir });
+  forgeClock = 1_000 + 29_999;
+  const within = await svc.refresh(repoDir);
+  expect(within.openIssues).toBeNull();
+  expect(calls.filter((c) => c.includes("graphql")).length).toBe(0); // not re-probed yet
+
+  // 3) TTL elapses → forge re-probed → GitHub detected → real counts, no restart.
+  forgeClock = 1_000 + 30_000;
+  const after = await svc.refresh(repoDir);
+  expect(after.openIssues).toBe(12);
+  expect(after.openPRs).toBe(2);
+  expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
+});

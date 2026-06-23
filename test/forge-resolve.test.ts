@@ -4,7 +4,7 @@
  * All deps are stubs — no git I/O, no real store.
  */
 import { test, expect } from "bun:test";
-import { makeForgeResolver } from "../src/forge/resolve";
+import { makeForgeResolver, makeForgeMemo } from "../src/forge/resolve";
 import type { LocalForge } from "../src/forge/local";
 import type { GitForge } from "../src/forge/types";
 
@@ -122,6 +122,60 @@ test("toggle: flipping repoMode forge→lightweight propagates immediately", () 
   // flip to lightweight → now returns LocalForge
   mode = "lightweight";
   expect(resolver("/repo/f")?.kind).toBe("local");
+});
+
+// ── makeForgeMemo: negative-TTL re-probe (#1023) ────────────────────────────────
+
+test("makeForgeMemo: positive result is cached for the process lifetime (one detect)", () => {
+  let detectCount = 0;
+  const gh = stubGithubForge();
+  const memo = makeForgeMemo(() => {
+    detectCount++;
+    return gh;
+  });
+
+  expect(memo("/repo/a")).toBe(gh);
+  expect(memo("/repo/a")).toBe(gh);
+  expect(memo("/repo/a")).toBe(gh);
+  expect(detectCount).toBe(1);
+});
+
+test("makeForgeMemo: a negative result is NOT re-probed within the TTL window", () => {
+  let detectCount = 0;
+  let clock = 1_000;
+  const memo = makeForgeMemo(
+    () => {
+      detectCount++;
+      return null;
+    },
+    { negativeTtlMs: 30_000, now: () => clock },
+  );
+
+  expect(memo("/repo/x")).toBeNull(); // first miss → one detect, caches negative @1000
+  clock = 1_000 + 29_999; // still inside the window
+  expect(memo("/repo/x")).toBeNull();
+  expect(detectCount).toBe(1); // not re-probed
+});
+
+test("makeForgeMemo: a negative result is re-probed (and heals) once the TTL elapses", () => {
+  let detectCount = 0;
+  let clock = 1_000;
+  const gh = stubGithubForge();
+  // Simulate `git remote add origin` after the second probe: detect flips null → forge.
+  const memo = makeForgeMemo(
+    () => {
+      detectCount++;
+      return detectCount >= 2 ? gh : null;
+    },
+    { negativeTtlMs: 30_000, now: () => clock },
+  );
+
+  expect(memo("/repo/y")).toBeNull(); // probe #1 → null, caches negative @1000
+  clock = 1_000 + 30_000; // TTL elapsed
+  expect(memo("/repo/y")).toBe(gh); // probe #2 → forge, now cached positive
+  clock = 1_000 + 100_000; // far in the future
+  expect(memo("/repo/y")).toBe(gh); // served from positive cache, no further detect
+  expect(detectCount).toBe(2);
 });
 
 test("two dirs are independent", () => {

@@ -109,6 +109,8 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    automationConfirmed: false,
+    automationRowExists: false,
   });
 });
 
@@ -160,6 +162,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    automationConfirmed: false,
+    automationRowExists: true,
   });
 
   const get = await app.fetch(new Request(url));
@@ -184,6 +188,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    automationConfirmed: false,
+    automationRowExists: true,
   });
 });
 
@@ -218,6 +224,8 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    automationConfirmed: false,
+    automationRowExists: true,
   });
 });
 
@@ -252,6 +260,8 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     defaultModel: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
+    automationConfirmed: false,
+    automationRowExists: true,
   });
 });
 

@@ -2162,13 +2162,13 @@ export class SessionService {
     let queued = 0;
     let offline = 0;
     for (const id of ids) {
-      if (!this.replyToLive(id, text, live)) {
-        offline++;
+      const s = this.deps.store.get(id);
+      if (!s || !live.has(s.herdrAgentId)) {
+        offline++; // unknown id or dead pane — the steer can't land
         continue;
       }
-      // replyToLive already confirmed the session + live pane; classify by its status.
-      const term = this.deps.store.get(id)?.herdrAgentId;
-      if (term && statusByTerminal.get(term) === "working") queued++;
+      this.sendSteerTo(s, text);
+      if (statusByTerminal.get(s.herdrAgentId) === "working") queued++;
       else delivered++;
     }
     return { delivered, queued, offline, total: ids.length };
@@ -2227,6 +2227,15 @@ export class SessionService {
   private replyToLive(id: string, text: string, live: Set<string>): boolean {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
+    this.sendSteerTo(s, text);
+    return true;
+  }
+
+  /** Deliver a human-style steer to an already-resolved, live session: record the reply
+   *  signal, then bracket-paste the text and submit with a CR. Single source for the send
+   *  used by replyToLive (reply/retry) and broadcast (which resolves the session itself so
+   *  it can classify the outcome without a second store lookup). */
+  private sendSteerTo(s: Session, text: string): void {
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
@@ -2238,7 +2247,6 @@ export class SessionService {
     const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
     this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
     this.deps.herdr.send(s.herdrAgentId, "\r");
-    return true;
   }
 
   /**

@@ -42,6 +42,9 @@ function makeForge(opts?: {
     deployConfigured: false,
   };
   const forge: any = {
+    // Host-configured merge method — set to "squash" so the happy-path test proves the handler
+    // uses forge.mergeMethod (not a hardcoded "merge", which would 405 on a squash-only repo).
+    mergeMethod: "squash",
     prStatus: async () => {
       if (opts?.prStatusThrows) throw opts.prStatusThrows;
       return opts?.prStatusResult ?? defaultPrStatus;
@@ -289,7 +292,7 @@ describe("POST /api/epics/completed/land", () => {
     expect(body.error).toMatch(/merge commits disabled/);
   });
 
-  test("happy path: forge.merge called with method:merge+deleteBranch, setEpicLandingPr state merged, epic:completed emitted, 200 ok", async () => {
+  test("happy path: forge.merge called with the host mergeMethod + deleteBranch, setEpicLandingPr state merged, epic:completed emitted, 200 ok", async () => {
     const { forge, mergeCalls } = makeForge();
     const { app, store, epicCompletedEmitted } = landHarness(() => forge);
     seedCompletedEpic(store, repoDir, 42, "open", 77);
@@ -305,9 +308,9 @@ describe("POST /api/epics/completed/land", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 
-    // merge was called with the right method
+    // merge was called with the host-configured method (forge.mergeMethod = "squash"), not a hardcoded "merge"
     expect(mergeCalls).toHaveLength(1);
-    expect(mergeCalls[0]).toEqual({ prNumber: 77, method: "merge", deleteBranch: true });
+    expect(mergeCalls[0]).toEqual({ prNumber: 77, method: "squash", deleteBranch: true });
 
     // store updated to merged
     const updated = store.listEpicCompleted(repoDir).find((r) => r.parentIssueNumber === 42);

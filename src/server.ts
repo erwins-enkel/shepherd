@@ -4656,9 +4656,9 @@ async function resolveLandTarget(
   return { dir, parent, row, forge, branch, pr };
 }
 
-// POST /api/epics/completed/land — body { repo, parent }. Merge the open landing PR using
-// method:"merge" to preserve per-child commit history (squash, the host default, would flatten it).
-// Fail-closed: only merges when computeLandingReady confirms the PR is green + unblocked.
+// POST /api/epics/completed/land — body { repo, parent }. Merge the open landing PR using the
+// host-configured merge method (same as AutoMergeService + the other merge routes), so the feature
+// works on squash-only repos too. Fail-closed: only merges when computeLandingReady confirms green.
 async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (
     !(
@@ -4676,9 +4676,11 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
   const { dir, parent, row, forge } = r;
 
   try {
-    // Use method:"merge" deliberately — a merge commit preserves the epic's per-child commit
-    // history; squash (the host default) would flatten all child commits into one.
-    await forge.merge(row.landingPrNumber!, { method: "merge", deleteBranch: true });
+    // Use the host-configured merge method (mirrors AutoMergeService + the other merge routes) so
+    // the merge respects whatever the repo actually allows. Hardcoding "merge" would 405 on a
+    // squash-only repo even though computeLandingReady reports ready (mergeStateStatus reflects
+    // branch state, not method availability), making the CTA fire a doomed merge there.
+    await forge.merge(row.landingPrNumber!, { method: forge.mergeMethod, deleteBranch: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return json({ error: msg }, 502);

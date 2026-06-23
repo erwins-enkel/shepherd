@@ -101,7 +101,12 @@ import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
 import { importEpicLinks, type ImportResult } from "./epic-import";
-import { buildRollup, type CompletedEpic } from "./completed-epic";
+import {
+  buildRollup,
+  computeLandingReady,
+  computeLandingStranded,
+  type CompletedEpic,
+} from "./completed-epic";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize } from "node:path";
@@ -4512,13 +4517,45 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   for (const repo of scopeRepos) await reconcileCompletedEpicsForRepo(deps, repo);
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.
-  const rows = deps.store.listEpicCompleted(repoFilter).map((row): CompletedEpic => {
+  const dbRows = deps.store.listEpicCompleted(repoFilter);
+  const baseRows: Array<
+    CompletedEpic & { repoPath: string; parentIssueNumber: number; completedAt: number }
+  > = dbRows.map((row) => {
     // landingAttempts is an internal retry counter, not part of the CompletedEpic response.
     const { childrenJson, landingAttempts, ...rest } = row;
     void landingAttempts;
     return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
   });
-  return json(rows);
+
+  // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
+  // errors must NOT 500 this route; just omit the live fields for that row).
+  const now = Date.now();
+  await Promise.all(
+    baseRows.map(async (row) => {
+      if (row.landingState !== "open") return;
+      const branch = deps.store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber);
+      if (branch === null) return;
+      const forge = deps.resolveForge?.(row.repoPath);
+      if (!forge) return;
+      try {
+        const pr = await forge.prStatus(branch);
+        row.landingChecks = pr.checks;
+        row.landingMergeable = pr.mergeable ?? null;
+        const landingReady = computeLandingReady(pr);
+        row.landingReady = landingReady;
+        row.landingStranded = computeLandingStranded({
+          landingState: "open",
+          landingReady,
+          completedAt: row.completedAt,
+          now,
+        });
+      } catch {
+        // leave live fields undefined — always serve DB rows
+      }
+    }),
+  );
+
+  return json(baseRows);
 }
 
 // POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
@@ -4573,6 +4610,90 @@ async function handleEpicsCompletedAckMigrations({
   return json({ ok: true });
 }
 
+// POST /api/epics/completed/land — body { repo, parent }. Merge the open landing PR using
+// method:"merge" to preserve per-child commit history (squash, the host default, would flatten it).
+// Fail-closed: only merges when computeLandingReady confirms the PR is green + unblocked.
+async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    !(
+      req.method === "POST" &&
+      parts[0] === "api" &&
+      parts[1] === "epics" &&
+      parts[2] === "completed" &&
+      parts[3] === "land"
+    )
+  )
+    return null;
+  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parent = body?.parent;
+  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+
+  const row = deps.store.listEpicCompleted(dir).find((r) => r.parentIssueNumber === parent);
+  if (!row) return json({ error: "no completed epic" }, 409);
+  if (row.landingState !== "open" || row.landingPrNumber == null)
+    return json({ error: "landing not open" }, 409);
+
+  const forge = deps.resolveForge?.(dir);
+  if (!forge) return json({ error: "no forge" }, 409);
+
+  const branch = deps.store.getEpicIntegrationBranch(dir, parent);
+  if (branch === null) return json({ error: "no integration branch" }, 409);
+
+  let pr;
+  try {
+    pr = await forge.prStatus(branch);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return json({ error: msg }, 502);
+  }
+
+  if (!computeLandingReady(pr)) return json({ error: "landing PR not ready" }, 409);
+
+  try {
+    // Use method:"merge" deliberately — a merge commit preserves the epic's per-child commit
+    // history; squash (the host default) would flatten all child commits into one.
+    await forge.merge(row.landingPrNumber, { method: "merge", deleteBranch: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return json({ error: msg }, 502);
+  }
+
+  deps.store.setEpicLandingPr(dir, parent, {
+    state: "merged",
+    prNumber: row.landingPrNumber,
+    prUrl: row.landingPrUrl,
+    attempts: row.landingAttempts,
+  });
+
+  // Re-read the row and emit updated CompletedEpic (mirrors emitCompleted in drain.ts).
+  const updatedRow = deps.store.listEpicCompleted(dir).find((r) => r.parentIssueNumber === parent);
+  if (updatedRow) {
+    try {
+      const children = JSON.parse(updatedRow.childrenJson) as CompletedEpic["children"];
+      const completed: CompletedEpic = {
+        repoPath: dir,
+        parentIssueNumber: parent,
+        parentTitle: updatedRow.parentTitle,
+        completedAt: updatedRow.completedAt,
+        children,
+        landingPrNumber: updatedRow.landingPrNumber,
+        landingPrUrl: updatedRow.landingPrUrl,
+        landingState: updatedRow.landingState,
+        migrationPaths: updatedRow.migrationPaths,
+        migrationsAckedAt: updatedRow.migrationsAckedAt,
+      };
+      deps.events?.emit("epic:completed", completed);
+    } catch {
+      // best-effort emit; a bad childrenJson must not fail the land endpoint
+    }
+  }
+
+  return json({ ok: true });
+}
+
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
   handlePing,
@@ -4593,6 +4714,7 @@ const ROUTE_HANDLERS = [
   handleEpicsList,
   handleEpicsCompletedDismiss,
   handleEpicsCompletedAckMigrations,
+  handleEpicsCompletedLand,
   handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,

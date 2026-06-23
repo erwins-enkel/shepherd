@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { buildRollup } from "../src/completed-epic";
+import {
+  buildRollup,
+  computeLandingReady,
+  computeLandingStranded,
+  EPIC_LANDING_STRANDED_MS,
+} from "../src/completed-epic";
 
 describe("buildRollup", () => {
   it("child WITH detail row → integrated true, PR facts from row", () => {
@@ -107,5 +112,173 @@ describe("buildRollup", () => {
     expect(result.at(0)?.integrated).toBe(true);
     expect(result.at(1)?.integrated).toBe(true);
     expect(result.at(2)?.integrated).toBe(false);
+  });
+});
+
+// ── computeLandingReady ───────────────────────────────────────────────────────
+
+describe("computeLandingReady", () => {
+  it("clean+success+mergeable → ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(true);
+  });
+
+  it("has_hooks → ready (protected branches that still allow merge via hooks)", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "has_hooks",
+      }),
+    ).toBe(true);
+  });
+
+  it("blocked → NOT ready (branch-protection would reject the merge)", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "blocked",
+      }),
+    ).toBe(false);
+  });
+
+  it("behind → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "behind",
+      }),
+    ).toBe(false);
+  });
+
+  it("dirty → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "dirty",
+      }),
+    ).toBe(false);
+  });
+
+  it("unstable → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "unstable",
+      }),
+    ).toBe(false);
+  });
+
+  it("Gitea (undefined mergeStateStatus) + clean signals → ready", () => {
+    expect(computeLandingReady({ state: "open", checks: "success", mergeable: true })).toBe(true);
+  });
+
+  it("not-open → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "merged",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(false);
+  });
+
+  it("checks failure → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "failure",
+        mergeable: true,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(false);
+  });
+
+  it("mergeable=false → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: false,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(false);
+  });
+
+  it("mergeable=null → NOT ready", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "success",
+        mergeable: null,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(false);
+  });
+});
+
+// ── computeLandingStranded ────────────────────────────────────────────────────
+
+describe("computeLandingStranded", () => {
+  const completedAt = 1_000_000;
+
+  it("just under the threshold → NOT stranded", () => {
+    expect(
+      computeLandingStranded({
+        landingState: "open",
+        landingReady: true,
+        completedAt,
+        now: completedAt + EPIC_LANDING_STRANDED_MS - 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("just over the threshold → stranded", () => {
+    expect(
+      computeLandingStranded({
+        landingState: "open",
+        landingReady: true,
+        completedAt,
+        now: completedAt + EPIC_LANDING_STRANDED_MS + 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("not-ready → NOT stranded even when old", () => {
+    expect(
+      computeLandingStranded({
+        landingState: "open",
+        landingReady: false,
+        completedAt,
+        now: completedAt + EPIC_LANDING_STRANDED_MS + 99999,
+      }),
+    ).toBe(false);
+  });
+
+  it("landingState != 'open' → NOT stranded", () => {
+    expect(
+      computeLandingStranded({
+        landingState: "pending",
+        landingReady: true,
+        completedAt,
+        now: completedAt + EPIC_LANDING_STRANDED_MS + 1,
+      }),
+    ).toBe(false);
   });
 });

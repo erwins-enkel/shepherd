@@ -1136,6 +1136,16 @@ export class SessionStore implements CapStore, CreditStore {
     return derived;
   }
 
+  /** SELECT-only sibling of getOrInitEpicIntegrationBranch. Returns the pinned integration
+   *  branch for an epic, or null when no pin exists. Safe to call from read paths — never
+   *  INSERTs a row. */
+  getEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): string | null {
+    const row = this.db
+      .query(`SELECT branch FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`)
+      .get(repoPath, parentIssueNumber) as { branch: string } | null;
+    return row?.branch ?? null;
+  }
+
   /** Record that a child PR was squash-merged into the epic integration branch.
    *  Idempotent (PK upsert) — the drain may re-observe a merge across pumps.
    *  On conflict, updates only PR columns (guarded by COALESCE so a null re-observe

@@ -343,6 +343,38 @@ describe("NewTask plan-gate inheritance", () => {
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
   });
+
+  it("first-task confirm replays force from 'Submit anyway' (no silent downgrade to hold)", async () => {
+    // Brand-new repo (unconfirmed, no row) that ALSO hits a likely usage hold. Clicking
+    // "Submit anyway" (force=true) must keep force=true through the confirm step — not get
+    // downgraded to force=false (which would silently become "Hold for reset").
+    const repoPath = "/repo/force-through-confirm";
+    mockGetRepoConfig.mockResolvedValue({
+      ...repoConfig(false),
+      automationConfirmed: false,
+      automationRowExists: false,
+    });
+    mockPutRepoConfig.mockResolvedValue({ ...repoConfig(false), automationConfirmed: true });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath, holdLikely: true } });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const anyway = () => document.querySelector<HTMLButtonElement>("button.run-anyway")!;
+    await expect.poll(() => anyway().disabled).toBe(false);
+    anyway().click(); // submit(e, true)
+
+    // first task on this repo → confirm step intercepts before spawning
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    expect(onsubmit).not.toHaveBeenCalled();
+
+    await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    // force must survive the confirm step
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ force: true });
+  });
 });
 
 describe("NewTask autopilot override", () => {

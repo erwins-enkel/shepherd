@@ -145,6 +145,9 @@
   let retry = $state<(() => void) | null>(null);
   // True while the first-task confirm step is shown (unconfirmed repo intercept)
   let confirmStep = $state(false);
+  // Carries the `force` flag (e.g. "Submit anyway" past a usage hold) across the confirm
+  // step so confirming a first-task repo replays the original intent, not a downgraded force=false.
+  let pendingForce = $state(false);
 
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
@@ -610,6 +613,7 @@
       // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
       // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
       if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
+      pendingForce = force; // replay the original force intent after confirmation
       confirmStep = true;
       return;
     }
@@ -632,7 +636,7 @@
     // doSpawn sets submitting=true at entry and resets it in its finally; since we
     // already set it true above, doSpawn must NOT bail on the guard — it sets it
     // unconditionally at entry so there is no double-true problem.
-    await doSpawn(false);
+    await doSpawn(pendingForce); // replay the force captured when the step opened
   }
 </script>
 

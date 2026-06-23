@@ -1850,5 +1850,10 @@
   "feat_why_parked_title": "Why is this parked?",
   "feat_why_parked_body": "Held, blocked and gate-stuck sessions now show a one-line reason on the card and in the triage drawer — so you can see why a session needs you at a glance.",
   "feat_usage_task_names_title": "Task names in Usage",
-  "feat_usage_task_names_body": "The per-task rows in the Usage → Spend and Overhead lenses now show each task's short name alongside its designation — so you can tell tasks apart at a glance instead of reading IDs."
+  "feat_usage_task_names_body": "The per-task rows in the Usage → Spend and Overhead lenses now show each task's short name alongside its designation — so you can tell tasks apart at a glance instead of reading IDs.",
+  "firsttask_confirm_title": "Confirm automation settings",
+  "firsttask_confirm_intro": "Shepherd hasn't driven {repo} before. Review the automation settings below — they apply to every task on this repo — then confirm to start this one.",
+  "firsttask_confirm_cta": "Confirm & start task",
+  "feat_first_task_confirm_title": "Review settings before the first task",
+  "feat_first_task_confirm_body": "Starting a task on a new repo now shows a quick review step so you can check automation settings before the first run. After confirming once, future tasks on the same repo start without interruption."
 }

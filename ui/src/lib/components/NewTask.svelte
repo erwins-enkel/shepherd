@@ -27,6 +27,7 @@
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import NewTaskRunSettings from "./new-task/NewTaskRunSettings.svelte";
+  import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -142,6 +143,8 @@
   let error = $state<string | null>(null);
   // re-invokes whichever action last failed (upload or create) from an inline Retry
   let retry = $state<(() => void) | null>(null);
+  // True while the first-task confirm step is shown (unconfirmed repo intercept)
+  let confirmStep = $state(false);
 
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
@@ -549,9 +552,7 @@
     e.stopPropagation();
   }
 
-  async function submit(e: Event, force = false) {
-    e.preventDefault();
-    if (!prompt.trim() || !repoPath.trim() || submitting) return;
+  async function doSpawn(force = false) {
     submitting = true;
     error = null;
     retry = null;
@@ -583,10 +584,10 @@
         // The page maps relaunch ApiError codes to localized messages before
         // throwing; render that verbatim, falling back to a generic relaunch error.
         error = reason(err, m.relaunch_failed());
-        retry = () => submit(e);
+        retry = () => doSpawn(force);
       } else {
         error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
-        retry = () => submit(e);
+        retry = () => doSpawn(force);
       }
     } finally {
       // Clear submitting on every path. This only matters for the error path, where the
@@ -594,6 +595,37 @@
       // the success and held paths both close the dialog page-side, so it's harmless there.
       submitting = false;
     }
+  }
+
+  async function submit(e: Event, force = false) {
+    e.preventDefault();
+    if (!prompt.trim() || !repoPath.trim() || submitting) return;
+    const repo = repoPath.trim();
+    // Settle the repo config BEFORE reading confirm/rowExists — an in-flight fetch reads both falsy,
+    // which would spuriously show the step for a confirmed repo AND fail the !rowExists seed guard,
+    // clobbering an existing repo's plan-gate. ensure() is idempotent + populates the maps before it
+    // resolves. (Same settledness concern the inline plan-gate box handles via isConfigSettled.)
+    await repoConfig.ensure(repo);
+    if (!repoConfig.isAutomationConfirmed(repo)) {
+      // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
+      // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
+      if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
+      confirmStep = true;
+      return;
+    }
+    await doSpawn(force);
+  }
+
+  async function confirmAndSpawn() {
+    const repo = repoPath.trim();
+    try {
+      await repoConfig.confirmAutomation(repo);
+    } catch (err) {
+      error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+      return; // stay on the step; do NOT spawn if the confirm PUT failed
+    }
+    confirmStep = false;
+    await doSpawn(false);
   }
 </script>
 
@@ -638,220 +670,237 @@
       >
     </div>
 
-    <div class="repo-field" use:coachTarget={"nt-repo"}>
-      <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
-      <RepoSelect
-        bind:this={repoSelect}
-        {repos}
-        windowDays={recentRepoWindowDays}
-        value={repoPath}
-        onchange={(p) => (repoPath = p)}
-        {onclone}
-        {onfork}
-        {onnewproject}
-        onsync={handleSync}
-        onescape={() => promptInput?.focus()}
+    {#if confirmStep}
+      <FirstTaskAutomationConfirm
+        repoPath={repoPath.trim()}
+        {submitting}
+        onconfirm={confirmAndSpawn}
+        oncancel={() => (confirmStep = false)}
       />
-    </div>
+    {:else}
+      <div class="repo-field" use:coachTarget={"nt-repo"}>
+        <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
+        <RepoSelect
+          bind:this={repoSelect}
+          {repos}
+          windowDays={recentRepoWindowDays}
+          value={repoPath}
+          onchange={(p) => (repoPath = p)}
+          {onclone}
+          {onfork}
+          {onnewproject}
+          onsync={handleSync}
+          onescape={() => promptInput?.focus()}
+        />
+      </div>
 
-    {#if !coarse.current}
-      <span class="hint repo-shortcuts-hint">
-        {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
-      </span>
-    {/if}
+      {#if !coarse.current}
+        <span class="hint repo-shortcuts-hint">
+          {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
+        </span>
+      {/if}
 
-    {#if relaunch}
-      <div class="relaunch-note">
-        <span>{m.newtask_relaunch_note()}</span>
-        {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
-          <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+      {#if relaunch}
+        <div class="relaunch-note">
+          <span>{m.newtask_relaunch_note()}</span>
+          {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
+            <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+          {/if}
+        </div>
+      {/if}
+
+      <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
+      <div class="prompt-wrap">
+        <textarea
+          id="nt-prompt"
+          bind:this={promptInput}
+          bind:value={prompt}
+          data-1p-ignore
+          rows="3"
+          placeholder={m.newtask_prompt_placeholder()}
+          oninput={onPromptInput}
+          onkeydown={onPromptKeydown}
+          onblur={() => (slashOpen = false)}
+          required></textarea>
+        {#if slashOpen}
+          <SlashCommandMenu
+            commands={slashMatches}
+            activeIndex={slashIndex}
+            onpick={pickCommand}
+            onhover={(i) => (slashIndex = i)}
+          />
         {/if}
       </div>
-    {/if}
+      <div class="attach-row">
+        <button
+          type="button"
+          class="attach"
+          onclick={() => fileInput?.click()}
+          disabled={uploading}
+        >
+          {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
+        </button>
+        <span class="hint">{m.newtask_drop_hint()}</span>
+      </div>
+      {#if relaunch}
+        <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
+      {/if}
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onchange={(e) => {
+          const t = e.currentTarget;
+          if (t.files) addFiles(t.files);
+          t.value = "";
+        }}
+      />
+      {#if images.length > 0}
+        <div class="chips">
+          {#each images as img (img.path)}
+            <span class="chip">
+              <span class="chip-name">{img.name}</span>
+              <button
+                type="button"
+                class="chip-x"
+                onclick={() => removeImage(img.path)}
+                aria-label={m.newtask_remove_image_aria()}>✕</button
+              >
+            </span>
+          {/each}
+        </div>
+      {/if}
 
-    <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
-    <div class="prompt-wrap">
-      <textarea
-        id="nt-prompt"
-        bind:this={promptInput}
-        bind:value={prompt}
-        data-1p-ignore
-        rows="3"
-        placeholder={m.newtask_prompt_placeholder()}
-        oninput={onPromptInput}
-        onkeydown={onPromptKeydown}
-        onblur={() => (slashOpen = false)}
-        required></textarea>
-      {#if slashOpen}
-        <SlashCommandMenu
-          commands={slashMatches}
-          activeIndex={slashIndex}
-          onpick={pickCommand}
-          onhover={(i) => (slashIndex = i)}
+      {#if issueRef && !relaunch}
+        <div class="issue-ref">
+          <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
+          <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
+            >#{issueRef.number} {issueRef.title}</a
+          >
+          <button
+            type="button"
+            class="issue-ref-x"
+            onclick={() => (issueRef = null)}
+            aria-label={m.newtask_issue_remove_aria()}>✕</button
+          >
+        </div>
+      {/if}
+
+      {#if repoPath}
+        <PromptSources
+          {repoPath}
+          {epicParents}
+          {nativeSubIssues}
+          {epicsLoaded}
+          allowIssues={!relaunch}
+          onpick={(p) => {
+            prompt = p;
+            // resize, then land focus + caret at the end so a seeded command like
+            // "/merge-train " is immediately editable for args
+            queueMicrotask(() => {
+              autogrow();
+              promptInput?.focus();
+              promptInput?.setSelectionRange(prompt.length, prompt.length);
+            });
+          }}
+          onpickissue={pickIssue}
         />
       {/if}
-    </div>
-    <div class="attach-row">
-      <button type="button" class="attach" onclick={() => fileInput?.click()} disabled={uploading}>
-        {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
-      </button>
-      <span class="hint">{m.newtask_drop_hint()}</span>
-    </div>
-    {#if relaunch}
-      <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
-    {/if}
-    <input
-      bind:this={fileInput}
-      type="file"
-      accept="image/*"
-      multiple
-      hidden
-      onchange={(e) => {
-        const t = e.currentTarget;
-        if (t.files) addFiles(t.files);
-        t.value = "";
-      }}
-    />
-    {#if images.length > 0}
-      <div class="chips">
-        {#each images as img (img.path)}
-          <span class="chip">
-            <span class="chip-name">{img.name}</span>
-            <button
-              type="button"
-              class="chip-x"
-              onclick={() => removeImage(img.path)}
-              aria-label={m.newtask_remove_image_aria()}>✕</button
-            >
-          </span>
-        {/each}
-      </div>
-    {/if}
 
-    {#if issueRef && !relaunch}
-      <div class="issue-ref">
-        <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
-        <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
-          >#{issueRef.number} {issueRef.title}</a
+      <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
+      {#if branches.length > 0}
+        <select id="nt-base" bind:value={baseBranch}>
+          {#each baseOptions as b (b)}
+            <option value={b}>{b}</option>
+          {/each}
+        </select>
+      {:else}
+        <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
+      {/if}
+      {#if upstreamLoading}
+        <span class="nt-upstream micro">{m.newtask_upstream_checking()}</span>
+      {:else if upstream?.diverged}
+        <span class="nt-upstream micro nt-upstream-warn">
+          {m.newtask_upstream_diverged({
+            behind: upstream.behind,
+            ahead: upstream.ahead,
+            base: baseBranch,
+          })}
+        </span>
+      {:else if upstream && upstream.behind > 0}
+        <span class="nt-upstream micro"
+          >{m.newtask_upstream_behind({ count: upstream.behind })}</span
         >
-        <button
-          type="button"
-          class="issue-ref-x"
-          onclick={() => (issueRef = null)}
-          aria-label={m.newtask_issue_remove_aria()}>✕</button
-        >
-      </div>
-    {/if}
+      {/if}
 
-    {#if repoPath}
-      <PromptSources
+      <NewTaskRunSettings
+        bind:planGate
+        bind:research
+        bind:autopilot
+        bind:model
+        bind:sandboxProfile
+        onPlanGateTouched={() => (planGateTouched = true)}
+        onAutopilotTouched={() => (autopilotTouched = true)}
+        onModelTouched={() => (modelTouched = true)}
+        {planGateLoading}
+        {autopilotLoading}
+        {autopilotDefault}
         {repoPath}
-        {epicParents}
-        {nativeSubIssues}
-        {epicsLoaded}
-        allowIssues={!relaunch}
-        onpick={(p) => {
-          prompt = p;
-          // resize, then land focus + caret at the end so a seeded command like
-          // "/merge-train " is immediately editable for args
-          queueMicrotask(() => {
-            autogrow();
-            promptInput?.focus();
-            promptInput?.setSelectionRange(prompt.length, prompt.length);
-          });
-        }}
-        onpickissue={pickIssue}
+        {relaunch}
+        {fableAvailable}
       />
-    {/if}
 
-    <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
-    {#if branches.length > 0}
-      <select id="nt-base" bind:value={baseBranch}>
-        {#each baseOptions as b (b)}
-          <option value={b}>{b}</option>
-        {/each}
-      </select>
-    {:else}
-      <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
-    {/if}
-    {#if upstreamLoading}
-      <span class="nt-upstream micro">{m.newtask_upstream_checking()}</span>
-    {:else if upstream?.diverged}
-      <span class="nt-upstream micro nt-upstream-warn">
-        {m.newtask_upstream_diverged({
-          behind: upstream.behind,
-          ahead: upstream.ahead,
-          base: baseBranch,
-        })}
-      </span>
-    {:else if upstream && upstream.behind > 0}
-      <span class="nt-upstream micro">{m.newtask_upstream_behind({ count: upstream.behind })}</span>
-    {/if}
+      {#if error}
+        <div class="err" role="alert">
+          <span>{error}</span>
+          {#if retry}
+            <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button
+            >
+          {/if}
+        </div>
+      {/if}
 
-    <NewTaskRunSettings
-      bind:planGate
-      bind:research
-      bind:autopilot
-      bind:model
-      bind:sandboxProfile
-      onPlanGateTouched={() => (planGateTouched = true)}
-      onAutopilotTouched={() => (autopilotTouched = true)}
-      onModelTouched={() => (modelTouched = true)}
-      {planGateLoading}
-      {autopilotLoading}
-      {autopilotDefault}
-      {repoPath}
-      {relaunch}
-      {fableAvailable}
-    />
-
-    {#if error}
-      <div class="err" role="alert">
-        <span>{error}</span>
-        {#if retry}
-          <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button>
-        {/if}
-      </div>
-    {/if}
-
-    {#if holdLikely}
-      <div class="run-dual">
+      {#if holdLikely}
+        <div class="run-dual">
+          <button
+            class="run run-hold"
+            type="button"
+            disabled={submitting}
+            onclick={(e) => submit(e, false)}
+          >
+            <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
+          </button>
+          <button
+            class="run run-anyway"
+            type="button"
+            disabled={submitting}
+            onclick={(e) => submit(e, true)}
+          >
+            <span>{m.newtask_submit_anyway()}</span>
+          </button>
+        </div>
+      {:else}
         <button
-          class="run run-hold"
-          type="button"
+          class="run"
+          type="submit"
           disabled={submitting}
-          onclick={(e) => submit(e, false)}
+          title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
         >
-          <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
+          <span
+            >{submitting
+              ? m.newtask_spawning()
+              : selectedRepoName
+                ? m.newtask_submit_in_repo({ repo: selectedRepoName })
+                : m.newtask_submit()}</span
+          >
+          {#if !submitting && !coarse.current}
+            <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
+          {/if}
         </button>
-        <button
-          class="run run-anyway"
-          type="button"
-          disabled={submitting}
-          onclick={(e) => submit(e, true)}
-        >
-          <span>{m.newtask_submit_anyway()}</span>
-        </button>
-      </div>
-    {:else}
-      <button
-        class="run"
-        type="submit"
-        disabled={submitting}
-        title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
-      >
-        <span
-          >{submitting
-            ? m.newtask_spawning()
-            : selectedRepoName
-              ? m.newtask_submit_in_repo({ repo: selectedRepoName })
-              : m.newtask_submit()}</span
-        >
-        {#if !submitting && !coarse.current}
-          <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
-        {/if}
-      </button>
+      {/if}
     {/if}
   </form>
 </div>

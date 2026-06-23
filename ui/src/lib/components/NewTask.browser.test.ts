@@ -10,8 +10,10 @@ import {
   getTodo,
   listBranches,
   getRepoConfig,
+  putRepoConfig,
   listRepos,
   branchStatus,
+  getCommands,
 } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
@@ -24,24 +26,32 @@ vi.mock("$lib/api", async (importOriginal) => {
     getTodo: vi.fn(),
     listBranches: vi.fn(),
     getRepoConfig: vi.fn(),
+    putRepoConfig: vi.fn(),
     listRepos: vi.fn(),
     branchStatus: vi.fn(),
+    getCommands: vi.fn(),
   };
 });
 
 const { default: NewTask } = await import("./NewTask.svelte");
+const { default: FirstTaskAutomationConfirm } = await import("./FirstTaskAutomationConfirm.svelte");
 
 const mockListIssues = vi.mocked(listIssues);
 const mockGetEpics = vi.mocked(getEpics);
 const mockGetTodo = vi.mocked(getTodo);
 const mockListBranches = vi.mocked(listBranches);
 const mockGetRepoConfig = vi.mocked(getRepoConfig);
+const mockPutRepoConfig = vi.mocked(putRepoConfig);
 const mockListRepos = vi.mocked(listRepos);
 const mockBranchStatus = vi.mocked(branchStatus);
+const mockGetCommands = vi.mocked(getCommands);
 
 // A full RepoConfig with the plan gate flag overridable; the composer only reads
-// planGateEnabled but the store ingests the whole shape.
-function repoConfig(planGateEnabled: boolean): RepoConfig {
+// planGateEnabled but the store ingests the whole shape. automationConfirmed defaults
+// to true so existing tests (which don't test the confirm step) bypass the gate.
+function repoConfig(
+  planGateEnabled: boolean,
+): RepoConfig & { automationConfirmed: boolean; automationRowExists: boolean } {
   return {
     criticEnabled: true,
     criticAllPrs: false,
@@ -61,6 +71,8 @@ function repoConfig(planGateEnabled: boolean): RepoConfig {
     defaultModel: "inherit",
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    automationConfirmed: true,
+    automationRowExists: true,
   };
 }
 
@@ -70,8 +82,10 @@ beforeEach(() => {
   mockGetTodo.mockReset();
   mockListBranches.mockReset();
   mockGetRepoConfig.mockReset();
+  mockPutRepoConfig.mockReset();
   mockListRepos.mockReset();
   mockBranchStatus.mockReset();
+  mockGetCommands.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
@@ -79,7 +93,9 @@ beforeEach(() => {
   mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
   mockListBranches.mockResolvedValue({ current: "main", branches: ["main"], default: null });
   mockGetRepoConfig.mockResolvedValue(repoConfig(false));
+  mockPutRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+  mockGetCommands.mockResolvedValue({ commands: [] });
   // Default: up to date — no hint rendered
   mockBranchStatus.mockResolvedValue({
     behind: 0,
@@ -315,7 +331,15 @@ describe("NewTask plan-gate inheritance", () => {
     await expect.poll(() => planGateBox().disabled).toBe(false);
     expect(planGateBox().checked).toBe(false);
 
+    // After a failed fetch, automationConfirmed is unknown (false default) → the
+    // first-task confirm step appears to let the user review settings before spawning.
+    // Mock putRepoConfig so seedNewRepoDefaults and confirmAutomation can resolve.
+    mockPutRepoConfig.mockResolvedValue({ ...repoConfig(false), automationConfirmed: true });
     await fillAndSubmit();
+    // confirm step appears (not an immediate spawn)
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    // clicking Confirm proceeds to spawn with planGateEnabled:null (box untouched)
+    await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
   });
@@ -832,5 +856,262 @@ describe("NewTask fableAvailable prop", () => {
 
     // No <p class="micro"> inside .model-field should render when fable is available
     expect(document.querySelector(".model-field p.micro")).toBeNull();
+  });
+});
+
+// ── Helpers shared by the confirm-step test suites ──────────────────────────
+
+/** A RepoConfigResponse for unconfirmed brand-new repos (no row yet). */
+function unconfirmedNewRepoConfig(): RepoConfig & {
+  automationConfirmed: boolean;
+  automationRowExists: boolean;
+} {
+  return {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    planGateEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    sandboxProfile: "trusted",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    defaultModel: "inherit",
+    repoMode: "forge",
+    autoOptimizeFlagged: false,
+    automationConfirmed: false,
+    automationRowExists: false,
+  };
+}
+
+/** A RepoConfigResponse for repos that have a row but haven't confirmed yet. */
+function unconfirmedExistingRepoConfig(): RepoConfig & {
+  automationConfirmed: boolean;
+  automationRowExists: boolean;
+} {
+  return { ...unconfirmedNewRepoConfig(), automationRowExists: true };
+}
+
+/** A RepoConfigResponse for confirmed repos. */
+function confirmedRepoConfig(): RepoConfig & {
+  automationConfirmed: boolean;
+  automationRowExists: boolean;
+} {
+  return { ...unconfirmedNewRepoConfig(), automationConfirmed: true, automationRowExists: true };
+}
+
+async function fillPromptAndClickRun() {
+  const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  promptField.value = "do the thing";
+  promptField.dispatchEvent(new Event("input", { bubbles: true }));
+  // Wait for the run button to be enabled (prompt filled)
+  const runBtn = () => document.querySelector<HTMLButtonElement>("button.run");
+  await expect.poll(() => runBtn()?.disabled).toBe(false);
+  runBtn()!.click();
+}
+
+describe("NewTask first-task confirm step", () => {
+  it("confirmed repo: Run calls onsubmit directly, no confirm step shown", async () => {
+    const repoPath = "/repo/ftac-confirmed";
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    // Wait for config to settle (plan-gate box becomes enabled)
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+
+    await fillPromptAndClickRun();
+
+    // Confirm step must NOT appear
+    expect(document.querySelector(".ftac")).toBeNull();
+    // onsubmit must have been called
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  });
+
+  it("unconfirmed brand-new repo: Run shows confirm step, does NOT call onsubmit, calls seedNewRepoDefaults", async () => {
+    const repoPath = "/repo/ftac-new-unconfirmed";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    // putRepoConfig is called by seedNewRepoDefaults
+    mockPutRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Confirm step appears
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    // onsubmit must NOT have been called
+    expect(onsubmit).not.toHaveBeenCalled();
+    // putRepoConfig was called for seedNewRepoDefaults (planGateEnabled: true)
+    await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const seedCall = mockPutRepoConfig.mock.calls.find((c) => c[1]?.planGateEnabled === true);
+    expect(seedCall).toBeTruthy();
+  });
+
+  it("unconfirmed but row exists: confirm step appears, seedNewRepoDefaults NOT called", async () => {
+    const repoPath = "/repo/ftac-existing-unconfirmed";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedExistingRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Confirm step appears
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    // putRepoConfig must NOT have been called (no seed)
+    expect(mockPutRepoConfig).not.toHaveBeenCalled();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("Confirm: calls confirmAutomation (putRepoConfig with automationConfirmed:true) then onsubmit", async () => {
+    const repoPath = "/repo/ftac-confirm-action";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    // seed call
+    mockPutRepoConfig.mockResolvedValueOnce(unconfirmedNewRepoConfig());
+    // confirm call
+    mockPutRepoConfig.mockResolvedValueOnce(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Wait for confirm step
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+
+    // Click Confirm
+    const confirmBtn = page.getByRole("button", { name: m.firsttask_confirm_cta() });
+    await confirmBtn.click();
+
+    // onsubmit must have been called
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    // putRepoConfig was called with automationConfirmed: true
+    const confirmCall = mockPutRepoConfig.mock.calls.find(
+      (c) => c[1]?.automationConfirmed === true,
+    );
+    expect(confirmCall).toBeTruthy();
+  });
+
+  it("Cancel: hides confirm step and does NOT call onsubmit", async () => {
+    const repoPath = "/repo/ftac-cancel";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    mockPutRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    // Wait for confirm step
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+
+    // Click Cancel
+    const cancelBtn = page.getByRole("button", { name: m.common_cancel() });
+    await cancelBtn.click();
+
+    // Confirm step is gone; back to form
+    await expect.poll(() => document.querySelector(".ftac")).toBeFalsy();
+    await expect.poll(() => document.querySelector("#nt-prompt")).toBeTruthy();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("settle race: ensure resolving to confirmed repo spawns directly with no spurious step", async () => {
+    const repoPath = "/repo/ftac-settle-race";
+
+    let resolveConfig!: (v: RepoConfig) => void;
+    const configPromise = new Promise<RepoConfig>((res) => {
+      resolveConfig = res;
+    });
+    mockGetRepoConfig.mockReturnValue(configPromise);
+
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    // Fill prompt while config is still in flight
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Click Run while config is still loading (submitting guard: not yet enabled, but
+    // the submit() gate only checks prompt+repoPath+submitting, so we wait for the
+    // store to settle via ensure() before it reads confirmed state — we resolve AFTER click)
+    // We need to wait for the run button to NOT be disabled (prompt is filled).
+    const runBtn = () => document.querySelector<HTMLButtonElement>("button.run");
+    await expect.poll(() => runBtn()?.disabled).toBe(false);
+    runBtn()!.click();
+
+    // Before config settles — neither step is active yet (submit is awaiting ensure())
+    // Now resolve with a confirmed config
+    resolveConfig(confirmedRepoConfig());
+
+    // Because ensure() awaited, reads happen AFTER it resolves → confirmed → spawn directly
+    await expect.poll(() => onsubmit.mock.calls.length, { timeout: 3000 }).toBe(1);
+    // Confirm step must NOT have appeared
+    expect(document.querySelector(".ftac")).toBeNull();
+  });
+});
+
+// ── FirstTaskAutomationConfirm component tests ──────────────────────────────
+
+describe("FirstTaskAutomationConfirm", () => {
+  it("renders title, intro with repo basename, and both buttons", async () => {
+    const onconfirm = vi.fn();
+    const oncancel = vi.fn();
+    render(FirstTaskAutomationConfirm, {
+      props: { repoPath: "/home/user/my-project", onconfirm, oncancel },
+    });
+
+    await expect.element(page.getByText(m.firsttask_confirm_title())).toBeInTheDocument();
+    // intro interpolates the basename ("my-project")
+    const intro = document.querySelector(".ftac-intro");
+    expect(intro?.textContent).toContain("my-project");
+    await expect
+      .element(page.getByRole("button", { name: m.firsttask_confirm_cta() }))
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: m.common_cancel() })).toBeInTheDocument();
+  });
+
+  it("Confirm button calls onconfirm", async () => {
+    const onconfirm = vi.fn();
+    const oncancel = vi.fn();
+    render(FirstTaskAutomationConfirm, {
+      props: { repoPath: "/repo/test", onconfirm, oncancel },
+    });
+
+    await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
+    expect(onconfirm).toHaveBeenCalledOnce();
+    expect(oncancel).not.toHaveBeenCalled();
+  });
+
+  it("Cancel button calls oncancel", async () => {
+    const onconfirm = vi.fn();
+    const oncancel = vi.fn();
+    render(FirstTaskAutomationConfirm, {
+      props: { repoPath: "/repo/test", onconfirm, oncancel },
+    });
+
+    await page.getByRole("button", { name: m.common_cancel() }).click();
+    expect(oncancel).toHaveBeenCalledOnce();
+    expect(onconfirm).not.toHaveBeenCalled();
+  });
+
+  it("Confirm button is disabled when submitting=true", async () => {
+    const onconfirm = vi.fn();
+    const oncancel = vi.fn();
+    render(FirstTaskAutomationConfirm, {
+      props: { repoPath: "/repo/test", onconfirm, oncancel, submitting: true },
+    });
+
+    const confirmBtn = document.querySelector<HTMLButtonElement>(`button[disabled]`);
+    expect(confirmBtn).toBeTruthy();
+    expect(confirmBtn?.textContent?.trim()).toContain(m.firsttask_confirm_cta());
   });
 });

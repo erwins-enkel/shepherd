@@ -1850,5 +1850,10 @@
   "feat_why_parked_title": "Warum wartet diese Sitzung?",
   "feat_why_parked_body": "Gehaltene, blockierte und von einem Gate aufgehaltene Sitzungen zeigen jetzt einen einzeiligen Grund auf der Karte und in der Triage-Schublade — damit du auf einen Blick siehst, warum eine Sitzung deine Aufmerksamkeit braucht.",
   "feat_usage_task_names_title": "Aufgabennamen in der Nutzung",
-  "feat_usage_task_names_body": "Die Zeilen pro Aufgabe in den Ansichten Nutzung → Verbrauch und Overhead zeigen jetzt den Kurznamen jeder Aufgabe neben ihrer Kennung — damit du Aufgaben auf einen Blick auseinanderhältst, statt IDs lesen zu müssen."
+  "feat_usage_task_names_body": "Die Zeilen pro Aufgabe in den Ansichten Nutzung → Verbrauch und Overhead zeigen jetzt den Kurznamen jeder Aufgabe neben ihrer Kennung — damit du Aufgaben auf einen Blick auseinanderhältst, statt IDs lesen zu müssen.",
+  "firsttask_confirm_title": "Automatisierung bestätigen",
+  "firsttask_confirm_intro": "Shepherd hat {repo} noch nie gesteuert. Überprüfe die Automatisierungseinstellungen unten — sie gelten für jede Aufgabe in diesem Repository — und bestätige, um diese Aufgabe zu starten.",
+  "firsttask_confirm_cta": "Bestätigen & Aufgabe starten",
+  "feat_first_task_confirm_title": "Einstellungen vor der ersten Aufgabe prüfen",
+  "feat_first_task_confirm_body": "Das Starten einer Aufgabe in einem neuen Repository zeigt nun einen kurzen Überprüfungsschritt, damit du die Automatisierungseinstellungen vor dem ersten Durchlauf prüfen kannst. Nach einmaliger Bestätigung starten weitere Aufgaben im selben Repository ohne Unterbrechung."
 }

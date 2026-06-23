@@ -331,17 +331,16 @@ describe("NewTask plan-gate inheritance", () => {
     await expect.poll(() => planGateBox().disabled).toBe(false);
     expect(planGateBox().checked).toBe(false);
 
-    // After a failed fetch, automationConfirmed is unknown (false default) → the
-    // first-task confirm step appears to let the user review settings before spawning.
-    // Mock putRepoConfig so seedNewRepoDefaults and confirmAutomation can resolve.
+    // A FAILED fetch leaves confirmed/rowExists unset. The submit gate must NOT treat that
+    // as a new repo: it must spawn DIRECTLY (no confirm step) and must NOT seed (no PUT that
+    // would clobber a deliberate planGate=off on an existing-but-unloaded repo).
     mockPutRepoConfig.mockResolvedValue({ ...repoConfig(false), automationConfirmed: true });
     await fillAndSubmit();
-    // confirm step appears (not an immediate spawn)
-    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
-    // clicking Confirm proceeds to spawn with planGateEnabled:null (box untouched)
-    await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: null });
+    // no confirm step, and crucially no seed PUT
+    expect(document.querySelector(".ftac")).toBeNull();
+    expect(mockPutRepoConfig).not.toHaveBeenCalled();
   });
 
   it("first-task confirm replays force from 'Submit anyway' (no silent downgrade to hold)", async () => {

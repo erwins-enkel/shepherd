@@ -608,8 +608,13 @@
     // which would spuriously show the step for a confirmed repo AND fail the !rowExists seed guard,
     // clobbering an existing repo's plan-gate. ensure() is idempotent + populates the maps before it
     // resolves. (Same settledness concern the inline plan-gate box handles via isConfigSettled.)
-    await repoConfig.ensure(repo);
-    if (!repoConfig.isAutomationConfirmed(repo)) {
+    // Only act on confirmed/rowExists when the fetch SUCCEEDED. On a transient GET failure
+    // ensure() leaves those maps unset (both read falsy), which would misdetect an existing
+    // confirmed repo as new — showing a spurious confirm step AND seeding planGateEnabled:true
+    // over a deliberate planGate=off. On failure we can't know the repo's state, so degrade to
+    // the prior behavior (spawn directly); the gate re-fires next task once the fetch lands.
+    const configLoaded = await repoConfig.ensure(repo);
+    if (configLoaded && !repoConfig.isAutomationConfirmed(repo)) {
       // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
       // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
       if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);

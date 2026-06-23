@@ -212,15 +212,21 @@ class RepoConfigStore {
     this.settled = { ...this.settled, [repoPath]: true };
   }
 
-  async ensure(repoPath: string) {
+  /** Returns whether the config is actually available (loaded now or already cached).
+   *  False means the fetch FAILED and the per-repo maps are unset — callers that act on
+   *  confirmed/rowExists (e.g. the first-task seed/confirm gate) must NOT treat that as a
+   *  genuine "new repo", or a transient GET failure would mis-seed an existing repo. */
+  async ensure(repoPath: string): Promise<boolean> {
     if (repoPath in this.enabled) {
       this.markSettled(repoPath); // already-loaded ⇒ settled
-      return;
+      return true;
     }
     try {
       this.ingest(repoPath, await getRepoConfig(repoPath));
+      return true;
     } catch {
       /* leave unset; UI shows defaults optimistically */
+      return false;
     } finally {
       // mark settled on every exit (success AND failure) so a failed fetch never
       // wedges the UI in a loading state — it falls back to defaults instead.

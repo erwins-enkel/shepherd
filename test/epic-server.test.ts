@@ -217,6 +217,71 @@ describe("PUT /api/epic", () => {
     expect(emitted.length).toBe(1);
     expect((emitted[0] as Epic).run.status).toBe("running");
   });
+
+  test("{status:'running'} kicks drain.tick() (first sub-issue spawns at once)", async () => {
+    let tickCalled = false;
+    const { app } = harness({
+      drainOverrides: {
+        tick: async () => {
+          tickCalled = true;
+        },
+      },
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "running" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(tickCalled).toBe(true);
+  });
+
+  test("non-running status does not kick drain.tick()", async () => {
+    // seed a running run so the patch transitions OUT of running
+    let tickCalled = false;
+    const { app, store } = harness({
+      drainOverrides: {
+        tick: async () => {
+          tickCalled = true;
+        },
+      },
+    });
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "idle" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(tickCalled).toBe(false);
+  });
+
+  test("{status:'running'} with a throwing drain.tick() still returns 200 (kick is best-effort)", async () => {
+    const { app } = harness({
+      drainOverrides: {
+        tick: async () => {
+          throw new Error("tick boom");
+        },
+      },
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "running" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
 });
 
 // ── GET /api/epic ─────────────────────────────────────────────────────────────

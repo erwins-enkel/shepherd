@@ -103,6 +103,8 @@ export interface StepResult {
 export interface LaneHandle {
   done: Promise<StepResult>;
   kill: () => void;
+  /** The lane's log path, known synchronously so a TIMEOUT (done never resolves) can still cite it. */
+  logPath?: string;
 }
 export interface LaneSpec {
   name: string;
@@ -155,7 +157,7 @@ export async function runLanes(
       running++;
       maxConcurrent = Math.max(maxConcurrent, running);
       const startedAt = now();
-      const { done, kill } = start(lane);
+      const { done, kill, logPath } = start(lane);
 
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timedOut = new Promise<"__timeout__">((res) => {
@@ -172,7 +174,7 @@ export async function runLanes(
         kill();
         // Give the killed child a bounded grace to exit and be reaped.
         await Promise.race([done.catch(() => undefined), delay(graceMs)]);
-        outcome = { name: lane.name, status: "TIMEOUT", durationMs: now() - startedAt };
+        outcome = { name: lane.name, status: "TIMEOUT", durationMs: now() - startedAt, logPath };
       } else {
         outcome = {
           name: lane.name,
@@ -195,6 +197,25 @@ export async function runLanes(
 // ── Real lane runner (process-group spawn + SIGTERM→SIGKILL kill) ─────────────
 
 const SIGKILL_GRACE_MS = 5000;
+
+/**
+ * PIDs (= process-group leaders, since lanes spawn `detached`) of currently-live
+ * lane children. A SIGINT/SIGTERM handler in main() walks this to reap every lane
+ * group before exiting — without it, an external kill of the push (the agent-timeout
+ * this PR targets) would orphan the detached groups and leave them running.
+ */
+const liveProcessGroups = new Set<number>();
+
+/** SIGKILL every live lane process group (used by both per-lane kill paths and the signal trap). */
+function killAllProcessGroups(): void {
+  for (const pid of liveProcessGroups) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+}
 
 function makeStarter(logDir: string, stamp: string): (lane: LaneSpec) => LaneHandle {
   return (lane) => {
@@ -221,13 +242,21 @@ function makeStarter(logDir: string, stamp: string): (lane: LaneSpec) => LaneHan
             stdio: ["ignore", "pipe", "pipe"],
           });
           current = child;
+          if (child.pid) liveProcessGroups.add(child.pid);
+          const forget = () => {
+            if (child.pid) liveProcessGroups.delete(child.pid);
+          };
           child.stdout?.pipe(log, { end: false });
           child.stderr?.pipe(log, { end: false });
           child.on("error", (e) => {
+            forget();
             log.write(`\n✗ spawn error: ${String(e)}\n`);
             resolve(1);
           });
-          child.on("close", (c) => resolve(c ?? 1));
+          child.on("close", (c) => {
+            forget();
+            resolve(c ?? 1);
+          });
         });
         current = null;
         if (code !== 0) {
@@ -260,7 +289,7 @@ function makeStarter(logDir: string, stamp: string): (lane: LaneSpec) => LaneHan
     void done.finally(() => {
       if (killTimer) clearTimeout(killTimer);
     });
-    return { done, kill };
+    return { done, kill, logPath };
   };
 }
 
@@ -476,6 +505,19 @@ function pruneLogs(logDir: string, keep = 20): void {
 }
 
 async function main(): Promise<void> {
+  // When the push is killed externally (the agent-timeout this PR targets), reap the
+  // detached lane process groups so they don't orphan and keep running. 130 = "killed
+  // by signal" exit convention; git aborts the push on any non-zero hook exit.
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      console.error(
+        `\n✗ pre-push: received ${sig} — killing ${liveProcessGroups.size} live lane group(s)`,
+      );
+      killAllProcessGroups();
+      process.exit(130);
+    });
+  }
+
   const repoRoot = process.cwd();
   const cores = (availableParallelism?.() ?? cpus().length) || 4;
   const delta = hasOriginMain();
@@ -531,11 +573,20 @@ async function main(): Promise<void> {
   // keep in sync with .github/workflows/ci.yml + CONTRIBUTING.md.
   if (delta) {
     console.log("  → fallow audit (delta vs origin/main)");
+    // Bounded so a cold `bunx fallow@…` download that hangs can't wedge the push —
+    // honors the "no child wedges the push" guarantee for this post-lanes step too.
+    const fallowTimeoutMs = Number(process.env.SHEPHERD_PREPUSH_LANE_TIMEOUT_MS) || 300_000;
     const r = spawnSync(
       "bunx",
       ["fallow@2.100.0", "audit", "--base", "origin/main", "--fail-on-issues"],
-      { cwd: repoRoot, stdio: "inherit" },
+      { cwd: repoRoot, stdio: "inherit", timeout: fallowTimeoutMs, killSignal: "SIGKILL" },
     );
+    if (r.error && (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+      console.error(
+        `✗ pre-push failed: fallow audit timed out after ${fallowTimeoutMs}ms (cold download hang?)`,
+      );
+      process.exit(1);
+    }
     if (r.status !== 0) {
       console.error("✗ pre-push failed: fallow audit");
       process.exit(1);

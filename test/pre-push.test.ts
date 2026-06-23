@@ -99,10 +99,13 @@ test("runLanes: a hung lane is killed at its timeout and marked TIMEOUT", async 
     kill: () => {
       killed = true;
     },
+    logPath: "/logs/prepush-hung.log",
   });
   const { outcomes } = await runLanes([hung], { laneCap: 1, start, graceMs: 5 });
   expect(outcomes[0]!.status).toBe("TIMEOUT");
   expect(killed).toBe(true);
+  // logPath is carried from the handle so the summary cites the partial log, not "(no log)".
+  expect(outcomes[0]!.logPath).toBe("/logs/prepush-hung.log");
 });
 
 test("runLanes: one failing lane doesn't abort the others; all settle, exit reflects failure", async () => {

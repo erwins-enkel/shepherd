@@ -631,6 +631,7 @@ type RepoCfgBody = {
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
   repoMode?: unknown;
+  automationConfirmed?: unknown;
 };
 
 // true when any present boolean field is not actually a boolean
@@ -707,6 +708,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoLabel?: string;
       usageCeilingPct?: number;
       repoMode?: "forge" | "lightweight";
+      automationConfirmed?: boolean;
     }
   | Response
 > {
@@ -720,6 +722,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
       400,
     );
   }
+  if (body.automationConfirmed !== undefined && typeof body.automationConfirmed !== "boolean")
+    return json({ error: "automationConfirmed must be a boolean" }, 400);
   const scalars = parseRepoCfgScalars(body);
   if (scalars instanceof Response) return scalars;
   const {
@@ -741,12 +745,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sandboxProfile !== undefined ||
     defaultModel !== undefined ||
     egressExtraHosts !== undefined ||
-    repoMode !== undefined;
+    repoMode !== undefined ||
+    body.automationConfirmed !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, automationConfirmed",
       },
       400,
     );
@@ -771,6 +776,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoLabel,
     usageCeilingPct,
     repoMode,
+    automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }
 
@@ -779,7 +785,10 @@ async function parseRepoConfigPatch(req: Request): Promise<
  *  field overrides and absent fields keep the current value. */
 function mergeRepoConfig(
   cur: RepoConfig,
-  patch: Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
+  patch: Omit<
+    Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
+    "automationConfirmed"
+  >,
 ): RepoConfig {
   const out: RepoConfig = { ...cur };
   const writable = out as unknown as Record<string, unknown>;
@@ -789,16 +798,26 @@ function mergeRepoConfig(
   return out;
 }
 
+function repoConfigResponse(deps: Ctx["deps"], dir: string): Response {
+  return json({
+    ...deps.store.getRepoConfig(dir),
+    automationConfirmed: deps.store.isAutomationConfirmed(dir),
+    automationRowExists: deps.store.automationRowExists(dir),
+  });
+}
+
 async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (req.method === "GET") return json(deps.store.getRepoConfig(dir));
+  if (req.method === "GET") return repoConfigResponse(deps, dir);
   if (req.method !== "PUT") return null;
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
-  const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), patch);
+  // Load-bearing destructure: keeps the metadata flag off the RepoConfig written by mergeRepoConfig.
+  const { automationConfirmed, ...cfgPatch } = patch;
+  const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), cfgPatch);
   if (merged.draftMode && merged.autoMergeEnabled) {
     return json({ error: "draftMode and autoMergeEnabled are mutually exclusive" }, 400);
   }
@@ -814,7 +833,8 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     );
   }
   deps.store.setRepoConfig(dir, merged);
-  return json(deps.store.getRepoConfig(dir));
+  if (automationConfirmed === true) deps.store.markAutomationConfirmed(dir);
+  return repoConfigResponse(deps, dir);
 }
 
 // /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +

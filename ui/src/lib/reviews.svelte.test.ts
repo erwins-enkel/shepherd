@@ -68,6 +68,8 @@ beforeEach(() => {
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
   repoConfig.usageCeiling = {};
+  repoConfig.confirmed = {};
+  repoConfig.rowExists = {};
   vi.clearAllMocks();
 });
 
@@ -521,4 +523,63 @@ test("repoConfig.toggleAutoOptimize reverts on error", async () => {
   repoConfig.autoOptimize = { "/repo": true };
   await repoConfig.toggleAutoOptimize("/repo");
   expect(repoConfig.autoOptimizeOn("/repo")).toBe(true); // reverted to prev
+});
+
+// ── automationConfirmed / automationRowExists (issue #1025) ────────────────
+
+test("repoConfig.isAutomationConfirmed defaults to false for unknown repo", () => {
+  expect(repoConfig.isAutomationConfirmed("/unknown")).toBe(false);
+});
+
+test("repoConfig.automationRowExists defaults to false for unknown repo", () => {
+  expect(repoConfig.automationRowExists("/unknown")).toBe(false);
+});
+
+test("ensure ingests automationConfirmed and automationRowExists from response", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValue({
+    ...rc(),
+    automationConfirmed: true,
+    automationRowExists: true,
+  });
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isAutomationConfirmed("/repo")).toBe(true);
+  expect(repoConfig.automationRowExists("/repo")).toBe(true);
+});
+
+test("ensure: response WITHOUT the new fields does NOT clobber already-set confirmed/rowExists", async () => {
+  // Pre-seed the maps as if a previous fetch had set them
+  repoConfig.confirmed = { "/repo": true };
+  repoConfig.rowExists = { "/repo": true };
+  // Force a re-fetch by clearing `enabled` (ensure bails early if enabled is set)
+  repoConfig.enabled = {};
+  vi.mocked(getRepoConfig).mockResolvedValue(rc()); // no automationConfirmed / automationRowExists
+  await repoConfig.ensure("/repo");
+  // maps must NOT be clobbered to false/undefined
+  expect(repoConfig.isAutomationConfirmed("/repo")).toBe(true);
+  expect(repoConfig.automationRowExists("/repo")).toBe(true);
+});
+
+test("seedNewRepoDefaults calls putRepoConfig with planGateEnabled:true and sets planGate true", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ planGateEnabled: true }));
+  await repoConfig.seedNewRepoDefaults("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { planGateEnabled: true });
+  expect(repoConfig.isPlanGateEnabled("/repo")).toBe(true);
+});
+
+test("confirmAutomation calls putRepoConfig with automationConfirmed:true and sets confirmed true", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({
+    ...rc(),
+    automationConfirmed: true,
+    automationRowExists: true,
+  });
+  await repoConfig.confirmAutomation("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { automationConfirmed: true });
+  expect(repoConfig.isAutomationConfirmed("/repo")).toBe(true);
+});
+
+test("confirmAutomation reverts confirmed and rethrows on PUT failure", async () => {
+  repoConfig.confirmed = { "/repo": false };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("network error"));
+  await expect(repoConfig.confirmAutomation("/repo")).rejects.toThrow("network error");
+  expect(repoConfig.isAutomationConfirmed("/repo")).toBe(false); // reverted
 });

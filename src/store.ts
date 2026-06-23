@@ -967,6 +967,37 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  // ── automation-confirmation (issue #1025) ────────────────────────────────
+
+  /** True when the repo has been explicitly confirmed OR has any prior session (legacy repos). */
+  isAutomationConfirmed(repoPath: string): boolean {
+    const row = this.db
+      .query(`SELECT automationConfirmedAt FROM repo_config WHERE repoPath = ?`)
+      .get(repoPath) as { automationConfirmedAt: number | null } | null;
+    if (row?.automationConfirmedAt != null) return true;
+    return this.hasSessionForRepo(repoPath);
+  }
+
+  /** True when at least one session exists for the given repoPath. */
+  hasSessionForRepo(repoPath: string): boolean {
+    const row = this.db.query(`SELECT 1 FROM sessions WHERE repoPath = ? LIMIT 1`).get(repoPath);
+    return row != null;
+  }
+
+  /** True when a repo_config row exists for the given repoPath. */
+  automationRowExists(repoPath: string): boolean {
+    const row = this.db.query(`SELECT 1 FROM repo_config WHERE repoPath = ? LIMIT 1`).get(repoPath);
+    return row != null;
+  }
+
+  /** Stamp automationConfirmedAt = now. A row must already exist (PUT runs setRepoConfig first). */
+  markAutomationConfirmed(repoPath: string): void {
+    this.db.run(`UPDATE repo_config SET automationConfirmedAt = ? WHERE repoPath = ?`, [
+      Date.now(),
+      repoPath,
+    ]);
+  }
+
   // ── local_prs (lightweight-mode pseudo-PRs) ──────────────────────────────
 
   ensureLocalPr(repoPath: string, branch: string, base: string): LocalPr {
@@ -2478,6 +2509,17 @@ export class SessionStore implements CapStore, CreditStore {
     add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
     // auto-optimize flagged rules: default OFF (explicit opt-in).
     add("autoOptimizeFlagged", `autoOptimizeFlagged INTEGER NOT NULL DEFAULT 0`);
+    // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
+    if (!cols.some((c) => c.name === "automationConfirmedAt")) {
+      this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);
+      // Issue #1025: pre-feature rows = already-engaged repos ⇒ treat as already-confirmed so the
+      // first-task confirm step only fires for genuinely new repos. Backfill from updatedAt (NOT NULL
+      // on every row, store.ts:607). Gated inside this column-missing branch so it runs EXACTLY ONCE —
+      // a server bounce must never auto-confirm a freshly-seeded-but-unconfirmed row.
+      this.db.run(
+        `UPDATE repo_config SET automationConfirmedAt = updatedAt WHERE automationConfirmedAt IS NULL`,
+      );
+    }
   }
 
   private migrateEpicIntegratedColumns(): void {

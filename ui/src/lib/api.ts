@@ -57,7 +57,6 @@ import type {
   DistillerHealth,
   RawAnswer,
   DocAgentRun,
-  UsageHistoryResponse,
   HoldReason,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
@@ -490,12 +489,6 @@ export async function getDiff(id: string): Promise<DiffResult> {
 export async function getUsageLimits(): Promise<UsageLimitsResponse> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw await failed(r, "limits");
-  return r.json();
-}
-
-export async function getUsageHistory(): Promise<UsageHistoryResponse> {
-  const r = await fetch("/api/usage/history");
-  if (!r.ok) throw await failed(r, "history");
   return r.json();
 }
 
@@ -1118,7 +1111,12 @@ export async function adoptGitignore(repoPath: string): Promise<{
   return r.json();
 }
 
-export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
+export type RepoConfigResponse = RepoConfig & {
+  automationConfirmed?: boolean;
+  automationRowExists?: boolean;
+};
+
+export async function getRepoConfig(repoPath: string): Promise<RepoConfigResponse> {
   return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
 }
 
@@ -1144,8 +1142,8 @@ export async function putRepoConfig(
       | "repoMode"
       | "autoOptimizeFlagged"
     >
-  >,
-): Promise<RepoConfig> {
+  > & { automationConfirmed?: boolean },
+): Promise<RepoConfigResponse> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
     headers: JSON_HEADERS,

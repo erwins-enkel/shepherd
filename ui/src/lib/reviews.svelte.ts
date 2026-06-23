@@ -1,5 +1,6 @@
 import type { ReviewVerdict, PlanGate, RepoConfig, SandboxProfile } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
+import type { RepoConfigResponse } from "./api";
 import {
   getReviews,
   getReviewingIds,
@@ -171,13 +172,15 @@ class RepoConfigStore {
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
+  confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
+  rowExists = $state<Record<string, boolean>>({}); // a repo_config row exists server-side
   // repoPaths whose ensure() fetch has resolved (success OR failure). Distinct from
   // "has a value": a failed fetch leaves the per-field maps unset yet must count as
   // settled so the UI stops showing a loading state and falls back to defaults.
   settled = $state<Record<string, boolean>>({});
 
-  /** Spread a fetched RepoConfig into every per-field $state map for `repoPath`. */
-  private ingest(repoPath: string, c: RepoConfig) {
+  /** Spread a fetched RepoConfigResponse into every per-field $state map for `repoPath`. */
+  private ingest(repoPath: string, c: RepoConfigResponse) {
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
     this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
@@ -196,6 +199,10 @@ class RepoConfigStore {
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
+    if (c.automationConfirmed !== undefined)
+      this.confirmed = { ...this.confirmed, [repoPath]: c.automationConfirmed };
+    if (c.automationRowExists !== undefined)
+      this.rowExists = { ...this.rowExists, [repoPath]: c.automationRowExists };
   }
 
   /** Idempotently mark a repo's config as settled; no-op (no reactive write) if it
@@ -522,6 +529,38 @@ class RepoConfigStore {
 
   usageCeilingFor(repoPath: string): number {
     return this.usageCeiling[repoPath] ?? 80;
+  }
+
+  isAutomationConfirmed(repoPath: string): boolean {
+    return this.confirmed[repoPath] ?? false;
+  }
+
+  automationRowExists(repoPath: string): boolean {
+    return this.rowExists[repoPath] ?? false;
+  }
+
+  /** Seed a brand-new repo with the raised default posture (plan-gate ON). Only call when no
+   *  repo_config row exists yet — guarded by automationRowExists() at the call site (Task 3) — so it
+   *  never clobbers an existing repo's planGate choice. */
+  async seedNewRepoDefaults(repoPath: string) {
+    const prev = this.planGate[repoPath];
+    this.planGate = { ...this.planGate, [repoPath]: true }; // optimistic
+    await this.apply(repoPath, { planGateEnabled: true }, () => {
+      this.planGate = { ...this.planGate, [repoPath]: prev };
+    });
+  }
+
+  /** Mark this repo's automation as reviewed+confirmed (issue #1025). PUT returns the wrapped
+   *  response; ingest() updates the confirmed/rowExists maps from it. */
+  async confirmAutomation(repoPath: string) {
+    const prev = this.confirmed[repoPath];
+    this.confirmed = { ...this.confirmed, [repoPath]: true }; // optimistic
+    try {
+      this.ingest(repoPath, await putRepoConfig(repoPath, { automationConfirmed: true }));
+    } catch (e) {
+      this.confirmed = { ...this.confirmed, [repoPath]: prev };
+      throw e; // surface to the caller so the spawn doesn't proceed on a failed confirm
+    }
   }
 }
 export const repoConfig = new RepoConfigStore();

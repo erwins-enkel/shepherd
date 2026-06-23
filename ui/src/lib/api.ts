@@ -1118,7 +1118,12 @@ export async function adoptGitignore(repoPath: string): Promise<{
   return r.json();
 }
 
-export async function getRepoConfig(repoPath: string): Promise<RepoConfig> {
+export type RepoConfigResponse = RepoConfig & {
+  automationConfirmed?: boolean;
+  automationRowExists?: boolean;
+};
+
+export async function getRepoConfig(repoPath: string): Promise<RepoConfigResponse> {
   return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
 }
 
@@ -1144,8 +1149,8 @@ export async function putRepoConfig(
       | "repoMode"
       | "autoOptimizeFlagged"
     >
-  >,
-): Promise<RepoConfig> {
+  > & { automationConfirmed?: boolean },
+): Promise<RepoConfigResponse> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
     headers: JSON_HEADERS,

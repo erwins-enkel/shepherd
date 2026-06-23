@@ -39,3 +39,6 @@ extension/src/lib/paraglide
 extension/project.inlang/.meta.json
 extension/project.inlang/README.md
 extension/project.inlang/plugins
+
+# Spike #1043 raw terminal-frame fixtures (byte-exact captures, not formatted source)
+test/fixtures/fullscreen

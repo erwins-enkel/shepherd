@@ -41,3 +41,10 @@ ui/src/lib/feature-announcements.ts merge=union
 # analysis skip them and diffs collapse. Hand-editing them would diverge from the
 # upstream copy and risk breaking the Paraglide compiler.
 **/project.inlang/plugins/** linguist-generated=true linguist-vendored=true
+
+# Spike #1043 raw terminal-frame fixtures: the .ansi captures are byte-exact
+# recordings of herdr's re-serialized grid (CSI escapes + CR positioning). Mark
+# them -text so the global `text=auto eol=lf` can't normalize CRs and corrupt the
+# diagnostic; they're raw captures, not editable source. The .txt frames are plain
+# UTF-8 and keep default text handling. None match the i18n/feature merge drivers.
+test/fixtures/fullscreen/*.ansi -text

@@ -57,6 +57,7 @@
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import SessionRecap from "$lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
+  import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
@@ -218,6 +219,10 @@
     }
   });
   let conn = $state<PtyConn | undefined>();
+  // monotonic local keystroke counter, bumped on every term.onData — drives the
+  // ReviewInFlightBanner's client-side escalation (issue #1022). Pure UI signal,
+  // independent of the server-side lastOperatorKeystrokeAt seam.
+  let opKeystrokes = $state(0);
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
@@ -1059,7 +1064,10 @@
       },
     );
     conn = c;
-    term.onData((d) => c.send(d));
+    term.onData((d) => {
+      opKeystrokes++;
+      c.send(d);
+    });
 
     // Linkify slash-command tokens Claude suggests in its output (e.g. "/squad",
     // "/gsd-quick") so a tap pastes the command into the prompt — on a phone the
@@ -2065,6 +2073,10 @@
       {reattach}
       {resumeSession}
     />
+    <!-- Non-blocking review-in-flight banner: bottom strip over the terminal,
+         above the steer bar. Stays mounted across tab switches (state survives);
+         it suppresses its own render off the term tab. (issue #1022) -->
+    <ReviewInFlightBanner {session} keystrokes={opKeystrokes} {tab} />
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />

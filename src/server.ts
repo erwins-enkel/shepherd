@@ -108,6 +108,7 @@ import { join, normalize } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
+import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
@@ -4752,6 +4753,10 @@ export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   // current owning socket per terminal — a single owner avoids the takeover war
   const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
+  // last time the operator typed into each session's live PTY (issue #1022 seam).
+  // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
+  // yet — a future stage-and-apply guard reads it via getLastOperatorKeystrokeAt.
+  const operatorKeystrokes = new Map<string, number>();
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -4858,7 +4863,12 @@ export function serve(deps: AppDeps, port: number) {
           return;
         }
         markPtyEvent("in");
-        ws.data.bridge?.write(typeof msg === "string" ? msg : msg.toString());
+        const frame = typeof msg === "string" ? msg : msg.toString();
+        // Stamp the operator-activity seam only for genuine keystrokes — the same
+        // stream carries \x00resize: control frames that storm on mobile (#1022).
+        if (isOperatorKeystroke(frame))
+          stampOperatorKeystroke(operatorKeystrokes, ws.data.id, Date.now());
+        ws.data.bridge?.write(frame);
       },
       close(ws) {
         if (ws.data.kind === "events") {
@@ -4868,6 +4878,7 @@ export function serve(deps: AppDeps, port: number) {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)
           if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);
+          operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
           ws.data.bridge?.close();
         }
       },

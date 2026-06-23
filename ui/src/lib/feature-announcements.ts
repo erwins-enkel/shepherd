@@ -1455,4 +1455,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_usage_task_names_title",
     bodyKey: "feat_usage_task_names_body",
   },
+  {
+    // Non-blocking in-terminal banner warning that an in-flight critic / plan-gate
+    // review may steer the session on conclusion. Anchored on the banner itself.
+    id: "review-inflight-signal",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_review_inflight_title",
+    bodyKey: "feat_review_inflight_body",
+    targetId: "review-inflight",
+  },
 ];

@@ -2,9 +2,11 @@ import { test, expect } from "bun:test";
 import {
   computeConcurrency,
   isEslintFile,
+  isSafePath,
   plannedLaneCount,
   routeEslintFiles,
   runLanes,
+  withFileArgs,
   type LaneHandle,
   type LaneSpec,
   type StepResult,
@@ -35,6 +37,31 @@ test("routeEslintFiles: ui/src→root, extension/src→ext(relative), paraglide+
   expect(root).toEqual(["src/server.ts", "test/foo.test.ts", "ui/src/lib/components/Foo.svelte"]);
   // extension files are returned relative to extension/ (eslint runs with cwd=extension)
   expect(ext).toEqual(["src/recorder.ts"]);
+});
+
+test("isSafePath: rejects dash-leading paths (argv flag-smuggling guard)", () => {
+  expect(isSafePath("src/server.ts")).toBe(true);
+  expect(isSafePath("ui/src/lib/-weird.ts")).toBe(true); // dash mid-path is fine
+  expect(isSafePath("-rf")).toBe(false);
+  expect(isSafePath("--config")).toBe(false);
+  expect(isSafePath("--check-foo.js")).toBe(false);
+});
+
+test("withFileArgs: inserts a `--` terminator before the spread file list", () => {
+  expect(withFileArgs(["prettier", "--check", "--ignore-unknown"], ["-rf", "src/a.ts"])).toEqual([
+    "prettier",
+    "--check",
+    "--ignore-unknown",
+    "--",
+    "-rf",
+    "src/a.ts",
+  ]);
+  // empty file list still terminates options (harmless; no dash-file can slip through)
+  expect(withFileArgs(["eslint", "--no-error-on-unmatched-pattern"], [])).toEqual([
+    "eslint",
+    "--no-error-on-unmatched-pattern",
+    "--",
+  ]);
 });
 
 test("computeConcurrency: laneCap scales with cores and laneCap×maxWorkers ≤ cores", () => {

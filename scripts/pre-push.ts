@@ -72,6 +72,26 @@ export function routeEslintFiles(changed: string[]): { root: string[]; ext: stri
 }
 
 /**
+ * Guard against argv flag smuggling: a file whose name begins with `-` (e.g.
+ * `--config`, `-rf`) would be parsed as an OPTION rather than a path if spread
+ * into a linter's argv. We never lint such a path, so drop it at the source.
+ */
+export function isSafePath(f: string): boolean {
+  return !f.startsWith("-");
+}
+
+/**
+ * Assemble a tool argv with a `--` option terminator before a spread file list,
+ * so a dash-leading filename can't smuggle a flag into prettier/eslint. Verified
+ * empirically that bunx forwards the first `--` and both binaries honor a bare
+ * `--` (prettier v3, eslint v10). See `changedFiles`/`isSafePath` for the
+ * upstream defense-in-depth layer.
+ */
+export function withFileArgs(flags: string[], files: string[]): string[] {
+  return [...flags, "--", ...files];
+}
+
+/**
  * Bound the AGGREGATE worker count, not just the lane count. Several lanes each
  * spawn multi-worker tools (vitest ×2, chromium, `bun test`); running them all
  * unbounded oversubscribes a modest box. Cap lane fan-out scaled to cores, then
@@ -314,7 +334,7 @@ function changedFiles(repoRoot: string): string[] {
     .split("\n")
     .map((f) => f.trim())
     .filter(Boolean)
-    .filter((f) => existsSync(join(repoRoot, f)));
+    .filter((f) => isSafePath(f) && existsSync(join(repoRoot, f)));
 }
 
 // ── Lane assembly + main ──────────────────────────────────────────────────────
@@ -384,7 +404,9 @@ function buildLanes(
           {
             label: "prettier --check (delta)",
             cmd: "bunx",
-            args: ["prettier", "--check", "--ignore-unknown", ...opts.changed],
+            // `--` terminator: `opts.changed` is raw git diff output, so a
+            // dash-leading filename here is the one LIVE flag-smuggling exposure.
+            args: withFileArgs(["prettier", "--check", "--ignore-unknown"], opts.changed),
             cwd: repoRoot,
           },
         ],
@@ -413,14 +435,17 @@ function buildLanes(
       steps.push({
         label: "eslint root (delta)",
         cmd: "bunx",
-        args: ["eslint", "--no-error-on-unmatched-pattern", ...routed.root],
+        // `--` terminator: defense-in-depth — `routeEslintFiles` only admits
+        // `src/`/`test/`/`ui/src/`-prefixed paths, so these can't be dash-leading.
+        args: withFileArgs(["eslint", "--no-error-on-unmatched-pattern"], routed.root),
         cwd: repoRoot,
       });
     if (routed.ext.length)
       steps.push({
         label: "eslint extension (delta)",
         cmd: "bunx",
-        args: ["eslint", "--no-error-on-unmatched-pattern", ...routed.ext],
+        // `--` terminator: defense-in-depth — routed paths are `extension/src/`-prefixed.
+        args: withFileArgs(["eslint", "--no-error-on-unmatched-pattern"], routed.ext),
         cwd: ext,
       });
     if (steps.length) lanes.push({ name: "eslint", timeoutMs: t(120_000), steps });

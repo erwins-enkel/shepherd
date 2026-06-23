@@ -261,10 +261,17 @@ const recapService = new RecapService({
 // forward-reference `let`.
 const agentIngressState: { port: number | undefined } = { port: undefined };
 
+// Mode-aware forge resolution: lightweight repos get a LocalForge; forge repos
+// get the memoized detectForge result (git shell-out). repoMode is read per call
+// (cheap PK lookup) so a runtime toggle takes effect without a restart. Defined before
+// the service so create() can pull an attached issue's comments at spawn (composePromptArg).
+const resolveForge = makeProductionForgeResolver(store, config.forges);
+
 const service = new SessionService({
   store,
   worktree,
   herdr,
+  resolveForge,
   agentIngressPort: () => agentIngressState.port,
   detectEgressHostLoopback,
   namer: generateName,
@@ -375,11 +382,6 @@ const sweepOrphanTabs = () => {
 setTimeout(sweepOrphanTabs, 5_000);
 setTimeout(sweepOrphanTabs, 45_000);
 setInterval(sweepOrphanTabs, 60 * 60 * 1000);
-
-// Mode-aware forge resolution: lightweight repos get a LocalForge; forge repos
-// get the memoized detectForge result (git shell-out). repoMode is read per call
-// (cheap PK lookup) so a runtime toggle takes effect without a restart.
-const resolveForge = makeProductionForgeResolver(store, config.forges);
 
 const tailscaleServe = new TailscaleServeService({
   base: config.previewPortBase,

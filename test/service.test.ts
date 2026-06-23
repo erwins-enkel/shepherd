@@ -953,6 +953,106 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
   expect(store.get(s.id)?.prompt).toBe("fix it");
 });
 
+test("createSession: appends the issue's comment thread after the body when the forge has it", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
+      },
+      list: () => [],
+    } as any,
+    resolveForge: () =>
+      ({
+        listIssueComments: async () => [
+          {
+            author: "alice",
+            authorAssociation: "MEMBER",
+            body: "cap the retry at 3",
+            createdAt: Date.parse("2026-06-20T00:00:00Z"),
+          },
+        ],
+      }) as any,
+  });
+
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "fix it",
+    model: null,
+    images: [],
+    issueRef: {
+      number: 42,
+      url: "https://github.com/o/r/issues/42",
+      title: "Soft-delete users",
+      body: "the long issue body",
+    },
+  });
+
+  expect(calls.argv[calls.argv.length - 1]).toBe(
+    "fix it\n\nGitHub Issue #42: Soft-delete users\nhttps://github.com/o/r/issues/42\n\nthe long issue body" +
+      "\n\nGitHub Issue #42 comments:\n\nComment by @alice (2026-06-20):\n> cap the retry at 3",
+  );
+});
+
+test("createSession: a throwing listIssueComments degrades to a body-only prompt (never fails the spawn)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
+      },
+      list: () => [],
+    } as any,
+    resolveForge: () =>
+      ({
+        listIssueComments: async () => {
+          throw new Error("gh boom");
+        },
+      }) as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "fix it",
+    model: null,
+    images: [],
+    issueRef: {
+      number: 42,
+      url: "https://github.com/o/r/issues/42",
+      title: "Soft-delete users",
+      body: "the long issue body",
+    },
+  });
+
+  // spawn succeeded, prompt is exactly the body-only assembly
+  expect(s.id).toBeTruthy();
+  expect(calls.argv[calls.argv.length - 1]).toBe(
+    "fix it\n\nGitHub Issue #42: Soft-delete users\nhttps://github.com/o/r/issues/42\n\nthe long issue body",
+  );
+});
+
 test("createSession: persists auto=true and issueNumber from issueRef.number", async () => {
   const store = new SessionStore(":memory:");
   const service = new SessionService({

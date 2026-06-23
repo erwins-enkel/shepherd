@@ -1,3 +1,4 @@
+import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
 import type { Session } from "./types";
 
@@ -44,13 +45,21 @@ export function issueLogEntries(
   // opt-in to explicitly-configured roles (see module doc).
   if (git.state === "open" && git.checks === "success" && git.handoff && !git.handoffInferred) {
     const key = `waiting:${git.number}`;
-    if (!alreadyLogged(key)) out.push({ key, body: waitingBody(git, git.number) });
+    if (!alreadyLogged(key)) out.push({ key, body: stamp(waitingBody(git, git.number)) });
   }
   if (git.state === "merged") {
     const key = `merged:${git.number}`;
-    if (!alreadyLogged(key)) out.push({ key, body: `✅ PR #${git.number} merged.` });
+    if (!alreadyLogged(key)) out.push({ key, body: stamp(`✅ PR #${git.number} merged.`) });
   }
   return out;
+}
+
+/** Append the invisible issue-log marker so a task later spawned from this issue can
+ *  filter Shepherd's own workflow notes out of the comment thread it feeds the agent.
+ *  Appended (not prepended) so the leading wording stays intact for the spawn filter's
+ *  pre-marker wording fallback (and for human readers of the issue timeline). */
+function stamp(body: string): string {
+  return `${body}\n\n${SHEPHERD_ISSUE_LOG_MARKER}`;
 }
 
 /** The "waiting" comment wording. Only reached for a non-inferred (explicitly

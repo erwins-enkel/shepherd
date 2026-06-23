@@ -65,7 +65,8 @@ import {
   type EgressBackend,
 } from "./egress";
 import type { EgressWatcher } from "./egress-watch";
-import type { GitState } from "./forge/types";
+import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
+import type { GitForge, GitState, IssueComment } from "./forge/types";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
  *  its completion-tracker entry waits this long for a poller-gated late merge to
@@ -141,6 +142,10 @@ export interface ServiceDeps {
   /** Hard cap on the beforeArchive hook (ms) so a stuck git can never permanently stall
    *  teardown / the merge train. Defaults to 15_000; tests inject a tiny value. */
   beforeArchiveTimeoutMs?: number;
+  /** Resolve the forge for a repo, used at spawn to pull an attached issue's comment
+   *  thread into the prompt (see composePromptArg). Absent (tests) or a host without
+   *  listIssueComments → the spawn prompt stays body-only. */
+  resolveForge?: (repoPath: string) => GitForge | null;
 }
 
 /**
@@ -872,6 +877,81 @@ type SpawnSuccess = {
 };
 type SpawnOutcome = SpawnSuccess | { ok: false; holdReason: string };
 
+/** Total char budget for the issue-comment block appended to a spawn prompt. Generous —
+ *  comments ride out-of-band like the body, so they don't count against the 8000-char
+ *  human-prompt guard; this only bounds a runaway thread from bloating the agent's context. */
+export const ISSUE_COMMENTS_CHAR_BUDGET = 50_000;
+
+/** Author associations trusted to appear in a spawned task's prompt — accounts with standing
+ *  on the repo. Comments from anyone else (CONTRIBUTOR / NONE / first-timers) are dropped:
+ *  the issue body has a single (operator-vetted) author, but comments can come from any GitHub
+ *  user, so this scopes the included set and bounds the prompt-injection surface. */
+const TRUSTED_COMMENT_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+/** True when a comment is one of Shepherd's own issue-log workflow notes: marker-tagged
+ *  (current) or matching the pre-marker wording (historical notes posted under the operator's
+ *  gh identity — not [bot] and lacking the marker). The wording test is intentionally narrow
+ *  (emoji-prefixed, Shepherd-specific) so it won't swallow genuine human comments. */
+function isShepherdIssueLogNote(body: string): boolean {
+  if (body.includes(SHEPHERD_ISSUE_LOG_MARKER)) return true;
+  const t = body.trimStart();
+  return t.startsWith("⏸️ Waiting on") || /^✅ PR #\d+ merged/.test(t);
+}
+
+/** Render one comment with an author + date header and EVERY body line blockquoted, so a
+ *  multi-line comment stays visually fenced from the next. */
+function renderIssueComment(c: IssueComment): string {
+  const who = c.author ? `@${c.author}` : "unknown";
+  const when = c.createdAt ? new Date(c.createdAt).toISOString().slice(0, 10) : "";
+  const header = when ? `Comment by ${who} (${when}):` : `Comment by ${who}:`;
+  const quoted = c.body
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => `> ${l}`)
+    .join("\n");
+  return `${header}\n${quoted}`;
+}
+
+/**
+ * Build the out-of-band issue-comment block appended to a task spawned from an issue.
+ * Filters Shepherd's own workflow notes, [bot] authors, and untrusted-authorship comments;
+ * keeps the NEWEST comments within ISSUE_COMMENTS_CHAR_BUDGET (issue threads put the refined
+ * decision at the end), rendered chronologically with each body line blockquoted. When the
+ * budget drops older comments, a leading note names how many (and which end) were omitted.
+ * Returns "" when nothing survives the filter. Pure + exported for tests.
+ */
+export function composeIssueCommentsBlock(issueNumber: number, comments: IssueComment[]): string {
+  const kept = comments.filter(
+    (c) =>
+      c.body.trim().length > 0 &&
+      !c.author.endsWith("[bot]") &&
+      TRUSTED_COMMENT_ASSOCIATIONS.has(c.authorAssociation) &&
+      !isShepherdIssueLogNote(c.body),
+  );
+  if (kept.length === 0) return "";
+  const chrono = [...kept].sort((a, b) => a.createdAt - b.createdAt);
+  const rendered = chrono.map(renderIssueComment);
+  // Walk newest→oldest, accumulating until the next comment would overflow the budget; the
+  // newest is always kept (even if it alone exceeds the budget). firstKeptIdx then doubles as
+  // the dropped (oldest) count.
+  let used = 0;
+  let firstKeptIdx = rendered.length;
+  for (let i = rendered.length - 1; i >= 0; i--) {
+    const cost = (rendered[i]?.length ?? 0) + 2; // +2 ≈ the "\n\n" join between blocks
+    if (used + cost > ISSUE_COMMENTS_CHAR_BUDGET && firstKeptIdx < rendered.length) break;
+    used += cost;
+    firstKeptIdx = i;
+  }
+  const dropped = firstKeptIdx;
+  const lines: string[] = [`GitHub Issue #${issueNumber} comments:`];
+  if (dropped > 0)
+    lines.push(
+      `[${dropped} of ${chrono.length} comments omitted — oldest comments dropped to fit size budget]`,
+    );
+  lines.push(...rendered.slice(firstKeptIdx));
+  return lines.join("\n\n");
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -921,11 +1001,13 @@ export class SessionService {
   >();
 
   /**
-   * Build the human-turn prompt: the user's text plus any attached images and the
-   * issue body, both appended out-of-band so they never count against the
-   * 8000-char human-prompt guard (the same approach for each).
+   * Build the human-turn prompt: the user's text plus any attached images, the issue
+   * body, and the issue's comment thread — all appended out-of-band so they never count
+   * against the 8000-char human-prompt guard (the same approach for each). The comment
+   * thread is the human discussion that refined the original request; fetching it is
+   * best-effort (see fetchIssueCommentsBlock) so a spawn never fails on comments.
    */
-  private composePromptArg(input: CreateSessionInput, worktreePath: string): string {
+  private async composePromptArg(input: CreateSessionInput, worktreePath: string): Promise<string> {
     let promptArg = input.prompt;
     if (input.images.length > 0) {
       const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
@@ -935,8 +1017,27 @@ export class SessionService {
     if (input.issueRef) {
       const r = input.issueRef;
       promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
+      const comments = await this.fetchIssueCommentsBlock(input.repoPath, r.number);
+      if (comments) promptArg = `${promptArg}\n\n${comments}`;
     }
     return promptArg;
+  }
+
+  /** Best-effort fetch + compose of an attached issue's comment thread. Any missing forge,
+   *  a host without listIssueComments, or a fetch/parse error → "" so the spawn proceeds
+   *  body-only; a comment fetch must never block or fail a spawn. */
+  private async fetchIssueCommentsBlock(repoPath: string, issueNumber: number): Promise<string> {
+    try {
+      const forge = this.deps.resolveForge?.(repoPath);
+      if (!forge?.listIssueComments) return "";
+      const comments = await forge.listIssueComments(issueNumber);
+      return composeIssueCommentsBlock(issueNumber, comments);
+    } catch (err) {
+      console.warn(
+        `[service] listIssueComments failed for issue #${issueNumber} in ${repoPath}: ${(err as Error)?.message ?? String(err)}`,
+      );
+      return "";
+    }
   }
 
   /** trimDecision via the injected plugin-id seam (tests) or the real memoized read —
@@ -1414,7 +1515,7 @@ export class SessionService {
       // before the store row exists — the store.create() call below receives this id explicitly.
       const sessionId = randomUUID();
 
-      const promptArg = this.composePromptArg(input, wt.worktreePath);
+      const promptArg = await this.composePromptArg(input, wt.worktreePath);
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
       // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the

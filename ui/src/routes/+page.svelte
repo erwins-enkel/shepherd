@@ -412,11 +412,11 @@
   // will result in it being held, so NewTask can offer the dual "Hold for reset" /
   // "Submit anyway" buttons before the round-trip. usageLimits is null until the first
   // snapshot lands, so the prediction is conservatively false until data is available.
+  // Gates on usage alone (no running-session term) — see src/usage-hold.ts.
   const holdLikely = $derived(
     usageHoldEnabled &&
       Math.max(store.usageLimits?.session5h?.pct ?? 0, store.usageLimits?.week?.pct ?? 0) >=
-        usageHoldPct &&
-      store.sessions.filter((s) => s.status === "running").length >= 1,
+        usageHoldPct,
   );
   // Held only when creating fresh (not a relaunch). Pre-computed here so the
   // ternary lives in <script>, keeping it out of the AppOverlays mount markup.

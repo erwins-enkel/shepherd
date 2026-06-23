@@ -95,10 +95,9 @@ usage is already high, so an automated submitter doesn't push you over a cap. Th
 gate is **on by default** and governed by two env vars (`SHEPHERD_USAGE_HOLD_ENABLED`,
 default on; `SHEPHERD_USAGE_HOLD_PCT`, default `80`).
 
-A submission is held only when **all** of these hold (`src/usage-hold.ts`):
+A submission is held only when **both** of these hold (`src/usage-hold.ts`):
 
-- the gate is enabled, and the request did not set `force: true`;
-- at least one session is already **running**; and
+- the gate is enabled, and the request did not set `force: true`; and
 - the higher of the 5-hour and weekly usage windows is at or above
   `SHEPHERD_USAGE_HOLD_PCT`.
 

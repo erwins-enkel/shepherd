@@ -104,7 +104,7 @@ function postSession(app: ReturnType<typeof makeApp>, extra?: Record<string, unk
 
 // ── hold gate tests ──────────────────────────────────────────────────────────
 
-test("high usage + 1 running session + enabled → held:true, service not called", async () => {
+test("high usage + enabled → held:true, service not called", async () => {
   config.usageHoldEnabled = true;
   config.usageHoldPct = 80;
 
@@ -112,22 +112,6 @@ test("high usage + 1 running session + enabled → held:true, service not called
     session5h: { pct: 85, resetAt: 0 },
     week: { pct: 0, resetAt: 0 },
   });
-
-  // plant a running session so activeSessionCount >= 1
-  store.create({
-    name: "running-session",
-    prompt: "running",
-    repoPath: repoDir,
-    baseBranch: "main",
-    branch: "shepherd/running",
-    worktreePath: repoDir,
-    isolated: false,
-    herdrSession: "sess-a",
-    herdrAgentId: "agent-a",
-    claudeSessionId: "claude-a",
-    model: null,
-  });
-  store.update(store.list({ activeOnly: true })[0]!.id, { status: "running" });
 
   const res = await postSession(app);
   expect(res.status).toBe(200);
@@ -158,65 +142,38 @@ test("high usage + force:true → spawns (not held)", async () => {
     week: { pct: 0, resetAt: 0 },
   });
 
-  store.create({
-    name: "running-session",
-    prompt: "running",
-    repoPath: repoDir,
-    baseBranch: "main",
-    branch: "shepherd/running",
-    worktreePath: repoDir,
-    isolated: false,
-    herdrSession: "sess-a",
-    herdrAgentId: "agent-a",
-    claudeSessionId: "claude-a",
-    model: null,
-  });
-  store.update(store.list({ activeOnly: true })[0]!.id, { status: "running" });
-
   const res = await postSession(app, { force: true });
   expect(res.status).toBe(201);
   expect(creates).toHaveLength(1);
   expect(store.countHeldTasks()).toBe(0);
 });
 
-test("high usage + 0 running sessions → spawns (activeSessionCount gate)", async () => {
+test("high usage + 0 running sessions (idle herd) → still held", async () => {
   config.usageHoldEnabled = true;
   config.usageHoldPct = 80;
 
-  // no running sessions planted
-  const { app, creates } = harness({
+  // no running sessions planted — the idle-herd carve-out was removed, so a high
+  // usage submit holds on usage alone (matching release sweeper + drain).
+  const { app, store, creates } = harness({
     session5h: { pct: 85, resetAt: 0 },
     week: { pct: 0, resetAt: 0 },
   });
 
   const res = await postSession(app);
-  expect(res.status).toBe(201);
-  expect(creates).toHaveLength(1);
+  expect(res.status).toBe(200);
+  expect((await res.json()).held).toBe(true);
+  expect(creates).toHaveLength(0);
+  expect(store.countHeldTasks()).toBe(1);
 });
 
-test("below threshold (50%) + running → spawns", async () => {
+test("below threshold (50%) → spawns", async () => {
   config.usageHoldEnabled = true;
   config.usageHoldPct = 80;
 
-  const { app, store, creates } = harness({
+  const { app, creates } = harness({
     session5h: { pct: 50, resetAt: 0 },
     week: { pct: 50, resetAt: 0 },
   });
-
-  store.create({
-    name: "running-session",
-    prompt: "running",
-    repoPath: repoDir,
-    baseBranch: "main",
-    branch: "shepherd/running",
-    worktreePath: repoDir,
-    isolated: false,
-    herdrSession: "sess-a",
-    herdrAgentId: "agent-a",
-    claudeSessionId: "claude-a",
-    model: null,
-  });
-  store.update(store.list({ activeOnly: true })[0]!.id, { status: "running" });
 
   const res = await postSession(app);
   expect(res.status).toBe(201);

@@ -404,8 +404,8 @@ function buildLanes(
           {
             label: "prettier --check (delta)",
             cmd: "bunx",
-            // `--` terminator: `opts.changed` is raw git diff output, so a
-            // dash-leading filename here is the one LIVE flag-smuggling exposure.
+            // `--` terminator: dash-leading paths are already dropped upstream by
+            // `isSafePath` in `changedFiles`; this is the second layer guarding the spread.
             args: withFileArgs(["prettier", "--check", "--ignore-unknown"], opts.changed),
             cwd: repoRoot,
           },

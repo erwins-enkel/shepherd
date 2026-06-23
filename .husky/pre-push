@@ -1,90 +1,20 @@
 #!/usr/bin/env sh
-# Full CI-equivalent gate. Mirrors .github/workflows/ci.yml so failures
-# surface locally before they ever reach a PR. Root, ui/ and extension/ are
-# separate packages with their own deps — install all three before pushing.
+# CI-equivalent gate, run in parallel LANES by scripts/pre-push.ts (#1030). The old
+# fully-sequential body (~2.3 min warm) blew past the 120s agent command timeout and
+# failed pushes; the orchestrator runs independent work concurrently (bounded by cores)
+# with per-lane timeout backstops, bringing warm pushes well under a minute.
+#
+# DELIBERATE local-only differences from .github/workflows/ci.yml (flagged per house rules):
+#   • prettier/eslint are scoped to the push DELTA vs origin/main — CI keeps the whole-repo
+#     check, so tree-wide drift is still caught before merge.
+# See scripts/pre-push.ts for the lane definitions; keep them in sync with ci.yml.
 set -e
 
 # Git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / … into hooks. Those leak
 # into the test suite's `git` subprocesses and make repo-discovery tests believe
 # they're inside this repo (e.g. worktree fallback tests fail, and worse, mutate
-# the real repo). Scrub the repo-local set so tests run in the same clean env as CI.
+# the real repo). Scrub the repo-local set BEFORE exec so the orchestrator and every
+# child it spawns run in the same clean env as CI.
 unset $(git rev-parse --local-env-vars) 2>/dev/null || true
 
-echo "▶ pre-push: lint · typecheck · tests · build"
-
-echo "→ branch hygiene (linear off main, no merge commits)"
-bash scripts/check-branch-hygiene.sh
-
-echo "→ feature catalog upkeep (feat + UI ⇒ catalog entry)"
-bash scripts/check-feature-catalog.sh
-
-echo "→ generated docs upkeep (generator source ⇒ regenerated output)"
-bash scripts/check-generated-docs.sh
-
-echo "→ glossary referential integrity (terms ↔ keys ↔ markers)"
-node scripts/check-glossary.mjs
-
-echo "→ prettier --check"
-bunx prettier --check .
-
-echo "→ eslint"
-bun run lint
-(cd extension && bun run lint)
-
-echo "→ root typecheck (tsc)"
-bun run typecheck
-
-echo "→ ui svelte-check"
-(cd ui && bun run check)
-
-echo "→ extension svelte-check"
-(cd extension && bun run check)
-
-echo "→ i18n catalog parity (en ↔ de)"
-(cd ui && bun run check:i18n)
-(cd extension && bun run check:i18n)
-
-# Capture full test output so an intermittent flake's failing test name survives (#817).
-TEST_LOG_DIR="$(pwd)/.test-logs"
-mkdir -p "$TEST_LOG_DIR"
-# Bound growth: each push writes new timestamped logs, so keep only the most recent ones.
-ls -1t "$TEST_LOG_DIR"/*.log 2>/dev/null | tail -n +21 | xargs -r rm -f
-
-echo "→ root tests"
-# server.test.ts builds a throwaway git repo under SHEPHERD_REPO_ROOT;
-# point it at a temp dir so we never touch the operator's real repo root.
-ROOT_TEST_LOG="$TEST_LOG_DIR/prepush-roottest-$(date +%Y%m%dT%H%M%S).log"
-bash -o pipefail -c 'SHEPHERD_REPO_ROOT="$(mktemp -d)" bun test ./test 2>&1 | tee "$1"' _ "$ROOT_TEST_LOG" \
-  || { echo "✗ root tests failed — full output (incl. failing test name) saved to $ROOT_TEST_LOG"; exit 1; }
-
-echo "→ ensure Playwright Chromium (ui browser tests)"
-(cd ui && bunx playwright install chromium)
-
-echo "→ ui tests"
-UI_TEST_LOG="$TEST_LOG_DIR/prepush-uitest-$(date +%Y%m%dT%H%M%S).log"
-bash -o pipefail -c 'cd ui && bun run test 2>&1 | tee "$1"' _ "$UI_TEST_LOG" \
-  || { echo "✗ ui tests failed — full output saved to $UI_TEST_LOG"; exit 1; }
-
-echo "→ extension tests"
-(cd extension && bun run test)
-
-echo "→ ui build"
-(cd ui && bun run build)
-
-echo "→ extension build"
-(cd extension && bun run build)
-
-# Delta audit vs the merge base — only new dead-code/complexity/dupes block.
-# Skipped when origin/main is unavailable (e.g. offline) so a push isn't wedged.
-# Version pinned (see .github/workflows/ci.yml): the synthetic Svelte <template>
-# complexity metric (fallow 2.98+) is adopted via .fallowrc.jsonc thresholdOverrides
-# (#851). The #756 line-shift mis-attribution that forced the old 2.97 pin was verified
-# not to reproduce on 2.100; the overrides set a Svelte-appropriate bar for new code.
-if git rev-parse --verify --quiet origin/main >/dev/null; then
-  echo "→ fallow audit (delta vs origin/main)"
-  bunx fallow@2.100.0 audit --base origin/main --fail-on-issues
-else
-  echo "→ fallow audit skipped (origin/main not available)"
-fi
-
-echo "✓ pre-push passed"
+exec bun scripts/pre-push.ts

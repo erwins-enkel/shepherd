@@ -4224,6 +4224,22 @@ async function handleEpicGet({ req, parts, url, deps }: Ctx): Promise<Response |
   return json(epic);
 }
 
+// Kick the drain immediately on epic Start so the first sub-issue session spawns
+// at once and surfaces live in the (push-only) Herd via doSpawn's session:new
+// emit — without this it only appears on the next ~30s sweep. Fire-and-forget,
+// DELIBERATELY unlike approve-next which `await`s tick(): the EpicPanel discards
+// the PUT response and gets session:new + epic:update over the WS, so awaiting
+// tick() (which pumps ALL repos with forge I/O) would only add Start latency with
+// no payoff. The .catch keeps a throwing/slow tick from turning Start into a
+// 500 — the periodic sweep remains the safety net.
+function kickDrainOnEpicStart(
+  drain: NonNullable<AppDeps["drain"]>,
+  status: EpicRun["status"],
+): void {
+  if (status !== "running") return;
+  void drain.tick().catch((err) => console.warn("[epic] start tick:", err));
+}
+
 // PUT /api/epic?repo=&parent= — patch the EpicRun settings, re-assemble, emit.
 async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2]))
@@ -4250,6 +4266,7 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     ...(patch.status !== undefined ? { status: patch.status } : {}),
   };
   deps.store.setEpicRun(merged);
+  kickDrainOnEpicStart(deps.drain, merged.status);
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });

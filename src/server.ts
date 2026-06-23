@@ -1423,16 +1423,12 @@ function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps)
   const lim = deps.usageLimits.limits(Date.now());
   const s5h = lim.session5h?.pct ?? 0;
   const week = lim.week?.pct ?? 0;
-  const running = deps.store
-    .list({ activeOnly: true })
-    .filter((x) => x.status === "running").length;
   if (
     !shouldHold({
       enabled: config.usageHoldEnabled,
       holdPct: config.usageHoldPct,
       session5hPct: s5h,
       weekPct: week,
-      activeSessionCount: running,
       force,
     })
   )

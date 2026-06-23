@@ -1856,5 +1856,8 @@
   "feat_first_task_confirm_title": "Review settings before the first task",
   "feat_first_task_confirm_body": "Starting a task on a new repo now shows a quick review step so you can check automation settings before the first run. After confirming once, future tasks on the same repo start without interruption.",
   "toast_broadcast_delivered": "Broadcast steered {delivered} agents now.",
-  "toast_broadcast_result": "Broadcast · {delivered} steered now, {queued} queued on busy agents (act after current turn), {offline} unreachable."
+  "toast_broadcast_result": "Broadcast · {delivered} steered now, {queued} queued on busy agents (act after current turn), {offline} unreachable.",
+  "issuerow_assignee_title": "Assigned to {login}",
+  "feat_issue_assignee_title": "See who's assigned to each issue",
+  "feat_issue_assignee_body": "When the \"mine & unassigned\" issue filter is off, each backlog issue now shows a chip for every assignee, so you can tell at a glance who already owns a piece of work."
 }

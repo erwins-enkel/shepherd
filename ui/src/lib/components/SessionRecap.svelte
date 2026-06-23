@@ -159,6 +159,23 @@
     border-bottom: 1px solid var(--color-line);
   }
 
+  /* Full (non-inline) recap sits at the bottom of the Viewport flex column
+     (.viewport is overflow:hidden). Without min-height:0 the flex item can't
+     shrink below its expanded content, so a long recap overflows and gets
+     clipped with no scroll. min-height:0 lets it shrink within the column;
+     overflow-y:auto makes it the scroll container. Explicit --color-inset
+     background because the `panel` class has no global rule — the card is
+     otherwise transparent over .viewport's --color-inset. */
+  .recap-card:not(.inline) {
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--color-inset);
+    /* Top padding moves onto the sticky header below — a scroll container's
+       content scrolls *into* the top padding, so any padding-top here would let
+       body content peek above the pinned header. The header carries it instead. */
+    padding-top: 0;
+  }
+
   .recap-card.inline {
     border: none;
     padding: 0;
@@ -209,6 +226,24 @@
 
   .recap-header:hover .recap-headline {
     text-decoration: underline;
+  }
+
+  /* Keep the collapse toggle reachable while the body scrolls. Scoped to the
+     non-inline path — the inline static header reuses `.recap-header`
+     (recap-header-static) and must stay non-sticky/transparent. Opaque
+     --color-inset (matching the card) hides scrolled body content beneath it
+     and makes the card's top-padding strip seamless with the header. */
+  .recap-card:not(.inline) .recap-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-inset);
+    /* carries the card's former top padding so the opaque header reaches the
+       card's top edge (no gap for scrolled content to peek through); the
+       bottom padding is an opaque buffer between the pinned header and the
+       body content scrolling beneath it. */
+    padding-top: 6px;
+    padding-bottom: 6px;
   }
 
   .recap-verdict-chip {

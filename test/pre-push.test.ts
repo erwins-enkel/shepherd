@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   computeConcurrency,
   isEslintFile,
+  plannedLaneCount,
   routeEslintFiles,
   runLanes,
   type LaneHandle,
@@ -52,6 +53,17 @@ test("computeConcurrency: SHEPHERD_PREPUSH_LANES override clamps to [1, numLanes
   expect(computeConcurrency(32, 7, 2).laneCap).toBe(2); // modest-box sim
   expect(computeConcurrency(32, 7, 99).laneCap).toBe(7);
   expect(computeConcurrency(32, 7, 1).laneCap).toBe(1);
+});
+
+test("plannedLaneCount: matches buildLanes' conditional lane inclusion", () => {
+  // delta with code + lintable changes → +prettier +eslint = 7
+  expect(plannedLaneCount(true, ["src/server.ts"])).toBe(7);
+  // delta with only a non-lintable change → +prettier, no eslint = 6
+  expect(plannedLaneCount(true, ["README.md"])).toBe(6);
+  // delta with no changes → no prettier, no eslint = 5
+  expect(plannedLaneCount(true, [])).toBe(5);
+  // whole-repo fallback (no origin/main) → prettier + eslint always = 7
+  expect(plannedLaneCount(false, [])).toBe(7);
 });
 
 // ── Scheduler lifecycle (injected fakes — no real processes) ─────────────────

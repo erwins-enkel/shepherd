@@ -287,6 +287,24 @@ function changedFiles(repoRoot: string): string[] {
 
 // ── Lane assembly + main ──────────────────────────────────────────────────────
 
+/**
+ * Number of lanes `buildLanes` will produce, computed WITHOUT side effects so
+ * concurrency can be sized before the single (temp-dir-creating) build. MUST mirror
+ * `buildLanes`' lane-inclusion logic: gates/tsc/root-tests/ui/ext always run;
+ * prettier/eslint are conditional under delta scoping.
+ */
+export function plannedLaneCount(delta: boolean, changed: string[]): number {
+  let n = 5; // gates, tsc, root-tests, ui, ext
+  if (delta) {
+    if (changed.length) n++; // prettier (delta)
+    const routed = routeEslintFiles(changed);
+    if (routed.root.length || routed.ext.length) n++; // eslint (delta)
+  } else {
+    n += 2; // prettier + eslint (whole-repo fallback)
+  }
+  return n;
+}
+
 function buildLanes(
   repoRoot: string,
   opts: { delta: boolean; changed: string[]; maxWorkers: number; laneTimeoutOverride?: number },
@@ -294,13 +312,13 @@ function buildLanes(
   const ui = join(repoRoot, "ui");
   const ext = join(repoRoot, "extension");
   const W = String(opts.maxWorkers);
-  const t = (name: string, def: number) => opts.laneTimeoutOverride ?? def;
+  const t = (def: number) => opts.laneTimeoutOverride ?? def;
 
   const lanes: LaneSpec[] = [];
 
   lanes.push({
     name: "gates",
-    timeoutMs: t("gates", 120_000),
+    timeoutMs: t(120_000),
     steps: [
       {
         label: "branch hygiene",
@@ -329,7 +347,7 @@ function buildLanes(
     if (opts.changed.length) {
       lanes.push({
         name: "prettier",
-        timeoutMs: t("prettier", 120_000),
+        timeoutMs: t(120_000),
         steps: [
           {
             label: "prettier --check (delta)",
@@ -343,7 +361,7 @@ function buildLanes(
   } else {
     lanes.push({
       name: "prettier",
-      timeoutMs: t("prettier", 120_000),
+      timeoutMs: t(120_000),
       steps: [
         {
           label: "prettier --check (whole repo)",
@@ -373,11 +391,11 @@ function buildLanes(
         args: ["eslint", "--no-error-on-unmatched-pattern", ...routed.ext],
         cwd: ext,
       });
-    if (steps.length) lanes.push({ name: "eslint", timeoutMs: t("eslint", 120_000), steps });
+    if (steps.length) lanes.push({ name: "eslint", timeoutMs: t(120_000), steps });
   } else {
     lanes.push({
       name: "eslint",
-      timeoutMs: t("eslint", 120_000),
+      timeoutMs: t(120_000),
       steps: [
         { label: "eslint root (whole)", cmd: "bun", args: ["run", "lint"], cwd: repoRoot },
         { label: "eslint extension (whole)", cmd: "bun", args: ["run", "lint"], cwd: ext },
@@ -387,13 +405,13 @@ function buildLanes(
 
   lanes.push({
     name: "tsc",
-    timeoutMs: t("tsc", 300_000),
+    timeoutMs: t(300_000),
     steps: [{ label: "root typecheck", cmd: "bun", args: ["run", "typecheck"], cwd: repoRoot }],
   });
 
   lanes.push({
     name: "root-tests",
-    timeoutMs: t("root-tests", 300_000),
+    timeoutMs: t(300_000),
     steps: [
       {
         label: "bun test ./test",
@@ -413,7 +431,7 @@ function buildLanes(
   // codegen, which races on .svelte-kit/ + src/lib/paraglide/ if run concurrently.
   lanes.push({
     name: "ui",
-    timeoutMs: t("ui", 600_000),
+    timeoutMs: t(600_000),
     steps: [
       { label: "svelte-check", cmd: "bun", args: ["run", "check"], cwd: ui },
       { label: "i18n parity", cmd: "bun", args: ["run", "check:i18n"], cwd: ui },
@@ -430,7 +448,7 @@ function buildLanes(
 
   lanes.push({
     name: "ext",
-    timeoutMs: t("ext", 300_000),
+    timeoutMs: t(300_000),
     steps: [
       { label: "svelte-check", cmd: "bun", args: ["run", "check"], cwd: ext },
       { label: "i18n parity", cmd: "bun", args: ["run", "check:i18n"], cwd: ext },
@@ -468,9 +486,10 @@ async function main(): Promise<void> {
   pruneLogs(logDir);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-  // Concurrency is computed against the real lane count below.
-  const probeLanes = buildLanes(repoRoot, { delta, changed, maxWorkers: 1, laneTimeoutOverride });
-  const { laneCap, maxWorkers } = computeConcurrency(cores, probeLanes.length, laneOverride);
+  // Size concurrency from the side-effect-free lane count, then build lanes ONCE
+  // (buildLanes creates the root-tests temp dir, so it must not run twice).
+  const numLanes = plannedLaneCount(delta, changed);
+  const { laneCap, maxWorkers } = computeConcurrency(cores, numLanes, laneOverride);
   const lanes = buildLanes(repoRoot, { delta, changed, maxWorkers, laneTimeoutOverride });
 
   console.log(

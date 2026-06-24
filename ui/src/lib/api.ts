@@ -175,6 +175,14 @@ export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boo
 export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>
   patchSettings({ reducedPushMode: enabled });
 
+// Opt the main session into Claude Code's fullscreen renderer (applies to new/resumed sessions).
+export const putTuiFullscreen = (value: boolean): Promise<{ tuiFullscreen: boolean }> =>
+  patchSettings<{ tuiFullscreen: boolean }>({ tuiFullscreen: value });
+
+// Disable Claude Code mouse capture for the main session.
+export const putTuiDisableMouse = (value: boolean): Promise<{ tuiDisableMouse: boolean }> =>
+  patchSettings<{ tuiDisableMouse: boolean }>({ tuiDisableMouse: value });
+
 /** Upload one image; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
 export async function uploadImage(file: File, sessionId?: string): Promise<string> {

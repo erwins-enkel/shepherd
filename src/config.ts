@@ -433,6 +433,12 @@ export const config = {
   // stored session model (so cost accounting + fable intent survive for later replay).
   // Persisted + UI-configurable; SHEPHERD_FABLE_AVAILABLE=0/false seeds it off.
   fableAvailable: normalizeFableAvailable(process.env.SHEPHERD_FABLE_AVAILABLE) ?? true,
+  // Opt the main agent session into Claude Code's fullscreen renderer (research preview;
+  // applies to newly spawned/resumed sessions only). Persisted + UI-configurable; default off.
+  tuiFullscreen: process.env.SHEPHERD_TUI_FULLSCREEN === "1",
+  // Disable Claude Code mouse capture for the main agent session. Persisted + UI-configurable;
+  // default off. (tuiFullscreen also implies this — coupling lives in the spawn wiring, not here.)
+  tuiDisableMouse: process.env.SHEPHERD_TUI_DISABLE_MOUSE === "1",
   // Operator auth footing for spawned agents. 'subscription' (default) = subscription OAuth;
   // 'api-key' = bill against an Anthropic API key. Persisted + UI-configurable; env seeds a fresh DB.
   authMode: normalizeAuthModeSetting(process.env.SHEPHERD_AUTH_MODE) ?? "subscription",

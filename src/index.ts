@@ -173,6 +173,12 @@ if (savedFa !== null) {
   const v = normalizeFableAvailable(savedFa);
   if (v !== null) config.fableAvailable = v;
 }
+// a UI-chosen fullscreen-renderer opt-in (persisted) overrides the env default; absent → keep
+// the config default (off). Stored as "1"/"0".
+const savedTuiFs = store.getSetting("tuiFullscreen");
+if (savedTuiFs !== null) config.tuiFullscreen = savedTuiFs === "1";
+const savedTuiMouse = store.getSetting("tuiDisableMouse");
+if (savedTuiMouse !== null) config.tuiDisableMouse = savedTuiMouse === "1";
 // a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {

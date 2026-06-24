@@ -21,6 +21,8 @@ let savedExtraCredits: number;
 let savedAuthMode: AuthMode;
 let savedAuthApiKeyHelperPath: string | null;
 let savedHome: string | undefined;
+let savedTuiFullscreen: boolean;
+let savedTuiDisableMouse: boolean;
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -37,6 +39,8 @@ beforeEach(() => {
   savedExtraCredits = config.extraCreditsDrainCeiling;
   savedAuthMode = config.authMode;
   savedAuthApiKeyHelperPath = config.authApiKeyHelperPath;
+  savedTuiFullscreen = config.tuiFullscreen;
+  savedTuiDisableMouse = config.tuiDisableMouse;
   savedHome = process.env.HOME;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
@@ -57,6 +61,8 @@ afterEach(() => {
   config.extraCreditsDrainCeiling = savedExtraCredits;
   config.authMode = savedAuthMode;
   config.authApiKeyHelperPath = savedAuthApiKeyHelperPath;
+  config.tuiFullscreen = savedTuiFullscreen;
+  config.tuiDisableMouse = savedTuiDisableMouse;
   if (savedHome !== undefined) process.env.HOME = savedHome;
   else delete process.env.HOME;
   rmSync(tmp, { recursive: true, force: true });
@@ -617,4 +623,72 @@ test("GET /api/settings is unaffected by the verify-key route", async () => {
   const res = await app.fetch(new Request("http://x/api/settings"));
   expect(res.status).toBe(200);
   expect((await res.json()).repoRoot).toBe(tmp);
+});
+
+// ── tuiFullscreen ─────────────────────────────────────────────────────────────
+
+test("GET /api/settings includes tuiFullscreen (default false)", async () => {
+  config.tuiFullscreen = false;
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.tuiFullscreen).toBe(false);
+});
+
+test('PUT /api/settings toggles tuiFullscreen, persists ("1"/"0"), leaves repoRoot intact', async () => {
+  config.repoRoot = tmp;
+  config.tuiFullscreen = false;
+  const { app, store } = harness();
+  const res = await put(app, { tuiFullscreen: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).tuiFullscreen).toBe(true);
+  expect(config.tuiFullscreen).toBe(true); // live
+  expect(store.getSetting("tuiFullscreen")).toBe("1"); // persisted as "1"/"0"
+  expect(config.repoRoot).toBe(tmp); // a tuiFullscreen patch must not touch the repo root
+  // reflected by GET, and toggling back persists "0"
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.tuiFullscreen).toBe(true);
+  await put(app, { tuiFullscreen: false });
+  expect(store.getSetting("tuiFullscreen")).toBe("0");
+});
+
+test("PUT /api/settings rejects a non-boolean tuiFullscreen", async () => {
+  const { app } = harness();
+  const res = await put(app, { tuiFullscreen: "yes" });
+  expect(res.status).toBe(400);
+});
+
+// ── tuiDisableMouse ───────────────────────────────────────────────────────────
+
+test("GET /api/settings includes tuiDisableMouse (default false)", async () => {
+  config.tuiDisableMouse = false;
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.tuiDisableMouse).toBe(false);
+});
+
+test('PUT /api/settings toggles tuiDisableMouse, persists ("1"/"0"), leaves repoRoot intact', async () => {
+  config.repoRoot = tmp;
+  config.tuiDisableMouse = false;
+  const { app, store } = harness();
+  const res = await put(app, { tuiDisableMouse: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).tuiDisableMouse).toBe(true);
+  expect(config.tuiDisableMouse).toBe(true); // live
+  expect(store.getSetting("tuiDisableMouse")).toBe("1"); // persisted as "1"/"0"
+  expect(config.repoRoot).toBe(tmp); // a tuiDisableMouse patch must not touch the repo root
+  // reflected by GET, and toggling back persists "0"
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.tuiDisableMouse).toBe(true);
+  await put(app, { tuiDisableMouse: false });
+  expect(store.getSetting("tuiDisableMouse")).toBe("0");
+});
+
+test("PUT /api/settings rejects a non-boolean tuiDisableMouse", async () => {
+  const { app } = harness();
+  const res = await put(app, { tuiDisableMouse: "yes" });
+  expect(res.status).toBe(400);
 });

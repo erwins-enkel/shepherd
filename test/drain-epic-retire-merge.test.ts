@@ -103,6 +103,7 @@ function makeHarness(
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
   if (opts.epicStatus) {
     store.setEpicRun({

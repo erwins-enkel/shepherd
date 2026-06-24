@@ -497,6 +497,46 @@ function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
+// Manual operator steps — durable post-merge materialization (#1061, epic #1056 P3).
+//   GET  /api/manual-steps/outstanding                     → records still owing steps (Owed lens)
+//   POST /api/manual-steps/:sessionId/steps/:stepId {done} → tick / un-tick one step
+//   POST /api/manual-steps/:sessionId/dismiss              → clear the whole record
+// Mutations emit `post-merge-steps:changed` so every client's Owed lens refreshes.
+async function manualStepDone(
+  req: Request,
+  deps: Ctx["deps"],
+  sessionId: string,
+  stepId: string,
+): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { done?: unknown } | null;
+  if (!body || typeof body.done !== "boolean")
+    return json({ error: "body.done must be a boolean" }, 400);
+  const updated = deps.store.setPostMergeStepDone(sessionId, stepId, body.done);
+  if (!updated) return json({ error: "post-merge steps not found" }, 404);
+  deps.events?.emit("post-merge-steps:changed", {});
+  return json(updated);
+}
+
+function manualStepsDismiss(deps: Ctx["deps"], sessionId: string): Response {
+  const updated = deps.store.dismissPostMergeSteps(sessionId);
+  if (!updated) return json({ error: "post-merge steps not found" }, 404);
+  deps.events?.emit("post-merge-steps:changed", {});
+  return json(updated);
+}
+
+async function handleManualSteps({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "manual-steps")) return null;
+  if (req.method === "GET" && parts[2] === "outstanding" && !parts[3])
+    return json(deps.store.listOutstandingPostMergeSteps());
+
+  const sessionId = parts[2];
+  if (!sessionId || req.method !== "POST") return null;
+  if (parts[3] === "steps" && parts[4] && !parts[5])
+    return manualStepDone(req, deps, sessionId, parts[4]);
+  if (parts[3] === "dismiss" && !parts[4]) return manualStepsDismiss(deps, sessionId);
+  return null;
+}
+
 // GET /api/herd/digest — the latest Herd Rundown digest, with a route-computed `staleCount`
 // (how many attention-bearing sessions' signal sets changed since it was generated). null when
 // no digest exists yet (mirrors the recap empty pattern). staleCount is cheap: it re-derives the
@@ -614,6 +654,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "buildQueueEnabled",
   "draftMode",
   "autoOptimizeFlagged",
+  "manualStepsIssueEnabled",
 ] as const;
 
 type RepoCfgBody = {
@@ -628,6 +669,7 @@ type RepoCfgBody = {
   buildQueueEnabled?: unknown;
   draftMode?: unknown;
   autoOptimizeFlagged?: unknown;
+  manualStepsIssueEnabled?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
@@ -705,6 +747,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       buildQueueEnabled?: boolean;
       draftMode?: boolean;
       autoOptimizeFlagged?: boolean;
+      manualStepsIssueEnabled?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
@@ -773,6 +816,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     draftMode: body.draftMode as boolean | undefined,
     autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
+    manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
     defaultModel,
@@ -4769,6 +4813,7 @@ const ROUTE_HANDLERS = [
   handleEpicsCompletedDismiss,
   handleEpicsCompletedAckMigrations,
   handleSessionsAckManualSteps,
+  handleManualSteps,
   handleEpicsCompletedLand,
   handleEpicsCompletedList,
   handleEpicApproveNext,

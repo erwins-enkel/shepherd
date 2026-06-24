@@ -21,6 +21,8 @@ import type {
   ReviewerSpawnRow,
   PrReview,
   HerdDigest,
+  PostMergeStep,
+  PostMergeSteps,
   RundownItem,
   RundownEpicItem,
   HeldTask,
@@ -105,6 +107,9 @@ export interface RepoConfig {
   repoMode: "forge" | "lightweight";
   /** Auto-optimize flagged rules (default OFF — explicit opt-in). */
   autoOptimizeFlagged: boolean;
+  /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
+   *  (#1061). Default OFF — outbound write gated behind explicit per-repo opt-in (house rule). */
+  manualStepsIssueEnabled: boolean;
 }
 
 export interface LocalPr {
@@ -406,6 +411,7 @@ type RepoCfgRow = {
   egressExtraHosts: string | null;
   repoMode: string;
   autoOptimizeFlagged: number;
+  manualStepsIssueEnabled: number;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -438,6 +444,56 @@ function parseManualStepsJson(raw: string | null | undefined): ManualStep[] {
   } catch {
     return [];
   }
+}
+
+/** Tolerantly parse the persisted post-merge step JSON back to PostMergeStep[] (never throws). #1061. */
+function parsePostMergeStepsJson(raw: string | null | undefined): PostMergeStep[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is PostMergeStep =>
+        !!s &&
+        typeof s === "object" &&
+        typeof s.id === "string" &&
+        typeof s.text === "string" &&
+        typeof s.postMerge === "boolean" &&
+        (s.doneAt === null || typeof s.doneAt === "number"),
+    );
+  } catch {
+    return [];
+  }
+}
+
+type PostMergeStepsRow = {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  prNumber: number | null;
+  prTitle: string;
+  stepsJson: string;
+  trackingIssueUrl: string | null;
+  trackingIssueNumber: number | null;
+  createdAt: number;
+  updatedAt: number;
+  clearedAt: number | null;
+};
+
+function hydratePostMergeSteps(r: PostMergeStepsRow): PostMergeSteps {
+  return {
+    sessionId: r.sessionId,
+    desig: r.desig,
+    repoPath: r.repoPath,
+    prNumber: r.prNumber ?? null,
+    prTitle: r.prTitle,
+    steps: parsePostMergeStepsJson(r.stepsJson),
+    trackingIssueUrl: r.trackingIssueUrl ?? null,
+    trackingIssueNumber: r.trackingIssueNumber ?? null,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    clearedAt: r.clearedAt ?? null,
+  };
 }
 
 /** Tolerantly parse the persisted egressExtraHosts JSON back to string[] (never throws). */
@@ -479,6 +535,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       egressExtraHosts: [],
       repoMode: "forge",
       autoOptimizeFlagged: false,
+      manualStepsIssueEnabled: false,
     };
   }
   return {
@@ -501,6 +558,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
+    manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
   };
 }
 
@@ -700,6 +758,28 @@ export class SessionStore implements CapStore, CreditStore {
     if (!recapCols.some((c) => c.name === "pendingDiff")) {
       this.db.run(`ALTER TABLE recaps ADD COLUMN pendingDiff TEXT NOT NULL DEFAULT '[]'`);
     }
+    // Manual operator steps — durable post-merge materialization (#1061, epic #1056 P3). One row
+    // per merged session carrying its outstanding manual steps so they outlive the session. This
+    // table is DELIBERATELY excluded from the pruneArchivedSessions cascade (archive-decoupled,
+    // like reviewer_spawns / epic_completed) — owed steps must survive teardown AND the
+    // archived-session prune. Display fields (desig/repoPath/prNumber/prTitle) are denormalized so
+    // the Owed panel still renders after the underlying sessions row is pruned. clearedAt NULL =
+    // still owed; stamped when every step is ticked done or the operator dismisses.
+    this.db.run(`CREATE TABLE IF NOT EXISTS post_merge_steps (
+      sessionId TEXT PRIMARY KEY,
+      desig TEXT NOT NULL DEFAULT '',
+      repoPath TEXT NOT NULL DEFAULT '',
+      prNumber INTEGER,
+      prTitle TEXT NOT NULL DEFAULT '',
+      stepsJson TEXT NOT NULL DEFAULT '[]',
+      trackingIssueUrl TEXT,
+      trackingIssueNumber INTEGER,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      clearedAt INTEGER)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS post_merge_steps_cleared ON post_merge_steps (clearedAt)`,
+    );
     // Herd Rundown: one synthesized cross-session attention digest per calendar day.
     // Same lifecycle as recaps (generating → ready/failed); verdict columns empty until ready.
     this.db.run(`CREATE TABLE IF NOT EXISTS herd_digests (
@@ -937,7 +1017,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-                autoOptimizeFlagged
+                autoOptimizeFlagged, manualStepsIssueEnabled
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -950,8 +1030,8 @@ export class SessionStore implements CapStore, CreditStore {
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -971,6 +1051,7 @@ export class SessionStore implements CapStore, CreditStore {
          egressExtraHosts = excluded.egressExtraHosts,
          repoMode = excluded.repoMode,
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
+         manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -993,6 +1074,7 @@ export class SessionStore implements CapStore, CreditStore {
         JSON.stringify(cfg.egressExtraHosts ?? []),
         cfg.repoMode,
         cfg.autoOptimizeFlagged ? 1 : 0,
+        cfg.manualStepsIssueEnabled ? 1 : 0,
         Date.now(),
       ],
     );
@@ -2153,6 +2235,107 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`DELETE FROM recaps WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── post-merge steps (durable manual-step materialization, #1061) ─────────────
+
+  private readonly POST_MERGE_COLS = `sessionId, desig, repoPath, prNumber, prTitle, stepsJson,
+    trackingIssueUrl, trackingIssueNumber, createdAt, updatedAt, clearedAt`;
+
+  /** Materialize a merged session's outstanding manual steps. IDEMPOTENT: a row already present
+   *  (the merged event replays — boot warm-tick) is left untouched, preserving any tick-state.
+   *  Returns true only when it actually inserted (so the caller emits/logs + attempts the gated
+   *  tracking issue exactly once on first materialization). DB ops are synchronous on the single
+   *  event loop, so the existence-check + insert is atomic from any caller's view. */
+  materializePostMergeSteps(rec: {
+    sessionId: string;
+    desig: string;
+    repoPath: string;
+    prNumber: number | null;
+    prTitle: string;
+    steps: PostMergeStep[];
+  }): boolean {
+    const exists = this.db
+      .query(`SELECT 1 FROM post_merge_steps WHERE sessionId = ? LIMIT 1`)
+      .get(rec.sessionId);
+    if (exists) return false;
+    const t = Date.now();
+    this.db.run(
+      `INSERT INTO post_merge_steps (sessionId, desig, repoPath, prNumber, prTitle, stepsJson, createdAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        rec.sessionId,
+        rec.desig,
+        rec.repoPath,
+        rec.prNumber,
+        rec.prTitle,
+        JSON.stringify(rec.steps),
+        t,
+        t,
+      ],
+    );
+    return true;
+  }
+
+  getPostMergeSteps(sessionId: string): PostMergeSteps | null {
+    const r = this.db
+      .query(`SELECT ${this.POST_MERGE_COLS} FROM post_merge_steps WHERE sessionId = ?`)
+      .get(sessionId) as PostMergeStepsRow | null;
+    return r ? hydratePostMergeSteps(r) : null;
+  }
+
+  /** All records still owing steps (clearedAt IS NULL), newest-materialized first. */
+  listOutstandingPostMergeSteps(): PostMergeSteps[] {
+    const rows = this.db
+      .query(
+        `SELECT ${this.POST_MERGE_COLS} FROM post_merge_steps WHERE clearedAt IS NULL ORDER BY createdAt DESC`,
+      )
+      .all() as PostMergeStepsRow[];
+    return rows.map(hydratePostMergeSteps);
+  }
+
+  /** Tick (or un-tick) one step. Recomputes clearedAt: stamped when every step is done, cleared
+   *  again if any is re-opened. Returns the updated record, or null if no row / unknown step. */
+  setPostMergeStepDone(sessionId: string, stepId: string, done: boolean): PostMergeSteps | null {
+    const rec = this.getPostMergeSteps(sessionId);
+    if (!rec) return null;
+    const t = Date.now();
+    let found = false;
+    const steps = rec.steps.map((s) => {
+      if (s.id !== stepId) return s;
+      found = true;
+      return { ...s, doneAt: done ? (s.doneAt ?? t) : null };
+    });
+    if (!found) return rec;
+    const allDone = steps.length > 0 && steps.every((s) => s.doneAt != null);
+    const clearedAt = allDone ? (rec.clearedAt ?? t) : null;
+    this.db.run(
+      `UPDATE post_merge_steps SET stepsJson = ?, clearedAt = ?, updatedAt = ? WHERE sessionId = ?`,
+      [JSON.stringify(steps), clearedAt, t, sessionId],
+    );
+    return { ...rec, steps, clearedAt, updatedAt: t };
+  }
+
+  /** Operator dismiss — clear the whole record (stamp clearedAt). Returns updated record or null. */
+  dismissPostMergeSteps(sessionId: string): PostMergeSteps | null {
+    const rec = this.getPostMergeSteps(sessionId);
+    if (!rec) return null;
+    const t = Date.now();
+    const clearedAt = rec.clearedAt ?? t;
+    this.db.run(`UPDATE post_merge_steps SET clearedAt = ?, updatedAt = ? WHERE sessionId = ?`, [
+      clearedAt,
+      t,
+      sessionId,
+    ]);
+    return { ...rec, clearedAt, updatedAt: t };
+  }
+
+  /** Link the opt-in tracking issue onto the record (idempotency keys off trackingIssueUrl). */
+  setPostMergeTrackingIssue(sessionId: string, url: string, number: number): void {
+    this.db.run(
+      `UPDATE post_merge_steps SET trackingIssueUrl = ?, trackingIssueNumber = ?, updatedAt = ? WHERE sessionId = ?`,
+      [url, number, Date.now(), sessionId],
+    );
+  }
+
   // ── herd rundown (cross-session attention digest, per calendar day) ───────────
   private hydrateItems(raw: unknown): RundownItem[] {
     let parsed: unknown;
@@ -2513,6 +2696,9 @@ export class SessionStore implements CapStore, CreditStore {
         `DELETE FROM recaps WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
+      // NOTE: post_merge_steps is INTENTIONALLY NOT cascaded here (#1061) — owed manual steps must
+      // outlive the archived session AND this prune. Its display fields are denormalized so it
+      // renders fine once the sessions row below is gone. Don't "tidy" it into this cascade.
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
@@ -2622,6 +2808,9 @@ export class SessionStore implements CapStore, CreditStore {
     add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
     // auto-optimize flagged rules: default OFF (explicit opt-in).
     add("autoOptimizeFlagged", `autoOptimizeFlagged INTEGER NOT NULL DEFAULT 0`);
+    // #1061: open a GitHub tracking issue for manual operator steps on merge. Default OFF —
+    // outbound write gated behind explicit per-repo opt-in (house rule).
+    add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

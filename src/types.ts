@@ -89,6 +89,42 @@ export interface Session {
 }
 
 /**
+ * One manual operator step frozen into the durable post-merge materialization (#1061, epic #1056
+ * P3): a {@link ManualStep} captured at merge plus a per-step `doneAt`. P2's ack is set-level (no
+ * per-step done flag), so this is where ticking-off lives.
+ */
+export interface PostMergeStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
+  /** Epoch ms the operator ticked this step done; null while still owed. */
+  doneAt: number | null;
+}
+
+/**
+ * Durable post-merge materialization of a merged session's outstanding manual operator steps
+ * (#1061, epic #1056 P3). One row per merged session, kept in its own table that is DELIBERATELY
+ * excluded from the archived-session prune cascade, so owed steps survive both teardown and the
+ * prune window. Display fields are denormalized so the Owed panel still renders fully after the
+ * underlying `sessions` row is pruned.
+ */
+export interface PostMergeSteps {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  prNumber: number | null;
+  prTitle: string;
+  steps: PostMergeStep[];
+  /** Tracking issue opened on merge when the repo opt-in is on; null otherwise. */
+  trackingIssueUrl: string | null;
+  trackingIssueNumber: number | null;
+  createdAt: number;
+  updatedAt: number;
+  /** Stamped when every step is done OR the operator dismisses; null = still owed. */
+  clearedAt: number | null;
+}
+
+/**
  * A GitHub/Gitea issue attached to a task by reference. The body rides along
  * out-of-band into the agent's prompt argv (like images) so it never counts
  * against the 8000-char human-prompt guard.

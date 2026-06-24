@@ -28,6 +28,7 @@ import type {
   ReviewVerdict,
   PlanGate,
   RepoConfig,
+  PostMergeSteps,
   RepoRoles,
   ReadinessReport,
   DrainStatus,
@@ -1149,6 +1150,7 @@ export async function putRepoConfig(
       | "usageCeilingPct"
       | "repoMode"
       | "autoOptimizeFlagged"
+      | "manualStepsIssueEnabled"
     >
   > & { automationConfirmed?: boolean },
 ): Promise<RepoConfigResponse> {
@@ -1568,6 +1570,33 @@ export async function ackManualSteps(sessionId: string): Promise<{ ok: boolean }
     `/api/sessions/${encodeURIComponent(sessionId)}/ack-manual-steps`,
     {},
     "acknowledge manual steps",
+  );
+}
+
+/** Durable post-merge steps (#1061): records still owing manual steps after merge (Owed lens). */
+export async function getOutstandingManualSteps(): Promise<PostMergeSteps[]> {
+  return getJson("/api/manual-steps/outstanding", "outstanding manual steps");
+}
+
+/** Tick or un-tick one materialized post-merge step; returns the updated record. */
+export async function setManualStepDone(
+  sessionId: string,
+  stepId: string,
+  done: boolean,
+): Promise<PostMergeSteps> {
+  return postJson(
+    `/api/manual-steps/${encodeURIComponent(sessionId)}/steps/${encodeURIComponent(stepId)}`,
+    { done },
+    "update manual step",
+  );
+}
+
+/** Dismiss a whole post-merge record (clear all its owed steps at once). */
+export async function dismissManualSteps(sessionId: string): Promise<PostMergeSteps> {
+  return postJson(
+    `/api/manual-steps/${encodeURIComponent(sessionId)}/dismiss`,
+    {},
+    "dismiss manual steps",
   );
 }
 

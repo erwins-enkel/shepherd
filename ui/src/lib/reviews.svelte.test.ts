@@ -31,6 +31,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   usageCeilingPct: 80,
   repoMode: "forge",
   autoOptimizeFlagged: false,
+  manualStepsIssueEnabled: false,
   ...overrides,
 });
 

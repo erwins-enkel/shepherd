@@ -17,6 +17,7 @@
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import RundownPanel from "./RundownPanel.svelte";
+  import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -440,6 +441,10 @@
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
+    {:else if filter === "owed"}
+      <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
+         Panel-only (no session list), persists beyond the Done lens's 48h window. -->
+      <PostMergeStepsPanel />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
@@ -483,7 +488,7 @@
         <HerdGroup ctx={rowCtx} {...grp} />
       {/each}
     {/if}
-    {#if filter !== "done" && filter !== "rundown"}
+    {#if filter !== "done" && filter !== "rundown" && filter !== "owed"}
       <IntegratedEpicsBand
         epics={completedEpics}
         ondismiss={ondismissepic ?? (() => {})}

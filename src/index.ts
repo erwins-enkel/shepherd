@@ -102,6 +102,7 @@ import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService } from "./recap";
+import { PostMergeStepsService } from "./post-merge-steps";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
@@ -896,6 +897,28 @@ events.subscribe((event, data) => {
   void docAgent
     .onMergedPr(s.repoPath, git.number, git.title, s.baseBranch)
     .catch((err) => console.warn("[doc-agent] onMergedPr failed:", err));
+});
+// Manual operator steps — durable post-merge materialization (#1061, epic #1056 P3). On a managed
+// session's PR merging, freeze its manual steps into the archive-decoupled post_merge_steps table
+// (so the Owed lens + recap keep them after teardown) and, behind a per-repo opt-in, open a GitHub
+// tracking issue linked back to the PR. onMerged is internally defensive (re-derives steps when
+// detection hasn't run, never throws); this subscriber's .catch is the backstop so a failure can
+// never strand the independent archive flow, and every failure mode recovers on the merged-event
+// warm-tick replay (idempotent on the sessionId PK + the tracking-issue null-URL guard).
+const postMergeSteps = new PostMergeStepsService({
+  store,
+  resolveForge,
+  emitChange: () => events.emit("post-merge-steps:changed", {}),
+});
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: GitState };
+  if (git.state !== "merged") return;
+  const s = store.get(id);
+  if (!s) return;
+  void postMergeSteps
+    .onMerged(s, git.number ?? null, git.title ?? "")
+    .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
 setInterval(() => {
   if (maintenance.active) return;

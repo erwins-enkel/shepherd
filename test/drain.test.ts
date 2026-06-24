@@ -177,6 +177,7 @@ function makeHarness(
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
 
   const forgeRec: ForgeRec = {
@@ -767,6 +768,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -788,6 +790,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
 
   const forgeRec: ForgeRec = {
@@ -1447,6 +1450,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
 
   const candidateIssue = issue(42);

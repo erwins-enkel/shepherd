@@ -129,6 +129,7 @@ function makeHarness(
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };

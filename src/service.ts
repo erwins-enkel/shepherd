@@ -845,12 +845,6 @@ function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
 
-/**
- * A freshly-created session is pre-approved into the build queue only when the repo runs the
- * build queue AND the session is effectively on autopilot (so no human approval gate will ever
- * come) AND it isn't a research task. Keyed on the session's EFFECTIVE autopilot (not the raw
- * repo default), so an autopilot-off session — e.g. a merge-train driver — is never auto-approved.
- */
 /** Renderer env for the MAIN session spawn. Default: pin the classic renderer. The
  *  tuiFullscreen opt-in (research preview) switches to NO_FLICKER. tuiFullscreen also implies
  *  DISABLE_MOUSE (every main session is reachable in the web terminal, where fullscreen
@@ -868,6 +862,12 @@ function mainSessionRendererEnv(
   return env;
 }
 
+/**
+ * A freshly-created session is pre-approved into the build queue only when the repo runs the
+ * build queue AND the session is effectively on autopilot (so no human approval gate will ever
+ * come) AND it isn't a research task. Keyed on the session's EFFECTIVE autopilot (not the raw
+ * repo default), so an autopilot-off session — e.g. a merge-train driver — is never auto-approved.
+ */
 function shouldPreApproveBuildQueue(
   repoConfig: RepoConfig,
   session: Pick<Session, "autopilotEnabled">,

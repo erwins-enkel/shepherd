@@ -1231,6 +1231,19 @@ export class SessionService {
     // FS-only (network open) — warrants the egress-degraded banner.
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
 
+    // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
+    // classic pin). Default: pin classic. The tuiFullscreen opt-in (research preview) switches to
+    // NO_FLICKER. tuiFullscreen ALSO implies DISABLE_MOUSE — every main session is reachable in the
+    // web terminal, where fullscreen mouse-capture escapes (modes 1000/1002/1003) would be injected
+    // into the keystroke stream; tuiDisableMouse can also set it independently (e.g. in classic mode).
+    // Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped by
+    // bwrap --clearenv) AND spawnEnv (trusted). The renderer is fixed at claude process start, so a
+    // settings change only affects subsequently spawned/resumed sessions.
+    const rendererEnv: Record<string, string> = config.tuiFullscreen
+      ? { CLAUDE_CODE_NO_FLICKER: "1" }
+      : { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" };
+    if (config.tuiFullscreen || config.tuiDisableMouse) rendererEnv.CLAUDE_CODE_DISABLE_MOUSE = "1";
+
     // Build the membrane only when it'll actually wrap (a sandboxed profile WITH a backend).
     // wrapArgv ignores the membrane for trusted / no-backend (passthrough), so skipping the
     // git/realpath resolution avoids needless host work — and the placeholder is never read.
@@ -1246,7 +1259,7 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
-          extraEnv: collectPassthroughEnv(),
+          extraEnv: { ...collectPassthroughEnv(), ...rendererEnv },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
@@ -1268,7 +1281,7 @@ export class SessionService {
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there.
-    const spawnEnv = apiKeyAuth.passthroughEnv(willWrap);
+    const spawnEnv = { ...(apiKeyAuth.passthroughEnv(willWrap) ?? {}), ...rendererEnv };
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {

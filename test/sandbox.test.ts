@@ -668,6 +668,33 @@ describe("buildMembraneFlags", () => {
   });
 });
 
+describe("buildMembraneFlags renderer env", () => {
+  test("CLAUDE_CODE_NO_FLICKER in extraEnv => --setenv triple present, after --clearenv", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ extraEnv: { CLAUDE_CODE_NO_FLICKER: "1" } }),
+      detDeps,
+    );
+    expect(hasTriple(f, "--setenv", "CLAUDE_CODE_NO_FLICKER", "1")).toBe(true);
+    const clearIdx = f.indexOf("--clearenv");
+    let tripleIdx = -1;
+    for (let i = 0; i + 2 < f.length; i++) {
+      if (f[i] === "--setenv" && f[i + 1] === "CLAUDE_CODE_NO_FLICKER" && f[i + 2] === "1") {
+        tripleIdx = i;
+        break;
+      }
+    }
+    expect(tripleIdx).toBeGreaterThan(clearIdx);
+  });
+
+  test("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN in extraEnv => --setenv triple present", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ extraEnv: { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" } }),
+      detDeps,
+    );
+    expect(hasTriple(f, "--setenv", "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1")).toBe(true);
+  });
+});
+
 describe("collectPassthroughEnv", () => {
   test("excludes secrets, includes allowlisted locale/display vars", () => {
     const out = collectPassthroughEnv({

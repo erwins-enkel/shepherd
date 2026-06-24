@@ -161,7 +161,8 @@ export type HoldCode =
   | "recap-attention"
   | "merging"
   | "merge-rebasing"
-  | "ready-merge";
+  | "ready-merge"
+  | "manual-steps";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -173,6 +174,7 @@ export interface HoldParams {
   pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
   rebaseCount?: number; // merge-rebasing: auto-rebase attempts
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+  steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
 }
 
 export interface HoldReason {
@@ -1063,7 +1065,10 @@ export type WsEvent =
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };
     }
   | { event: "session:git"; data: { id: string; git: GitState } }
-  | { event: "session:manual-steps"; data: { id: string; manualSteps: ManualStep[] } }
+  | {
+      event: "session:manual-steps";
+      data: { id: string; manualSteps: ManualStep[]; manualStepsAckedAt?: number | null };
+    }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
   | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }

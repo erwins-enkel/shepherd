@@ -194,6 +194,59 @@ test("classifyAttention: merger handoff → awaiting-merge (tier 2), not ready-m
   expect(r.signals).not.toContain("ready-merge");
 });
 
+// ── manual operator steps signal (#1060) ─────────────────────────────────────
+
+const mstep = (text: string, postMerge = false) => ({ id: "ms1", text, postMerge });
+
+test("classifyAttention: un-acked non-POST-MERGE step on an open PR → manual-steps (tier 1)", () => {
+  const r = classifyAttention(
+    session({ status: "idle", manualSteps: [mstep("flip the flag")], manualStepsAckedAt: null }),
+    { git: git() },
+    NOW,
+  );
+  expect(r.tier).toBe(1);
+  expect(r.signals).toContain("manual-steps");
+});
+
+test("classifyAttention: acked steps → no manual-steps signal", () => {
+  const r = classifyAttention(
+    session({ status: "idle", manualSteps: [mstep("flip the flag")], manualStepsAckedAt: 123 }),
+    { git: git() },
+    NOW,
+  );
+  expect(r.signals).not.toContain("manual-steps");
+});
+
+test("classifyAttention: POST-MERGE-only steps → no manual-steps signal", () => {
+  const r = classifyAttention(
+    session({ status: "idle", manualSteps: [mstep("run the backfill", true)] }),
+    { git: git() },
+    NOW,
+  );
+  expect(r.signals).not.toContain("manual-steps");
+});
+
+test("classifyAttention: steps but no open PR → no manual-steps signal (gate is moot)", () => {
+  const r = classifyAttention(
+    session({ status: "idle", manualSteps: [mstep("flip the flag")] }),
+    { git: git({ state: "merged" }) },
+    NOW,
+  );
+  expect(r.signals).not.toContain("manual-steps");
+});
+
+test("explainHold: manual-steps → hold reason with the non-POST-MERGE step count", () => {
+  const hold = explainHold(
+    session({
+      status: "idle",
+      manualSteps: [mstep("flip the flag"), mstep("run the backfill", true), mstep("seed a row")],
+    }),
+    { git: git() },
+    NOW,
+  );
+  expect(hold).toEqual({ code: "manual-steps", params: { steps: 2 } });
+});
+
 // ── assembleHerdState — Tier-1 never dropped by top-N ─────────────────────────
 
 test("assembleHerdState: Tier-1 always kept, only Tier-3 dropped, truncatedTier3 set", () => {

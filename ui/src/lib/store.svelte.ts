@@ -374,7 +374,14 @@ export class HerdStore {
         });
         return true;
       case "session:manual-steps":
-        this.patchSession(ev.data.id, { manualSteps: ev.data.manualSteps });
+        this.patchSession(ev.data.id, {
+          manualSteps: ev.data.manualSteps,
+          // ackedAt rides along on the ack broadcast (#1060) so the CTA clears on every client;
+          // the P1 detection emit omits it (steps changed, ack unchanged) → leave it untouched.
+          ...(ev.data.manualStepsAckedAt !== undefined
+            ? { manualStepsAckedAt: ev.data.manualStepsAckedAt }
+            : {}),
+        });
         return true;
       default:
         return false;

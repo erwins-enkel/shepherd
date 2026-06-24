@@ -1015,6 +1015,46 @@ test("attachMergePush notifies on merge_error and rebase_cap, ignores other stat
   });
 });
 
+test("attachMergePush notifies manual_steps with a per-session dedupe key (#1060)", async () => {
+  const calls: any[] = [];
+  const { push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachMergePush(events, push);
+
+  events.emit("automerge:status", {
+    repoPath: "/repo/a",
+    enabled: true,
+    state: "manual_steps",
+    detail: "TASK-42",
+    sessionId: "sess-x",
+  });
+  await Promise.resolve();
+
+  expect(calls.length).toBe(1);
+  expect(calls[0]).toMatchObject({
+    kind: "manual_steps",
+    sessionId: "sess-x",
+    name: "TASK-42",
+    tag: "manual_steps:sess-x",
+    cooldownKey: "manual_steps:sess-x",
+  });
+});
+
+test("buildPayload manual_steps localizes title + body by locale (#1060)", () => {
+  const input = {
+    kind: "manual_steps" as const,
+    sessionId: "sess-x",
+    tag: "manual_steps:sess-x",
+    name: "TASK-42",
+  };
+  expect(buildPayload(input, "en")).toMatchObject({
+    kind: "manual_steps",
+    title: "TASK-42 — manual steps",
+  });
+  expect(buildPayload(input, "de").title).toBe("TASK-42 — manuelle Schritte");
+});
+
 // ── reducedPushMode tests ─────────────────────────────────────────────────────
 
 let _savedReducedPushMode: boolean;

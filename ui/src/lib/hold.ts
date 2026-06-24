@@ -38,6 +38,7 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
   "merge-rebasing": ({ params: p = {} }) =>
     m.hold_merge_rebasing({ rebaseCount: p.rebaseCount ?? 0 }),
   "ready-merge": () => m.hold_ready_merge(),
+  "manual-steps": ({ params: p = {} }) => m.hold_manual_steps({ steps: p.steps ?? 1 }),
 };
 
 /** Return a localized one-line description for a hold reason. Used by Task-7 components. */

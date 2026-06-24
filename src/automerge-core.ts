@@ -1,13 +1,14 @@
 import type { ChecksState, PrStatus } from "./forge/types";
 import type { ReviewDecision } from "./types";
+import type { ManualStep } from "./manual-steps";
 import { signedOff, type SignoffAuthority } from "./signoff";
 
 /** Why the merge train is holding — surfaced on automerge:status. */
 export interface MergeHoldReason {
-  code: "disabled" | "rebase_cap" | "idle";
-  /** A desig (rebase_cap) for the operator banner. */
+  code: "disabled" | "rebase_cap" | "idle" | "manual_steps";
+  /** A desig (rebase_cap / manual_steps) for the operator banner. */
   detail?: string;
-  /** The affected session's id, so the push deep-link selects it (rebase_cap). */
+  /** The affected session's id, so the push deep-link selects it (rebase_cap / manual_steps). */
   sessionId?: string;
 }
 
@@ -44,6 +45,11 @@ export interface MergeSessionView {
   /** True when this PR's merge is backed off (CAP rapid failures on the current head,
    *  inside the backoff window) → the core skips it so siblings can still merge. */
   mergeBlocked: boolean;
+  /** Manual operator steps detected in the PR body (#1059); [] when none. A non-`POST-MERGE`
+   *  step that is still un-acked (`manualStepsAckedAt == null`) holds auto-merge (#1060). */
+  manualSteps: ManualStep[];
+  /** Epoch ms the operator acknowledged the manual steps; null until acked. */
+  manualStepsAckedAt: number | null;
 }
 
 export interface MergeRepoState {
@@ -70,14 +76,25 @@ function signoffView(s: MergeSessionView) {
   };
 }
 
-/** True when this PR is clean enough to land RIGHT NOW: open, green, host-mergeable,
- *  up-to-date with main, and (critic on) a clean verdict for the current head.
+/** True when an un-acked, non-`POST-MERGE` manual operator step holds this PR (#1060). A
+ *  `POST-MERGE`-only PR never qualifies (those never gate — they only inform + carry forward).
+ *  Used as the `readyToMerge` disqualifier AND the rundown signal predicate — NOT as the
+ *  hold/push trigger (that additionally needs readyExceptManualSteps; see computeMerge). */
+function hasBlockingManualSteps(s: MergeSessionView): boolean {
+  return s.manualStepsAckedAt == null && s.manualSteps.some((st) => !st.postMerge);
+}
+
+/** True when this PR is clean enough to land RIGHT NOW *ignoring* the manual-steps gate: open,
+ *  green, host-mergeable, up-to-date with main, and (critic on) a clean verdict for the current
+ *  head. Split out from readyToMerge so computeMerge can tell "otherwise-ready, held only on
+ *  un-acked steps" (→ a manual_steps hold) apart from a PR that is red/draft/stale on its own
+ *  merits (which must NOT surface as a manual-steps hold or fire its push).
  *
  *  In draftMode it ALSO requires the configured `authority`'s sign-off. draftMode repos force
  *  auto-merge OFF (Task 1), so the merge train normally has NO sessions for them — this gate is
  *  defense-in-depth for config drift (a stray full-auto session in a draft repo), NOT dead code:
  *  it's exercised by tests. */
-function readyToMerge(
+function readyExceptManualSteps(
   s: MergeSessionView,
   criticEnabled: boolean,
   draftMode: boolean,
@@ -94,6 +111,19 @@ function readyToMerge(
     if (s.reviewHeadSha !== s.headSha) return false;
   }
   return true;
+}
+
+/** True when this PR is clean enough to land RIGHT NOW: readyExceptManualSteps AND not held by an
+ *  un-acked non-`POST-MERGE` manual step (#1060). */
+function readyToMerge(
+  s: MergeSessionView,
+  criticEnabled: boolean,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): boolean {
+  return (
+    readyExceptManualSteps(s, criticEnabled, draftMode, authority) && !hasBlockingManualSteps(s)
+  );
 }
 
 /** True when the PR is otherwise mergeable-intent but stale or conflicting: open, green,
@@ -146,6 +176,22 @@ export function computeMerge(state: MergeRepoState): MergeDecision {
       };
     }
     return { kind: "rebase", sessionId: stale.id, headSha: stale.headSha };
+  }
+
+  // A PR that is otherwise ready to land but held ONLY on un-acked non-POST-MERGE manual steps
+  // (#1060). Reported as a distinct hold (not idle) so the operator learns which PR is held and
+  // why; gated on readyExceptManualSteps so a red/draft/stale PR that merely declares steps never
+  // surfaces here (and never fires the manual_steps push, which rides this hold's status event).
+  const heldManual = state.sessions.find(
+    (s) =>
+      readyExceptManualSteps(s, state.criticEnabled, state.draftMode, state.signoffAuthority) &&
+      hasBlockingManualSteps(s),
+  );
+  if (heldManual) {
+    return {
+      kind: "hold",
+      reason: { code: "manual_steps", detail: heldManual.desig, sessionId: heldManual.id },
+    };
   }
 
   return { kind: "hold", reason: { code: "idle" } };

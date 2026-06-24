@@ -54,6 +54,7 @@ export type SignalCode =
   | "plan-rework"
   | "critic-rework"
   | "ci-red"
+  | "manual-steps"
   | "awaiting-merge"
   | "stalled"
   | "recap-attention"
@@ -71,6 +72,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "plan-rework": 1,
   "critic-rework": 1,
   "ci-red": 1,
+  "manual-steps": 1,
   "halted-usage": 2,
   "awaiting-merge": 2,
   stalled: 2,
@@ -123,6 +125,18 @@ const ATTENTION_RULES: Array<{
   },
   { signal: "critic-rework", when: (_s, c) => c.review?.decision === "changes_requested" },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
+  // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
+  // auto-merge (#1060). Last in the Tier-1 block so a genuinely-more-urgent co-signal stays the
+  // PRIMARY hold line while the session still classifies Tier-1. Requires an OPEN PR so it can't
+  // fire pre-PR (no steps yet) or post-merge (a PR a human merged manually before archive), where
+  // the gate is moot. POST-MERGE-only steps never qualify (they only inform + carry forward).
+  {
+    signal: "manual-steps",
+    when: (s, c) =>
+      s.manualStepsAckedAt == null &&
+      c.git?.state === "open" &&
+      s.manualSteps.some((st) => !st.postMerge),
+  },
   // Tier 2: HIGH — needs a look soon, not yet a hard stop.
   { signal: "halted-usage", when: (s) => s.haltReason === "usage_limit" },
   // awaiting-merge: operator's turn — the server has handed the PR off to a merger.
@@ -211,6 +225,10 @@ const SIGNAL_TO_HOLD: Record<
   "ready-merge": (_session, caches) => {
     const pr = caches.git?.number;
     return pr !== undefined ? { code: "ready-merge", params: { pr } } : { code: "ready-merge" };
+  },
+  "manual-steps": (session) => {
+    const steps = session.manualSteps.filter((st) => !st.postMerge).length;
+    return { code: "manual-steps", params: { steps } };
   },
   stalled: () => ({ code: "stalled" }),
   "recap-attention": () => ({ code: "recap-attention" }),

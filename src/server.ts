@@ -4615,6 +4615,30 @@ async function handleEpicsCompletedAckMigrations({
   return json({ ok: true });
 }
 
+// POST /api/sessions/:id/ack-manual-steps — acknowledge a session's manual operator steps (#1060):
+// stamps manualStepsAckedAt, clearing the auto-merge gate. Ack = "operator owns these"
+// (acknowledged-will-do, mirrors handleEpicsCompletedAckMigrations) — NOT an assertion the steps
+// are done. Idempotent (store.ackManualSteps COALESCEs the first ack time). Emits
+// session:manual-steps (with the fresh ackedAt) so the live hold + chip + CTA recompute on every
+// client.
+async function handleSessionsAckManualSteps({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "ack-manual-steps"))
+    return null;
+  const id = parts[2];
+  if (!id || parts[4]) return null;
+  if (req.method !== "POST") return null;
+  const session = deps.store.get(id);
+  if (!session) return json({ error: "session not found" }, 404);
+  deps.store.ackManualSteps(id);
+  const updated = deps.store.get(id);
+  deps.events?.emit("session:manual-steps", {
+    id,
+    manualSteps: updated?.manualSteps ?? session.manualSteps,
+    manualStepsAckedAt: updated?.manualStepsAckedAt ?? null,
+  });
+  return json({ ok: true });
+}
+
 // Validate + resolve everything needed to perform a land merge. Returns { error: Response } on any
 // failure (wrong body, missing row, wrong state, no forge, no branch, prStatus throw, not ready),
 // or the resolved targets on success. Extracted to keep handleEpicsCompletedLand below the
@@ -4744,6 +4768,7 @@ const ROUTE_HANDLERS = [
   handleEpicsList,
   handleEpicsCompletedDismiss,
   handleEpicsCompletedAckMigrations,
+  handleSessionsAckManualSteps,
   handleEpicsCompletedLand,
   handleEpicsCompletedList,
   handleEpicApproveNext,

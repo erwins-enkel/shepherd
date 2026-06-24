@@ -1223,3 +1223,17 @@ test("parseMergeTrainPrsJson: non-number elements treated as corrupt → null", 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ackManualSteps stamps manualStepsAckedAt and is idempotent (first ack wins) — #1060", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.get(a.id)!.manualStepsAckedAt).toBeNull();
+
+  s.ackManualSteps(a.id);
+  const first = s.get(a.id)!.manualStepsAckedAt;
+  expect(first).not.toBeNull();
+
+  // Re-ack is a durable no-op: COALESCE keeps the original ack time.
+  s.ackManualSteps(a.id);
+  expect(s.get(a.id)!.manualStepsAckedAt).toBe(first);
+});

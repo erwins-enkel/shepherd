@@ -489,6 +489,8 @@
   "unitrow_preview_badge": "Vorschau",
   "unitrow_preview_badge_degraded": "Vorschau; Tailscale-Registrierung fehlgeschlagen, nur über Loopback erreichbar",
   "unitrow_manual_steps": "{count} manuelle(r) Schritt(e)",
+  "unitrow_ack_manual_steps": "Schritte best.",
+  "unitrow_ack_manual_steps_failed": "Manuelle Schritte konnten nicht bestätigt werden — bitte erneut versuchen.",
   "viewport_preview_serve_failed": "Tailscale-Registrierung für diesen Vorschau-Port fehlgeschlagen; nur über Loopback erreichbar. Nutze 'In neuem Tab öffnen', wenn der Frame leer bleibt.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, Merge, Kritiker & Merge-Freigabe",
@@ -1847,6 +1849,7 @@
   "hold_merging": "Im Merge-Train.",
   "hold_merge_rebasing": "Rebase im Merge-Train (Versuch {rebaseCount}).",
   "hold_ready_merge": "Bereit zum Mergen — wartet auf Sie.",
+  "hold_manual_steps": "{steps} manuelle(r) Schritt(e) vor dem Mergen — bestätigen zum Fortfahren.",
   "feat_why_parked_title": "Warum wartet diese Sitzung?",
   "feat_why_parked_body": "Gehaltene, blockierte und von einem Gate aufgehaltene Sitzungen zeigen jetzt einen einzeiligen Grund auf der Karte und in der Triage-Schublade — damit du auf einen Blick siehst, warum eine Sitzung deine Aufmerksamkeit braucht.",
   "feat_usage_task_names_title": "Aufgabennamen in der Nutzung",
@@ -1895,5 +1898,7 @@
   "feat_decommission_on_merge_title": "Stilllegen nach dem Merge",
   "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr.",
   "feat_manual_operator_steps_title": "Manuelle Operator-Schritte",
-  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen."
+  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen.",
+  "feat_manual_operator_steps_gate_title": "Manuelle Schritte blockieren Auto-Merge",
+  "feat_manual_operator_steps_gate_body": "Ein PR mit einem unbestätigten manuellen Schritt (alles, was nicht als POST-MERGE markiert ist) wird jetzt vom Auto-Merge zurückgehalten, bis du handelst. Klicke in der Session-Zeile auf \"Schritte best.\", um die Sperre aufzuheben; du wirst per Push und im täglichen Rundown erinnert. Reine POST-MERGE-Schritte blockieren nie."
 }

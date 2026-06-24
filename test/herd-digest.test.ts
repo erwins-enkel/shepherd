@@ -2,6 +2,7 @@ import { expect, test, beforeEach, afterEach } from "bun:test";
 import { HerdDigestService, dayKeyFor } from "../src/herd-digest";
 import type { HerdSnapshots, MergeTrainState } from "../src/herd-digest";
 import type { HerdDigest, RundownEpicItem, Session } from "../src/types";
+import { RUNDOWN_EPICS_CAP } from "../src/rundown-core";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 beforeEach(() => {
@@ -842,4 +843,36 @@ test("reconcileEpics: only today's ready digest (stale day ignored)", async () =
   });
   await svc.reconcileEpics();
   expect(store.getHerdDigest(staleDay)?.epicsToLand).toEqual([]); // untouched
+});
+
+test("reconcileEpics: caps the intraday list to RUNDOWN_EPICS_CAP", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const ready: HerdDigest = {
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [ready]);
+  const herdr = makeHerdr();
+  const many = Array.from({ length: RUNDOWN_EPICS_CAP + 8 }, (_, i) => sampleEpic({ parent: i }));
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    landingReadyEpics: async () => many,
+  });
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(dayKey)?.epicsToLand.length).toBe(RUNDOWN_EPICS_CAP);
 });

@@ -38,6 +38,7 @@ import {
   classifyAttention,
   RUNDOWN_VERDICT_FILE,
   RUNDOWN_DEFAULT_TOPN,
+  RUNDOWN_EPICS_CAP,
 } from "./rundown-core";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
@@ -471,7 +472,9 @@ export class HerdDigestService {
 
     this.reconcilingEpics = true;
     try {
-      const current = (await this.deps.landingReadyEpics()) ?? [];
+      // Cap to the same bound assembleHerdState applies at spawn time (RundownPanel renders
+      // epicsToLand uncapped, so the intraday list must honor the same ceiling for consistency).
+      const current = ((await this.deps.landingReadyEpics()) ?? []).slice(0, RUNDOWN_EPICS_CAP);
       const key = (e: RundownEpicItem) => `${e.repo}#${e.parent}`;
       const sortKeys = (xs: RundownEpicItem[]) => xs.map(key).sort();
       const before = JSON.stringify(sortKeys(latest.epicsToLand));

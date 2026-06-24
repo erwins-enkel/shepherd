@@ -1140,16 +1140,28 @@ setInterval(() => {
 //                        (mergeErrorSessions, fed by the automerge:status stream above)
 // Landing-ready completed epics for the rundown (#1045). TTL-memoized: sweep()'s 15s tick keeps
 // calling generate()/reconcileEpics() while an epic sits open, and each call would otherwise probe
-// the forge. The cheap part (which epics are 'open') is a sync DB filter; the forge probe runs only
-// when an epic IS open and is bounded to ≈once/TTL by the memo (mirrors backlogPriority reading a
-// kept-warm cache rather than a live round-trip). readiness still refreshes within one TTL.
+// the forge. The cheap part (which epics are 'open') is a sync DB filter, computed EVERY call so a
+// just-landed epic drops immediately; only the forge probe is memoized (≈once/TTL) and the cache is
+// keyed on the open-epic set so any land/open busts it (TTL only bounds same-set CI-readiness flips).
+// Mirrors backlogPriority reading a kept-warm cache rather than a live round-trip.
 const EPIC_READY_TTL_MS = 5 * 60_000;
-let epicReadyCache: { ts: number; val: RundownEpicItem[] } | null = null;
+let epicReadyCache: { key: string; ts: number; val: RundownEpicItem[] } | null = null;
 const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
   const now = Date.now();
-  if (epicReadyCache && now - epicReadyCache.ts < EPIC_READY_TTL_MS) return epicReadyCache.val;
   const openRows = store.listEpicCompleted().filter((r) => r.landingState === "open");
-  if (openRows.length === 0) return []; // cheap path: nothing open → no forge, no caching
+  if (openRows.length === 0) {
+    epicReadyCache = null; // nothing open → drop any stale cache so a just-landed epic clears at once
+    return [];
+  }
+  // Cache key = the set of open epics. A change (one landed, or a new one opened) busts the cache so
+  // the panel never shows an already-landed "land this epic"; the TTL only throttles re-probing the
+  // forge when the SAME set's CI-readiness might have flipped.
+  const key = openRows
+    .map((r) => `${r.repoPath}#${r.parentIssueNumber}`)
+    .sort()
+    .join(",");
+  if (epicReadyCache && epicReadyCache.key === key && now - epicReadyCache.ts < EPIC_READY_TTL_MS)
+    return epicReadyCache.val;
   const epics: CompletedEpic[] = openRows.map(({ childrenJson, landingAttempts, ...rest }) => {
     void landingAttempts;
     return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
@@ -1169,7 +1181,7 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       landingPr: e.landingPrNumber,
       stranded: e.landingStranded === true,
     }));
-  epicReadyCache = { ts: now, val };
+  epicReadyCache = { key, ts: now, val };
   return val;
 };
 

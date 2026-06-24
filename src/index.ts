@@ -1227,10 +1227,14 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
     .join(",");
   if (epicReadyCache && epicReadyCache.key === key && now - epicReadyCache.ts < EPIC_READY_TTL_MS)
     return epicReadyCache.val;
-  const epics: CompletedEpic[] = openRows.map(({ childrenJson, landingAttempts, ...rest }) => {
-    void landingAttempts;
-    return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
-  });
+  const epics: CompletedEpic[] = openRows.map(
+    ({ childrenJson, landingAttempts, landingRebaseCount, landingRebaseDriverMisses, ...rest }) => {
+      void landingAttempts;
+      void landingRebaseCount;
+      void landingRebaseDriverMisses;
+      return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
+    },
+  );
   await enrichLandingEpics(epics, {
     getEpicIntegrationBranch: (repoPath, parent) =>
       store.getEpicIntegrationBranch(repoPath, parent),

@@ -32,6 +32,9 @@ export interface CompletedEpic {
   // band row's clear behind an explicit acknowledgement — NEVER the autonomous completion flip.
   migrationPaths: string[];
   migrationsAckedAt: number | null;
+  // #1071: why the auto-rebase pass paused. null = not paused / rebase not yet attempted.
+  // 'cap': cap exhausted; 'conflict': genuine conflict; 'driver': merge driver unavailable.
+  landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
   /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;

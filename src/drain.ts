@@ -585,6 +585,7 @@ export class DrainService {
           // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
           migrationPaths: [],
           migrationsAckedAt: null,
+          landingRebasePauseReason: null,
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -649,6 +650,7 @@ export class DrainService {
       landingState: row.landingState,
       migrationPaths: row.migrationPaths,
       migrationsAckedAt: row.migrationsAckedAt,
+      landingRebasePauseReason: row.landingRebasePauseReason,
     };
     this.deps.emitEpicCompleted?.(completed);
   }

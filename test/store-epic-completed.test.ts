@@ -380,6 +380,102 @@ test("ackEpicMigrations stamps migrationsAckedAt AND clears the row from the lis
   expect(acked.migrationsAckedAt).toBeGreaterThanOrEqual(before);
 });
 
+// ── setEpicLandingRebaseState ─────────────────────────────────────────────────
+
+test("fresh recordEpicCompleted defaults rebase columns (0/0/null)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRebaseCount).toBe(0);
+  expect(row.landingRebaseDriverMisses).toBe(0);
+  expect(row.landingRebasePauseReason).toBe(null);
+});
+
+test("setEpicLandingRebaseState writes all three fields", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+
+  s.setEpicLandingRebaseState("/r", 10, { count: 3, driverMisses: 1, pauseReason: "cap" });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRebaseCount).toBe(3);
+  expect(row.landingRebaseDriverMisses).toBe(1);
+  expect(row.landingRebasePauseReason).toBe("cap");
+});
+
+test("setEpicLandingRebaseState partial update — only count, preserves others", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  // seed all three fields
+  s.setEpicLandingRebaseState("/r", 10, { count: 2, driverMisses: 1, pauseReason: "driver" });
+
+  // partial update: bump count only
+  s.setEpicLandingRebaseState("/r", 10, { count: 3 });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRebaseCount).toBe(3);
+  expect(row.landingRebaseDriverMisses).toBe(1); // preserved
+  expect(row.landingRebasePauseReason).toBe("driver"); // preserved
+});
+
+test("setEpicLandingRebaseState partial update — clear pauseReason to null", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicLandingRebaseState("/r", 10, { count: 2, driverMisses: 2, pauseReason: "conflict" });
+
+  // clear pause reason and reset counters
+  s.setEpicLandingRebaseState("/r", 10, { count: 0, driverMisses: 0, pauseReason: null });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRebaseCount).toBe(0);
+  expect(row.landingRebaseDriverMisses).toBe(0);
+  expect(row.landingRebasePauseReason).toBe(null);
+});
+
+test("setEpicLandingRebaseState partial update — driverMisses only, preserves count and pauseReason", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.setEpicLandingRebaseState("/r", 10, { count: 5, driverMisses: 0, pauseReason: "cap" });
+
+  // bump driverMisses only
+  s.setEpicLandingRebaseState("/r", 10, { driverMisses: 2 });
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRebaseCount).toBe(5); // preserved
+  expect(row.landingRebaseDriverMisses).toBe(2);
+  expect(row.landingRebasePauseReason).toBe("cap"); // preserved
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

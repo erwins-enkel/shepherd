@@ -219,3 +219,76 @@ test("real origin: FETCH_HEAD path keeps the id stable when origin/main advances
   expect(stale).toBeTruthy();
   expect(stale).not.toBe(after);
 });
+
+test("real origin: FETCH_HEAD path keeps the id stable across pure CONTEXT drift (base edits a line within the branch hunk's context window)", async () => {
+  // The operator-observed incident path: a clean rebase onto an advanced origin/main where
+  // the branch's OWN +/- lines are byte-identical, but main moved a line that falls INSIDE the
+  // 3-line context window of the branch's hunk. A context-bearing fingerprint flips here and the
+  // critic needlessly re-reviews; the zero-context (-U0) fingerprint stays stable. This is the
+  // production fetch path, not the offline local-base fallback, so it exercises the real bug.
+  const bare = mkTmp("shepherd-patchid-ctxorigin-");
+  git(["init", "-q", "--bare", "-b", "main"], bare);
+
+  // Seed a multi-line file on main — the branch must MODIFY a pre-existing file so there is
+  // surrounding base context that can drift (a brand-new file has none).
+  writeAdd(repo, "shared.txt", "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n");
+  commit(repo, "seed shared file");
+  git(["remote", "add", "origin", bare], repo);
+  git(["push", "-q", "origin", "main"], repo);
+
+  // Branch edits line 6 only.
+  git(["checkout", "-q", "-b", "feature"], repo);
+  writeAdd(repo, "shared.txt", "l1\nl2\nl3\nl4\nl5\nl6_FEATURE\nl7\nl8\nl9\nl10\n");
+  commit(repo, "feature edits line 6");
+  git(["push", "-q", "origin", "feature"], repo);
+
+  const { patchId: before } = await defaultComputePatchId(repo, "main");
+  expect(before).toBeTruthy();
+
+  // Advance origin/main from a throwaway clone: edit line 4 — inside line 6's 3-line context
+  // window but non-adjacent, so the rebase stays clean. Local `main` stays stale (as in flight).
+  const pusherParent = mkTmp("shepherd-patchid-ctxpusher-");
+  const pusher = join(pusherParent, "clone");
+  git(["clone", "-q", bare, pusher], pusherParent);
+  writeAdd(pusher, "shared.txt", "l1\nl2\nl3\nl4_BASE\nl5\nl6\nl7\nl8\nl9\nl10\n");
+  commit(pusher, "main edits line 4 near the branch hunk");
+  git(["push", "-q", "origin", "main"], pusher);
+
+  git(["fetch", "-q", "origin"], repo);
+  git(["rebase", "-q", "origin/main"], repo);
+
+  // Branch's own change (line 6) is unchanged; only base-owned context (line 4) moved →
+  // zero-context fingerprint is invariant.
+  const { patchId: after } = await defaultComputePatchId(repo, "main");
+  expect(after).toBe(before);
+});
+
+test("patch-id is stable across a clean rebase with multiple hunks when the base edits between them", async () => {
+  // Guards that `git patch-id --stable` is invariant to how the -U0 fingerprint groups/splits
+  // hunks: a branch with two separate hunks in one file, the base editing a line between them
+  // (inside the first hunk's context window), clean rebase. Offline local-base path (no remote).
+  const seed = Array.from({ length: 30 }, (_, i) => `line${i + 1}`);
+  writeAdd(repo, "multi.txt", seed.join("\n") + "\n");
+  commit(repo, "seed multi-line file");
+
+  git(["checkout", "-q", "-b", "feature"], repo);
+  const edited = [...seed];
+  edited[4] = "line5_F"; // hunk A
+  edited[24] = "line25_F"; // hunk B
+  writeAdd(repo, "multi.txt", edited.join("\n") + "\n");
+  commit(repo, "two separate hunks");
+  const { patchId: before } = await defaultComputePatchId(repo, "main");
+  expect(before).toBeTruthy();
+
+  // Base edits line 7 — between the two hunks (and inside hunk A's context). Clean rebase.
+  git(["checkout", "-q", "main"], repo);
+  const baseEdited = [...seed];
+  baseEdited[6] = "line7_BASE";
+  writeAdd(repo, "multi.txt", baseEdited.join("\n") + "\n");
+  commit(repo, "base edits between the hunks");
+  git(["checkout", "-q", "feature"], repo);
+  git(["rebase", "-q", "main"], repo);
+
+  const { patchId: after } = await defaultComputePatchId(repo, "main");
+  expect(after).toBe(before);
+});

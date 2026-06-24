@@ -176,7 +176,16 @@ export interface RawVerdict {
 /** Fingerprint the branch diff with `git patch-id` so a rebase (same diff, new SHA) is a
  *  no-op, AND return the concrete base it diffed against + the changed-file set. patch-id
  *  ignores line numbers, so it stays stable when the rebased-onto base shifts hunks elsewhere;
- *  it changes only when the branch's own changed lines or their context change. `patchId` is
+ *  the diff is taken at ZERO context (`-U0`) so the fingerprint keys ONLY off the branch's own
+ *  added/removed lines and changes only when THOSE change. (Default 3-line context folded the
+ *  base-owned context lines into the hash: a clean rebase that moved a line within a hunk's
+ *  context window then flipped the id and re-triggered a needless review — the operator-observed
+ *  bug. Conflict resolution still flips the id because it edits the branch's own +/- lines, so
+ *  the "re-review when the rebase changed branch content" intent is preserved; only pure
+ *  base-only context drift no longer re-triggers.) Tradeoff: -U0 marginally widens the collision
+ *  surface — two distinct revisions with identical +/- line text in different surroundings can
+ *  now share an id (rare false-skip); the per-file diff headers keep cross-file changes distinct.
+ *  `patchId` is
  *  null on no diff or any git failure → caller never skips (reviews) — UNCHANGED skip semantics.
  *  `baseSha` is the SHA the prompt + the buildVerdict backstop both key off (one source of
  *  truth); null on a total git failure → prompt falls back to the local base, backstop is
@@ -229,8 +238,11 @@ export async function defaultComputePatchId(
     // to null (review) rather than throwing.
     // Local but can read up to 64 MiB, so run it async too (mirrors computeDiff) to keep
     // the critic poll off the Bun event loop. (patch-id below stays sync — see its note.)
+    // `-U0` (zero context): fingerprint only the branch's own +/- lines, NOT the base-owned
+    // context around them — see the docstring. The critic's actual review diff is computed
+    // separately with full context; this `-U0` diff feeds patch-id only.
     const { stdout: diff } = await timedAsync("git diff", () =>
-      execFileAsync("git", ["diff", `${diffRef}...HEAD`], {
+      execFileAsync("git", ["diff", "-U0", `${diffRef}...HEAD`], {
         cwd: worktreePath,
         maxBuffer: 64 * 1024 * 1024,
         encoding: "utf8",

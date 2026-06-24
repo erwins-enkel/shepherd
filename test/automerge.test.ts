@@ -16,6 +16,8 @@ function baseSession(over: any = {}) {
     autoMergeEnabled: true,
     autoMergeRebaseCount: 0,
     autoMergeRebaseHead: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
     ...over,
   };
 }
@@ -284,6 +286,37 @@ test("rebase_cap: behind session at cap → no reply steer, emitStatus rebase_ca
   const calls: any[] = (emitStatus as any).mock.calls;
   const capCall = calls.find((c) => c[0]?.state === "rebase_cap");
   expect(capCall).toBeDefined();
+});
+
+test("manual_steps gate: otherwise-ready PR with an un-acked step → emitStatus manual_steps, no merge (#1060)", async () => {
+  const emitStatus = mock(() => {});
+  const merge = mock(async () => {});
+  const session = baseSession({
+    manualSteps: [{ id: "ms1", text: "flip the flag", postMerge: false }],
+    manualStepsAckedAt: null,
+  });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(merge.mock.calls.length).toBe(0); // held — not merged
+  const calls: any[] = (emitStatus as any).mock.calls;
+  const held = calls.find((c) => c[0]?.state === "manual_steps");
+  expect(held?.[0]?.sessionId).toBe("s1");
+  expect(held?.[0]?.detail).toBe("TASK-01");
 });
 
 // ── rebase counter reset on progress ──────────────────────────────────────────

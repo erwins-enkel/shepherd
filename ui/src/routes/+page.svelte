@@ -32,6 +32,7 @@
     getCompletedEpics,
     dismissCompletedEpic,
     ackEpicMigrations,
+    ackManualSteps,
     landEpic,
     getEpic,
     getDiagnostics,
@@ -1611,6 +1612,22 @@
     }
   }
 
+  // Acknowledge a session's manual operator steps (#1060), clearing its auto-merge gate. The
+  // server emits session:manual-steps with the fresh ackedAt on success, so the chip/CTA clear
+  // live via the WS handler — no optimistic mutation needed. On failure, a persistent, tone-
+  // namespaced keyed toast (shared store, not transient info) so a flapping failure can't stack.
+  async function onAckManualSteps(id: string) {
+    try {
+      await ackManualSteps(id);
+    } catch {
+      toasts.info(m.unitrow_ack_manual_steps_failed(), {
+        alert: true,
+        duration: null,
+        key: `ack-manual-steps-fail:${id}`,
+      });
+    }
+  }
+
   // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
   // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
   async function onLandEpic(repoPath: string, parent: number) {
@@ -1817,6 +1834,7 @@
             onrundownepic={selectRundownEpic}
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
+            onackmanualsteps={onAckManualSteps}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && herdFilter !== "rundown"}
             <BacklogView
@@ -1976,6 +1994,7 @@
             onrundownepic={selectRundownEpic}
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
+            onackmanualsteps={onAckManualSteps}
           />
         {/if}
         {#if herdFilter === "rundown"}

@@ -167,6 +167,8 @@ export class AutoMergeService {
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
       mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
+      manualSteps: s.manualSteps,
+      manualStepsAckedAt: s.manualStepsAckedAt,
     };
   }
 

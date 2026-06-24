@@ -90,7 +90,8 @@ export class HoldReasonService {
       case "session:halt":
       case "session:autopilot":
       case "session:merging":
-      case "session:ready": {
+      case "session:ready":
+      case "session:manual-steps": {
         const id = d.id as string;
         this.recompute(id);
         break;
@@ -105,15 +106,7 @@ export class HoldReasonService {
       }
 
       case "automerge:status": {
-        const sessionId = d.sessionId as string | null;
-        if (!sessionId) return;
-        const state = d.state as string | null;
-        if (state === "merge_error" || state === "rebase_cap") {
-          this.mergeErrorSessions.add(sessionId);
-        } else {
-          this.mergeErrorSessions.delete(sessionId);
-        }
-        this.recompute(sessionId);
+        this.handleAutoMergeStatus(d);
         break;
       }
 
@@ -140,6 +133,21 @@ export class HoldReasonService {
         break;
       }
     }
+  }
+
+  /** Track merge-train error/cap state per session, then recompute. Extracted from handleEvent so
+   *  that switch stays under the complexity gate. A non-error state (incl. the manual_steps hold)
+   *  clears the error flag — manual-steps holds come from the session's own fields, not train state. */
+  private handleAutoMergeStatus(d: Record<string, unknown>): void {
+    const sessionId = d.sessionId as string | null;
+    if (!sessionId) return;
+    const state = d.state as string | null;
+    if (state === "merge_error" || state === "rebase_cap") {
+      this.mergeErrorSessions.add(sessionId);
+    } else {
+      this.mergeErrorSessions.delete(sessionId);
+    }
+    this.recompute(sessionId);
   }
 
   private recompute(id: string): void {

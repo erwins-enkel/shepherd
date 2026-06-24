@@ -23,6 +23,7 @@ export interface PushPayload {
     | "extra_credits"
     | "learnings_retired"
     | "learnings_trialed"
+    | "manual_steps"
     | "ready";
   tag: string;
 }
@@ -44,6 +45,7 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   extra_credits: "agent",
   learnings_retired: "agent",
   learnings_trialed: "agent",
+  manual_steps: "ci",
   ready: "agent",
 };
 
@@ -62,6 +64,7 @@ export interface NotifyInput {
     | "extra_credits"
     | "learnings_retired"
     | "learnings_trialed"
+    | "manual_steps"
     | "ready";
   sessionId: string;
   tag: string;
@@ -149,6 +152,8 @@ const NOTIFY_TEXT = {
       `${n} ${n === 1 ? "proposal" : "proposals"} auto-promoted to trial — tap to review.`,
     readyTitle: (name: string) => `${name} — your turn`,
     readyBody: "Waiting on you for 5s — your turn.",
+    manualStepsTitle: (name: string) => `${name} — manual steps`,
+    manualStepsBody: "Ready to merge, but held until you ack the manual steps it needs.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -188,6 +193,9 @@ const NOTIFY_TEXT = {
       `${n} ${n === 1 ? "Vorschlag" : "Vorschläge"} automatisch in den Test übernommen — zum Prüfen tippen.`,
     readyTitle: (name: string) => `${name} — du bist dran`,
     readyBody: "Wartet seit 5s auf dich — du bist dran.",
+    manualStepsTitle: (name: string) => `${name} — manuelle Schritte`,
+    manualStepsBody:
+      "Bereit zum Mergen, aber zurückgehalten, bis du die manuellen Schritte bestätigst.",
   },
 } as const;
 
@@ -303,6 +311,8 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
       };
     case "ready":
       return { ...base, title: t.readyTitle(input.name), body: t.readyBody };
+    case "manual_steps":
+      return { ...base, title: t.manualStepsTitle(input.name), body: t.manualStepsBody };
     default:
       return {
         ...base,
@@ -481,6 +491,25 @@ export function attachMergePush(events: EventHub, push: PushService): void {
       detail: string | null;
       sessionId: string | null;
     };
+    // A green, up-to-date, otherwise-ready PR held ONLY on un-acked manual operator steps (#1060):
+    // the "don't let auto-merge eat this" nudge. computeMerge emits this state only for a PR that
+    // is ready except for the gate, so it never fires for a red/draft PR. Per-session tag +
+    // cooldown key; the cooldown stamp is set inside notify() only on a successful send (house rule
+    // — optimistic stamping drops the signal).
+    if (state === "manual_steps") {
+      const desig = detail ?? repoPath;
+      const target = sessionId ?? repoPath;
+      void push
+        .notify({
+          kind: "manual_steps",
+          sessionId: target,
+          tag: `manual_steps:${target}`,
+          name: desig,
+          cooldownKey: `manual_steps:${target}`,
+        })
+        .catch((err) => console.warn("[push] manual_steps notify failed:", err));
+      return;
+    }
     if (state !== "merge_error" && state !== "rebase_cap") return;
     const desig = detail ?? repoPath;
     // Deep-link to the affected session when known; fall back to repoPath.

@@ -1562,6 +1562,15 @@ export async function ackEpicMigrations(
   );
 }
 
+/** Acknowledge a session's manual operator steps (#1060), clearing the auto-merge gate. */
+export async function ackManualSteps(sessionId: string): Promise<{ ok: boolean }> {
+  return postJson(
+    `/api/sessions/${encodeURIComponent(sessionId)}/ack-manual-steps`,
+    {},
+    "acknowledge manual steps",
+  );
+}
+
 /** Merge the landing PR for a completed epic (#1039). Fails non-2xx on not-ready / not-open / no row
  *  (409), merge failure (502), or invalid input (400). On success the server emits an `epic:completed`
  *  WS event with the updated row (`landingState:"merged"`) so the band updates live. */

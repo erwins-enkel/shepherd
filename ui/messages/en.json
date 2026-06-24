@@ -489,6 +489,8 @@
   "unitrow_preview_badge": "Preview",
   "unitrow_preview_badge_degraded": "Preview; Tailscale registration failed, reachable on loopback only",
   "unitrow_manual_steps": "{count} manual step(s)",
+  "unitrow_ack_manual_steps": "Ack steps",
+  "unitrow_ack_manual_steps_failed": "Couldn't acknowledge the manual steps — try again.",
   "viewport_preview_serve_failed": "Tailscale registration failed for this preview port; it's reachable on loopback only. Use Open in new tab if the frame is blank.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, merge, critic & ready-to-merge actions",
@@ -1847,6 +1849,7 @@
   "hold_merging": "In the merge train.",
   "hold_merge_rebasing": "Rebasing in the merge train (attempt {rebaseCount}).",
   "hold_ready_merge": "Ready to merge — waiting on you.",
+  "hold_manual_steps": "{steps} manual step(s) to do before merge — ack to proceed.",
   "feat_why_parked_title": "Why is this parked?",
   "feat_why_parked_body": "Held, blocked and gate-stuck sessions now show a one-line reason on the card and in the triage drawer — so you can see why a session needs you at a glance.",
   "feat_usage_task_names_title": "Task names in Usage",
@@ -1895,5 +1898,7 @@
   "feat_decommission_on_merge_title": "Decommission after merge",
   "feat_decommission_on_merge_body": "After you merge a session's PR, the confirmation toast now offers a one-click Decommission to tear the finished session down — no hunting for the button.",
   "feat_manual_operator_steps_title": "Manual operator steps",
-  "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands."
+  "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands.",
+  "feat_manual_operator_steps_gate_title": "Manual steps gate auto-merge",
+  "feat_manual_operator_steps_gate_body": "A PR with an un-acknowledged manual step (anything not marked POST-MERGE) is now held out of auto-merge until you act. Click \"Ack steps\" on the session row to clear the gate; you're nudged via push and the daily rundown. POST-MERGE-only steps never block."
 }

@@ -2337,6 +2337,18 @@ export class SessionStore implements CapStore, CreditStore {
     ]);
   }
 
+  /** Acknowledge a session's manual operator steps (#1060): stamp `manualStepsAckedAt`, clearing
+   *  the auto-merge gate. Ack = "operator owns these" (acknowledged-will-do, mirrors
+   *  {@link ackEpicMigrations}) — NOT an assertion the steps are done. Idempotent: `COALESCE`
+   *  keeps the FIRST ack time, so a re-ack is a durable no-op. */
+  ackManualSteps(id: string): void {
+    const now = Date.now();
+    this.db.run(
+      `UPDATE sessions SET manualStepsAckedAt = COALESCE(manualStepsAckedAt, ?), updatedAt = ? WHERE id = ?`,
+      [now, now, id],
+    );
+  }
+
   // ── reviewer spawn cost attribution ──────────────────────────────────────────
   /** Record a freshly-spawned reviewer session. Token/completed columns stay NULL until
    *  finalize (`completeReviewerSpawn`). A plain INSERT is correct — every spawn forces a

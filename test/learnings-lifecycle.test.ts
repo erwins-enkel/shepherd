@@ -113,6 +113,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
     ...o,
   };
 }

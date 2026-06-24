@@ -125,6 +125,7 @@ function makeHarness(opts: {
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
 
   const spy = fakeForge(opts);

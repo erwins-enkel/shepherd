@@ -229,6 +229,22 @@
 </div>
 <div class="auto-row">
   <div class="auto-meta">
+    <div class="auto-name">☑ {m.automation_manual_steps_issue_name()}</div>
+    <div class="auto-desc">{m.automation_manual_steps_issue_desc()}</div>
+  </div>
+  <button
+    class={["sw", { on: repoConfig.manualStepsIssueOn(repoPath) }]}
+    type="button"
+    role="switch"
+    aria-checked={repoConfig.manualStepsIssueOn(repoPath)}
+    aria-label={m.automation_manual_steps_issue_name()}
+    onclick={() => repoConfig.toggleManualStepsIssue(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<div class="auto-row">
+  <div class="auto-meta">
     <div class="auto-name">
       ▲ {m.automation_autopilot_name()}
       {@render info("autopilot", m.automation_autopilot_name())}

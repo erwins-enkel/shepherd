@@ -586,6 +586,7 @@ function defaultRepoConfig() {
     egressExtraHosts: [] as string[],
     repoMode: "forge" as const,
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   };
 }
 

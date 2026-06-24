@@ -31,6 +31,7 @@ import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import { offerUpdateMain } from "./pull-offer";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
+import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -555,6 +556,10 @@ export class HerdStore {
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         buildQueuesStore.upsert(ev.data);
+        break;
+      case "post-merge-steps:changed":
+        // Durable post-merge steps (#1061): refresh the Owed lens store if it's been opened.
+        void postMergeStepsStore.refreshIfLoaded();
         break;
       case "held:changed":
         this.heldCount = ev.data.count;

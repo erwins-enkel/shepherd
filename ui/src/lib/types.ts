@@ -513,6 +513,9 @@ export interface RepoConfig {
   repoMode: "forge" | "lightweight";
   /** When a rule starts failing, rewrite it once automatically before auto-retirement eligibility. */
   autoOptimizeFlagged: boolean;
+  /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps (#1061).
+   *  Default off — outbound write gated behind explicit per-repo opt-in. */
+  manualStepsIssueEnabled: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -745,6 +748,31 @@ export interface ManualStep {
   id: string;
   text: string;
   postMerge: boolean;
+}
+
+/** One materialized post-merge step (#1061): a ManualStep frozen at merge + a per-step done stamp.
+ *  Mirrors the server `PostMergeStep` in src/types.ts. */
+export interface PostMergeStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
+  doneAt: number | null;
+}
+
+/** Durable post-merge materialization of a merged session's outstanding manual operator steps
+ *  (#1061, epic #1056 P3). Mirrors the server `PostMergeSteps` in src/types.ts. */
+export interface PostMergeSteps {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  prNumber: number | null;
+  prTitle: string;
+  steps: PostMergeStep[];
+  trackingIssueUrl: string | null;
+  trackingIssueNumber: number | null;
+  createdAt: number;
+  updatedAt: number;
+  clearedAt: number | null;
 }
 
 export interface SessionUsage {
@@ -1110,6 +1138,7 @@ export type WsEvent =
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } }
   | { event: "held:changed"; data: { count: number } }
+  | { event: "post-merge-steps:changed"; data: Record<string, never> }
   | {
       event: "doc-agent:done";
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };

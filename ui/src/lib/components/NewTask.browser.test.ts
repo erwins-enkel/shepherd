@@ -71,6 +71,7 @@ function repoConfig(
     defaultModel: "inherit",
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
     automationConfirmed: true,
     automationRowExists: true,
   };
@@ -916,6 +917,7 @@ function unconfirmedNewRepoConfig(): RepoConfig & {
     defaultModel: "inherit",
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
     automationConfirmed: false,
     automationRowExists: false,
   };

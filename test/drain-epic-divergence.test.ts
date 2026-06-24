@@ -85,6 +85,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
   });
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
   // Pin the canonical name up front so divergence is measured against PINNED.

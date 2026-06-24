@@ -9,16 +9,32 @@
     ondismiss,
     onackmigrations,
     onland,
+    focused = false,
     nowMs = Date.now(),
   }: {
     epic: CompletedEpic;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
+    // a Rundown epics-to-land deep-link (#1045) targeted this row → auto-open, scroll into view,
+    // and briefly highlight so the operator's eye lands on the Land CTA.
+    focused?: boolean;
     nowMs?: number;
   } = $props();
 
   let open = $state(false);
+
+  let rowEl = $state<HTMLDivElement | null>(null);
+  let highlight = $state(false);
+  // When this row becomes the deep-link focus, open it, scroll it into view, and flash a highlight.
+  $effect(() => {
+    if (!focused || !rowEl) return;
+    open = true;
+    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    highlight = true;
+    const t = setTimeout(() => (highlight = false), 1600);
+    return () => clearTimeout(t);
+  });
 
   // repo basename — last path segment (e.g. "community-map")
   const repoName = $derived(epic.repoPath.split("/").filter(Boolean).at(-1) ?? epic.repoPath);
@@ -31,7 +47,13 @@
   const isOpen = $derived(epic.landingState === "open");
 </script>
 
-<div class="row" role="region" aria-label={epic.parentTitle}>
+<div
+  class="row"
+  class:row-focused={highlight}
+  bind:this={rowEl}
+  role="region"
+  aria-label={epic.parentTitle}
+>
   <button
     type="button"
     class="row-head"
@@ -104,6 +126,13 @@
     gap: 4px;
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
+    border-radius: 3px;
+    transition: box-shadow 0.4s ease;
+  }
+  /* Deep-link highlight (#1045): a brief amber ring when a Rundown epics-to-land item targets this
+     row, drawing the eye to the Land CTA. Fades out after ~1.6s. */
+  .row-focused {
+    box-shadow: 0 0 0 2px var(--color-amber);
   }
 
   /* Collapsed header — quiet/slate, matching the done-state recipe. */

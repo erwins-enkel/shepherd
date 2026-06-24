@@ -8,18 +8,29 @@
     ondismiss,
     onackmigrations,
     onland,
+    focusEpic = null,
     nowMs = Date.now(),
   }: {
     epics: CompletedEpic[];
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
+    // when set (a Rundown epics-to-land deep-link, #1045), expand the band + focus this row.
+    focusEpic?: { repo: string; parent: number } | null;
     nowMs?: number;
   } = $props();
 
   let collapsed = $state(true);
 
   const count = $derived(epics.length);
+
+  // A focus request (from the Rundown deep-link) must expand the band so the target row is visible;
+  // the row itself self-scrolls + opens when its `focused` flag turns on.
+  $effect(() => {
+    if (focusEpic) collapsed = false;
+  });
+  const isFocused = (e: CompletedEpic) =>
+    focusEpic != null && e.repoPath === focusEpic.repo && e.parentIssueNumber === focusEpic.parent;
 </script>
 
 {#if epics.length > 0}
@@ -38,7 +49,14 @@
     {#if !collapsed}
       <div class="rows">
         {#each epics as epic (`${epic.repoPath}#${epic.parentIssueNumber}`)}
-          <IntegratedEpicRow {epic} {ondismiss} {onackmigrations} {onland} {nowMs} />
+          <IntegratedEpicRow
+            {epic}
+            {ondismiss}
+            {onackmigrations}
+            {onland}
+            focused={isFocused(epic)}
+            {nowMs}
+          />
         {/each}
       </div>
     {/if}

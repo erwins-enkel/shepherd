@@ -1875,5 +1875,11 @@
   "feat_land_epic_body": "When an epic's landing PR is open and all checks pass, a new 'Land epic' button in the Integrated-epics band lets you merge it with one click — no need to switch to GitHub.",
   "feat_epic_auto_land_title": "Auto-land integrated epics",
   "feat_epic_auto_land_body": "With auto-merge enabled for a repo, an integrated epic's landing PR now merges automatically once it's clean and all checks pass — the same opt-in that lands your full-auto sessions. Epics that touch migrations are held for manual review, and the 'Land epic' button still works any time.",
-  "landed_epic_toast": "Epic #{number} landed — merged to the default branch"
+  "landed_epic_toast": "Epic #{number} landed — merged to the default branch",
+  "rundown_epics_to_land": "Land these [[epic|epics]]",
+  "rundown_epic_label": "{repo} · {title} #{number}",
+  "rundown_epic_stranded": "stranded",
+  "rundown_epic_open_aria": "Go to epic #{number} to land it",
+  "feat_rundown_epics_to_land_title": "Rundown surfaces epics to land",
+  "feat_rundown_epics_to_land_body": "The daily Herd Rundown now escalates integrated epics whose landing PR is ready to merge as a top-priority item — even when no session is live — so a forgotten last-mile landing no longer slips. Click it to jump straight to the epic's Land button."
 }

@@ -15,7 +15,12 @@ import {
   validatePreviewPortRange,
 } from "./config";
 import { SessionStore } from "./store";
-import type { Session, SessionPreviewEvent, SessionPreviewServeEvent } from "./types";
+import type {
+  Session,
+  SessionPreviewEvent,
+  SessionPreviewServeEvent,
+  RundownEpicItem,
+} from "./types";
 import { WorktreeMgr } from "./worktree";
 import { HerdrDriver, matchAgent } from "./herdr";
 import { generateName } from "./namer";
@@ -71,6 +76,7 @@ import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees }
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
+import { enrichLandingEpics, type CompletedEpic } from "./completed-epic";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
@@ -1132,10 +1138,47 @@ setInterval(() => {
 //                        running session, mirroring the poller's stall candidate)
 //   mergeTrainState    → live queued PRs (service.liveTrainPrs) + per-session train errors
 //                        (mergeErrorSessions, fed by the automerge:status stream above)
+// Landing-ready completed epics for the rundown (#1045). TTL-memoized: sweep()'s 15s tick keeps
+// calling generate()/reconcileEpics() while an epic sits open, and each call would otherwise probe
+// the forge. The cheap part (which epics are 'open') is a sync DB filter; the forge probe runs only
+// when an epic IS open and is bounded to ≈once/TTL by the memo (mirrors backlogPriority reading a
+// kept-warm cache rather than a live round-trip). readiness still refreshes within one TTL.
+const EPIC_READY_TTL_MS = 5 * 60_000;
+let epicReadyCache: { ts: number; val: RundownEpicItem[] } | null = null;
+const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
+  const now = Date.now();
+  if (epicReadyCache && now - epicReadyCache.ts < EPIC_READY_TTL_MS) return epicReadyCache.val;
+  const openRows = store.listEpicCompleted().filter((r) => r.landingState === "open");
+  if (openRows.length === 0) return []; // cheap path: nothing open → no forge, no caching
+  const epics: CompletedEpic[] = openRows.map(({ childrenJson, landingAttempts, ...rest }) => {
+    void landingAttempts;
+    return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
+  });
+  await enrichLandingEpics(epics, {
+    getEpicIntegrationBranch: (repoPath, parent) =>
+      store.getEpicIntegrationBranch(repoPath, parent),
+    resolveForge: (repoPath) => resolveForge(repoPath),
+    now,
+  });
+  const val: RundownEpicItem[] = epics
+    .filter((e) => e.landingState === "open" && e.landingReady === true)
+    .map((e) => ({
+      repo: e.repoPath,
+      parent: e.parentIssueNumber,
+      title: e.parentTitle,
+      landingPr: e.landingPrNumber,
+      stranded: e.landingStranded === true,
+    }));
+  epicReadyCache = { ts: now, val };
+  return val;
+};
+
 const herdDigestService = new HerdDigestService({
   store,
   herdr,
   isActive: () => presence.isActive(),
+  landingReadyEpics,
+  hasOpenLandingEpics: () => store.listEpicCompleted().some((r) => r.landingState === "open"),
   onChange: (digest) => events.emit("herd:digest", { digest }),
   snapshots: () => ({
     git: prPoller.snapshot(),

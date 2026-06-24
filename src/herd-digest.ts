@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
-import type { HerdDigest, ReviewVerdict, PlanGate, Recap } from "./types";
+import type { HerdDigest, ReviewVerdict, PlanGate, Recap, RundownEpicItem } from "./types";
 import type { GitState } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
@@ -153,6 +153,14 @@ export interface HerdDigestServiceDeps {
   /** Backlog-priority rank per repoPath (lower = higher priority) from the warm /api/backlog
    *  cache; weights focusNext within a tier. Optional — absent → no backlog weighting. */
   backlogPriority?: () => Record<string, number>;
+  /** Landing-ready completed epics to surface as Tier-1 "land this epic" items (#1045). Async —
+   *  the index.ts wiring does forge probes (TTL-memoized) to compute readiness. Resolved inside
+   *  generate() (≤once/day) and reconcileEpics(). Optional — absent → no epic surfacing. */
+  landingReadyEpics?: () => Promise<RundownEpicItem[]>;
+  /** Cheap sync signal: any completed epic currently in landingState 'open' (DB-only). Used ONLY
+   *  as the sweep() pre-filter so an idle herd with a pending epic still triggers generate(); the
+   *  authoritative not-ready→no-spawn decision lives in generate(). Optional — absent → false. */
+  hasOpenLandingEpics?: () => boolean;
   model?: string | null;
   now?: () => number;
   timeoutMs?: number;
@@ -243,7 +251,14 @@ export class HerdDigestService {
     if (this.inFlight.has(dayKey)) return;
 
     if (!this.deps.isActive()) return;
-    if (this.deps.store.list({ activeOnly: true }).length === 0) return;
+    // Pre-filter (cheap): skip only when the herd is empty AND no completed epic is awaiting landing.
+    // The epic DB check runs only when there are no active sessions, so the 15s tick stays cheap.
+    // generate() is the authority on whether an actually-ready epic warrants a spawn (#1045).
+    if (
+      this.deps.store.list({ activeOnly: true }).length === 0 &&
+      !(this.deps.hasOpenLandingEpics?.() ?? false)
+    )
+      return;
 
     await this.generate();
   }
@@ -294,7 +309,12 @@ export class HerdDigestService {
       this.reapGenerating(dayKey);
 
       const sessions = this.deps.store.list({ activeOnly: true });
-      if (sessions.length === 0) return "empty";
+
+      // Resolve the landing-ready epic set (forge-backed, TTL-memoized in the wiring) BEFORE the
+      // empty-guard: an idle/empty herd should still spawn when an epic is genuinely ready to land,
+      // but an open-but-NOT-ready epic (e.g. CI red) must NOT trigger an all-clear spawn for nothing.
+      const epicsToLand = (await this.deps.landingReadyEpics?.()) ?? [];
+      if (sessions.length === 0 && epicsToLand.length === 0) return "empty";
 
       const snap = this.deps.snapshots();
       const stalled = this.deps.stalledSessionIds?.() ?? new Set<string>();
@@ -314,6 +334,7 @@ export class HerdDigestService {
         stalled,
         trains: train?.bySession,
         backlogRank: this.deps.backlogPriority?.(),
+        epics: epicsToLand,
         overnightDelta,
         generatedFor: dayKey,
         now,
@@ -370,6 +391,9 @@ export class HerdDigestService {
         ciRework: [],
         train: "",
         focusNext: [],
+        // Deterministic ground truth (NOT from the LLM verdict): captured at spawn time so the epic
+        // section survives finalize/failed and is kept live intraday by reconcileEpics() (#1045).
+        epicsToLand: assembled.epics,
         attentionFingerprint: fingerprint,
         spawnSessionId,
         cwd,
@@ -414,6 +438,54 @@ export class HerdDigestService {
       } finally {
         this.finalizing.delete(d.dayKey);
       }
+    }
+
+    await this.reconcileEpics();
+  }
+
+  // ── reconcileEpics ─────────────────────────────────────────────────────────────
+
+  /**
+   * Keep today's READY digest's `epicsToLand` live as landing readiness flips intraday (#1045).
+   *
+   * `epicsToLand` is frozen on the row at spawn time. Without this, an epic whose CI goes green
+   * AFTER the digest was generated would never surface (sweep early-returns on the existing ready
+   * row, and epics are deliberately out of the attentionFingerprint, so staleCount never moves —
+   * staleCount is also bootstrap-only). Because `epicsToLand` is server ground truth (never parsed
+   * from the LLM verdict), we recompute it and update the row IN PLACE — no re-spawn, no LLM call —
+   * then push it over `herd:digest` so the panel's epic section updates live. Self-heals both ways
+   * (readiness gained, or lost/landed).
+   *
+   * Cheap by construction: when no epic is open the (memoized) accessor short-circuits to [] with no
+   * forge call; the set-equality check makes the in-place write + WS push fire only on a real change.
+   */
+  private reconcilingEpics = false;
+  async reconcileEpics(): Promise<void> {
+    if (this.reconcilingEpics) return; // overlapping ticks: one at a time
+    if (!this.deps.landingReadyEpics) return; // nothing to reconcile against
+    const latest = this.deps.store.getLatestHerdDigest();
+    if (!latest || latest.state !== "ready") return;
+    if (latest.dayKey !== dayKeyFor(this.now())) return; // only today's settled digest
+    // A regenerate for today is mid-flight — don't fight it.
+    if (this.inFlight.has(latest.dayKey) || this.finalizing.has(latest.dayKey)) return;
+
+    this.reconcilingEpics = true;
+    try {
+      const current = (await this.deps.landingReadyEpics()) ?? [];
+      const key = (e: RundownEpicItem) => `${e.repo}#${e.parent}`;
+      const sortKeys = (xs: RundownEpicItem[]) => xs.map(key).sort();
+      const before = JSON.stringify(sortKeys(latest.epicsToLand));
+      const after = JSON.stringify(sortKeys(current));
+      // Also re-write when the SAME epics changed shape (e.g. stranded flipped, landing PR appeared).
+      const shapeChanged = JSON.stringify(latest.epicsToLand) !== JSON.stringify(current);
+      if (before === after && !shapeChanged) return; // no change → no-op
+
+      const t = this.now();
+      const updated: HerdDigest = { ...latest, epicsToLand: current, updatedAt: t };
+      this.deps.store.putHerdDigest(updated);
+      this.deps.onChange(updated);
+    } finally {
+      this.reconcilingEpics = false;
     }
   }
 

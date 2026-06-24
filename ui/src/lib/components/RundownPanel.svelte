@@ -9,11 +9,24 @@
 
   // A rundown item with a sessionId deep-links to that session; the page swaps the
   // lens away from Rundown and selects it. PR-only items render as a static ref.
-  let { onitemselect }: { onitemselect?: (id: string) => void } = $props();
+  // onepicland deep-links a landing-ready epic to the IntegratedEpicsBand's Land CTA (#1045).
+  let {
+    onitemselect,
+    onepicland,
+  }: {
+    onitemselect?: (id: string) => void;
+    onepicland?: (repo: string, parent: number) => void;
+  } = $props();
 
   const digest = $derived(herdDigest.digest);
   const digestState = $derived(digest?.state ?? null);
   const generating = $derived(digestState === "generating");
+
+  // Epics-to-land (#1045): server ground truth on the digest row, NOT from the LLM verdict — so it
+  // renders in generating/ready/failed alike (it must not vanish mid-regenerate or on LLM failure).
+  const epicsToLand = $derived(digest?.epicsToLand ?? []);
+  // repo basename for a compact deep-link label (mirrors IntegratedEpicRow).
+  const repoBase = (p: string) => p.split("/").filter(Boolean).at(-1) ?? p;
 
   // "generated X ago" off the digest's generatedAt; ticks with the shared 30s clock
   // (same helper DoneRecapPanel uses for "finished X ago"). Null until a first digest.
@@ -27,13 +40,16 @@
 
   // Ready, yet every section empty: a legitimate all-clear, not a failure. Without an
   // explicit affordance the body renders blank and reads as broken.
+  // epicsToLand must gate all-quiet too (#1045): a landing-ready epic is a Tier-1 attention item,
+  // so the "all quiet" copy must never render above a populated epics section.
   const allQuiet = $derived(
     digestState === "ready" &&
       !digest?.overnight &&
       !digest?.train &&
       (digest?.decisions.length ?? 0) === 0 &&
       (digest?.ciRework.length ?? 0) === 0 &&
-      (digest?.focusNext.length ?? 0) === 0,
+      (digest?.focusNext.length ?? 0) === 0 &&
+      epicsToLand.length === 0,
   );
 
   // Fail-closed refresh: a rejected regenerate sets an error flag so it never reads
@@ -58,6 +74,31 @@
   }
 </script>
 
+<!-- Shared item renderers — extracted as snippets so the three near-identical section blocks
+     (focusNext/decisions/ciRework) don't repeat the sessionId/pr/static three-way (keeps the
+     template's complexity + duplication down). -->
+{#snippet linkItem(it: RundownItem, btnClass: string)}
+  {#if it.sessionId}
+    <button type="button" class={btnClass} onclick={() => clickItem(it)}>{it.label}</button>
+  {:else if it.pr != null}
+    <span class="rd-item-pr">{it.label} · {m.prbadge_open({ number: it.pr })}</span>
+  {:else}
+    <span class="rd-item-static">{it.label}</span>
+  {/if}
+{/snippet}
+
+{#snippet reworkItem(it: RundownItem)}
+  {#if it.sessionId}
+    <button type="button" class="rd-item rd-item-red" onclick={() => clickItem(it)}
+      >{it.label}{#if it.pr != null}&nbsp;· {m.prbadge_open({ number: it.pr })}{/if}</button
+    >
+  {:else if it.pr != null}
+    <span class="rd-item-pr">{it.label} · {m.prbadge_open({ number: it.pr })}</span>
+  {:else}
+    <span class="rd-item-static">{it.label}</span>
+  {/if}
+{/snippet}
+
 <section class="rundown" aria-label={m.rundown_title()}>
   <header class="rd-head">
     <span class="rd-title">{m.rundown_title()}</span>
@@ -81,6 +122,32 @@
   </header>
 
   <div class="rd-body">
+    {#if epicsToLand.length > 0}
+      <!-- Tier-1 epics-to-land (#1045): rendered regardless of digest state (generating/ready/failed)
+           because it is server ground truth, not LLM output, and must stay visible mid-regenerate. -->
+      <div class="rd-section rd-epics">
+        <p class="rd-section-head rd-section-head-epics">
+          <GlossaryText text={m.rundown_epics_to_land()} />
+        </p>
+        <ul class="rd-list">
+          {#each epicsToLand as e (`${e.repo}#${e.parent}`)}
+            <li>
+              <button
+                type="button"
+                class="rd-item rd-item-epic"
+                aria-label={m.rundown_epic_open_aria({ number: e.parent })}
+                onclick={() => onepicland?.(e.repo, e.parent)}
+              >
+                {m.rundown_epic_label({ repo: repoBase(e.repo), title: e.title, number: e.parent })}
+                {#if e.landingPr != null}&nbsp;· {m.prbadge_open({ number: e.landingPr })}{/if}
+                {#if e.stranded}<span class="rd-epic-stranded">{m.rundown_epic_stranded()}</span
+                  >{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
     {#if generating}
       <p class="rd-muted">{m.rundown_generating()}</p>
     {:else if digestState === "failed"}
@@ -111,17 +178,7 @@
           <p class="rd-section-head">{m.rundown_focus_next()}</p>
           <ul class="rd-list">
             {#each digest.focusNext as it, i (i)}
-              <li>
-                {#if it.sessionId}
-                  <button type="button" class="rd-item rd-item-focus" onclick={() => clickItem(it)}
-                    >{it.label}</button
-                  >
-                {:else if it.pr != null}
-                  <span class="rd-item-pr">{it.label} · {m.prbadge_open({ number: it.pr })}</span>
-                {:else}
-                  <span class="rd-item-static">{it.label}</span>
-                {/if}
-              </li>
+              <li>{@render linkItem(it, "rd-item rd-item-focus")}</li>
             {/each}
           </ul>
         </div>
@@ -132,17 +189,7 @@
           <p class="rd-section-head">{m.rundown_decisions()}</p>
           <ul class="rd-list">
             {#each digest.decisions as it, i (i)}
-              <li>
-                {#if it.sessionId}
-                  <button type="button" class="rd-item" onclick={() => clickItem(it)}
-                    >{it.label}</button
-                  >
-                {:else if it.pr != null}
-                  <span class="rd-item-pr">{it.label} · {m.prbadge_open({ number: it.pr })}</span>
-                {:else}
-                  <span class="rd-item-static">{it.label}</span>
-                {/if}
-              </li>
+              <li>{@render linkItem(it, "rd-item")}</li>
             {/each}
           </ul>
         </div>
@@ -155,19 +202,7 @@
           </p>
           <ul class="rd-list">
             {#each digest.ciRework as it, i (i)}
-              <li>
-                {#if it.sessionId}
-                  <button type="button" class="rd-item rd-item-red" onclick={() => clickItem(it)}
-                    >{it.label}{#if it.pr != null}&nbsp;· {m.prbadge_open({
-                        number: it.pr,
-                      })}{/if}</button
-                  >
-                {:else if it.pr != null}
-                  <span class="rd-item-pr">{it.label} · {m.prbadge_open({ number: it.pr })}</span>
-                {:else}
-                  <span class="rd-item-static">{it.label}</span>
-                {/if}
-              </li>
+              <li>{@render reworkItem(it)}</li>
             {/each}
           </ul>
         </div>
@@ -283,6 +318,28 @@
     color: var(--color-muted);
   }
   .rd-section-head-red {
+    color: var(--color-red);
+  }
+  /* Epics-to-land is a Tier-1 actionable escalation (a ready landing awaiting a human), so its
+     heading carries the amber attention hue — the same "needs you, action available" signal. */
+  .rd-section-head-epics {
+    color: var(--color-amber);
+  }
+
+  /* Deep-link to the band's Land CTA; reads as actionable amber like the heading. */
+  .rd-item-epic {
+    color: var(--color-amber);
+  }
+  .rd-item-epic:hover {
+    color: var(--color-amber);
+    text-decoration: underline;
+  }
+  /* Stranded (overdue) landing — escalate to red. */
+  .rd-epic-stranded {
+    margin-left: 6px;
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--color-red);
   }
 

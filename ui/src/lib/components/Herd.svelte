@@ -66,6 +66,8 @@
     doneSelectedId = null,
     ondoneselect = undefined,
     onrundownitem = undefined,
+    onrundownepic = undefined,
+    focusEpic = null,
     onackmigrationsepic = undefined,
   }: {
     sessions: Session[];
@@ -159,6 +161,11 @@
     // a Rundown digest item with a sessionId was clicked → page leaves the Rundown lens
     // and selects that live session (deep-link). Same mechanism a rail click uses.
     onrundownitem?: (id: string) => void;
+    // a Rundown epics-to-land item was clicked (#1045) → page leaves the Rundown lens and focuses
+    // that epic's row in the IntegratedEpicsBand (deep-link to its Land CTA), NOT a direct land.
+    onrundownepic?: (repo: string, parent: number) => void;
+    // when set, the IntegratedEpicsBand auto-expands + scrolls/opens this epic's row (#1045).
+    focusEpic?: { repo: string; parent: number } | null;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
   } = $props();
@@ -428,7 +435,7 @@
   <div class="units" class:flow>
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
-      <RundownPanel onitemselect={onrundownitem} />
+      <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
@@ -478,6 +485,7 @@
         ondismiss={ondismissepic ?? (() => {})}
         onackmigrations={onackmigrationsepic ?? (() => {})}
         onland={onlandepic ?? (() => {})}
+        {focusEpic}
         {nowMs}
       />
     {/if}

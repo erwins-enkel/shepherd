@@ -104,7 +104,7 @@ import { importEpicLinks, type ImportResult } from "./epic-import";
 import {
   buildRollup,
   computeLandingReady,
-  computeLandingStranded,
+  enrichLandingEpics,
   type CompletedEpic,
 } from "./completed-epic";
 import { parseEpicBody } from "./epic-parse";
@@ -4528,32 +4528,14 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   });
 
   // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
-  // errors must NOT 500 this route; just omit the live fields for that row).
-  const now = Date.now();
-  await Promise.all(
-    baseRows.map(async (row) => {
-      if (row.landingState !== "open") return;
-      const branch = deps.store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber);
-      if (branch === null) return;
-      const forge = deps.resolveForge?.(row.repoPath);
-      if (!forge) return;
-      try {
-        const pr = await forge.prStatus(branch);
-        row.landingChecks = pr.checks;
-        row.landingMergeable = pr.mergeable ?? null;
-        const landingReady = computeLandingReady(pr);
-        row.landingReady = landingReady;
-        row.landingStranded = computeLandingStranded({
-          landingState: "open",
-          landingReady,
-          completedAt: row.completedAt,
-          now,
-        });
-      } catch {
-        // leave live fields undefined — always serve DB rows
-      }
-    }),
-  );
+  // errors must NOT 500 this route; just omit the live fields for that row). Shared helper so the
+  // rundown's landing-ready accessor (#1045) computes readiness identically.
+  await enrichLandingEpics(baseRows, {
+    getEpicIntegrationBranch: (repoPath, parent) =>
+      deps.store.getEpicIntegrationBranch(repoPath, parent),
+    resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
+    now: Date.now(),
+  });
 
   return json(baseRows);
 }

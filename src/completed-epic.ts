@@ -83,6 +83,51 @@ export function computeLandingStranded(opts: {
   );
 }
 
+/** Accessors enrichLandingEpics needs, injected so this module stays forge-light (a structural
+ *  forge shape, not the full GitForge type). `resolveForge` returns null when the repo has no forge. */
+export interface EnrichLandingDeps {
+  getEpicIntegrationBranch: (repoPath: string, parentIssueNumber: number) => string | null;
+  resolveForge: (
+    repoPath: string,
+  ) => { prStatus: (headBranch: string) => Promise<PrStatus> } | null | undefined;
+  now: number;
+}
+
+/** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
+ *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`), mutating in place.
+ *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
+ *  row's live fields undefined — never throws. Shared by GET /api/epics/completed and the rundown's
+ *  landing-ready accessor so both compute readiness identically. */
+export async function enrichLandingEpics(
+  rows: CompletedEpic[],
+  deps: EnrichLandingDeps,
+): Promise<void> {
+  await Promise.all(
+    rows.map(async (row) => {
+      if (row.landingState !== "open") return;
+      const branch = deps.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber);
+      if (branch === null) return;
+      const forge = deps.resolveForge(row.repoPath);
+      if (!forge) return;
+      try {
+        const pr = await forge.prStatus(branch);
+        row.landingChecks = pr.checks;
+        row.landingMergeable = pr.mergeable ?? null;
+        const landingReady = computeLandingReady(pr);
+        row.landingReady = landingReady;
+        row.landingStranded = computeLandingStranded({
+          landingState: "open",
+          landingReady,
+          completedAt: row.completedAt,
+          now: deps.now,
+        });
+      } catch {
+        // leave live fields undefined — callers always serve/return the base DB rows
+      }
+    }),
+  );
+}
+
 export function buildRollup(
   children: Pick<EpicChild, "number" | "title" | "url">[],
   details: {

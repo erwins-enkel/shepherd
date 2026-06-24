@@ -11,6 +11,7 @@ import type {
   PlanGate,
   Recap,
   RundownItem,
+  RundownEpicItem,
   RundownVerdict,
   HoldReason,
 } from "./types";
@@ -28,6 +29,9 @@ export const RUNDOWN_DECISIONS_CAP = 6;
 const RUNDOWN_CIREWORK_CAP = 6;
 export const RUNDOWN_FOCUSNEXT_CAP = 3;
 export const RUNDOWN_DEFAULT_TOPN = 40;
+// Bound on the deterministic "land this epic" Tier-1 items (#1045). Completed epics are few per
+// repo; this is a safety ceiling, not an expected limit.
+export const RUNDOWN_EPICS_CAP = 12;
 
 // DRIFT: keep in sync with ui/src/lib/components/merge-train.ts (MERGE_MARK_BACKSTOP_MS).
 // Re-implemented server-side so the rundown can classify merging sessions without
@@ -304,6 +308,9 @@ export interface AssembledHerdState {
   generatedFor: string;
   overnightDelta: { mergedPrs: number[]; archivedSessions: { id: string; desig: string }[] };
   sessions: AssembledSession[];
+  /** Deterministic Tier-1 "land this epic" items (#1045) — landing-ready completed epics with no
+   *  live session. NOT classified/ranked like sessions; injected by the server, never dropped. */
+  epics: RundownEpicItem[];
   /** Count of Tier-2 sessions elided by the topN budget (0 when none dropped). Tier-1 is
    *  never dropped, so a positive count here means a HIGH-attention session is hidden. */
   truncatedTier2: number;
@@ -322,6 +329,9 @@ export interface AssembleInput {
   trains?: Record<string, { error?: boolean }>;
   overnightDelta: { mergedPrs: number[]; archivedSessions: { id: string; desig: string }[] };
   generatedFor: string;
+  /** Landing-ready completed epics to surface as Tier-1 "land this epic" items (#1045). Optional —
+   *  absent ⇒ none. Sliced to RUNDOWN_EPICS_CAP. */
+  epics?: RundownEpicItem[];
   now?: number;
   topN?: number;
   /** Backlog-priority rank per repoPath (lower = higher priority; 0 = top-priority repo). A
@@ -428,6 +438,7 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
     generatedFor: input.generatedFor,
     overnightDelta: input.overnightDelta,
     sessions: kept,
+    epics: (input.epics ?? []).slice(0, RUNDOWN_EPICS_CAP),
     truncatedTier2,
     truncatedTier3,
   };
@@ -469,6 +480,30 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     );
   }
 
+  if (assembled.epics.length > 0) {
+    lines.push(
+      "",
+      "EPICS AWAITING LANDING — these integrated epics have a landing PR that is ready to merge",
+      "but has NOT been landed. They are ALREADY surfaced separately to the operator as Tier-1",
+      '"land the epic" items (a dedicated section with a Land CTA), so you MUST NOT repeat them in',
+      'decisions/focusNext. You MUST NOT claim "all clear" or that the herd is idle while any',
+      "exist; you MAY mention them in `overnight` for context. For reference only (do NOT echo into",
+      "the verdict):",
+      ...assembled.epics.map(
+        (e) =>
+          `  - ${e.repo} #${e.parent} "${e.title}"` +
+          (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
+          (e.stranded ? " [STRANDED — unlanded well past threshold]" : ""),
+      ),
+    );
+  }
+
+  // Strip `epics` from the herd-state dump below — they are rendered once in the dedicated block
+  // above; leaving them in the dump would double-inject and tempt the agent to echo them into the
+  // verdict (#1045).
+  const { epics: _epics, ...assembledForDump } = assembled;
+  void _epics;
+
   lines.push(
     'Each session may carry a "why" line — the system\'s reason it is held/blocked; use it to phrase the operator-facing items.',
     "",
@@ -491,7 +526,7 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     "Herd state (already significance-ranked):",
     JSON.stringify(
       {
-        ...assembled,
+        ...assembledForDump,
         sessions: assembled.sessions.map((s) => {
           const { hold, ...rest } = s;
           if (hold) return { ...rest, why: renderHold(hold, "en") };

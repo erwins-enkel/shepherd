@@ -1282,6 +1282,47 @@ test("PR closed (not merged) before finalize: also fully inert", async () => {
   expect(postedComments).toHaveLength(0); // closed-unmerged → moot, no post-merge comment either
 });
 
+test("PR merged before finalize (error verdict): not persisted, no escalation", async () => {
+  // Critic spawn and PR merge both fire on CI-green → they race. A transient critic error that
+  // finalizes after the merge is observable must NOT flip the (not-yet-archived) session to
+  // REVIEW ERR. Seed the error streak at the cap boundary (errorRound 2, cap 3) so the no-stall
+  // assertion is discriminating: on the pre-fix code the error path bumps 2→3, crossing the cap
+  // and emitting a stall signal. With the fix the verdict is suppressed, so neither happens.
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) }, // unparseable → error
+    { prStatus: async () => ({ ...OPEN_GREEN, state: "merged" }) },
+  );
+  reviews["s1"] = priorReview({ errorRound: 2, addressRound: 1 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN); // spawn while open (no prStatus call yet)
+  await svc.tick(); // finalize: live recheck sees "merged" → moot error, suppressed
+  expect(reviews["s1"]?.decision).not.toBe("error"); // not overwritten with the moot error verdict
+  expect(reviews["s1"]?.errorRound).toBe(2); // NOT bumped to 3 (verdict wasn't persisted)
+  expect(signals.some((s) => s.kind === "stall")).toBe(false); // and no cap-crossing escalation
+});
+
+test("PR closed before finalize (error verdict): also suppressed, no escalation", async () => {
+  // Same suppression for closed-unmerged: the guard is state !== "open", not just merged.
+  const {
+    deps: d,
+    reviews,
+    signals,
+  } = makeDeps(
+    { readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) },
+    { prStatus: async () => ({ ...OPEN_GREEN, state: "closed" }) },
+  );
+  reviews["s1"] = priorReview({ errorRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.errorRound).toBe(2); // suppressed → counter untouched
+  expect(signals.some((s) => s.kind === "stall")).toBe(false);
+});
+
 test("advancing into the cap marks the final round pending (not yet stalled)", async () => {
   const { deps: d, reviews } = makeDeps(
     {

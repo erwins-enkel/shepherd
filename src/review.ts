@@ -640,36 +640,13 @@ export class ReviewService {
     // (a forge/store/steer failure must not strand them).
     try {
       const verdict = this.buildVerdict(f, raw);
+      // A verdict for a PR that's no longer open is moot. The real branch handles that inside
+      // publishVerdict(); the error branch needs its own gate (finalizeErrorVerdict) since it
+      // never reaches publishVerdict. When persist is false we skip persisting the verdict as
+      // session review state — see below.
+      let persist = true;
       if (verdict.decision === "error") {
-        // A transient critic failure (timeout / unparseable verdict) posts nothing and
-        // has no findings to steer. Don't let it pose as "clean": count it on a separate
-        // no-progress streak so a flapping critic still escalates instead of looping
-        // forever, and preserve the findings round (those findings are still outstanding,
-        // just un-reverified this push).
-        verdict.errorRound = f.priorErrorRound + 1;
-        verdict.addressRound = f.priorRound;
-        // Error verdicts deliberately do NOT increment streakReviews: error-spawn token cost
-        // is bounded by the separate errorRound counter + its own cap escalation, not by the
-        // spawn ceiling. Preserve the streak's review count + reviewed-patch-id set so the
-        // ceiling math and churn dedup stay correct across a transient failure (and the errored
-        // patch-id is NOT added — mirrors patchId:"" so the same diff re-reviews).
-        verdict.streakReviews = f.priorStreakReviews;
-        verdict.reviewedPatchIds = f.priorReviewedPatchIds;
-        // The critic never produced a verdict, so it didn't actually consider this run's
-        // freshly-fetched notes — roll the seen set back so they re-inject next round
-        // instead of being silently swallowed by an error pass.
-        verdict.seenNoteIds = f.priorSeenNoteIds;
-        // Escalate once, when the streak first reaches the cap. `>=` with a crossing guard
-        // (not `=== cap`) so a cap lowered between runs still fires rather than being
-        // stepped over, while errors past the cap don't re-signal every tick.
-        if (verdict.errorRound >= this.cap && f.priorErrorRound < this.cap) {
-          this.deps.store.addSignal({
-            repoPath: f.repoPath,
-            sessionId: f.sessionId,
-            kind: "stall",
-            payload: `critic produced ${verdict.errorRound} consecutive error verdicts for this PR — auto-address can't make progress`,
-          });
-        }
+        persist = await this.finalizeErrorVerdict(f, verdict);
       } else {
         // Per-streak review accounting — independent of publish/steer outcome and of
         // autoAddressEnabled (review token spend happens whether or not findings are steered).
@@ -698,8 +675,13 @@ export class ReviewService {
         }
         await this.publishVerdict(f, verdict);
       }
-      this.deps.store.putReview(verdict);
-      this.deps.onChange(f.sessionId, verdict);
+      // Skipped only for a moot post-merge error verdict (persist=false above): it must not
+      // become the session's review state. captureUsage + the finally-reap below still run, so
+      // the critic spawn's token cost is attributed and its terminal/worktree are reaped.
+      if (persist) {
+        this.deps.store.putReview(verdict);
+        this.deps.onChange(f.sessionId, verdict);
+      }
       // Persist the critic's token total for exact cost attribution (issue #502). Best-effort:
       // a missing/half-written transcript leaves the spawn row's totals null rather than
       // stranding finalize. The reviewer transcript lives under ~/.claude/projects (keyed by
@@ -716,6 +698,79 @@ export class ReviewService {
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+    }
+  }
+
+  /**
+   * Bookkeeping for a transient critic *error* verdict (timeout / unparseable). Returns whether
+   * the verdict should be persisted as session review state.
+   *
+   * Critic spawn and PR merge both fire on CI-green, so they race: the critic can finish AFTER
+   * the merge is observable. An error on a PR that already merged/closed is moot — persisting it
+   * would flip a not-yet-decommissioned session to a stale REVIEW ERR badge until archive, and
+   * escalating it is noise (no merge left to gate). So suppress (return false) on a CONFIRMED
+   * terminal state only; fail OPEN on an unconfirmable state (no forge / fetch threw) so a genuine
+   * error on a still-open PR is never hidden by a failed recheck — at the cost of a residual
+   * transient REVIEW ERR if the PR did merge but the recheck couldn't see it (logged so the field
+   * cause is distinguishable; self-clears at archive).
+   */
+  private async finalizeErrorVerdict(f: InFlight, verdict: ReviewVerdict): Promise<boolean> {
+    const live = await this.livePrState(f);
+    if (live === "merged" || live === "closed") {
+      console.warn(
+        `[review] error verdict suppressed for ${f.sessionId}: PR ${live} before finalize (moot)`,
+      );
+      return false;
+    }
+    if (live === undefined)
+      console.warn(
+        `[review] error verdict kept for ${f.sessionId}: live PR state unconfirmable (fail-open) — may surface a transient REVIEW ERR if the PR already merged`,
+      );
+    // A transient critic failure posts nothing and has no findings to steer. Don't let it pose as
+    // "clean": count it on a separate no-progress streak so a flapping critic still escalates
+    // instead of looping forever, and preserve the findings round (those findings are still
+    // outstanding, just un-reverified this push).
+    verdict.errorRound = f.priorErrorRound + 1;
+    verdict.addressRound = f.priorRound;
+    // Error verdicts deliberately do NOT increment streakReviews: error-spawn token cost is
+    // bounded by the separate errorRound counter + its own cap escalation, not by the spawn
+    // ceiling. Preserve the streak's review count + reviewed-patch-id set so the ceiling math and
+    // churn dedup stay correct across a transient failure (and the errored patch-id is NOT added —
+    // mirrors patchId:"" so the same diff re-reviews).
+    verdict.streakReviews = f.priorStreakReviews;
+    verdict.reviewedPatchIds = f.priorReviewedPatchIds;
+    // The critic never produced a verdict, so it didn't actually consider this run's freshly-
+    // fetched notes — roll the seen set back so they re-inject next round instead of being
+    // silently swallowed by an error pass.
+    verdict.seenNoteIds = f.priorSeenNoteIds;
+    // Escalate once, when the streak first reaches the cap. `>=` with a crossing guard (not
+    // `=== cap`) so a cap lowered between runs still fires rather than being stepped over, while
+    // errors past the cap don't re-signal every tick.
+    if (verdict.errorRound >= this.cap && f.priorErrorRound < this.cap) {
+      this.deps.store.addSignal({
+        repoPath: f.repoPath,
+        sessionId: f.sessionId,
+        kind: "stall",
+        payload: `critic produced ${verdict.errorRound} consecutive error verdicts for this PR — auto-address can't make progress`,
+      });
+    }
+    return true;
+  }
+
+  /**
+   * Live PR state for the at-finalize recheck. `undefined` when it can't be confirmed (no forge,
+   * or the forge throws) — callers treat that as "unconfirmable" and decide their own fail mode.
+   * Mirrors the fetch publishVerdict() does for real verdicts; the error branch uses it too so a
+   * transient critic error finishing AFTER the merge isn't persisted as a stale REVIEW ERR.
+   */
+  private async livePrState(f: InFlight): Promise<PrStatus["state"] | undefined> {
+    const forge = this.deps.resolveForge(f.repoPath);
+    if (!forge) return undefined;
+    try {
+      return (await forge.prStatus(f.branch))?.state;
+    } catch (err) {
+      console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
+      return undefined;
     }
   }
 

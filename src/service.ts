@@ -851,6 +851,23 @@ function pickOverride<T>(override: T | undefined, original: T): T {
  * come) AND it isn't a research task. Keyed on the session's EFFECTIVE autopilot (not the raw
  * repo default), so an autopilot-off session — e.g. a merge-train driver — is never auto-approved.
  */
+/** Renderer env for the MAIN session spawn. Default: pin the classic renderer. The
+ *  tuiFullscreen opt-in (research preview) switches to NO_FLICKER. tuiFullscreen also implies
+ *  DISABLE_MOUSE (every main session is reachable in the web terminal, where fullscreen
+ *  mouse-capture escapes (modes 1000/1002/1003) would be injected into the keystroke stream);
+ *  tuiDisableMouse sets it independently (e.g. in classic mode). Applied via both the membrane
+ *  --setenv (sandboxed) and the herdr.start env shim (trusted). */
+function mainSessionRendererEnv(
+  tuiFullscreen: boolean,
+  tuiDisableMouse: boolean,
+): Record<string, string> {
+  const env: Record<string, string> = tuiFullscreen
+    ? { CLAUDE_CODE_NO_FLICKER: "1" }
+    : { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" };
+  if (tuiFullscreen || tuiDisableMouse) env.CLAUDE_CODE_DISABLE_MOUSE = "1";
+  return env;
+}
+
 function shouldPreApproveBuildQueue(
   repoConfig: RepoConfig,
   session: Pick<Session, "autopilotEnabled">,
@@ -1232,17 +1249,9 @@ export class SessionService {
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
 
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
-    // classic pin). Default: pin classic. The tuiFullscreen opt-in (research preview) switches to
-    // NO_FLICKER. tuiFullscreen ALSO implies DISABLE_MOUSE — every main session is reachable in the
-    // web terminal, where fullscreen mouse-capture escapes (modes 1000/1002/1003) would be injected
-    // into the keystroke stream; tuiDisableMouse can also set it independently (e.g. in classic mode).
-    // Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped by
-    // bwrap --clearenv) AND spawnEnv (trusted). The renderer is fixed at claude process start, so a
-    // settings change only affects subsequently spawned/resumed sessions.
-    const rendererEnv: Record<string, string> = config.tuiFullscreen
-      ? { CLAUDE_CODE_NO_FLICKER: "1" }
-      : { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" };
-    if (config.tuiFullscreen || config.tuiDisableMouse) rendererEnv.CLAUDE_CODE_DISABLE_MOUSE = "1";
+    // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
+    // by bwrap --clearenv) AND spawnEnv (trusted). See mainSessionRendererEnv for details.
+    const rendererEnv = mainSessionRendererEnv(config.tuiFullscreen, config.tuiDisableMouse);
 
     // Build the membrane only when it'll actually wrap (a sandboxed profile WITH a backend).
     // wrapArgv ignores the membrane for trusted / no-backend (passthrough), so skipping the

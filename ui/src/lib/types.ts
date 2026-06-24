@@ -635,6 +635,8 @@ export interface CompletedEpic {
   landingMergeable?: boolean | null;
   landingReady?: boolean;
   landingStranded?: boolean;
+  // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
+  landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

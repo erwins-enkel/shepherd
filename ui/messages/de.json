@@ -1920,5 +1920,10 @@
   "owed_step_toggle": "Schritt als erledigt markieren",
   "owed_post_merge_badge": "POST-MERGE",
   "feat_manual_steps_post_merge_title": "Offene Schritte überleben den Merge",
-  "feat_manual_steps_post_merge_body": "Nachdem ein PR mit manuellen Schritten gemergt und die Session archiviert wurde, leben die Schritte im neuen \"Offen\"-Tab weiter — hake jeden ab, sobald du ihn erledigt hast; sie bleiben bis zur Erledigung erhalten (weit über das Done-Fenster hinaus). Aktiviere pro Repo \"Manuelle Schritte als Issue verfolgen\", um beim Merge zusätzlich ein GitHub-Tracking-Issue zu öffnen, das auf den PR verweist."
+  "feat_manual_steps_post_merge_body": "Nachdem ein PR mit manuellen Schritten gemergt und die Session archiviert wurde, leben die Schritte im neuen \"Offen\"-Tab weiter — hake jeden ab, sobald du ihn erledigt hast; sie bleiben bis zur Erledigung erhalten (weit über das Done-Fenster hinaus). Aktiviere pro Repo \"Manuelle Schritte als Issue verfolgen\", um beim Merge zusätzlich ein GitHub-Tracking-Issue zu öffnen, das auf den PR verweist.",
+  "integrated_epics_rebase_paused_cap": "Auto-Rebase nach mehreren Versuchen fehlgeschlagen — du bist dran",
+  "integrated_epics_rebase_paused_conflict": "Landing-PR hat einen echten Konflikt — du bist dran",
+  "integrated_epics_rebase_paused_driver": "Merge-Treiber auf dem Server nicht verfügbar — du bist dran",
+  "feat_auto_rebase_landing_prs_title": "Auto-Rebase für Landing-PRs",
+  "feat_auto_rebase_landing_prs_body": "Wenn ein Landing-PR eines Epics hinter seiner Basis zurückfällt, führt Shepherd jetzt automatisch einen Rebase durch. Bei einem Konflikt, einem Wiederholungslimit oder einem fehlenden Merge-Treiber zeigt ein Warn-Chip in der Band-Zeile genau den Grund an und übergibt an dich."
 }

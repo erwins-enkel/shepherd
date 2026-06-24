@@ -538,6 +538,93 @@ describe("IntegratedEpicRow", () => {
     expect(btns.find((b) => b.textContent?.includes("Land epic"))).toBeUndefined();
   });
 
+  // ── Auto-rebase paused chip (#1071) ───────────────────────────────────────
+
+  it("landingRebasePauseReason 'cap': shows cap paused chip", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingRebasePauseReason: "cap",
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const chip = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-rebase-paused") as HTMLElement | null;
+      if (!el) throw new Error("no rebase-paused chip");
+      return el;
+    });
+    expect(chip.textContent).toContain("repeated tries");
+  });
+
+  it("landingRebasePauseReason 'conflict': shows conflict paused chip", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingRebasePauseReason: "conflict",
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const chip = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-rebase-paused") as HTMLElement | null;
+      if (!el) throw new Error("no rebase-paused chip");
+      return el;
+    });
+    expect(chip.textContent).toContain("real conflict");
+  });
+
+  it("landingRebasePauseReason 'driver': shows driver paused chip", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingRebasePauseReason: "driver",
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const chip = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-rebase-paused") as HTMLElement | null;
+      if (!el) throw new Error("no rebase-paused chip");
+      return el;
+    });
+    expect(chip.textContent).toContain("Merge driver");
+  });
+
+  it("no landingRebasePauseReason: no rebase-paused chip rendered", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      if (!document.querySelector(".actions .gbtn")) throw new Error("no actions yet");
+    });
+    expect(document.querySelector(".actions .chip-rebase-paused")).toBeNull();
+  });
+
   it("confirm cancel: clicking Cancel resets confirming state without calling onland", async () => {
     const onland = vi.fn();
     render(IntegratedEpicRow, {

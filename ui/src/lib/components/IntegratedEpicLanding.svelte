@@ -2,6 +2,7 @@
   import type { CompletedEpic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { formatAgo } from "$lib/format";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let {
     epic,
@@ -29,6 +30,16 @@
   });
 
   const isOpen = $derived(epic.landingState === "open");
+
+  const rebasePausedLabel = $derived.by((): string | null => {
+    if (!epic.landingRebasePauseReason) return null;
+    if (epic.landingRebasePauseReason === "cap") return m.integrated_epics_rebase_paused_cap();
+    if (epic.landingRebasePauseReason === "conflict")
+      return m.integrated_epics_rebase_paused_conflict();
+    if (epic.landingRebasePauseReason === "driver")
+      return m.integrated_epics_rebase_paused_driver();
+    return null;
+  });
 
   const landNotReadyReason = $derived.by((): string => {
     if (epic.landingChecks === "failure") return m.integrated_epics_land_not_ready_ci_failing();
@@ -135,6 +146,11 @@
       {m.integrated_epics_dismiss()}
     </button>
   {/if}
+  {#if rebasePausedLabel}
+    <span class="chip-rebase-paused" id="rebase-paused-chip" use:coachTarget={"rebase-paused-chip"}
+      >{rebasePausedLabel}</span
+    >
+  {/if}
   {#if !isOpen}
     {#if epic.landingState === "merged" && epic.landingPrNumber != null}
       {#if epic.landingPrUrl}
@@ -210,6 +226,19 @@
     color: var(--status-warn);
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
     text-transform: uppercase;
+  }
+
+  /* Warn-tone chip — auto-rebase pass paused, operator action needed (#1071).
+     Same token recipe as chip-migrations; distinct from .landing-failed (which is error-only). */
+  .chip-rebase-paused {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
 
   /* Inline confirm step — prompt text + migration warning */

@@ -584,11 +584,13 @@
   // leftover subprocesses still running from this session — populated on the
   // confirming click; a non-empty list pops the dialog instead of closing outright.
   let leftovers = $state<Leftover[]>([]);
+  let decomTarget = $state<string | null>(null);
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- touch reactive dep
     unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
     leftovers = [];
+    decomTarget = null; // drop any captured decommission target from the prior unit
     tab = "term";
     ended = false;
     resumeFailed = false;
@@ -615,6 +617,18 @@
     if (!hasPreview && tab === "preview") tab = "term";
   });
   $effect(() => () => clearTimeout(armTimer));
+  async function confirmDecommission(id: string) {
+    // only interrupt the close with the dialog when something is actually still
+    // running; a probe failure must never block decommission, so fall through to close.
+    const found = await getLeftovers(id).catch(() => [] as Leftover[]);
+    if (found.length === 0) {
+      onarchive?.(id);
+      return;
+    }
+    decomTarget = id;
+    leftovers = found;
+  }
+
   async function decommission() {
     if (!armed) {
       armed = true;
@@ -624,14 +638,7 @@
     }
     clearTimeout(armTimer);
     armed = false;
-    // only interrupt the close with the dialog when something is actually still
-    // running; a probe failure must never block decommission, so fall through to close.
-    const found = await getLeftovers(session.id).catch(() => [] as Leftover[]);
-    if (found.length === 0) {
-      onarchive?.(session.id);
-      return;
-    }
-    leftovers = found;
+    confirmDecommission(session.id);
   }
 
   // ── rename: ✎ click or title double-tap opens an inline editor; Enter/blur commits, Esc cancels ──
@@ -1978,6 +1985,7 @@
         {drain}
         autopilotOn={autopilotEffective}
         issueNumber={session.issueNumber}
+        ondecommission={confirmDecommission}
         mobile
       />
       <span class="strip-controls">
@@ -2212,12 +2220,16 @@
   <LeftoverDialog
     {leftovers}
     onclose={() => {
+      const target = decomTarget ?? session.id;
       leftovers = [];
-      onarchive?.(session.id);
+      decomTarget = null;
+      onarchive?.(target);
     }}
     onconfirm={(keys) => {
+      const target = decomTarget ?? session.id;
       leftovers = [];
-      onarchive?.(session.id, keys);
+      decomTarget = null;
+      onarchive?.(target, keys);
     }}
   />
 {/if}

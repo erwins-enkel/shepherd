@@ -152,6 +152,29 @@ test("parseCredits stops at the Esc-to-cancel chrome and ignores absent section"
   expect(parseUsageFrame("Current session\n3% used\nResets 9:30pm (x)", NOW).credits).toBeNull();
 });
 
+test("parseCredits skips the /usage-credits command-menu text and reads the real panel", () => {
+  // The probe runs claude in the classic renderer, which accumulates the `/usage` slash-command menu
+  // into the buffer. The `/usage-credits` command (renamed from `/extra-usage` in Claude Code
+  // v2.1.144) describes itself as "Configure usage credits to keep working when you hit a limit",
+  // collapsing to a `Usagecredits…` run with NO spend figure that precedes the actual panel. Reading
+  // the first match yielded null and the gauge silently vanished; the parser must skip it.
+  const collapsed =
+    "/usageShowsessioncost,planusage,andactivitystats" +
+    "/usage-creditsConfigureusagecreditstokeepworkingwhenyouhitalimit" +
+    "Esctocancel" +
+    "Currentweek(allmodels)100%usedResetsJun25,11pm(x)" +
+    "Usagecredits65%used€12.34/€80.00spent·ResetsJul1(x)Esctocancel";
+  const c = parseCredits(collapsed, NOW)!;
+  expect(c).not.toBeNull();
+  expect(c.currency).toBe("€");
+  expect(c.spent).toBe(12.34);
+  expect(c.cap).toBe(80);
+  expect(c.pct).toBe(65);
+  expect(c.resetLabel).toBe("Jul1");
+  // end-to-end: the same menu-poisoned buffer must still surface credits through parseUsageFrame
+  expect(parseUsageFrame(collapsed, NOW).credits?.spent).toBe(12.34);
+});
+
 test("parseMonthlyReset rolls a past day forward ONE MONTH, not one year", () => {
   // Jun1 is past relative to mid-June → next month, same year (Jul 1), NOT Jun 2027
   const jul1 = new Date(parseMonthlyReset("Jun1", JUN13)!);

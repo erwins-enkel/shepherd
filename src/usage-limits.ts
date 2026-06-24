@@ -158,30 +158,40 @@ function parseSegment(seg: string, now: number): ScrapedWindow | null {
  *   Usagecredits▎0%used€0.29/€50.00spent·ResetsJun1(Europe/Berlin)
  * The gauge pct rounds down (can read `0%used` while real money is spent), so `spent` is the truth
  * signal and is parsed independently of pct.
+ *
+ * Scan EVERY "Usagecredits" occurrence, not just the first. The probe runs claude in the classic
+ * renderer (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN), which accumulates the `/usage` slash-command menu
+ * into the buffer — and the `/usage-credits` command (renamed from `/extra-usage` in Claude Code
+ * v2.1.144) carries the description "Configure usage credits to keep working when you hit a limit",
+ * which collapses to a `Usagecredits…` run that precedes the real panel. The first match is thus
+ * that menu text (no spend figure); the actual panel — the only occurrence carrying a `…/…spent`
+ * amount — comes later. So match on the spend line as the truth signal and skip any occurrence
+ * (menu text, or a still-"Refreshing…" partial frame) that lacks it.
  */
 export function parseCredits(collapsed: string, now: number): ScrapedCredit | null {
-  const start = collapsed.search(/Usagecredits/i);
-  if (start < 0) return null;
-  let seg = collapsed.slice(start);
-  const end = seg.search(/Esctocancel/i);
-  if (end >= 0) seg = seg.slice(0, end);
-  // pct rounds down and can be absent; treat missing as 0 — spend below is the real signal
-  const pct = +(seg.match(/(\d+)%used/i)?.[1] ?? 0);
-  // symbol-only currency group: a `(\D*)([\d.]+)` form would wrongly grab the `%used` of `0%used€`.
-  // Amounts are assumed dot-decimal (as the Europe/Berlin TUI renders, e.g. `€0.29`); a comma render
-  // (`€0,29`) wouldn't match `[\d.]+` and would drop the whole credits section (returns null).
-  // `seg` is already whitespace-collapsed, so there is no inter-group whitespace to skip.
-  const spend = seg.match(/([^\d.\s/])([\d.]+)\/[^\d.\s/]?([\d.]+)spent/i);
-  if (!spend) return null;
-  const label = seg.match(/Resets(.*?)\(/i)?.[1] ?? null;
-  return {
-    pct,
-    spent: +spend[2]!,
-    cap: +spend[3]!,
-    currency: spend[1]!,
-    resetLabel: label,
-    resetAt: label ? parseMonthlyReset(label, now) : null,
-  };
+  for (const m of collapsed.matchAll(/Usagecredits/gi)) {
+    let seg = collapsed.slice(m.index);
+    const end = seg.search(/Esctocancel/i);
+    if (end >= 0) seg = seg.slice(0, end);
+    // symbol-only currency group: a `(\D*)([\d.]+)` form would wrongly grab the `%used` of `0%used€`.
+    // Amounts are assumed dot-decimal (as the Europe/Berlin TUI renders, e.g. `€0.29`); a comma render
+    // (`€0,29`) wouldn't match `[\d.]+` and would drop the whole credits section (returns null).
+    // `seg` is already whitespace-collapsed, so there is no inter-group whitespace to skip.
+    const spend = seg.match(/([^\d.\s/])([\d.]+)\/[^\d.\s/]?([\d.]+)spent/i);
+    if (!spend) continue; // menu text or a still-"Refreshing…" partial — try the next occurrence
+    // pct rounds down and can be absent; treat missing as 0 — spend above is the real signal
+    const pct = +(seg.match(/(\d+)%used/i)?.[1] ?? 0);
+    const label = seg.match(/Resets(.*?)\(/i)?.[1] ?? null;
+    return {
+      pct,
+      spent: +spend[2]!,
+      cap: +spend[3]!,
+      currency: spend[1]!,
+      resetLabel: label,
+      resetAt: label ? parseMonthlyReset(label, now) : null,
+    };
+  }
+  return null;
 }
 
 /** Extract the two limit windows from a (possibly multi-frame, ANSI-laden) `/usage` capture. */

@@ -2220,12 +2220,16 @@
   <LeftoverDialog
     {leftovers}
     onclose={() => {
+      const target = decomTarget ?? session.id;
       leftovers = [];
-      onarchive?.(decomTarget ?? session.id);
+      decomTarget = null;
+      onarchive?.(target);
     }}
     onconfirm={(keys) => {
+      const target = decomTarget ?? session.id;
       leftovers = [];
-      onarchive?.(decomTarget ?? session.id, keys);
+      decomTarget = null;
+      onarchive?.(target, keys);
     }}
   />
 {/if}

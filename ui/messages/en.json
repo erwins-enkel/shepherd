@@ -1873,5 +1873,7 @@
   "integrated_epics_land_failed": "Couldn't land the epic — try again",
   "feat_land_epic_title": "Land integrated epics from the app",
   "feat_land_epic_body": "When an epic's landing PR is open and all checks pass, a new 'Land epic' button in the Integrated-epics band lets you merge it with one click — no need to switch to GitHub.",
+  "feat_epic_auto_land_title": "Auto-land integrated epics",
+  "feat_epic_auto_land_body": "With auto-merge enabled for a repo, an integrated epic's landing PR now merges automatically once it's clean and all checks pass — the same opt-in that lands your full-auto sessions. Epics that touch migrations are held for manual review, and the 'Land epic' button still works any time.",
   "landed_epic_toast": "Epic #{number} landed — merged to the default branch"
 }

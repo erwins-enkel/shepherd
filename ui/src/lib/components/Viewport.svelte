@@ -2177,6 +2177,7 @@
     {touch}
     {tab}
     send={(seq) => conn?.send(seq)}
+    {scrollToBottom}
     {notesKey}
     {enter}
     {uploading}

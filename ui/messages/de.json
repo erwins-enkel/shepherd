@@ -1892,5 +1892,7 @@
   "feat_tui_fullscreen_body": "Agent-Sitzungen können jetzt in den Vollbild-Renderer von Claude Code gewechselt werden — erreichbar unter Einstellungen → Sitzung. Ermöglicht einen flacheren Speicherverbrauch bei langen autonomen Läufen. Forschungsvorschau (standardmäßig deaktiviert), gilt für neu gestartete oder fortgesetzte Sitzungen.",
   "gitrail_decommission_action": "Stilllegen",
   "feat_decommission_on_merge_title": "Stilllegen nach dem Merge",
-  "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr."
+  "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr.",
+  "feat_scroll_to_end_key_title": "Taste „Zum Ende springen“",
+  "feat_scroll_to_end_key_body": "Die mobile Terminal-Steuerleiste erhält neben „Anhängen“ eine fest verankerte ⤓-Taste, die zur neuesten Ausgabe springt – analog zu Strg+Ende in Claude Code, immer erreichbar, auch wenn du nicht hochgescrollt bist."
 }

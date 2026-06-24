@@ -12,6 +12,7 @@ import {
   RUNDOWN_LABEL_MAX,
   RUNDOWN_DECISIONS_CAP,
   RUNDOWN_FOCUSNEXT_CAP,
+  RUNDOWN_EPICS_CAP,
   explainHold,
   type ClassifyCaches,
 } from "../src/rundown-core";
@@ -664,4 +665,75 @@ test("buildRundownPrompt: prompt instructs model about the 'why' field and rende
   expect(prompt).toContain("Plan review");
   // The "hold" object must NOT appear in prompt JSON — it's replaced by the "why" string
   expect(prompt).not.toContain('"hold"');
+});
+
+// ── epics-to-land (#1045) ─────────────────────────────────────────────────────
+const epic = (over: Partial<import("../src/types").RundownEpicItem> = {}) => ({
+  repo: "/repo/a",
+  parent: 7,
+  title: "Epic A",
+  landingPr: 99,
+  stranded: false,
+  ...over,
+});
+
+test("assembleHerdState: epics passed through (default [] when absent)", () => {
+  const none = assembleHerdState({
+    sessions: [],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(none.epics).toEqual([]);
+
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic(), epic({ parent: 8, title: "Epic B" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(out.epics.map((e) => e.parent)).toEqual([7, 8]);
+});
+
+test("assembleHerdState: epics sliced to RUNDOWN_EPICS_CAP", () => {
+  const many = Array.from({ length: 30 }, (_, i) => epic({ parent: i }));
+  const out = assembleHerdState({
+    sessions: [],
+    epics: many,
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(out.epics.length).toBe(RUNDOWN_EPICS_CAP);
+});
+
+test("buildRundownPrompt: epics surfaced in dedicated block, NOT echoed in the JSON dump", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic({ repo: "/repo/x", parent: 7, title: "Land me", landingPr: 99, stranded: true })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  // dedicated block present
+  expect(prompt).toContain("EPICS AWAITING LANDING");
+  expect(prompt).toContain("/repo/x #7");
+  expect(prompt).toContain("landing PR #99");
+  expect(prompt).toContain("STRANDED");
+  expect(prompt).toContain("MUST NOT repeat them in");
+  // the JSON herd-state dump must NOT carry an `epics` key (stripped to avoid double-injection)
+  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked):"));
+  expect(dump).not.toContain('"epics"');
+});
+
+test("buildRundownPrompt: no epic block when none", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(buildRundownPrompt(out)).not.toContain("EPICS AWAITING LANDING");
 });

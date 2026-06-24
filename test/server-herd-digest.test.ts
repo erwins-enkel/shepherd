@@ -24,6 +24,7 @@ function mkDigest(over: Partial<HerdDigest> = {}): HerdDigest {
     ciRework: [],
     train: "queue idle",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: { s1: ["blocked-decision"], s2: ["in-flight"] },
     spawnSessionId: "spawn-1",
     cwd: "/tmp/rundown-xyz",
@@ -77,6 +78,7 @@ test("GET /api/herd/digest → returns the digest with staleCount 0 when the her
 
 test("GET /api/herd/digest → staleCount reflects drift (a session went CI-red, another cleared)", async () => {
   const digest = mkDigest({
+    epicsToLand: [],
     attentionFingerprint: { s1: ["blocked-decision"], s2: ["in-flight"] },
   });
   const app = harness({

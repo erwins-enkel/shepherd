@@ -45,6 +45,28 @@ describe("IntegratedEpicsBand", () => {
     expect(document.querySelector(".band-head")).toBeNull();
   });
 
+  it("focusEpic auto-expands the band and opens the targeted row (#1045)", async () => {
+    render(IntegratedEpicsBand, {
+      epics: [epic(1), epic(2)],
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+      focusEpic: { repo: "/home/me/work/repo2", parent: 302 },
+    });
+    // band auto-expands (not collapsed) → both rows render…
+    const rows = await vi.waitFor(() => {
+      const r = document.querySelectorAll(".rows .row");
+      if (r.length !== 2) throw new Error("rows not yet rendered");
+      return r;
+    });
+    expect(rows.length).toBe(2);
+    // …and the targeted row is highlighted (focus ring).
+    await vi.waitFor(() => {
+      if (!document.querySelector(".rows .row.row-focused")) throw new Error("not focused yet");
+    });
+    expect(document.querySelectorAll(".rows .row.row-focused").length).toBe(1);
+  });
+
   it("header shows the count and expanding reveals one row per epic", async () => {
     render(IntegratedEpicsBand, {
       epics: [epic(1), epic(2)],

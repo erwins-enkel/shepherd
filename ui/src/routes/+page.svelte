@@ -838,6 +838,24 @@
     selectUnit(id);
   }
 
+  // Deep-link a Rundown epics-to-land item (#1045) to its row in the IntegratedEpicsBand: leave the
+  // panel-only Rundown lens (the band is hidden there) and hand the band a focus target so it
+  // expands + scrolls/opens that epic's row with its Land CTA. Cleared first so re-clicking the same
+  // epic re-triggers the scroll/highlight (the focus effect keys on the value changing).
+  let focusEpic = $state<{ repo: string; parent: number } | null>(null);
+  let focusEpicToken = 0;
+  function selectRundownEpic(repo: string, parent: number) {
+    herdFilter = "all";
+    focusEpic = null;
+    const token = ++focusEpicToken;
+    queueMicrotask(() => (focusEpic = { repo, parent }));
+    // Clear once the row's highlight (~1.6s) has settled so a later band remount doesn't re-expand
+    // and re-flash a stale target. Token-guarded so a rapid re-click to another epic isn't cleared.
+    setTimeout(() => {
+      if (focusEpicToken === token) focusEpic = null;
+    }, 2000);
+  }
+
   // true when focus sits in something that consumes typing — a form field or the
   // PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
   // covers it). Single-key shortcuts must stay silent there so they never eat a
@@ -1796,6 +1814,8 @@
               mobileScreen = "detail";
             }}
             onrundownitem={selectRundownItem}
+            onrundownepic={selectRundownEpic}
+            {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && herdFilter !== "rundown"}
@@ -1953,6 +1973,8 @@
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}
             onrundownitem={selectRundownItem}
+            onrundownepic={selectRundownEpic}
+            {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
           />
         {/if}

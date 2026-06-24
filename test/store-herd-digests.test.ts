@@ -10,6 +10,7 @@ const d = (over: Partial<HerdDigest> = {}): HerdDigest => ({
   ciRework: [],
   train: "",
   focusNext: [],
+  epicsToLand: [],
   attentionFingerprint: {},
   spawnSessionId: "spawn-1",
   cwd: "/tmp/rundown-1",
@@ -32,6 +33,7 @@ test("herd_digests: put→get round-trip (incl. JSON columns)", () => {
       train: "1 ready",
       focusNext: [{ label: "review migration" }],
       attentionFingerprint: { s1: ["ci-red", "in-flight"] },
+      epicsToLand: [{ repo: "/repo/a", parent: 7, title: "Epic A", landingPr: 99, stranded: true }],
       generatedAt: 2000,
     }),
   );
@@ -42,6 +44,9 @@ test("herd_digests: put→get round-trip (incl. JSON columns)", () => {
   expect(got?.decisions).toEqual([{ label: "answer auth", sessionId: "s1" }]);
   expect(got?.ciRework).toEqual([{ label: "ci red", pr: 42 }]);
   expect(got?.focusNext).toEqual([{ label: "review migration" }]);
+  expect(got?.epicsToLand).toEqual([
+    { repo: "/repo/a", parent: 7, title: "Epic A", landingPr: 99, stranded: true },
+  ]);
   expect(got?.attentionFingerprint).toEqual({ s1: ["ci-red", "in-flight"] });
   expect(got?.model).toBe("claude-opus-4-8");
   expect(got?.generatedAt).toBe(2000);

@@ -431,6 +431,14 @@ export interface RundownItem {
   sessionId?: string;
   pr?: number;
 }
+// Tier-1 "land this epic" item (#1045) — server ground truth; repo/parent deep-link to the band.
+export interface RundownEpicItem {
+  repo: string;
+  parent: number;
+  title: string;
+  landingPr: number | null;
+  stranded: boolean;
+}
 export interface HerdDigest {
   dayKey: string;
   state: HerdDigestState;
@@ -439,6 +447,7 @@ export interface HerdDigest {
   ciRework: RundownItem[];
   train: string;
   focusNext: RundownItem[];
+  epicsToLand: RundownEpicItem[];
   attentionFingerprint: Record<string, string[]>;
   spawnSessionId: string;
   cwd: string;

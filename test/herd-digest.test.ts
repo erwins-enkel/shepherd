@@ -1,7 +1,8 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
 import { HerdDigestService, dayKeyFor } from "../src/herd-digest";
 import type { HerdSnapshots, MergeTrainState } from "../src/herd-digest";
-import type { HerdDigest, Session } from "../src/types";
+import type { HerdDigest, RundownEpicItem, Session } from "../src/types";
+import { RUNDOWN_EPICS_CAP } from "../src/rundown-core";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 beforeEach(() => {
@@ -160,6 +161,8 @@ function buildSvc(opts: {
   stalledSessionIds?: () => Set<string>;
   mergeTrainState?: () => MergeTrainState;
   backlogPriority?: () => Record<string, number>;
+  landingReadyEpics?: () => Promise<RundownEpicItem[]>;
+  hasOpenLandingEpics?: () => boolean;
   verdict?: string | null;
   timeoutMs?: number;
   readUsage?: () => Promise<any>;
@@ -176,6 +179,8 @@ function buildSvc(opts: {
     stalledSessionIds: opts.stalledSessionIds,
     mergeTrainState: opts.mergeTrainState,
     backlogPriority: opts.backlogPriority,
+    landingReadyEpics: opts.landingReadyEpics,
+    hasOpenLandingEpics: opts.hasOpenLandingEpics,
     model: "sonnet",
     now: opts.nowFn,
     timeoutMs: opts.timeoutMs ?? 300_000,
@@ -263,6 +268,7 @@ test("tick: generating row + valid verdict → 'ready' with parsed fields + onCh
     ciRework: [],
     train: "",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: { s1: ["in-flight"] },
     spawnSessionId: "sp1",
     cwd: "/tmp/rundown-x",
@@ -328,6 +334,7 @@ test("tick: generating row, no verdict, past timeout → 'failed' (not ready, no
     ciRework: [],
     train: "",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: {},
     spawnSessionId: "sp2",
     cwd: "/tmp/rundown-timeout",
@@ -367,6 +374,7 @@ test("tick: generating row, unparseable verdict → 'failed'", async () => {
     ciRework: [],
     train: "",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: {},
     spawnSessionId: "sp3",
     cwd: "/tmp/rundown-garbage",
@@ -401,6 +409,7 @@ test("regenerate: forces a new generation even when today's digest is ready", as
     ciRework: [],
     train: "",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: {},
     spawnSessionId: "old-sp",
     cwd: "/tmp/old",
@@ -431,6 +440,7 @@ test("regenerate: forced over an in-flight (generating) row → reaps OLD pane+t
     ciRework: [],
     train: "",
     focusNext: [],
+    epicsToLand: [],
     attentionFingerprint: {},
     spawnSessionId: "old-sp",
     cwd: "/tmp/rundown-old-inflight",
@@ -585,4 +595,320 @@ test("generate: backlogPriority is threaded into the assembled prompt as backlog
   const prompt = herdr.started[0]!.argv.at(-1)!;
   // The emitted session for /r must carry its rank-0 priority in the herd-state JSON.
   expect(prompt).toContain('"backlogRank": 0');
+});
+
+// ── #1045: epics-to-land surfacing + intraday reconcile ──────────────────────────
+
+const sampleEpic = (over: Partial<RundownEpicItem> = {}): RundownEpicItem => ({
+  repo: "/repo/a",
+  parent: 7,
+  title: "Epic A",
+  landingPr: 99,
+  stranded: false,
+  ...over,
+});
+
+test("generate: empty herd BUT a landing-ready epic → spawns, row carries epicsToLand", async () => {
+  const store = makeStore([]); // no live sessions
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [sampleEpic()],
+  });
+
+  expect(await svc.generate()).toBe("started");
+  expect(herdr.started.length).toBe(1);
+  const row = store.getHerdDigest(dayKeyFor(DAY1));
+  expect(row?.epicsToLand).toEqual([sampleEpic()]);
+});
+
+test("generate: empty herd + open-but-NOT-ready epic → 'empty', no spawn, no row", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true, // sweep pre-filter would pass...
+    landingReadyEpics: async () => [], // ...but nothing is actually ready
+  });
+
+  expect(await svc.generate()).toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getHerdDigest(dayKeyFor(DAY1))).toBeNull();
+});
+
+test("sweep: empty herd + hasOpenLandingEpics → calls generate (spawns for ready epic)", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [sampleEpic()],
+  });
+  await svc.sweep();
+  expect(herdr.started.length).toBe(1);
+});
+
+test("sweep: empty herd + NO open epics → pre-filter skips, no spawn (no forge probe)", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  let probed = false;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => false,
+    landingReadyEpics: async () => {
+      probed = true;
+      return [];
+    },
+  });
+  await svc.sweep();
+  expect(herdr.started.length).toBe(0);
+  expect(probed).toBe(false); // generate() never called → no forge probe
+});
+
+test("regenerate: truly empty (no sessions, no ready epics) → 'empty', writes no row", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => false,
+    landingReadyEpics: async () => [],
+  });
+  expect(await svc.regenerate()).toBe("empty");
+  expect(store.getHerdDigest(dayKeyFor(DAY1))).toBeNull();
+  expect(herdr.started.length).toBe(0);
+});
+
+test("finalize: epicsToLand on generating row carries through to ready", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const verdict = JSON.stringify({
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+  });
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [sampleEpic()],
+    verdict,
+  });
+  await svc.generate();
+  await svc.tick(); // finalize the generating row
+  const row = store.getHerdDigest(dayKeyFor(DAY1));
+  expect(row?.state).toBe("ready");
+  expect(row?.epicsToLand).toEqual([sampleEpic()]); // survived finalize
+});
+
+test("reconcileEpics: red→green flip updates today's ready row + emits", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const ready: HerdDigest = {
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [], // epic was NOT ready when generated
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [ready]);
+  const herdr = makeHerdr();
+  const changes: HerdDigest[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    onChange: (d) => changes.push(d),
+    landingReadyEpics: async () => [sampleEpic()], // now ready
+  });
+
+  await svc.reconcileEpics();
+  const row = store.getHerdDigest(dayKey);
+  expect(row?.epicsToLand).toEqual([sampleEpic()]);
+  expect(changes.at(-1)?.epicsToLand).toEqual([sampleEpic()]);
+});
+
+test("reconcileEpics: a FAILED digest is kept live too (epic landed → drops)", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const failed: HerdDigest = {
+    dayKey,
+    state: "failed",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [sampleEpic()], // epic was ready when the (failed) digest spawned
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [failed]);
+  const herdr = makeHerdr();
+  const changes: HerdDigest[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    onChange: (d) => changes.push(d),
+    landingReadyEpics: async () => [], // epic has since landed → no longer ready
+  });
+
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(dayKey)?.epicsToLand).toEqual([]);
+  expect(store.getHerdDigest(dayKey)?.state).toBe("failed"); // state preserved
+  expect(changes.at(-1)?.epicsToLand).toEqual([]);
+});
+
+test("reconcileEpics: unchanged set → no-op (no emit)", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const ready: HerdDigest = {
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [sampleEpic()],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [ready]);
+  const herdr = makeHerdr();
+  const changes: HerdDigest[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    onChange: (d) => changes.push(d),
+    landingReadyEpics: async () => [sampleEpic()], // identical
+  });
+  await svc.reconcileEpics();
+  expect(changes.length).toBe(0);
+});
+
+test("reconcileEpics: landed/lost readiness shrinks the set", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const ready: HerdDigest = {
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [sampleEpic()],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [ready]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    landingReadyEpics: async () => [], // epic landed → no longer ready
+  });
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(dayKey)?.epicsToLand).toEqual([]);
+});
+
+test("reconcileEpics: only today's ready digest (stale day ignored)", async () => {
+  const staleDay = dayKeyFor(DAY1);
+  const stale: HerdDigest = {
+    dayKey: staleDay,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [stale]);
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY2, // "today" is DAY2; the ready row is from DAY1
+    landingReadyEpics: async () => [sampleEpic()],
+  });
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(staleDay)?.epicsToLand).toEqual([]); // untouched
+});
+
+test("reconcileEpics: caps the intraday list to RUNDOWN_EPICS_CAP", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const ready: HerdDigest = {
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [ready]);
+  const herdr = makeHerdr();
+  const many = Array.from({ length: RUNDOWN_EPICS_CAP + 8 }, (_, i) => sampleEpic({ parent: i }));
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    landingReadyEpics: async () => many,
+  });
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(dayKey)?.epicsToLand.length).toBe(RUNDOWN_EPICS_CAP);
 });

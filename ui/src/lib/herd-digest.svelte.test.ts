@@ -16,6 +16,7 @@ const digest = (dayKey: string): HerdDigest => ({
   ciRework: [],
   train: "no train",
   focusNext: [],
+  epicsToLand: [],
   attentionFingerprint: {},
   spawnSessionId: "spawn-1",
   cwd: "/repo",

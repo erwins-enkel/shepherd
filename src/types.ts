@@ -331,6 +331,20 @@ export interface RundownItem {
   pr?: number;
 }
 
+/** A Tier-1 "land this epic" item in the rundown (#1045). Unlike RundownItem these are NOT
+ *  LLM-authored — the server injects them deterministically from the landing-ready completed-epic
+ *  set (open landing PR that is CLEAN + CI-green + mergeable per #1039's computeLandingReady), so
+ *  they can never be dropped or hallucinated. `repo`/`parent` deep-link to the IntegratedEpicsBand
+ *  row + its Land CTA. `stranded` flags an open+ready landing that has sat unlanded past the Rec D
+ *  threshold (urgency emphasis only — it does not gate inclusion). */
+export interface RundownEpicItem {
+  repo: string;
+  parent: number;
+  title: string;
+  landingPr: number | null;
+  stranded: boolean;
+}
+
 /** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */
 export interface RundownVerdict {
   overnight: string;
@@ -353,6 +367,9 @@ export interface HerdDigest {
   ciRework: RundownItem[];
   train: string;
   focusNext: RundownItem[];
+  /** Tier-1 "land this epic" items (#1045). Server ground truth, NOT from the LLM verdict — set
+   *  at spawn time and kept live intraday by reconcileEpics() (see HerdDigestService). */
+  epicsToLand: RundownEpicItem[];
   attentionFingerprint: Record<string, string[]>; // sessionId → sorted signal codes
   spawnSessionId: string; // claude --session-id of the rundown spawn (usage + pane resolve)
   cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)

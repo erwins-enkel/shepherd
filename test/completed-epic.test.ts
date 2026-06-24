@@ -3,8 +3,11 @@ import {
   buildRollup,
   computeLandingReady,
   computeLandingStranded,
+  enrichLandingEpics,
   EPIC_LANDING_STRANDED_MS,
 } from "../src/completed-epic";
+import type { CompletedEpic } from "../src/completed-epic";
+import type { PrStatus } from "../src/forge/types";
 
 describe("buildRollup", () => {
   it("child WITH detail row → integrated true, PR facts from row", () => {
@@ -280,5 +283,94 @@ describe("computeLandingStranded", () => {
         now: completedAt + EPIC_LANDING_STRANDED_MS + 1,
       }),
     ).toBe(false);
+  });
+});
+
+// ── enrichLandingEpics ────────────────────────────────────────────────────────
+describe("enrichLandingEpics", () => {
+  const baseEpic = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
+    repoPath: "/repo/a",
+    parentIssueNumber: 7,
+    parentTitle: "Epic A",
+    completedAt: 1_000,
+    children: [],
+    landingPrNumber: 42,
+    landingPrUrl: "http://x/42",
+    landingState: "open",
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    ...over,
+  });
+
+  const prStatus = (over: Partial<PrStatus> = {}): PrStatus =>
+    ({ state: "open", checks: "success", mergeable: true, ...over }) as PrStatus;
+
+  it("open + ready PR → fills landingReady/Checks/Mergeable/Stranded", async () => {
+    const rows = [baseEpic({ completedAt: 0 })];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      now: EPIC_LANDING_STRANDED_MS + 1, // completed long ago → stranded
+    });
+    expect(rows[0]?.landingReady).toBe(true);
+    expect(rows[0]?.landingChecks).toBe("success");
+    expect(rows[0]?.landingMergeable).toBe(true);
+    expect(rows[0]?.landingStranded).toBe(true);
+  });
+
+  it("open but CI red → landingReady false, not stranded", async () => {
+    const rows = [baseEpic({ completedAt: 0 })];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ prStatus: async () => prStatus({ checks: "failure" }) }),
+      now: EPIC_LANDING_STRANDED_MS + 1,
+    });
+    expect(rows[0]?.landingReady).toBe(false);
+    expect(rows[0]?.landingStranded).toBe(false);
+  });
+
+  it("landingState != 'open' → skipped, no live fields", async () => {
+    const rows = [baseEpic({ landingState: "merged" })];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      now: 0,
+    });
+    expect(rows[0]?.landingReady).toBeUndefined();
+  });
+
+  it("no integration branch → skipped", async () => {
+    const rows = [baseEpic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => null,
+      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      now: 0,
+    });
+    expect(rows[0]?.landingReady).toBeUndefined();
+  });
+
+  it("no forge for repo → skipped", async () => {
+    const rows = [baseEpic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => null,
+      now: 0,
+    });
+    expect(rows[0]?.landingReady).toBeUndefined();
+  });
+
+  it("forge prStatus throws → fail-safe, live fields left undefined", async () => {
+    const rows = [baseEpic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({
+        prStatus: async () => {
+          throw new Error("network");
+        },
+      }),
+      now: 0,
+    });
+    expect(rows[0]?.landingReady).toBeUndefined();
+    expect(rows[0]?.landingChecks).toBeUndefined();
   });
 });

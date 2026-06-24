@@ -22,6 +22,7 @@ import type {
   PrReview,
   HerdDigest,
   RundownItem,
+  RundownEpicItem,
   HeldTask,
   CreateSessionInput,
   SessionUsageRow,
@@ -316,6 +317,7 @@ type HerdDigestRow = {
   train: string | null;
   focusNext: string;
   attentionFingerprint: string;
+  epicsToLand: string;
   spawnSessionId: string | null;
   cwd: string | null;
   model: string | null;
@@ -685,12 +687,17 @@ export class SessionStore implements CapStore, CreditStore {
       train TEXT NOT NULL DEFAULT '',
       focusNext TEXT NOT NULL DEFAULT '[]',
       attentionFingerprint TEXT NOT NULL DEFAULT '{}',
+      epicsToLand TEXT NOT NULL DEFAULT '[]',
       spawnSessionId TEXT NOT NULL DEFAULT '',
       cwd TEXT NOT NULL DEFAULT '',
       model TEXT,
       spawnedAt INTEGER NOT NULL,
       generatedAt INTEGER,
       updatedAt INTEGER NOT NULL)`);
+    // migrate herd_digests rows that predate the epicsToLand column (#1045) (legacy rows default []).
+    const herdCols = this.db.query(`PRAGMA table_info(herd_digests)`).all() as { name: string }[];
+    if (!herdCols.some((c) => c.name === "epicsToLand"))
+      this.db.run(`ALTER TABLE herd_digests ADD COLUMN epicsToLand TEXT NOT NULL DEFAULT '[]'`);
     // Exact reviewer-cost attribution. Keyed by the *reviewer's* forced --session-id (which
     // locates its transcript), NOT the task — and deliberately carries NO foreign key to
     // `sessions`. `reviews`/`plan_gates` are keyed by the task sessionId and get deleted on
@@ -2140,6 +2147,30 @@ export class SessionStore implements CapStore, CreditStore {
     return out;
   }
 
+  private hydrateEpics(raw: unknown): RundownEpicItem[] {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(typeof raw === "string" ? raw : "[]");
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    const out: RundownEpicItem[] = [];
+    for (const x of parsed) {
+      if (!x || typeof x !== "object") continue;
+      const o = x as Record<string, unknown>;
+      if (typeof o.repo !== "string" || typeof o.parent !== "number") continue;
+      out.push({
+        repo: o.repo,
+        parent: o.parent,
+        title: typeof o.title === "string" ? o.title : "",
+        landingPr: typeof o.landingPr === "number" ? o.landingPr : null,
+        stranded: o.stranded === true,
+      });
+    }
+    return out;
+  }
+
   private hydrateHerdDigest(r: HerdDigestRow): HerdDigest {
     let fingerprint: Record<string, string[]> = {};
     try {
@@ -2161,6 +2192,7 @@ export class SessionStore implements CapStore, CreditStore {
       ciRework: this.hydrateItems(r.ciRework),
       train: r.train ?? "",
       focusNext: this.hydrateItems(r.focusNext),
+      epicsToLand: this.hydrateEpics(r.epicsToLand),
       attentionFingerprint: fingerprint,
       spawnSessionId: r.spawnSessionId ?? "",
       cwd: r.cwd ?? "",
@@ -2172,7 +2204,7 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   private readonly HERD_COLS = `dayKey, state, overnight, decisions, ciRework, train, focusNext,
-    attentionFingerprint, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt`;
+    attentionFingerprint, epicsToLand, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt`;
 
   getHerdDigest(dayKey: string): HerdDigest | null {
     const r = this.db
@@ -2191,13 +2223,14 @@ export class SessionStore implements CapStore, CreditStore {
   putHerdDigest(d: HerdDigest): void {
     this.db.run(
       `INSERT INTO herd_digests (dayKey, state, overnight, decisions, ciRework, train, focusNext,
-         attentionFingerprint, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         attentionFingerprint, epicsToLand, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(dayKey) DO UPDATE SET state=excluded.state, overnight=excluded.overnight,
          decisions=excluded.decisions, ciRework=excluded.ciRework, train=excluded.train,
          focusNext=excluded.focusNext, attentionFingerprint=excluded.attentionFingerprint,
-         spawnSessionId=excluded.spawnSessionId, cwd=excluded.cwd, model=excluded.model,
-         spawnedAt=excluded.spawnedAt, generatedAt=excluded.generatedAt, updatedAt=excluded.updatedAt`,
+         epicsToLand=excluded.epicsToLand, spawnSessionId=excluded.spawnSessionId, cwd=excluded.cwd,
+         model=excluded.model, spawnedAt=excluded.spawnedAt, generatedAt=excluded.generatedAt,
+         updatedAt=excluded.updatedAt`,
       [
         d.dayKey,
         d.state,
@@ -2207,6 +2240,7 @@ export class SessionStore implements CapStore, CreditStore {
         d.train ?? "",
         JSON.stringify(d.focusNext ?? []),
         JSON.stringify(d.attentionFingerprint ?? {}),
+        JSON.stringify(d.epicsToLand ?? []),
         d.spawnSessionId ?? "",
         d.cwd ?? "",
         d.model ?? null,

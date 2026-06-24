@@ -990,101 +990,120 @@ export class DrainService {
       this.landingInFlight.add(key);
 
       try {
-        // a. Driver-pause fast-path: if paused because the driver was absent/broken,
-        //    cheaply re-probe git config before making any forge call.
-        if (row.landingRebasePauseReason === "driver") {
-          if (await this.isDriverRegistered(repoPath)) {
-            // Driver now registered → clear the pause and fall through to probe prStatus.
-            this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
-              count: 0,
-              driverMisses: 0,
-              pauseReason: null,
-            });
-            this.emitCompleted(repoPath, parent);
-            // Fall through to the prStatus check below (re-read fresh row below).
-            // Note: we re-read from the store via the open[] snapshot (stale), but the
-            // per-tick re-read in the next call provides the fresh values. For driver-clear
-            // we continue the same row using the (now-cleared) state implicitly — the
-            // pauseReason is now null so we do NOT continue below.
-          } else {
-            // Still absent → stay paused, no prStatus call.
-            continue;
-          }
-        }
-
-        // b. Read the pinned integration branch (read-only; null = unpinned → skip).
-        const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
-        if (branch === null) continue;
-
-        // c. Check current PR state.
-        const pr = await forge.prStatus(branch);
-        if (pr.state !== "open") continue;
-
-        // d. Compute stuck flags.
-        const behind = pr.mergeStateStatus === "behind";
-        const conflicting = pr.mergeable === false;
-        const stuck = behind || conflicting;
-
-        // e. Reason-aware clear: handle the "no longer stuck" and "conflict resolved" cases.
-        if (!stuck) {
-          // PR is now landable (not behind, not conflicting) — clear all state.
-          const r2 = this.deps.store
-            .listEpicCompleted(repoPath)
-            .find((r) => r.parentIssueNumber === parent);
-          if (
-            r2 &&
-            (r2.landingRebaseCount !== 0 ||
-              r2.landingRebaseDriverMisses !== 0 ||
-              r2.landingRebasePauseReason !== null)
-          ) {
-            this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
-              count: 0,
-              driverMisses: 0,
-              pauseReason: null,
-            });
-            this.emitCompleted(repoPath, parent);
-          }
-          continue;
-        }
-
-        // Re-read the latest row from the store to get fresh counter values
-        // (the `open[]` snapshot is from the start of this tick).
-        const freshRow = this.deps.store
-          .listEpicCompleted(repoPath)
-          .find((r) => r.parentIssueNumber === parent);
-        if (!freshRow) continue;
-
-        if (freshRow.landingRebasePauseReason === "conflict" && !conflicting) {
-          // The operator resolved the conflict; the PR may still be behind.
-          // Clear the conflict pause and count so the behind-only rebase resumes, then
-          // fall through to attempt the rebase with the corrected (cleared) state directly —
-          // no need to re-query for values we just set.
-          this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
-            count: 0,
-            pauseReason: null,
-          });
-          this.emitCompleted(repoPath, parent);
-          await this.doLandingRebase(
-            repoPath,
-            parent,
-            { ...freshRow, landingRebaseCount: 0, landingRebasePauseReason: null },
-            branch,
-            defaultBranch,
-          );
-          continue;
-        }
-
-        // f. If paused (after the reason-aware clear didn't un-pause) → skip.
-        if (freshRow.landingRebasePauseReason !== null) continue;
-
-        // g. Attempt rebase.
-        await this.doLandingRebase(repoPath, parent, freshRow, branch, defaultBranch);
+        await this.processStuckLandingRow(repoPath, forge, defaultBranch, row);
       } catch (err) {
         // Defense in depth: one stuck epic must not break the whole tick.
         console.warn(`[drain] rebaseStuckLandingPrsForRepo failed for ${key}:`, err);
       } finally {
         this.landingInFlight.delete(key);
       }
+    }
+  }
+
+  /**
+   * Process one stuck landing PR row: handle driver-pause fast-path, probe PR state,
+   * clear resolved pauses, and attempt rebase when appropriate.
+   * Called from rebaseStuckLandingPrsForRepo (already serialized by landingInFlight).
+   */
+  private async processStuckLandingRow(
+    repoPath: string,
+    forge: GitForge,
+    defaultBranch: string,
+    row: {
+      parentIssueNumber: number;
+      landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+    },
+  ): Promise<void> {
+    const parent = row.parentIssueNumber;
+
+    // a. Driver-pause fast-path: if paused because the driver was absent/broken,
+    //    cheaply re-probe git config before making any forge call.
+    if (row.landingRebasePauseReason === "driver") {
+      if (await this.isDriverRegistered(repoPath)) {
+        // Driver now registered → clear the pause and fall through to probe prStatus.
+        this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+          count: 0,
+          driverMisses: 0,
+          pauseReason: null,
+        });
+        this.emitCompleted(repoPath, parent);
+        // Fall through — pauseReason is now null so we do NOT return below.
+      } else {
+        // Still absent → stay paused, no prStatus call.
+        return;
+      }
+    }
+
+    // b. Read the pinned integration branch (read-only; null = unpinned → skip).
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (branch === null) return;
+
+    // c. Check current PR state.
+    const pr = await forge.prStatus(branch);
+    if (pr.state !== "open") return;
+
+    // d. Compute stuck flags.
+    const behind = pr.mergeStateStatus === "behind";
+    const conflicting = pr.mergeable === false;
+    const stuck = behind || conflicting;
+
+    // e. Reason-aware clear: if PR is no longer stuck, clear all rebase state and stop.
+    if (!stuck) {
+      this.clearLandingRebaseStateIfNeeded(repoPath, parent);
+      return;
+    }
+
+    // Re-read fresh counter values (the open[] snapshot is from the start of this tick).
+    const freshRow = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (!freshRow) return;
+
+    if (freshRow.landingRebasePauseReason === "conflict" && !conflicting) {
+      // Operator resolved the conflict; PR may still be behind. Clear conflict pause,
+      // then attempt the rebase immediately with the corrected (cleared) state.
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+        count: 0,
+        pauseReason: null,
+      });
+      this.emitCompleted(repoPath, parent);
+      await this.doLandingRebase(
+        repoPath,
+        parent,
+        { ...freshRow, landingRebaseCount: 0, landingRebasePauseReason: null },
+        branch,
+        defaultBranch,
+      );
+      return;
+    }
+
+    // f. If paused (after the reason-aware clear didn't un-pause) → skip.
+    if (freshRow.landingRebasePauseReason !== null) return;
+
+    // g. Attempt rebase.
+    await this.doLandingRebase(repoPath, parent, freshRow, branch, defaultBranch);
+  }
+
+  /**
+   * If the landing PR is no longer stuck, clear all rebase counters/state.
+   * Only writes when there is something to clear (avoid spurious DB writes on steady state).
+   */
+  private clearLandingRebaseStateIfNeeded(repoPath: string, parent: number): void {
+    const r2 = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (
+      r2 &&
+      (r2.landingRebaseCount !== 0 ||
+        r2.landingRebaseDriverMisses !== 0 ||
+        r2.landingRebasePauseReason !== null)
+    ) {
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+        count: 0,
+        driverMisses: 0,
+        pauseReason: null,
+      });
+      this.emitCompleted(repoPath, parent);
     }
   }
 

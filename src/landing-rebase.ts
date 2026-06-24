@@ -163,6 +163,135 @@ function makeDefaultRegisterDriver(repoPath: string): void {
 }
 
 /**
+ * Ensure the union merge driver is registered. Tries to read the config; if absent,
+ * calls registerDriver and re-checks. Returns true when the driver is confirmed usable,
+ * false → caller should return { kind: "driver-absent" }.
+ */
+async function ensureDriverRegistered(
+  repoPath: string,
+  git: (cwd: string, args: string[]) => Promise<{ stdout: string }>,
+  registerDriver: (repoPath: string) => void,
+): Promise<boolean> {
+  try {
+    const { stdout } = await git(repoPath, ["config", "--get", "merge.i18n-union.driver"]);
+    if (stdout.trim()) return true;
+    throw new Error("empty driver config");
+  } catch {
+    // Driver not registered; attempt to register
+    try {
+      registerDriver(repoPath);
+    } catch (err) {
+      console.error(`[landing-rebase] registerDriver failed:`, err);
+      return false;
+    }
+    // Re-check
+    try {
+      const { stdout } = await git(repoPath, ["config", "--get", "merge.i18n-union.driver"]);
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Fetch both branches and resolve the leaseSha + ancestor check.
+ * Returns null + a LandingRebaseResult when the operation should short-circuit,
+ * or { leaseSha, needsRebase: true } when a rebase is needed.
+ */
+async function fetchAndClassifyAncestor(
+  repoPath: string,
+  integrationBranch: string,
+  defaultBranch: string,
+  git: (cwd: string, args: string[]) => Promise<{ stdout: string }>,
+): Promise<{ leaseSha: string } | { shortCircuit: LandingRebaseResult }> {
+  // Fetch both refs using explicit refspecs so tracking refs are created/updated
+  // even in single-branch clones.
+  try {
+    await git(repoPath, [
+      "fetch",
+      "origin",
+      `refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
+      `refs/heads/${integrationBranch}:refs/remotes/origin/${integrationBranch}`,
+    ]);
+  } catch (err) {
+    console.error(`[landing-rebase] fetch failed:`, err);
+    return { shortCircuit: { kind: "transient" } };
+  }
+
+  let leaseSha: string;
+  try {
+    const { stdout } = await git(repoPath, ["rev-parse", `origin/${integrationBranch}`]);
+    leaseSha = stdout.trim();
+  } catch (err) {
+    console.error(`[landing-rebase] rev-parse failed:`, err);
+    return { shortCircuit: { kind: "transient" } };
+  }
+
+  try {
+    // If origin/<default> is already an ancestor of origin/<integrationBranch>, nothing to do
+    await git(repoPath, [
+      "merge-base",
+      "--is-ancestor",
+      `origin/${defaultBranch}`,
+      `origin/${integrationBranch}`,
+    ]);
+    return { shortCircuit: { kind: "current" } };
+  } catch {
+    // Not an ancestor → need to rebase
+  }
+
+  return { leaseSha };
+}
+
+/**
+ * After a failed rebase, classify the conflict type.
+ * Collects conflicted paths, checks union coverage, runs driver self-test.
+ * Returns the appropriate LandingRebaseResult for the failure.
+ */
+async function classifyRebaseConflict(
+  repoPath: string,
+  worktreePath: string,
+  git: (cwd: string, args: string[]) => Promise<{ stdout: string }>,
+): Promise<LandingRebaseResult> {
+  let conflictedPaths: string[];
+  try {
+    const { stdout } = await git(worktreePath, ["diff", "--name-only", "--diff-filter=U"]);
+    conflictedPaths = stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    conflictedPaths = [];
+  }
+
+  const abortRebase = async () => {
+    try {
+      await git(worktreePath, ["rebase", "--abort"]);
+    } catch {
+      /* best effort */
+    }
+  };
+
+  if (conflictedPaths.length === 0) {
+    await abortRebase();
+    return { kind: "conflict" };
+  }
+
+  const unionGlobs = parseUnionGlobs(repoPath);
+  const hasNonUnionConflict = conflictedPaths.some((p) => !isUnionManaged(p, unionGlobs));
+  if (hasNonUnionConflict) {
+    await abortRebase();
+    return { kind: "conflict" };
+  }
+
+  // All conflicted paths are union-managed — run driver self-test
+  const selfTestPassed = await driverSelfTest(repoPath);
+  await abortRebase();
+  return selfTestPassed ? { kind: "conflict" } : { kind: "driver-broken" };
+}
+
+/**
  * Rebase a session-less epic landing/integration branch onto the default branch.
  * Auto-resolves union-merge-driver false conflicts.
  *
@@ -200,66 +329,18 @@ export async function rebaseLandingBranch(
   }
 
   // 1. Driver precondition
-  try {
-    const { stdout } = await git(repoPath, ["config", "--get", "merge.i18n-union.driver"]);
-    if (!stdout.trim()) {
-      throw new Error("empty driver config");
-    }
-  } catch {
-    // Driver not registered; attempt to register
-    try {
-      registerDriver(repoPath);
-    } catch (err) {
-      console.error(`[landing-rebase] registerDriver failed:`, err);
-      return { kind: "driver-absent" };
-    }
-    // Re-check
-    try {
-      const { stdout } = await git(repoPath, ["config", "--get", "merge.i18n-union.driver"]);
-      if (!stdout.trim()) {
-        return { kind: "driver-absent" };
-      }
-    } catch {
-      return { kind: "driver-absent" };
-    }
-  }
+  const driverOk = await ensureDriverRegistered(repoPath, git, registerDriver);
+  if (!driverOk) return { kind: "driver-absent" };
 
-  // 2. Fetch both refs using explicit refspecs so tracking refs are created/updated
-  // even in single-branch clones (where only `main` is in the fetch refspec config).
-  try {
-    await git(repoPath, [
-      "fetch",
-      "origin",
-      `refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
-      `refs/heads/${integrationBranch}:refs/remotes/origin/${integrationBranch}`,
-    ]);
-  } catch (err) {
-    console.error(`[landing-rebase] fetch failed:`, err);
-    return { kind: "transient" };
-  }
-
-  // 3. leaseSha + ancestor check
-  let leaseSha: string;
-  try {
-    const { stdout } = await git(repoPath, ["rev-parse", `origin/${integrationBranch}`]);
-    leaseSha = stdout.trim();
-  } catch (err) {
-    console.error(`[landing-rebase] rev-parse failed:`, err);
-    return { kind: "transient" };
-  }
-
-  try {
-    // If origin/<default> is already an ancestor of origin/<integrationBranch>, nothing to do
-    await git(repoPath, [
-      "merge-base",
-      "--is-ancestor",
-      `origin/${defaultBranch}`,
-      `origin/${integrationBranch}`,
-    ]);
-    return { kind: "current" };
-  } catch {
-    // Not an ancestor → need to rebase
-  }
+  // 2+3. Fetch + ancestor check → get leaseSha or short-circuit
+  const fetchResult = await fetchAndClassifyAncestor(
+    repoPath,
+    integrationBranch,
+    defaultBranch,
+    git,
+  );
+  if ("shortCircuit" in fetchResult) return fetchResult.shortCircuit;
+  const { leaseSha } = fetchResult;
 
   // 4. Create detached worktree
   let wt: { worktreePath: string };
@@ -287,52 +368,8 @@ export async function rebaseLandingBranch(
         `origin/${defaultBranch}`,
       ]);
     } catch {
-      // 6. Rebase failed — classify before labeling
-      let conflictedPaths: string[];
-      try {
-        const { stdout } = await git(wt.worktreePath, ["diff", "--name-only", "--diff-filter=U"]);
-        conflictedPaths = stdout
-          .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean);
-      } catch {
-        conflictedPaths = [];
-      }
-
-      const unionGlobs = parseUnionGlobs(repoPath);
-
-      // Abort the rebase before returning
-      const abortRebase = async () => {
-        try {
-          await git(wt.worktreePath, ["rebase", "--abort"]);
-        } catch {
-          /* best effort */
-        }
-      };
-
-      if (conflictedPaths.length === 0) {
-        // No conflicted paths but rebase still failed (e.g. empty)
-        await abortRebase();
-        return { kind: "conflict" };
-      }
-
-      // 6a/6b: Check if any path is outside union-managed globs
-      const hasNonUnionConflict = conflictedPaths.some((p) => !isUnionManaged(p, unionGlobs));
-      if (hasNonUnionConflict) {
-        await abortRebase();
-        return { kind: "conflict" };
-      }
-
-      // 6c: All conflicted paths are union-managed — run driver self-test
-      const selfTestPassed = await driverSelfTest(repoPath);
-      await abortRebase();
-      if (selfTestPassed) {
-        // Driver works → genuine same-key clash
-        return { kind: "conflict" };
-      } else {
-        // Driver non-functional
-        return { kind: "driver-broken" };
-      }
+      // 6. Rebase failed — classify the conflict
+      return await classifyRebaseConflict(repoPath, wt.worktreePath, git);
     }
 
     // 7. Force-push with lease

@@ -159,6 +159,8 @@ function makeSession(planPhase: Session["planPhase"]): Session {
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
   };
 }
 

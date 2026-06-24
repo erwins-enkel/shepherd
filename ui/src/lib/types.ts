@@ -731,6 +731,18 @@ export interface Session {
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */
   haltedAt: number | null;
+  /** Manual operator steps detected in this session's PR body (#1059); [] when none/undetected. */
+  manualSteps: ManualStep[];
+  /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
+  manualStepsAckedAt: number | null;
+}
+
+/** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
+ *  server `ManualStep` shape in src/manual-steps.ts. */
+export interface ManualStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
 }
 
 export interface SessionUsage {
@@ -1051,6 +1063,7 @@ export type WsEvent =
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };
     }
   | { event: "session:git"; data: { id: string; git: GitState } }
+  | { event: "session:manual-steps"; data: { id: string; manualSteps: ManualStep[] } }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
   | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }

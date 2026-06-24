@@ -49,6 +49,8 @@ function session(id: string): Session {
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
   };
 }
 

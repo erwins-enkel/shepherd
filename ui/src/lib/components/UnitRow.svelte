@@ -436,6 +436,14 @@
           ? modelLabel(session.model)
           : m.newtask_model_default()}</span
       >
+      {#if session.manualSteps.length > 0}
+        <span
+          class="chip-manual-steps"
+          title={m.unitrow_manual_steps({ count: session.manualSteps.length })}
+        >
+          {m.unitrow_manual_steps({ count: session.manualSteps.length })}
+        </span>
+      {/if}
       {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">
           <Stepper
@@ -831,6 +839,18 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* amber "N manual steps" chip (#1059) — modeled on the epic .chip-migrations recipe; amber
+     (--status-warn) reads as caution-pending, never the actionable-complete green. */
+  .chip-manual-steps {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
   /* thin stage stepper on the quietest row — pushed to the right edge */
   .meta-stepper {

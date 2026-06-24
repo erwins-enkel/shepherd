@@ -43,6 +43,8 @@ const s = (id: string, status: any = "running"): Session => ({
   archivedAt: null,
   haltReason: null,
   haltedAt: null,
+  manualSteps: [],
+  manualStepsAckedAt: null,
 });
 
 test("applies snapshot, new, status, archived", () => {

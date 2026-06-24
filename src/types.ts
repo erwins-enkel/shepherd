@@ -1,5 +1,6 @@
 import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
+import type { ManualStep } from "./manual-steps";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -81,6 +82,10 @@ export interface Session {
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */
   haltedAt: number | null;
+  /** Manual operator steps detected in this session's PR body (#1059); [] when none/undetected. */
+  manualSteps: ManualStep[];
+  /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
+  manualStepsAckedAt: number | null;
 }
 
 /**

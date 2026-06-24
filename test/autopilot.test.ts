@@ -63,6 +63,8 @@ function sess(over: Partial<Session> = {}): Session {
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
     ...over,
   };
 }

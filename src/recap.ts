@@ -39,7 +39,7 @@ import {
   isSettledIdle,
   needsRecap,
 } from "./recap-core";
-import { groundBlocks } from "./visual-blocks";
+import { groundBlocks, type VisualBlock } from "./visual-blocks";
 import { tolerantParseJson, isSpawnWorking, decideVerdictAction } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
 
@@ -161,6 +161,7 @@ function recapArgv(model: string | null, prompt: string): { argv: string[]; sess
 export interface RecapServiceDeps {
   store: Pick<
     SessionStore,
+    | "get"
     | "getRecap"
     | "putRecap"
     | "snapshotRecaps"
@@ -454,6 +455,14 @@ export class RecapService {
       if (review?.summary) contextParts.push(`Critic verdict: ${review.summary}`);
       if (session.readyToMerge) contextParts.push("Operator marked ready to merge.");
       if (session.planPhase) contextParts.push(`Plan phase: ${session.planPhase}`);
+      // #1059: hint the prose about detected manual operator steps (the authoritative copy is the
+      // deterministic checklist block injected at finalize; this just lets the body reference them).
+      if (session.manualSteps.length > 0)
+        contextParts.push(
+          `Manual operator steps required (surfaced as a checklist): ${session.manualSteps
+            .map((s) => (s.postMerge ? `POST-MERGE: ${s.text}` : s.text))
+            .join("; ")}`,
+        );
       const context = contextParts.join("\n");
 
       const prompt = buildRecapPrompt({
@@ -551,10 +560,32 @@ export class RecapService {
     }
   }
 
+  /** Build a deterministic checklist block from a session's persisted manual operator steps
+   *  (#1059), or null when there are none. Read at finalize (latest possible point) so a
+   *  detection write racing in around merge time is most likely to have landed. */
+  private buildManualStepsBlock(sessionId: string): VisualBlock | null {
+    const steps = this.deps.store.get(sessionId)?.manualSteps ?? [];
+    if (steps.length === 0) return null;
+    return {
+      type: "checklist",
+      id: "manual-steps",
+      items: steps.map((s) => ({
+        id: s.id,
+        label: s.text,
+        ...(s.postMerge ? { note: "POST-MERGE" } : {}),
+      })),
+    };
+  }
+
   private async finalize(r: Recap, raw: unknown | null): Promise<void> {
     const t = this.now();
     // Strip the server-only carrier so it never reaches putRecap or onChange.
     const { pendingDiff = [], ...rBase } = r;
+    // Manual operator steps (#1059): deterministically carry the session's persisted manual steps
+    // into the recap as a checklist block, so the durability win never depends on the LLM choosing
+    // to emit it. Prepended in BOTH branches below — the failure branch must keep it too, since a
+    // recap failure is exactly the case where these otherwise-lost steps matter most.
+    const manualBlock = this.buildManualStepsBlock(r.sessionId);
     let newRow: Recap;
     try {
       const parsed = raw ? parseRecapVerdict(raw) : null;
@@ -567,7 +598,7 @@ export class RecapService {
           headline: parsed.headline,
           body: parsed.body,
           openItems: parsed.openItems,
-          blocks: grounded,
+          blocks: manualBlock ? [manualBlock, ...grounded] : grounded,
           generatedAt: t,
           updatedAt: t,
         };
@@ -581,7 +612,13 @@ export class RecapService {
             `[recap] ${r.sessionId}: verdict parsed as JSON but failed recap-shape validation (verdict=${JSON.stringify(v)}) — failing. snippet: ${recapSnippet(JSON.stringify(raw))}`,
           );
         }
-        newRow = { ...rBase, state: "failed", blocks: [], generatedAt: t, updatedAt: t };
+        newRow = {
+          ...rBase,
+          state: "failed",
+          blocks: manualBlock ? [manualBlock] : [],
+          generatedAt: t,
+          updatedAt: t,
+        };
       }
       this.deps.store.putRecap(newRow);
       this.deps.onChange(r.sessionId, newRow);

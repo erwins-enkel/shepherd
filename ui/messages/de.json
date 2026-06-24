@@ -488,6 +488,7 @@
   "viewport_preview_stop_failed": "Devserver konnte nicht gestoppt werden; er ignoriert möglicherweise das Stoppsignal.",
   "unitrow_preview_badge": "Vorschau",
   "unitrow_preview_badge_degraded": "Vorschau; Tailscale-Registrierung fehlgeschlagen, nur über Loopback erreichbar",
+  "unitrow_manual_steps": "{count} manuelle(r) Schritt(e)",
   "viewport_preview_serve_failed": "Tailscale-Registrierung für diesen Vorschau-Port fehlgeschlagen; nur über Loopback erreichbar. Nutze 'In neuem Tab öffnen', wenn der Frame leer bleibt.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, Merge, Kritiker & Merge-Freigabe",
@@ -1892,5 +1893,7 @@
   "feat_tui_fullscreen_body": "Agent-Sitzungen können jetzt in den Vollbild-Renderer von Claude Code gewechselt werden — erreichbar unter Einstellungen → Sitzung. Ermöglicht einen flacheren Speicherverbrauch bei langen autonomen Läufen. Forschungsvorschau (standardmäßig deaktiviert), gilt für neu gestartete oder fortgesetzte Sitzungen.",
   "gitrail_decommission_action": "Stilllegen",
   "feat_decommission_on_merge_title": "Stilllegen nach dem Merge",
-  "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr."
+  "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr.",
+  "feat_manual_operator_steps_title": "Manuelle Operator-Schritte",
+  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen."
 }

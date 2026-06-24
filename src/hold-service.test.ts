@@ -51,6 +51,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
     completionRepromptCount: 0,
     ...overrides,
   };

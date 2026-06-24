@@ -69,6 +69,7 @@
     onrundownepic = undefined,
     focusEpic = null,
     onackmigrationsepic = undefined,
+    onackmanualsteps = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -168,6 +169,8 @@
     focusEpic?: { repo: string; parent: number } | null;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
+    // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
+    onackmanualsteps?: (id: string) => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -289,6 +292,7 @@
     workingBlocked,
     quotaKindFor,
     holdFor,
+    onackmanualsteps,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

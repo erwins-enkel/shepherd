@@ -814,7 +814,8 @@ export type HoldCode =
   | "recap-attention"
   | "merging"
   | "merge-rebasing"
-  | "ready-merge";
+  | "ready-merge"
+  | "manual-steps";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -826,6 +827,7 @@ export interface HoldParams {
   pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
   rebaseCount?: number; // merge-rebasing: auto-rebase attempts
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+  steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
 }
 
 export interface HoldReason {

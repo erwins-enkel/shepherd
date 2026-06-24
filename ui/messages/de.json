@@ -1897,5 +1897,10 @@
   "feat_scroll_to_end_key_body": "Die mobile Terminal-Steuerleiste erhält eine fest verankerte ⤓-Taste, die zur neuesten Ausgabe springt – analog zu Strg+Ende in Claude Code, immer erreichbar, auch wenn du nicht hochgescrollt bist.",
   "unitrow_manual_steps": "{count} manuelle(r) Schritt(e)",
   "feat_manual_operator_steps_title": "Manuelle Operator-Schritte",
-  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen."
+  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen.",
+  "unitrow_ack_manual_steps": "Schritte best.",
+  "unitrow_ack_manual_steps_failed": "Manuelle Schritte konnten nicht bestätigt werden — bitte erneut versuchen.",
+  "hold_manual_steps": "{steps} manuelle(r) Schritt(e) vor dem Mergen — bestätigen zum Fortfahren.",
+  "feat_manual_operator_steps_gate_title": "Manuelle Schritte blockieren Auto-Merge",
+  "feat_manual_operator_steps_gate_body": "Ein PR mit einem unbestätigten manuellen Schritt (alles, was nicht als POST-MERGE markiert ist) wird jetzt vom Auto-Merge zurückgehalten, bis du handelst. Klicke in der Session-Zeile auf \"Schritte best.\", um die Sperre aufzuheben; du wirst per Push und im täglichen Rundown erinnert. Reine POST-MERGE-Schritte blockieren nie."
 }

@@ -19,6 +19,8 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     rebaseCount: 0,
     rebaseSteeredHead: null,
     mergeBlocked: false,
+    manualSteps: [],
+    manualStepsAckedAt: null,
     ...o,
   };
 }
@@ -187,4 +189,52 @@ test("draftMode + signed + behind → rebase (signed drafts still rebase to stay
     }),
   );
   expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1" });
+});
+
+// ── manual operator steps gate (#1060) ──────────────────────────────────────────
+
+const step = (text: string, postMerge = false) => ({ id: "ms1", text, postMerge });
+
+test("gate ON: otherwise-ready PR with an un-acked non-POST-MERGE step → manual_steps hold (not merge)", () => {
+  const d = computeMerge(state([sess({ manualSteps: [step("flip the flag")] })]));
+  expect(d).toEqual({
+    kind: "hold",
+    reason: { code: "manual_steps", detail: "TASK-01", sessionId: "s1" },
+  });
+});
+
+test("gate CLEARED by ack: manualStepsAckedAt set → merge proceeds", () => {
+  const d = computeMerge(
+    state([sess({ manualSteps: [step("flip the flag")], manualStepsAckedAt: 123 })]),
+  );
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("POST-MERGE-only steps never block → merge proceeds", () => {
+  const d = computeMerge(
+    state([sess({ manualSteps: [step("run the backfill", true)], manualStepsAckedAt: null })]),
+  );
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("manual_steps hold requires otherwise-ready: a NOT-green PR with steps → idle hold, not manual_steps", () => {
+  const d = computeMerge(
+    state([sess({ checks: "pending", manualSteps: [step("flip the flag")] })]),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("manual_steps hold requires otherwise-ready: a BEHIND PR with steps → rebase, not manual_steps", () => {
+  const d = computeMerge(state([sess({ behind: true, manualSteps: [step("flip the flag")] })]));
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1" });
+});
+
+test("held-on-steps PR is skipped while a ready sibling merges first", () => {
+  const d = computeMerge(
+    state([
+      sess({ id: "a", manualSteps: [step("flip the flag")] }),
+      sess({ id: "b", headSha: "hB" }),
+    ]),
+  );
+  expect(d).toEqual({ kind: "merge", sessionId: "b", prNumber: 7, headSha: "hB" });
 });

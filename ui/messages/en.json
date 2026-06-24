@@ -1897,5 +1897,10 @@
   "feat_scroll_to_end_key_body": "The mobile terminal control bar gains a pinned ⤓ key that jumps to the latest output, mirroring Claude Code's Ctrl+End — always reachable, even when you're not scrolled up.",
   "unitrow_manual_steps": "{count} manual step(s)",
   "feat_manual_operator_steps_title": "Manual operator steps",
-  "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands."
+  "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands.",
+  "unitrow_ack_manual_steps": "Ack steps",
+  "unitrow_ack_manual_steps_failed": "Couldn't acknowledge the manual steps — try again.",
+  "hold_manual_steps": "{steps} manual step(s) to do before merge — ack to proceed.",
+  "feat_manual_operator_steps_gate_title": "Manual steps gate auto-merge",
+  "feat_manual_operator_steps_gate_body": "A PR with an un-acknowledged manual step (anything not marked POST-MERGE) is now held out of auto-merge until you act. Click \"Ack steps\" on the session row to clear the gate; you're nudged via push and the daily rundown. POST-MERGE-only steps never block."
 }

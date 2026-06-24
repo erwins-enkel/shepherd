@@ -38,6 +38,7 @@
     drain = null,
     autopilotOn = false,
     issueNumber = null,
+    ondecommission = undefined,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -58,6 +59,8 @@
     /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
         null = no linked issue. */
     issueNumber?: number | null;
+    /** Offer to tear down THIS session after its PR is merged; called with the merged session's id. */
+    ondecommission?: (id: string) => void;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -268,8 +271,17 @@
     err = null;
     retry = null;
     try {
+      const mergedId = sessionId;
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
-      toasts.info(m.toast_merged({ name: name || sessionId }));
+      if (git.kind === "local") {
+        toasts.info(m.toast_merged({ name: name || mergedId }));
+      } else {
+        toasts.info(m.toast_merged({ name: name || mergedId }), {
+          action: { label: m.gitrail_decommission_action(), run: () => ondecommission?.(mergedId) },
+          duration: 15_000,
+          key: `decommission-offer:${mergedId}`,
+        });
+      }
       // A non-isolated session has its feature branch checked out in the canonical
       // clone, so there's no separate default-branch checkout to fast-forward — the
       // offer would always report wrong_branch. Only offer for isolated sessions.

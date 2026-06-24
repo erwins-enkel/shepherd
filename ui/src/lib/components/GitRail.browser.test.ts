@@ -1307,3 +1307,97 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     );
   });
 });
+
+describe("GitRail — post-merge decommission offer", () => {
+  const mergePrFn = vi.fn();
+
+  beforeEach(() => {
+    toastsInfo.mockClear();
+    mergePrFn.mockClear();
+  });
+
+  // Helper: arm and confirm the merge button (two-click pattern used across the suite)
+  async function armAndConfirmMerge(h: HTMLElement) {
+    const mergeBtn = await vi.waitFor(() => {
+      const btn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+      expect(btn, "merge button present").not.toBeNull();
+      return btn!;
+    });
+    mergeBtn.click();
+    await vi.waitFor(() => {
+      const btn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
+      expect(btn?.textContent?.toLowerCase()).toMatch(/confirm/);
+    });
+    h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)")!.click();
+  }
+
+  it("remote-forge merge shows decommission offer with the merged session id", async () => {
+    // mergePr returns a github-kind merged status
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, sessionId: "sess-A", mobile: false, ondecommission },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+
+    // Wait for toasts.info to be called
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    // The toast must have an action with the decommission label
+    const [, opts] = toastsInfo.mock.calls[0] as [
+      string,
+      { action?: { label: string; run: () => void }; duration?: number; key?: string },
+    ];
+    expect(opts?.action, "toast has action").toBeDefined();
+    expect(opts?.duration, "toast has 15s duration").toBe(15_000);
+    expect(opts?.key, "toast has decommission key").toBe("decommission-offer:sess-A");
+
+    // Invoking the action must call ondecommission with the CAPTURED id ("sess-A"),
+    // not whatever session might be focused at click time.
+    opts!.action!.run();
+    expect(ondecommission, "ondecommission called with captured id").toHaveBeenCalledWith("sess-A");
+  });
+
+  it("local-forge merge → no decommission offer action", async () => {
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "local",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, sessionId: "sess-B", mobile: false, ondecommission },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    const call = toastsInfo.mock.calls[0] as [string, ({ action?: unknown } | undefined)?];
+    // local-forge toast: plain call with no action opts, OR opts without action
+    const opts = call[1];
+    expect(opts?.action ?? undefined, "no action on local-forge toast").toBeUndefined();
+    expect(ondecommission, "ondecommission never invoked").not.toHaveBeenCalled();
+  });
+});

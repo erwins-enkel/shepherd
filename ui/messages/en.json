@@ -1889,5 +1889,6 @@
   "settings_tui_disable_mouse_hint": "Stop Claude Code from capturing the mouse in the agent terminal. Applies to newly started or resumed sessions.",
   "settings_tui_disable_mouse_save_failed": "Couldn't change the mouse-capture setting.",
   "feat_tui_fullscreen_title": "Fullscreen renderer (experimental)",
-  "feat_tui_fullscreen_body": "You can now opt agent sessions into Claude Code's fullscreen renderer from Settings → Session, for flatter memory on long autonomous runs. It's a research preview (off by default) and applies to newly started or resumed sessions."
+  "feat_tui_fullscreen_body": "You can now opt agent sessions into Claude Code's fullscreen renderer from Settings → Session, for flatter memory on long autonomous runs. It's a research preview (off by default) and applies to newly started or resumed sessions.",
+  "gitrail_decommission_action": "Decommission"
 }

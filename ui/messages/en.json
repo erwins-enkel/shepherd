@@ -1881,5 +1881,13 @@
   "rundown_epic_stranded": "stranded",
   "rundown_epic_open_aria": "Go to epic #{number} to land it",
   "feat_rundown_epics_to_land_title": "Rundown surfaces epics to land",
-  "feat_rundown_epics_to_land_body": "The daily Herd Rundown now escalates integrated epics whose landing PR is ready to merge as a top-priority item — even when no session is live — so a forgotten last-mile landing no longer slips. Click it to jump straight to the epic's Land button."
+  "feat_rundown_epics_to_land_body": "The daily Herd Rundown now escalates integrated epics whose landing PR is ready to merge as a top-priority item — even when no session is live — so a forgotten last-mile landing no longer slips. Click it to jump straight to the epic's Land button.",
+  "settings_tui_fullscreen_label": "Fullscreen renderer (experimental)",
+  "settings_tui_fullscreen_hint": "Opt the main agent session into Claude Code's fullscreen renderer for flatter memory on long autonomous runs. Research preview — behavior may change. Applies to newly started or resumed sessions, not ones already running. Also disables mouse capture so the web terminal stays usable.",
+  "settings_tui_fullscreen_save_failed": "Couldn't change the fullscreen renderer setting.",
+  "settings_tui_disable_mouse_label": "Disable mouse capture",
+  "settings_tui_disable_mouse_hint": "Stop Claude Code from capturing the mouse in the agent terminal. Applies to newly started or resumed sessions.",
+  "settings_tui_disable_mouse_save_failed": "Couldn't change the mouse-capture setting.",
+  "feat_tui_fullscreen_title": "Fullscreen renderer (experimental)",
+  "feat_tui_fullscreen_body": "You can now opt agent sessions into Claude Code's fullscreen renderer from Settings → Session, for flatter memory on long autonomous runs. It's a research preview (off by default) and applies to newly started or resumed sessions."
 }

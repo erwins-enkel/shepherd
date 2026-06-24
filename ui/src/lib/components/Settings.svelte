@@ -15,6 +15,8 @@
     putUsageHoldPct,
     putFableAvailable,
     putReducedPushMode,
+    putTuiFullscreen,
+    putTuiDisableMouse,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
@@ -137,6 +139,14 @@
   // Fable availability — operator kill-switch while Fable is globally unavailable.
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
+
+  // TUI fullscreen renderer — opt-in research preview for flatter memory on long runs.
+  let tuiFullscreen = $state(false);
+  let tuiFullscreenBusy = $state(false);
+
+  // TUI disable-mouse — stop Claude Code from capturing the mouse in the agent terminal.
+  let tuiDisableMouse = $state(false);
+  let tuiDisableMouseBusy = $state(false);
 
   // Reduced-notifications mode — mutes all pushes except ready-after-5s + cost alerts.
   let reducedPushMode = $state(false);
@@ -382,6 +392,40 @@
     }
   }
 
+  async function toggleTuiFullscreen() {
+    if (tuiFullscreenBusy) return;
+    tuiFullscreenBusy = true;
+    try {
+      const r = await putTuiFullscreen(!tuiFullscreen);
+      tuiFullscreen = r.tuiFullscreen;
+    } catch {
+      toasts.info(m.settings_tui_fullscreen_save_failed(), {
+        key: "tui-fullscreen",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      tuiFullscreenBusy = false;
+    }
+  }
+
+  async function toggleTuiDisableMouse() {
+    if (tuiDisableMouseBusy) return;
+    tuiDisableMouseBusy = true;
+    try {
+      const r = await putTuiDisableMouse(!tuiDisableMouse);
+      tuiDisableMouse = r.tuiDisableMouse;
+    } catch {
+      toasts.info(m.settings_tui_disable_mouse_save_failed(), {
+        key: "tui-disable-mouse",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      tuiDisableMouseBusy = false;
+    }
+  }
+
   async function toggleReducedPush() {
     if (reducedPushBusy) return;
     reducedPushBusy = true;
@@ -475,6 +519,8 @@
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
       fableAvailable = s.fableAvailable;
+      tuiFullscreen = s.tuiFullscreen;
+      tuiDisableMouse = s.tuiDisableMouse;
       reducedPushMode = s.reducedPushMode;
       repoRoot = s.repoRoot;
       repoRootDisplay = s.repoRootDisplay;
@@ -809,6 +855,40 @@
           <span class="track" class:on={fableAvailable}><span class="knob"></span></span>
           <span class="state"
             >{fableAvailable ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
+          >
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_tui_fullscreen_label()}</span>
+        <p class="hint">{m.settings_tui_fullscreen_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={tuiFullscreen}
+          disabled={tuiFullscreenBusy}
+          onclick={toggleTuiFullscreen}
+        >
+          <span class="track" class:on={tuiFullscreen}><span class="knob"></span></span>
+          <span class="state"
+            >{tuiFullscreen ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
+          >
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_tui_disable_mouse_label()}</span>
+        <p class="hint">{m.settings_tui_disable_mouse_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={tuiDisableMouse}
+          disabled={tuiDisableMouseBusy}
+          onclick={toggleTuiDisableMouse}
+        >
+          <span class="track" class:on={tuiDisableMouse}><span class="knob"></span></span>
+          <span class="state"
+            >{tuiDisableMouse ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
           >
         </button>
       </div>

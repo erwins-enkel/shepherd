@@ -299,6 +299,7 @@ describe("enrichLandingEpics", () => {
     landingState: "open",
     migrationPaths: [],
     migrationsAckedAt: null,
+    landingRebasePauseReason: null,
     ...over,
   });
 

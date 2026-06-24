@@ -31,6 +31,7 @@ import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
 import { EmptyDiffError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
+import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
 
 /** Concurrency cap for the per-child blocked_by fan-out when assembling an epic.
  *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
@@ -77,6 +78,12 @@ import {
 } from "./sandbox";
 import { detectEgressBackend, type EgressBackend } from "./egress";
 import { epicBaseDirective } from "./autopilot";
+
+/** #1071: After this many consecutive driver-absent / driver-broken results without a successful
+ *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
+ *  clone from silently retrying forever while giving transient registration glitches a few chances
+ *  to self-heal before surfacing. */
+const DRIVER_MISS_CAP = 3;
 
 /** Cached epic structure for one pump cycle. */
 interface EpicStructure {
@@ -132,6 +139,7 @@ export interface DrainDeps {
     | "recordEpicCompleted"
     | "listEpicCompleted"
     | "setEpicLandingPr"
+    | "setEpicLandingRebaseState"
     | "setEpicMigrationPaths"
     | "recordEpicBaseMismatch"
     | "clearEpicBaseMismatch"
@@ -170,6 +178,15 @@ export interface DrainDeps {
    *  with an FS backend, so a drain-spawned autonomous session is refused-loud when egress
    *  is unavailable. */
   detectEgressBackend?: () => EgressBackend;
+  /** #1071: maximum genuine rebase attempts (cap budget). Wired from config.autoMergeRebaseCap
+   *  in index.ts; injected directly so tests can set a small cap without touching global config. */
+  rebaseCap: number;
+  /** #1071: injectable seam for rebaseLandingBranch (tests inject a fake). Defaults to the real
+   *  impl (src/landing-rebase.ts) in the constructor. */
+  rebaseLandingBranch?: typeof rebaseLandingBranch;
+  /** #1071: injectable seam for the driver-pause fast-path re-probe (tests inject a fake).
+   *  Defaults to the real isUnionDriverRegistered (src/landing-rebase.ts) in the constructor. */
+  isDriverRegistered?: (repoPath: string) => Promise<boolean>;
 }
 
 /**
@@ -221,10 +238,16 @@ export class DrainService {
   private approvedNext = new Set<string>();
   private now: () => number;
   private issuesTtlMs: number;
+  /** #1071: injectable seam; defaults to the real rebaseLandingBranch import. */
+  private rebaseLandingBranch: typeof rebaseLandingBranch;
+  /** #1071: injectable seam; defaults to the real isUnionDriverRegistered import. */
+  private isDriverRegistered: (repoPath: string) => Promise<boolean>;
 
   constructor(private deps: DrainDeps) {
     this.now = deps.now ?? Date.now;
     this.issuesTtlMs = deps.issuesTtlMs ?? 10_000;
+    this.rebaseLandingBranch = deps.rebaseLandingBranch ?? rebaseLandingBranch;
+    this.isDriverRegistered = deps.isDriverRegistered ?? isUnionDriverRegistered;
   }
 
   /** Operator approves the next epic-attended spawn for the given repo. */
@@ -585,6 +608,7 @@ export class DrainService {
           // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
           migrationPaths: [],
           migrationsAckedAt: null,
+          landingRebasePauseReason: null,
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -649,6 +673,7 @@ export class DrainService {
       landingState: row.landingState,
       migrationPaths: row.migrationPaths,
       migrationsAckedAt: row.migrationsAckedAt,
+      landingRebasePauseReason: row.landingRebasePauseReason,
     };
     this.deps.emitEpicCompleted?.(completed);
   }
@@ -908,6 +933,258 @@ export class DrainService {
           err,
         );
       }
+    }
+  }
+
+  /**
+   * #1071: Session-less rebase pass for stuck (behind/conflicting) epic landing PRs.
+   * Runs each tick between ensureLandingPrsForRepo and autoLandLandingPrsForRepo so that
+   * a behind/conflicting PR is driven back to landable before the auto-land pass sees it.
+   *
+   * Gate: !draftMode && (autoMergeEnabled || autoDrainEnabled || epicRun.status==='running').
+   * DELIBERATE DEVIATION from autoLandLandingPrsForRepo's `draftMode ? false : autoMergeEnabled`
+   * gate: that gate would leave a drain-on / auto-merge-off repo with no rebase (forcing the
+   * operator to rebase manually before the manual land CTA can succeed). Here we include
+   * autoDrainEnabled and the running-epic-run case to stay consistent with the tick's pump gate.
+   *
+   * GitHub-only (forge.kind === 'github'): mergeStateStatus is GitHub-specific; LocalForge has no
+   * remote to push to; Gitea is out of scope.
+   *
+   * DELIBERATE DEVIATION from autoLandLandingPrsForRepo re migration-bearing rows: unlike auto-land
+   * (which skips rows with migrationPaths.length > 0 to require an operator ack/land), the rebase
+   * pass processes them too. The pass NEVER merges, so keeping a migration-bearing landing PR
+   * mergeable only makes the operator's manual ack/land CTA usable; skipping them would re-strand
+   * exactly the PRs that most need a human. See plan §"Migration-bearing epics are still rebased".
+   *
+   * NEVER calls forge.merge. Landing stays with tryAutoLandEpic (auto-merge on) or the operator's
+   * manual land CTA.
+   */
+  private async rebaseStuckLandingPrsForRepo(repoPath: string): Promise<void> {
+    // Gate: automation must be engaged for this repo.
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const er = this.deps.store.getEpicRun(repoPath);
+    const engaged =
+      !cfg.draftMode && (cfg.autoMergeEnabled || cfg.autoDrainEnabled || er?.status === "running");
+    if (!engaged) return;
+
+    // GitHub-only: mergeStateStatus is not available on other forge kinds.
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge || forge.kind !== "github") return;
+
+    // DB-gate: only open rows with a recorded landing PR number are candidates.
+    // Unlike autoLandLandingPrsForRepo, we do NOT skip migration-bearing rows (see doc above).
+    const open = this.deps.store
+      .listEpicCompleted(repoPath)
+      .filter((r) => r.landingState === "open" && r.landingPrNumber != null);
+    if (open.length === 0) return;
+
+    const defaultBranch = await forge.defaultBranch();
+
+    for (const row of open) {
+      const parent = row.parentIssueNumber;
+      const key = `${repoPath}#${parent}`;
+
+      // Serialize per (repo, parent) — shared key namespace with ensureLandingPr /
+      // autoLandLandingPrsForRepo; they act on disjoint landingStates of one epic.
+      if (this.landingInFlight.has(key)) continue;
+      this.landingInFlight.add(key);
+
+      try {
+        await this.processStuckLandingRow(repoPath, forge, defaultBranch, row);
+      } catch (err) {
+        // Defense in depth: one stuck epic must not break the whole tick.
+        console.warn(`[drain] rebaseStuckLandingPrsForRepo failed for ${key}:`, err);
+      } finally {
+        this.landingInFlight.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Process one stuck landing PR row: handle driver-pause fast-path, probe PR state,
+   * clear resolved pauses, and attempt rebase when appropriate.
+   * Called from rebaseStuckLandingPrsForRepo (already serialized by landingInFlight).
+   */
+  private async processStuckLandingRow(
+    repoPath: string,
+    forge: GitForge,
+    defaultBranch: string,
+    row: {
+      parentIssueNumber: number;
+      landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+    },
+  ): Promise<void> {
+    const parent = row.parentIssueNumber;
+
+    // a. Driver-pause fast-path: if paused because the driver was absent/broken,
+    //    cheaply re-probe git config before making any forge call.
+    if (row.landingRebasePauseReason === "driver") {
+      if (await this.isDriverRegistered(repoPath)) {
+        // Driver now registered → clear the pause and fall through to probe prStatus.
+        this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+          count: 0,
+          driverMisses: 0,
+          pauseReason: null,
+        });
+        this.emitCompleted(repoPath, parent);
+        // Fall through — pauseReason is now null so we do NOT return below.
+      } else {
+        // Still absent → stay paused, no prStatus call.
+        return;
+      }
+    }
+
+    // b. Read the pinned integration branch (read-only; null = unpinned → skip).
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (branch === null) return;
+
+    // c. Check current PR state.
+    const pr = await forge.prStatus(branch);
+    if (pr.state !== "open") return;
+
+    // d. Compute stuck flags.
+    const behind = pr.mergeStateStatus === "behind";
+    const conflicting = pr.mergeable === false;
+    const stuck = behind || conflicting;
+
+    // e. Reason-aware clear: if PR is no longer stuck, clear all rebase state and stop.
+    if (!stuck) {
+      this.clearLandingRebaseStateIfNeeded(repoPath, parent);
+      return;
+    }
+
+    // Re-read fresh counter values (the open[] snapshot is from the start of this tick).
+    const freshRow = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (!freshRow) return;
+
+    if (freshRow.landingRebasePauseReason === "conflict" && !conflicting) {
+      // Operator resolved the conflict; PR may still be behind. Clear conflict pause,
+      // then attempt the rebase immediately with the corrected (cleared) state.
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+        count: 0,
+        pauseReason: null,
+      });
+      this.emitCompleted(repoPath, parent);
+      await this.doLandingRebase(
+        repoPath,
+        parent,
+        { ...freshRow, landingRebaseCount: 0, landingRebasePauseReason: null },
+        branch,
+        defaultBranch,
+      );
+      return;
+    }
+
+    // f. If paused (after the reason-aware clear didn't un-pause) → skip.
+    if (freshRow.landingRebasePauseReason !== null) return;
+
+    // g. Attempt rebase.
+    await this.doLandingRebase(repoPath, parent, freshRow, branch, defaultBranch);
+  }
+
+  /**
+   * If the landing PR is no longer stuck, clear all rebase counters/state.
+   * Only writes when there is something to clear (avoid spurious DB writes on steady state).
+   */
+  private clearLandingRebaseStateIfNeeded(repoPath: string, parent: number): void {
+    const r2 = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (
+      r2 &&
+      (r2.landingRebaseCount !== 0 ||
+        r2.landingRebaseDriverMisses !== 0 ||
+        r2.landingRebasePauseReason !== null)
+    ) {
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+        count: 0,
+        driverMisses: 0,
+        pauseReason: null,
+      });
+      this.emitCompleted(repoPath, parent);
+    }
+  }
+
+  /**
+   * Inner rebase attempt for one epic's landing PR. Checks the cap, calls rebaseLandingBranch,
+   * and maps the result union to the appropriate state update + emitCompleted.
+   * Called from rebaseStuckLandingPrsForRepo (already serialized by landingInFlight).
+   */
+  private async doLandingRebase(
+    repoPath: string,
+    parent: number,
+    row: {
+      landingRebaseCount: number;
+      landingRebaseDriverMisses: number;
+      landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+    },
+    branch: string,
+    defaultBranch: string,
+  ): Promise<void> {
+    // Cap check: if we've already used the full budget, pause.
+    if (row.landingRebaseCount >= this.deps.rebaseCap) {
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "cap" });
+      this.emitCompleted(repoPath, parent);
+      return;
+    }
+
+    const res = await this.rebaseLandingBranch(repoPath, branch, defaultBranch);
+    switch (res.kind) {
+      case "rebased":
+        // Genuine rebase: burn one cap attempt, reset driver-miss counter.
+        this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+          count: row.landingRebaseCount + 1,
+          driverMisses: 0,
+        });
+        this.emitCompleted(repoPath, parent);
+        break;
+
+      case "current":
+        // Branch already contains origin/<default> (GitHub mergeability lag, or a redundant
+        // attempt after a concurrent push) — no real commits to replay; reset all counters
+        // to avoid a false cap-exhaustion on the next tick.
+        this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+          count: 0,
+          driverMisses: 0,
+          pauseReason: null,
+        });
+        this.emitCompleted(repoPath, parent);
+        break;
+
+      case "conflict":
+        // Genuine conflict (non-union path, or union path + driver self-test passed).
+        this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "conflict" });
+        this.emitCompleted(repoPath, parent);
+        break;
+
+      case "driver-absent":
+      case "driver-broken": {
+        // Environment fault — NOT a content problem. Increment the miss counter without
+        // burning the cap (per plan: "no count burn"). Escalate after DRIVER_MISS_CAP
+        // consecutive misses; before that, log and retry next cycle.
+        const m = row.landingRebaseDriverMisses + 1;
+        if (m >= DRIVER_MISS_CAP) {
+          this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+            driverMisses: m,
+            pauseReason: "driver",
+          });
+          this.emitCompleted(repoPath, parent);
+        } else {
+          this.deps.store.setEpicLandingRebaseState(repoPath, parent, { driverMisses: m });
+          console.warn(
+            `[drain] driver fault (${res.kind}) for ${repoPath}#${parent}, miss ${m}/${DRIVER_MISS_CAP}`,
+          );
+        }
+        break;
+      }
+
+      case "transient":
+        // Transient error (stale lease, fetch failure, etc.) — log only, no state change.
+        // Will be retried on the next tick.
+        console.warn(`[drain] transient rebase error for ${repoPath}#${parent}, will retry`);
+        break;
     }
   }
 
@@ -1613,6 +1890,11 @@ export class DrainService {
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.
       // DB-gated internally → zero forge calls in steady state.
       await this.ensureLandingPrsForRepo(repoPath);
+      // #1071: rebase stuck (behind/conflicting) landing PRs back to landable BEFORE the
+      // auto-land pass so a freshly-rebased PR can be landed in the same tick. Gated
+      // internally (automation-engaged check + GitHub-only + DB-gate → zero forge calls in
+      // steady state). UNGATED by drain, like its neighbors.
+      await this.rebaseStuckLandingPrsForRepo(repoPath);
       // #1044: opt-in auto-land of open landing PRs (gated internally on the repo's auto-merge
       // opt-in → zero forge calls when off). UNGATED by drain, like ensureLandingPrsForRepo.
       await this.autoLandLandingPrsForRepo(repoPath);

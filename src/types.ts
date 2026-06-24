@@ -377,13 +377,18 @@ export interface RundownItem {
  *  set (open landing PR that is CLEAN + CI-green + mergeable per #1039's computeLandingReady), so
  *  they can never be dropped or hallucinated. `repo`/`parent` deep-link to the IntegratedEpicsBand
  *  row + its Land CTA. `stranded` flags an open+ready landing that has sat unlanded past the Rec D
- *  threshold (urgency emphasis only — it does not gate inclusion). */
+ *  threshold (urgency emphasis only — it does not gate inclusion).
+ *  `pausedReason` — when present, the auto-rebase pass is paused (not ready to merge, needs
+ *  operator action): 'cap' = rebase cap exhausted; 'conflict' = genuine conflict; 'driver' = merge
+ *  driver unavailable on the server. Absent on landing-ready (non-paused) items. (#1071) */
 export interface RundownEpicItem {
   repo: string;
   parent: number;
   title: string;
   landingPr: number | null;
   stranded: boolean;
+  /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
+  pausedReason?: "cap" | "conflict" | "driver";
 }
 
 /** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */

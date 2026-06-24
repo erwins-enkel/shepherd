@@ -188,6 +188,7 @@ function makeHarness(
     emitArchived: () => {},
     dropPrCache: () => {},
     emitEpic: (epic) => epics.push(epic),
+    rebaseCap: 5,
   });
 
   return { store, drain, forgeRec, creates, statuses, epics };

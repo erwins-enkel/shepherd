@@ -438,12 +438,15 @@ export interface RundownItem {
   pr?: number;
 }
 // Tier-1 "land this epic" item (#1045) — server ground truth; repo/parent deep-link to the band.
+// pausedReason: present when auto-rebase is paused; 'cap'|'conflict'|'driver' (#1071).
 export interface RundownEpicItem {
   repo: string;
   parent: number;
   title: string;
   landingPr: number | null;
   stranded: boolean;
+  /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
+  pausedReason?: "cap" | "conflict" | "driver";
 }
 export interface HerdDigest {
   dayKey: string;
@@ -632,6 +635,8 @@ export interface CompletedEpic {
   landingMergeable?: boolean | null;
   landingReady?: boolean;
   landingStranded?: boolean;
+  // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
+  landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

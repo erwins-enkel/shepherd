@@ -499,21 +499,46 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
   }
 
   if (assembled.epics.length > 0) {
+    const pausedEpics = assembled.epics.filter((e) => e.pausedReason != null);
+    const readyEpics = assembled.epics.filter((e) => e.pausedReason == null);
+    const pauseReasonLabel = (r: "cap" | "conflict" | "driver"): string => {
+      if (r === "cap") return "rebase cap exhausted — needs manual rebase/push";
+      if (r === "conflict") return "genuine merge conflict — needs operator resolution";
+      return "merge driver unavailable on the server — needs environment fix";
+    };
     lines.push(
       "",
-      "EPICS AWAITING LANDING — these integrated epics have a landing PR that is ready to merge",
-      "but has NOT been landed. They are ALREADY surfaced separately to the operator as Tier-1",
-      '"land the epic" items (a dedicated section with a Land CTA), so you MUST NOT repeat them in',
-      'decisions/focusNext. You MUST NOT claim "all clear" or that the herd is idle while any',
-      "exist; you MAY mention them in `overnight` for context. For reference only (do NOT echo into",
-      "the verdict):",
-      ...assembled.epics.map(
-        (e) =>
-          `  - ${e.repo} #${e.parent} "${e.title}"` +
-          (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
-          (e.stranded ? " [STRANDED — unlanded well past threshold]" : ""),
-      ),
+      "EPICS AWAITING LANDING — integrated epics whose landing PR needs operator attention.",
+      "They are ALREADY surfaced separately to the operator as Tier-1 items (a dedicated section),",
+      'so you MUST NOT repeat them in decisions/focusNext. You MUST NOT claim "all clear" or that',
+      "the herd is idle while any exist; you MAY mention them in `overnight` for context.",
+      "For reference only (do NOT echo into the verdict):",
     );
+    if (pausedEpics.length > 0) {
+      lines.push("  Paused (auto-rebase blocked — operator action required):");
+      lines.push(
+        ...pausedEpics.flatMap((e) => {
+          const reason = e.pausedReason;
+          if (reason == null) return [];
+          return [
+            `    - ${e.repo} #${e.parent} "${e.title}"` +
+              (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
+              ` [PAUSED: ${pauseReasonLabel(reason)}]`,
+          ];
+        }),
+      );
+    }
+    if (readyEpics.length > 0) {
+      lines.push("  Ready to land:");
+      lines.push(
+        ...readyEpics.map(
+          (e) =>
+            `    - ${e.repo} #${e.parent} "${e.title}"` +
+            (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
+            (e.stranded ? " [STRANDED — unlanded well past threshold]" : ""),
+        ),
+      );
+    }
   }
 
   // Strip `epics` from the herd-state dump below — they are rendered once in the dedicated block

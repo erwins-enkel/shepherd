@@ -1017,7 +1017,37 @@ describe("GET /api/epics/completed", () => {
     expect(row.landingPrNumber).toBe(42);
     expect(row.landingPrUrl).toBe("https://example/pr/42");
     expect(row.landingState).toBe("open");
+    // Internal counters are stripped; landingRebasePauseReason is API-facing and passes through.
     expect("landingAttempts" in row).toBe(false);
+    expect("landingRebaseCount" in row).toBe(false);
+    expect("landingRebaseDriverMisses" in row).toBe(false);
+    expect("landingRebasePauseReason" in row).toBe(true);
+    expect(row.landingRebasePauseReason).toBe(null); // not paused
+  });
+
+  test("landingRebasePauseReason passes through with its value when set", async () => {
+    const { app, store } = completedHarness({ resolveForge: () => null });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 43,
+      parentTitle: "Paused Epic",
+      completedAt: 5000,
+      childrenJson: "[]",
+    });
+    store.setEpicLandingPr(repoDir, 43, {
+      state: "open",
+      prNumber: 43,
+      prUrl: "https://example/pr/43",
+      attempts: 0,
+    });
+    store.setEpicLandingRebaseState(repoDir, 43, { pauseReason: "conflict" });
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    const row = body[0];
+    expect(row.landingRebasePauseReason).toBe("conflict");
+    expect("landingRebaseCount" in row).toBe(false);
+    expect("landingRebaseDriverMisses" in row).toBe(false);
   });
 
   test("plain record → default landing fields (pending/null/null)", async () => {

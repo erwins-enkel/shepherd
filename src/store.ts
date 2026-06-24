@@ -1441,11 +1441,15 @@ export class SessionStore implements CapStore, CreditStore {
     landingPrUrl: string | null;
     landingState: EpicLandingState;
     landingAttempts: number;
+    landingRebaseCount: number;
+    landingRebaseDriverMisses: number;
+    landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
     migrationPaths: string[];
     migrationsAckedAt: number | null;
   }[] {
     const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
+                landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
                 migrationPathsJson, migrationsAckedAt
          FROM epic_completed WHERE dismissedAt IS NULL`;
     type Raw = {
@@ -1458,6 +1462,9 @@ export class SessionStore implements CapStore, CreditStore {
       landingPrUrl: string | null;
       landingState: EpicLandingState;
       landingAttempts: number;
+      landingRebaseCount: number;
+      landingRebaseDriverMisses: number;
+      landingRebasePauseReason: string | null;
       migrationPathsJson: string | null;
       migrationsAckedAt: number | null;
     };
@@ -1467,8 +1474,9 @@ export class SessionStore implements CapStore, CreditStore {
             .query(`${sql} AND repoPath = ? ORDER BY completedAt DESC`)
             .all(repoPath) as Raw[])
         : (this.db.query(`${sql} ORDER BY completedAt DESC`).all() as Raw[]);
-    return rows.map(({ migrationPathsJson, ...rest }) => ({
+    return rows.map(({ migrationPathsJson, landingRebasePauseReason, ...rest }) => ({
       ...rest,
+      landingRebasePauseReason: landingRebasePauseReason as "cap" | "conflict" | "driver" | null,
       migrationPaths: parseFindings(migrationPathsJson),
     }));
   }
@@ -1489,6 +1497,40 @@ export class SessionStore implements CapStore, CreditStore {
       `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
       [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Write rebase-state fields onto a completed epic's row (#1071). Only updates the fields
+   *  present in `fields` (partial SET), so callers can bump one counter without clobbering others.
+   *  Mirrors {@link setEpicLandingPr}'s direct-UPDATE style. */
+  setEpicLandingRebaseState(
+    repoPath: string,
+    parentIssueNumber: number,
+    fields: {
+      count?: number;
+      driverMisses?: number;
+      pauseReason?: "cap" | "conflict" | "driver" | null;
+    },
+  ): void {
+    const sets: string[] = [];
+    const vals: (string | number | null)[] = [];
+    if (fields.count !== undefined) {
+      sets.push("landingRebaseCount = ?");
+      vals.push(fields.count);
+    }
+    if (fields.driverMisses !== undefined) {
+      sets.push("landingRebaseDriverMisses = ?");
+      vals.push(fields.driverMisses);
+    }
+    if ("pauseReason" in fields) {
+      sets.push("landingRebasePauseReason = ?");
+      vals.push(fields.pauseReason ?? null);
+    }
+    if (sets.length === 0) return;
+    vals.push(repoPath, parentIssueNumber);
+    this.db.run(
+      `UPDATE epic_completed SET ${sets.join(", ")} WHERE repoPath = ? AND parentIssueNumber = ?`,
+      vals,
     );
   }
 
@@ -2849,6 +2891,10 @@ export class SessionStore implements CapStore, CreditStore {
     add("landingPrUrl", `landingPrUrl TEXT`);
     add("landingState", `landingState TEXT NOT NULL DEFAULT 'pending'`);
     add("landingAttempts", `landingAttempts INTEGER NOT NULL DEFAULT 0`);
+    // #1071: rebase-state counters + pause reason for session-less landing PRs.
+    add("landingRebaseCount", `landingRebaseCount INTEGER NOT NULL DEFAULT 0`);
+    add("landingRebaseDriverMisses", `landingRebaseDriverMisses INTEGER NOT NULL DEFAULT 0`);
+    add("landingRebasePauseReason", `landingRebasePauseReason TEXT`);
     // Migration-awareness checkpoint (#645). migrationPathsJson: paths of migration files
     // detected in the landing PR (JSON array). migrationsAckedAt: a durable audit timestamp
     // recording WHEN a human acknowledged those migrations — written alongside dismissedAt by

@@ -1920,5 +1920,10 @@
   "owed_step_toggle": "Mark step done",
   "owed_post_merge_badge": "POST-MERGE",
   "feat_manual_steps_post_merge_title": "Owed steps survive merge",
-  "feat_manual_steps_post_merge_body": "After a PR with manual steps merges and the session archives, the steps live on in the new Owed lens — tick each off as you do it, and they persist until done (well past the Done window). Enable \"Track manual steps in an issue\" per repo to also open a GitHub tracking issue on merge, linked back to the PR."
+  "feat_manual_steps_post_merge_body": "After a PR with manual steps merges and the session archives, the steps live on in the new Owed lens — tick each off as you do it, and they persist until done (well past the Done window). Enable \"Track manual steps in an issue\" per repo to also open a GitHub tracking issue on merge, linked back to the PR.",
+  "integrated_epics_rebase_paused_cap": "Couldn't auto-rebase after repeated tries — over to you",
+  "integrated_epics_rebase_paused_conflict": "Landing PR has a real conflict — over to you",
+  "integrated_epics_rebase_paused_driver": "Merge driver unavailable on the server — over to you",
+  "feat_auto_rebase_landing_prs_title": "Auto-rebase for landing PRs",
+  "feat_auto_rebase_landing_prs_body": "When an epic's landing PR falls behind its base, Shepherd now rebases it automatically. If it hits a conflict, a retry cap, or a missing merge driver, a warn chip on the band row tells you exactly why and hands off to you."
 }

@@ -179,6 +179,7 @@ function makeHarness(
     dropPrCache: () => {},
     emitEpic: () => {},
     now: opts.now,
+    rebaseCap: 5,
   });
 
   return {
@@ -363,6 +364,7 @@ describe("epic base-mismatch marker self-heal on buildEpic (#645)", () => {
       emitArchived: () => {},
       dropPrCache: () => {},
       emitEpic: () => {},
+      rebaseCap: 5,
     });
     return { store, drain };
   }

@@ -282,6 +282,7 @@ function makeHarness(
     dropPrCache: (id) => dropped.push(id),
     emitEpic: (epic) => epics.push(epic),
     emitSessionNew: (s) => sessionNews.push(s),
+    rebaseCap: 5,
   });
   harness.drain = drain;
   return harness;
@@ -737,6 +738,7 @@ test("ensureIssueLink failure is best-effort: retire still archives and emits ev
     emitStatus: () => {},
     emitArchived: (id) => h.archived.push(id),
     dropPrCache: (id) => h.dropped.push(id),
+    rebaseCap: 5,
   });
   await drain2.pump(REPO);
   // Link failed but teardown still ran
@@ -837,6 +839,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     emitStatus: (s) => statuses.push(s),
     emitArchived: () => {},
     dropPrCache: () => {},
+    rebaseCap: 5,
   });
 
   // tick should only pump the enabled repo (REPO), not REPO2
@@ -1492,6 +1495,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     now: () => clock,
     // Zero TTL so the issues list is never served from cache between pumps.
     issuesTtlMs: 0,
+    rebaseCap: 5,
   });
 
   // Step 3: first pump — one claim attempt, create throws, cooldown recorded.

@@ -792,3 +792,90 @@ test("buildRundownPrompt: no epic block when none", () => {
   });
   expect(buildRundownPrompt(out)).not.toContain("EPICS AWAITING LANDING");
 });
+
+// ── paused-rebase epics (#1071) ─────────────────────────────────────────────────
+test("assembleHerdState: paused epic (pausedReason set) passes through to epics array", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic({ pausedReason: "cap" }), epic({ parent: 8, pausedReason: "driver" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(out.epics).toHaveLength(2);
+  expect(out.epics.at(0)?.pausedReason).toBe("cap");
+  expect(out.epics.at(1)?.pausedReason).toBe("driver");
+});
+
+test("assembleHerdState: null pausedReason passes through (non-paused item)", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic()],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  expect(out.epics.at(0)?.pausedReason).toBeUndefined();
+});
+
+test("buildRundownPrompt: paused epic rendered with PAUSED tag and reason text", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic({ pausedReason: "cap", landingPr: 55 })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("EPICS AWAITING LANDING");
+  expect(prompt).toContain("PAUSED");
+  expect(prompt).toContain("rebase cap exhausted");
+  expect(prompt).toContain("landing PR #55");
+  // not echoed in the JSON dump
+  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked):"));
+  expect(dump).not.toContain('"epics"');
+});
+
+test("buildRundownPrompt: driver-paused epic renders driver reason", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic({ pausedReason: "driver" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("merge driver unavailable");
+});
+
+test("buildRundownPrompt: conflict-paused epic renders conflict reason", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [epic({ pausedReason: "conflict" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("genuine merge conflict");
+});
+
+test("buildRundownPrompt: mixed paused + ready epics both rendered in dedicated block", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    epics: [
+      epic({ parent: 7, pausedReason: "cap" }),
+      epic({ parent: 8, stranded: true }), // ready, no pausedReason
+    ],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("PAUSED");
+  expect(prompt).toContain("rebase cap exhausted");
+  expect(prompt).toContain("STRANDED");
+  // both epics mentioned
+  expect(prompt).toContain("#7");
+  expect(prompt).toContain("#8");
+});

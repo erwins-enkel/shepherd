@@ -4505,6 +4505,7 @@ async function backfillIdleEpic(
       landingState: "pending",
       migrationPaths: [],
       migrationsAckedAt: null,
+      landingRebasePauseReason: null,
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -4588,9 +4589,18 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   const baseRows: Array<
     CompletedEpic & { repoPath: string; parentIssueNumber: number; completedAt: number }
   > = dbRows.map((row) => {
-    // landingAttempts is an internal retry counter, not part of the CompletedEpic response.
-    const { childrenJson, landingAttempts, ...rest } = row;
+    // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
+    // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
+    const {
+      childrenJson,
+      landingAttempts,
+      landingRebaseCount,
+      landingRebaseDriverMisses,
+      ...rest
+    } = row;
     void landingAttempts;
+    void landingRebaseCount;
+    void landingRebaseDriverMisses;
     return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
   });
 
@@ -4782,6 +4792,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         landingState: updatedRow.landingState,
         migrationPaths: updatedRow.migrationPaths,
         migrationsAckedAt: updatedRow.migrationsAckedAt,
+        landingRebasePauseReason: updatedRow.landingRebasePauseReason,
       };
       deps.events?.emit("epic:completed", completed);
     } catch {

@@ -517,12 +517,15 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
     if (pausedEpics.length > 0) {
       lines.push("  Paused (auto-rebase blocked — operator action required):");
       lines.push(
-        ...pausedEpics.map(
-          (e) =>
+        ...pausedEpics.flatMap((e) => {
+          const reason = e.pausedReason;
+          if (reason == null) return [];
+          return [
             `    - ${e.repo} #${e.parent} "${e.title}"` +
-            (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
-            ` [PAUSED: ${pauseReasonLabel(e.pausedReason!)}]`,
-        ),
+              (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
+              ` [PAUSED: ${pauseReasonLabel(reason)}]`,
+          ];
+        }),
       );
     }
     if (readyEpics.length > 0) {

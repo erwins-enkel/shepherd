@@ -1243,8 +1243,8 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       pausedReason: r.landingRebasePauseReason as "cap" | "conflict" | "driver",
     }));
 
-  // Ready rows: probe the forge (TTL-memoized) for CI-readiness; exclude already-paused rows so a
-  // paused row can't be double-injected if it somehow has landingReady set from a stale enrichment.
+  // Ready rows: probe the forge (TTL-memoized) for CI-readiness; exclude already-paused rows
+  // (injected above) so each open row is surfaced under exactly one heading.
   const epics: CompletedEpic[] = openRows
     .filter((r) => r.landingRebasePauseReason === null)
     .map(

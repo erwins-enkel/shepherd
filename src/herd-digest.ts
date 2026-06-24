@@ -447,25 +447,29 @@ export class HerdDigestService {
   // ── reconcileEpics ─────────────────────────────────────────────────────────────
 
   /**
-   * Keep today's READY digest's `epicsToLand` live as landing readiness flips intraday (#1045).
+   * Keep today's settled digest's `epicsToLand` live as landing readiness flips intraday (#1045).
    *
    * `epicsToLand` is frozen on the row at spawn time. Without this, an epic whose CI goes green
-   * AFTER the digest was generated would never surface (sweep early-returns on the existing ready
+   * AFTER the digest was generated would never surface (sweep early-returns on the existing settled
    * row, and epics are deliberately out of the attentionFingerprint, so staleCount never moves —
    * staleCount is also bootstrap-only). Because `epicsToLand` is server ground truth (never parsed
    * from the LLM verdict), we recompute it and update the row IN PLACE — no re-spawn, no LLM call —
    * then push it over `herd:digest` so the panel's epic section updates live. Self-heals both ways
    * (readiness gained, or lost/landed).
    *
+   * Targets BOTH `ready` and `failed` digests: RundownPanel renders the epic section in either state
+   * (it is ground truth, not LLM output), so a `failed` digest must be kept live too — otherwise it
+   * would freeze a stale/landed "land this epic" entry until a manual regenerate.
+   *
    * Cheap by construction: when no epic is open the (memoized) accessor short-circuits to [] with no
-   * forge call; the set-equality check makes the in-place write + WS push fire only on a real change.
+   * forge call; the deep-equality check makes the in-place write + WS push fire only on a real change.
    */
   private reconcilingEpics = false;
   async reconcileEpics(): Promise<void> {
     if (this.reconcilingEpics) return; // overlapping ticks: one at a time
     if (!this.deps.landingReadyEpics) return; // nothing to reconcile against
     const latest = this.deps.store.getLatestHerdDigest();
-    if (!latest || latest.state !== "ready") return;
+    if (!latest || (latest.state !== "ready" && latest.state !== "failed")) return;
     if (latest.dayKey !== dayKeyFor(this.now())) return; // only today's settled digest
     // A regenerate for today is mid-flight — don't fight it.
     if (this.inFlight.has(latest.dayKey) || this.finalizing.has(latest.dayKey)) return;
@@ -475,13 +479,11 @@ export class HerdDigestService {
       // Cap to the same bound assembleHerdState applies at spawn time (RundownPanel renders
       // epicsToLand uncapped, so the intraday list must honor the same ceiling for consistency).
       const current = ((await this.deps.landingReadyEpics()) ?? []).slice(0, RUNDOWN_EPICS_CAP);
-      const key = (e: RundownEpicItem) => `${e.repo}#${e.parent}`;
-      const sortKeys = (xs: RundownEpicItem[]) => xs.map(key).sort();
-      const before = JSON.stringify(sortKeys(latest.epicsToLand));
-      const after = JSON.stringify(sortKeys(current));
-      // Also re-write when the SAME epics changed shape (e.g. stranded flipped, landing PR appeared).
-      const shapeChanged = JSON.stringify(latest.epicsToLand) !== JSON.stringify(current);
-      if (before === after && !shapeChanged) return; // no change → no-op
+      // Deep (ordered) equality is the only check needed — write whenever the rendered list differs
+      // in membership OR shape (e.g. stranded flipped, landing PR appeared). A bare reorder of the
+      // same epics would also write, but listEpicCompleted's stable completedAt-DESC ordering makes
+      // that vanishingly rare.
+      if (JSON.stringify(latest.epicsToLand) === JSON.stringify(current)) return; // no change → no-op
 
       const t = this.now();
       const updated: HerdDigest = { ...latest, epicsToLand: current, updatedAt: t };

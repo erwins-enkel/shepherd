@@ -750,6 +750,42 @@ test("reconcileEpics: red→green flip updates today's ready row + emits", async
   expect(changes.at(-1)?.epicsToLand).toEqual([sampleEpic()]);
 });
 
+test("reconcileEpics: a FAILED digest is kept live too (epic landed → drops)", async () => {
+  const dayKey = dayKeyFor(DAY1);
+  const failed: HerdDigest = {
+    dayKey,
+    state: "failed",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    epicsToLand: [sampleEpic()], // epic was ready when the (failed) digest spawned
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  };
+  const store = makeStore([], [failed]);
+  const herdr = makeHerdr();
+  const changes: HerdDigest[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    onChange: (d) => changes.push(d),
+    landingReadyEpics: async () => [], // epic has since landed → no longer ready
+  });
+
+  await svc.reconcileEpics();
+  expect(store.getHerdDigest(dayKey)?.epicsToLand).toEqual([]);
+  expect(store.getHerdDigest(dayKey)?.state).toBe("failed"); // state preserved
+  expect(changes.at(-1)?.epicsToLand).toEqual([]);
+});
+
 test("reconcileEpics: unchanged set → no-op (no emit)", async () => {
   const dayKey = dayKeyFor(DAY1);
   const ready: HerdDigest = {

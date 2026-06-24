@@ -11,6 +11,7 @@
     touch,
     tab,
     send,
+    scrollToBottom,
     notesKey,
     enter,
     uploading,
@@ -22,6 +23,7 @@
     touch: boolean;
     tab: string;
     send: (seq: string) => void;
+    scrollToBottom: () => void;
     notesKey: string | null;
     enter: ControlKey;
     uploading: boolean;
@@ -112,6 +114,19 @@
          compose sheet. -->
     <ControlBar onkey={(seq) => send(seq)} include={["cancel"]} scroll={false} />
     <ControlBar onkey={(seq) => send(seq)} include={["edit", "nav", "signal"]} />
+    <!-- jump-to-latest, pinned so it never scrolls off the palette. Reuses the
+         smart scrollToBottom() (sends Ctrl+End when the agent owns the scroll, else
+         xterm's native scroll) — mirrors the floating ↓ banner, but always reachable. -->
+    <button
+      type="button"
+      class="scroll-end"
+      title={m.viewport_scroll_to_bottom()}
+      aria-label={m.viewport_scroll_to_bottom()}
+      onpointerup={(e) => {
+        e.preventDefault();
+        scrollToBottom();
+      }}>⤓</button
+    >
     <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
          no keyboard on a phone to press the letter, so this is the sole way into
          the dialog's notes branch; it pulses to catch the eye and vanishes once
@@ -231,6 +246,7 @@
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
   }
+  .ctrl-row .scroll-end,
   .ctrl-row .dictate,
   .ctrl-row .attach,
   .ctrl-row .enter {
@@ -249,6 +265,7 @@
       background 0.08s,
       border-color 0.08s;
   }
+  .ctrl-row .scroll-end:active,
   .ctrl-row .dictate:active,
   .ctrl-row .attach:active,
   .ctrl-row .enter:active {

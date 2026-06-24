@@ -42,6 +42,25 @@ A repo Shepherd drives with local git only — no Forge, no GitHub, no PRs, no
 remote. When a task finishes, the agent's branch is squash-merged into the base
 branch locally; the operator pushes to a remote when they choose.
 
+### Trial
+
+A proposed house rule auto-promoted to active on strong, multi-source evidence,
+injected at lowest priority while it proves itself. It is auto-removed if it
+underperforms (Wilson auto-retire) or stays inert, and can be reverted to the
+queue by hand.
+
+### Weighted units
+
+A model-weighted measure of token spend that counts what actually draws down your
+subscription limits — output tokens cost far more than cached reads, so weighted
+units, not raw token counts, reflect true usage.
+
+### Satellite pass
+
+An automated LLM pass Shepherd spawns alongside the main task agent — critic /
+PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real
+overhead attributed back to the task, on top of the agent's own authoring.
+
 ## Industry terms
 
 ### PR

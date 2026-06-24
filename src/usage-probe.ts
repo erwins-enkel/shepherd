@@ -29,6 +29,14 @@ export const PROBE_NAME = "__usage_probe__";
  *     never advances and the gauge reads perpetually stale. Give credits a bounded grace (up to
  *     `creditTries`), returning the instant it parses. A true no-credit account simply waits the
  *     bounded grace and falls through to the same buffer — nothing is fabricated.
+ *
+ * The grace is intentionally a fixed bound rather than gated on a "has-credits" signal or an
+ * early-bail when the buffer stops growing: those save ~`creditTries`s only on no-credit accounts,
+ * whose grace is paid **solely by the background calibrate** (the manual REFRESH control lives in
+ * CreditDetail, rendered only when `credits != null`, so no user ever waits on it). An early-bail
+ * would also risk missing credits if the TUI pauses streaming between the week gauge and the panel
+ * below it — trading away the very reliability this wait exists to provide. Background-only latency
+ * isn't worth that.
  */
 export async function awaitUsageFrame(
   read: () => string,

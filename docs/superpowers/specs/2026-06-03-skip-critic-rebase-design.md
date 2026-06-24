@@ -28,15 +28,36 @@ across a pure rebase and changes only when the branch's actual changes change.
 
 ## Fingerprint: `git patch-id`
 
-Compute `git patch-id --stable` over `git diff <base>...HEAD`, take the first
-token (the patch id). Rationale:
+Compute `git patch-id --stable` over `git diff -U0 <base>...HEAD` (**zero
+context**), take the first token (the patch id). Rationale:
 
 - patch-id deliberately **ignores line numbers**, so a rebase that only shifts
   the branch's hunks (because new `main` edited code elsewhere in the same
   files) still produces the same id.
-- It **does** hash the changed lines and their immediate context, so it differs
-  when there are new commits, or when conflict resolution during the rebase
-  altered the branch's content. Both genuinely warrant a fresh review.
+- The `-U0` diff hashes **only the branch's own added/removed lines**, not the
+  surrounding (base-owned) context. So the id changes when there are new commits,
+  or when conflict resolution during the rebase altered the branch's content —
+  both edit the branch's own +/- lines, so both still warrant (and get) a fresh
+  review. The id does **not** change on pure *base-only context drift*: a clean
+  rebase where the branch's own lines are byte-identical and only a nearby
+  base-owned line moved. That is the intended behavior — review keys off the
+  branch's change, not the base's.
+
+  > **Why not default 3-line context (the original design).** This section
+  > originally hashed "the changed lines **and their immediate context**" to
+  > catch conflict resolution. That was over-broad: hashing context also made a
+  > line moved by the base *within a hunk's context window* flip the id on an
+  > otherwise clean rebase, re-triggering a needless review (operator-observed).
+  > `-U0` still catches conflict resolution (it edits the branch's own +/- lines),
+  > so the original concern is preserved; only the incidental context-drift
+  > re-trigger is removed.
+  >
+  > **Tradeoff.** Dropping context marginally widens the collision surface: two
+  > distinct revisions whose +/- line text is identical but which sit in
+  > different surrounding code can now share an id (a rare false-skip). The
+  > per-file diff headers keep cross-file changes distinct; the residual risk is
+  > same-file, identical +/- text in a relocated position — judged acceptable for
+  > a skip-vs-review decision that already errs toward reviewing on any failure.
 
 **Base currency (critical).** The three-dot `base...HEAD` diff is taken from the
 merge-base of `base` and `HEAD`. `createDetached` fetches only the *head* branch,
@@ -133,7 +154,7 @@ Add an injectable dep to `ReviewServiceDeps`, mirroring the existing
 computePatchId?: (worktreePath: string, base: string) => string | null;
 ```
 
-Default implementation runs the real `git diff base...HEAD | git patch-id
+Default implementation runs the real `git diff -U0 base...HEAD | git patch-id
 --stable` in the worktree. Unit tests inject a stub.
 
 ### Test cases

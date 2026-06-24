@@ -4,7 +4,7 @@ import { config } from "./config";
 import { compileCacheDir } from "./tmp-sweep";
 import { isApiKeyMode } from "./spawn-auth";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
 
 /**
@@ -15,6 +15,42 @@ const decoder = new TextDecoder();
  * probe")` slugs to exactly that, so a user prompt could take the name and get killed mid-turn.
  */
 export const PROBE_NAME = "__usage_probe__";
+
+/**
+ * Wait for a usable `/usage` capture, then return the raw buffer (or null if the week window never
+ * rendered). Pure + injectable (`read` yields the live buffer, `sleep` the delay) so the gating
+ * logic is unit-testable without a real PTY.
+ *
+ * Two phases:
+ *  1. Wait (up to `weekTries`) for the weekly window's "Resets …" label — a pct-only partial render
+ *     would calibrate against a guessed anchor, so prefer the labelled frame.
+ *  2. The "Usage credits" panel renders BELOW the week gauge, so it streams into the buffer a cycle
+ *     or two AFTER week's label. Gating on week alone returns before credits lands → its snapshot
+ *     never advances and the gauge reads perpetually stale. Give credits a bounded grace (up to
+ *     `creditTries`), returning the instant it parses. A true no-credit account simply waits the
+ *     bounded grace and falls through to the same buffer — nothing is fabricated.
+ *
+ * The grace is intentionally a fixed bound rather than gated on a "has-credits" signal or an
+ * early-bail when the buffer stops growing: those save ~`creditTries`s only on no-credit accounts,
+ * whose grace is paid **solely by the background calibrate** (the manual REFRESH control lives in
+ * CreditDetail, rendered only when `credits != null`, so no user ever waits on it). An early-bail
+ * would also risk missing credits if the TUI pauses streaming between the week gauge and the panel
+ * below it — trading away the very reliability this wait exists to provide. Background-only latency
+ * isn't worth that.
+ */
+export async function awaitUsageFrame(
+  read: () => string,
+  sleep: (ms: number) => Promise<void>,
+  weekTries = 12,
+  creditTries = 6,
+): Promise<string | null> {
+  const frame = () => parseUsageFrame(read(), 0);
+  for (let i = 0; i < weekTries && !frame().week?.resetLabel; i++) await sleep(1000);
+  // Skip the grace entirely when week never rendered (frame().week falsy) — there's nothing to wait
+  // for and the scrape has already failed.
+  for (let i = 0; i < creditTries && frame().week && !frame().credits; i++) await sleep(1000);
+  return frame().week ? read() : null;
+}
 
 /**
  * Drives an ephemeral interactive `claude`, sends `/usage`, and captures the rendered panel.
@@ -97,12 +133,8 @@ export class HerdrUsageProbe implements UsageProbe {
       for await (const _ of proc.stderr as ReadableStream<Uint8Array>) void _;
     })();
 
-    // Gate on whether the panel actually parses (parseUsageFrame strips ANSI before matching —
-    // a whitespace-only check fails since color codes sit between "Current" and "week"). Wait
-    // for the week's "Resets …" line too — a pct-only partial render calibrates against a
-    // guessed anchor — but fall back to pct-only if the label never shows up.
-    const week = () => parseUsageFrame(buf, 0).week;
-
+    // Drive the panel open, then hand off to awaitUsageFrame for the parse-gated wait (week label
+    // first, then a bounded grace for the trailing credits panel — see its docstring).
     try {
       // type the slash command, let the command menu register, THEN submit with Enter separately —
       // a combined "/usage\r" runs before the menu is ready and the panel never opens.
@@ -112,8 +144,7 @@ export class HerdrUsageProbe implements UsageProbe {
       await sleep(900);
       proc.stdin.write("\r");
       proc.stdin.flush();
-      for (let i = 0; i < 12 && !week()?.resetLabel; i++) await sleep(1000);
-      return week() ? buf : null;
+      return await awaitUsageFrame(() => buf, sleep);
     } catch {
       return null;
     } finally {

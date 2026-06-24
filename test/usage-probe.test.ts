@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { HerdrUsageProbe, PROBE_NAME } from "../src/usage-probe";
+import { HerdrUsageProbe, PROBE_NAME, awaitUsageFrame } from "../src/usage-probe";
+import { parseUsageFrame } from "../src/usage-limits";
 import type { HerdrAgent } from "../src/herdr";
 import { config } from "../src/config";
 
@@ -73,4 +74,67 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
   // …real sessions are left alone — the plain one and the "usage-probe"-slugged user session.
   expect(stopped).not.toContain("keep");
   expect(stopped).not.toContain("user");
+});
+
+// ── awaitUsageFrame: the credits-grace gate ──────────────────────────────────
+// Regression for the "extra-credit gauge stuck stale, refresh never clears it" bug. The wait used
+// to gate ONLY on the weekly window and return the instant week's "Resets …" line appeared — but
+// the "Usage credits" panel renders BELOW week and streams in a cycle later, so it was missed and
+// its snapshot never advanced. awaitUsageFrame now waits a bounded grace for credits after week.
+// The fake `read` evolves with the fake `sleep`'s step counter so the grace loop is genuinely
+// exercised (a static both-present buffer would pass without ever looping).
+
+const WEEK_ONLY = "Current week (all models)\n 50% used\nResets Jun 7 (Europe/Berlin)\n";
+const WEEK_PLUS_CREDITS =
+  WEEK_ONLY + "Esc to cancel\nUsage credits\n 64% used\n€79.16/€100.00 spent · Resets Jul 1 (x)\n";
+
+const hasCredits = (buf: string | null) => !!(buf && parseUsageFrame(buf, 0).credits);
+
+test("awaitUsageFrame waits the grace for credits that render a few cycles after week", async () => {
+  let step = 0;
+  const sleep = async () => {
+    step++;
+  };
+  // week+label is present immediately; credits only appears from the 3rd grace cycle on
+  const read = () => (step < 3 ? WEEK_ONLY : WEEK_PLUS_CREDITS);
+
+  const out = await awaitUsageFrame(read, sleep, 12, 6);
+
+  expect(hasCredits(out)).toBe(true); // captured credits — would have been null without the grace
+  expect(step).toBe(3); // grace actually looped until credits landed
+});
+
+test("awaitUsageFrame returns immediately when credits already rendered (no added latency)", async () => {
+  let sleeps = 0;
+  const sleep = async () => {
+    sleeps++;
+  };
+  const out = await awaitUsageFrame(() => WEEK_PLUS_CREDITS, sleep, 12, 6);
+
+  expect(hasCredits(out)).toBe(true);
+  expect(sleeps).toBe(0); // week + credits both present on the first read → no waiting at all
+});
+
+test("awaitUsageFrame falls through after a bounded grace on a true no-credit account", async () => {
+  let sleeps = 0;
+  const sleep = async () => {
+    sleeps++;
+  };
+  const out = await awaitUsageFrame(() => WEEK_ONLY, sleep, 12, 6);
+
+  expect(out).toBe(WEEK_ONLY); // week captured…
+  expect(hasCredits(out)).toBe(false); // …no credits fabricated
+  expect(sleeps).toBe(6); // grace is bounded (creditTries) — never hangs
+});
+
+test("awaitUsageFrame returns null and skips the grace when the week never renders", async () => {
+  let sleeps = 0;
+  const sleep = async () => {
+    sleeps++;
+  };
+  const out = await awaitUsageFrame(() => "", sleep, 12, 6);
+
+  expect(out).toBeNull(); // scrape failed — week absent
+  expect(sleeps).toBe(12); // waited out the week budget…
+  // …but no credits grace ran (week falsy) — 12, not 12+6
 });

@@ -4921,6 +4921,11 @@ function livePtyTerminalId(
   }
 }
 
+/** The /usage refresh handler drives a multi-second ephemeral `claude` scrape and needs a longer
+ *  idle window than Bun's 10s default (see the fetch handler). */
+const isSlowScrapeRequest = (req: Request, url: URL): boolean =>
+  req.method === "POST" && url.pathname === "/api/usage/refresh";
+
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   // current owning socket per terminal — a single owner avoids the takeover war
@@ -4980,6 +4985,10 @@ export function serve(deps: AppDeps, port: number) {
           ? undefined
           : new Response("upgrade failed", { status: 500 });
       }
+      // /usage refresh drives an ephemeral claude scrape (~24s worst case: boot + week wait +
+      // credits grace); lift Bun's 10s idle timeout for just this request so a slow scrape can't
+      // reset the connection into a false "Retry" on the gauge. Insurance — other endpoints unchanged.
+      if (isSlowScrapeRequest(req, url)) server.timeout(req, 60);
       return app.fetch(req);
     },
     websocket: {

@@ -78,6 +78,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
     ...over,
   };
 }
@@ -126,6 +128,7 @@ type FakeStore = {
   completeReviewerSpawn: (id: string, u: any, at: number) => void;
   list: (opts?: { activeOnly?: boolean }) => Session[];
   setRecapPendingDiff: (sessionId: string, files: any[]) => void;
+  get: (id: string) => Session | undefined;
 };
 
 function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
@@ -162,6 +165,7 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
     setRecapPendingDiff: (sessionId, files) => {
       store.pendingDiffs[sessionId] = files;
     },
+    get: (id) => store.sessions.find((s) => s.id === id),
   };
   return store;
 }
@@ -1323,6 +1327,66 @@ test("finalize: carrier cleared on failed path", async () => {
   await svc.tick();
   expect(store.getRecap("s1")?.state).toBe("failed");
   expect(store.pendingDiffs["s1"]).toEqual([]);
+});
+
+test("finalize: manual steps injected as a checklist block on the ready path (#1059)", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-ms-ready", spawnedAt: 100_000 });
+  const session = makeSession({
+    manualSteps: [
+      { id: "ms1", text: "Set FLAG=1 in prod", postMerge: false },
+      { id: "ms2", text: "rotate webhook secret", postMerge: true },
+    ],
+  });
+  const store = makeStore([session], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-ms-ready", terminalId: "tm1" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: { verdict: "ready", headline: "ok", body: "done", openItems: [] },
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+  const saved = store.getRecap("s1");
+  expect(saved?.state).toBe("ready");
+  expect(saved?.blocks?.[0]).toEqual({
+    type: "checklist",
+    id: "manual-steps",
+    items: [
+      { id: "ms1", label: "Set FLAG=1 in prod" },
+      { id: "ms2", label: "rotate webhook secret", note: "POST-MERGE" },
+    ],
+  });
+});
+
+test("finalize: manual steps survive the FAILED path too (#1059)", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-ms-fail", spawnedAt: 100_000 });
+  const session = makeSession({
+    manualSteps: [{ id: "ms1", text: "run the backfill once", postMerge: false }],
+  });
+  const store = makeStore([session], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-ms-fail", terminalId: "tm2" }]);
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    verdictJson: { verdict: "not-valid", headline: 42 }, // unparseable → failed
+    cleanup: () => {},
+  });
+
+  await svc.tick();
+  const saved = store.getRecap("s1");
+  expect(saved?.state).toBe("failed");
+  expect(saved?.blocks).toEqual([
+    {
+      type: "checklist",
+      id: "manual-steps",
+      items: [{ id: "ms1", label: "run the backfill once" }],
+    },
+  ]);
 });
 
 test("finalize: empty carrier fail-closed — diff dropped, file-tree filtered, callout kept", async () => {

@@ -488,6 +488,7 @@
   "viewport_preview_stop_failed": "Couldn't stop the dev server; it may be ignoring the stop signal.",
   "unitrow_preview_badge": "Preview",
   "unitrow_preview_badge_degraded": "Preview; Tailscale registration failed, reachable on loopback only",
+  "unitrow_manual_steps": "{count} manual step(s)",
   "viewport_preview_serve_failed": "Tailscale registration failed for this preview port; it's reachable on loopback only. Use Open in new tab if the frame is blank.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, merge, critic & ready-to-merge actions",
@@ -1892,5 +1893,7 @@
   "feat_tui_fullscreen_body": "You can now opt agent sessions into Claude Code's fullscreen renderer from Settings → Session, for flatter memory on long autonomous runs. It's a research preview (off by default) and applies to newly started or resumed sessions.",
   "gitrail_decommission_action": "Decommission",
   "feat_decommission_on_merge_title": "Decommission after merge",
-  "feat_decommission_on_merge_body": "After you merge a session's PR, the confirmation toast now offers a one-click Decommission to tear the finished session down — no hunting for the button."
+  "feat_decommission_on_merge_body": "After you merge a session's PR, the confirmation toast now offers a one-click Decommission to tear the finished session down — no hunting for the button.",
+  "feat_manual_operator_steps_title": "Manual operator steps",
+  "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands."
 }

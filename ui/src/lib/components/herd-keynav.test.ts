@@ -57,6 +57,8 @@ function session(
     archivedAt: null,
     haltReason: null,
     haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
   };
 }
 

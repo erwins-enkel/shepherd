@@ -36,6 +36,7 @@ import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { makeProductionForgeResolver } from "./forge/resolve";
 import { EmptyDiffError, type GitState } from "./forge/types";
+import { parseManualSteps } from "./manual-steps";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
@@ -529,6 +530,39 @@ events.subscribe((event, data) => {
   if (event !== "session:status") return;
   const { id, status } = data as { id: string; status: string };
   if (status !== "running") prPoller.pollSession(id);
+});
+
+// Manual operator steps (#1059): when a session's PR body is (re)fetched, parse any
+// shepherd:manual-steps carrier + `Manual-Step:` trailers and persist them on the session, so the
+// backlog chip + Done recap surface them. Throttled on head SHA so we don't re-`gh pr view` on
+// every CI/review transition (`session:git` fires on each one) — mirrors drain.ts's
+// ≤1/child/~60s prReviewMeta throttle. In-memory marker → at most one re-fetch per session after
+// a restart. Persist + push only when the parsed steps differ from what's stored.
+const manualStepsHeadSeen = new Map<string, string>();
+const detectAndPersistManualSteps = async (id: string, prNumber: number): Promise<void> => {
+  const s = store.get(id);
+  if (!s) return;
+  const forge = resolveForge(s.repoPath);
+  if (!forge?.prReviewMeta) return; // no forge / host without a PR-body API (e.g. Gitea) — skip
+  try {
+    const meta = await forge.prReviewMeta(prNumber);
+    if (!meta) return;
+    const steps = parseManualSteps(meta.body);
+    if (JSON.stringify(steps) === JSON.stringify(s.manualSteps)) return;
+    store.setSessionManualSteps(id, steps);
+    events.emit("session:manual-steps", { id, manualSteps: steps });
+  } catch (err) {
+    console.warn(`[manual-steps] detection for ${id} pr#${prNumber} failed:`, err);
+  }
+};
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: GitState };
+  if (git.number == null || (git.state !== "open" && git.state !== "merged")) return;
+  const headSha = git.headSha ?? "";
+  if (manualStepsHeadSeen.get(id) === headSha) return; // unchanged head — skip the fetch
+  manualStepsHeadSeen.set(id, headSha);
+  void detectAndPersistManualSteps(id, git.number);
 });
 
 // Drive tailscale serve mappings: register when a preview port binds, unregister

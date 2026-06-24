@@ -31,6 +31,7 @@ import type {
   WindowedBucketSum,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
+import type { ManualStep } from "./manual-steps";
 import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
@@ -174,6 +175,8 @@ type NewSession = Omit<
   | "research"
   | "haltReason"
   | "haltedAt"
+  | "manualSteps"
+  | "manualStepsAckedAt"
 > & {
   id?: string;
   model?: string | null;
@@ -199,7 +202,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
-  haltReason, haltedAt`;
+  haltReason, haltedAt, manualStepsJson, manualStepsAckedAt`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -248,6 +251,8 @@ type SessionRow = {
   mergingPrNumber: number | null;
   haltReason: string | null;
   haltedAt: number | null;
+  manualStepsJson: string | null;
+  manualStepsAckedAt: number | null;
 };
 
 /** SQLite row shape for the reviews table. */
@@ -413,6 +418,25 @@ function parseMergeTrainPrsJson(raw: string | null | undefined): number[] | null
     return parsed as number[];
   } catch {
     return null;
+  }
+}
+
+/** Tolerantly parse the persisted manualSteps JSON back to ManualStep[] (never throws). #1059. */
+function parseManualStepsJson(raw: string | null | undefined): ManualStep[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is ManualStep =>
+        !!s &&
+        typeof s === "object" &&
+        typeof s.id === "string" &&
+        typeof s.text === "string" &&
+        typeof s.postMerge === "boolean",
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -1465,6 +1489,8 @@ export class SessionStore implements CapStore, CreditStore {
       mergingPrNumber: null,
       haltReason: null,
       haltedAt: null,
+      manualSteps: [],
+      manualStepsAckedAt: null,
     };
   }
 
@@ -1474,7 +1500,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1519,6 +1545,8 @@ export class SessionStore implements CapStore, CreditStore {
           null, // mergingPrNumber — always null at create
           null, // haltReason — always null at create
           null, // haltedAt — always null at create
+          null, // manualStepsJson — always null at create (detected later from the PR body)
+          null, // manualStepsAckedAt — always null at create (P2)
         ],
       );
       return s;
@@ -2298,6 +2326,17 @@ export class SessionStore implements CapStore, CreditStore {
     ]);
   }
 
+  /** Persist the manual operator steps detected in a session's PR body (#1059). Stored as a JSON
+   *  array; an empty array clears any prior detection. Dedicated setter (the generic update()
+   *  whitelist would silently drop it), mirroring {@link setHaltReason}'s direct-UPDATE style. */
+  setSessionManualSteps(id: string, steps: ManualStep[]): void {
+    this.db.run(`UPDATE sessions SET manualStepsJson = ?, updatedAt = ? WHERE id = ?`, [
+      JSON.stringify(steps),
+      Date.now(),
+      id,
+    ]);
+  }
+
   // ── reviewer spawn cost attribution ──────────────────────────────────────────
   /** Record a freshly-spawned reviewer session. Token/completed columns stay NULL until
    *  finalize (`completeReviewerSpawn`). A plain INSERT is correct — every spawn forces a
@@ -2507,6 +2546,11 @@ export class SessionStore implements CapStore, CreditStore {
     // halt detection: reason + timestamp; nullable, no default (null = not halted).
     add("haltReason", `haltReason TEXT`);
     add("haltedAt", `haltedAt INTEGER`);
+    // manual operator steps (#1059): detected carrier steps (JSON ManualStep[]) + the epoch the
+    // operator acknowledged them. manualStepsAckedAt is written by P2; the column lands here so P2
+    // is purely additive. Both nullable: absence = no detection ran / not yet acknowledged.
+    add("manualStepsJson", `manualStepsJson TEXT`);
+    add("manualStepsAckedAt", `manualStepsAckedAt INTEGER`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -3730,6 +3774,8 @@ export class SessionStore implements CapStore, CreditStore {
       mergingPrNumber: r.mergingPrNumber ?? null,
       haltReason: r.haltReason ?? null,
       haltedAt: r.haltedAt ?? null,
+      manualSteps: parseManualStepsJson(r.manualStepsJson),
+      manualStepsAckedAt: r.manualStepsAckedAt ?? null,
     } as Session;
   }
 

@@ -373,6 +373,9 @@ export class HerdStore {
           haltedAt: ev.data.haltedAt,
         });
         return true;
+      case "session:manual-steps":
+        this.patchSession(ev.data.id, { manualSteps: ev.data.manualSteps });
+        return true;
       default:
         return false;
     }

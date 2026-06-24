@@ -1894,5 +1894,8 @@
   "feat_decommission_on_merge_title": "Stilllegen nach dem Merge",
   "feat_decommission_on_merge_body": "Nachdem du den PR einer Session gemerged hast, bietet die Bestätigungsmeldung jetzt ein Ein-Klick-Stilllegen, um die abgeschlossene Session zu entfernen – kein Suchen nach dem Button mehr.",
   "feat_scroll_to_end_key_title": "Taste „Zum Ende springen“",
-  "feat_scroll_to_end_key_body": "Die mobile Terminal-Steuerleiste erhält eine fest verankerte ⤓-Taste, die zur neuesten Ausgabe springt – analog zu Strg+Ende in Claude Code, immer erreichbar, auch wenn du nicht hochgescrollt bist."
+  "feat_scroll_to_end_key_body": "Die mobile Terminal-Steuerleiste erhält eine fest verankerte ⤓-Taste, die zur neuesten Ausgabe springt – analog zu Strg+Ende in Claude Code, immer erreichbar, auch wenn du nicht hochgescrollt bist.",
+  "unitrow_manual_steps": "{count} manuelle(r) Schritt(e)",
+  "feat_manual_operator_steps_title": "Manuelle Operator-Schritte",
+  "feat_manual_operator_steps_body": "Deklariere manuelle Schritte im shepherd:manual-steps-Block eines PR (Flag umlegen, Umgebungsvariable setzen, Backfill ausführen), und Shepherd zeigt sie als bernsteinfarbenen Chip in der Session-Zeile sowie als Checkliste im Done-Recap an – damit sie beim Mergen des PR nicht verloren gehen."
 }

@@ -54,6 +54,8 @@ const SESSION: Session = {
   archivedAt: null,
   haltReason: null,
   haltedAt: null,
+  manualSteps: [],
+  manualStepsAckedAt: null,
 };
 
 /** A ReviewVerdict that triggers the "rework" quota kind (addressRound >= addressCap, no pending). */

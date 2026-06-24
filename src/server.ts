@@ -2943,6 +2943,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       usageHoldPct: config.usageHoldPct,
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
+      // TUI renderer opt-in (research preview) + mouse-capture disable; apply to new/resumed sessions.
+      tuiFullscreen: config.tuiFullscreen,
+      tuiDisableMouse: config.tuiDisableMouse,
       // doc-agent soak flags (read-only; env-driven; no PUT patch).
       docAgentEnabled: config.docAgentEnabled,
       docAgentAct: config.docAgentAct,
@@ -2977,6 +2980,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
   ["fableAvailable", putFableAvailable],
+  ["tuiFullscreen", putTuiFullscreen],
+  ["tuiDisableMouse", putTuiDisableMouse],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -3106,6 +3111,24 @@ function putFableAvailable(value: unknown, deps: Ctx["deps"]): Response {
   config.fableAvailable = v; // live: next spawn picks it up
   deps.store.setSetting("fableAvailable", String(v)); // persist across restarts
   return json({ fableAvailable: config.fableAvailable });
+}
+
+function putTuiFullscreen(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "tuiFullscreen must be a boolean" }, 400);
+  }
+  config.tuiFullscreen = value; // live: next spawn/resume picks it up (renderer is fixed at process start)
+  deps.store.setSetting("tuiFullscreen", value ? "1" : "0"); // persist
+  return json({ tuiFullscreen: config.tuiFullscreen });
+}
+
+function putTuiDisableMouse(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "tuiDisableMouse must be a boolean" }, 400);
+  }
+  config.tuiDisableMouse = value; // live: next spawn/resume picks it up
+  deps.store.setSetting("tuiDisableMouse", value ? "1" : "0"); // persist
+  return json({ tuiDisableMouse: config.tuiDisableMouse });
 }
 
 function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {

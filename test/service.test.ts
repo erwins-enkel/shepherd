@@ -4499,6 +4499,110 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
   expect(s.sandboxApplied).toBe("autonomous");
 });
 
+// ── renderer env wired through membrane --setenv (sandboxed profile) ────────────────────────────
+// prepareSpawn computes rendererEnv from config.tuiFullscreen/tuiDisableMouse and passes it into
+// membrane.extraEnv, which buildMembraneFlags emits as --setenv pairs. bwrap --clearenv wipes the
+// outer env shim, so ONLY these --setenv entries survive into the claude process.
+
+function findSetenvTriple(argv: string[], key: string): { found: boolean; idx: number } {
+  for (let i = 0; i + 2 < argv.length; i++) {
+    if (argv[i] === "--setenv" && argv[i + 1] === key) {
+      return { found: true, idx: i };
+    }
+  }
+  return { found: false, idx: -1 };
+}
+
+function hasSetenvPair(argv: string[], key: string, value: string): boolean {
+  for (let i = 0; i + 2 < argv.length; i++) {
+    if (argv[i] === "--setenv" && argv[i + 1] === key && argv[i + 2] === value) return true;
+  }
+  return false;
+}
+
+test("renderer env: tuiFullscreen=true => --setenv CLAUDE_CODE_NO_FLICKER 1 + DISABLE_MOUSE, no DISABLE_ALTERNATE_SCREEN", async () => {
+  const prevFullscreen = config.tuiFullscreen;
+  const prevMouse = config.tuiDisableMouse;
+  try {
+    config.tuiFullscreen = true;
+    config.tuiDisableMouse = false;
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "standard" });
+    const captured: { argv?: string[] } = {};
+    const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    const argv = captured.argv!;
+    expect(argv[0]).toBe("bwrap");
+    expect(hasSetenvPair(argv, "CLAUDE_CODE_NO_FLICKER", "1")).toBe(true);
+    expect(hasSetenvPair(argv, "CLAUDE_CODE_DISABLE_MOUSE", "1")).toBe(true);
+    expect(findSetenvTriple(argv, "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN").found).toBe(false);
+  } finally {
+    config.tuiFullscreen = prevFullscreen;
+    config.tuiDisableMouse = prevMouse;
+  }
+});
+
+test("renderer env: both false (default) => --setenv CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN 1, no NO_FLICKER/DISABLE_MOUSE", async () => {
+  const prevFullscreen = config.tuiFullscreen;
+  const prevMouse = config.tuiDisableMouse;
+  try {
+    config.tuiFullscreen = false;
+    config.tuiDisableMouse = false;
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "standard" });
+    const captured: { argv?: string[] } = {};
+    const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    const argv = captured.argv!;
+    expect(argv[0]).toBe("bwrap");
+    expect(hasSetenvPair(argv, "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1")).toBe(true);
+    expect(findSetenvTriple(argv, "CLAUDE_CODE_NO_FLICKER").found).toBe(false);
+    expect(findSetenvTriple(argv, "CLAUDE_CODE_DISABLE_MOUSE").found).toBe(false);
+  } finally {
+    config.tuiFullscreen = prevFullscreen;
+    config.tuiDisableMouse = prevMouse;
+  }
+});
+
+test("renderer env: tuiDisableMouse=true (fullscreen false) => DISABLE_ALTERNATE_SCREEN + DISABLE_MOUSE", async () => {
+  const prevFullscreen = config.tuiFullscreen;
+  const prevMouse = config.tuiDisableMouse;
+  try {
+    config.tuiFullscreen = false;
+    config.tuiDisableMouse = true;
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "standard" });
+    const captured: { argv?: string[] } = {};
+    const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    const argv = captured.argv!;
+    expect(argv[0]).toBe("bwrap");
+    expect(hasSetenvPair(argv, "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1")).toBe(true);
+    expect(hasSetenvPair(argv, "CLAUDE_CODE_DISABLE_MOUSE", "1")).toBe(true);
+  } finally {
+    config.tuiFullscreen = prevFullscreen;
+    config.tuiDisableMouse = prevMouse;
+  }
+});
+
 test("relaunch keeps research:true; explicit override flips it to false", async () => {
   const store = new SessionStore(":memory:");
   const { service } = relaunchHarness(store);

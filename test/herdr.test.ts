@@ -480,6 +480,29 @@ test("start with empty env {}: wrapped is identical to no-env case", () => {
   ]);
 });
 
+test("start with CLAUDE_CODE_NO_FLICKER env: pin omitted, NO_FLICKER present in wrapped", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CODE_NO_FLICKER: "1" });
+  const post = extractPost(calls);
+  expect(post).not.toContain("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1");
+  expect(post).toContain("CLAUDE_CODE_NO_FLICKER=1");
+});
+
+test("start with CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN env: pin appears exactly once (no duplicate)", () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver((args) => {
+    calls.push(args);
+    return reply(args, WORKSPACE_LIST);
+  });
+  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" });
+  const post = extractPost(calls);
+  expect(post.filter((t) => t === "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1").length).toBe(1);
+});
+
 // -- panes() tests --
 
 const PANE_LIST = JSON.stringify({

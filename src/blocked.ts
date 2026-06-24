@@ -19,8 +19,12 @@ export interface BlockReason {
 }
 
 const TAIL_LINES = 15;
-// Matches "1. Yes", "❯ 2. No", "│  3) Foo" — captures the digit and the label.
-const OPTION_RE = /^[\s│|]*[❯>*]?\s*(\d+)[.)]\s+(.*\S)\s*$/;
+// Matches "1. Yes", "❯ 2. No", "│  3) Foo", AND the fullscreen renderer's zero-space packing
+// of the long option ("2.Yes, allow all edits…"). Group 2 captures the delimiter spacing
+// (undefined when packed with no space); group 3 is the label. The zero-space form is gated
+// in classifyBlocked (see below) so a decimal ("2.5 GB") or a bare-token run ("1.tsx"/"2.x")
+// can't forge a menu.
+const OPTION_RE = /^[\s│|]*[❯>*]?\s*(\d+)[.)](\s+)?(\S.*?)\s*$/;
 const YES_NO_RE = /\(\s*y\s*\/\s*n\s*\)|\[\s*y\s*\/\s*n\s*\]/i;
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
@@ -75,9 +79,15 @@ export function classifyBlocked(text: string): BlockReason {
   for (const line of tail) {
     const m = OPTION_RE.exec(line);
     if (!m) continue;
-    const n = Number(m[1]);
-    if (n === run.length + 1) run.push({ label: m[2]!, send: m[1]! });
-    else if (n === 1) run = [{ label: m[2]!, send: m[1]! }];
+    const [, num, spaced, label] = m;
+    // Fullscreen drops the delimiter space ONLY on the long, wrapping option
+    // ("2.Yes, allow all edits…"); short options keep theirs. Accept a zero-space option
+    // ONLY when its label is a non-digit-leading multi-token phrase, so a decimal
+    // ("2.5 GB" → "5 GB") or a bare-token run ("1.tsx"/"2.x"/"1.txt") can't forge a menu.
+    if (!spaced && (/^\d/.test(label!) || !/\s/.test(label!))) continue;
+    const n = Number(num);
+    if (n === run.length + 1) run.push({ label: label!, send: num! });
+    else if (n === 1) run = [{ label: label!, send: num! }];
   }
   if (run.length >= 2) return { shape: "menu", options: run, tail };
 

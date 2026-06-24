@@ -1,9 +1,11 @@
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
-import { classifyBlocked } from "../src/blocked";
+import { classifyBlocked, hasActiveSpinner } from "../src/blocked";
 import { DEFAULT_STALL } from "../src/stall";
 import { maintenance } from "../src/maintenance";
 import { config } from "../src/config";
@@ -2764,4 +2766,59 @@ test("quota: idle session with exhausted plan gate (no review) emits quotaKind '
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("quota");
   expect((blocks[0]!.block as any).quotaKind).toBe("plan");
+});
+
+// ── Fullscreen renderer stall-detection regression coverage ───────────────────
+
+const fullscreenFixturesDir = join(import.meta.dir, "fixtures", "fullscreen");
+const fullscreenSpinner = readFileSync(
+  join(fullscreenFixturesDir, "fullscreen-spinner.txt"),
+  "utf8",
+);
+const fullscreenIdle = readFileSync(join(fullscreenFixturesDir, "fullscreen-idle.txt"), "utf8");
+
+test("fullscreen idle frame is not mistaken for a live turn (hasActiveSpinner = false)", () => {
+  expect(hasActiveSpinner(fullscreenIdle)).toBe(false);
+});
+
+test("fullscreen: a wedged (frozen) spinner frame is detected as frozen — chrome does not fake advancement", () => {
+  // The fullscreen buffer contains incidental status-bar chrome (path, progress bar).
+  // Holding it CONSTANT across cadences must read as FROZEN and re-arm the block,
+  // exactly like the classic "frozen spinner re-arms" test.
+  const h = spinnerHarness(fullscreenSpinner);
+  // first tick: spinner detected → one-cadence grace, suppressed
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // buffer did NOT advance → wedged; re-arm must fire working:false then block
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+
+  // further identical-buffer cadence: sig-dedupe → no new emissions
+  h.advance(3001);
+  h.poller.tick();
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+});
+
+test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a stall)", () => {
+  // Simulate the elapsed-time counter ticking by appending a distinct suffix each
+  // cadence. The spinner line remains valid across all iterations; the buffer
+  // advances → suppression holds throughout.
+  const h = spinnerHarness(fullscreenSpinner);
+  h.poller.tick(); // first tick: spinner detected → grace, suppressed
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  for (let secs = 13; secs <= 16; secs++) {
+    // buffer changes each cadence (different suffix) while the spinner line persists
+    h.setText(fullscreenSpinner + `\n<!-- tick:${secs} -->`);
+    h.advance(3001);
+    h.poller.tick();
+  }
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]); // only the initial flag-on
+  expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
 });

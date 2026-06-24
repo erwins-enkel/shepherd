@@ -1881,5 +1881,13 @@
   "rundown_epic_stranded": "festgefahren",
   "rundown_epic_open_aria": "Zu Epic #{number} springen, um es zu landen",
   "feat_rundown_epics_to_land_title": "Rundown zeigt zu landende Epics",
-  "feat_rundown_epics_to_land_body": "Der tägliche Herd-Rundown hebt jetzt integrierte Epics, deren Landing-PR merge-bereit ist, als Top-Priorität hervor — auch wenn keine Sitzung aktiv ist — damit eine vergessene letzte Landung nicht mehr durchrutscht. Per Klick direkt zum Landen-Button des Epics springen."
+  "feat_rundown_epics_to_land_body": "Der tägliche Herd-Rundown hebt jetzt integrierte Epics, deren Landing-PR merge-bereit ist, als Top-Priorität hervor — auch wenn keine Sitzung aktiv ist — damit eine vergessene letzte Landung nicht mehr durchrutscht. Per Klick direkt zum Landen-Button des Epics springen.",
+  "settings_tui_fullscreen_label": "Vollbild-Renderer (experimentell)",
+  "settings_tui_fullscreen_hint": "Aktiviert den Vollbild-Renderer von Claude Code für die Hauptagenten-Sitzung, um bei langen autonomen Läufen einen flacheren Speicherverbrauch zu erreichen. Forschungsvorschau — Verhalten kann sich ändern. Gilt für neu gestartete oder fortgesetzte Sitzungen, nicht für bereits laufende. Deaktiviert außerdem die Mauserfassung, damit das Web-Terminal bedienbar bleibt.",
+  "settings_tui_fullscreen_save_failed": "Einstellung für den Vollbild-Renderer konnte nicht geändert werden.",
+  "settings_tui_disable_mouse_label": "Mauserfassung deaktivieren",
+  "settings_tui_disable_mouse_hint": "Verhindert, dass Claude Code die Maus im Agenten-Terminal erfasst. Gilt für neu gestartete oder fortgesetzte Sitzungen.",
+  "settings_tui_disable_mouse_save_failed": "Einstellung für die Mauserfassung konnte nicht geändert werden.",
+  "feat_tui_fullscreen_title": "Vollbild-Renderer (experimentell)",
+  "feat_tui_fullscreen_body": "Agent-Sitzungen können jetzt in den Vollbild-Renderer von Claude Code gewechselt werden — erreichbar unter Einstellungen → Sitzung. Ermöglicht einen flacheren Speicherverbrauch bei langen autonomen Läufen. Forschungsvorschau (standardmäßig deaktiviert), gilt für neu gestartete oder fortgesetzte Sitzungen."
 }

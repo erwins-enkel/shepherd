@@ -72,6 +72,10 @@ export interface Settings {
   usageHoldPct: number;
   /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
   fableAvailable: boolean;
+  /** Opt the main session into Claude Code's fullscreen renderer (research preview). */
+  tuiFullscreen: boolean;
+  /** Disable Claude Code mouse capture for the main session. */
+  tuiDisableMouse: boolean;
   /** Global reduced-notifications mode: when on, only the ready-after-5s push (+ usage/credit alerts) is sent. */
   reducedPushMode: boolean;
   /** Whether the PR-gated doc agent feature is enabled. */

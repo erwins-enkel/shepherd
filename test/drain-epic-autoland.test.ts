@@ -150,6 +150,7 @@ function makeHarness(opts: {
     emitEpic: () => {},
     emitEpicCompleted: (e) => completedEmits.push(e),
     now: () => nowMs,
+    rebaseCap: 5,
   });
 
   return { store, drain, completedEmits, spy, setNow: (ms) => (nowMs = ms) };
@@ -243,7 +244,10 @@ describe("auto-land of integrated epics (#1044)", () => {
     await h.drain.tick();
 
     expect(h.spy.mergeCalls).toHaveLength(0);
-    expect(h.spy.prStatusCalls).toHaveLength(0); // short-circuited before any forge call
+    // NOTE: the rebase pass (#1071) DOES call prStatus for migration-bearing rows because it
+    // never merges — keeping them mergeable for the operator's manual ack/land CTA (per plan).
+    // The auto-LAND pass still skips them (migrationPaths.length > 0 guard at drain.ts:1147).
+    // Only assert that merge was NOT called, not the prStatus call count.
     expect(row(h).landingState).toBe("open");
   });
 
@@ -398,12 +402,17 @@ describe("auto-land of integrated epics (#1044)", () => {
     // The lost manual-vs-auto race: the ready-check sees the PR open, but by the time forge.merge
     // fires a concurrent manual land already merged it → merge rejects, and a re-read now reports
     // merged. The failure path must reconcile (→ merged), never arm the backoff.
+    //
+    // With the #1071 rebase pass also running each tick, prStatus is read once more (the rebase
+    // pass sees an open+clean PR → not stuck → skips rebase). Auto-land then reads on the NEXT
+    // call and gets a ready PR → attempts merge → it throws "already merged" → re-reads → merged.
     let reads = 0;
     const h = makeHarness({
       autoMergeEnabled: true,
       prStatus: async () => {
         reads++;
-        return reads === 1 ? readyPr() : readyPr({ state: "merged" });
+        // reads 1: rebase pass (not-stuck, skips); reads 2: auto-land ready-check; reads 3+: post-merge re-check.
+        return reads <= 2 ? readyPr() : readyPr({ state: "merged" });
       },
       merge: async () => {
         throw new Error("Pull request is not mergeable: already merged");

@@ -1,11 +1,32 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { WorktreeMgr } from "./worktree";
+import { execFileSync } from "./instrument";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Fast, local-only probe: returns true when `merge.i18n-union.driver` is set in the
+ * repo's shared git config. Used by the drain driver-pause fast-path to re-probe
+ * cheaply without spawning a full rebase attempt.
+ *
+ * ASYNC: reached from the drain tick (single Bun event loop) — a sync child-process
+ * here would freeze the web terminal. No forge call; purely local `git config --get`.
+ */
+export async function isUnionDriverRegistered(repoPath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("git", ["config", "--get", "merge.i18n-union.driver"], {
+      cwd: repoPath,
+    });
+    return stdout.trim().length > 0;
+  } catch {
+    // Non-zero exit (key absent / not a repo / git error) → not registered.
+    return false;
+  }
+}
 
 export type LandingRebaseResult =
   | { kind: "rebased"; headSha: string } // replayed onto origin/<default>, force-pushed

@@ -351,6 +351,7 @@ test("drain pre-check: standard profile holds → service.create NOT called", as
     emitStatus: () => {},
     emitArchived: () => {},
     dropPrCache: () => {},
+    rebaseCap: 5,
   });
   await drain.pump("/repo");
   expect(createCalls).toBe(0);
@@ -456,6 +457,7 @@ test("drain + autonomous repo + egress NULL → held, service.create NOT called"
     dropPrCache: () => {},
     detectBackend: () => "bwrap",
     detectEgressBackend: () => null, // egress unavailable → autonomous drain refused
+    rebaseCap: 5,
   });
   await drain.pump("/repo");
   expect(createCalls).toBe(0);

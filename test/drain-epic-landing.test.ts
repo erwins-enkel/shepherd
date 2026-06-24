@@ -167,6 +167,7 @@ function makeHarness(opts: {
     dropPrCache: () => {},
     emitEpic: () => {},
     emitEpicCompleted: (e) => completedEmits.push(e),
+    rebaseCap: 5,
   });
 
   return { store, drain, completedEmits, spy };

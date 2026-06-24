@@ -174,6 +174,7 @@ function makeHarness(
     emitArchived: (id) => archived.push(id),
     dropPrCache: () => {},
     emitEpic: () => {},
+    rebaseCap: 5,
   });
   harness.drain = drain;
   return harness;

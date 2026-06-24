@@ -122,6 +122,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
     emitStatus: () => {},
     emitArchived: () => {},
     dropPrCache: () => {},
+    rebaseCap: 5,
   });
   return { store, drain };
 }

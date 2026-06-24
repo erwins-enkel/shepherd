@@ -150,6 +150,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     emitArchived: () => {},
     dropPrCache: () => {},
     emitEpic: (epic) => epics.push(epic),
+    rebaseCap: 5,
   });
 
   return { store, drain, rec, creates };

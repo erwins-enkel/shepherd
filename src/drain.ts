@@ -1,5 +1,5 @@
 import type { SessionStore } from "./store";
-import type { GitForge, GitState, Issue, SubIssueRef } from "./forge/types";
+import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 import { settleMergedSession } from "./merge-teardown";
@@ -22,6 +22,7 @@ import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
   buildRollup,
+  computeLandingReady,
   type CompletedEpic,
   type CompletedEpicChild,
   type EpicLandingState,
@@ -58,6 +59,14 @@ const EPIC_BASE_RECHECK_TTL_MS = 60_000;
  *  still surfaced on the band, but excluded from the retry set so it makes no further
  *  forge calls. Bounds the cost of a permanently-broken landing (no perpetual retry). */
 const MAX_LANDING_ATTEMPTS = 5;
+
+/** Auto-land merge-error guardrails (#1044) — mirror AutoMergeService's per-head cap + backoff.
+ *  After this many consecutive merge failures on the SAME landing-PR head, back the epic off so it
+ *  stops re-firing forge.merge each tick; one retry per backoff window thereafter. In-memory only
+ *  (a merge failure is NOT persisted on the row — `landingAttempts`/`error` track the OPEN action,
+ *  not the merge — so the manual CTA and the next eligible tick can still retry). */
+const LAND_MERGE_ERROR_CAP = 3;
+const LAND_MERGE_BACKOFF_MS = 300_000;
 import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
 import {
   resolveProfile,
@@ -115,6 +124,7 @@ export interface DrainDeps {
     | "getEpicRun"
     | "setEpicRun"
     | "getOrInitEpicIntegrationBranch"
+    | "getEpicIntegrationBranch"
     | "listEpicIntegrated"
     | "isEpicIntegratedChild"
     | "recordEpicIntegrated"
@@ -187,6 +197,10 @@ export class DrainService {
   // same landingAttempts → lose an increment. This set makes the second invocation a
   // no-op; it'll be retried next tick anyway.
   private landingInFlight = new Set<string>();
+  // Auto-land (#1044) per-epic merge-error backoff, keyed `${repoPath}#${parentIssueNumber}`:
+  // consecutive merge failures on the current landing-PR head + when the epic is blocked until.
+  // A new head or a success clears the entry. In-memory (ephemeral); mirrors AutoMergeService.
+  private landMergeFail = new Map<string, { head: string; count: number; blockedUntil: number }>();
   // sessionIds whose claim label onArchived must NOT release. Populated in doRetire
   // (a ready PR stays open → keep the claim so no instance re-spawns it; the human
   // merge auto-closes the issue, retiring the claim) and in onGit ONLY for a merge
@@ -898,6 +912,184 @@ export class DrainService {
   }
 
   /**
+   * AUTO-LAND (#1044): opt-in autonomous merge of a completed epic's aggregate landing PR. Runs in
+   * {@link tick} alongside {@link ensureLandingPrsForRepo} — the session-less landing PR has no
+   * managed session, so it can't ride the session-owned `AutoMergeService`; the drain (which
+   * already OPENS these PRs) is its home. Mirrors the manual land endpoint's action
+   * (`forge.merge` + landingState→'merged') and AutoMergeService's guardrails, scoped to landing PRs.
+   *
+   * Opt-in gate: `draftMode ? false : autoMergeEnabled` — the SAME effective merge predicate the
+   * session train uses (isFullAuto's merge half), so draftMode suppresses auto-land too.
+   *
+   * DELIBERATE BROADENING vs isFullAuto (#1044): the gate intentionally does NOT also require
+   * autopilot. A landing PR is session-less, so autopilot (a session-stepping flag) is orthogonal;
+   * `autoMergeEnabled` is the operator's "automate my merges" opt-in and the correct signal. A repo
+   * with autoMerge ON + autopilot OFF — which sees ZERO session auto-merges today (isFullAuto is
+   * false there) — WILL now begin auto-landing epic landing PRs. Intended; flagged in the PR body.
+   *
+   * DB-gated to zero forge calls in steady state: candidates are only `open` rows carrying a
+   * recorded landing PR, and only when the opt-in is on.
+   */
+  private async autoLandLandingPrsForRepo(repoPath: string): Promise<void> {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const mergeOn = cfg.draftMode ? false : cfg.autoMergeEnabled;
+    if (!mergeOn) return;
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge) return;
+    const open = this.deps.store
+      .listEpicCompleted(repoPath)
+      .filter((r) => r.landingState === "open" && r.landingPrNumber != null);
+    for (const r of open) {
+      // Migration-bearing epics are NEVER auto-landed — they require the operator's manual
+      // ack/land (#645 checkpoint). The predicate is just `migrationPaths.length > 0`:
+      // ackEpicMigrations also stamps dismissedAt, and listEpicCompleted filters dismissedAt IS
+      // NULL, so an acked row is already gone from this list — a `migrationsAckedAt == null`
+      // conjunct would be dead. Consequence: ack dismisses WITHOUT merging; such epics land only
+      // via the manual CTA.
+      if (r.migrationPaths.length > 0) continue;
+      // Serialize per (repo, parent) against an overlapping tick / ensureLandingPr edge (shared
+      // key namespace with ensureLandingPr — they act on disjoint landingStates of one epic).
+      const key = `${repoPath}#${r.parentIssueNumber}`;
+      if (this.landingInFlight.has(key)) continue;
+      this.landingInFlight.add(key);
+      try {
+        await this.tryAutoLandEpic(forge, repoPath, r.parentIssueNumber, r.landingPrNumber!);
+      } catch (err) {
+        // tryAutoLandEpic is fail-closed internally; defense-in-depth so one epic can't break tick.
+        console.warn(`[drain] auto-land failed for ${key}:`, err);
+      } finally {
+        this.landingInFlight.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Resolve + (maybe) merge ONE open landing PR. Fail-closed everywhere; never throws past the
+   * caller's guard:
+   *   - unpinned branch / prStatus throw → skip (never merge on an unreadable PR).
+   *   - PR merged out-of-band → reconcile row to 'merged' (covers a manual land / external merge,
+   *     and closes the manual-vs-auto DB-staleness window).
+   *   - PR closed/none → reconcile to terminal 'none' (human-closed/vanished) so we stop re-polling.
+   *   - draft / not-ready / backed-off → skip.
+   *   - ready → forge.merge; success → reconcile 'merged' + clear backoff; failure → see
+   *     {@link handleAutoLandMergeError} (lost race reconciles; genuine failure arms the backoff).
+   */
+  private async tryAutoLandEpic(
+    forge: GitForge,
+    repoPath: string,
+    parentIssueNumber: number,
+    prNumber: number,
+  ): Promise<void> {
+    // Read-only branch read (NOT getOrInitEpicIntegrationBranch — never INSERT a title-drifted pin
+    // from this path). Matches the manual land endpoint + band enrichment. Null ⇒ unpinned ⇒ skip.
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parentIssueNumber);
+    if (branch === null) return;
+    let pr: PrStatus;
+    try {
+      pr = await forge.prStatus(branch);
+    } catch (err) {
+      console.warn(`[drain] auto-land prStatus failed for ${repoPath}#${parentIssueNumber}:`, err);
+      return; // fail-closed
+    }
+    if (pr.state === "merged") {
+      this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
+      return;
+    }
+    if (pr.state === "closed" || pr.state === "none") {
+      this.reconcileAutoLand(repoPath, parentIssueNumber, "none", pr);
+      return;
+    }
+    if (pr.isDraft) return; // never merge a draft (computeLandingReady's Gitea fallback can't tell)
+    if (!computeLandingReady(pr)) return; // not green / mergeable yet
+    const key = `${repoPath}#${parentIssueNumber}`;
+    if (this.landMergeBlocked(key, pr.headSha ?? "")) return; // backed off on this head
+    try {
+      await forge.merge(prNumber, { method: forge.mergeMethod, deleteBranch: true });
+    } catch (err) {
+      await this.handleAutoLandMergeError(forge, repoPath, parentIssueNumber, branch, key, pr, err);
+      return;
+    }
+    this.landMergeFail.delete(key); // success clears any backoff
+    this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
+  }
+
+  /**
+   * A failed auto-land merge. Re-read live state ONCE (forge-agnostic — doesn't parse host-specific
+   * error strings): a PR that is now merged/closed means a concurrent manual land (the server's
+   * handleEpicsCompletedLand takes no shared lock with this loop) won the race — reconcile WITHOUT
+   * arming the backoff (a lost race must not poison the cap). A still-open/unreadable PR is a
+   * genuine failure → leave landingState 'open' (manual CTA + next tick can retry) and arm the
+   * per-head backoff.
+   */
+  private async handleAutoLandMergeError(
+    forge: GitForge,
+    repoPath: string,
+    parentIssueNumber: number,
+    branch: string,
+    key: string,
+    pr: PrStatus,
+    err: unknown,
+  ): Promise<void> {
+    let live: PrStatus | null;
+    try {
+      live = await forge.prStatus(branch);
+    } catch {
+      live = null;
+    }
+    if (live && live.state === "merged") {
+      this.landMergeFail.delete(key);
+      this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", live);
+      return;
+    }
+    if (live && (live.state === "closed" || live.state === "none")) {
+      this.landMergeFail.delete(key);
+      this.reconcileAutoLand(repoPath, parentIssueNumber, "none", live);
+      return;
+    }
+    console.warn(`[drain] auto-land merge failed for ${key}:`, err);
+    this.recordLandMergeFailure(key, pr.headSha ?? "");
+  }
+
+  /** Persist a reconciled landing state + re-emit the band's CompletedEpic (reuses resolveLanding).
+   *  'merged' keeps the live/recorded PR number+url; terminal 'none' nulls them (mirrors
+   *  classifyLanding's human-closed branch). */
+  private reconcileAutoLand(
+    repoPath: string,
+    parentIssueNumber: number,
+    state: EpicLandingState,
+    pr: PrStatus,
+  ): void {
+    const row = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parentIssueNumber);
+    this.resolveLanding(repoPath, parentIssueNumber, {
+      state,
+      prNumber: state === "merged" ? (pr.number ?? row?.landingPrNumber ?? null) : null,
+      prUrl: state === "merged" ? (pr.url ?? row?.landingPrUrl ?? null) : null,
+      attempts: row?.landingAttempts ?? 0,
+    });
+  }
+
+  /** True while this epic's auto-land is backed off: CAP failures on the current head, inside the
+   *  window. A new head or a success clears the entry. Mirrors AutoMergeService.computeMergeBlocked. */
+  private landMergeBlocked(key: string, head: string): boolean {
+    const f = this.landMergeFail.get(key);
+    return !!f && f.head === head && f.count >= LAND_MERGE_ERROR_CAP && this.now() < f.blockedUntil;
+  }
+
+  /** Record a merge failure against the current head; arm the backoff window at the cap. Mirrors
+   *  AutoMergeService.recordMergeFailure. */
+  private recordLandMergeFailure(key: string, head: string): void {
+    const cur = this.landMergeFail.get(key);
+    const count = cur && cur.head === head ? cur.count + 1 : 1;
+    this.landMergeFail.set(key, {
+      head,
+      count,
+      blockedUntil: count >= LAND_MERGE_ERROR_CAP ? this.now() + LAND_MERGE_BACKOFF_MS : 0,
+    });
+  }
+
+  /**
    * Execute one step of the drain loop: build state, run epic side-effects,
    * compute the next decision, emit status, then apply the decision.
    * Returns false when the loop should break (hold or error), true to continue.
@@ -1421,6 +1613,9 @@ export class DrainService {
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.
       // DB-gated internally → zero forge calls in steady state.
       await this.ensureLandingPrsForRepo(repoPath);
+      // #1044: opt-in auto-land of open landing PRs (gated internally on the repo's auto-merge
+      // opt-in → zero forge calls when off). UNGATED by drain, like ensureLandingPrsForRepo.
+      await this.autoLandLandingPrsForRepo(repoPath);
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);

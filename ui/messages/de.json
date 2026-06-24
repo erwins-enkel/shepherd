@@ -1873,5 +1873,7 @@
   "integrated_epics_land_failed": "Epic konnte nicht gelandet werden — erneut versuchen",
   "feat_land_epic_title": "Integrierte Epics direkt in der App landen",
   "feat_land_epic_body": "Wenn der Landing-PR eines Epics offen ist und alle Checks bestanden haben, ermöglicht ein neuer 'Epic landen'-Button im Band der integrierten Epics das Mergen mit einem Klick — kein Wechsel zu GitHub nötig.",
+  "feat_epic_auto_land_title": "Integrierte Epics automatisch landen",
+  "feat_epic_auto_land_body": "Wenn Auto-Merge für ein Repo aktiviert ist, wird der Landing-PR eines integrierten Epics jetzt automatisch gemergt, sobald er sauber ist und alle Checks bestanden haben — dieselbe Opt-in-Einstellung, die auch deine Voll-Auto-Sessions landet. Epics mit Migrationen werden für die manuelle Prüfung zurückgehalten, und der 'Epic landen'-Button funktioniert weiterhin jederzeit.",
   "landed_epic_toast": "Epic #{number} gelandet — in den Standardbranch gemergt"
 }

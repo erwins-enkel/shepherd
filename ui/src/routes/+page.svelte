@@ -32,6 +32,7 @@
     getCompletedEpics,
     dismissCompletedEpic,
     ackEpicMigrations,
+    landEpic,
     getEpic,
     getDiagnostics,
     halt as apiHalt,
@@ -514,6 +515,12 @@
       .catch(() => {});
     getBuildQueues()
       .then((m) => store.setBuildQueues(m))
+      .catch(() => {});
+    // Re-seed completed epics: the epic:completed WS payload carries the bare row WITHOUT the
+    // GET-only live landing-gate fields (landingReady/landingChecks/landingMergeable/landingStranded),
+    // so only a fetch repopulates them — without this, the "Land epic" CTA reads disabled on wake.
+    getCompletedEpics()
+      .then((l) => store.seedCompletedEpics(l))
       .catch(() => {});
     // Reconcile critic + plan-gate verdicts and their reviewing latches from the
     // server snapshot (both self-handle errors). load() re-fetches the /inflight
@@ -1210,6 +1217,25 @@
     return () => clearInterval(t);
   });
 
+  // Keep the "Land epic" CTA + stranded badge live. The landing-gate fields are computed only in the
+  // GET /api/epics/completed enrichment; the epic:completed WS payload omits them, and the two signals
+  // that flip them — the landing PR's CI going green and the time-based `stranded` crossing — fire no
+  // WS event. So while an open-landing epic exists, re-seed from the GET on a slow timer (and once
+  // immediately on the none→open flip, so a freshly-opened landing isn't disabled for a full interval).
+  // Gated on a $derived boolean (same reasoning as hasSessions above): it only flips on none↔open, so
+  // the interval is created once — completedEpics reassignment from WS events won't recreate it.
+  const hasOpenLandingEpic = $derived(store.completedEpics.some((e) => e.landingState === "open"));
+  $effect(() => {
+    if (!hasOpenLandingEpic) return;
+    const refresh = () =>
+      getCompletedEpics()
+        .then((l) => store.seedCompletedEpics(l))
+        .catch(() => {});
+    refresh();
+    const t = setInterval(refresh, 30_000);
+    return () => clearInterval(t);
+  });
+
   // Clear ALL compose + relaunch seed state. Called on every dialog dismissal and
   // after a successful submit so no seed (repo / issue / prompt / model / base branch /
   // relaunch origin + issue) leaks into the next New Task open.
@@ -1567,6 +1593,22 @@
     }
   }
 
+  // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
+  // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
+  async function onLandEpic(repoPath: string, parent: number) {
+    try {
+      await landEpic(repoPath, parent);
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.message ? err.message : m.integrated_epics_land_failed();
+      toasts.info(msg, {
+        alert: true,
+        duration: null,
+        key: `epic-land-fail:${repoPath}#${parent}`,
+      });
+    }
+  }
+
   // Confirmed: clear the dialog state (before the await, so it can't double-submit),
   // then run the bulk archive.
   function confirmClearMerged() {
@@ -1746,6 +1788,7 @@
             holds={store.holds}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            onlandepic={onLandEpic}
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => {
@@ -1905,6 +1948,7 @@
             oncollapse={toggleSidebar}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
+            onlandepic={onLandEpic}
             doneList={doneSessions.sessions}
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}

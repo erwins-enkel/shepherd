@@ -1859,5 +1859,19 @@
   "toast_broadcast_result": "Broadcast · {delivered} steered now, {queued} queued on busy agents (act after current turn), {offline} unreachable.",
   "issuerow_assignee_title": "Assigned to {login}",
   "feat_issue_assignee_title": "See who's assigned to each issue",
-  "feat_issue_assignee_body": "When the \"mine & unassigned\" issue filter is off, each backlog issue now shows a chip for every assignee, so you can tell at a glance who already owns a piece of work."
+  "feat_issue_assignee_body": "When the \"mine & unassigned\" issue filter is off, each backlog issue now shows a chip for every assignee, so you can tell at a glance who already owns a piece of work.",
+  "integrated_epics_awaiting_landing_pill": "AWAITING LANDING",
+  "integrated_epics_land": "Land epic",
+  "integrated_epics_land_confirm_prompt": "Merge the landing PR and close the epic?",
+  "integrated_epics_land_confirm_migration_warn": "{count} migration(s) detected — they were never run; verify before landing.",
+  "integrated_epics_land_confirm": "Confirm",
+  "integrated_epics_land_not_ready_ci_failing": "CI is failing on the landing PR",
+  "integrated_epics_land_not_ready_computing": "Still computing — checks pending or mergeability resolving",
+  "integrated_epics_land_not_ready_conflicts": "Landing PR has conflicts and is not mergeable",
+  "integrated_epics_land_not_ready_generic": "Landing PR is not ready to merge yet",
+  "integrated_epics_land_stranded": "stranded {ago} ago",
+  "integrated_epics_land_failed": "Couldn't land the epic — try again",
+  "feat_land_epic_title": "Land integrated epics from the app",
+  "feat_land_epic_body": "When an epic's landing PR is open and all checks pass, a new 'Land epic' button in the Integrated-epics band lets you merge it with one click — no need to switch to GitHub.",
+  "landed_epic_toast": "Epic #{number} landed — merged to the default branch"
 }

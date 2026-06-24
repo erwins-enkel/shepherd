@@ -35,7 +35,12 @@ afterEach(() => {
 
 describe("IntegratedEpicsBand", () => {
   it("renders nothing when epics is empty", async () => {
-    render(IntegratedEpicsBand, { epics: [], ondismiss: vi.fn(), onackmigrations: vi.fn() });
+    render(IntegratedEpicsBand, {
+      epics: [],
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
     expect(document.querySelector(".band")).toBeNull();
     expect(document.querySelector(".band-head")).toBeNull();
   });
@@ -45,6 +50,7 @@ describe("IntegratedEpicsBand", () => {
       epics: [epic(1), epic(2)],
       ondismiss: vi.fn(),
       onackmigrations: vi.fn(),
+      onland: vi.fn(),
     });
     await expect.element(page.getByText("Integrated epics (2)")).toBeInTheDocument();
     // collapsed by default → no rows

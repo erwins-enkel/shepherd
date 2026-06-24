@@ -1,4 +1,5 @@
 import type { EpicChild } from "./epic-core";
+import type { ChecksState, PrStatus } from "./forge/types";
 
 export interface CompletedEpicChild {
   number: number;
@@ -31,6 +32,55 @@ export interface CompletedEpic {
   // band row's clear behind an explicit acknowledgement — NEVER the autonomous completion flip.
   migrationPaths: string[];
   migrationsAckedAt: number | null;
+  /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
+  landingChecks?: ChecksState;
+  landingMergeable?: boolean | null;
+  /** True when the landing PR is safe to merge from the app (gates the "Land epic" CTA). */
+  landingReady?: boolean;
+  /** True when an open+ready landing has sat unlanded past EPIC_LANDING_STRANDED_MS (Rec D escalation). */
+  landingStranded?: boolean;
+}
+
+/** Rec D threshold: surface the "stranded" escalation when an open+ready landing PR has sat
+ *  unlanded this long after epic completion.
+ *
+ *  Documented deviation: the issue says "landing PR mergeable for > N hours"; we approximate with
+ *  "epic completed > N h ago AND landing PR currently ready" to avoid persisting a `mergeableSince`
+ *  column. A PR that becomes ready long after the epic completed would fire earlier than intended,
+ *  but this is conservative (earlier escalation) and avoids a schema change. */
+export const EPIC_LANDING_STRANDED_MS = 6 * 60 * 60_000;
+
+/** Returns true when the landing PR is safe to merge from the app (gates the "Land epic" CTA).
+ *
+ *  Requires: open, checks passing, and mergeable=true. When mergeStateStatus is present (GitHub),
+ *  it must be "clean" or "has_hooks" — all other statuses indicate a PR that is not ready:
+ *  - "blocked": branch-protection rules are blocking the merge; the app-triggered merge would fail,
+ *    so we must NOT show an enabled CTA that fires a doomed merge call.
+ *  - "behind", "dirty", "unstable", "draft", "unknown": also not mergeable.
+ *  When mergeStateStatus is undefined (Gitea), we fall back to state+checks+mergeable alone. */
+export function computeLandingReady(
+  pr: Pick<PrStatus, "state" | "checks" | "mergeable" | "mergeStateStatus">,
+): boolean {
+  if (pr.state !== "open") return false;
+  if (pr.checks !== "success") return false;
+  if (pr.mergeable !== true) return false;
+  if (pr.mergeStateStatus === undefined) return true; // Gitea fallback
+  return pr.mergeStateStatus === "clean" || pr.mergeStateStatus === "has_hooks";
+}
+
+/** Returns true when the landing PR is open, ready, and the epic completed over
+ *  EPIC_LANDING_STRANDED_MS ago (the Rec D escalation threshold). */
+export function computeLandingStranded(opts: {
+  landingState: EpicLandingState;
+  landingReady: boolean;
+  completedAt: number;
+  now: number;
+}): boolean {
+  return (
+    opts.landingState === "open" &&
+    opts.landingReady &&
+    opts.now - opts.completedAt > EPIC_LANDING_STRANDED_MS
+  );
 }
 
 export function buildRollup(

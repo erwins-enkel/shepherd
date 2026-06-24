@@ -475,13 +475,22 @@ export class HerdStore {
           (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
         );
         this.completedEpics = [ev.data, ...filtered];
-        toasts.info(
-          m.completed_epic_toast({
-            number: ev.data.parentIssueNumber,
-            count: ev.data.children.length,
-          }),
-          { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
-        );
+        // A merged landing state is the operator's own land action resolving (#1039), not a fresh
+        // completion — confirm the land instead of re-announcing "complete". Distinct dedupe-key
+        // namespace (epic-landed:) so it never collides with the completion toast's key.
+        if (ev.data.landingState === "merged") {
+          toasts.info(m.landed_epic_toast({ number: ev.data.parentIssueNumber }), {
+            key: `epic-landed:${ev.data.repoPath}#${ev.data.parentIssueNumber}`,
+          });
+        } else {
+          toasts.info(
+            m.completed_epic_toast({
+              number: ev.data.parentIssueNumber,
+              count: ev.data.children.length,
+            }),
+            { key: `epic-complete:${ev.data.repoPath}#${ev.data.parentIssueNumber}` },
+          );
+        }
         return true;
       }
       case "epic:completed-cleared":

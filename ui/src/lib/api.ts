@@ -1554,6 +1554,13 @@ export async function ackEpicMigrations(
   );
 }
 
+/** Merge the landing PR for a completed epic (#1039). Fails non-2xx on not-ready / not-open / no row
+ *  (409), merge failure (502), or invalid input (400). On success the server emits an `epic:completed`
+ *  WS event with the updated row (`landingState:"merged"`) so the band updates live. */
+export async function landEpic(repoPath: string, parent: number): Promise<{ ok: boolean }> {
+  return postJson("/api/epics/completed/land", { repo: repoPath, parent }, "land epic");
+}
+
 /** Manually trigger the PR-gated doc agent for a repo. 202 → started; 409 → skipped
  *  (with the server's reason); other non-2xx throws. */
 export async function triggerDocAgent(

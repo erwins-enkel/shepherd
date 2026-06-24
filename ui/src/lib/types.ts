@@ -608,6 +608,12 @@ export interface CompletedEpic {
   // ask for acknowledgement before it can be cleared — never gates the completion flip.
   migrationPaths: string[];
   migrationsAckedAt: number | null;
+  // Live, display-only landing-PR gate signals from GET /api/epics/completed (server #1039);
+  // present only for open-landing rows the server could fetch. Drive the "Land epic" CTA + escalation.
+  landingChecks?: ChecksState;
+  landingMergeable?: boolean | null;
+  landingReady?: boolean;
+  landingStranded?: boolean;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

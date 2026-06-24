@@ -61,6 +61,7 @@
     oncollapse = undefined,
     completedEpics = [],
     ondismissepic = undefined,
+    onlandepic = undefined,
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
@@ -145,6 +146,8 @@
     completedEpics?: CompletedEpic[];
     // dismiss a completed epic from the band; page owns the optimistic remove + reconcile
     ondismissepic?: (repoPath: string, parent: number) => void;
+    // merge the landing PR for a completed epic (#1039); server emits epic:completed on success
+    onlandepic?: (repoPath: string, parent: number) => void;
     // Done lens: the archived ("done") sessions to list when filter === "done" (newest
     // first; the endpoint already orders them). These are NOT live sessions — they live in
     // the page's lazy doneSessions store, distinct from `sessions`.
@@ -474,6 +477,7 @@
         epics={completedEpics}
         ondismiss={ondismissepic ?? (() => {})}
         onackmigrations={onackmigrationsepic ?? (() => {})}
+        onland={onlandepic ?? (() => {})}
         {nowMs}
       />
     {/if}

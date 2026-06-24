@@ -9,12 +9,14 @@ import {
   CI_CAP_MESSAGE,
   EMPTY_COMPLETION_STEER,
   EMPTY_COMPLETION_MESSAGE,
+  rebaseSteer,
+  REBASE_CAP_MESSAGE,
 } from "../src/autopilot";
 import { DRAFT_PR_NOTE } from "../src/service";
 
 // The open-PR steer for sess()'s default base branch ("main"), no draft note.
 const OPEN_PR_STEER_MAIN = openPrSteer(false, "main");
-import type { AutopilotVerdict, Session } from "../src/types";
+import type { AutopilotVerdict, Session, ReviewVerdict } from "../src/types";
 import type { BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
 
@@ -86,6 +88,12 @@ function harness(opts: {
   prGit?: GitState | null;
   /** Whether the session's branch has a committed diff vs base (default true = work exists). */
   hasDiff?: boolean;
+  /** Latest critic verdict returned by the getReview dep (the reEngageRebase review gate). */
+  review?: ReviewVerdict | null;
+  /** Repo criticEnabled flag (default true, matching getRepoConfig below). */
+  criticEnabled?: boolean;
+  /** Max rebase steers before reEngageRebase hands back (default 5). */
+  rebaseCap?: number;
 }) {
   let cur = opts.session;
   const events: any[] = [];
@@ -97,7 +105,7 @@ function harness(opts: {
       list: () => [cur],
       getRepoConfig: () =>
         ({
-          criticEnabled: true,
+          criticEnabled: opts.criticEnabled ?? true,
           autoAddressEnabled: false,
           learningsEnabled: true,
           autopilotEnabled: opts.repoEnabled ?? false,
@@ -159,11 +167,13 @@ function harness(opts: {
     },
     prGit: () => opts.prGit ?? null,
     fullAuto: () => opts.fullAuto ?? false,
+    getReview: () => opts.review ?? null,
     refreshPr: (id) => events.push({ refreshPr: id }),
     onPause: (id, q) => events.push({ pause: id, q }),
     onComplete: (id, summary) => events.push({ complete: id, summary }),
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
+    rebaseCap: opts.rebaseCap ?? 5,
   });
   return {
     svc,
@@ -562,6 +572,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     openLocalPr: async () => {},
     prGit: () => null,
     fullAuto: () => false,
+    getReview: () => null,
     onPause: () => {},
     stepCap: 10,
   });
@@ -1149,4 +1160,220 @@ test("completion gate: counter resets on onPrOpen", () => {
   });
   h.svc.onPrOpen("s1");
   expect(h.state().completionRepromptCount).toBe(0);
+});
+
+// ───────────── rebase re-engagement (non-full-auto, review-passed, behind) ─────────────
+// Gap closed: a non-full-auto autopilot session stands down at PR-open and the merge train
+// never carries it, so when its PR falls behind base (or conflicts) after a passing review
+// nobody steers a rebase. reEngageRebase steers one — deliberately stricter than the train's
+// needsRebase on the review check (requires a clean head-matched critic sign-off), draft PRs
+// excluded, bounded by rebaseCap (no per-head dedup, so the cap actually fires on a stuck head).
+const REBASE_STEER_MAIN = rebaseSteer("main");
+
+function review(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
+  return {
+    sessionId: "s1",
+    headSha: "sha1",
+    patchId: "p1",
+    decision: "commented",
+    summary: "",
+    body: "",
+    findings: [],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 0,
+    seenNoteIds: [],
+    updatedAt: 0,
+    ...over,
+  };
+}
+
+/** An open + green PR snapshot for the rebase tests (overrides the failure-default git()). */
+function greenPr(over: Partial<GitState> = {}): GitState {
+  return git({ checks: "success", headSha: "sha1", ...over });
+}
+
+const rebased = (h: { mergeStateCalls: any[] }, n: number) =>
+  h.mergeStateCalls.some((c) => c.patch.rebaseCount === n);
+
+test("rebase: behind + clean signoff + green → steers rebase + bumps rebaseCount", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    fullAuto: false,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+  expect(rebased(h, 1)).toBe(true);
+});
+
+test("rebase: conflict (mergeable=false) → steers", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeable: false }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: draft PR behind → no-op (a rebase can't make a draft mergeable; DRAFT masks BEHIND)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ isDraft: true, mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: commented-with-findings verdict → no-op (avoids racing the auto-address loop)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review({ findings: ["fix the thing"] }),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: critic on + no verdict → no-op (stricter than needsRebase, which rebases with null)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: null,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: critic on + stale reviewHeadSha → no-op", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ headSha: "sha2", mergeStateStatus: "behind" }),
+    review: review({ headSha: "sha1" }), // verdict applies to an old head
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: changes_requested verdict → no-op", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review({ decision: "changes_requested", findings: ["blocking"] }),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: critic OFF + green + behind → steers (no review requirement)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    criticEnabled: false,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: null,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: full-auto session → no-op (the merge train owns it)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    fullAuto: true,
+    verdict: { kind: "finished", summary: "" },
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: red CI → no-op (rebase path requires green; red is the CI-fix path's job)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ checks: "failure", mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: at cap → pause(REBASE_CAP_MESSAGE), no steer", async () => {
+  const h = harness({
+    session: sess({ status: "done", autoMergeRebaseCount: 5 }),
+    openPr: true,
+    rebaseCap: 5,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ pause: "s1", q: REBASE_CAP_MESSAGE });
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: no per-head dedup → re-steers each idle episode (marches to the cap)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.onDone("s1"); // count 0 → 1, steer
+  await h.svc.onDone("s1"); // count 1 → 2, steer again (same head, no dedup)
+  expect(h.events.filter((e) => e.steer === REBASE_STEER_MAIN).length).toBe(2);
+  expect(rebased(h, 2)).toBe(true);
+});
+
+test("rebase: PR mergeable+current again → resets rebaseCount, no steer", async () => {
+  const h = harness({
+    session: sess({ status: "done", autoMergeRebaseCount: 3 }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "clean", mergeable: true }),
+    review: review(),
+  });
+  await h.svc.onDone("s1");
+  expect(h.mergeStateCalls).toContainEqual({
+    id: "s1",
+    patch: { rebaseCount: 0, rebaseHead: null },
+  });
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebase: tick re-engages an idle behind PR", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.tick();
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: tick skips a running session (don't interrupt active work)", async () => {
+  const h = harness({
+    session: sess({ status: "running" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review(),
+  });
+  await h.svc.tick();
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
 });

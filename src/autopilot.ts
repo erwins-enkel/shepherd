@@ -1,8 +1,9 @@
 import type { SessionStore } from "./store";
-import type { Session, AutopilotVerdict } from "./types";
+import type { Session, AutopilotVerdict, ReviewVerdict } from "./types";
 import type { BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { signedOff } from "./signoff";
 import { DRAFT_PR_NOTE } from "./service";
 
 /**
@@ -56,6 +57,28 @@ export const CI_FIX_STEER = [
   "fix the root cause, and push. Don't stop to ask — only surface if it's a genuine blocker you",
   "can't resolve, and then say exactly what you need.",
 ].join("\n");
+
+/** Agent-facing steer when an idle, review-passed PR can't merge because it's behind its base
+ *  (or conflicting) and the session is in autopilot but NOT full-auto — so the merge train isn't
+ *  driving the rebase. NOT UI chrome — typed into the PTY, never i18n'd (Shepherd owns this
+ *  text; the classifier never authors pane input). Names the session's real base branch so a
+ *  non-`main` base rebases against the right ref. Mirrors AutoMergeService's rebaseSteer with an
+ *  "autopilot" framing. */
+export function rebaseSteer(baseBranch: string): string {
+  return [
+    "You're in autopilot and your PR has passed review, but it can't merge as-is — it's behind the",
+    `base branch (or has conflicts). Fetch origin, rebase your branch onto origin/${baseBranch},`,
+    "resolve any conflicts, and force-push with --force-with-lease. Do NOT merge the base branch",
+    "into yours (it breaks the linear-history gate). If something genuinely blocks this, say",
+    "specifically what you need.",
+  ].join("\n");
+}
+
+/** Hand-back when the rebase loop can't get the PR mergeable after repeated attempts (e.g. a
+ *  genuine conflict the agent can't resolve). Plain English, mirrors CI_CAP_MESSAGE — stored as
+ *  the autopilotQuestion hand-back summary, never i18n'd. */
+export const REBASE_CAP_MESSAGE =
+  "Autopilot couldn't get the PR into a mergeable state after repeated rebases — over to you.";
 
 /** Agent-facing steer when a drain session reports complete but produced NO diff and NO PR. NOT UI
  *  chrome — typed into the agent PTY, never i18n'd (Shepherd owns this text). */
@@ -111,6 +134,9 @@ export interface AutopilotDeps {
   /** Whether this session is in full-auto (autopilot ∧ auto-merge). When true, autopilot does
    *  NOT stand down at PR-open — it keeps unblocking procedural gates so a rebase can finish. */
   fullAuto: (id: string) => boolean;
+  /** The latest critic verdict for a session, or null (store.getReview). Read by the post-PR
+   *  rebase re-engagement to gate on a clean critic sign-off before steering a rebase. */
+  getReview: (id: string) => ReviewVerdict | null;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
@@ -122,9 +148,14 @@ export interface AutopilotDeps {
   /** Fired after any autopilot-field mutation (pause / clear) so the wiring can emit a live event. */
   onState?: (id: string) => void;
   stepCap?: number;
+  /** Max consecutive rebase steers (on a single behind-streak) before handing back — defaults to
+   *  DEFAULT_REBASE_CAP. Wired from config.autoMergeRebaseCap so it tracks the merge train's cap. */
+  rebaseCap?: number;
 }
 
 const DEFAULT_STEP_CAP = 10;
+/** Fallback when no rebaseCap dep is supplied (mirrors config.autoMergeRebaseCap's default). */
+const DEFAULT_REBASE_CAP = 5;
 /** Shown when the pre-PR runaway guard trips rather than a classifier question. */
 const CAP_MESSAGE = "Autopilot reached its step limit without opening a PR — over to you.";
 /** Hand-back when the post-PR CI-fix loop exhausts its step budget. Distinct from CAP_MESSAGE:
@@ -150,9 +181,11 @@ export class AutopilotService {
   private openSeen = new Set<string>();
   private ciNudged = new Map<string, string>();
   private stepCap: number;
+  private rebaseCap: number;
 
   constructor(private deps: AutopilotDeps) {
     this.stepCap = deps.stepCap ?? DEFAULT_STEP_CAP;
+    this.rebaseCap = deps.rebaseCap ?? DEFAULT_REBASE_CAP;
   }
 
   /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
@@ -328,6 +361,10 @@ export class AutopilotService {
     // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
     // waiting for the next tick. reEngageCi returns true when it owned the session (steered/paused).
     if (this.reEngageCi(id)) return;
+    // Same idea for a non-full-auto session idling on a review-passed PR that's behind its base:
+    // steer a rebase BEFORE classifying (the classifier would otherwise mark this idle session
+    // finished/unknown, and eligible() stands it down post-PR so consider() is a no-op anyway).
+    if (this.reEngageRebase(id)) return;
     let tail: string[] = [];
     try {
       tail = this.deps.readTail(id);
@@ -481,17 +518,110 @@ export class AutopilotService {
     return true;
   }
 
+  /** Re-engage an idle, review-passed, NON-full-auto session whose open PR is behind its base
+   *  (or conflicting) by steering a rebase — the autopilot counterpart to the merge train, which
+   *  only carries full-auto sessions all the way to a merge. A non-full-auto session stands down
+   *  at PR-open (see eligible()), and the train never looks at it, so without this nobody steers a
+   *  rebase when its PR falls behind after a passing review. Reads the cached PR snapshot (prGit)
+   *  directly so it re-fires on an UNCHANGED behind head. Returns true when it OWNED the session
+   *  (steered or paused) so onDone can short-circuit before classifying.
+   *
+   *  Gate, DELIBERATELY STRICTER than automerge-core.needsRebase on the review check: the PR must
+   *  be open, NOT a draft, green, and — when critic is enabled — carry a CLEAN, head-matched critic
+   *  verdict (signedOff("critic", …): commented + zero findings + reviewHeadSha === head). The
+   *  train's needsRebase rebases even with no verdict yet (reviewDecision === null); we do not,
+   *  both because the operator's trigger is a review that PASSED and because requiring zero findings
+   *  guarantees review.ts's auto-address steer loop (which only fires on findings) is NOT also
+   *  driving this idle session — no double-steer.
+   *
+   *  Draft PRs are skipped: a rebase alone can't make a draft mergeable (it must be marked
+   *  ready-for-review first), and a draft's mergeStateStatus is DRAFT, which masks BEHIND.
+   *
+   *  "Behind" is read from the cached GitState's mergeStateStatus rather than a git fetch (the
+   *  merge train uses worktree.behindBase); on forges that don't supply mergeStateStatus (Gitea /
+   *  local) only the conflict signal (mergeable === false) fires.
+   *
+   *  Bound by rebaseCap on autoMergeRebaseCount, NOT a per-head dedup: we re-steer on every idle
+   *  episode and count each attempt regardless of whether the steer lands (a dead/unresumable pane
+   *  still marches to the cap → guaranteed clean hand-back, mirroring reEngageCi). A per-head guard
+   *  would steer once then wedge BELOW the cap when the agent idles on a still-behind head it can't
+   *  unstick — so the cap (the operator's chosen genuine-conflict escape hatch) would never fire.
+   *  The counter is reset once the PR is current+conflict-free again (a fresh cap per behind-streak,
+   *  mirroring the train's resetClearedCounters), and on operator re-engage / PR-open (onStatus /
+   *  onPrOpen). For non-full-auto sessions the merge train never touches autoMergeRebaseCount, so
+   *  the two paths don't collide on it. */
+  private reEngageRebase(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived") return false;
+    const git = this.rebaseCandidate(s);
+    if (!git) return false;
+    if (git.mergeStateStatus !== "behind" && git.mergeable !== false) {
+      // PR is current + conflict-free again → clear any spent rebase budget so a future re-behind
+      // gets a fresh cap (mirrors the merge train's resetClearedCounters).
+      if (s.autoMergeRebaseCount > 0 || s.autoMergeRebaseHead !== null)
+        this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
+      return false;
+    }
+    // Cap BEFORE any bump/steer: hand back rather than thrash on a PR the agent can't unstick.
+    if (s.autoMergeRebaseCount >= this.rebaseCap) {
+      this.pause(s, REBASE_CAP_MESSAGE);
+      return true;
+    }
+    // Count the attempt regardless of whether the steer lands (see the no-dedup note above).
+    this.deps.store.setAutoMergeState(id, { rebaseCount: s.autoMergeRebaseCount + 1 });
+    void this.sendSteer(s, rebaseSteer(s.baseBranch)).catch((err) =>
+      console.warn("[autopilot] rebase re-engage steer:", err),
+    );
+    return true;
+  }
+
+  /** Eligibility half of reEngageRebase: returns the open PR's snapshot when the session is a
+   *  rebase candidate (idle territory, NOT full-auto, open + non-draft + green, and review-passed),
+   *  else null. The behind/conflict + cap + steer decision stays in the caller. Split out to keep
+   *  each piece simple. */
+  private rebaseCandidate(s: Session): GitState | null {
+    if (s.mergingSince !== null) return null; // merge-train-marked → the train owns its rebase
+    if (!this.enabled(s)) return null;
+    if (s.autopilotPaused || s.autopilotComplete) return null; // handed back / terminal
+    if (this.pending.has(s.id)) return null; // a classify (onDone/onBlock) is mid-flight — don't race it
+    if (this.deps.fullAuto(s.id)) return null; // full-auto is the merge train's job, not autopilot's
+    const git = this.deps.prGit(s.id);
+    if (!git || git.state !== "open" || git.isDraft || git.checks !== "success") return null;
+    return this.rebaseReviewPassed(s, git) ? git : null;
+  }
+
+  /** Review gate for a rebase steer, DELIBERATELY STRICTER than automerge-core.needsRebase: when
+   *  critic is enabled, require a CLEAN, head-matched critic sign-off (reuse the tested signedOff
+   *  predicate — commented + zero findings + reviewHeadSha === head). needsRebase rebases even with
+   *  no verdict yet; we do not, both because the operator's trigger is a review that PASSED and
+   *  because requiring zero findings guarantees review.ts's auto-address steer loop (which only
+   *  fires on findings) is NOT also driving this idle session. Critic off → green CI alone suffices. */
+  private rebaseReviewPassed(s: Session, git: GitState): boolean {
+    if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
+    const review = this.deps.getReview(s.id);
+    return signedOff("critic", {
+      humanApproved: git.latestReview?.state === "approved",
+      reviewDecision: review?.decision ?? null,
+      findings: review?.findings ?? [],
+      reviewHeadSha: review?.headSha ?? null,
+      headSha: git.headSha ?? null,
+    });
+  }
+
   /** Recurring re-engagement sweep (driven by a ~30s setInterval in index.ts). Iterates all
-   *  sessions and re-engages the idle ones stuck on a red PR. A timer fires regardless of events,
-   *  so it is the one trigger that reliably re-fires while an agent idles on an UNCHANGED red head
-   *  — the case onGit/considerCi provably cannot reach. Only the idle filter lives here (status
-   *  done/idle, i.e. NOT running/blocked — mirrors the active grouping at poller.ts:314); all
-   *  eligibility/red/full-auto checks live inside reEngageCi. */
+   *  sessions and re-engages the idle ones stuck on a red PR (reEngageCi) or behind-base
+   *  non-mergeable PR (reEngageRebase). A timer fires regardless of events, so it is the one
+   *  trigger that reliably re-fires while an agent idles on an UNCHANGED head — the case
+   *  onGit/considerCi provably cannot reach. Only the idle filter lives here (status done/idle,
+   *  i.e. NOT running/blocked — mirrors the active grouping at poller.ts:314); all
+   *  eligibility/red/full-auto checks live inside the re-engage helpers. The two are disjoint by
+   *  the full-auto gate (reEngageCi acts only on full-auto, reEngageRebase only on non-full-auto),
+   *  so the guard just avoids a redundant second call when the first already owned the session. */
   async tick(): Promise<void> {
     for (const s of this.deps.store.list()) {
       if (s.status === "archived") continue;
       if (s.status === "running" || s.status === "blocked") continue; // working — don't interrupt
-      this.reEngageCi(s.id);
+      if (!this.reEngageCi(s.id)) this.reEngageRebase(s.id);
     }
   }
 }

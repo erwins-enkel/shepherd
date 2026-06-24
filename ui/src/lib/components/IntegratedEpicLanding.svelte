@@ -147,7 +147,7 @@
     </button>
   {/if}
   {#if rebasePausedLabel}
-    <span class="chip-rebase-paused" id="rebase-paused-chip" use:coachTarget={"rebase-paused-chip"}
+    <span class="chip-rebase-paused" use:coachTarget={"rebase-paused-chip"}
       >{rebasePausedLabel}</span
     >
   {/if}

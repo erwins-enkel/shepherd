@@ -914,3 +914,57 @@ test("reconcileEpics: caps the intraday list to RUNDOWN_EPICS_CAP", async () => 
   await svc.reconcileEpics();
   expect(store.getHerdDigest(dayKey)?.epicsToLand.length).toBe(RUNDOWN_EPICS_CAP);
 });
+
+// ── #1071: paused landing-rebase epics surfaced as Tier-1 ────────────────────
+
+test("generate: paused epic (cap) → spawns, row carries epicsToLand with pausedReason", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const pausedEpic = sampleEpic({ pausedReason: "cap" });
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [pausedEpic],
+  });
+
+  expect(await svc.generate()).toBe("started");
+  const row = store.getHerdDigest(dayKeyFor(DAY1));
+  expect(row?.epicsToLand).toEqual([pausedEpic]);
+  expect(row?.epicsToLand.at(0)?.pausedReason).toBe("cap");
+});
+
+test("generate: paused epic (driver) → spawns, epicsToLand carries driver reason", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const driverEpic = sampleEpic({ parent: 9, pausedReason: "driver" });
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [driverEpic],
+  });
+
+  expect(await svc.generate()).toBe("started");
+  const row = store.getHerdDigest(dayKeyFor(DAY1));
+  expect(row?.epicsToLand.at(0)?.pausedReason).toBe("driver");
+});
+
+test("generate: null pausedReason (ready) → epicsToLand has no pausedReason field", async () => {
+  const store = makeStore([]);
+  const herdr = makeHerdr();
+  const readyEpic = sampleEpic(); // no pausedReason
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    hasOpenLandingEpics: () => true,
+    landingReadyEpics: async () => [readyEpic],
+  });
+
+  expect(await svc.generate()).toBe("started");
+  const row = store.getHerdDigest(dayKeyFor(DAY1));
+  expect(row?.epicsToLand.at(0)?.pausedReason).toBeUndefined();
+});

@@ -1220,30 +1220,54 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
     epicReadyCache = null; // nothing open → drop any stale cache so a just-landed epic clears at once
     return [];
   }
-  // Cache key = the set of open epics. A change (one landed, or a new one opened) busts the cache so
-  // the panel never shows an already-landed "land this epic"; the TTL only throttles re-probing the
-  // forge when the SAME set's CI-readiness might have flipped.
+  // Cache key = the set of open epics + their pause states. A change (landed, opened, or pause
+  // reason flip) busts the cache; the TTL only throttles re-probing the forge for CI-readiness
+  // flips on the same set.
   const key = openRows
-    .map((r) => `${r.repoPath}#${r.parentIssueNumber}`)
+    .map((r) => `${r.repoPath}#${r.parentIssueNumber}:${r.landingRebasePauseReason ?? ""}`)
     .sort()
     .join(",");
   if (epicReadyCache && epicReadyCache.key === key && now - epicReadyCache.ts < EPIC_READY_TTL_MS)
     return epicReadyCache.val;
-  const epics: CompletedEpic[] = openRows.map(
-    ({ childrenJson, landingAttempts, landingRebaseCount, landingRebaseDriverMisses, ...rest }) => {
-      void landingAttempts;
-      void landingRebaseCount;
-      void landingRebaseDriverMisses;
-      return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
-    },
-  );
+
+  // Paused rows (#1071): non-null landingRebasePauseReason → surface immediately as Tier-1 items
+  // without a forge probe (pause reason is already in the DB; no CI-readiness gate applies).
+  const pausedItems: RundownEpicItem[] = openRows
+    .filter((r) => r.landingRebasePauseReason !== null)
+    .map((r) => ({
+      repo: r.repoPath,
+      parent: r.parentIssueNumber,
+      title: r.parentTitle,
+      landingPr: r.landingPrNumber,
+      stranded: false, // paused items are not "stranded" (different escalation path)
+      pausedReason: r.landingRebasePauseReason as "cap" | "conflict" | "driver",
+    }));
+
+  // Ready rows: probe the forge (TTL-memoized) for CI-readiness; exclude already-paused rows so a
+  // paused row can't be double-injected if it somehow has landingReady set from a stale enrichment.
+  const epics: CompletedEpic[] = openRows
+    .filter((r) => r.landingRebasePauseReason === null)
+    .map(
+      ({
+        childrenJson,
+        landingAttempts,
+        landingRebaseCount,
+        landingRebaseDriverMisses,
+        ...rest
+      }) => {
+        void landingAttempts;
+        void landingRebaseCount;
+        void landingRebaseDriverMisses;
+        return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
+      },
+    );
   await enrichLandingEpics(epics, {
     getEpicIntegrationBranch: (repoPath, parent) =>
       store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => resolveForge(repoPath),
     now,
   });
-  const val: RundownEpicItem[] = epics
+  const readyItems: RundownEpicItem[] = epics
     .filter((e) => e.landingState === "open" && e.landingReady === true)
     .map((e) => ({
       repo: e.repoPath,
@@ -1252,6 +1276,8 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       landingPr: e.landingPrNumber,
       stranded: e.landingStranded === true,
     }));
+
+  const val: RundownEpicItem[] = [...pausedItems, ...readyItems];
   epicReadyCache = { key, ts: now, val };
   return val;
 };

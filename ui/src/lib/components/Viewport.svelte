@@ -590,6 +590,7 @@
     unitId; // on unit switch: disarm decommission + default back to terminal tab
     armed = false;
     leftovers = [];
+    decomTarget = null; // drop any captured decommission target from the prior unit
     tab = "term";
     ended = false;
     resumeFailed = false;

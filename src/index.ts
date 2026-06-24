@@ -977,6 +977,7 @@ const autopilot = new AutopilotService({
     const s = store.get(id);
     return !!s && isFullAuto(s, store.getRepoConfig(s.repoPath));
   },
+  getReview: (id) => store.getReview(id),
   refreshPr: (id) => prPoller.pollSession(id),
   onPause: (id, question) => {
     const s = store.get(id);
@@ -1012,6 +1013,7 @@ const autopilot = new AutopilotService({
       });
   },
   stepCap: config.autopilotStepCap,
+  rebaseCap: config.autoMergeRebaseCap,
 });
 
 // Drive autopilot off the same poller events the rest of the system already emits.

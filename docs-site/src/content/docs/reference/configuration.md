@@ -46,6 +46,21 @@ lines), read by the systemd unit if present.
 
 See [Operating Shepherd](/operating/) for the host-level `/etc/fstab` belt.
 
+## Main agent terminal renderer (research preview)
+
+Every spawned `claude` runs on Claude Code's **classic** renderer by default —
+Shepherd's poller/blocked classifier scrape the rendered viewport and the web
+terminal forwards xterm keystrokes, both of which assume the classic prompt.
+The operator can opt the **main agent session** (satellites always stay classic)
+into Claude Code's opt-in fullscreen renderer. The choice applies to newly
+spawned/resumed sessions only and is also configurable from the Settings panel
+(persisted in the SQLite `settings` table); the env vars below seed a fresh DB.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_TUI_FULLSCREEN` | `0` (off) | Set `1` to opt the main agent session into Claude Code's fullscreen renderer (research preview). Implies `SHEPHERD_TUI_DISABLE_MOUSE`. |
+| `SHEPHERD_TUI_DISABLE_MOUSE` | `0` (off) | Set `1` to disable Claude Code mouse capture for the main agent session, so fullscreen mouse-capture escape sequences don't leak into the web terminal's keystroke stream. |
+
 ## Documentation automation (PR-gated doc agent)
 
 Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)

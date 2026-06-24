@@ -163,6 +163,7 @@ class RepoConfigStore {
   autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
   autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
+  manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
@@ -190,6 +191,7 @@ class RepoConfigStore {
     this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
     this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
     this.autoOptimize = { ...this.autoOptimize, [repoPath]: c.autoOptimizeFlagged };
+    this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: c.manualStepsIssueEnabled };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
@@ -256,6 +258,7 @@ class RepoConfigStore {
         | "autoMergeEnabled"
         | "buildQueueEnabled"
         | "autoOptimizeFlagged"
+        | "manualStepsIssueEnabled"
         | "planGateEnabled"
         | "draftMode"
         | "signoffAuthority"
@@ -414,6 +417,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleManualStepsIssue(repoPath: string) {
+    const prev = this.manualStepsIssue[repoPath];
+    const next = !this.manualStepsIssueOn(repoPath);
+    this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { manualStepsIssueEnabled: next }, () => {
+      this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: prev };
+    });
+  }
+
   async togglePlanGate(repoPath: string) {
     const prev = this.planGate[repoPath];
     const next = !this.isPlanGateEnabled(repoPath);
@@ -477,6 +489,10 @@ class RepoConfigStore {
 
   isBuildQueueEnabled(repoPath: string): boolean {
     return this.buildQueue[repoPath] ?? false;
+  }
+
+  manualStepsIssueOn(repoPath: string): boolean {
+    return this.manualStepsIssue[repoPath] ?? false;
   }
 
   autoOptimizeOn(repoPath: string): boolean {

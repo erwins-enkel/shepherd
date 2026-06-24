@@ -161,7 +161,8 @@ export type HoldCode =
   | "recap-attention"
   | "merging"
   | "merge-rebasing"
-  | "ready-merge";
+  | "ready-merge"
+  | "manual-steps";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -173,6 +174,7 @@ export interface HoldParams {
   pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
   rebaseCount?: number; // merge-rebasing: auto-rebase attempts
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+  steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
 }
 
 export interface HoldReason {
@@ -511,6 +513,9 @@ export interface RepoConfig {
   repoMode: "forge" | "lightweight";
   /** When a rule starts failing, rewrite it once automatically before auto-retirement eligibility. */
   autoOptimizeFlagged: boolean;
+  /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps (#1061).
+   *  Default off — outbound write gated behind explicit per-repo opt-in. */
+  manualStepsIssueEnabled: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -731,6 +736,43 @@ export interface Session {
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */
   haltedAt: number | null;
+  /** Manual operator steps detected in this session's PR body (#1059); [] when none/undetected. */
+  manualSteps: ManualStep[];
+  /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
+  manualStepsAckedAt: number | null;
+}
+
+/** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
+ *  server `ManualStep` shape in src/manual-steps.ts. */
+export interface ManualStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
+}
+
+/** One materialized post-merge step (#1061): a ManualStep frozen at merge + a per-step done stamp.
+ *  Mirrors the server `PostMergeStep` in src/types.ts. */
+export interface PostMergeStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
+  doneAt: number | null;
+}
+
+/** Durable post-merge materialization of a merged session's outstanding manual operator steps
+ *  (#1061, epic #1056 P3). Mirrors the server `PostMergeSteps` in src/types.ts. */
+export interface PostMergeSteps {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  prNumber: number | null;
+  prTitle: string;
+  steps: PostMergeStep[];
+  trackingIssueUrl: string | null;
+  trackingIssueNumber: number | null;
+  createdAt: number;
+  updatedAt: number;
+  clearedAt: number | null;
 }
 
 export interface SessionUsage {
@@ -1051,6 +1093,10 @@ export type WsEvent =
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };
     }
   | { event: "session:git"; data: { id: string; git: GitState } }
+  | {
+      event: "session:manual-steps";
+      data: { id: string; manualSteps: ManualStep[]; manualStepsAckedAt?: number | null };
+    }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
   | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }
@@ -1092,6 +1138,7 @@ export type WsEvent =
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } }
   | { event: "held:changed"; data: { count: number } }
+  | { event: "post-merge-steps:changed"; data: Record<string, never> }
   | {
       event: "doc-agent:done";
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };

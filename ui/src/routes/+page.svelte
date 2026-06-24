@@ -32,6 +32,7 @@
     getCompletedEpics,
     dismissCompletedEpic,
     ackEpicMigrations,
+    ackManualSteps,
     landEpic,
     getEpic,
     getDiagnostics,
@@ -61,6 +62,7 @@
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
   import { doneSessions } from "$lib/done.svelte";
+  import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import { basename, shouldCloseLearningsDrawer } from "$lib/components/learnings-drawer";
@@ -869,6 +871,12 @@
   // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
+  // Panel-only lenses (rundown + owed, #1061): the rail swaps in a dedicated panel and the main
+  // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
+  const panelOnlyLens = $derived(herdFilter === "rundown" || herdFilter === "owed");
+  const panelMainHint = $derived(
+    herdFilter === "owed" ? m.owed_main_hint() : m.rundown_main_hint(),
+  );
 
   // Done lens: separate selection state. selectedId resolves against store.sessions
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
@@ -884,6 +892,12 @@
     if (herdFilter !== "done") return;
     void doneSessions.load();
     void recaps.load();
+  });
+  // Owed lens (#1061): (re)load the durable post-merge steps whenever the lens opens. Live updates
+  // arrive via the `post-merge-steps:changed` WS event (handled in store.svelte.ts).
+  $effect(() => {
+    if (herdFilter !== "owed") return;
+    void postMergeStepsStore.load();
   });
   $effect(() => {
     if (herdFilter !== "done") return;
@@ -1611,6 +1625,22 @@
     }
   }
 
+  // Acknowledge a session's manual operator steps (#1060), clearing its auto-merge gate. The
+  // server emits session:manual-steps with the fresh ackedAt on success, so the chip/CTA clear
+  // live via the WS handler — no optimistic mutation needed. On failure, a persistent, tone-
+  // namespaced keyed toast (shared store, not transient info) so a flapping failure can't stack.
+  async function onAckManualSteps(id: string) {
+    try {
+      await ackManualSteps(id);
+    } catch {
+      toasts.info(m.unitrow_ack_manual_steps_failed(), {
+        alert: true,
+        duration: null,
+        key: `ack-manual-steps-fail:${id}`,
+      });
+    }
+  }
+
   // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
   // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
   async function onLandEpic(repoPath: string, parent: number) {
@@ -1817,8 +1847,9 @@
             onrundownepic={selectRundownEpic}
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
+            onackmanualsteps={onAckManualSteps}
           />
-          {#if store.sessions.length === 0 && herdFilter !== "done" && herdFilter !== "rundown"}
+          {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
             <BacklogView
               payload={backlog}
               mobile={true}
@@ -1976,12 +2007,13 @@
             onrundownepic={selectRundownEpic}
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
+            onackmanualsteps={onAckManualSteps}
           />
         {/if}
-        {#if herdFilter === "rundown"}
-          <!-- Rundown lens: the digest renders inside the rail panel (left); the main
-               area shows a neutral pointer so the right pane never reads as empty. -->
-          <div class="empty">{m.rundown_main_hint()}</div>
+        {#if panelOnlyLens}
+          <!-- Rundown + Owed lenses render their panel inside the rail (left); the main area
+               shows a neutral pointer (panelMainHint) so the right pane never reads as empty. -->
+          <div class="empty">{panelMainHint}</div>
         {:else if herdFilter === "done"}
           <!-- Done lens: read-only recap for the picked archived session -->
           {#if doneSelected}

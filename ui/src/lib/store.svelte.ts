@@ -31,6 +31,7 @@ import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import { offerUpdateMain } from "./pull-offer";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
+import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -373,6 +374,16 @@ export class HerdStore {
           haltedAt: ev.data.haltedAt,
         });
         return true;
+      case "session:manual-steps":
+        this.patchSession(ev.data.id, {
+          manualSteps: ev.data.manualSteps,
+          // ackedAt rides along on the ack broadcast (#1060) so the CTA clears on every client;
+          // the P1 detection emit omits it (steps changed, ack unchanged) → leave it untouched.
+          ...(ev.data.manualStepsAckedAt !== undefined
+            ? { manualStepsAckedAt: ev.data.manualStepsAckedAt }
+            : {}),
+        });
+        return true;
       default:
         return false;
     }
@@ -545,6 +556,10 @@ export class HerdStore {
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         buildQueuesStore.upsert(ev.data);
+        break;
+      case "post-merge-steps:changed":
+        // Durable post-merge steps (#1061): refresh the Owed lens store if it's been opened.
+        void postMergeStepsStore.refreshIfLoaded();
         break;
       case "held:changed":
         this.heldCount = ev.data.count;

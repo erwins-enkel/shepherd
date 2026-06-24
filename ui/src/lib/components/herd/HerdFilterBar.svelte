@@ -78,6 +78,18 @@
       onstatusfilter?.(null);
     }}>{m.herd_rundown_filter()}</button
   >
+  <button
+    type="button"
+    class="micro fbtn"
+    class:active={statusFilter == null && filter === "owed"}
+    title={m.herd_owed_title()}
+    aria-pressed={statusFilter == null && filter === "owed"}
+    use:coachTarget={"owed-lens"}
+    onclick={() => {
+      filter = "owed";
+      onstatusfilter?.(null);
+    }}>{m.herd_owed_filter()}</button
+  >
   {#if statusFilter != null}
     <!-- aria-label carries status + clear action; the visible "✕" glyph would
        otherwise be read aloud without conveying what the chip does -->

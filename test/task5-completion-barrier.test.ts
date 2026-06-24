@@ -264,6 +264,8 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     rebaseCount: 0,
     rebaseSteeredHead: null,
     mergeBlocked: false,
+    manualSteps: [],
+    manualStepsAckedAt: null,
   };
   const state: MergeRepoState = {
     enabled: true,

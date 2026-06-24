@@ -79,6 +79,8 @@ const EN: CopyMap = {
   "merge-rebasing": (p) => `Rebasing in the merge train (attempt ${p.rebaseCount ?? "?"}).`,
   "ready-merge": (p) =>
     `Ready to merge${p.pr !== undefined ? ` (PR #${p.pr})` : ""} — waiting on you.`,
+  "manual-steps": (p) =>
+    `${p.steps ?? 1} manual step${(p.steps ?? 1) === 1 ? "" : "s"} to do before merge — ack to proceed.`,
 };
 
 const DE: CopyMap = {
@@ -118,6 +120,8 @@ const DE: CopyMap = {
   "merge-rebasing": (p) => `Rebase im Merge-Train (Versuch ${p.rebaseCount ?? "?"}).`,
   "ready-merge": (p) =>
     `Bereit zum Mergen${p.pr !== undefined ? ` (PR #${p.pr})` : ""} — wartet auf dich.`,
+  "manual-steps": (p) =>
+    `${p.steps ?? 1} manuelle${(p.steps ?? 1) === 1 ? "r" : ""} Schritt${(p.steps ?? 1) === 1 ? "" : "e"} vor dem Mergen — bestätigen zum Fortfahren.`,
 };
 
 /** Server-side localized copy for a hold reason. Locale "de" → German, else English. */

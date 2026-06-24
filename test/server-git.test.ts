@@ -53,6 +53,8 @@ const SESSION: Session = {
   archivedAt: null,
   haltReason: null,
   haltedAt: null,
+  manualSteps: [],
+  manualStepsAckedAt: null,
 };
 
 function fakeForge(

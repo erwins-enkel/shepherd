@@ -17,6 +17,7 @@
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import RundownPanel from "./RundownPanel.svelte";
+  import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -69,6 +70,7 @@
     onrundownepic = undefined,
     focusEpic = null,
     onackmigrationsepic = undefined,
+    onackmanualsteps = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -168,6 +170,8 @@
     focusEpic?: { repo: string; parent: number } | null;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
+    // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
+    onackmanualsteps?: (id: string) => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -289,6 +293,7 @@
     workingBlocked,
     quotaKindFor,
     holdFor,
+    onackmanualsteps,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
@@ -436,6 +441,10 @@
     {#if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
+    {:else if filter === "owed"}
+      <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
+         Panel-only (no session list), persists beyond the Done lens's 48h window. -->
+      <PostMergeStepsPanel />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
@@ -479,7 +488,7 @@
         <HerdGroup ctx={rowCtx} {...grp} />
       {/each}
     {/if}
-    {#if filter !== "done" && filter !== "rundown"}
+    {#if filter !== "done" && filter !== "rundown" && filter !== "owed"}
       <IntegratedEpicsBand
         epics={completedEpics}
         ondismiss={ondismissepic ?? (() => {})}

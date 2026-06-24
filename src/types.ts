@@ -1,5 +1,6 @@
 import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
+import type { ManualStep } from "./manual-steps";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -81,6 +82,46 @@ export interface Session {
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */
   haltedAt: number | null;
+  /** Manual operator steps detected in this session's PR body (#1059); [] when none/undetected. */
+  manualSteps: ManualStep[];
+  /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
+  manualStepsAckedAt: number | null;
+}
+
+/**
+ * One manual operator step frozen into the durable post-merge materialization (#1061, epic #1056
+ * P3): a {@link ManualStep} captured at merge plus a per-step `doneAt`. P2's ack is set-level (no
+ * per-step done flag), so this is where ticking-off lives.
+ */
+export interface PostMergeStep {
+  id: string;
+  text: string;
+  postMerge: boolean;
+  /** Epoch ms the operator ticked this step done; null while still owed. */
+  doneAt: number | null;
+}
+
+/**
+ * Durable post-merge materialization of a merged session's outstanding manual operator steps
+ * (#1061, epic #1056 P3). One row per merged session, kept in its own table that is DELIBERATELY
+ * excluded from the archived-session prune cascade, so owed steps survive both teardown and the
+ * prune window. Display fields are denormalized so the Owed panel still renders fully after the
+ * underlying `sessions` row is pruned.
+ */
+export interface PostMergeSteps {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  prNumber: number | null;
+  prTitle: string;
+  steps: PostMergeStep[];
+  /** Tracking issue opened on merge when the repo opt-in is on; null otherwise. */
+  trackingIssueUrl: string | null;
+  trackingIssueNumber: number | null;
+  createdAt: number;
+  updatedAt: number;
+  /** Stamped when every step is done OR the operator dismisses; null = still owed. */
+  clearedAt: number | null;
 }
 
 /**
@@ -809,7 +850,8 @@ export type HoldCode =
   | "recap-attention"
   | "merging"
   | "merge-rebasing"
-  | "ready-merge";
+  | "ready-merge"
+  | "manual-steps";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -821,6 +863,7 @@ export interface HoldParams {
   pr?: number; // ci-red/awaiting-merge/train-error/merging/ready-merge
   rebaseCount?: number; // merge-rebasing: auto-rebase attempts
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
+  steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
 }
 
 export interface HoldReason {

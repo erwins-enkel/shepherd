@@ -36,6 +36,7 @@ import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { makeProductionForgeResolver } from "./forge/resolve";
 import { EmptyDiffError, type GitState } from "./forge/types";
+import { parseManualSteps } from "./manual-steps";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
@@ -101,6 +102,7 @@ import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService } from "./recap";
+import { PostMergeStepsService } from "./post-merge-steps";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
@@ -531,6 +533,39 @@ events.subscribe((event, data) => {
   if (status !== "running") prPoller.pollSession(id);
 });
 
+// Manual operator steps (#1059): when a session's PR body is (re)fetched, parse any
+// shepherd:manual-steps carrier + `Manual-Step:` trailers and persist them on the session, so the
+// backlog chip + Done recap surface them. Throttled on head SHA so we don't re-`gh pr view` on
+// every CI/review transition (`session:git` fires on each one) — mirrors drain.ts's
+// ≤1/child/~60s prReviewMeta throttle. In-memory marker → at most one re-fetch per session after
+// a restart. Persist + push only when the parsed steps differ from what's stored.
+const manualStepsHeadSeen = new Map<string, string>();
+const detectAndPersistManualSteps = async (id: string, prNumber: number): Promise<void> => {
+  const s = store.get(id);
+  if (!s) return;
+  const forge = resolveForge(s.repoPath);
+  if (!forge?.prReviewMeta) return; // no forge / host without a PR-body API (e.g. Gitea) — skip
+  try {
+    const meta = await forge.prReviewMeta(prNumber);
+    if (!meta) return;
+    const steps = parseManualSteps(meta.body);
+    if (JSON.stringify(steps) === JSON.stringify(s.manualSteps)) return;
+    store.setSessionManualSteps(id, steps);
+    events.emit("session:manual-steps", { id, manualSteps: steps });
+  } catch (err) {
+    console.warn(`[manual-steps] detection for ${id} pr#${prNumber} failed:`, err);
+  }
+};
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: GitState };
+  if (git.number == null || (git.state !== "open" && git.state !== "merged")) return;
+  const headSha = git.headSha ?? "";
+  if (manualStepsHeadSeen.get(id) === headSha) return; // unchanged head — skip the fetch
+  manualStepsHeadSeen.set(id, headSha);
+  void detectAndPersistManualSteps(id, git.number);
+});
+
 // Drive tailscale serve mappings: register when a preview port binds, unregister
 // on teardown. Listens on session:preview (NOT session:preview-serve to avoid
 // feedback loops). No-op when previewAutoServe disabled or previewHost unresolved.
@@ -862,6 +897,28 @@ events.subscribe((event, data) => {
   void docAgent
     .onMergedPr(s.repoPath, git.number, git.title, s.baseBranch)
     .catch((err) => console.warn("[doc-agent] onMergedPr failed:", err));
+});
+// Manual operator steps — durable post-merge materialization (#1061, epic #1056 P3). On a managed
+// session's PR merging, freeze its manual steps into the archive-decoupled post_merge_steps table
+// (so the Owed lens + recap keep them after teardown) and, behind a per-repo opt-in, open a GitHub
+// tracking issue linked back to the PR. onMerged is internally defensive (re-derives steps when
+// detection hasn't run, never throws); this subscriber's .catch is the backstop so a failure can
+// never strand the independent archive flow, and every failure mode recovers on the merged-event
+// warm-tick replay (idempotent on the sessionId PK + the tracking-issue null-URL guard).
+const postMergeSteps = new PostMergeStepsService({
+  store,
+  resolveForge,
+  emitChange: () => events.emit("post-merge-steps:changed", {}),
+});
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: GitState };
+  if (git.state !== "merged") return;
+  const s = store.get(id);
+  if (!s) return;
+  void postMergeSteps
+    .onMerged(s, git.number ?? null, git.title ?? "")
+    .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
 setInterval(() => {
   if (maintenance.active) return;

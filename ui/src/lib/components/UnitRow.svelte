@@ -67,6 +67,7 @@
     workingBlocked = {},
     quotaKind = null,
     hold = undefined,
+    onackmanualsteps,
   }: {
     session: Session;
     selected: boolean;
@@ -102,6 +103,8 @@
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     // hold reason for this session; when present renders a muted "why parked" subline
     hold?: HoldReason;
+    // when provided, the manual-steps chip gains an "Ack" CTA that clears the auto-merge gate (#1060)
+    onackmanualsteps?: (id: string) => void;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -111,6 +114,13 @@
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
+
+  // True when an un-acked, non-POST-MERGE manual step holds this session's auto-merge (#1060).
+  // POST-MERGE-only steps never gate, so they show the chip but no Ack CTA. Mirrors the server
+  // hasBlockingManualSteps predicate (src/automerge-core.ts).
+  const hasBlockingManualSteps = $derived(
+    session.manualStepsAckedAt == null && session.manualSteps.some((s) => !s.postMerge),
+  );
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
   const repoFiltered = $derived(repoFilter === session.repoPath);
   function toggleRepoFilter() {
@@ -436,6 +446,27 @@
           ? modelLabel(session.model)
           : m.newtask_model_default()}</span
       >
+      {#if session.manualSteps.length > 0}
+        <span
+          class="chip-manual-steps"
+          title={m.unitrow_manual_steps({ count: session.manualSteps.length })}
+        >
+          {m.unitrow_manual_steps({ count: session.manualSteps.length })}
+        </span>
+        {#if hasBlockingManualSteps && onackmanualsteps}
+          <button
+            type="button"
+            class="manual-steps-ack"
+            title={m.unitrow_ack_manual_steps()}
+            onclick={(e) => {
+              e.stopPropagation();
+              onackmanualsteps?.(session.id);
+            }}
+          >
+            {m.unitrow_ack_manual_steps()}
+          </button>
+        {/if}
+      {/if}
       {#if showStepper && !session.readyToMerge}
         <span class="meta-stepper">
           <Stepper
@@ -831,6 +862,45 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* amber "N manual steps" chip (#1059) — modeled on the epic .chip-migrations recipe; amber
+     (--status-warn) reads as caution-pending, never the actionable-complete green. */
+  .chip-manual-steps {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+  }
+  /* "Ack" CTA beside the manual-steps chip — warn-toned, micro, clears the auto-merge gate (#1060) */
+  .manual-steps-ack {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: transparent;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s,
+      background 0.12s;
+  }
+  .manual-steps-ack:hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+  }
+  .manual-steps-ack:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   /* thin stage stepper on the quietest row — pushed to the right edge */
   .meta-stepper {

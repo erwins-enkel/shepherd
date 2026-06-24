@@ -1547,4 +1547,38 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_scroll_to_end_key_title",
     bodyKey: "feat_scroll_to_end_key_body",
   },
+  {
+    // Shepherd now detects manual operator steps declared in a PR's `shepherd:manual-steps` block
+    // (flip a flag, set an env var, run a backfill) and surfaces them as an amber chip on the
+    // session row + a checklist in the Done recap — so they aren't lost when the PR lands. No
+    // targetId — the chip mounts only when steps are detected; surface via the What's-New drawer
+    // only. v1.36.0 is the latest released tag → ships in 1.37.0.
+    id: "manual-operator-steps",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_manual_operator_steps_title",
+    bodyKey: "feat_manual_operator_steps_body",
+  },
+  {
+    // P2 of the manual-operator-steps epic (#1060): those declared steps now GATE auto-merge. A PR
+    // with an un-acked, non-POST-MERGE step is held out of the merge train with a clear reason; an
+    // "Ack steps" button on the session row clears the gate, and you're nudged via push + the daily
+    // rundown. POST-MERGE-only steps never block. No targetId — the chip/CTA mount only when steps
+    // are detected; surface via the What's-New drawer only. Ships in 1.37.0 alongside P1.
+    id: "manual-operator-steps-gate",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_manual_operator_steps_gate_title",
+    bodyKey: "feat_manual_operator_steps_gate_body",
+  },
+  {
+    // P3 of the manual-operator-steps epic (#1061): declared steps now outlive the session. On
+    // merge they're materialized into a durable record (kept past archive + the prune window) and
+    // surfaced in the new "Owed" Herd lens, where the operator ticks each off; they persist until
+    // done. A per-repo opt-in additionally opens a GitHub tracking issue on merge, linked back to
+    // the PR. targetId points at the Owed lens chip in the herd filter bar. Ships in 1.37.0.
+    id: "manual-steps-post-merge",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_manual_steps_post_merge_title",
+    bodyKey: "feat_manual_steps_post_merge_body",
+    targetId: "owed-lens",
+  },
 ];

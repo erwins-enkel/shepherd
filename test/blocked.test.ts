@@ -1,4 +1,6 @@
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { classifyBlocked, hasActiveSpinner, quotaBlockReason } from "../src/blocked";
 import type { Session, PlanGate } from "../src/types";
 
@@ -187,4 +189,45 @@ test("quotaBlockReason: planning session with at-cap gate still raises plan bloc
   const result = quotaBlockReason(session, null, atCapGate, 2000);
   expect(result).not.toBeNull();
   expect(result?.quotaKind).toBe("plan");
+});
+
+// ── Fullscreen renderer fixtures ──────────────────────────────────────────────
+
+const fixturesDir = join(import.meta.dir, "fixtures", "fullscreen");
+
+test("fullscreen menu fixture classifies as menu with 3 options", () => {
+  const text = readFileSync(join(fixturesDir, "fullscreen-menu.txt"), "utf8");
+  const r = classifyBlocked(text);
+  expect(r.shape).toBe("menu");
+  expect(r.options).toHaveLength(3);
+  expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3"]);
+  // The long packed option must be present
+  expect(r.options.some((o) => o.label.includes("allow all edits"))).toBe(true);
+});
+
+test("classic menu fixture still classifies as menu with 3 options (no regression)", () => {
+  const text = readFileSync(join(fixturesDir, "classic-menu.txt"), "utf8");
+  const r = classifyBlocked(text);
+  expect(r.shape).toBe("menu");
+  expect(r.options).toHaveLength(3);
+  expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3"]);
+});
+
+test("decimal false-positive guard: '1.5 GB' / '2.5 GB' does not classify as menu", () => {
+  const tail = ["Available space: 1.5 GB", "Used space: 2.5 GB"].join("\n");
+  const r = classifyBlocked(tail);
+  expect(r.shape).toBe("awaiting-input");
+});
+
+test("bare-token-run false-positive guard: '1.tsx'/'2.tsx' does not classify as menu", () => {
+  const tail1 = ["1.tsx", "2.tsx"].join("\n");
+  expect(classifyBlocked(tail1).shape).toBe("awaiting-input");
+
+  const tail2 = ["1.x", "2.x"].join("\n");
+  expect(classifyBlocked(tail2).shape).toBe("awaiting-input");
+});
+
+test("fullscreen-spinner.txt hasActiveSpinner returns true", () => {
+  const text = readFileSync(join(fixturesDir, "fullscreen-spinner.txt"), "utf8");
+  expect(hasActiveSpinner(text)).toBe(true);
 });

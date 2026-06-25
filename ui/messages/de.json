@@ -1948,7 +1948,7 @@
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Die Codex-Integration ist eine Alpha/MVP-Funktion und wird gerade intensiv weiterentwickelt.",
   "newtask_agent_provider_codex_suggested_for_hold": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, deshalb hat Shepherd für diese Aufgabe Codex ausgewählt. Wechsle zurück zu Claude Code, wenn du bis zum Reset zurückhalten oder trotzdem einreichen möchtest.",
-  "newtask_agent_provider_codex_note": "Codex startet aktuell als interaktive Terminal-Session. Plan Gate, Autopilot und Claude-Modellauswahl sind für diese Aufgabe aus.",
+  "newtask_agent_provider_codex_note": "Codex startet als interaktive Terminal-Session. Plan Gate und Autopilot sind für diese Aufgabe aus; die Modellauswahl nutzt Codex-CLI-Modelle.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",
   "agent_provider_codex_alpha": "Codex (Alpha MVP)",
@@ -1966,5 +1966,7 @@
   "feat_codex_cli_title": "Codex-CLI-Alpha",
   "feat_codex_cli_body": "Neue Aufgaben können jetzt über die lokale Codex-CLI als Alpha/MVP-Provider laufen. Wähle Codex im Aufgabendialog oder lege es unter Einstellungen → Coding CLIs als Standard fest; Codex startet als steuerbare Terminal-Session, während CLI-spezifische Automation noch verdrahtet wird.",
   "feat_held_task_cli_handoff_title": "Zurückgestellte Aufgaben an eine andere CLI geben",
-  "feat_held_task_cli_handoff_body": "Zurückgestellte Aufgaben zeigen jetzt, für welche Coding-CLI sie ursprünglich eingereiht wurden. Öffne das Popover, stelle Starten mit auf einen anderen Provider und starte die Aufgabe dort, wo noch Kapazität frei ist."
+  "feat_held_task_cli_handoff_body": "Zurückgestellte Aufgaben zeigen jetzt, für welche Coding-CLI sie ursprünglich eingereiht wurden. Öffne das Popover, stelle Starten mit auf einen anderen Provider und starte die Aufgabe dort, wo noch Kapazität frei ist.",
+  "feat_codex_model_picker_title": "Codex-Modellauswahl",
+  "feat_codex_model_picker_body": "Der Neue-Aufgabe-Dialog wechselt das Modellmenü jetzt mit der ausgewählten Coding-CLI. Wähle Codex, um GPT-/Codex-Modelle wie gpt-5.5 auszuwählen; Shepherd reicht dieses Modell an die Codex-CLI weiter."
 }

@@ -1198,10 +1198,25 @@ export interface HeldResult {
   count: number;
 }
 
-/** Selectable claude model aliases; null = claude's own default.
+/** Selectable Claude model aliases; null = Claude's own default.
  *  The "[1m]" suffix enables Claude Code's 1M-context window and passes straight
  *  through to --model; each 1M variant sits next to its 200K base. */
-export const MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+
+/** Back-compat alias used throughout the existing Claude default-model settings. */
+export const MODELS = CLAUDE_MODELS;
+
+/** Curated Codex CLI model aliases shown in the task dialog. */
+export const CODEX_MODELS = [
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.3-codex",
+  "gpt-5.1-codex",
+  "gpt-5-codex",
+  "gpt-5.1",
+  "gpt-5",
+  "o3",
+] as const;
 
 /** The premium-priced tiers among MODELS. Selecting one as the default makes every
  *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.

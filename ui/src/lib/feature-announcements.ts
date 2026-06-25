@@ -1617,4 +1617,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_held_task_cli_handoff_title",
     bodyKey: "feat_held_task_cli_handoff_body",
   },
+  {
+    // Codex uses its own model family in the New Task picker; the selected alias is passed
+    // through to `codex --model`. No targetId because the picker lives in a closed modal.
+    id: "codex-model-picker",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_codex_model_picker_title",
+    bodyKey: "feat_codex_model_picker_body",
+  },
 ];

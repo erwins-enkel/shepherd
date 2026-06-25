@@ -132,7 +132,7 @@ test("createSession: codex provider starts interactive codex and disables claude
     baseBranch: "main",
     prompt: "flatten it",
     agentProvider: "codex",
-    model: "opus",
+    model: "gpt-5.5",
     images: [],
     planGateEnabled: true,
     autopilotEnabled: true,
@@ -142,13 +142,16 @@ test("createSession: codex provider starts interactive codex and disables claude
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--model",
+    "gpt-5.5",
     "flatten it",
   ]);
   expect(s.agentProvider).toBe("codex");
-  expect(s.model).toBeNull();
+  expect(s.model).toBe("gpt-5.5");
   expect(s.planGateEnabled).toBe(false);
   expect(s.autopilotEnabled).toBe(false);
   expect(store.get(s.id)?.agentProvider).toBe("codex");
+  expect(store.get(s.id)?.model).toBe("gpt-5.5");
 });
 
 // Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the

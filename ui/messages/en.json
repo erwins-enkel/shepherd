@@ -1948,7 +1948,7 @@
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Codex integration is an Alpha/MVP feature and is under heavy development.",
   "newtask_agent_provider_codex_suggested_for_hold": "Claude Code is at the usage-hold threshold, so Shepherd selected Codex for this task. Switch back to Claude Code if you want to hold it until the reset or submit anyway.",
-  "newtask_agent_provider_codex_note": "Codex currently starts as an interactive terminal session. Plan Gate, Autopilot and Claude model selection are off for this task.",
+  "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session. Plan Gate and Autopilot are off for this task; the model picker uses Codex CLI models.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",
   "agent_provider_codex_alpha": "Codex (Alpha MVP)",
@@ -1966,5 +1966,7 @@
   "feat_codex_cli_title": "Codex CLI alpha",
   "feat_codex_cli_body": "New tasks can now run through the local Codex CLI as an Alpha/MVP provider path. Choose Codex in the task dialog or set it as the default under Settings → Coding CLIs; Codex starts as a steerable terminal session while CLI-specific automation is still being wired.",
   "feat_held_task_cli_handoff_title": "Hand off held tasks to another CLI",
-  "feat_held_task_cli_handoff_body": "Held tasks now show which coding CLI they were originally queued for. Open the held-tasks popover, switch Run on to another provider, and Spawn now to hand the task to a CLI that still has room."
+  "feat_held_task_cli_handoff_body": "Held tasks now show which coding CLI they were originally queued for. Open the held-tasks popover, switch Run on to another provider, and Spawn now to hand the task to a CLI that still has room.",
+  "feat_codex_model_picker_title": "Codex model picker",
+  "feat_codex_model_picker_body": "The New Task dialog now switches the model menu with the selected coding CLI. Pick Codex to choose GPT/Codex models such as gpt-5.5, and Shepherd passes that model through to the Codex CLI."
 }

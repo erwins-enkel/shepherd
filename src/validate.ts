@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
   AGENT_PROVIDERS,
+  CODEX_MODELS,
   MODELS,
   type AgentProvider,
   type CreateSessionInput,
@@ -89,12 +90,25 @@ function validateAgentProvider(value: unknown): Field<AgentProvider | undefined>
   return field(value as AgentProvider);
 }
 
-/** model — optional; absent/null/"default" → null (claude's own default, no --model flag). */
-function validateModel(value: unknown): Field<string | null> {
+const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
+
+/** model — optional; absent/null/"default" → null (provider default, no --model flag). */
+function validateModel(value: unknown, agentProvider?: AgentProvider): Field<string | null> {
   if (value == null || value === "default") return field(null);
   if (typeof value !== "string") return err("model must be a string");
-  if (!(MODELS as readonly string[]).includes(value)) return err("unknown model");
-  return field(value);
+  if (agentProvider !== "codex" && (MODELS as readonly string[]).includes(value)) {
+    return field(value);
+  }
+  if (agentProvider !== "claude" && (CODEX_MODELS as readonly string[]).includes(value)) {
+    return field(value);
+  }
+  if (agentProvider === "codex" && CODEX_MODEL_RE.test(value)) {
+    return field(value);
+  }
+  if (agentProvider === "codex") {
+    return err("invalid codex model");
+  }
+  return err("unknown model");
 }
 
 /** repoPath — required non-empty string, confined to repoRoot, existing directory. */
@@ -420,11 +434,11 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const baseBranch = validateBaseBranch(obj.baseBranch);
   if (!baseBranch.ok) return baseBranch;
 
-  const model = validateModel(obj.model);
-  if (!model.ok) return model;
-
   const agentProvider = validateAgentProvider(obj.agentProvider);
   if (!agentProvider.ok) return agentProvider;
+
+  const model = validateModel(obj.model, agentProvider.value);
+  if (!model.ok) return model;
 
   const root = resolve(expandHome(repoRoot));
   const repoPath = validateRepoPath(obj.repoPath, root);

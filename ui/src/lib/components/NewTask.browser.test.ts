@@ -1059,6 +1059,41 @@ describe("NewTask first-task confirm step", () => {
     expect(autopilotBox().disabled).toBe(false);
   });
 
+  it("preserves a manual plan-gate / autopilot override across a Codex round-trip", async () => {
+    const repoPath = "/repo/codex-preserve-override";
+    // Repo defaults both automation toggles OFF.
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    const boxByLabel = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+        el.closest("label")?.textContent?.includes(label),
+      )!;
+    const planGateBox = () => boxByLabel(m.newtask_plan_gate_label());
+    const autopilotBox = () => boxByLabel(m.newtask_autopilot_label());
+
+    // Settle, then manually turn BOTH on — differs from the repo default.
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    planGateBox().click();
+    autopilotBox().click();
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+
+    // Codex displays them off (state is preserved underneath, not mutated).
+    provider().value = "codex";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(false);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+
+    // Back to Claude → the manual override survives the round-trip.
+    provider().value = "claude";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+  });
+
   it("confirmed repo: Run calls onsubmit directly, no confirm step shown", async () => {
     const repoPath = "/repo/ftac-confirmed";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());

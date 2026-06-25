@@ -332,10 +332,7 @@
     !!repoPath && !planGateTouched && !repoConfig.isConfigSettled(repoPath),
   );
   $effect(() => {
-    // mirror the repo default until the user makes a manual choice. Codex yields
-    // to the force-off effect below; leaving Codex re-runs this and restores the
-    // repo default in a single dropdown flip.
-    if (agentProvider === "codex") return;
+    // mirror the repo default until the user makes a manual choice
     if (!planGateTouched) planGate = planGateDefault;
   });
 
@@ -345,19 +342,14 @@
     !!repoPath && !autopilotTouched && !repoConfig.isConfigSettled(repoPath),
   );
   $effect(() => {
-    if (agentProvider === "codex") return;
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
-  // Codex can't plan-gate or autopilot yet, so show both off while it's selected.
-  // Non-pinning on purpose: it must NOT set the *Touched flags — switching back to
-  // Claude then re-seeds from the repo default (above) in one flip. The submit path
-  // sends these off for Codex regardless of this display state.
-  $effect(() => {
-    if (agentProvider !== "codex") return;
-    if (planGate) planGate = false;
-    if (autopilot) autopilot = false;
-  });
+  // Codex can't plan-gate or autopilot yet. Rather than mutate planGate/autopilot
+  // (which would silently lose a manual override across a Codex round-trip), the
+  // checkboxes just DISPLAY off + disabled while Codex is selected (see
+  // NewTaskRunSettings) and submit forces them off via automationFlag — the
+  // underlying Claude-context choice is preserved untouched.
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
   // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit

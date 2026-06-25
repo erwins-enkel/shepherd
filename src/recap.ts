@@ -349,9 +349,11 @@ export class RecapService {
    * so every session gets a durable recap row for the Done lens (the live-sweep's
    * skip of `auto` sessions would otherwise starve drained sessions of a recap).
    *
-   * Head-keyed dedup: if a recap already exists for the current HEAD we return "skip"
-   * (the common case — the live sweep usually already generated one), so we never
-   * double-spawn. Otherwise we generate synchronously.
+   * `(head, base)`-keyed dedup (see {@link needsRecap}): if a recap already exists for the
+   * current HEAD *and* the same base we return "skip" (the common case — the live sweep usually
+   * already generated one), so we never double-spawn. A recap baked against a stale base before
+   * the PR's real base was resolvable regenerates here once that base becomes known. Otherwise we
+   * generate synchronously.
    *
    * Does NOT throw: a git/worktree-unavailable rev-parse failure self-heals to "error"
    * rather than throwing out of the archive hook.

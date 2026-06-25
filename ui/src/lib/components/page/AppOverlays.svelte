@@ -409,6 +409,7 @@
     initialImages={composeImages}
     initialPrompt={newTaskInitialPrompt}
     initialModel={newTaskInitialModel}
+    defaultAgentProvider={settings?.defaultAgentProvider}
     defaultModel={settings?.defaultModel}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}

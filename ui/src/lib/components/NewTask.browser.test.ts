@@ -358,6 +358,11 @@ describe("NewTask plan-gate inheritance", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath, holdLikely: true } });
 
+    const provider = document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    provider.value = "claude";
+    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => provider.value).toBe("claude");
+
     const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
     promptField.value = "do the thing";
     promptField.dispatchEvent(new Event("input", { bubbles: true }));
@@ -950,6 +955,24 @@ async function fillPromptAndClickRun() {
 }
 
 describe("NewTask first-task confirm step", () => {
+  it("likely Claude hold selects Codex and explains why", async () => {
+    const repoPath = "/repo/hold-prefers-codex";
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath, holdLikely: true } });
+
+    const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    await expect.poll(() => provider().value).toBe("codex");
+    await expect
+      .element(page.getByText(m.newtask_agent_provider_codex_suggested_for_hold()))
+      .toBeInTheDocument();
+    expect(document.querySelector("button.run-hold")).toBeNull();
+
+    await fillPromptAndClickRun();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]?.[0]?.agentProvider).toBe("codex");
+  });
+
   it("confirmed repo: Run calls onsubmit directly, no confirm step shown", async () => {
     const repoPath = "/repo/ftac-confirmed";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
@@ -986,6 +1009,23 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBeGreaterThanOrEqual(1);
     const seedCall = mockPutRepoConfig.mock.calls.find((c) => c[1]?.planGateEnabled === true);
     expect(seedCall).toBeTruthy();
+  });
+
+  it("unconfirmed brand-new repo + Codex: skips Claude automation confirm and submits", async () => {
+    const repoPath = "/repo/ftac-codex-unconfirmed";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: repoPath, defaultAgentProvider: "codex" },
+    });
+
+    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await fillPromptAndClickRun();
+
+    expect(document.querySelector(".ftac")).toBeNull();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(mockPutRepoConfig).not.toHaveBeenCalled();
+    expect(onsubmit.mock.calls[0]?.[0]?.agentProvider).toBe("codex");
   });
 
   it("unconfirmed but row exists: confirm step appears, seedNewRepoDefaults NOT called", async () => {

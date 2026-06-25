@@ -3,7 +3,9 @@ import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
+  AGENT_PROVIDERS,
   MODELS,
+  type AgentProvider,
   type CreateSessionInput,
   type IssueRef,
   type RelaunchOverrides,
@@ -34,6 +36,7 @@ const ALLOWED_KEYS = new Set([
   "repoPath",
   "baseBranch",
   "prompt",
+  "agentProvider",
   "model",
   "images",
   "issueRef",
@@ -76,6 +79,14 @@ function validateBaseBranch(value: unknown): Field<string> {
   if (typeof value !== "string") return err("baseBranch must be a string");
   if (!BRANCH_RE.test(value)) return err("baseBranch contains invalid characters");
   return field(value);
+}
+
+function validateAgentProvider(value: unknown): Field<AgentProvider | undefined> {
+  if (value == null) return field(undefined);
+  if (!(AGENT_PROVIDERS as readonly unknown[]).includes(value)) {
+    return err("agentProvider must be one of: claude, codex");
+  }
+  return field(value as AgentProvider);
 }
 
 /** model — optional; absent/null/"default" → null (claude's own default, no --model flag). */
@@ -412,6 +423,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const model = validateModel(obj.model);
   if (!model.ok) return model;
 
+  const agentProvider = validateAgentProvider(obj.agentProvider);
+  if (!agentProvider.ok) return agentProvider;
+
   const root = resolve(expandHome(repoRoot));
   const repoPath = validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
@@ -431,6 +445,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       repoPath: repoPath.value,
       baseBranch: baseBranch.value,
       prompt: prompt.value,
+      agentProvider: agentProvider.value,
       model: model.value,
       images: images.value,
       issueRef: issueRef.value,

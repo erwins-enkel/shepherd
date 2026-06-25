@@ -59,6 +59,7 @@ import type {
   RawAnswer,
   DocAgentRun,
   HoldReason,
+  AgentProvider,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 import { auth } from "$lib/auth.svelte";
@@ -445,6 +446,11 @@ export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesC
 // preselect and autonomous drain/autopilot auto-spawns).
 export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
   patchSettings<{ defaultModel: string }>({ defaultModel: model });
+
+export const putDefaultAgentProvider = (
+  provider: AgentProvider,
+): Promise<{ defaultAgentProvider: AgentProvider }> =>
+  patchSettings<{ defaultAgentProvider: AgentProvider }>({ defaultAgentProvider: provider });
 
 // Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
 export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>

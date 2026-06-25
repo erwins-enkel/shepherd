@@ -3,39 +3,45 @@
   import InfoTip from "../InfoTip.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { modelLabel } from "$lib/model-label";
-  import { MODELS, type SandboxProfile } from "$lib/types";
+  import { AGENT_PROVIDERS, MODELS, type AgentProvider, type SandboxProfile } from "$lib/types";
 
   let {
     planGate = $bindable(),
     research = $bindable(),
     autopilot = $bindable(),
+    agentProvider = $bindable(),
     model = $bindable(),
     sandboxProfile = $bindable(),
     onPlanGateTouched,
     onAutopilotTouched,
+    onAgentProviderTouched,
     onModelTouched,
     planGateLoading,
     autopilotLoading,
     autopilotDefault,
     repoPath,
     relaunch,
+    holdLikely,
     fableAvailable,
   }: {
     planGate: boolean;
     research: boolean;
     autopilot: boolean;
+    agentProvider: AgentProvider;
     model: string;
     sandboxProfile: "default" | SandboxProfile;
     // touched flags live in the parent; the child only signals a manual change
     // (write-only `$bindable` would trip no-useless-assignment here)
     onPlanGateTouched: () => void;
     onAutopilotTouched: () => void;
+    onAgentProviderTouched: () => void;
     onModelTouched: () => void;
     planGateLoading: boolean;
     autopilotLoading: boolean;
     autopilotDefault: boolean;
     repoPath: string;
     relaunch: boolean;
+    holdLikely: boolean;
     fableAvailable: boolean;
   } = $props();
 </script>
@@ -56,7 +62,7 @@
           onPlanGateTouched();
           if (planGate) research = false;
         }}
-        disabled={planGateLoading}
+        disabled={planGateLoading || agentProvider === "codex"}
       />
       <span class="pg-label">{m.newtask_plan_gate_label()}</span>
     </label>
@@ -80,7 +86,7 @@
           type="checkbox"
           bind:checked={autopilot}
           onchange={() => onAutopilotTouched()}
-          disabled={autopilotLoading}
+          disabled={autopilotLoading || agentProvider === "codex"}
         />
         <span class="pg-label">{m.newtask_autopilot_label()}</span>
       </label>
@@ -129,9 +135,29 @@
   </div>
 
   <div class="run-config">
+    <div class="model-field">
+      <label class="micro" for="nt-agent-provider">{m.newtask_agent_provider_label()}</label>
+      <select
+        id="nt-agent-provider"
+        bind:value={agentProvider}
+        onchange={() => onAgentProviderTouched()}
+      >
+        {#each AGENT_PROVIDERS as provider (provider)}
+          <option value={provider}>
+            {provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha()}
+          </option>
+        {/each}
+      </select>
+    </div>
+
     <div class="model-field" use:coachTarget={"model-1m-context"}>
       <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
-      <select id="nt-model" bind:value={model} onchange={() => onModelTouched()}>
+      <select
+        id="nt-model"
+        bind:value={model}
+        disabled={agentProvider === "codex"}
+        onchange={() => onModelTouched()}
+      >
         <option value="default">{m.newtask_model_default()}</option>
         {#each MODELS as mdl (mdl)}
           {#if mdl !== "fable" || fableAvailable}
@@ -157,6 +183,20 @@
       {/if}
     </div>
   </div>
+
+  {#if agentProvider === "codex"}
+    <div class="provider-callout" role="status">
+      <div class="provider-callout-head">
+        <span>{m.agent_provider_codex()}</span>
+        <span class="alpha-badge">{m.newtask_agent_provider_codex_alpha_badge()}</span>
+      </div>
+      <p>{m.newtask_agent_provider_codex_alpha_note()}</p>
+      {#if holdLikely}
+        <p>{m.newtask_agent_provider_codex_suggested_for_hold()}</p>
+      {/if}
+      <p>{m.newtask_agent_provider_codex_note()}</p>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -190,6 +230,43 @@
     text-transform: uppercase;
     color: var(--color-muted);
     margin-top: 6px;
+  }
+  .provider-callout {
+    border: 1px solid color-mix(in srgb, var(--color-amber) 46%, var(--color-line));
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 2px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .provider-callout-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .alpha-badge {
+    border: 1px solid color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
+    color: var(--color-amber);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+  }
+  .provider-callout p {
+    margin: 0;
+    color: var(--color-ink);
+  }
+  .provider-callout p + p {
+    margin-top: 5px;
   }
   .opts-row {
     display: flex;

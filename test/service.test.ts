@@ -94,6 +94,63 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+test("createSession: codex provider starts interactive codex and disables claude-only automation", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-codex",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({
+        worktreePath: "/wt/repo-codex",
+        branch: "shepherd/repo-codex",
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string, cwd: string, argv: string[]) => {
+        calls.start = { name, cwd, argv };
+        return {
+          terminalId: "term_codex",
+          cwd,
+          agent: "codex",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      list: () => [],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: "opus",
+    images: [],
+    planGateEnabled: true,
+    autopilotEnabled: true,
+  });
+
+  expect(calls.start.argv).toEqual([
+    "codex",
+    "--no-alt-screen",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "flatten it",
+  ]);
+  expect(s.agentProvider).toBe("codex");
+  expect(s.model).toBeNull();
+  expect(s.planGateEnabled).toBe(false);
+  expect(s.autopilotEnabled).toBe(false);
+  expect(store.get(s.id)?.agentProvider).toBe("codex");
+});
+
 // Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the
 // claude CLI as a single, unmodified `--model <alias>` argv pair through the REAL spawn
 // builder. The whole path is array-argv (no shell), so the brackets cannot be glob-expanded

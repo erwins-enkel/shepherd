@@ -31,6 +31,17 @@ test("create assigns id, sequential desig, timestamps, default status", () => {
   expect(s.create({ ...base, herdrAgentId: "term_2" }).desig).toBe("TASK-02");
 });
 
+test("session agentProvider defaults to claude and round-trips codex", () => {
+  const s = mk();
+  const claude = s.create(base);
+  expect(claude.agentProvider).toBe("claude");
+  expect(s.get(claude.id)?.agentProvider).toBe("claude");
+
+  const codex = s.create({ ...base, herdrAgentId: "term_codex", agentProvider: "codex" });
+  expect(codex.agentProvider).toBe("codex");
+  expect(s.get(codex.id)?.agentProvider).toBe("codex");
+});
+
 test("lastUsedByRepo returns max createdAt per repoPath", () => {
   const s = mk();
   s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });

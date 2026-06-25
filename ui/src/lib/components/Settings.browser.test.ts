@@ -54,6 +54,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
+    defaultAgentProvider: "claude",
     authMode: "api-key",
     hasApiKey: true,
     prReviewCyclesCap: 3,
@@ -122,14 +123,14 @@ const verifyBtn = () => page.getByRole("button", { name: m.settings_auth_key_ver
 const saveBtn = () => page.getByRole("button", { name: m.settings_auth_key_save(), exact: true });
 const keyInput = () => page.getByRole("textbox", { name: m.settings_auth_key_label() });
 
-function mountSession() {
-  render(Settings, { initialTab: "session", onclose: noop, onsaved: noop });
+function mountCodingAgents() {
+  render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
 
 describe("Settings api-key verify", () => {
   it("verify → OK renders the verified line", async () => {
     mockVerify.mockResolvedValue({ ok: true });
-    mountSession();
+    mountCodingAgents();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -143,7 +144,7 @@ describe("Settings api-key verify", () => {
       reason: "not-authenticated",
       detail: "invalid x-api-key",
     });
-    mountSession();
+    mountCodingAgents();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -160,7 +161,7 @@ describe("Settings api-key verify", () => {
 
   it("verify throw → fail-closed (renders FAILED, never OK)", async () => {
     mockVerify.mockRejectedValue(new Error("boom"));
-    mountSession();
+    mountCodingAgents();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -177,7 +178,7 @@ describe("Settings api-key verify", () => {
     mockGetSettings.mockResolvedValue(settings({ hasApiKey: false }));
     mockPutKey.mockResolvedValue({ hasApiKey: true });
     mockVerify.mockResolvedValue({ ok: true });
-    mountSession();
+    mountCodingAgents();
 
     await expect.element(keyInput()).toBeInTheDocument();
     await keyInput().fill("sk-ant-test");

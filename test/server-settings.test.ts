@@ -17,6 +17,7 @@ let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
+let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;
 let savedAuthMode: AuthMode;
 let savedAuthApiKeyHelperPath: string | null;
@@ -36,6 +37,7 @@ beforeEach(() => {
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
+  savedDefaultAgentProvider = config.defaultAgentProvider;
   savedExtraCredits = config.extraCreditsDrainCeiling;
   savedAuthMode = config.authMode;
   savedAuthApiKeyHelperPath = config.authApiKeyHelperPath;
@@ -58,6 +60,7 @@ afterEach(() => {
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
+  config.defaultAgentProvider = savedDefaultAgentProvider;
   config.extraCreditsDrainCeiling = savedExtraCredits;
   config.authMode = savedAuthMode;
   config.authApiKeyHelperPath = savedAuthApiKeyHelperPath;
@@ -349,6 +352,15 @@ test("GET /api/settings includes defaultModel (raw, unresolved)", async () => {
   expect(body.defaultModel).toBe("opus");
 });
 
+test("GET /api/settings includes defaultAgentProvider", async () => {
+  config.defaultAgentProvider = "codex";
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.defaultAgentProvider).toBe("codex");
+});
+
 test("PUT /api/settings sets defaultModel, persists, leaves repoRoot intact", async () => {
   config.repoRoot = tmp;
   config.defaultModel = "auto";
@@ -387,6 +399,28 @@ test("PUT /api/settings rejects a non-string defaultModel", async () => {
   const res = await put(app, { defaultModel: 42 });
   expect(res.status).toBe(400);
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
+});
+
+test("PUT /api/settings sets defaultAgentProvider, persists, leaves repoRoot intact", async () => {
+  config.repoRoot = tmp;
+  config.defaultAgentProvider = "claude";
+  const { app, store } = harness();
+  const res = await put(app, { defaultAgentProvider: "codex" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).defaultAgentProvider).toBe("codex");
+  expect(String(config.defaultAgentProvider)).toBe("codex");
+  expect(store.getSetting("defaultAgentProvider")).toBe("codex");
+  expect(config.repoRoot).toBe(tmp);
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.defaultAgentProvider).toBe("codex");
+});
+
+test("PUT /api/settings rejects an unknown defaultAgentProvider value", async () => {
+  const { app } = harness();
+  config.defaultAgentProvider = "claude";
+  const res = await put(app, { defaultAgentProvider: "other" });
+  expect(res.status).toBe(400);
+  expect(config.defaultAgentProvider).toBe("claude");
 });
 
 test("GET /api/settings includes extraCreditsDrainCeiling", async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -17,6 +17,7 @@
   import {
     type Issue,
     type IssueRef,
+    type AgentProvider,
     type RepoEntry,
     type SandboxProfile,
     type SlashCommand,
@@ -44,6 +45,7 @@
     initialRepoPath,
     initialIssue,
     initialModel,
+    defaultAgentProvider = "claude",
     defaultModel,
     relaunch = false,
     initialBaseBranch,
@@ -56,6 +58,7 @@
       repoPath: string;
       baseBranch: string;
       prompt: string;
+      agentProvider?: AgentProvider;
       model: string | null;
       images: string[];
       issueRef?: IssueRef;
@@ -73,6 +76,7 @@
     initialRepoPath?: string;
     initialIssue?: Issue;
     initialModel?: string;
+    defaultAgentProvider?: AgentProvider;
     defaultModel?: string;
     relaunch?: boolean;
     initialBaseBranch?: string;
@@ -135,6 +139,12 @@
   // discuss/iterate and approve each step yourself — without changing the repo default.
   let autopilot = $state(false);
   let autopilotTouched = $state(false);
+  let agentProvider = $state<AgentProvider>(
+    untrack(() =>
+      holdLikely && defaultAgentProvider === "claude" ? "codex" : defaultAgentProvider,
+    ),
+  );
+  let agentProviderTouched = $state(false);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   let research = $state(false);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
@@ -333,6 +343,23 @@
   );
   $effect(() => {
     if (!autopilotTouched) autopilot = autopilotDefault;
+  });
+
+  $effect(() => {
+    if (agentProvider !== "codex") return;
+    if (planGate) {
+      planGate = false;
+      planGateTouched = true;
+    }
+    if (autopilot) {
+      autopilot = false;
+      autopilotTouched = true;
+    }
+  });
+
+  $effect(() => {
+    if (!holdLikely || agentProviderTouched || agentProvider !== "claude") return;
+    agentProvider = "codex";
   });
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
@@ -564,7 +591,8 @@
         repoPath: repoPath.trim(),
         baseBranch: baseBranch.trim() || "main",
         prompt: prompt.trim(),
-        model: model === "default" ? null : model,
+        agentProvider,
+        model: agentProvider === "claude" && model !== "default" ? model : null,
         images: images.map((i) => i.path),
         issueRef: issueRef
           ? {
@@ -614,7 +642,7 @@
     // over a deliberate planGate=off. On failure we can't know the repo's state, so degrade to
     // the prior behavior (spawn directly); the gate re-fires next task once the fetch lands.
     const configLoaded = await repoConfig.ensure(repo);
-    if (configLoaded && !repoConfig.isAutomationConfirmed(repo)) {
+    if (agentProvider === "claude" && configLoaded && !repoConfig.isAutomationConfirmed(repo)) {
       // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
       // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
       if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
@@ -874,10 +902,13 @@
         bind:planGate
         bind:research
         bind:autopilot
+        bind:agentProvider
         bind:model
         bind:sandboxProfile
+        {holdLikely}
         onPlanGateTouched={() => (planGateTouched = true)}
         onAutopilotTouched={() => (autopilotTouched = true)}
+        onAgentProviderTouched={() => (agentProviderTouched = true)}
         onModelTouched={() => (modelTouched = true)}
         {planGateLoading}
         {autopilotLoading}
@@ -897,7 +928,7 @@
         </div>
       {/if}
 
-      {#if holdLikely}
+      {#if holdLikely && agentProvider === "claude"}
         <div class="run-dual">
           <button
             class="run run-hold"

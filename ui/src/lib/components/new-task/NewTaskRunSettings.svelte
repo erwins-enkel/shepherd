@@ -3,7 +3,13 @@
   import InfoTip from "../InfoTip.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { modelLabel } from "$lib/model-label";
-  import { AGENT_PROVIDERS, MODELS, type AgentProvider, type SandboxProfile } from "$lib/types";
+  import {
+    AGENT_PROVIDERS,
+    CODEX_MODELS,
+    MODELS,
+    type AgentProvider,
+    type SandboxProfile,
+  } from "$lib/types";
 
   let {
     planGate = $bindable(),
@@ -44,6 +50,27 @@
     holdLikely: boolean;
     fableAvailable: boolean;
   } = $props();
+
+  const providerModels = $derived(agentProvider === "codex" ? CODEX_MODELS : MODELS);
+
+  function modelAvailableForProvider(value: string): boolean {
+    if (value === "default") return true;
+    if (agentProvider === "claude" && value === "fable" && !fableAvailable) return false;
+    return (providerModels as readonly string[]).includes(value);
+  }
+
+  function agentProviderChanged() {
+    onAgentProviderTouched();
+    if (!modelAvailableForProvider(model)) {
+      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
+    }
+  }
+
+  $effect(() => {
+    if (!modelAvailableForProvider(model)) {
+      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
+    }
+  });
 </script>
 
 <!-- Per-task run settings. Plan gate gets its own full-width row so its explainer
@@ -137,11 +164,7 @@
   <div class="run-config">
     <div class="model-field">
       <label class="micro" for="nt-agent-provider">{m.newtask_agent_provider_label()}</label>
-      <select
-        id="nt-agent-provider"
-        bind:value={agentProvider}
-        onchange={() => onAgentProviderTouched()}
-      >
+      <select id="nt-agent-provider" bind:value={agentProvider} onchange={agentProviderChanged}>
         {#each AGENT_PROVIDERS as provider (provider)}
           <option value={provider}>
             {provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha()}
@@ -152,20 +175,15 @@
 
     <div class="model-field" use:coachTarget={"model-1m-context"}>
       <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
-      <select
-        id="nt-model"
-        bind:value={model}
-        disabled={agentProvider === "codex"}
-        onchange={() => onModelTouched()}
-      >
+      <select id="nt-model" bind:value={model} onchange={() => onModelTouched()}>
         <option value="default">{m.newtask_model_default()}</option>
-        {#each MODELS as mdl (mdl)}
-          {#if mdl !== "fable" || fableAvailable}
+        {#each providerModels as mdl (mdl)}
+          {#if agentProvider !== "claude" || mdl !== "fable" || fableAvailable}
             <option value={mdl}>{modelLabel(mdl)}</option>
           {/if}
         {/each}
       </select>
-      {#if !fableAvailable}
+      {#if agentProvider === "claude" && !fableAvailable}
         <p class="micro">{m.newtask_fable_unavailable()}</p>
       {/if}
     </div>

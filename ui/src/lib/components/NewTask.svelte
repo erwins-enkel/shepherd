@@ -592,7 +592,7 @@
         baseBranch: baseBranch.trim() || "main",
         prompt: prompt.trim(),
         agentProvider,
-        model: agentProvider === "claude" && model !== "default" ? model : null,
+        model: model !== "default" ? model : null,
         images: images.map((i) => i.path),
         issueRef: issueRef
           ? {

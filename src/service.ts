@@ -1485,8 +1485,11 @@ export class SessionService {
     return argv;
   }
 
-  private buildCodexSpawnArgv(promptArg: string): string[] {
-    return ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox", promptArg];
+  private buildCodexSpawnArgv(promptArg: string, model: string | null): string[] {
+    const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
+    if (model) argv.push("--model", model);
+    argv.push(promptArg);
+    return argv;
   }
 
   /**
@@ -1580,7 +1583,7 @@ export class SessionService {
       const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
       const argv =
         agentProvider === "codex"
-          ? this.buildCodexSpawnArgv(promptArg)
+          ? this.buildCodexSpawnArgv(promptArg, input.model)
           : this.buildSpawnArgv(
               input,
               claudeSessionId,
@@ -1618,7 +1621,7 @@ export class SessionService {
         egressDegraded: outcome.egressDegraded,
         claudeSessionId,
         agentProvider,
-        model: agentProvider === "claude" ? input.model : null,
+        model: input.model,
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
         planGateEnabled: agentProvider === "claude" ? (input.planGateEnabled ?? null) : false,

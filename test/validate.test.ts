@@ -67,6 +67,51 @@ test("known model accepted and passed through", () => {
   if (r.ok) expect(r.value.model).toBe("opus");
 });
 
+test("codex model accepted and passed through when provider is codex", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+    },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.model).toBe("gpt-5.5");
+});
+
+test("future-looking safe codex model accepted when provider is codex", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "gpt-5.6-codex",
+    },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.model).toBe("gpt-5.6-codex");
+});
+
+test("unsafe codex model rejected", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "--profile=other",
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/codex model/i);
+});
+
 test("agentProvider accepts claude and codex", () => {
   for (const agentProvider of ["claude", "codex"] as const) {
     const r = validateCreate(

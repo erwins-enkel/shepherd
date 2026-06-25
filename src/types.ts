@@ -22,7 +22,7 @@ export interface Session {
   claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
   agentProvider?: AgentProvider;
 
-  model: string | null; // claude --model alias; null = claude's own default (no flag)
+  model: string | null; // selected CLI --model alias; null = provider default (no flag)
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,
@@ -144,7 +144,7 @@ export interface CreateSessionInput {
   baseBranch: string;
   prompt: string;
   agentProvider?: AgentProvider;
-  model: string | null; // null = claude default (no --model flag)
+  model: string | null; // null = provider default (no --model flag)
   images: string[]; // absolute paths to staged uploads (may be empty)
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
   /** True when this session is auto-spawned by the drain queue (default false). The
@@ -182,13 +182,29 @@ export interface RelaunchOverrides {
   research?: boolean;
 }
 
-/** Selectable claude model aliases; absent/"default" means no --model flag.
+/** Selectable Claude model aliases; absent/"default" means no --model flag.
  *  Ordered most- to least-powerful so the picker leads with the top tier.
  *  The "[1m]" suffix is a valid `--model` value that enables Claude Code's
  *  1M-context-window beta (verified: it adds the context-1m beta header,
  *  whereas the bare alias does not); it passes straight through to --model
  *  with no mapping layer. Each 1M variant sits next to its 200K base. */
-export const MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+
+/** Back-compat alias used throughout the existing Claude default-model settings. */
+export const MODELS = CLAUDE_MODELS;
+
+/** Curated Codex CLI model aliases shown in the task dialog. The server accepts any safe Codex
+ *  model alias because the installed Codex CLI may learn new names before Shepherd does. */
+export const CODEX_MODELS = [
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.3-codex",
+  "gpt-5.1-codex",
+  "gpt-5-codex",
+  "gpt-5.1",
+  "gpt-5",
+  "o3",
+] as const;
 
 export interface Steer {
   id: string;

@@ -896,6 +896,47 @@ describe("NewTask fableAvailable prop", () => {
   });
 });
 
+describe("NewTask Codex model picker", () => {
+  const providerSelect = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+  const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
+
+  it("shows codex models and normalizes a claude model when Codex is selected", async () => {
+    render(NewTask, {
+      props: base({ defaultAgentProvider: "codex", defaultModel: "opus" }),
+    });
+
+    await expect.poll(() => providerSelect().value).toBe("codex");
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.5");
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).toContain("gpt-5.5");
+    expect(options).not.toContain("opus");
+    expect(modelSelect().disabled).toBe(false);
+  });
+
+  it("submits the selected codex model", async () => {
+    const repoPath = "/repo/codex-model";
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: repoPath, defaultAgentProvider: "codex" },
+    });
+
+    await expect
+      .poll(() => Array.from(modelSelect().options).map((o) => o.value))
+      .toContain("gpt-5.4");
+    modelSelect().value = "gpt-5.4";
+    modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
+
+    await fillPromptAndClickRun();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({
+      agentProvider: "codex",
+      model: "gpt-5.4",
+    });
+  });
+});
+
 // ── Helpers shared by the confirm-step test suites ──────────────────────────
 
 /** A RepoConfigResponse for unconfirmed brand-new repos (no row yet). */

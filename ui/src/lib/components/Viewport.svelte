@@ -2202,7 +2202,12 @@
       <span class="sep">·</span>
       <span>{m.viewport_detach_hint()}</span>
       <span class="sep">·</span>
-      <span>{m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}</span>
+      <span
+        class="hint-help"
+        title={m.viewport_select_hint_title({ key: isMac ? "Option (⌥)" : "Shift (⇧)" })}
+      >
+        {m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}
+      </span>
       <span class="sep">·</span>
       <span>{m.viewport_keynav_hint({ key: isMac ? "⌥" : "Alt" })}</span>
       <span class="sep">·</span>
@@ -3139,6 +3144,12 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
     flex-shrink: 0;
+  }
+
+  .hint-help {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
   }
 
   .term-mount.dragging {

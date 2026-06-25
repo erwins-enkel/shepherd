@@ -285,10 +285,10 @@ export function installService(
   run("mkdir", ["-p", resolveBackupDir(env)]);
   fileIO.write(backupConfiguredMarker(env), "shepherd-backup.timer enabled\n");
   run("systemctl", ["--user", "enable", "--now", "shepherd-backup.timer"]);
-  // Kick one backup immediately — the timer's first scheduled run is at the next hour boundary, so
-  // without this a fresh box has no `.last-success` until then. (The staleness probe also has a
-  // marker-age grace, so this is belt-and-suspenders against a spurious first alert. #1080)
-  run("systemctl", ["--user", "start", "shepherd-backup.service"]);
+  // No immediate `start shepherd-backup.service` here: on a fresh install the DB does not exist yet
+  // (the server is started below by update.sh), so a read-only snapshot would fail the oneshot and
+  // abort provision. update.sh runs its own GUARDED kick once deps are built, and the staleness
+  // probe's marker-age grace already covers the spurious-first-alert race. #1080
   // update.sh does deps → UI build → restart (starts the now-enabled unit) → health.
   log("building + starting via deploy/update.sh");
   run("bash", [join(repo, "deploy", "update.sh")], { env: buildEnv });

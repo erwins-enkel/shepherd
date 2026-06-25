@@ -1,4 +1,6 @@
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+export const AGENT_PROVIDERS = ["claude", "codex"] as const;
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
 export type BuildStepStatus = "pending" | "active" | "done" | "skipped";
 
@@ -41,6 +43,8 @@ export interface Settings {
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
+  /** Default interactive agent provider for newly spawned task sessions. */
+  defaultAgentProvider?: AgentProvider;
   /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */
   authMode: string;
   /** Whether an Anthropic API key is configured. The key itself is NEVER sent. */
@@ -693,6 +697,7 @@ export interface Session {
   herdrSession: string;
   herdrAgentId: string;
   claudeSessionId: string;
+  agentProvider?: AgentProvider;
   model: string | null;
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
@@ -1166,6 +1171,7 @@ export interface CreateInput {
   repoPath: string;
   baseBranch: string;
   prompt: string;
+  agentProvider?: AgentProvider;
   model: string | null;
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side

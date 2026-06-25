@@ -3,6 +3,7 @@ import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
 import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
+import { normalizeAgentProvider } from "./agent-provider";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
@@ -509,6 +510,10 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Default interactive agent provider for newly spawned task sessions. Persisted +
+  // UI-configurable; env seeds a fresh DB.
+  defaultAgentProvider:
+    normalizeAgentProvider(process.env.SHEPHERD_DEFAULT_AGENT_PROVIDER) ?? "claude",
   // Global fable availability flag. When false, any spawn requesting --model fable is
   // transparently rerouted to opus[1m] at argv-assembly time without rewriting the
   // stored session model (so cost accounting + fable intent survive for later replay).

@@ -12,6 +12,7 @@ let repoDir: string;
 // save/restore config fields modified in tests
 let savedEnabled: boolean;
 let savedPct: number;
+let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-hold-gate-test-"));
@@ -19,12 +20,14 @@ beforeEach(() => {
   mkdirSync(repoDir);
   savedEnabled = config.usageHoldEnabled;
   savedPct = config.usageHoldPct;
+  savedDefaultAgentProvider = config.defaultAgentProvider;
 });
 
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   config.usageHoldEnabled = savedEnabled;
   config.usageHoldPct = savedPct;
+  config.defaultAgentProvider = savedDefaultAgentProvider;
 });
 
 interface FakeSession {
@@ -143,6 +146,38 @@ test("high usage + force:true → spawns (not held)", async () => {
   });
 
   const res = await postSession(app, { force: true });
+  expect(res.status).toBe(201);
+  expect(creates).toHaveLength(1);
+  expect(store.countHeldTasks()).toBe(0);
+});
+
+test("high usage + codex provider → spawns (not held by Claude usage)", async () => {
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+
+  const { app, store, creates } = harness({
+    session5h: { pct: 85, resetAt: 0 },
+    week: { pct: 0, resetAt: 0 },
+  });
+
+  const res = await postSession(app, { agentProvider: "codex" });
+  expect(res.status).toBe(201);
+  expect(creates).toHaveLength(1);
+  expect((creates[0] as { agentProvider?: string }).agentProvider).toBe("codex");
+  expect(store.countHeldTasks()).toBe(0);
+});
+
+test("high usage + default codex provider → spawns (not held by Claude usage)", async () => {
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+  config.defaultAgentProvider = "codex";
+
+  const { app, store, creates } = harness({
+    session5h: { pct: 85, resetAt: 0 },
+    week: { pct: 0, resetAt: 0 },
+  });
+
+  const res = await postSession(app);
   expect(res.status).toBe(201);
   expect(creates).toHaveLength(1);
   expect(store.countHeldTasks()).toBe(0);

@@ -131,6 +131,7 @@ import {
   normalizeFableAvailable,
   normalizeRepoDefaultModelSetting,
 } from "./default-model";
+import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import {
   type SandboxProfile,
@@ -1596,6 +1597,9 @@ function createErrorResponse(e: unknown): Response {
 /** Check hold gate; if triggered, persist the held task and return the 200 response.
  *  Returns null when the task should proceed to normal creation. */
 function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps): Response | null {
+  const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
+  if (provider !== "claude") return null;
+
   const force = !!(
     body &&
     typeof body === "object" &&
@@ -3110,6 +3114,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
+      defaultAgentProvider: config.defaultAgentProvider,
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -3153,6 +3158,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
+  ["defaultAgentProvider", putDefaultAgentProvider],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["anthropicApiKey", putAnthropicApiKey],
@@ -3222,6 +3228,14 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+function putDefaultAgentProvider(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeAgentProvider(value);
+  if (v === null) return json({ error: "unknown agent provider" }, 400);
+  config.defaultAgentProvider = v;
+  deps.store.setSetting("defaultAgentProvider", v);
+  return json({ defaultAgentProvider: config.defaultAgentProvider });
 }
 
 // Account-wide extra-credit (paid overage) spend ceiling. Requires a finite, non-negative

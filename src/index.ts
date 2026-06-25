@@ -103,6 +103,7 @@ import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
+import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
@@ -173,6 +174,11 @@ const savedDm = store.getSetting("defaultModel");
 if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
+}
+const savedProvider = store.getSetting("defaultAgentProvider");
+if (savedProvider !== null) {
+  const v = normalizeAgentProvider(savedProvider);
+  if (v !== null) config.defaultAgentProvider = v;
 }
 // a UI-set fableAvailable flag (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedFa = store.getSetting("fableAvailable");

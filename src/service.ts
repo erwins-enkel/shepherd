@@ -1485,6 +1485,10 @@ export class SessionService {
     return argv;
   }
 
+  private buildCodexSpawnArgv(promptArg: string): string[] {
+    return ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox", promptArg];
+  }
+
   /**
    * Resolve the per-spawn sandbox profile override for a create(), accounting for the
    * research downgrade: research needs OPEN web egress (web search / fetch + sub-agents),
@@ -1558,27 +1562,35 @@ export class SessionService {
 
       const promptArg = await this.composePromptArg(input, wt.worktreePath);
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+      const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
       // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
       // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
       // plan. See resolvePlanGateOn for the override + research semantics.
-      const planGateOn = this.resolvePlanGateOn(input, repoConfig);
+      const planGateOn =
+        agentProvider === "claude" ? this.resolvePlanGateOn(input, repoConfig) : false;
       const trim = await this.trimFor(input.auto);
       // Research needs OPEN web egress; a research session resolving to autonomous is
       // downgraded to standard for this spawn (see researchSafeProfileOverride). Resolved BEFORE
       // buildSpawnArgv so resolveSpawnBaseUrl bakes the URL matching the SAME profile prepareSpawn
       // will wrap with — buildSpawnArgv doesn't use the override otherwise, so reordering is safe.
-      const profileOverride = this.researchSafeProfileOverride(input, repoConfig, sessionId);
+      const profileOverride =
+        agentProvider === "codex"
+          ? "trusted"
+          : this.researchSafeProfileOverride(input, repoConfig, sessionId);
       const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
-      const argv = this.buildSpawnArgv(
-        input,
-        claudeSessionId,
-        sessionId,
-        promptArg,
-        planGateOn,
-        wt.isolated,
-        trim,
-        baseUrl,
-      );
+      const argv =
+        agentProvider === "codex"
+          ? this.buildCodexSpawnArgv(promptArg)
+          : this.buildSpawnArgv(
+              input,
+              claudeSessionId,
+              sessionId,
+              promptArg,
+              planGateOn,
+              wt.isolated,
+              trim,
+              baseUrl,
+            );
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -1605,11 +1617,12 @@ export class SessionService {
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
         claudeSessionId,
-        model: input.model,
+        agentProvider,
+        model: agentProvider === "claude" ? input.model : null,
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
-        planGateEnabled: input.planGateEnabled ?? null,
-        autopilotEnabled: input.autopilotEnabled ?? null,
+        planGateEnabled: agentProvider === "claude" ? (input.planGateEnabled ?? null) : false,
+        autopilotEnabled: agentProvider === "claude" ? (input.autopilotEnabled ?? null) : false,
         planPhase: planGateOn ? "planning" : null,
         research: input.research ?? false,
         mergeTrainPrs: input.mergeTrainPrs,

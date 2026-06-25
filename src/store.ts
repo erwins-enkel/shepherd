@@ -155,6 +155,7 @@ type NewSession = Omit<
   | "archivedAt"
   | "model"
   | "claudeSessionId"
+  | "agentProvider"
   | "readyToMerge"
   | "mergingSince"
   | "mergingTrainId"
@@ -186,6 +187,7 @@ type NewSession = Omit<
   id?: string;
   model?: string | null;
   claudeSessionId?: string;
+  agentProvider?: Session["agentProvider"];
   auto?: boolean;
   issueNumber?: number | null;
   planGateEnabled?: boolean | null;
@@ -200,7 +202,7 @@ type NewSession = Omit<
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
-  isolated, herdrSession, herdrAgentId, claudeSessionId, model, readyToMerge, status, lastState,
+  isolated, herdrSession, herdrAgentId, claudeSessionId, agentProvider, model, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
@@ -225,6 +227,7 @@ type SessionRow = {
   herdrSession: string;
   herdrAgentId: string;
   claudeSessionId: string | null;
+  agentProvider: string | null;
   model: string | null;
   readyToMerge: number;
   status: string;
@@ -640,6 +643,7 @@ export class SessionStore implements CapStore, CreditStore {
       worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
       herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
       claudeSessionId TEXT NOT NULL DEFAULT '',
+      agentProvider TEXT NOT NULL DEFAULT 'claude',
       model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
@@ -1600,6 +1604,7 @@ export class SessionStore implements CapStore, CreditStore {
       ...input,
       model: input.model ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
+      agentProvider: input.agentProvider ?? "claude",
       id: input.id ?? randomUUID(),
       desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
       readyToMerge: false,
@@ -1643,7 +1648,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1657,6 +1662,7 @@ export class SessionStore implements CapStore, CreditStore {
           s.herdrSession,
           s.herdrAgentId,
           s.claudeSessionId,
+          s.agentProvider ?? "claude",
           s.model,
           s.readyToMerge ? 1 : 0,
           s.status,
@@ -2777,6 +2783,7 @@ export class SessionStore implements CapStore, CreditStore {
     };
     add("model", `model TEXT`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
+    add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);
     add("readyToMerge", `readyToMerge INTEGER NOT NULL DEFAULT 0`);
     // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
     add("autopilotEnabled", `autopilotEnabled INTEGER`);
@@ -4033,6 +4040,7 @@ export class SessionStore implements CapStore, CreditStore {
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
+      agentProvider: r.agentProvider === "codex" ? "codex" : "claude",
       autopilotEnabled: nullableBool(r.autopilotEnabled),
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,

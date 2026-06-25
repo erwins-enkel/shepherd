@@ -62,7 +62,7 @@ export interface ReaperProbes {
 }
 
 // The agent itself runs `claude` with cwd == worktree; never offer to kill it.
-const AGENT_COMMS = new Set(["claude"]);
+const AGENT_COMMS = new Set(["claude", "codex"]);
 
 /** Stable selection key — lets the client echo a choice back without trusting raw pids. */
 export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">): string {

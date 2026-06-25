@@ -67,6 +67,26 @@ test("known model accepted and passed through", () => {
   if (r.ok) expect(r.value.model).toBe("opus");
 });
 
+test("agentProvider accepts claude and codex", () => {
+  for (const agentProvider of ["claude", "codex"] as const) {
+    const r = validateCreate(
+      { repoPath: validRepo, baseBranch: "main", prompt: "go", agentProvider },
+      root,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.agentProvider).toBe(agentProvider);
+  }
+});
+
+test("unknown agentProvider rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", agentProvider: "other" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/agentProvider/);
+});
+
 test("1M-context aliases accepted and passed through verbatim", () => {
   // Fails on pre-fix code: before opus[1m]/sonnet[1m] were added to MODELS the
   // validator rejected them as "unknown model". The bracketed token must pass

@@ -4,6 +4,8 @@ import type { ManualStep } from "./manual-steps";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+export const AGENT_PROVIDERS = ["claude", "codex"] as const;
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
 export interface Session {
   id: string;
@@ -18,6 +20,7 @@ export interface Session {
   herdrSession: string;
   herdrAgentId: string; // herdr terminal_id (attach target)
   claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
+  agentProvider?: AgentProvider;
 
   model: string | null; // claude --model alias; null = claude's own default (no flag)
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
@@ -140,6 +143,7 @@ export interface CreateSessionInput {
   repoPath: string;
   baseBranch: string;
   prompt: string;
+  agentProvider?: AgentProvider;
   model: string | null; // null = claude default (no --model flag)
   images: string[]; // absolute paths to staged uploads (may be empty)
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band

@@ -7,6 +7,7 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putDefaultAgentProvider,
     putAuthMode,
     putAnthropicApiKey,
     verifyApiKey,
@@ -21,7 +22,14 @@
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
-  import { MODELS, PREMIUM_MODELS, type HerdrUpdateStatus, type DiagnosticCheck } from "$lib/types";
+  import {
+    AGENT_PROVIDERS,
+    MODELS,
+    PREMIUM_MODELS,
+    type AgentProvider,
+    type HerdrUpdateStatus,
+    type DiagnosticCheck,
+  } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import SettingsWorkspacePanel from "$lib/components/settings/SettingsWorkspacePanel.svelte";
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
@@ -32,12 +40,14 @@
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  // Settings group into three jobs so the modal never outgrows the viewport:
-  // WORKSPACE (which repo root), SESSION (how agents start + steer), DEVICE
-  // (this browser's notifications + theme). The HERDR-update CTA is an alert,
+  // Settings group into focused jobs so the modal never outgrows the viewport:
+  // WORKSPACE (which repo root), CODING CLIS (provider/auth/model), SESSION
+  // (runtime defaults + review gates), DEVICE (this browser's notifications + theme).
+  // The HERDR-update CTA is an alert,
   // not a section, so it stays pinned above the tab strip.
   const TABS = [
     { id: "workspace", label: m.settings_tab_workspace },
+    { id: "codingAgents", label: m.settings_tab_coding_agents },
     { id: "session", label: m.settings_tab_session },
     { id: "device", label: m.settings_tab_device },
     { id: "diagnose", label: m.settings_tab_diagnose },
@@ -114,6 +124,9 @@
   let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
+  let defaultAgentProvider = $state<AgentProvider>("claude");
+  let defaultAgentProviderSaved: AgentProvider = "claude";
+  let defaultAgentProviderBusy = $state(false);
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
   // 1M-context variants ("opus[1m]"/"sonnet[1m]") carry an extra per-turn cost the
   // generic premium warning doesn't convey, so they surface an additional note.
@@ -234,6 +247,25 @@
       });
     } finally {
       defaultModelBusy = false;
+    }
+  }
+
+  async function saveDefaultAgentProvider() {
+    if (defaultAgentProviderBusy) return;
+    defaultAgentProviderBusy = true;
+    try {
+      const r = await putDefaultAgentProvider(defaultAgentProvider);
+      defaultAgentProvider = r.defaultAgentProvider;
+      defaultAgentProviderSaved = r.defaultAgentProvider;
+    } catch {
+      defaultAgentProvider = defaultAgentProviderSaved;
+      toasts.info(m.settings_default_agent_provider_save_failed(), {
+        key: "default-agent-provider",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      defaultAgentProviderBusy = false;
     }
   }
 
@@ -511,6 +543,8 @@
       planReviewCyclesSaved = s.planReviewCyclesCap;
       defaultModel = s.defaultModel;
       defaultModelSaved = s.defaultModel;
+      defaultAgentProvider = s.defaultAgentProvider ?? "claude";
+      defaultAgentProviderSaved = s.defaultAgentProvider ?? "claude";
       authMode = s.authMode;
       authModeSaved = s.authMode;
       hasApiKey = s.hasApiKey;
@@ -615,6 +649,146 @@
     <div
       class="panel"
       role="tabpanel"
+      id="settings-panel-codingAgents"
+      aria-labelledby="settings-tab-codingAgents"
+      tabindex="0"
+      hidden={tab !== "codingAgents"}
+    >
+      <div class="rc cli-default">
+        <span class="micro">{m.settings_default_agent_provider_title()}</span>
+        <p class="hint">{m.settings_default_agent_provider_hint()}</p>
+        <select
+          class="model-select"
+          bind:value={defaultAgentProvider}
+          disabled={defaultAgentProviderBusy}
+          aria-label={m.settings_default_agent_provider_title()}
+          onchange={saveDefaultAgentProvider}
+        >
+          {#each AGENT_PROVIDERS as provider (provider)}
+            <option value={provider}>
+              {provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha()}
+            </option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="cli-section">
+        <div class="cli-head">
+          <span class="micro">{m.settings_cli_claude_title()}</span>
+          <p class="hint">{m.settings_cli_claude_hint()}</p>
+        </div>
+        <div class="rc">
+          <span class="micro">{m.settings_default_model_title()}</span>
+          <p class="hint">{m.settings_default_model_hint()}</p>
+          <select
+            class="model-select"
+            bind:value={defaultModel}
+            disabled={defaultModelBusy}
+            aria-label={m.settings_default_model_title()}
+            onchange={saveDefaultModel}
+          >
+            <option value="auto">{m.settings_default_model_auto()}</option>
+            <option value="default">{m.newtask_model_default()}</option>
+            {#each MODELS as mdl (mdl)}
+              <option value={mdl}>{modelLabel(mdl)}</option>
+            {/each}
+          </select>
+          {#if isPremiumModel}
+            <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
+          {/if}
+          {#if is1mModel}
+            <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
+          {/if}
+        </div>
+        <div class="rc">
+          <span class="micro">{m.settings_auth_mode_title()}</span>
+          <p class="hint">{m.settings_auth_mode_hint()}</p>
+          <select
+            class="model-select"
+            bind:value={authMode}
+            disabled={authBusy}
+            aria-label={m.settings_auth_mode_title()}
+            onchange={saveAuthMode}
+          >
+            <option value="subscription">{m.settings_auth_mode_subscription()}</option>
+            <option value="api-key">{m.settings_auth_mode_apikey()}</option>
+          </select>
+          {#if authMode === "api-key"}
+            <div class="apikey">
+              {#if hasApiKey}
+                <p class="key-status">{m.settings_auth_key_saved()}</p>
+                <div class="key-actions">
+                  <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
+                    {m.settings_auth_key_clear()}
+                  </button>
+                  <button
+                    type="button"
+                    class="gbtn"
+                    disabled={authBusy || verifyState === "verifying"}
+                    onclick={verifyKey}
+                  >
+                    {m.settings_auth_key_verify()}
+                  </button>
+                </div>
+                {#if verifyState === "verifying"}
+                  <p class="verify-line verify-busy">{m.settings_auth_key_verifying()}</p>
+                {:else if verifyState === "ok"}
+                  <p class="verify-line verify-ok">{m.settings_auth_key_verify_ok()}</p>
+                {:else if verifyState === "failed"}
+                  <p class="verify-line verify-failed">
+                    {m.settings_auth_key_verify_failed()}
+                    {verifyMsg}
+                  </p>
+                {/if}
+              {/if}
+              <div class="key-entry">
+                <input
+                  type="password"
+                  class="model-select key-input"
+                  bind:value={apiKeyInput}
+                  disabled={authBusy}
+                  placeholder={m.settings_auth_key_placeholder()}
+                  aria-label={m.settings_auth_key_label()}
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="gbtn"
+                  disabled={authBusy || apiKeyInput.trim() === ""}
+                  onclick={saveApiKey}
+                >
+                  {m.settings_auth_key_save()}
+                </button>
+              </div>
+              {#if !hasApiKey}
+                <p class="premium-warn">{m.settings_auth_key_missing_warning()}</p>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div class="cli-section">
+        <div class="cli-head">
+          <span class="micro">{m.settings_cli_codex_title()}</span>
+          <p class="hint">{m.settings_cli_codex_hint()}</p>
+        </div>
+        <span class="micro">{m.settings_cli_codex_auth_title()}</span>
+        <p class="hint">{m.settings_cli_codex_auth_hint()}</p>
+        <select
+          class="model-select"
+          value="local"
+          disabled
+          aria-label={m.settings_cli_codex_auth_title()}
+        >
+          <option value="local">{m.settings_cli_codex_auth_local()}</option>
+        </select>
+      </div>
+    </div>
+
+    <div
+      class="panel"
+      role="tabpanel"
       id="settings-panel-session"
       aria-labelledby="settings-tab-session"
       tabindex="0"
@@ -700,95 +874,6 @@
             onchange={savePlanReviewCycles}
           />
         </label>
-      </div>
-      <div class="rc">
-        <span class="micro">{m.settings_default_model_title()}</span>
-        <p class="hint">{m.settings_default_model_hint()}</p>
-        <select
-          class="model-select"
-          bind:value={defaultModel}
-          disabled={defaultModelBusy}
-          aria-label={m.settings_default_model_title()}
-          onchange={saveDefaultModel}
-        >
-          <option value="auto">{m.settings_default_model_auto()}</option>
-          <option value="default">{m.newtask_model_default()}</option>
-          {#each MODELS as mdl (mdl)}
-            <option value={mdl}>{modelLabel(mdl)}</option>
-          {/each}
-        </select>
-        {#if isPremiumModel}
-          <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
-        {/if}
-        {#if is1mModel}
-          <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
-        {/if}
-      </div>
-      <div class="rc">
-        <span class="micro">{m.settings_auth_mode_title()}</span>
-        <p class="hint">{m.settings_auth_mode_hint()}</p>
-        <select
-          class="model-select"
-          bind:value={authMode}
-          disabled={authBusy}
-          aria-label={m.settings_auth_mode_title()}
-          onchange={saveAuthMode}
-        >
-          <option value="subscription">{m.settings_auth_mode_subscription()}</option>
-          <option value="api-key">{m.settings_auth_mode_apikey()}</option>
-        </select>
-        {#if authMode === "api-key"}
-          <div class="apikey">
-            {#if hasApiKey}
-              <p class="key-status">{m.settings_auth_key_saved()}</p>
-              <div class="key-actions">
-                <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
-                  {m.settings_auth_key_clear()}
-                </button>
-                <button
-                  type="button"
-                  class="gbtn"
-                  disabled={authBusy || verifyState === "verifying"}
-                  onclick={verifyKey}
-                >
-                  {m.settings_auth_key_verify()}
-                </button>
-              </div>
-              {#if verifyState === "verifying"}
-                <p class="verify-line verify-busy">{m.settings_auth_key_verifying()}</p>
-              {:else if verifyState === "ok"}
-                <p class="verify-line verify-ok">{m.settings_auth_key_verify_ok()}</p>
-              {:else if verifyState === "failed"}
-                <p class="verify-line verify-failed">
-                  {m.settings_auth_key_verify_failed()}
-                  {verifyMsg}
-                </p>
-              {/if}
-            {/if}
-            <div class="key-entry">
-              <input
-                type="password"
-                class="model-select key-input"
-                bind:value={apiKeyInput}
-                disabled={authBusy}
-                placeholder={m.settings_auth_key_placeholder()}
-                aria-label={m.settings_auth_key_label()}
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="gbtn"
-                disabled={authBusy || apiKeyInput.trim() === ""}
-                onclick={saveApiKey}
-              >
-                {m.settings_auth_key_save()}
-              </button>
-            </div>
-            {#if !hasApiKey}
-              <p class="premium-warn">{m.settings_auth_key_missing_warning()}</p>
-            {/if}
-          </div>
-        {/if}
       </div>
       <div class="rc">
         <span class="micro">{m.settings_logout_title()}</span>
@@ -1094,7 +1179,32 @@
     flex-direction: column;
     gap: 6px;
   }
+  .cli-default {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .cli-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 0 4px;
+    border-top: 1px solid var(--color-line);
+  }
+  .cli-section:first-of-type {
+    border-top: 0;
+  }
+  .cli-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
   .rc .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
+  .cli-head .hint,
+  .cli-section > .hint {
     color: var(--color-faint);
     font-size: var(--fs-meta);
     margin: 0;

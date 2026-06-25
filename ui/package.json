@@ -18,7 +18,7 @@
     "gen:icons": "node scripts/gen-icons.mjs"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "^2.20.1",
+    "@inlang/paraglide-js": "^2.20.2",
     "@sveltejs/adapter-auto": "^7.0.1",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.68.0",

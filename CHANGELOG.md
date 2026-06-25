@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.37.0](https://github.com/erwins-enkel/shepherd/compare/v1.36.0...v1.37.0) (2026-06-25)
+
+
+### Features
+
+* /why — per-session 'Why parked?' hold reason ([#1008](https://github.com/erwins-enkel/shepherd/issues/1008)) ([#1012](https://github.com/erwins-enkel/shepherd/issues/1012)) ([02ec26c](https://github.com/erwins-enkel/shepherd/commit/02ec26ca58b7346241a3a71b09a9855cad202f1c))
+* add shepherd-onboarding skill (existing + greenfield paths) ([#1024](https://github.com/erwins-enkel/shepherd/issues/1024)) ([f5167f5](https://github.com/erwins-enkel/shepherd/commit/f5167f5f6744800901c98334bc157cf96448e349))
+* **auth:** single-operator password → session-cookie auth; close the WS/PTY gap ([#1081](https://github.com/erwins-enkel/shepherd/issues/1081)) ([aea24de](https://github.com/erwins-enkel/shepherd/commit/aea24def823c4976e8913906a7628463cdb6ba79))
+* **automation:** confirm automation settings on first task for a new repo ([#1025](https://github.com/erwins-enkel/shepherd/issues/1025)) ([#1031](https://github.com/erwins-enkel/shepherd/issues/1031)) ([a316bc0](https://github.com/erwins-enkel/shepherd/commit/a316bc0735cedd955b53eaab1b3e6f08d1440f04))
+* **autopilot:** pre-completion verification gate for drain sessions ([#1009](https://github.com/erwins-enkel/shepherd/issues/1009)) ([#1010](https://github.com/erwins-enkel/shepherd/issues/1010)) ([1a67724](https://github.com/erwins-enkel/shepherd/commit/1a67724bc6d5cb309ad83abfb0352aaf00c27ad8))
+* **autopilot:** rebase idle review-passed non-mergeable PR (non-full-auto) ([#1064](https://github.com/erwins-enkel/shepherd/issues/1064)) ([2b3e16c](https://github.com/erwins-enkel/shepherd/commit/2b3e16caaf6cf495a4ac2e09319e5bfefe9275e1))
+* **backlog:** show per-issue assignees when mine & unassigned filter is off ([#1046](https://github.com/erwins-enkel/shepherd/issues/1046)) ([276d534](https://github.com/erwins-enkel/shepherd/commit/276d5341e465112462c13cd51b51a50536ca6419))
+* **backup:** automated hourly SQLite backups + restore + staleness alert ([#1080](https://github.com/erwins-enkel/shepherd/issues/1080)) ([#1082](https://github.com/erwins-enkel/shepherd/issues/1082)) ([3209c32](https://github.com/erwins-enkel/shepherd/commit/3209c32c22cbf736a3b0478d971af1054d42b507))
+* **codex:** add Codex coding CLI alpha path ([#1086](https://github.com/erwins-enkel/shepherd/issues/1086)) ([f5c7e3c](https://github.com/erwins-enkel/shepherd/commit/f5c7e3ce21e7b893d28c7b2861037c3450f6aafd))
+* **drain:** auto-rebase behind/conflicting epic landing PRs ([#1071](https://github.com/erwins-enkel/shepherd/issues/1071)) ([#1073](https://github.com/erwins-enkel/shepherd/issues/1073)) ([f6bf371](https://github.com/erwins-enkel/shepherd/commit/f6bf371479315513d99a509cce4836bbdc907299))
+* **epic:** opt-in auto-land of integrated epics ([#1044](https://github.com/erwins-enkel/shepherd/issues/1044)) ([#1053](https://github.com/erwins-enkel/shepherd/issues/1053)) ([9879cf4](https://github.com/erwins-enkel/shepherd/commit/9879cf41b63ffafa9e4f709fc81e48bed8830e81))
+* **epic:** surface + manually land integrated-but-unlanded epics ([#1039](https://github.com/erwins-enkel/shepherd/issues/1039)) ([#1049](https://github.com/erwins-enkel/shepherd/issues/1049)) ([399262c](https://github.com/erwins-enkel/shepherd/commit/399262ca45f319ce871d1a5d9440f07a2c50172a))
+* **plan-gate:** log plan-blocks capture for [#804](https://github.com/erwins-enkel/shepherd/issues/804) activation tracking ([#995](https://github.com/erwins-enkel/shepherd/issues/995)) ([a86ad53](https://github.com/erwins-enkel/shepherd/commit/a86ad536271ba6433062975a30f158b1a31a4ea7))
+* **rundown:** surface integrated-but-unlanded epics as Tier-1 items ([#1045](https://github.com/erwins-enkel/shepherd/issues/1045)) ([#1052](https://github.com/erwins-enkel/shepherd/issues/1052)) ([f6709ca](https://github.com/erwins-enkel/shepherd/commit/f6709cae77b2e84d7dcfc0fd0c5b90812530445a))
+* **spawn:** pull issue comments into a task spawned from an issue ([#1034](https://github.com/erwins-enkel/shepherd/issues/1034)) ([4a3d0de](https://github.com/erwins-enkel/shepherd/commit/4a3d0ded7ea59def76c5c41c1d83d030b0ef16dc))
+* **tui:** make Shepherd compatible with Claude Code fullscreen renderer (opt-in) ([#1055](https://github.com/erwins-enkel/shepherd/issues/1055)) ([9eb1a61](https://github.com/erwins-enkel/shepherd/commit/9eb1a61d859c4d1873384d936a09b6aabb1a1f2f))
+* **usage:** break down satellite passes by type in Overhead lens ([#998](https://github.com/erwins-enkel/shepherd/issues/998)) ([5090b87](https://github.com/erwins-enkel/shepherd/commit/5090b8772b7cc9249284bb1d160763247ade85bd))
+* **usage:** show task short name in breakdown, not just its ID ([#1016](https://github.com/erwins-enkel/shepherd/issues/1016)) ([b26cbdf](https://github.com/erwins-enkel/shepherd/commit/b26cbdf8adbc410282ca4a11ab41ebb943766445))
+* **viewport:** non-blocking review-in-flight terminal banner + operator-keystroke seam ([#1027](https://github.com/erwins-enkel/shepherd/issues/1027)) ([166e9c8](https://github.com/erwins-enkel/shepherd/commit/166e9c81691c03192b6823156212db14249c1815))
+* **viewport:** offer to decommission a session after a manual PR merge ([#1062](https://github.com/erwins-enkel/shepherd/issues/1062)) ([458fdd9](https://github.com/erwins-enkel/shepherd/commit/458fdd9307c1fe6bbca6476fb85ce31ec9dd6ef9))
+* **viewport:** pinned ⤓ jump-to-latest key on mobile control bar ([#1063](https://github.com/erwins-enkel/shepherd/issues/1063)) ([4e227cb](https://github.com/erwins-enkel/shepherd/commit/4e227cbc4b8cbb0e854a59d7cb67e7c3d66c30b1))
+
+
+### Bug Fixes
+
+* **broadcast:** honest delivered/queued/unreachable feedback ([#1041](https://github.com/erwins-enkel/shepherd/issues/1041)) ([0a8d3ea](https://github.com/erwins-enkel/shepherd/commit/0a8d3eaccf57de1ab3e60c0f37d06cec0b64b193))
+* **build-queue:** resolve short/prefix step ids; loud 4xx on mismatch ([#1011](https://github.com/erwins-enkel/shepherd/issues/1011)) ([#1013](https://github.com/erwins-enkel/shepherd/issues/1013)) ([2116619](https://github.com/erwins-enkel/shepherd/commit/21166195c41dbe13eb5860ac6a16e585502a5079))
+* **build-queue:** stable step ids across re-PUT ([#1014](https://github.com/erwins-enkel/shepherd/issues/1014)) ([#1015](https://github.com/erwins-enkel/shepherd/issues/1015)) ([655333b](https://github.com/erwins-enkel/shepherd/commit/655333beb7a2c7b433b754054cd627eab579d2c9))
+* **buildqueue:** truthful queue header — auto/operator approval + run-state ([#1084](https://github.com/erwins-enkel/shepherd/issues/1084)) ([1d261ef](https://github.com/erwins-enkel/shepherd/commit/1d261ef50365783f4cdb3f2b6f7a6cc75877b668))
+* **ci:** onboarding-release-gate reads via release-please App token ([#1004](https://github.com/erwins-enkel/shepherd/issues/1004)) ([9c14f3d](https://github.com/erwins-enkel/shepherd/commit/9c14f3dab858ff54ca7d7a3fddcb0145d1b892a5))
+* **ci:** onboarding-release-gate uses REST issues API, not gh issue list ([#996](https://github.com/erwins-enkel/shepherd/issues/996)) ([dbd3e29](https://github.com/erwins-enkel/shepherd/commit/dbd3e291393de8f61b5078c665df08579673b4cd))
+* **critic:** don't persist a post-merge error verdict as REVIEW ERR ([#1057](https://github.com/erwins-enkel/shepherd/issues/1057)) ([73e48e6](https://github.com/erwins-enkel/shepherd/commit/73e48e6bddf18c2ca337cc7cda4a3ca05ccbe02c))
+* **diff:** diff against the PR's real base, not session.baseBranch ([#1078](https://github.com/erwins-enkel/shepherd/issues/1078)) ([f344680](https://github.com/erwins-enkel/shepherd/commit/f3446808739fd42ff7708cfcab71f37af2493127))
+* **epic:** kick drain on Start so first sub-issue session surfaces live ([#1026](https://github.com/erwins-enkel/shepherd/issues/1026)) ([248abb1](https://github.com/erwins-enkel/shepherd/commit/248abb11b8760e27b797bb8a71b6d9c0f789deea))
+* **epic:** never close integrated epic child out-of-band on merged-PR teardown ([#1037](https://github.com/erwins-enkel/shepherd/issues/1037)) ([#1040](https://github.com/erwins-enkel/shepherd/issues/1040)) ([461c2b8](https://github.com/erwins-enkel/shepherd/commit/461c2b8ac00644f14500eebeaebe41dce978206b))
+* **forge:** re-probe negative forge resolution after TTL ([#1023](https://github.com/erwins-enkel/shepherd/issues/1023)) ([#1028](https://github.com/erwins-enkel/shepherd/issues/1028)) ([0f287f5](https://github.com/erwins-enkel/shepherd/commit/0f287f592a7a57259420fa1d499cb67d9c6f3827))
+* **glossary:** activation-only inline disclosure so tooltip never obscures content ([#1001](https://github.com/erwins-enkel/shepherd/issues/1001)) ([536dcfc](https://github.com/erwins-enkel/shepherd/commit/536dcfc4352044e13a6b5dd404074a1b1ac56fbd))
+* **glossary:** hide closed floating tooltip so it stops obscuring content ([#1006](https://github.com/erwins-enkel/shepherd/issues/1006)) ([eaa9900](https://github.com/erwins-enkel/shepherd/commit/eaa990053a57cda7f1f41d031cedd6314bf4eecc))
+* **held:** emit session:new on held-task spawn so the Herd refreshes ([#1018](https://github.com/erwins-enkel/shepherd/issues/1018)) ([287bca4](https://github.com/erwins-enkel/shepherd/commit/287bca4e8011a029e32e8ba8d4d6025bc9025202))
+* **held:** re-stamp drain claim when a held task with a linked issue spawns ([#1019](https://github.com/erwins-enkel/shepherd/issues/1019)) ([c8cb87c](https://github.com/erwins-enkel/shepherd/commit/c8cb87c5c9539f4b8e32a96c7fa70c3d39cddfdf))
+* **held:** re-sync held count on tab-return so badge isn't stale after deploy ([#1021](https://github.com/erwins-enkel/shepherd/issues/1021)) ([ed71fa6](https://github.com/erwins-enkel/shepherd/commit/ed71fa632a9a71088a4ddb31ef85f86b1ce5e1dc))
+* **herdr:** pin classic renderer for spawned claude agents ([#1042](https://github.com/erwins-enkel/shepherd/issues/1042)) ([d8af59c](https://github.com/erwins-enkel/shepherd/commit/d8af59c9a476f83722b38c91532b507e1d142112))
+* **ingress:** pin agent-ingress port so live sessions survive restarts ([#1083](https://github.com/erwins-enkel/shepherd/issues/1083)) ([#1085](https://github.com/erwins-enkel/shepherd/issues/1085)) ([254cca2](https://github.com/erwins-enkel/shepherd/commit/254cca249086de37807ee57ceb861c7aa75198cd))
+* **pre-push:** terminate linter argv with `--` to block flag smuggling ([#1035](https://github.com/erwins-enkel/shepherd/issues/1035)) ([#1036](https://github.com/erwins-enkel/shepherd/issues/1036)) ([8a4372b](https://github.com/erwins-enkel/shepherd/commit/8a4372b13f63ac5a49058a5bf99f510183ef7bab))
+* **recap:** make expanded recap scrollable instead of clipping ([#1029](https://github.com/erwins-enkel/shepherd/issues/1029)) ([ec5a721](https://github.com/erwins-enkel/shepherd/commit/ec5a721ae69f41ff605260edb3fffe583393c463))
+* **review:** zero-context patch-id so a clean rebase skips critic re-review ([#1067](https://github.com/erwins-enkel/shepherd/issues/1067)) ([78f8e2c](https://github.com/erwins-enkel/shepherd/commit/78f8e2c74062c6f69752f58de469bec33c8dbca1))
+* **top-bar:** center count in compact held-tasks badge ([#1017](https://github.com/erwins-enkel/shepherd/issues/1017)) ([2dd0a0d](https://github.com/erwins-enkel/shepherd/commit/2dd0a0d54f531a1e293a7b5d59f02577d78d7eb2))
+* **top-bar:** reachable + working usage refresh, compact desktop cluster ([#1005](https://github.com/erwins-enkel/shepherd/issues/1005)) ([535f589](https://github.com/erwins-enkel/shepherd/commit/535f589480452669d97c1f02d8de913b2b5f64d4))
+* **usage-hold:** hold manual tasks at threshold even when herd is idle ([#1038](https://github.com/erwins-enkel/shepherd/issues/1038)) ([b598a13](https://github.com/erwins-enkel/shepherd/commit/b598a13377145dc64e3a5d05185ecea8ed02d00e))
+* **usage:** extra-credits bar renders full-width to match 5h/weekly gauges ([#1000](https://github.com/erwins-enkel/shepherd/issues/1000)) ([377293f](https://github.com/erwins-enkel/shepherd/commit/377293febab74a691b8278c3a643187b27ea685b))
+* **usage:** re-capture extra-credit panel on /usage scrape ([#1058](https://github.com/erwins-enkel/shepherd/issues/1058)) ([a95c329](https://github.com/erwins-enkel/shepherd/commit/a95c3293e8ed6fe522ac32428ac88d0ad4ad5a64))
+* **usage:** read the real credits panel past the /usage-credits menu text ([#1072](https://github.com/erwins-enkel/shepherd/issues/1072)) ([ec0d097](https://github.com/erwins-enkel/shepherd/commit/ec0d09731aca24d719ff97332cdb353fe3862da4))
+
+
+### Performance Improvements
+
+* **pre-push:** parallelize hook into lanes; scope lint to push delta ([#1030](https://github.com/erwins-enkel/shepherd/issues/1030)) ([#1033](https://github.com/erwins-enkel/shepherd/issues/1033)) ([ce156ad](https://github.com/erwins-enkel/shepherd/commit/ce156addb3c36b38d232069738a3488c33bf4432))
+
+
+### Code Refactoring
+
+* **repo-switcher:** remove dedicated per-repo learnings bar ([#999](https://github.com/erwins-enkel/shepherd/issues/999)) ([a6ecf76](https://github.com/erwins-enkel/shepherd/commit/a6ecf7639e01ef8d28664a4f51ad49c7586e6230))
+
+
+### Documentation
+
+* **research:** scan dirge agent for borrowable ideas ([#1007](https://github.com/erwins-enkel/shepherd/issues/1007)) ([6cf8dfa](https://github.com/erwins-enkel/shepherd/commit/6cf8dfaaf4ae1c03b82232ba920e6d3a8a77d982))
+* **spike:** [#1043](https://github.com/erwins-enkel/shepherd/issues/1043) fullscreen-renderer alt-screen read is GO ([#1048](https://github.com/erwins-enkel/shepherd/issues/1048)) ([9665671](https://github.com/erwins-enkel/shepherd/commit/9665671364a02881444f2b0922bc83152cfab1ac))
+* sync docs to recent source changes ([#1051](https://github.com/erwins-enkel/shepherd/issues/1051)) ([9c0525b](https://github.com/erwins-enkel/shepherd/commit/9c0525b1613f2b0a7cf452b0b5a8a4381d4fcf56))
+* sync docs to recent source changes ([#1065](https://github.com/erwins-enkel/shepherd/issues/1065)) ([afaeefc](https://github.com/erwins-enkel/shepherd/commit/afaeefc58fa366f79f09e116d10e2a72964e76e6))
+* sync docs to recent source changes ([#1077](https://github.com/erwins-enkel/shepherd/issues/1077)) ([4997b5d](https://github.com/erwins-enkel/shepherd/commit/4997b5d8baa5afd1a79b04530cb6e5d7d266da12))
+
 ## [1.36.0](https://github.com/erwins-enkel/shepherd/compare/v1.35.0...v1.36.0) (2026-06-22)
 
 

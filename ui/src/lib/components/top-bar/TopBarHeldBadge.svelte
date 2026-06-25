@@ -3,6 +3,8 @@
   import { formatResetIn } from "$lib/format";
   import type { Gauge } from "../usage-gauges";
   import { AGENT_PROVIDERS, type AgentProvider, type HeldTask } from "$lib/types";
+  import { dialog } from "$lib/a11yDialog";
+  import { portal } from "$lib/portal";
 
   const fallbackProvider: AgentProvider = "claude";
 
@@ -37,6 +39,7 @@
     heldBadgeBtn = $bindable(null),
     heldPopEl = $bindable(null),
     toggleHeldPop,
+    closeHeldPop,
     doSpawnHeld,
     doDiscardHeld,
   }: {
@@ -52,10 +55,56 @@
     heldBadgeBtn: HTMLButtonElement | null;
     heldPopEl: HTMLDivElement | null;
     toggleHeldPop: () => void;
+    closeHeldPop: (returnFocus?: boolean) => void;
     doSpawnHeld: (id: string, agentProvider?: AgentProvider) => void;
     doDiscardHeld: (id: string) => void;
   } = $props();
 </script>
+
+{#snippet heldRows()}
+  {#if heldLoading}
+    <div class="held-pop-empty">{m.common_loading()}</div>
+  {:else if heldItems.length === 0}
+    <div class="held-pop-empty">{m.topbar_held_empty()}</div>
+  {:else}
+    {#each heldItems as task (task.id)}
+      {@const originalProvider = providerFor(task)}
+      {@const spawnProvider = selectedProvider(task)}
+      <div class="held-row">
+        <div class="held-row-info">
+          <span class="held-row-prompt">{task.input.prompt}</span>
+          <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span>
+          <span class="held-row-cli">
+            {m.topbar_held_original_cli({ cli: providerLabel(originalProvider) })}
+          </span>
+        </div>
+        <div class="held-row-actions">
+          <label class="held-cli">
+            <span>{m.topbar_held_spawn_cli_label()}</span>
+            <select
+              value={spawnProvider}
+              onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
+            >
+              {#each AGENT_PROVIDERS as provider (provider)}
+                <option value={provider}>{providerLabel(provider)}</option>
+              {/each}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="held-action held-spawn"
+            onclick={() => doSpawnHeld(task.id, spawnProvider)}>{m.topbar_held_spawn_now()}</button
+          >
+          <button
+            type="button"
+            class="held-action held-discard"
+            onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
+          >
+        </div>
+      </div>
+    {/each}
+  {/if}
+{/snippet}
 
 {#if (heldCount ?? 0) > 0}
   <!-- Held-tasks badge: non-modal anchored popover (design-system exemption). -->
@@ -81,7 +130,50 @@
         {/if}
       {/if}
     </button>
-    {#if heldPopOpen}
+    {#if heldPopOpen && mobile}
+      <div class="held-dialog-portal" use:portal>
+        <div class="held-scrim scrim" aria-hidden="true" onclick={() => closeHeldPop()}></div>
+        <div
+          bind:this={heldPopEl}
+          class="held-pop held-fullscreen"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="held-dialog-title"
+          tabindex="-1"
+          use:dialog={{ onclose: () => closeHeldPop(true) }}
+        >
+          <div class="held-dialog-head">
+            <span id="held-dialog-title" class="held-pop-head">{m.topbar_held_title()}</span>
+            <button
+              type="button"
+              class="held-close icon-btn compact"
+              onclick={() => closeHeldPop(true)}
+              aria-label={m.common_close()}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18" />
+                <path d="M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="held-dialog-body">
+            <p class="held-pop-why">
+              {m.topbar_held_why()}{#if hotter?.w.resetAt}
+                {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
+            </p>
+            {@render heldRows()}
+          </div>
+        </div>
+      </div>
+    {:else if heldPopOpen}
       <div
         bind:this={heldPopEl}
         class={["held-pop", { "flip-up": heldPopFlipUp }]}
@@ -94,50 +186,7 @@
           {m.topbar_held_why()}{#if hotter?.w.resetAt}
             {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
         </p>
-        {#if heldLoading}
-          <div class="held-pop-empty">{m.common_loading()}</div>
-        {:else if heldItems.length === 0}
-          <div class="held-pop-empty">{m.topbar_held_empty()}</div>
-        {:else}
-          {#each heldItems as task (task.id)}
-            {@const originalProvider = providerFor(task)}
-            {@const spawnProvider = selectedProvider(task)}
-            <div class="held-row">
-              <div class="held-row-info">
-                <span class="held-row-prompt">{task.input.prompt}</span>
-                <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span
-                >
-                <span class="held-row-cli">
-                  {m.topbar_held_original_cli({ cli: providerLabel(originalProvider) })}
-                </span>
-              </div>
-              <div class="held-row-actions">
-                <label class="held-cli">
-                  <span>{m.topbar_held_spawn_cli_label()}</span>
-                  <select
-                    value={spawnProvider}
-                    onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
-                  >
-                    {#each AGENT_PROVIDERS as provider (provider)}
-                      <option value={provider}>{providerLabel(provider)}</option>
-                    {/each}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  class="held-action held-spawn"
-                  onclick={() => doSpawnHeld(task.id, spawnProvider)}
-                  >{m.topbar_held_spawn_now()}</button
-                >
-                <button
-                  type="button"
-                  class="held-action held-discard"
-                  onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
-                >
-              </div>
-            </div>
-          {/each}
-        {/if}
+        {@render heldRows()}
       </div>
     {/if}
   </div>
@@ -206,12 +255,54 @@
     margin-top: 0;
     margin-bottom: 4px;
   }
+  .held-dialog-portal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+  }
+  .held-scrim {
+    z-index: 0;
+  }
+  .held-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-inset);
+    box-shadow: none;
+  }
+  .held-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    min-height: calc(var(--mobile-actionbar-hit) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 10px 0 16px;
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .held-dialog-head .held-pop-head {
+    padding: 0;
+  }
+  .held-close {
+    color: var(--color-ink);
+  }
+  .held-dialog-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom);
+    -webkit-overflow-scrolling: touch;
+  }
   @media (pointer: coarse) {
-    /* Touch: keep the popover ANCHORED (not fixed-centered) so it stays a small
-       non-blocking popover exempt from the modal scrim rule (CLAUDE.md). The
-       flip-up + height-clamp $effect already handles overflow on coarse-pointer
-       devices. Widen slightly for thumb reach. */
-    .held-pop {
+    .held-pop:not(.held-fullscreen) {
       width: min(360px, 92vw);
     }
     .held-badge {
@@ -335,11 +426,55 @@
   .held-spawn:hover {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
+  .held-fullscreen .held-pop-why {
+    padding: 12px 16px 14px;
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+  }
+  .held-fullscreen .held-pop-empty {
+    padding: 14px 16px;
+  }
+  .held-fullscreen .held-row {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+  .held-fullscreen .held-row-info {
+    gap: 4px;
+  }
+  .held-fullscreen .held-row-prompt {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .held-fullscreen .held-row-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+  .held-fullscreen .held-cli {
+    grid-column: 1 / -1;
+    gap: 4px;
+  }
+  .held-fullscreen .held-cli select,
+  .held-fullscreen .held-action {
+    min-height: var(--mobile-actionbar-hit);
+    padding: 0 12px;
+  }
+  .held-fullscreen .held-action {
+    font-size: var(--fs-base);
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   @media (max-width: 420px) {
-    .held-row {
+    .held-pop:not(.held-fullscreen) .held-row {
       flex-direction: column;
     }
-    .held-row-actions {
+    .held-pop:not(.held-fullscreen) .held-row-actions {
       width: 100%;
     }
   }

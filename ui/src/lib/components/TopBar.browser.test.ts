@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus } from "$lib/types";
+import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus, HeldTask } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
 
@@ -16,6 +16,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { default: TopBar } = await import("./TopBar.svelte");
+const { default: TopBarHeldBadge } = await import("./top-bar/TopBarHeldBadge.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
 const { refreshUsage } = await import("$lib/api");
 
@@ -702,6 +703,72 @@ describe("TopBar — tallies toggle the status filter", () => {
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
     await page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }).click();
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("TopBarHeldBadge — mobile held-task dialog", () => {
+  it("opens as a full-width dialog with comfortable touch actions on iPhone width", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    const closeHeldPop = vi.fn();
+    const heldItems: HeldTask[] = [
+      {
+        id: "held-1",
+        repoPath: "/work/shepherd",
+        createdAt: 1_700_000_000_000,
+        input: {
+          repoPath: "/work/shepherd",
+          baseBranch: "main",
+          prompt: "Die Buttons sind hier der Engpass auf meinem Smartphone",
+          agentProvider: "claude",
+          model: null,
+        },
+      },
+    ];
+
+    render(TopBarHeldBadge, {
+      heldCount: 1,
+      mobile: true,
+      compactBadges: false,
+      hotter: null,
+      nowMs: 1_700_000_000_000,
+      heldPopFlipUp: false,
+      heldItems,
+      heldLoading: false,
+      heldPopOpen: true,
+      heldBadgeBtn: null,
+      heldPopEl: null,
+      toggleHeldPop: vi.fn(),
+      closeHeldPop,
+      doSpawnHeld: vi.fn(),
+      doDiscardHeld: vi.fn(),
+    });
+    await nextFrame();
+
+    const dialog = document.querySelector<HTMLElement>(".held-fullscreen");
+    expect(dialog, "mobile held dialog rendered").not.toBeNull();
+    const dialogRect = dialog!.getBoundingClientRect();
+    expect(Math.round(dialogRect.left)).toBe(0);
+    expect(Math.round(dialogRect.right)).toBe(390);
+    expect(dialogRect.height).toBeGreaterThan(800);
+    await expect.element(page.getByRole("dialog", { name: m.topbar_held_title() })).toBeVisible();
+
+    const close = page.getByRole("button", { name: m.common_close() });
+    const closeBox = (close.element() as HTMLElement).getBoundingClientRect();
+    expect(closeBox?.width).toBeGreaterThanOrEqual(44);
+    expect(closeBox?.height).toBeGreaterThanOrEqual(44);
+
+    const spawn = page.getByRole("button", { name: m.topbar_held_spawn_now() });
+    const discard = page.getByRole("button", { name: m.topbar_held_discard() });
+    const spawnBox = (spawn.element() as HTMLElement).getBoundingClientRect();
+    const discardBox = (discard.element() as HTMLElement).getBoundingClientRect();
+    expect(spawnBox?.height).toBeGreaterThanOrEqual(44);
+    expect(discardBox?.height).toBeGreaterThanOrEqual(44);
+    expect(spawnBox?.width).toBeGreaterThan(150);
+    expect(discardBox?.width).toBeGreaterThan(150);
+
+    await close.click();
+    expect(closeHeldPop).toHaveBeenCalledWith(true);
   });
 });
 

@@ -234,6 +234,13 @@ main() {
   resolve_source
 
   cd "$SHEPHERD_DIR" || die "cannot cd into $SHEPHERD_DIR"
+  # Mirror the systemd units' EnvironmentFile=-%h/.shepherd/env so any SHEPHERD_DB /
+  # SHEPHERD_BACKUP_DIR override reaches provision via process.env — otherwise provision would
+  # write the .backup-configured marker to the DEFAULT dir while the server (which DOES read the
+  # env file) looks in the override dir, silently disabling staleness alerting (#1080).
+  set -a
+  [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"
+  set +a
   note "handing off to deploy/provision.ts (from $SHEPHERD_DIR)"
   exec bun run deploy/provision.ts
 }

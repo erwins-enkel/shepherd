@@ -21,6 +21,13 @@ die() {
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
+# Mirror the systemd units' EnvironmentFile=-%h/.shepherd/env so a SHEPHERD_DB / SHEPHERD_BACKUP_DIR
+# override resolves to the SAME paths the server + backup script use — else we'd restore to the
+# wrong DB / list the wrong backup dir (#1080).
+set -a
+[ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"
+set +a
+
 # Resolve DB + backup dir through the shared resolver so this never drifts from the backup script.
 DB="$(bun -e 'import {resolveDbPath} from "./src/backup-paths"; process.stdout.write(resolveDbPath())')"
 BACKUP_DIR="$(bun -e 'import {resolveBackupDir} from "./src/backup-paths"; process.stdout.write(resolveBackupDir())')"

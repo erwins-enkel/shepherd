@@ -137,4 +137,17 @@ describe("snapshot + integrity + rotate (live db)", () => {
     expect(left.length).toBeLessThan(200);
     expect(existsSync(join(dir, "backup.log"))).toBe(true); // foreign file untouched
   });
+
+  it("rotate reaps orphaned in-progress temp files a crashed run left behind", () => {
+    const ts = formatTs(new Date(Date.UTC(2026, 5, 25, 0, 0, 0)));
+    const snapTmp = `.shepherd-${ts}.db.tmp`; // uncompressed snapshot temp
+    const gzTmp = `shepherd-${ts}.db.gz.tmp`; // pre-rename gzip temp
+    writeFileSync(join(dir, snapTmp), "x");
+    writeFileSync(join(dir, gzTmp), "x");
+    writeFileSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))), "x"); // a real survivor
+    rotate(dir);
+    expect(existsSync(join(dir, snapTmp))).toBe(false);
+    expect(existsSync(join(dir, gzTmp))).toBe(false);
+    expect(existsSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))))).toBe(true);
+  });
 });

@@ -61,9 +61,12 @@ Counts are tunable constants (`GFS` in `scripts/backup.ts`).
 ## Staleness alerting
 
 The server's once-daily sweep does a **read-only** check: if `.backup-configured` exists (so the
-host is _expected_ to back up) and `.last-success` is absent or older than 3h, it emits a guaranteed
-log line, a durable `backup_stale` signal, and a best-effort web push. This catches a hard run
-failure, a box broken from its first run, and a silently-dead timer alike.
+host is _expected_ to back up), the marker is **itself older than 3h** (a grace window so a
+just-configured host isn't flagged before its first backup runs), and `.last-success` is absent or
+older than 3h, it emits a guaranteed log line, a durable `backup_stale` signal, and a best-effort
+web push. This catches a hard run failure, a box broken from its first run, and a silently-dead
+timer alike. (Provision/update also kick one backup immediately on enable, so a healthy host has a
+`.last-success` within seconds.)
 
 > **Detection latency.** The probe only runs once per daily sweep, so worst-case detection is ~24h —
 > the 3h threshold defines _stale_, not how fast it's noticed. A host with **no** marker (macOS /

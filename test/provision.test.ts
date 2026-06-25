@@ -323,6 +323,8 @@ describe("extracted helpers (direct)", () => {
     );
     expect([...writes.keys()].some((p) => p.endsWith(".backup-configured"))).toBe(true);
     expect(flat.some((c) => c.includes("enable --now shepherd-backup.timer"))).toBe(true);
+    // kicks one immediate backup so a fresh box has a .last-success before the staleness probe
+    expect(flat.some((c) => c.includes("start shepherd-backup.service"))).toBe(true);
     // ~/.shepherd is created before the unit starts (systemd opens StandardOutput=append:
     // there before ExecStart and won't make parent dirs — else first start fails, #725).
     const shepherdDir = join("/home/op", ".shepherd");

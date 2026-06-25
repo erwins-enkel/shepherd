@@ -1,5 +1,5 @@
 import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   config,
@@ -1453,11 +1453,18 @@ const HOST_SIGNAL_REPO = "__host__"; // sentinel repoPath for host-global (non-r
  * row, and a best-effort web push.
  */
 const checkBackupStaleness = async (): Promise<void> => {
+  let markerAgeMs: number;
   try {
-    await readFile(backupConfiguredMarker(), "utf8");
+    const st = await stat(backupConfiguredMarker());
+    markerAgeMs = Date.now() - st.mtimeMs;
   } catch {
     return; // no marker → backups never configured on this host → stay silent
   }
+  // Grace window: a freshly-configured host (marker younger than the staleness threshold) hasn't had
+  // a chance to run its first backup — the timer's first fire is at the next hour boundary while the
+  // boot+10s sweep would otherwise see no `.last-success` and cry stale. Suppress until the window
+  // passes (provision/update also kick one backup immediately, so this is the race-free backstop).
+  if (markerAgeMs < BACKUP_STALENESS_MS) return;
   let ageMs: number | null = null;
   try {
     const iso = (await readFile(lastSuccessMarker(), "utf8")).trim();

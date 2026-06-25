@@ -38,6 +38,11 @@ export const BUSY_TIMEOUT_MS = 5000;
 export const GFS = { hourly: 48, daily: 14, weekly: 8, monthly: 12 } as const;
 
 const FILE_RE = /^shepherd-(\d{8}T\d{6}Z)\.db\.gz$/;
+// In-progress artifacts a crashed run can orphan: the uncompressed snapshot (`.shepherd-<ts>.db.tmp`)
+// and the pre-rename gzip (`shepherd-<ts>.db.gz.tmp`). Neither matches FILE_RE, so rotation would
+// never reap them — reap them explicitly. Safe because Type=oneshot + a single timer means runs
+// never overlap, so any leftover .tmp is from a dead earlier run, not a live one.
+const TMP_RE = /^(?:\.shepherd-\d{8}T\d{6}Z\.db\.tmp|shepherd-\d{8}T\d{6}Z\.db\.gz\.tmp)$/;
 
 /** UTC timestamp → `YYYYMMDDTHHmmssZ` (lexically sortable, parseable). */
 export function formatTs(d: Date): string {
@@ -152,10 +157,13 @@ function compress(snapPath: string, outGz: string): void {
   renameSync(tmpGz, outGz);
 }
 
-/** Delete every snapshot the GFS classifier drops. */
+/** Delete every snapshot the GFS classifier drops, plus any orphaned in-progress temp files. */
 export function rotate(dir: string): void {
-  const files = readdirSync(dir).filter((f) => FILE_RE.test(f));
+  const entries = readdirSync(dir);
+  const files = entries.filter((f) => FILE_RE.test(f));
   for (const f of classifyRetention(files).delete) unlinkSync(join(dir, f));
+  // Reap temp artifacts orphaned by a crashed prior run (FILE_RE never matches them).
+  for (const f of entries.filter((f) => TMP_RE.test(f))) unlinkSync(join(dir, f));
 }
 
 async function main(): Promise<void> {

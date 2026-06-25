@@ -56,11 +56,18 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
     "$REPO/deploy/shepherd-backup.service" >"$UNIT_DIR/shepherd-backup.service"
   cp "$REPO/deploy/shepherd-backup.timer" "$UNIT_DIR/shepherd-backup.timer"
   # Resolve the backup dir via the shared resolver so the marker can't drift from the script.
-  BACKUP_DIR="$(bun -e 'import {resolveBackupDir} from "./src/backup-paths"; process.stdout.write(resolveBackupDir())')"
+  # Source ~/.shepherd/env (the units' EnvironmentFile) in a SUBSHELL first, so a SHEPHERD_DB /
+  # SHEPHERD_BACKUP_DIR override resolves to the SAME dir the server reads — else the marker lands
+  # where the server never looks and staleness alerting is silently off (#1080). Subshell-scoped so
+  # the override can't leak into the rest of this deploy script.
+  BACKUP_DIR="$(set -a; [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; set +a; bun -e 'import {resolveBackupDir} from "./src/backup-paths"; process.stdout.write(resolveBackupDir())')"
   mkdir -p "$BACKUP_DIR"
   [[ -f "$BACKUP_DIR/.backup-configured" ]] || printf 'shepherd-backup.timer enabled\n' >"$BACKUP_DIR/.backup-configured"
   systemctl --user daemon-reload
   systemctl --user enable --now shepherd-backup.timer
+  # Kick one backup now (the timer's first scheduled run is at the next hour boundary), so a freshly
+  # adopted host has a .last-success well before the daily-sweep staleness probe runs (#1080).
+  systemctl --user start shepherd-backup.service || warn "initial backup run did not start"
 else
   warn "no systemd user manager — skipping backup timer sync (no automated backups on this host)"
 fi

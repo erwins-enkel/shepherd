@@ -770,6 +770,49 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
     await close.click();
     expect(closeHeldPop).toHaveBeenCalledWith(true);
   });
+
+  it("shows an inline error when a held-task spawn was refused server-side", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    const heldItems: HeldTask[] = [
+      {
+        id: "held-1",
+        repoPath: "/work/shepherd",
+        createdAt: 1_700_000_000_000,
+        input: {
+          repoPath: "/work/shepherd",
+          baseBranch: "main",
+          prompt: "Die Buttons sind hier der Engpass auf meinem Smartphone",
+          agentProvider: "claude",
+          model: null,
+        },
+      },
+    ];
+
+    render(TopBarHeldBadge, {
+      heldCount: 1,
+      mobile: true,
+      compactBadges: false,
+      hotter: null,
+      nowMs: 1_700_000_000_000,
+      heldPopFlipUp: false,
+      heldItems,
+      heldLoading: false,
+      heldErrors: { "held-1": "spawn" },
+      heldPopOpen: true,
+      heldBadgeBtn: null,
+      heldPopEl: null,
+      toggleHeldPop: vi.fn(),
+      closeHeldPop: vi.fn(),
+      doSpawnHeld: vi.fn(),
+      doDiscardHeld: vi.fn(),
+    });
+    await nextFrame();
+
+    // The failure surfaces inline (a toast would render behind the fullscreen dialog),
+    // announced assertively so it reaches a screen reader.
+    await expect.element(page.getByRole("alert")).toHaveTextContent(m.topbar_held_spawn_failed());
+  });
 });
 
 describe("TopBar — working-while-blocked counts in the working tally, not blocked", () => {

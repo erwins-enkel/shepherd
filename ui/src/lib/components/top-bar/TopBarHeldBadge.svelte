@@ -35,6 +35,7 @@
     heldPopFlipUp,
     heldItems,
     heldLoading,
+    heldErrors = {},
     heldPopOpen = $bindable(),
     heldBadgeBtn = $bindable(null),
     heldPopEl = $bindable(null),
@@ -51,6 +52,7 @@
     heldPopFlipUp: boolean;
     heldItems: HeldTask[];
     heldLoading: boolean;
+    heldErrors?: Record<string, "spawn" | "discard">;
     heldPopOpen: boolean;
     heldBadgeBtn: HTMLButtonElement | null;
     heldPopEl: HTMLDivElement | null;
@@ -100,6 +102,13 @@
             class="held-action held-discard"
             onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
           >
+          {#if heldErrors[task.id]}
+            <p class="held-row-error" role="alert">
+              {heldErrors[task.id] === "spawn"
+                ? m.topbar_held_spawn_failed()
+                : m.topbar_held_discard_failed()}
+            </p>
+          {/if}
         </div>
       </div>
     {/each}
@@ -419,6 +428,12 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
+  .held-row-error {
+    margin: 0;
+    color: var(--color-red);
+    font-size: var(--fs-micro);
+    line-height: 1.35;
+  }
   .held-spawn {
     color: var(--color-amber);
     border-color: var(--color-amber);
@@ -455,9 +470,13 @@
     gap: 8px;
     width: 100%;
   }
-  .held-fullscreen .held-cli {
+  .held-fullscreen .held-cli,
+  .held-fullscreen .held-row-error {
     grid-column: 1 / -1;
     gap: 4px;
+  }
+  .held-fullscreen .held-row-error {
+    font-size: var(--fs-meta);
   }
   .held-fullscreen .held-cli select,
   .held-fullscreen .held-action {

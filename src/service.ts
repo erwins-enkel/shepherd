@@ -705,17 +705,25 @@ export const DRAFT_PR_NOTE =
 
 /**
  * Build the steer text sent to an agent to start its dev server in the background.
- * Must instruct the agent to run the command in the background so it does NOT block
- * on the dev server (a foreground dev server never exits and would hang the agent's
- * turn forever), and to report the tailnet HTTPS URL — operators reach previews over
- * the tailnet, so a localhost-only confirmation is useless to them. The FQDN is
- * resolved by the agent at runtime (never baked into this prompt — it would leak the
- * operator's tailnet name into every transcript template). Agent-facing, NOT i18n'd.
+ * Must instruct the agent to run the command in an agent-appropriate background
+ * mechanism so it does NOT block on the dev server (a foreground dev server never
+ * exits and would hang the agent's turn forever), and to report the tailnet HTTPS
+ * URL — operators reach previews over the tailnet, so a localhost-only confirmation
+ * is useless to them. The FQDN is resolved by the agent at runtime (never baked into
+ * this prompt — it would leak the operator's tailnet name into every transcript
+ * template). Agent-facing, NOT i18n'd.
  */
-export function PREVIEW_START_STEER(command: string): string {
+export function PREVIEW_START_STEER(
+  command: string,
+  agentProvider: "claude" | "codex" = "claude",
+): string {
+  const startDirective =
+    agentProvider === "codex"
+      ? `For Codex: please start \`${command}\` as a Codex-managed long-running/background terminal command, not as a blocking foreground command. In Codex CLI, keep it in a background terminal so it can be inspected with \`/ps\` and stopped with \`/stop\`; in the Codex app, use the integrated terminal or a project Action for the dev server. `
+      : `For Claude Code: please run \`${command}\` in the background (use Claude Code's background run / append \`&\` so it does NOT block your turn — a foreground dev server never exits and would hang you forever). `;
+
   return (
-    `Please run \`${command}\` in the background (use Claude Code's background run / append \`&\` so it ` +
-    `does NOT block your turn — a foreground dev server never exits and would hang you forever). ` +
+    startDirective +
     `Confirm the port it's listening on once it starts. Then ALWAYS report the tailnet HTTPS URL, ` +
     `not just localhost: ensure the mapping \`tailscale serve --bg --https <port> http://localhost:<port>\` ` +
     `is registered, resolve this node's MagicDNS name (e.g. \`tailscale status --json\` → Self.DNSName), ` +
@@ -2112,12 +2120,14 @@ export class SessionService {
 
   /**
    * Steer the agent for session `id` to start its dev server with `command` running
-   * in the background. The agent's PTY is a live Claude Code session — we can't spawn
-   * processes ourselves, so we deliver a directive asking the agent to do it. Returns
-   * false for an unknown id or a dead pane (same semantics as reply()).
+   * in the background. The agent's PTY is a live CLI session — we can't spawn processes
+   * ourselves, so we deliver a directive asking the agent to do it. Returns false for
+   * an unknown id or a dead pane (same semantics as reply()).
    */
   startPreview(id: string, command: string): boolean {
-    return this.reply(id, PREVIEW_START_STEER(command));
+    const s = this.deps.store.get(id);
+    if (!s) return false;
+    return this.reply(id, PREVIEW_START_STEER(command, s.agentProvider ?? "claude"));
   }
 
   /**

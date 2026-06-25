@@ -354,6 +354,11 @@
   $effect(() => {
     const el = heldPopEl;
     if (!el) return;
+    if (mobile) {
+      heldPopFlipUp = false;
+      el.style.maxHeight = "";
+      return;
+    }
     const clamp = () => {
       const anchor = el.offsetParent;
       if (!anchor) return;
@@ -609,6 +614,7 @@
       bind:heldBadgeBtn
       bind:heldPopEl
       {toggleHeldPop}
+      {closeHeldPop}
       {doSpawnHeld}
       {doDiscardHeld}
     />

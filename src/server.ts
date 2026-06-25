@@ -371,6 +371,14 @@ export interface AppDeps {
    *  (listGithubRepos falls back to the real `gh` runner); tests inject a fake so the
    *  repo-enumeration route can be exercised without hitting GitHub. */
   githubReposRunner?: GhOutRunner;
+  /** Analyze a session's recent terminal history via a transient second agent and return a
+   *  recommended next prompt (the task-id menu's "Promptempfehlung"). Wired to
+   *  recommendPrompt in index.ts; absent in tests that don't exercise it → route 503s. */
+  recommend?: (
+    id: string,
+    provider: AgentProvider,
+    model: string,
+  ) => Promise<import("./prompt-recommend").RecommendResult>;
 }
 
 const sessionUsage = (s: Session) =>
@@ -1800,6 +1808,24 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 
+// POST /api/sessions/:id/recommend-prompt — analyze the session's recent terminal history via a
+// transient second agent (claude opus / codex gpt-5.5) and return a recommended next prompt.
+// 200 {prompt} on success; 422 {error} on an analysis failure; 503 when unwired.
+async function handleSessionRecommend({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "recommend-prompt")) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const provider = (body as { provider?: unknown } | null)?.provider;
+  const model = (body as { model?: unknown } | null)?.model;
+  if ((provider !== "claude" && provider !== "codex") || typeof model !== "string" || !model) {
+    return json({ error: "body must be {provider: 'claude'|'codex', model: string}" }, 400);
+  }
+  if (!deps.recommend) return json({ error: "unavailable" }, 503);
+  const result = await deps.recommend(parts[2], provider, model);
+  return "prompt" in result ? json({ prompt: result.prompt }) : json({ error: result.error }, 422);
+}
+
 // POST /api/sessions/:id/go — release an APPROVED planning session into execution.
 // 200 when the plan-gate transition fires (planning + approved); 409 otherwise.
 function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
@@ -2484,6 +2510,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReads,
     handleSessionDelete,
     handleSessionReply,
+    handleSessionRecommend,
     handleSessionGo,
     handleSessionAnswerPlanQuestions,
     handleSessionReviewPlan,

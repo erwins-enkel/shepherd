@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -161,7 +162,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean) {
 const hasDirective = (argv: string[]) => argv.some((a) => a.includes("<autopilot-directive>"));
 const hasManualNotice = (argv: string[]) => argv.some((a) => a.includes("<manual-steps-notice>"));
 
-test("createSession: codex provider starts interactive codex; plan-gate forced off, autopilot off → no directive", async () => {
+test("createSession: codex provider starts plan-gated codex with the shared planfile contract", async () => {
   const { store, service, calls } = codexHarness(true);
 
   const s = await service.create({
@@ -171,7 +172,7 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     agentProvider: "codex",
     model: "gpt-5.5",
     images: [],
-    planGateEnabled: true, // forced off for codex
+    planGateEnabled: true,
     autopilotEnabled: false,
   });
 
@@ -186,13 +187,16 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     "gpt-5.5",
   ]);
   const codexPrompt = calls.start.argv[5] as string;
-  expect(codexPrompt.startsWith("flatten it")).toBe(true);
+  expect(codexPrompt.startsWith("<codex-plan-gate-contract>")).toBe(true);
+  expect(codexPrompt).toContain(".shepherd-plan.md");
+  expect(codexPrompt).toContain("<task>\nflatten it\n</task>");
   expect(codexPrompt).not.toContain("<autopilot-directive>");
   expect(codexPrompt).toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
   expect(s.claudeSessionId).toBe("");
-  expect(s.planGateEnabled).toBe(false); // plan-gate stays codex-forced-off
+  expect(s.planGateEnabled).toBe(true);
+  expect(s.planPhase).toBe("planning");
   expect(s.autopilotEnabled).toBe(false);
   expect(store.get(s.id)?.agentProvider).toBe("codex");
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
@@ -222,6 +226,113 @@ test("createSession: codex drops a carried Claude model and uses provider defaul
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBeNull();
   expect(store.get(s.id)?.model).toBeNull();
+});
+
+function planContractRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "plan-contract-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: dir });
+  writeFileSync(join(dir, ".shepherd-plan.md"), "Implement the thing safely.\n");
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "product.ts"), "export const changed = true;\n");
+  return dir;
+}
+
+function planReleaseHarness(store: SessionStore) {
+  const calls: { sent: string[]; events: { event: string; payload: unknown }[] } = {
+    sent: [],
+    events: [],
+  };
+  const service = new SessionService({
+    store,
+    namer: async () => "plan-contract",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({}) as any,
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "term" }) as any,
+      list: () => [],
+      send: (_id: string, text: string) => calls.sent.push(text),
+    } as any,
+    events: {
+      emit: (event: string, payload: unknown) => calls.events.push({ event, payload }),
+    },
+  });
+  return { service, calls };
+}
+
+function approvedPlanningSession(store: SessionStore, worktreePath: string) {
+  const s = store.create({
+    name: "gated",
+    prompt: "do the thing",
+    repoPath: worktreePath,
+    baseBranch: "main",
+    branch: "shepherd/gated",
+    worktreePath,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_plan",
+    planGateEnabled: true,
+  });
+  store.setPlanPhase(s.id, "planning");
+  store.putPlanGate({
+    sessionId: s.id,
+    planHash: "hash",
+    decision: "approved",
+    summary: "approved",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 5,
+    approved: true,
+    plan: "Implement the thing safely.",
+    blocks: [],
+    updatedAt: 1,
+  });
+  return store.get(s.id)!;
+}
+
+test("releasePlanGate blocks execution when product files changed during planning", () => {
+  const store = new SessionStore(":memory:");
+  const repo = planContractRepo();
+  try {
+    const { service, calls } = planReleaseHarness(store);
+    const s = approvedPlanningSession(store, repo);
+
+    expect(service.releasePlanGate(s.id)).toBe(false);
+
+    const fresh = store.get(s.id)!;
+    expect(fresh.planPhase).toBe("planning");
+    expect(store.getPlanGate(s.id)?.decision).toBe("error");
+    expect(store.getPlanGate(s.id)?.body).toContain("src/product.ts");
+    expect(calls.sent).toEqual([]);
+    expect(calls.events.some((e) => e.event === "session:plangate")).toBe(true);
+    expect(store.listSignals(repo).some((sig) => sig.kind === "stall")).toBe(true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("advanceToExecutionOnPr blocks auto-advance when product files changed during planning", () => {
+  const store = new SessionStore(":memory:");
+  const repo = planContractRepo();
+  try {
+    const { service } = planReleaseHarness(store);
+    const s = approvedPlanningSession(store, repo);
+
+    expect(service.advanceToExecutionOnPr(s.id)).toBe(false);
+
+    expect(store.get(s.id)?.planPhase).toBe("planning");
+    expect(store.getPlanGate(s.id)?.decision).toBe("error");
+    expect(store.getPlanGate(s.id)?.findings.join("\n")).toContain(
+      "Revert product-code changes made during planning",
+    );
+    expect(store.listSignals(repo).some((sig) => sig.kind === "stall")).toBe(true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("createSession: codex + isolated + autopilotEnabled=true → directive injected, persisted true", async () => {

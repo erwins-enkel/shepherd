@@ -2755,6 +2755,14 @@ export class SessionStore implements CapStore, CreditStore {
     );
   }
 
+  /** Mark a reviewer spawn complete when its provider has no usage reader yet. Token totals stay NULL. */
+  completeReviewerSpawnNoUsage(reviewerSessionId: string, completedAt: number): void {
+    this.db.run(`UPDATE reviewer_spawns SET completedAt = ? WHERE reviewerSessionId = ?`, [
+      completedAt,
+      reviewerSessionId,
+    ]);
+  }
+
   /** All reviewer-spawn rows, oldest-spawned first. Column names already match the
    *  ReviewerSpawnRow fields, so a direct cast suffices. */
   listReviewerSpawns(): ReviewerSpawnRow[] {

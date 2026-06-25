@@ -31,8 +31,10 @@ async function withAuth<T>(
 function harness(over: any = {}) {
   const started: any[] = [];
   const removed: string[] = [];
+  const signals: any[] = [];
   const recordedSpawns: any[] = [];
   const completedSpawns: any[] = [];
+  const completedNoUsage: any[] = [];
   const overWithoutStore = { ...over };
   delete overWithoutStore.store;
   const store = {
@@ -43,11 +45,12 @@ function harness(over: any = {}) {
     dropPlanGate() {},
     snapshotPlanGates: () => ({}),
     getRepoConfig: () => ({ planGateEnabled: true }),
-    addSignal() {},
+    addSignal: (s: any) => signals.push(s),
     setPlanPhase() {},
     get: () => ({ id: "s1", auto: false }),
     recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
     completeReviewerSpawn: (id: any, u: any, at: any) => completedSpawns.push({ id, u, at }),
+    completeReviewerSpawnNoUsage: (id: any, at: any) => completedNoUsage.push({ id, at }),
     listReviewerSpawns: () => [],
     ...(over.store ?? {}),
   };
@@ -86,8 +89,10 @@ function harness(over: any = {}) {
     deps,
     started,
     removed,
+    signals,
     recordedSpawns,
     completedSpawns,
+    completedNoUsage,
     store,
     svc: new PlanGateService(deps),
   };
@@ -110,6 +115,44 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started.length).toBe(1);
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("consider allows plan-only worktree changes during planning", async () => {
+  const h = harness({ changedPaths: () => [".shepherd-plan.md", ".shepherd-plan-blocks.json"] });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("started");
+  expect(h.started.length).toBe(1);
+  expect(h.signals).toEqual([]);
+});
+
+test("consider blocks review and surfaces an error when planning changed product code", async () => {
+  const h = harness({ changedPaths: () => [".shepherd-plan.md", "src/product.ts"] });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("error");
+  expect(h.started.length).toBe(0);
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.store.gate.approved).toBe(false);
+  expect(h.store.gate.summary).toContain("contract violated");
+  expect(h.store.gate.body).toContain("src/product.ts");
+  expect(h.signals[0].payload).toContain("contract violated");
+});
+
+test("consider can spawn a Codex reviewer with the same file-based verdict contract", async () => {
+  const h = harness({ env: () => ({ provider: "codex", model: "gpt-5.5" }) });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("started");
+  const argv = h.started[0].argv;
+  expect(argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+  expect(argv).toContain("-m");
+  expect(argv).toContain("gpt-5.5");
+  expect(argv).not.toContain("--output-last-message");
+  expect(argv.at(-1)).toContain(".shepherd-plan-review.json");
+  expect(h.recordedSpawns[0]).toMatchObject({
+    kind: "plan_gate",
+    taskSessionId: "s1",
+    worktreePath: "/wt-detached",
+    model: "gpt-5.5",
+  });
 });
 test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
   await withAuth("subscription", "/ignored.sh", async () => {
@@ -215,6 +258,18 @@ test("approve → stores approved gate, reaps worktree+terminal, reviewing off; 
   expect(h.removed).toContain("/wt-detached");
   expect(reviewingEvents).toContainEqual(["s1", false]);
   expect(h.svc.reviewingIds()).toEqual([]);
+});
+
+test("Codex reviewer finalize marks spawn complete without usage totals", async () => {
+  const h = harness({
+    env: () => ({ provider: "codex", model: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    readUsage: async () => null,
+  });
+  await h.svc.consider({ ...planningSession(), agentProvider: "codex" } as any);
+  await h.svc.tick();
+  expect(h.completedSpawns).toEqual([]);
+  expect(h.completedNoUsage).toEqual([{ id: h.recordedSpawns[0].reviewerSessionId, at: 1000 }]);
 });
 test("approve on an interactive session does NOT auto-release", async () => {
   const released: string[] = [];

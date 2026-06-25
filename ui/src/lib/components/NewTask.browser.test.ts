@@ -248,8 +248,8 @@ describe("NewTask plan-gate inheritance", () => {
   }
 
   const planGateBox = () => document.querySelector<HTMLInputElement>(".plan-gate input")!;
+  const autopilotBox = () => document.querySelectorAll<HTMLInputElement>(".plan-gate input")[1]!;
   const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
-
   async function fillAndSubmit() {
     const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
     promptField.value = "do the thing";
@@ -287,6 +287,46 @@ describe("NewTask plan-gate inheritance", () => {
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: true });
+  });
+
+  it("keeps Plan Gate enabled for Codex", async () => {
+    const repoPath = "/repo/codex-plan-gate";
+    mockGetRepoConfig.mockResolvedValue(repoConfig(false));
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: repoPath,
+        defaultAgentProvider: "codex",
+      },
+    });
+
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    expect(autopilotBox().disabled).toBe(false);
+    await expect
+      .element(page.getByText(m.newtask_agent_provider_codex_plan_gate_limited()))
+      .toBeVisible();
+    const limitedTip = page.getByRole("button", {
+      name: m.newtask_info_aria({
+        topic: m.newtask_agent_provider_codex_plan_gate_limited(),
+      }),
+    });
+    await expect.element(limitedTip).toBeVisible();
+    await limitedTip.hover();
+    await expect
+      .element(page.getByText(m.newtask_agent_provider_codex_plan_gate_limited_tip()))
+      .toBeVisible();
+    planGateBox().click();
+    expect(planGateBox().checked).toBe(true);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      agentProvider: "codex",
+      planGateEnabled: true,
+      autopilotEnabled: null,
+      model: null,
+    });
   });
 
   it("submits explicit false when the user unticks a gate-ON repo", async () => {
@@ -1021,7 +1061,7 @@ describe("NewTask first-task confirm step", () => {
       .toBeInTheDocument();
   });
 
-  it("switching Codex→Claude: plan-gate forced off (restored on flip back), autopilot available throughout", async () => {
+  it("switching Codex→Claude keeps plan-gate and autopilot available throughout", async () => {
     const repoPath = "/repo/codex-restore";
     // Repo defaults both automation toggles ON.
     mockGetRepoConfig.mockResolvedValue({
@@ -1044,11 +1084,11 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
 
-    // Codex: plan-gate forced off + disabled; autopilot stays available (on + enabled).
+    // Codex: plan-gate and autopilot both stay available.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(false);
-    expect(planGateBox().disabled).toBe(true);
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    expect(planGateBox().disabled).toBe(false);
     await expect.poll(() => autopilotBox().checked).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 
@@ -1061,7 +1101,7 @@ describe("NewTask first-task confirm step", () => {
     expect(autopilotBox().disabled).toBe(false);
   });
 
-  it("preserves a manual plan-gate override (forced-off display) and keeps autopilot on across a Codex round-trip", async () => {
+  it("preserves a manual plan-gate override and keeps autopilot on across a Codex round-trip", async () => {
     const repoPath = "/repo/codex-preserve-override";
     // Repo defaults both automation toggles OFF.
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
@@ -1083,10 +1123,10 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
 
-    // Codex displays plan-gate off (state preserved underneath, not mutated); autopilot stays on.
+    // Codex preserves the plan-gate override; autopilot stays on.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(false);
+    await expect.poll(() => planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 

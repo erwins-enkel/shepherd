@@ -1186,7 +1186,7 @@
   "diagnostics_hint_gh_ok": "GitHub CLI ist authentifiziert.",
   "diagnostics_hint_gh_not_authenticated": "GitHub CLI fehlt oder ist nicht angemeldet — führe gh auth login aus.",
   "diagnostics_hint_claude_ok": "Claude Code CLI ist verfügbar.",
-  "diagnostics_hint_claude_missing": "Claude Code CLI nicht im PATH gefunden — installiere es, um Agent-Sessions zu starten.",
+  "diagnostics_hint_claude_missing": "Claude Code CLI nicht im PATH gefunden. Installiere Claude Code oder Codex, um Agent-Sessions zu starten.",
   "diagnostics_hint_bun_ok": "bun ist aktuell.",
   "diagnostics_hint_bun_outdated": "Deine bun-Version liegt unter dem unterstützten Minimum — führe bun upgrade aus.",
   "diagnostics_hint_bun_missing": "bun nicht im PATH gefunden — installiere es von bun.sh.",
@@ -1206,7 +1206,7 @@
   "onboarding_intro": "Wir haben deine Umgebung geprüft — das braucht Shepherd zum Arbeiten.",
   "onboarding_dismiss": "Los geht's",
   "feat_diagnostics_title": "Umgebungs-Diagnose",
-  "feat_diagnostics_body": "Shepherd prüft jetzt seine Voraussetzungen — herdr, Tailscale, git, gh, claude, bun und node — und warnt dich unter Einstellungen → Diagnose, wenn etwas fehlt oder besser konfiguriert werden könnte.",
+  "feat_diagnostics_body": "Shepherd prüft jetzt seine Voraussetzungen — herdr, Tailscale, git, gh, claude/codex, bun und node — und warnt dich unter Einstellungen → Diagnose, wenn etwas fehlt oder besser konfiguriert werden könnte.",
   "diagnostics_hint_gh_missing": "GitHub CLI (gh) nicht im PATH gefunden — installiere es und führe anschließend gh auth login aus.",
   "diagnostics_rerun_error": "Checks konnten nicht neu geprüft werden.",
   "diagnostics_load_error": "Checks konnten nicht geladen werden.",
@@ -1969,5 +1969,10 @@
   "feat_held_task_cli_handoff_title": "Zurückgestellte Aufgaben an eine andere CLI geben",
   "feat_held_task_cli_handoff_body": "Zurückgestellte Aufgaben zeigen jetzt, für welche Coding-CLI sie ursprünglich eingereiht wurden. Öffne das Popover, stelle Starten mit auf einen anderen Provider und starte die Aufgabe dort, wo noch Kapazität frei ist.",
   "feat_codex_model_picker_title": "Codex-Modellauswahl",
-  "feat_codex_model_picker_body": "Der Neue-Aufgabe-Dialog wechselt das Modellmenü jetzt mit der ausgewählten Coding-CLI. Wähle Codex, um GPT-/Codex-Modelle wie gpt-5.5 auszuwählen; Shepherd reicht dieses Modell an die Codex-CLI weiter."
+  "feat_codex_model_picker_body": "Der Neue-Aufgabe-Dialog wechselt das Modellmenü jetzt mit der ausgewählten Coding-CLI. Wähle Codex, um GPT-/Codex-Modelle wie gpt-5.5 auszuwählen; Shepherd reicht dieses Modell an die Codex-CLI weiter.",
+  "diagnostics_label_codex": "codex",
+  "diagnostics_hint_claude_optional": "Claude Code CLI ist optional, weil Codex verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen.",
+  "diagnostics_hint_codex_ok": "Codex CLI ist verfügbar.",
+  "diagnostics_hint_codex_missing": "Codex CLI nicht im PATH gefunden. Installiere Codex oder Claude Code, um Agent-Sessions zu starten.",
+  "diagnostics_hint_codex_optional": "Codex CLI ist optional, weil Claude Code verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen."
 }

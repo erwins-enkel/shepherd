@@ -150,6 +150,25 @@ describe("DiagnoseRows fix button gating", () => {
     expect(document.querySelector("a.doc-link")).toBeNull();
   });
 
+  it("treats optional rows as clear while still showing their guidance", () => {
+    render(DiagnoseRows, {
+      props: {
+        checks: [
+          check({ id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" }),
+          check({
+            id: "codex",
+            state: "optional",
+            hintKey: "diagnostics_hint_codex_optional",
+          }),
+        ],
+      },
+    });
+
+    expect(document.body.textContent).toContain(m.diagnostics_state_optional());
+    expect(document.body.textContent).toContain(m.diagnostics_hint_codex_optional());
+    expect(document.body.textContent).toContain(m.diagnostics_all_ok());
+  });
+
   it("Esc cancels the confirm modal without calling onfix", async () => {
     const onfix = vi.fn();
     render(DiagnoseRows, {

@@ -19,6 +19,8 @@ const NODE_INSTALL =
   'ln -sf "$("$FNM" exec --using=lts-latest node -e \'console.log(process.execPath)\')" ' +
   '"$HOME/.local/bin/node"';
 const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
+const CODEX_INSTALL =
+  "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh";
 
 // git has no user-space installer — it's a distro system package. One cross-distro
 // chain (the same apt||apk||dnf||pacman shape the onboarding baseline's ensurePkg
@@ -37,6 +39,9 @@ export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_herdr_missing: HERDR_INSTALL,
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
+  diagnostics_hint_claude_optional: "curl -fsSL https://claude.ai/install.sh | bash",
+  diagnostics_hint_codex_missing: CODEX_INSTALL,
+  diagnostics_hint_codex_optional: CODEX_INSTALL,
   diagnostics_hint_tailscale_missing: "curl -fsSL https://tailscale.com/install.sh | sh",
   diagnostics_hint_git_missing: GIT_INSTALL,
 };

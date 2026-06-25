@@ -271,10 +271,11 @@ export interface HerdrUpdateStatus {
 }
 
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────
-/** Tri-state of a single dependency probe. `error` = the hard gate (missing /
+/** State of a single dependency probe. `error` = the hard gate (missing /
  *  unauthenticated / unreachable); `warning` = advisory (e.g. below the version
- *  floor, or tailscale serve not configured); `ok` = healthy. */
-export type DiagnosticState = "ok" | "warning" | "error";
+ *  floor, or tailscale serve not configured); `optional` = not required because
+ *  an equivalent alternative is healthy; `ok` = healthy. */
+export type DiagnosticState = "ok" | "optional" | "warning" | "error";
 
 /** One probe result. `hintKey` is a UI message-key STRING (e.g.
  *  "diagnostics_hint_herdr_missing") the client resolves through `m.*` — NEVER

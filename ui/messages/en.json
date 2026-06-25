@@ -1186,7 +1186,7 @@
   "diagnostics_hint_gh_ok": "GitHub CLI is authenticated.",
   "diagnostics_hint_gh_not_authenticated": "GitHub CLI missing or not logged in — run gh auth login.",
   "diagnostics_hint_claude_ok": "Claude Code CLI is available.",
-  "diagnostics_hint_claude_missing": "Claude Code CLI not found in PATH — install it to run agent sessions.",
+  "diagnostics_hint_claude_missing": "Claude Code CLI not found in PATH. Install Claude Code or Codex to run agent sessions.",
   "diagnostics_hint_bun_ok": "bun is up to date.",
   "diagnostics_hint_bun_outdated": "Your bun version is below the supported floor — run bun upgrade.",
   "diagnostics_hint_bun_missing": "bun not found in PATH — install it from bun.sh.",
@@ -1206,7 +1206,7 @@
   "onboarding_intro": "We checked your environment — here's what Shepherd needs to work.",
   "onboarding_dismiss": "Get started",
   "feat_diagnostics_title": "Environment diagnostics",
-  "feat_diagnostics_body": "Shepherd now checks its prerequisites — herdr, tailscale, git, gh, claude, bun, and node — and warns you in Settings → Diagnostics when something's missing or could be configured better.",
+  "feat_diagnostics_body": "Shepherd now checks its prerequisites — herdr, tailscale, git, gh, claude/codex, bun, and node — and warns you in Settings → Diagnostics when something's missing or could be configured better.",
   "diagnostics_hint_gh_missing": "GitHub CLI (gh) not found in PATH — install it, then run gh auth login.",
   "diagnostics_rerun_error": "Failed to re-run checks.",
   "diagnostics_load_error": "Couldn't load checks.",
@@ -1969,5 +1969,10 @@
   "feat_held_task_cli_handoff_title": "Hand off held tasks to another CLI",
   "feat_held_task_cli_handoff_body": "Held tasks now show which coding CLI they were originally queued for. Open the held-tasks popover, switch Run on to another provider, and Spawn now to hand the task to a CLI that still has room.",
   "feat_codex_model_picker_title": "Codex model picker",
-  "feat_codex_model_picker_body": "The New Task dialog now switches the model menu with the selected coding CLI. Pick Codex to choose GPT/Codex models such as gpt-5.5, and Shepherd passes that model through to the Codex CLI."
+  "feat_codex_model_picker_body": "The New Task dialog now switches the model menu with the selected coding CLI. Pick Codex to choose GPT/Codex models such as gpt-5.5, and Shepherd passes that model through to the Codex CLI.",
+  "diagnostics_label_codex": "codex",
+  "diagnostics_hint_claude_optional": "Claude Code CLI is optional because Codex is available. Install it if you want both agent runtimes.",
+  "diagnostics_hint_codex_ok": "Codex CLI is available.",
+  "diagnostics_hint_codex_missing": "Codex CLI not found in PATH. Install Codex or Claude Code to run agent sessions.",
+  "diagnostics_hint_codex_optional": "Codex CLI is optional because Claude Code is available. Install it if you want both agent runtimes."
 }

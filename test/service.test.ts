@@ -4728,7 +4728,9 @@ test("baseUrl: autonomous but slirp NOT host-loopback-capable → falls back to 
   }
 });
 
-test("baseUrl: trusted (default) → loopback main port, no backend probe required", async () => {
+test("baseUrl: trusted (default) → exempt ingress over host loopback (127.0.0.1:<ingressPort>), no backend probe", async () => {
+  // issue #1079: trusted/standard agents reach the auth-exempt ingress listener over host loopback
+  // (not the now-gated main port), so hook callbacks survive fail-closed with no credential in env.
   const prev = config.hooksIngest;
   const store = new SessionStore(":memory:");
   const record: { argv?: string[] } = {};
@@ -4753,11 +4755,31 @@ test("baseUrl: trusted (default) → loopback main port, no backend probe requir
       model: null,
       images: [],
     });
+    expect(hooksUrlFrom(record.argv)).toBe(`http://127.0.0.1:7331/api/sessions/${s.id}/hooks`);
+    // resolveSpawnBaseUrl returned early for the trusted profile (no backend probe).
+    expect(probed).toBe(false);
+  } finally {
+    config.hooksIngest = prev;
+  }
+});
+
+test("baseUrl: trusted with no ingress port yet (early boot) → falls back to gated main port", async () => {
+  const prev = config.hooksIngest;
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[] } = {};
+  const service = baseUrlService({ store, record, agentIngressPort: () => undefined });
+  try {
+    config.hooksIngest = true;
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
     expect(hooksUrlFrom(record.argv)).toBe(
       `http://127.0.0.1:${config.port}/api/sessions/${s.id}/hooks`,
     );
-    // resolveSpawnBaseUrl returned early for the trusted profile (no backend probe).
-    expect(probed).toBe(false);
   } finally {
     config.hooksIngest = prev;
   }

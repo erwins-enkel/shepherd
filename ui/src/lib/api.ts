@@ -61,8 +61,20 @@ import type {
   HoldReason,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
+import { auth } from "$lib/auth.svelte";
 
 const JSON_HEADERS = { "content-type": "application/json" };
+
+/** 401 interceptor (issue #1079): any gated call rejected with 401 flips the shared auth flag so
+ *  the root layout swaps to the login view. Mirrors the 403 → PreviewBlockedError pattern below.
+ *  Returns `status === 401` so callers can short-circuit. */
+function flagIfUnauthorized(status: number): boolean {
+  if (status === 401) {
+    auth.unauthenticated = true;
+    return true;
+  }
+  return false;
+}
 
 /** Server's CSRF preview-origin rejection string. The HUD origin guard
  *  (`src/validate.ts` `originAllowed` → `src/server.ts:214` `checkOrigin`) returns
@@ -87,6 +99,7 @@ function apiError(
   body: { error?: string } | null | undefined,
   fallback: string,
 ): Error {
+  flagIfUnauthorized(status);
   if (status === 403 && body?.error === ORIGIN_BLOCK) {
     return new PreviewBlockedError(m.error_preview_readonly());
   }
@@ -117,8 +130,49 @@ async function failed(r: Response, label: string): Promise<Error> {
 /** GET a JSON resource, throwing `<label> failed: <status>` on a non-2xx response. */
 async function getJson<T>(url: string, label: string): Promise<T> {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`${label} failed: ${r.status}`);
+  if (!r.ok) {
+    flagIfUnauthorized(r.status);
+    throw new Error(`${label} failed: ${r.status}`);
+  }
   return r.json() as Promise<T>;
+}
+
+// ── single-operator auth (issue #1079) ──────────────────────────────────────
+
+/** Boot probe: true when the current session cookie authenticates, false on 401. Never throws —
+ *  a network error is treated as "unknown / not authenticated" so the layout shows the login view. */
+export async function getMe(): Promise<boolean> {
+  try {
+    const r = await fetch("/api/me");
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** POST the operator password; on success the server sets the session cookie (HttpOnly, so JS never
+ *  sees it). Returns true on 200; false on a 401 (wrong password). Throws on other failures. */
+export async function login(password: string): Promise<boolean> {
+  const r = await fetch("/api/login", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ password }),
+  });
+  if (r.ok) {
+    auth.unauthenticated = false;
+    return true;
+  }
+  if (r.status === 401) return false;
+  throw await failed(r, "login");
+}
+
+/** Clear the session cookie server-side and flip the UI to the login view. */
+export async function logout(): Promise<void> {
+  try {
+    await fetch("/api/logout", { method: "POST", headers: JSON_HEADERS });
+  } finally {
+    auth.unauthenticated = true;
+  }
 }
 
 export async function listSessions(): Promise<Session[]> {

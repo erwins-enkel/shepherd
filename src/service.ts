@@ -837,6 +837,17 @@ function agentEgressBaseUrl(ingressPort: number): string {
 }
 
 /**
+ * Base URL a NON-egress-confined agent (trusted / standard — both share the host network namespace)
+ * uses to reach the RESTRICTED agent-ingress listener over host loopback (issue #1079). The ingress
+ * listener is exempt from the human cookie/password gate, so routing agent hook + build-queue
+ * callbacks here keeps them working after auth goes fail-closed — without putting any credential in
+ * the agent's env. Autonomous reaches the SAME listener via 10.0.2.2 (agentEgressBaseUrl).
+ */
+function agentLoopbackIngressBaseUrl(ingressPort: number): string {
+  return `http://127.0.0.1:${ingressPort}`;
+}
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -1117,11 +1128,15 @@ export class SessionService {
   }
 
   /**
-   * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. Egress-confined
-   * autonomous spawns (willEgressConfine) on a host-loopback-capable slirp, with a known ingress
-   * port, reach the restricted ingress listener via 10.0.2.2; everything else uses the loopback
-   * main port. Shares the SAME predicate + host-loopback probe + ingress-port accessor that
-   * prepareSpawn uses, so the baked URL and the actual wrap/hostGateway decision cannot diverge.
+   * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. ALL agents are
+   * routed through the restricted agent-ingress listener, which is exempt from the human auth gate
+   * (issue #1079) so callbacks survive fail-closed without any credential in the agent's env:
+   *   - autonomous (egress-confined, host-loopback-capable slirp, known ingress port) → 10.0.2.2;
+   *   - trusted / standard (share the host net namespace) → host loopback 127.0.0.1;
+   *   - only when the ingress port is unknown (pathological early boot) does it fall back to the
+   *     gated main port — those callbacks then 401 and degrade to polling (fail-safe, loggable).
+   * Shares the SAME predicate + host-loopback probe + ingress-port accessor that prepareSpawn uses,
+   * so the baked URL and the actual wrap/hostGateway decision cannot diverge.
    */
   private resolveSpawnBaseUrl(
     profileOverride: string | null | undefined,
@@ -1132,7 +1147,11 @@ export class SessionService {
       this.deps.store.getRepoConfig(repoPath).sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    if (!egressApplies(profile)) return agentBaseUrl(); // no backend probe for trusted/standard
+    if (!egressApplies(profile)) {
+      // trusted / standard: reach the exempt ingress over host loopback (no backend probe needed).
+      const ingressPort = this.deps.agentIngressPort?.();
+      return ingressPort != null ? agentLoopbackIngressBaseUrl(ingressPort) : agentBaseUrl();
+    }
     const backend = this.detectBackend();
     const egressBackend = backend !== null ? this.detectEgressBackend() : null;
     const gw = this.egressHostGateway(profile, backend, egressBackend);

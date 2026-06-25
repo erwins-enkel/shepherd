@@ -161,7 +161,11 @@ test("makeAgentIngressApp: an ALLOWED route DELEGATES to the full app (reaches t
   expect(q.steps[0].title).toBe("do a thing");
 });
 
-test("makeAgentIngressApp: delegation does NOT bypass checkAuth (token is enforced)", async () => {
+test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth gate (issue #1079)", async () => {
+  // Corrected #1079 design: the ingress is built with skipAuth — its loopback-only bind + route
+  // allowlist + per-session UUID IS the agent's auth. So an allowed route is served WITHOUT any
+  // human credential even when the gate is configured (cookie secret + bearer token both set);
+  // agents carry neither. The SAME route on the gated MAIN app would 401 (see server-auth.test.ts).
   const deps = makeDeps();
   const s = await deps.service.create({
     repoPath: "/repo",
@@ -171,33 +175,21 @@ test("makeAgentIngressApp: delegation does NOT bypass checkAuth (token is enforc
     images: [],
   });
   const app = makeAgentIngressApp(deps);
-  const prev = config.token;
+  const prevSecret = config.cookieSecret;
+  const prevToken = config.token;
+  config.cookieSecret = "test-cookie-secret"; // gate configured (would 401 un-credentialed on main app)
   config.token = "secret-token";
   try {
-    // ALLOWED route, but WITHOUT a valid Authorization header → checkAuth 401s through the gate.
-    const unauthed = await app.fetch(
+    const res = await app.fetch(
       new Request(`http://x/api/sessions/${s.id}/queue`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
       }),
     );
-    expect(unauthed.status).toBe(401);
-    expect(await unauthed.json()).toEqual({ error: "unauthorized" });
-
-    // SAME allowed route WITH the correct bearer token → past checkAuth, reaches the handler.
-    const authed = await app.fetch(
-      new Request(`http://x/api/sessions/${s.id}/queue`, {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          Authorization: "Bearer secret-token",
-        },
-        body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
-      }),
-    );
-    expect(authed.status).not.toBe(401);
+    expect(res.status).not.toBe(401); // exempt: reaches the handler with no credential
   } finally {
-    config.token = prev;
+    config.cookieSecret = prevSecret;
+    config.token = prevToken;
   }
 });

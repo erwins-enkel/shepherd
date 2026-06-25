@@ -45,6 +45,7 @@ import { singleFlight } from "./single-flight";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
+import { bootstrapAuth } from "./operator-auth";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { DiagnosticsService } from "./diagnostics";
@@ -212,6 +213,24 @@ const savedUhp = store.getSetting("usageHoldPct");
 if (savedUhp !== null) {
   const n = Number(savedUhp);
   if (Number.isFinite(n)) config.usageHoldPct = Math.min(100, Math.max(0, Math.floor(n)));
+}
+
+// ── single-operator auth (issue #1079): fail-closed bootstrap ───────────────
+// Resolve the argon2id password hash + HMAC cookie-signing secret before serving, so the gate
+// (checkAuth) is never silently open. SHEPHERD_PASSWORD wins (re-seeds the hash each boot); else
+// the persisted hash is reused; else a strong password is generated, hashed, persisted, and
+// printed ONCE with a CHANGE-THIS banner. No agent token is provisioned — spawned agents reach
+// the server through the loopback ingress listener (serveAgentIngress), which is exempt from this
+// gate; config.token stays an optional operator CLI/curl bearer.
+{
+  const auth = await bootstrapAuth({
+    store,
+    envPassword: config.password,
+    envCookieSecret: config.cookieSecret,
+    log: (m) => console.log(m),
+  });
+  config.passwordHash = auth.passwordHash;
+  config.cookieSecret = auth.cookieSecret;
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────

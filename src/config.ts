@@ -326,7 +326,15 @@ export const config = {
   allowedOriginHosts: (process.env.SHEPHERD_ALLOWED_HOSTS ?? "localhost,127.0.0.1,::1,[::1]").split(
     ",",
   ),
-  token: process.env.SHEPHERD_TOKEN ?? null, // when set, require Authorization: Bearer <token>
+  token: process.env.SHEPHERD_TOKEN ?? null, // optional operator bearer (CLI/curl); agents use the loopback ingress, not this
+  // Single-operator auth (issue #1079). `password` (env) is authoritative when set: it re-seeds
+  // the persisted argon2id `passwordHash` every boot. Unset ⇒ the persisted hash is used as-is
+  // (an auto-generated one survives restarts). `cookieSecret` (env) pins the HMAC session-cookie
+  // signing secret across DB resets; unset ⇒ generated + persisted once. Both `passwordHash` and
+  // `cookieSecret` are resolved to non-null at boot by bootstrapAuth (see src/index.ts).
+  password: process.env.SHEPHERD_PASSWORD ?? null,
+  passwordHash: null as string | null,
+  cookieSecret: process.env.SHEPHERD_COOKIE_SECRET ?? null,
   // Web Push (VAPID). Generated once and persisted in the settings table if these
   // are unset; provide them via env to pin a stable key pair across DB resets.
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,

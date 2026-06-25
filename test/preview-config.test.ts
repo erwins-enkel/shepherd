@@ -1,5 +1,10 @@
 import { test, describe, expect } from "bun:test";
-import { parseServedPort, findServedPort, validatePreviewPortRange } from "../src/config";
+import {
+  parseServedPort,
+  findServedPort,
+  validatePreviewPortRange,
+  validateAgentIngressPort,
+} from "../src/config";
 import { originAllowed } from "../src/validate";
 
 // ── parseServedPort ───────────────────────────────────────────────────────────
@@ -308,6 +313,110 @@ test("validatePreviewPortRange: Infinity previewPortBase throws with clear error
       servedPort: 443,
     }),
   ).toThrow(/finite|invalid/i);
+});
+
+// ── validateAgentIngressPort (issue #1083) ────────────────────────────────────
+
+test("validateAgentIngressPort: default (mainPort 7330 → ingress 7331) vs preview 8001+/443 passes", () => {
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 7331,
+      mainPort: 7330,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).not.toThrow();
+});
+
+test("validateAgentIngressPort: 0 (ephemeral opt-out) is exempt from all checks", () => {
+  // 0 would otherwise look like it collides with nothing, but the early return is what
+  // matters: even with a pathological config, ephemeral never throws.
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 0,
+      mainPort: 0,
+      previewPortBase: 0,
+      previewPortCount: 16,
+      servedPort: 0,
+    }),
+  ).not.toThrow();
+});
+
+test("validateAgentIngressPort: throws when it equals the main HUD port", () => {
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 7330,
+      mainPort: 7330,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).toThrow(/main port|7330/i);
+});
+
+test("validateAgentIngressPort: throws when it equals the served (public) port", () => {
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 443,
+      mainPort: 7330,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).toThrow(/served.*port|443/i);
+});
+
+test("validateAgentIngressPort: throws when it falls in the preview range (SHEPHERD_PORT=8000 → 8001 = previewBase)", () => {
+  // The concrete clash the reviewer flagged: a custom SHEPHERD_PORT=8000 makes the default
+  // ingress port 8001, which equals the default previewPortBase.
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 8001,
+      mainPort: 8000,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).toThrow(/preview port range|\[8001, 8017\)/i);
+});
+
+test("validateAgentIngressPort: last in-range port (base+count-1=8016) throws", () => {
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 8016,
+      mainPort: 7330,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).toThrow(/preview port range/i);
+});
+
+test("validateAgentIngressPort: port at exclusive range end (base+count=8017) passes", () => {
+  expect(() =>
+    validateAgentIngressPort({
+      agentIngressPort: 8017,
+      mainPort: 7330,
+      previewPortBase: 8001,
+      previewPortCount: 16,
+      servedPort: 443,
+    }),
+  ).not.toThrow();
+});
+
+test("validateAgentIngressPort: non-integer / out-of-range value throws with clear error", () => {
+  for (const bad of [NaN, -1, 70000, 7331.5]) {
+    expect(() =>
+      validateAgentIngressPort({
+        agentIngressPort: bad,
+        mainPort: 7330,
+        previewPortBase: 8001,
+        previewPortCount: 16,
+        servedPort: 443,
+      }),
+    ).toThrow(/invalid|integer|\[0, 65535\]/i);
+  }
 });
 
 // ── originAllowed with preview-port range ─────────────────────────────────────

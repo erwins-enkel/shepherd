@@ -14,6 +14,7 @@ import {
   PLAN_REVIEW_CYCLES_MAX,
   parseServedPort,
   validatePreviewPortRange,
+  validateAgentIngressPort,
 } from "./config";
 import { SessionStore } from "./store";
 import type {
@@ -255,6 +256,15 @@ if (savedUhp !== null) {
     previewPortBase: config.previewPortBase,
     previewPortCount: config.previewPortCount,
     localPort: config.port,
+    servedPort,
+  });
+  // The pinned agent-ingress port (issue #1083) must not collide with the main port,
+  // the served origin, or the preview range. Reuse the servedPort resolved above.
+  validateAgentIngressPort({
+    agentIngressPort: config.agentIngressPort,
+    mainPort: config.port,
+    previewPortBase: config.previewPortBase,
+    previewPortCount: config.previewPortCount,
     servedPort,
   });
   if (config.previewAutoServe && !config.previewHost) {
@@ -1821,7 +1831,7 @@ void runSessionUsageBackfill(store);
 // Bound to loopback on an ephemeral port; slirp maps the netns's 10.0.2.2 → host 127.0.0.1. Started
 // with the SAME AppDeps as the main listener so delegated routes hit the real handlers (auth + origin
 // preserved). The lazy `agentIngressPort` accessor wired into SessionService reads `.port` below.
-const agentIngress = serveAgentIngress(appDeps);
+const agentIngress = serveAgentIngress(appDeps, config.agentIngressPort);
 agentIngressState.port = agentIngress.port;
 console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 

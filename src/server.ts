@@ -5112,9 +5112,14 @@ export function makeAgentIngressApp(deps: AppDeps) {
   };
 }
 
-/** Start the agent-ingress listener bound to LOOPBACK ONLY (never config.host, which may be 0.0.0.0)
- *  on an ephemeral port. slirp maps the netns's 10.0.2.2 to the host's 127.0.0.1, so loopback is the
- *  correct + safest bind. Returns the Bun server (read `.port`). */
+/** Start the agent-ingress listener bound to LOOPBACK ONLY (never config.host, which may be 0.0.0.0).
+ *  slirp maps the netns's 10.0.2.2 to the host's 127.0.0.1, so loopback is the correct + safest bind.
+ *  The `port` is PINNED (config.agentIngressPort) so the URL baked into a live agent's --settings argv
+ *  survives a restart/deploy (issue #1083); `0` falls back to an ephemeral port. We rely on Bun's
+ *  default SO_REUSEADDR for clean-restart rebind and deliberately do NOT set reusePort (SO_REUSEPORT) —
+ *  that is concurrent co-binding, which on this auth-exempt listener would let any same-UID local
+ *  process co-bind the port and skim agent hook/queue traffic. A genuine bind conflict throws
+ *  (fail-fast). Returns the Bun server (read `.port` — the actually-bound port). */
 export function serveAgentIngress(deps: AppDeps, port = 0) {
   const app = makeAgentIngressApp(deps);
   return Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => app.fetch(req) });

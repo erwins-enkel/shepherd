@@ -311,6 +311,21 @@ describe("extracted helpers (direct)", () => {
     expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
     expect(flat.some((c) => c.includes("enable-linger"))).toBe(true);
     expect(flat.some((c) => c.includes("deploy/update.sh"))).toBe(true);
+    // Backup units (#1080): both written, the .service templated to the checkout, the timer
+    // enabled --now, and the backup-expected marker written.
+    const backupSvcWrite = [...writes.entries()].find(([p]) =>
+      p.endsWith("systemd/user/shepherd-backup.service"),
+    );
+    expect(backupSvcWrite).toBeDefined();
+    expect(backupSvcWrite![1]).toContain("WorkingDirectory=/repo");
+    expect([...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd-backup.timer"))).toBe(
+      true,
+    );
+    expect([...writes.keys()].some((p) => p.endsWith(".backup-configured"))).toBe(true);
+    expect(flat.some((c) => c.includes("enable --now shepherd-backup.timer"))).toBe(true);
+    // NO immediate `start shepherd-backup.service` here: the DB doesn't exist yet on a fresh
+    // install, so it would fail the oneshot and abort provision (update.sh does the guarded kick).
+    expect(flat.some((c) => c.includes("start shepherd-backup.service"))).toBe(false);
     // ~/.shepherd is created before the unit starts (systemd opens StandardOutput=append:
     // there before ExecStart and won't make parent dirs — else first start fails, #725).
     const shepherdDir = join("/home/op", ".shepherd");

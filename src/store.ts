@@ -628,6 +628,12 @@ export class SessionStore implements CapStore, CreditStore {
     // Enforce FK constraints (enforces session_usage_bucket → session_usage cascade).
     // Must be set immediately after open, BEFORE any DDL — it is a no-op inside a transaction.
     this.db.run("PRAGMA foreign_keys = ON");
+    // Wait (don't throw) on a held lock. The external hourly backup (#1080) holds a SHARED read
+    // lock for the duration of its `VACUUM INTO`; without a busy_timeout a concurrent write commit
+    // here would get SQLITE_BUSY immediately and throw on the event loop. Snapshotting a small DB
+    // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
+    // BUSY_TIMEOUT_MS in scripts/backup.ts.
+    this.db.run("PRAGMA busy_timeout = 5000");
     this.db.run(`CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
       repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,

@@ -1,0 +1,13 @@
+[Unit]
+Description=Shepherd — hourly SQLite backup timer
+Documentation=https://github.com/erwins-enkel/shepherd
+
+[Timer]
+OnCalendar=hourly
+# Run on boot if the host was off when a window was due (a missed hour is still worth catching up).
+Persistent=true
+# A oneshot service + a single timer means runs can never overlap; an hourly VACUUM INTO of a small
+# DB finishes far under an hour.
+
+[Install]
+WantedBy=timers.target

@@ -24,7 +24,8 @@ export interface PushPayload {
     | "learnings_retired"
     | "learnings_trialed"
     | "manual_steps"
-    | "ready";
+    | "ready"
+    | "backup_stale";
   tag: string;
 }
 
@@ -47,6 +48,8 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   learnings_trialed: "agent",
   manual_steps: "ci",
   ready: "agent",
+  // Host-global operational alert; ride the "agent" toggle like usage_limit/extra_credits.
+  backup_stale: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -65,7 +68,8 @@ export interface NotifyInput {
     | "learnings_retired"
     | "learnings_trialed"
     | "manual_steps"
-    | "ready";
+    | "ready"
+    | "backup_stale";
   sessionId: string;
   tag: string;
   name: string;
@@ -96,6 +100,8 @@ export interface NotifyInput {
   retiredCount?: number;
   /** For kind "learnings_trialed": how many proposals the auto-trial sweep promoted. */
   trialedCount?: number;
+  /** For kind "backup_stale": whole hours since the newest snapshot (for the body copy). */
+  staleHours?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -105,7 +111,12 @@ export type SendFn = (sub: PushSubInput, payload: string) => Promise<SendResult>
 type GenKeys = () => { publicKey: string; privateKey: string };
 
 /** Kinds that are allowed through even when reducedPushMode is on. */
-const REDUCED_ALLOWED = new Set<NotifyInput["kind"]>(["ready", "usage_limit", "extra_credits"]);
+const REDUCED_ALLOWED = new Set<NotifyInput["kind"]>([
+  "ready",
+  "usage_limit",
+  "extra_credits",
+  "backup_stale",
+]);
 
 const defaultSend: SendFn = (sub, payload) =>
   webpush.sendNotification(sub as webpush.PushSubscription, payload) as Promise<SendResult>;
@@ -154,6 +165,11 @@ const NOTIFY_TEXT = {
     readyBody: "Waiting on you for 5s — your turn.",
     manualStepsTitle: (name: string) => `${name} — manual steps`,
     manualStepsBody: "Ready to merge, but held until you ack the manual steps it needs.",
+    backupStaleTitle: "Backups stale",
+    backupStaleBody: (h: number | null) =>
+      h !== null
+        ? `No successful DB backup in ~${h}h — the backup timer may be failing.`
+        : "No successful DB backup yet — the backup timer may be failing.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -196,6 +212,11 @@ const NOTIFY_TEXT = {
     manualStepsTitle: (name: string) => `${name} — manuelle Schritte`,
     manualStepsBody:
       "Bereit zum Mergen, aber zurückgehalten, bis du die manuellen Schritte bestätigst.",
+    backupStaleTitle: "Backups veraltet",
+    backupStaleBody: (h: number | null) =>
+      h !== null
+        ? `Seit ~${h}h kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.`
+        : "Noch kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.",
   },
 } as const;
 
@@ -227,6 +248,13 @@ export function blockSummary(reason: BlockReason, locale: string = "en"): string
 /** Autopilot body: the agent's summary when present, else the locale fallback line. */
 function autopilotBody(summary: string | undefined, fallback: string): string {
   return summary && summary.trim() ? summary : fallback;
+}
+
+/** Learnings summary title/body (auto-retire vs auto-trial) — both background sweep pushes. */
+function learningsParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  return input.kind === "learnings_trialed"
+    ? { title: t.learningsTrialedTitle, body: t.learningsTrialedBody(input.trialedCount ?? 0) }
+    : { title: t.learningsRetiredTitle, body: t.learningsRetiredBody(input.retiredCount ?? 0) };
 }
 
 /** Merge-attention title/body: rebase-cap copy when capped, else the generic merge-error copy. */
@@ -298,21 +326,18 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
     case "extra_credits":
       return { ...base, title: t.extraCreditsTitle, body: extraCreditsBody(t, input) };
     case "learnings_retired":
-      return {
-        ...base,
-        title: t.learningsRetiredTitle,
-        body: t.learningsRetiredBody(input.retiredCount ?? 0),
-      };
     case "learnings_trialed":
-      return {
-        ...base,
-        title: t.learningsTrialedTitle,
-        body: t.learningsTrialedBody(input.trialedCount ?? 0),
-      };
+      return { ...base, ...learningsParts(t, input) };
     case "ready":
       return { ...base, title: t.readyTitle(input.name), body: t.readyBody };
     case "manual_steps":
       return { ...base, title: t.manualStepsTitle(input.name), body: t.manualStepsBody };
+    case "backup_stale":
+      return {
+        ...base,
+        title: t.backupStaleTitle,
+        body: t.backupStaleBody(input.staleHours ?? null),
+      };
     default:
       return {
         ...base,

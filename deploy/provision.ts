@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
 import { compareSemver } from "../src/herdr-update";
 import { autoFixCommandFor } from "../src/remediations";
+import { resolveBackupDir, backupConfiguredMarker } from "../src/backup-paths";
 
 // ── pure types + data ─────────────────────────────────────────────────────────
 
@@ -267,11 +268,27 @@ export function installService(
   // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.
   const unitSrc = fileIO.read(join(repo, "deploy", "shepherd.service"));
   fileIO.write(join(unitDir, "shepherd.service"), templateUnit(unitSrc, repo));
+  // Hourly backup units (#1080), installed alongside the main service. The .service carries a
+  // WorkingDirectory to template; the .timer has none, so it copies verbatim.
+  const backupSvc = fileIO.read(join(repo, "deploy", "shepherd-backup.service"));
+  fileIO.write(join(unitDir, "shepherd-backup.service"), templateUnit(backupSvc, repo));
+  const backupTimer = fileIO.read(join(repo, "deploy", "shepherd-backup.timer"));
+  fileIO.write(join(unitDir, "shepherd-backup.timer"), backupTimer);
   run("systemctl", ["--user", "daemon-reload"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
   run("loginctl", ["enable-linger", user]);
   run("systemctl", ["--user", "enable", "shepherd"]);
+  // Mark this host as backup-EXPECTED before enabling the timer: the server's staleness check
+  // treats marker-present + no recent success as a failure, so a box whose backup is broken from
+  // the very first run is flagged (a no-marker host, e.g. macOS/core-only, stays silent).
+  run("mkdir", ["-p", resolveBackupDir(env)]);
+  fileIO.write(backupConfiguredMarker(env), "shepherd-backup.timer enabled\n");
+  run("systemctl", ["--user", "enable", "--now", "shepherd-backup.timer"]);
+  // No immediate `start shepherd-backup.service` here: on a fresh install the DB does not exist yet
+  // (the server is started below by update.sh), so a read-only snapshot would fail the oneshot and
+  // abort provision. update.sh runs its own GUARDED kick once deps are built, and the staleness
+  // probe's marker-age grace already covers the spurious-first-alert race. #1080
   // update.sh does deps → UI build → restart (starts the now-enabled unit) → health.
   log("building + starting via deploy/update.sh");
   run("bash", [join(repo, "deploy", "update.sh")], { env: buildEnv });

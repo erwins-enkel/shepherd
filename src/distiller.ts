@@ -17,9 +17,13 @@ import {
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
 /** Signal kinds the learnings distiller does NOT mine for code-review patterns.
- *  `egress_drop` is a security/operational alert (a blocked-host name) — feeding it to
- *  the rule-proposal LLM would pollute the corpus and count toward the distill threshold. */
-const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>(["egress_drop"]);
+ *  `egress_drop` (a blocked-host name) and `backup_stale` (#1080, a host-global backup-health
+ *  alert) are operational, not code-review signals — feeding them to the rule-proposal LLM would
+ *  pollute the corpus and count toward the distill threshold. */
+const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
+  "egress_drop",
+  "backup_stale",
+]);
 
 /**
  * Prefix for ephemeral distiller agent names. Each run appends the first 8 chars of its

@@ -1,4 +1,5 @@
 import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   config,
@@ -46,6 +47,7 @@ import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
 import { bootstrapAuth } from "./operator-auth";
+import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { DiagnosticsService } from "./diagnostics";
@@ -1435,6 +1437,66 @@ setInterval(() => {
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
+// Backups (#1080) are considered stale once the newest successful snapshot is older than this.
+// Tunable default — NOT load-bearing. Note: this is only SAMPLED once per daily sweep, so the
+// worst-case detection latency is ~24h regardless of the threshold.
+const BACKUP_STALENESS_MS = 3 * 60 * 60 * 1000;
+const HOST_SIGNAL_REPO = "__host__"; // sentinel repoPath for host-global (non-repo) signals
+
+/**
+ * Read-only staleness probe for the external backup timer. Runs inside the daily sweep so no
+ * snapshot I/O ever touches the event loop. A host is only checked if it's *expected* to back up:
+ * provision/update writes a `.backup-configured` marker when it enables the timer, so a macOS /
+ * core-only box (no marker) stays silent, while a Linux box whose backup is broken from its very
+ * first run (marker present, no `.last-success`) IS flagged. Alerts via three channels: a
+ * guaranteed log line (visible even with no push subscription), a durable `backup_stale` signal
+ * row, and a best-effort web push.
+ */
+const checkBackupStaleness = async (): Promise<void> => {
+  let markerAgeMs: number;
+  try {
+    const st = await stat(backupConfiguredMarker());
+    markerAgeMs = Date.now() - st.mtimeMs;
+  } catch {
+    return; // no marker → backups never configured on this host → stay silent
+  }
+  // Grace window: a freshly-configured host (marker younger than the staleness threshold) hasn't had
+  // a chance to run its first backup — the timer's first fire is at the next hour boundary while the
+  // boot+10s sweep would otherwise see no `.last-success` and cry stale. Suppress until the window
+  // passes (provision/update also kick one backup immediately, so this is the race-free backstop).
+  if (markerAgeMs < BACKUP_STALENESS_MS) return;
+  let ageMs: number | null = null;
+  try {
+    const iso = (await readFile(lastSuccessMarker(), "utf8")).trim();
+    const ts = Date.parse(iso);
+    if (!Number.isNaN(ts)) ageMs = Date.now() - ts;
+  } catch {
+    ageMs = null; // marker present but never a successful run
+  }
+  const stale = ageMs === null || ageMs > BACKUP_STALENESS_MS;
+  if (!stale) return;
+  const staleHours = ageMs === null ? null : Math.floor(ageMs / (60 * 60 * 1000));
+  console.warn(
+    `[backup] STALE: ${ageMs === null ? "no successful backup yet" : `newest snapshot ~${staleHours}h old`} — the backup timer may be failing.`,
+  );
+  store.addSignal({
+    repoPath: HOST_SIGNAL_REPO,
+    sessionId: null,
+    kind: "backup_stale",
+    payload: JSON.stringify({ ageMs, thresholdMs: BACKUP_STALENESS_MS }),
+  });
+  void push
+    .notify({
+      kind: "backup_stale",
+      sessionId: "",
+      tag: "backup-stale",
+      name: "backup",
+      staleHours: staleHours ?? undefined,
+      cooldownKey: "backup_stale",
+    })
+    .catch((err) => console.warn("[push] backup_stale notify failed:", err));
+};
+
 const runDailySweep = () => {
   if (maintenance.active) return;
   if (config.sessionHousekeepingEnabled)
@@ -1504,6 +1566,8 @@ const runDailySweep = () => {
   // (force-removed/crashed) — archive() consumes the rest.
   store.pruneOrphanInjectedLearnings();
   fireTmpSweep("daily");
+  // Read-only backup-staleness probe (#1080); fire-and-forget so it never blocks the sweep.
+  void checkBackupStaleness();
 };
 setTimeout(runDailySweep, 10_000); // once shortly after boot
 setInterval(runDailySweep, 24 * 60 * 60 * 1000);

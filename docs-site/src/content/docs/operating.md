@@ -54,6 +54,28 @@ It is idempotent and safe to re-run — sessions survive the restart (herdr owns
 PTYs). UI-only changes don't strictly need it: a fresh `cd ui && bun run build` is
 served on the next request, since the core reads `ui/build` from disk per request.
 
+## Backups & restore
+
+On Linux the installer/provision step also enables a **second** systemd user
+timer — `shepherd-backup.timer` (`OnCalendar=hourly`) — that snapshots the SQLite
+state DB out-of-process from the server (read-only `VACUUM INTO` → integrity check
+→ gzip → atomic rename → GFS rotation). Snapshots land in `~/.shepherd/backups/`
+by default (override `SHEPHERD_BACKUP_DIR`).
+
+```bash
+systemctl --user status shepherd-backup.timer   # check the timer
+journalctl --user -u shepherd-backup             # per-run logs
+deploy/shepherd-restore.sh                       # list snapshots, then restore one
+deploy/shepherd-restore.sh <file>                # restore a specific shepherd-*.db.gz
+```
+
+The server's daily sweep also runs a read-only **staleness probe**: on a host
+that's expected to back up, if the newest snapshot is missing or older than 3h it
+logs a warning, records a durable `backup_stale` signal, and sends a best-effort
+web-push alert. macOS / core-only hosts have no backup timer and stay silent. Full
+details are in the
+[backups runbook](https://github.com/erwins-enkel/shepherd/blob/main/docs/backups.md).
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

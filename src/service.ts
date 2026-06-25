@@ -1500,6 +1500,18 @@ export class SessionService {
     return argv;
   }
 
+  private buildCodexResumeArgv(model: string | null): string[] {
+    const argv = [
+      "codex",
+      "resume",
+      "--last",
+      "--no-alt-screen",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ];
+    if (model) argv.push("--model", model);
+    return argv;
+  }
+
   /**
    * Resolve the per-spawn sandbox profile override for a create(), accounting for the
    * research downgrade: research needs OPEN web egress (web search / fetch + sub-agents),
@@ -1627,7 +1639,7 @@ export class SessionService {
         sandboxDegraded: outcome.degraded,
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
-        claudeSessionId,
+        claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
         agentProvider,
         model: input.model,
         auto: input.auto ?? false,
@@ -1924,35 +1936,37 @@ export class SessionService {
   }
 
   /**
-   * Bring a finished session back: spawn a fresh `claude --resume <pinnedId>` in
-   * its still-present worktree so the whole conversation is restored and steerable
+   * Bring a finished session back: spawn the provider's resume command in its
+   * still-present worktree so the whole conversation is restored and steerable
    * again. Re-points the session at the new herdr agent and flips it back to running.
    *
    * Returns the updated session, or null when it can't be resumed:
    *  - unknown id, or archived (its worktree was already removed), or
-   *  - a pre-feature session with no pinned claude session id to resume.
+   *  - a Claude/pre-feature session with no pinned claude session id to resume.
    * If the herdr agent is still live (a "done" session that's merely idle at the
    * prompt), there's nothing to respawn — the current session is handed back so the
-   * caller just re-attaches, avoiding a duplicate claude process.
+   * caller just re-attaches, avoiding a duplicate provider process.
    *
    * `force` overrides that re-use: it tears down whatever agent currently backs the
-   * worktree and spawns a fresh `claude --resume` regardless. This is the explicit
-   * "bring claude back" action (header / card-menu button) for the case the re-use
-   * path can't see — claude exited but its herdr tab survived as a bare shell, so the
+   * worktree and spawns a fresh provider resume regardless. This is the explicit
+   * "bring agent back" action (header / card-menu button) for the case the re-use
+   * path can't see — the provider exited but its herdr tab survived as a bare shell, so the
    * agent still lists as live (idle) and a plain resume would only re-adopt the shell.
    *
    * We force unconditionally rather than only on a detected husk because herdr ≥0.6
    * `agent list` exposes no command/liveness field, so a husk shell and an idle
-   * claude are indistinguishable here (see ui canResume). The tradeoff: if invoked on
-   * a genuinely-live idle claude it respawns one needlessly, resetting that pane's
-   * terminal scrollback — but `--resume` restores the FULL conversation, so no work is
+   * provider are indistinguishable here (see ui canResume). The tradeoff: if invoked on
+   * a genuinely-live idle agent it respawns one needlessly, resetting that pane's
+   * terminal scrollback — but provider resume restores the FULL conversation, so no work is
    * lost, and the control is only surfaced/clicked when the user believes they're
    * stranded. Guaranteeing the husk case works (always respawn) beats preserving
    * scrollback in the rare misclick-on-live-claude case.
    */
   async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
     const s = this.deps.store.get(id);
-    if (!s || s.status === "archived" || !s.claudeSessionId) return null;
+    const agentProvider = s?.agentProvider ?? "claude";
+    if (!s || s.status === "archived") return null;
+    if (agentProvider === "claude" && !s.claudeSessionId) return null;
     const agent =
       matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
       null;
@@ -1984,21 +1998,26 @@ export class SessionService {
     // egress-confined resume reaches Shepherd via the restricted ingress listener, not the netns
     // loopback. Uses the identical predicate/probe/port as prepareSpawn below → can't diverge.
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
-    const innerArgv = [
-      "claude",
-      "--dangerously-skip-permissions",
-      "--resume",
-      s.claudeSessionId,
-      ...trim.extraFlags,
-    ];
-    innerArgv.push(
-      "--settings",
-      spawnSettingsOverlay({
-        ...trim.overlayOpts,
-        hooks: { sessionId: s.id, baseUrl, token: config.token },
-      }),
-    );
-    this.pushModelFlag(innerArgv, s.model);
+    const innerArgv =
+      agentProvider === "codex"
+        ? this.buildCodexResumeArgv(s.model)
+        : [
+            "claude",
+            "--dangerously-skip-permissions",
+            "--resume",
+            s.claudeSessionId,
+            ...trim.extraFlags,
+          ];
+    if (agentProvider === "claude") {
+      innerArgv.push(
+        "--settings",
+        spawnSettingsOverlay({
+          ...trim.overlayOpts,
+          hooks: { sessionId: s.id, baseUrl, token: config.token },
+        }),
+      );
+      this.pushModelFlag(innerArgv, s.model);
+    }
     const outcome = this.prepareSpawn(innerArgv, {
       sessionId: s.id,
       name: s.name,
@@ -2163,7 +2182,7 @@ export class SessionService {
    * Retry a set of usage-halted sessions. For each id:
    *  - If its pane is live (herdr still lists it) → steer with `continueText` so the
    *    agent can continue from where it stopped (live idle/blocked state).
-   *  - Otherwise → `resume(id)` spawns a fresh `claude --resume` pane.
+   *  - Otherwise → `resume(id)` spawns a fresh provider-resume pane.
    * On any success the haltReason flag is cleared so the UI badge disappears.
    * The steer text is supplied by the caller (localized client-side) — the server
    * stays i18n-agnostic, exactly like broadcast.

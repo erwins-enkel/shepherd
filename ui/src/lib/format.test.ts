@@ -21,6 +21,15 @@ describe("canResume", () => {
     expect(canResume(session({ status: "done" }))).toBe(true);
   });
 
+  it("offers Resume for idle/done codex sessions without a claude id", () => {
+    expect(
+      canResume(session({ agentProvider: "codex", claudeSessionId: "", status: "idle" })),
+    ).toBe(true);
+    expect(
+      canResume(session({ agentProvider: "codex", claudeSessionId: "", status: "done" })),
+    ).toBe(true);
+  });
+
   it("never offers without a pinned claude id or while live (running/blocked)", () => {
     expect(canResume(session({ claudeSessionId: "" }))).toBe(false);
     expect(canResume(session({ status: "running" }))).toBe(false);

@@ -129,6 +129,7 @@ interface GhPr {
   isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
+  baseRefName?: string;
   reviews?: GhReview[];
   reviewRequests?: { login?: string }[];
   headRepositoryOwner?: { login?: string };
@@ -523,7 +524,7 @@ export class GithubForge implements GitForge {
       "--state",
       "all",
       "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,reviews,reviewRequests,headRepositoryOwner",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
       "--limit",
       this.forkOwner ? "30" : "1",
     ]);
@@ -545,6 +546,7 @@ export class GithubForge implements GitForge {
       isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       headSha: pr.headRefOid,
+      baseRefName: pr.baseRefName,
       latestReview: latestHumanReview(pr.reviews),
       requestedReviewers: (pr.reviewRequests ?? [])
         .map((r) => r.login)

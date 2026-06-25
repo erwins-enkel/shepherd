@@ -39,6 +39,7 @@ test("GET /api/recaps returns snapshot when recapCache is present", async () => 
     sessionId: "sess-1",
     state: "ready",
     headSha: "abc123",
+    base: "main",
     verdict: "ready",
     headline: "Did the thing",
     body: "",

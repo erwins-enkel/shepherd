@@ -235,6 +235,7 @@ test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () =
       title: "feat",
       state: "OPEN",
       mergeable: "MERGEABLE",
+      baseRefName: "main",
       statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
     },
   ]);
@@ -251,6 +252,19 @@ test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () =
   expect(calls[0]).toContain("--head");
   expect(calls[0]).toContain("feature");
   expect(calls[0]).toContain("o/r");
+});
+
+test("GithubForge.prStatus: surfaces baseRefName (the PR's real target branch)", async () => {
+  // A hotfix PR targeting a non-default branch — the case the diff/recap base resolution needs.
+  const prJson = JSON.stringify([
+    { number: 9, url: "u", title: "hotfix", state: "OPEN", baseRefName: "main" },
+  ]);
+  const { run, calls } = fakeRunner({ "pr list": prJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("hotfix/backport");
+  expect(st.baseRefName).toBe("main");
+  // baseRefName must be among the requested --json fields
+  expect(calls[0]?.join(" ")).toContain("baseRefName");
 });
 
 test("GithubForge.prStatus: maps isDraft from the json", async () => {

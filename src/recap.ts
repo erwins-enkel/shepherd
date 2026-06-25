@@ -180,6 +180,9 @@ export interface RecapServiceDeps {
   timeoutMs?: number;
   idleThresholdMs?: number;
   // injectables:
+  /** Resolve the base branch to diff against (the PR's real base when resolvable) plus whether
+   *  that resolution was authoritative. Default: the session's stored baseBranch (non-authoritative). */
+  resolveBase?: (session: Session) => Promise<{ base: string; resolved: boolean }>;
   computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<DiffResult>;
   headSha?: (worktreePath: string) => Promise<string>;
   readTranscript?: (worktreePath: string, claudeSessionId: string) => ActivityEntry[];
@@ -205,6 +208,7 @@ export class RecapService {
   private idleThresholdMs: number;
   private model: string | null;
 
+  private _resolveBase: (session: Session) => Promise<{ base: string; resolved: boolean }>;
   private _computeDiff: (
     worktreePath: string,
     base: string,
@@ -232,6 +236,8 @@ export class RecapService {
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
     this.model = deps.model ?? "sonnet";
+    this._resolveBase =
+      deps.resolveBase ?? ((s) => Promise.resolve({ base: s.baseBranch, resolved: false }));
     this._computeDiff = deps.computeDiff ?? computeDiff;
     this._headSha = deps.headSha ?? defaultHeadSha;
     this._readTranscript = deps.readTranscript ?? defaultReadTranscript;
@@ -308,9 +314,10 @@ export class RecapService {
     // rev-parse succeeded → mark fired so we don't re-rev-parse until re-activity.
     entry.fired = true;
 
-    if (!needsRecap(this.deps.store.getRecap(s.id), head)) return;
+    const { base, resolved } = await this._resolveBase(s);
+    if (!needsRecap(this.deps.store.getRecap(s.id), head, base, resolved)) return;
 
-    await this.generate(s, head);
+    await this.generate(s, head, base);
   }
 
   /**
@@ -342,9 +349,11 @@ export class RecapService {
    * so every session gets a durable recap row for the Done lens (the live-sweep's
    * skip of `auto` sessions would otherwise starve drained sessions of a recap).
    *
-   * Head-keyed dedup: if a recap already exists for the current HEAD we return "skip"
-   * (the common case — the live sweep usually already generated one), so we never
-   * double-spawn. Otherwise we generate synchronously.
+   * `(head, base)`-keyed dedup (see {@link needsRecap}): if a recap already exists for the
+   * current HEAD *and* the same base we return "skip" (the common case — the live sweep usually
+   * already generated one), so we never double-spawn. A recap baked against a stale base before
+   * the PR's real base was resolvable regenerates here once that base becomes known. Otherwise we
+   * generate synchronously.
    *
    * Does NOT throw: a git/worktree-unavailable rev-parse failure self-heals to "error"
    * rather than throwing out of the archive hook.
@@ -357,9 +366,10 @@ export class RecapService {
       return "error"; // git/worktree unavailable — don't throw out of the hook
     }
 
-    if (!needsRecap(this.deps.store.getRecap(session.id), head)) return "skip";
+    const { base, resolved } = await this._resolveBase(session);
+    if (!needsRecap(this.deps.store.getRecap(session.id), head, base, resolved)) return "skip";
 
-    return await this.generate(session, head);
+    return await this.generate(session, head, base);
   }
 
   // ── onArchived ─────────────────────────────────────────────────────────────────
@@ -392,7 +402,11 @@ export class RecapService {
    * (incl. the bare-`void` sweep loop) need not guard it.
    * A synchronous in-flight guard prevents double-spawn if regenerate races sweep.
    */
-  async generate(session: Session, knownHead?: string): Promise<"started" | "empty" | "error"> {
+  async generate(
+    session: Session,
+    knownHead?: string,
+    knownBase?: string,
+  ): Promise<"started" | "empty" | "error"> {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     if (isApiKeyMode() && !isApiKeyConfigured()) {
       console.warn(
@@ -400,7 +414,7 @@ export class RecapService {
       );
       return "error";
     }
-    const { id, worktreePath, baseBranch, branch, claudeSessionId } = session;
+    const { id, worktreePath, branch, claudeSessionId } = session;
 
     // Synchronous guard: if already mid-flight for this session, bail immediately.
     if (this.inFlight.has(id)) return "started";
@@ -410,13 +424,17 @@ export class RecapService {
       // Reap any in-flight row for this session first (prevents stale generating rows).
       this.reapGenerating(id);
 
-      // Resolve HEAD + diff up front; a git/diff rejection self-heals to "error"
+      // Resolve HEAD + base + diff up front; a git/diff rejection self-heals to "error"
       // (no row left) rather than throwing out of this bare-`void`-called method.
+      // Resolving the base HERE (not just in the dedup callers) covers regenerate(),
+      // which bypasses dedup — so a forced regenerate never re-bakes the stored base.
       let head: string;
+      let base: string;
       let diff: DiffResult;
       try {
         head = knownHead ?? (await this._headSha(worktreePath));
-        diff = await this._computeDiff(worktreePath, baseBranch, branch);
+        base = knownBase ?? (await this._resolveBase(session)).base;
+        diff = await this._computeDiff(worktreePath, base, branch);
       } catch {
         return "error";
       }
@@ -427,6 +445,7 @@ export class RecapService {
           sessionId: id,
           state: "empty",
           headSha: head,
+          base,
           verdict: null,
           headline: "",
           body: "",
@@ -498,6 +517,7 @@ export class RecapService {
         sessionId: id,
         state: "generating",
         headSha: head,
+        base,
         verdict: null,
         headline: "",
         body: "",

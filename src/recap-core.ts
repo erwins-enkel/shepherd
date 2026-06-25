@@ -188,9 +188,27 @@ export function isSettledIdle(status: string, idleMs: number, thresholdMs: numbe
   return (status === "idle" || status === "done") && idleMs >= thresholdMs;
 }
 
-/** Head-keyed dedupe: regenerate only when there's no recap yet, or the existing recap
- *  summarized a different HEAD. Any existing row at the same head — generating/ready/failed/
- *  empty — means do NOT auto-fire; fail-closed: no auto-retry of a failed recap. */
-export function needsRecap(existing: Recap | null, currentHeadSha: string): boolean {
-  return !existing || existing.headSha !== currentHeadSha;
+/** `(headSha, base)`-keyed dedupe: regenerate when there's no recap yet, the existing recap
+ *  summarized a different HEAD, or — when the current base was authoritatively resolved — the
+ *  existing recap diffed against a different base (e.g. it baked the stored baseBranch before
+ *  the PR's real base became known). Otherwise an existing row at the same head — generating/
+ *  ready/failed/empty — means do NOT auto-fire; fail-closed: no auto-retry of a failed recap.
+ *
+ *  Two guards on the base dimension:
+ *   - `existing.base !== ""` — legacy rows (predating the base column) are never force-regenerated
+ *     on base alone, so a deploy doesn't mass-regenerate every prior recap.
+ *   - `resolved` — only an authoritatively-resolved base re-fires; a transient fallback to
+ *     `baseBranch` (cold/evicted cache, on-demand gh failed) must NOT flip the key and bill a
+ *     recap spawn each tick. */
+export function needsRecap(
+  existing: Recap | null,
+  currentHeadSha: string,
+  currentBase: string,
+  resolved: boolean,
+): boolean {
+  return (
+    !existing ||
+    existing.headSha !== currentHeadSha ||
+    (resolved && existing.base !== "" && existing.base !== currentBase)
+  );
 }

@@ -346,6 +346,7 @@ export interface Recap {
   sessionId: string;
   state: RecapState;
   headSha: string; // the git HEAD this recap summarizes; "" for empty/in-flight w/o head
+  base: string; // base branch this recap diffed against (the PR's real base when resolvable); "" for legacy rows. Half of the (headSha, base) dedup key.
   verdict: RecapVerdict | null;
   headline: string; // <=100 chars; "" until ready
   body: string; // markdown; "" until ready

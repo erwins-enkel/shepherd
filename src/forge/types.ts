@@ -154,6 +154,11 @@ export interface PrStatus {
   isDraft?: boolean;
   /** GitHub's merge-eligibility signal; undefined on forges that don't supply it (Gitea). */
   mergeStateStatus?: MergeStateStatus;
+  /** The PR's actual base (target) branch ref name, e.g. "main". Drives the diff/recap
+   *  base so they match the PR's "Files changed" even when it targets a non-default branch.
+   *  Undefined when there is no PR, or on forges/payloads that don't supply it. Unlike
+   *  {@link PullRequest.nonDefaultBase} this IS the raw base ref — safe to diff against. */
+  baseRefName?: string;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
 }

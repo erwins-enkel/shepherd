@@ -89,6 +89,7 @@ function makeRecap(over: Partial<Recap> = {}): Recap {
     sessionId: "s1",
     state: "generating",
     headSha: "sha-a",
+    base: "",
     verdict: null,
     headline: "",
     body: "",
@@ -246,6 +247,8 @@ function buildSvc(opts: {
   cleanup?: (d: string) => void;
   makeTmpDir?: () => string;
   readUsage?: () => Promise<any>;
+  resolveBase?: (s: Session) => Promise<{ base: string; resolved: boolean }>;
+  computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<any>;
 }): RecapService {
   let tmpIdx = 0;
   return new RecapService({
@@ -257,7 +260,8 @@ function buildSvc(opts: {
     idleThresholdMs: opts.idleThresholdMs ?? 120_000,
     timeoutMs: opts.timeoutMs ?? 300_000,
     headSha: async () => opts.headSha ?? "sha-head",
-    computeDiff: async () => (opts.diff ?? NON_EMPTY_DIFF) as any,
+    resolveBase: opts.resolveBase,
+    computeDiff: opts.computeDiff ?? (async () => (opts.diff ?? NON_EMPTY_DIFF) as any),
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
     readVerdict: (): VerdictRead<unknown> =>
@@ -1426,4 +1430,104 @@ test("finalize: empty carrier fail-closed — diff dropped, file-tree filtered, 
   }
   // callout passes through
   expect(blocks.some((b) => b.type === "callout")).toBe(true);
+});
+
+// ── base resolution (PR base, not stored baseBranch) ───────────────────────────────
+
+test("generate: diffs against the resolved PR base and persists it (not session.baseBranch)", async () => {
+  const s = makeSession({ status: "done", baseBranch: "dev" }); // stored default, but PR targets main
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let diffedBase: string | undefined;
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+    makeTmpDir: () => "/tmp/recap-base-gen",
+    resolveBase: async () => ({ base: "main", resolved: true }),
+    computeDiff: async (_wt, base) => {
+      diffedBase = base;
+      return NON_EMPTY_DIFF;
+    },
+  });
+
+  const result = await svc.generate(s);
+  expect(result).toBe("started");
+  expect(diffedBase).toBe("main"); // diffed against the PR base, not "dev"
+  expect(store.getRecap("s1")?.base).toBe("main"); // persisted on the generating row
+});
+
+test("regenerate: resolves the PR base inside generate() despite bypassing dedup", async () => {
+  // regenerate() bypasses needsRecap and calls generate(session) with no knownBase — so generate
+  // MUST resolve the base itself, else a forced regenerate re-bakes the stale base.
+  const s = makeSession({ status: "done", baseBranch: "dev" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let diffedBase: string | undefined;
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    makeTmpDir: () => "/tmp/recap-base-regen",
+    resolveBase: async () => ({ base: "main", resolved: true }),
+    computeDiff: async (_wt, base) => {
+      diffedBase = base;
+      return NON_EMPTY_DIFF;
+    },
+  });
+
+  const result = await svc.regenerate(s);
+  expect(result).toBe("started");
+  expect(diffedBase).toBe("main");
+  expect(store.getRecap("s1")?.base).toBe("main");
+});
+
+test("considerForArchive: same head but PR base now resolvable → regenerates (not 'skip')", async () => {
+  // A recap baked against the old base "dev" at this HEAD; the PR's real base "main" is now known.
+  const s = makeSession({ status: "done", baseBranch: "dev" });
+  const stale = makeRecap({ state: "ready", headSha: "sha-head", base: "dev", verdict: "ready" });
+  const store = makeStore([s], [stale]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+    makeTmpDir: () => "/tmp/recap-base-rearchive",
+    resolveBase: async () => ({ base: "main", resolved: true }),
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("started"); // base changed + resolved → regenerate despite same HEAD
+  expect(store.getRecap("s1")?.base).toBe("main");
+});
+
+test("considerForArchive: same head, base change only via transient fallback → 'skip' (no thrash)", async () => {
+  const s = makeSession({ status: "done", baseBranch: "dev" });
+  const existing = makeRecap({
+    state: "ready",
+    headSha: "sha-head",
+    base: "main",
+    verdict: "ready",
+  });
+  const store = makeStore([s], [existing]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    headSha: "sha-head",
+    // on-demand resolution failed → non-authoritative fallback to baseBranch "dev"
+    resolveBase: async () => ({ base: "dev", resolved: false }),
+  });
+
+  const result = await svc.considerForArchive(s);
+  expect(result).toBe("skip"); // resolved:false must NOT flip the dedup key
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.base).toBe("main"); // untouched
 });

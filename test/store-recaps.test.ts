@@ -7,6 +7,7 @@ const r = (over: Partial<Recap> = {}): Recap => ({
   sessionId: "s1",
   state: "generating",
   headSha: "sha-abc",
+  base: "",
   verdict: null,
   headline: "",
   body: "",
@@ -24,12 +25,13 @@ const r = (over: Partial<Recap> = {}): Recap => ({
 test("recaps: put→get round-trip (incl. openItems JSON)", () => {
   const s = new SessionStore(":memory:");
   expect(s.getRecap("s1")).toBeNull();
-  s.putRecap(r({ openItems: ["fix tests", "update docs"] }));
+  s.putRecap(r({ openItems: ["fix tests", "update docs"], base: "main" }));
   const got = s.getRecap("s1");
   expect(got).not.toBeNull();
   expect(got?.sessionId).toBe("s1");
   expect(got?.state).toBe("generating");
   expect(got?.headSha).toBe("sha-abc");
+  expect(got?.base).toBe("main");
   expect(got?.openItems).toEqual(["fix tests", "update docs"]);
   expect(got?.verdict).toBeNull();
   expect(got?.model).toBe("claude-sonnet-4-5");

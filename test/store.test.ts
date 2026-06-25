@@ -466,6 +466,7 @@ const recap = (sessionId: string, over: Partial<Recap> = {}): Recap => ({
   sessionId,
   state: "ready",
   headSha: "sha",
+  base: "",
   verdict: "ready",
   headline: "done",
   body: "",

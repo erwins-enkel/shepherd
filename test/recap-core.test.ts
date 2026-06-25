@@ -257,6 +257,7 @@ const baseRecap = (over: Partial<Recap> = {}): Recap => ({
   sessionId: "s1",
   state: "ready",
   headSha: "sha-abc",
+  base: "main",
   verdict: "ready",
   headline: "done",
   body: "",
@@ -272,27 +273,59 @@ const baseRecap = (over: Partial<Recap> = {}): Recap => ({
 });
 
 test("needsRecap: null existing → true (no recap yet)", () => {
-  expect(needsRecap(null, "sha-abc")).toBe(true);
+  expect(needsRecap(null, "sha-abc", "main", true)).toBe(true);
 });
 
 test("needsRecap: same head (state=ready) → false", () => {
-  expect(needsRecap(baseRecap({ state: "ready", headSha: "sha-abc" }), "sha-abc")).toBe(false);
+  expect(
+    needsRecap(baseRecap({ state: "ready", headSha: "sha-abc" }), "sha-abc", "main", true),
+  ).toBe(false);
 });
 
 test("needsRecap: same head (state=generating) → false", () => {
-  expect(needsRecap(baseRecap({ state: "generating", headSha: "sha-abc" }), "sha-abc")).toBe(false);
+  expect(
+    needsRecap(baseRecap({ state: "generating", headSha: "sha-abc" }), "sha-abc", "main", true),
+  ).toBe(false);
 });
 
 test("needsRecap: same head (state=failed) → false (no auto-retry)", () => {
-  expect(needsRecap(baseRecap({ state: "failed", headSha: "sha-abc" }), "sha-abc")).toBe(false);
+  expect(
+    needsRecap(baseRecap({ state: "failed", headSha: "sha-abc" }), "sha-abc", "main", true),
+  ).toBe(false);
 });
 
 test("needsRecap: same head (state=empty) → false", () => {
-  expect(needsRecap(baseRecap({ state: "empty", headSha: "sha-abc" }), "sha-abc")).toBe(false);
+  expect(
+    needsRecap(baseRecap({ state: "empty", headSha: "sha-abc" }), "sha-abc", "main", true),
+  ).toBe(false);
 });
 
 test("needsRecap: different head → true", () => {
-  expect(needsRecap(baseRecap({ headSha: "sha-old" }), "sha-new")).toBe(true);
+  expect(needsRecap(baseRecap({ headSha: "sha-old" }), "sha-new", "main", true)).toBe(true);
+});
+
+test("needsRecap: same head, base changed + resolved → true (PR base became known)", () => {
+  expect(needsRecap(baseRecap({ headSha: "sha-abc", base: "dev" }), "sha-abc", "main", true)).toBe(
+    true,
+  );
+});
+
+test("needsRecap: same head, base changed but NOT resolved → false (no thrash on transient fallback)", () => {
+  expect(needsRecap(baseRecap({ headSha: "sha-abc", base: "main" }), "sha-abc", "dev", false)).toBe(
+    false,
+  );
+});
+
+test("needsRecap: same head, legacy base='' → false (no mass regeneration on deploy)", () => {
+  expect(needsRecap(baseRecap({ headSha: "sha-abc", base: "" }), "sha-abc", "main", true)).toBe(
+    false,
+  );
+});
+
+test("needsRecap: same head, same resolved base → false", () => {
+  expect(needsRecap(baseRecap({ headSha: "sha-abc", base: "main" }), "sha-abc", "main", true)).toBe(
+    false,
+  );
 });
 
 // ── buildTranscriptDigest ─────────────────────────────────────────────────────

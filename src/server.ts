@@ -57,6 +57,7 @@ import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff } from "./diff";
+import { resolveDiffBase } from "./diff-base";
 import { sessionTokens, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
 import { isApiKeyMode } from "./spawn-auth";
@@ -1542,7 +1543,10 @@ async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
   try {
-    return json(await computeDiff(s.worktreePath, s.baseBranch, s.branch));
+    // Diff against the PR's actual base (so it matches the PR's "Files changed" even when
+    // the PR targets a non-default branch), falling back to the session's stored baseBranch.
+    const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
+    return json(await computeDiff(s.worktreePath, base, s.branch));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
   }

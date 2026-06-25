@@ -302,6 +302,7 @@ type RecapRow = {
   sessionId: string;
   state: string;
   headSha: string | null;
+  base: string | null;
   verdict: string | null;
   headline: string | null;
   body: string | null;
@@ -734,6 +735,7 @@ export class SessionStore implements CapStore, CreditStore {
       sessionId TEXT PRIMARY KEY,
       state TEXT NOT NULL,
       headSha TEXT NOT NULL DEFAULT '',
+      base TEXT NOT NULL DEFAULT '',
       verdict TEXT,
       headline TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
@@ -757,6 +759,11 @@ export class SessionStore implements CapStore, CreditStore {
     }
     if (!recapCols.some((c) => c.name === "pendingDiff")) {
       this.db.run(`ALTER TABLE recaps ADD COLUMN pendingDiff TEXT NOT NULL DEFAULT '[]'`);
+    }
+    // migrate recaps that predate the base column (legacy rows default to '' — the dedup's
+    // legacy guard then never force-regenerates them on base alone).
+    if (!recapCols.some((c) => c.name === "base")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN base TEXT NOT NULL DEFAULT ''`);
     }
     // Manual operator steps — durable post-merge materialization (#1061, epic #1056 P3). One row
     // per merged session carrying its outstanding manual steps so they outlive the session. This
@@ -2168,6 +2175,7 @@ export class SessionStore implements CapStore, CreditStore {
       sessionId: r.sessionId,
       state: r.state,
       headSha: r.headSha ?? "",
+      base: r.base ?? "",
       verdict: r.verdict ?? null,
       headline: r.headline ?? "",
       body: r.body ?? "",
@@ -2195,7 +2203,7 @@ export class SessionStore implements CapStore, CreditStore {
   getRecap(sessionId: string): Recap | null {
     const r = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
@@ -2205,10 +2213,11 @@ export class SessionStore implements CapStore, CreditStore {
 
   putRecap(recap: Recap): void {
     this.db.run(
-      `INSERT INTO recaps (sessionId, state, headSha, verdict, headline, body, openItems, changedFiles,
+      `INSERT INTO recaps (sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles,
          blocks, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
+         base=excluded.base,
          verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
          openItems=excluded.openItems, changedFiles=excluded.changedFiles,
          blocks=excluded.blocks,
@@ -2219,6 +2228,7 @@ export class SessionStore implements CapStore, CreditStore {
         recap.sessionId,
         recap.state,
         recap.headSha ?? "",
+        recap.base ?? "",
         recap.verdict ?? null,
         recap.headline ?? "",
         recap.body ?? "",
@@ -2239,7 +2249,7 @@ export class SessionStore implements CapStore, CreditStore {
   snapshotRecaps(): Record<string, Recap> {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state != 'empty'`,
       )
@@ -2253,7 +2263,7 @@ export class SessionStore implements CapStore, CreditStore {
   generatingRecaps(): Recap[] {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
                 pendingDiff, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )

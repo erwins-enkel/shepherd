@@ -29,6 +29,7 @@ import { EventHub } from "./events";
 import { SessionService } from "./service";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
+import { resolveDiffBase } from "./diff-base";
 import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
 import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
@@ -262,10 +263,16 @@ const egressWatcher = new EgressWatcher({
 // so the operator can skim what happened without reading the transcript. Mirrors planGate's
 // deps/onChange wiring; model defaults to "sonnet" inside the service. Constructed BEFORE
 // SessionService so its pre-teardown hook (beforeArchive) can be wired into the service.
-const recapService = new RecapService({
+// Explicit type annotation breaks the type-inference cycle the resolveBase closure introduces
+// (recapService → prPoller/resolveForge → service → recapService via beforeArchive). The closure
+// only runs at recap time (well after init), so the forward references are safe at runtime.
+const recapService: RecapService = new RecapService({
   store,
   herdr,
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
+  // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
+  // declared below; this closure only runs at recap time (well after init), like refreshPr above.
+  resolveBase: (s) => resolveDiffBase(s, prPoller, resolveForge),
 });
 
 // Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started

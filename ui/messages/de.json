@@ -889,7 +889,6 @@
   "buildqueue_move_down_aria": "Schritt nach unten",
   "buildqueue_approve": "Freigeben & ausführen",
   "buildqueue_new_step": "Neuer Schritt",
-  "buildqueue_approved_header": "freigegeben · läuft",
   "buildqueue_step_title_aria": "Schritttitel",
   "buildqueue_step_detail_aria": "Schrittdetail",
   "buildqueue_step_detail_placeholder": "Detail (optional)",
@@ -1937,5 +1936,10 @@
   "settings_logout_hint": "Diese Sitzung auf diesem Gerät beenden. Zum erneuten Anmelden ist das Betreiber-Passwort nötig.",
   "settings_logout_button": "Abmelden",
   "feat_operator_auth_title": "Passwort-Anmeldung",
-  "feat_operator_auth_body": "Shepherd ist jetzt durch ein Einzelbetreiber-Passwort geschützt. Jede Seite, das Live-Terminal und der Aktivitätsstrom erfordern eine Sitzung — setze SHEPHERD_PASSWORD oder hol dir das automatisch generierte Passwort beim ersten Start aus dem Server-Log. Abmelden jederzeit über Einstellungen → Sitzung."
+  "feat_operator_auth_body": "Shepherd ist jetzt durch ein Einzelbetreiber-Passwort geschützt. Jede Seite, das Live-Terminal und der Aktivitätsstrom erfordern eine Sitzung — setze SHEPHERD_PASSWORD oder hol dir das automatisch generierte Passwort beim ersten Start aus dem Server-Log. Abmelden jederzeit über Einstellungen → Sitzung.",
+  "buildqueue_approval_auto": "auto-freigegeben",
+  "buildqueue_approval_operator": "freigegeben",
+  "buildqueue_run_queued": "wartet",
+  "buildqueue_run_running": "läuft",
+  "buildqueue_run_done": "erledigt"
 }

@@ -889,7 +889,6 @@
   "buildqueue_move_down_aria": "Move step down",
   "buildqueue_approve": "Approve & run",
   "buildqueue_new_step": "New step",
-  "buildqueue_approved_header": "approved · running",
   "buildqueue_step_title_aria": "Step title",
   "buildqueue_step_detail_aria": "Step detail",
   "buildqueue_step_detail_placeholder": "Detail (optional)",
@@ -1937,5 +1936,10 @@
   "settings_logout_hint": "End this session on this device. You'll need the operator password to sign back in.",
   "settings_logout_button": "Sign out",
   "feat_operator_auth_title": "Password login",
-  "feat_operator_auth_body": "Shepherd now sits behind a single-operator password. Every page, the live terminal, and the activity stream require a session — set SHEPHERD_PASSWORD, or grab the auto-generated one from the server log on first boot. Sign out anytime from Settings → Session."
+  "feat_operator_auth_body": "Shepherd now sits behind a single-operator password. Every page, the live terminal, and the activity stream require a session — set SHEPHERD_PASSWORD, or grab the auto-generated one from the server log on first boot. Sign out anytime from Settings → Session.",
+  "buildqueue_approval_auto": "auto-approved",
+  "buildqueue_approval_operator": "approved",
+  "buildqueue_run_queued": "queued",
+  "buildqueue_run_running": "running",
+  "buildqueue_run_done": "done"
 }

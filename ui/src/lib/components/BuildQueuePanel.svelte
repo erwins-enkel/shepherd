@@ -108,6 +108,27 @@
     }
   }
 
+  // ------------- approved-header derived state -------------
+
+  const allResolved = $derived(
+    steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped"),
+  );
+  const anyRunning = $derived(steps.some((s) => s.status === "active" || s.status === "done"));
+  const runState = $derived(allResolved ? "done" : anyRunning ? "running" : "queued");
+
+  const approvalLabel = $derived(
+    queue?.approvalKind === "auto"
+      ? m.buildqueue_approval_auto()
+      : m.buildqueue_approval_operator(),
+  );
+  const runLabel = $derived(
+    runState === "done"
+      ? m.buildqueue_run_done()
+      : runState === "running"
+        ? m.buildqueue_run_running()
+        : m.buildqueue_run_queued(),
+  );
+
   // ------------- status badge helpers -------------
 
   function statusLabel(s: BuildStepStatus): string {
@@ -155,7 +176,7 @@
     >
       <span class="bqp-title">{m.buildqueue_panel_title()}</span>
       {#if approved && steps.length > 0}
-        <span class="bqp-approved">{m.buildqueue_approved_header()}</span>
+        <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
       {/if}
       <span class="bqp-collapse-glyph" aria-hidden="true"
         >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
@@ -316,9 +337,22 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    /* In-progress, not complete — amber. Green is reserved by the design system for
-       actionable-complete/READY, which a running queue is not. */
+    /* Color lives on the run-state modifier classes below. */
+  }
+
+  /* Run-state modifier colors (design-system rule 4 — tokens only, never literals).
+     running = in-progress amber; queued = faint (approved, not started);
+     done = slate (finished-but-parked; NOT green — green is reserved for actionable-complete/READY). */
+  .bqp-run-running {
     color: var(--color-amber);
+  }
+
+  .bqp-run-queued {
+    color: var(--color-faint);
+  }
+
+  .bqp-run-done {
+    color: var(--status-done);
   }
 
   /* The ▴/▾ glyph: pushed to the right edge, styled like the boxed toggle it

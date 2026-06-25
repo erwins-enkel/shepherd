@@ -43,6 +43,7 @@ import {
   shouldRestamp,
   isSecureRequest,
   verifyPassword,
+  SESSION_COOKIE,
 } from "./operator-auth";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -431,9 +432,24 @@ function checkAuth(req: Request): Response | null {
  * re-logs-in. Attached at exactly ONE seam — the makeApp wrapper — so it can't double-apply; WS
  * upgrades return before this seam, so they never carry a cookie. Re-verifying here is a cheap
  * HMAC. Token-authed (no cookie) requests and failures are left untouched.
+ *
+ * CRITICAL: never re-stamp a response that ALREADY sets the session cookie. The handler owns the
+ * cookie in those cases — `POST /api/logout` clears it (Max-Age=0) and `POST /api/login` mints a
+ * fresh one — and the incoming request still carries the OLD cookie. Appending a second, valid
+ * `Set-Cookie` would re-authenticate the operator on logout (stateless: no server-side revocation),
+ * silently defeating it; on login it would just duplicate. So the handler's own cookie always wins.
  */
+function responseSetsSessionCookie(res: Response): boolean {
+  const cookies =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie") ?? ""];
+  return cookies.some((c) => c.includes(`${SESSION_COOKIE}=`));
+}
+
 function maybeRestamp(req: Request, res: Response): Response {
   if (res.status >= 400) return res;
+  if (responseSetsSessionCookie(res)) return res; // handler owns the cookie (login/logout)
   const secret = config.cookieSecret;
   if (!secret) return res;
   const v = verifyCookie(secret, parseCookie(req.headers.get("cookie")));

@@ -178,6 +178,20 @@ test("logout: clears the cookie (Max-Age=0)", async () => {
   expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
 });
 
+test("logout: a PAST-HALF-LIFE cookie still only clears — re-stamp must NOT re-issue a valid session", async () => {
+  const app = makeApp(makeDeps());
+  const old = signCookie(SECRET, SESSION_TTL_MS, Date.now() - SESSION_TTL_MS * 0.6); // restamp-eligible
+  const res = await app.fetch(
+    new Request("http://x/api/logout", { method: "POST", headers: cookieHeader(old) }),
+  );
+  expect(res.status).toBe(200);
+  const cookies = res.headers.getSetCookie();
+  // exactly ONE Set-Cookie, and it expires the session (no second, valid, re-stamped cookie)
+  expect(cookies).toHaveLength(1);
+  expect(cookies[0]).toContain("Max-Age=0");
+  expect(cookies.some((c) => /Max-Age=(?!0)\d/.test(c))).toBe(false);
+});
+
 // ── sliding re-stamp ─────────────────────────────────────────────────────────
 
 test("re-stamp: a cookie past half-life gets a fresh Set-Cookie on a 2xx response", async () => {

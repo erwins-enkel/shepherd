@@ -46,6 +46,17 @@ describe("TaskIdMenu", () => {
     expect(oncopy).toHaveBeenCalledTimes(1);
   });
 
+  it("a pointerdown on the opener does NOT dismiss (so the button can toggle-close)", async () => {
+    const onclose = vi.fn();
+    render(TaskIdMenu, { props: base({ onclose }) });
+    // re-clicking the trigger must not fire the outside-click dismiss — the button's
+    // own onclick owns the toggle. A pointerdown elsewhere still dismisses.
+    opener.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(onclose).not.toHaveBeenCalled();
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
   it("recommend items pass the right provider + model", async () => {
     const onrecommend = vi.fn();
     render(TaskIdMenu, { props: base({ onrecommend }) });

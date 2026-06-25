@@ -67,7 +67,11 @@
       if (e.key === "Escape") onclose();
     }
     function onPointer(e: Event) {
-      if (el && !el.contains(e.target as Node)) onclose();
+      const t = e.target as Node;
+      // Exclude the opener: a pointerdown on the task-id button must NOT dismiss here,
+      // or the button's own click would just toggle the menu back open — toggle-to-close
+      // would never work. The button handles that re-click itself.
+      if (el && !el.contains(t) && !opener?.contains(t)) onclose();
     }
     window.addEventListener("keydown", onKeydown);
     // capture so we beat the card's own click; scroll dismisses (the anchor moves)

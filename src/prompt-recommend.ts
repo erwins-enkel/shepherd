@@ -49,8 +49,15 @@ interface RawSuggestion {
 /**
  * Self-contained instructions for the recommender agent. NOT UI chrome — never i18n'd.
  * The tail + task are UNTRUSTED agent output, embedded as data the agent only reads to
- * reason about; the Write-only / dontAsk / no-Bash sandbox (claude) and temp cwd contain
- * any injection. The agent never acts on the work itself — it only proposes a next prompt.
+ * reason about; the prompt directs it to ONLY propose a next prompt, never act on the work.
+ *
+ * Containment differs by provider: the claude path runs Write-only under `dontAsk` (no Bash),
+ * so a prompt-injection in the tail is sandboxed to a single JSON write in the temp cwd. The
+ * codex path runs with `--dangerously-bypass-approvals-and-sandbox` (full FS, no sandbox), so
+ * containment there rests only on the temp cwd + this prompt's instructions — a determined
+ * injection is NOT hard-contained. Acceptable for now: codex recommendation is operator-
+ * initiated on the operator's own session history, same trust boundary as the codex sessions
+ * Shepherd already spawns; revisit if codex gains a scoped-permission mode.
  */
 export function recommenderPrompt(tail: string[], taskPrompt: string): string {
   const clippedTask = taskPrompt.slice(0, 2000);

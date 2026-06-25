@@ -1827,8 +1827,9 @@ const appDeps: AppDeps = {
   autoMerge: { snapshot: () => autoMerge.snapshot() },
   holds: { snapshot: () => holdService.snapshot() },
   // Read the source session's recent terminal history off its live pane and hand it to a
-  // transient second agent for a next-prompt recommendation. A dead/unknown pane has no
-  // history to analyze → "no-history" (the menu only offers this for live sessions anyway).
+  // transient second agent for a next-prompt recommendation. The menu offers this on every
+  // session, so a dead/unknown pane (no live terminal to read) is expected here → "no-history",
+  // which the RecommendDialog surfaces as a distinct error rather than a silent failure.
   recommend: async (id, provider, model) => {
     const s = store.get(id);
     if (!s) return { error: "no-history" as const };

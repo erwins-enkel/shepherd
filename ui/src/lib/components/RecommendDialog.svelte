@@ -126,7 +126,7 @@
         readonly
         rows="6"
         aria-label={m.recommend_result_hint()}
-        bind:value={phase.prompt}></textarea>
+        value={phase.prompt}></textarea>
       {#if injectFailed}
         <div class="inline-err" role="alert">{m.recommend_inject_failed()}</div>
       {/if}

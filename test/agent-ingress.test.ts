@@ -2,7 +2,12 @@ import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
-import { isAgentIngressRoute, makeAgentIngressApp, type AppDeps } from "../src/server";
+import {
+  isAgentIngressRoute,
+  makeAgentIngressApp,
+  serveAgentIngress,
+  type AppDeps,
+} from "../src/server";
 import { config } from "../src/config";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
@@ -191,5 +196,64 @@ test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth g
   } finally {
     config.cookieSecret = prevSecret;
     config.token = prevToken;
+  }
+});
+
+// ── serveAgentIngress: pinned bind + post-exit rebind (issue #1083) ─────────────
+
+/** Probe a likely-free port by binding ephemeral, reading the assigned port, and releasing it. */
+async function freePort(): Promise<number> {
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("ok") });
+  const p = probe.port;
+  await probe.stop();
+  if (p == null) throw new Error("ephemeral probe yielded no port");
+  return p;
+}
+
+test("serveAgentIngress: binds the requested (pinned) port exactly", async () => {
+  const deps = makeDeps();
+  const p = await freePort();
+  const server = serveAgentIngress(deps, p);
+  try {
+    expect(server.port).toBe(p);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("serveAgentIngress: rebinds the SAME port after a real server-closed connection + restart", async () => {
+  // Non-vacuous: we route a real allowlisted request through the live listener with the server as
+  // the active closer (Connection: close), so a genuine server-side connection teardown exists on
+  // the listening port BEFORE we stop + rebind. This exercises Bun's default SO_REUSEADDR recovery
+  // (the restart case the pin exists for), not a no-op rebind of a listener that never accepted a
+  // connection. We deliberately do NOT use reusePort, so this is true post-exit rebind, not co-bind.
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const p = await freePort();
+
+  const first = serveAgentIngress(deps, p);
+  expect(first.port).toBe(p);
+  // Real allowlisted request over the actual socket; server actively closes (Connection: close).
+  const res = await fetch(`http://127.0.0.1:${p}/api/sessions/${s.id}/queue`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", connection: "close" },
+    body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
+  });
+  expect(res.status).toBe(200);
+  await res.text(); // drain the body so the connection completes and the server closes it
+  await first.stop(); // old process exits
+
+  // The pinned port must rebind immediately despite the lingering server-closed connection.
+  const second = serveAgentIngress(deps, p);
+  try {
+    expect(second.port).toBe(p);
+  } finally {
+    await second.stop();
   }
 });

@@ -264,6 +264,67 @@ export function validatePreviewPortRange({
   }
 }
 
+export interface AgentIngressPortParams {
+  /** The configured agent-ingress port (config.agentIngressPort). `0` = ephemeral. */
+  agentIngressPort: number;
+  /** The HUD's main listen port (config.port). */
+  mainPort: number;
+  previewPortBase: number;
+  previewPortCount: number;
+  /** The HUD's public served origin port (443 if unknown). */
+  servedPort: number;
+}
+
+/**
+ * Hard-fail at startup if the configured agent-ingress port (issue #1083) collides with another
+ * Shepherd-owned port — the main HUD port, the public served port, or the preview port range. A
+ * pinned ingress port that overlaps would either fail to bind or steal a preview slot, silently
+ * breaking the very hook channel pinning exists to keep alive. Fail-fast (throw), consistent with
+ * validatePreviewPortRange — never a silent fallback. `0` means "ephemeral" (no fixed port) and is
+ * exempt. The served-port check mirrors validatePreviewPortRange for consistency (low practical
+ * risk for a loopback-only ingress, but cheap to keep symmetric).
+ *
+ * Throws an Error with a clear, fixable message on any overlap or invalid value; returns void on success.
+ */
+export function validateAgentIngressPort({
+  agentIngressPort,
+  mainPort,
+  previewPortBase,
+  previewPortCount,
+  servedPort,
+}: AgentIngressPortParams): void {
+  if (agentIngressPort === 0) return; // explicit ephemeral opt-out: nothing fixed to clash
+
+  if (!Number.isInteger(agentIngressPort) || agentIngressPort < 0 || agentIngressPort > 65535) {
+    throw new Error(
+      `Agent-ingress port is invalid: SHEPHERD_AGENT_INGRESS_PORT must be an integer in [0, 65535] ` +
+        `(got ${agentIngressPort}). Use 0 for an ephemeral port.`,
+    );
+  }
+
+  if (agentIngressPort === mainPort) {
+    throw new Error(
+      `Agent-ingress port ${agentIngressPort} collides with the HUD main port ${mainPort}. ` +
+        `Set SHEPHERD_AGENT_INGRESS_PORT to a free port (or 0 for ephemeral).`,
+    );
+  }
+
+  if (agentIngressPort === servedPort) {
+    throw new Error(
+      `Agent-ingress port ${agentIngressPort} collides with the HUD served (public) port ${servedPort}. ` +
+        `Set SHEPHERD_AGENT_INGRESS_PORT to a free port (or 0 for ephemeral).`,
+    );
+  }
+
+  const rangeEnd = previewPortBase + previewPortCount; // exclusive
+  if (agentIngressPort >= previewPortBase && agentIngressPort < rangeEnd) {
+    throw new Error(
+      `Agent-ingress port ${agentIngressPort} falls in the preview port range [${previewPortBase}, ${rangeEnd}). ` +
+        `Set SHEPHERD_AGENT_INGRESS_PORT (or shift SHEPHERD_PREVIEW_PORT_BASE / SHEPHERD_PREVIEW_PORT_COUNT) so they don't overlap.`,
+    );
+  }
+}
+
 /**
  * Parse SHEPHERD_TRIM_AUTO_CONTEXT: default ON when unset; only an explicit
  * `false`/`0`/`off` (case-insensitive) turns it off. Exported for tests.
@@ -286,11 +347,23 @@ export function parseHour(raw: string | undefined, def: number): number {
   return Number.isInteger(n) && n >= 0 && n <= 23 ? n : def;
 }
 
+// The HUD's main listen port. Extracted so the agent-ingress port can default
+// relative to it (mainPort + 1) — a custom SHEPHERD_PORT shifts both in lockstep.
+const mainPort = Number(process.env.SHEPHERD_PORT ?? 7330);
+
 export const config = {
-  port: Number(process.env.SHEPHERD_PORT ?? 7330),
+  port: mainPort,
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
   // set SHEPHERD_HOST=0.0.0.0 to expose on all interfaces (not recommended).
   host: process.env.SHEPHERD_HOST ?? "127.0.0.1",
+  // Stable port for the restricted agent-ingress listener (issue #1083). The hook URL
+  // is baked into a spawned agent's --settings argv and can't be rewritten in a running
+  // process; an ephemeral port (the old default) rotated every restart, so any in-flight
+  // session lost its hook channel across a deploy. Pinning it (default mainPort + 1) makes
+  // the baked URL survive restarts. Set SHEPHERD_AGENT_INGRESS_PORT=0 to restore the old
+  // ephemeral behavior. Validated at startup by validateAgentIngressPort (must not collide
+  // with the main port, served port, or preview range).
+  agentIngressPort: Number(process.env.SHEPHERD_AGENT_INGRESS_PORT ?? mainPort + 1),
   dbPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,

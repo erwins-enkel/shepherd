@@ -1,4 +1,4 @@
-import type { UsageLimits, LimitWindow } from "../types";
+import type { UsageLimits, LimitWindow, UsageProviderSnapshot } from "../types";
 
 export type GaugeKey = "5H" | "WK";
 
@@ -14,6 +14,34 @@ export function gaugeList(limits: UsageLimits | null): Gauge[] {
   if (limits.session5h) out.push({ label: "5H", w: limits.session5h });
   if (limits.week) out.push({ label: "WK", w: limits.week });
   return out;
+}
+
+export function providerSnapshots(limits: UsageLimits | null): UsageProviderSnapshot[] {
+  if (!limits) return [];
+  if (limits.providers?.length) return limits.providers;
+  return [
+    {
+      provider: "claude",
+      kind: "limits",
+      session5h: limits.session5h,
+      week: limits.week,
+      credits: limits.credits,
+      stale: limits.stale,
+      calibratedAt: limits.calibratedAt,
+      subscriptionOnly: limits.subscriptionOnly,
+    },
+  ];
+}
+
+export function codexTokenUsage(
+  limits: UsageLimits | null,
+): Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null {
+  return (
+    providerSnapshots(limits).find(
+      (p): p is Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> =>
+        p.provider === "codex" && p.kind === "tokens",
+    ) ?? null
+  );
 }
 
 /**

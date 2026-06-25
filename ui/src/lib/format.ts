@@ -99,6 +99,15 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
 }
 
+const compactTokenNumber = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export function formatTokenLabel(tokens: number): string {
+  return m.viewport_tokens_label({ tokens: compactTokenNumber.format(Math.max(0, tokens)) });
+}
+
 /** Reset timestamp → short local label, e.g. "21:30" (today) or "Jun 6". */
 export function formatReset(ts: number, nowMs: number): string {
   const d = new Date(ts);

@@ -3,6 +3,8 @@
   import { m } from "$lib/paraglide/messages";
   import { getUsageBreakdown, getUsageLimits } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
+  import { formatTokenLabel } from "$lib/format";
+  import { codexTokenUsage } from "$lib/components/usage-gauges";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
@@ -22,6 +24,7 @@
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
   // limits-endpoint failure surfaces an error + Retry instead of loading forever.
   let limitsError = $state(false);
+  const codexUsage = $derived(codexTokenUsage(limits));
 
   // Fetch limits once on mount (range-independent). `limits === null && !limitsError`
   // ⇒ still loading.
@@ -147,6 +150,24 @@
           aria-pressed={range === "all"}
           onclick={() => (range = "all")}>{m.usage_range_all()}</button
         >
+      </div>
+    {/if}
+
+    {#if codexUsage}
+      <div class="provider-strip" class:provider-stale={codexUsage.stale}>
+        <span class="provider-name">{m.agent_provider_codex()}</span>
+        <span class="provider-metric">
+          <span>{m.topbar_tokens_window({ period: "5H" })}</span>
+          <strong>{formatTokenLabel(codexUsage.session5hTokens)}</strong>
+        </span>
+        <span class="provider-metric">
+          <span>{m.topbar_tokens_window({ period: "WK" })}</span>
+          <strong>{formatTokenLabel(codexUsage.weekTokens)}</strong>
+        </span>
+        <span class="provider-metric provider-total">
+          <span>{m.topbar_tokens_total()}</span>
+          <strong>{formatTokenLabel(codexUsage.totalTokens)}</strong>
+        </span>
       </div>
     {/if}
 
@@ -329,6 +350,51 @@
     font-size: var(--fs-meta);
   }
 
+  .provider-strip {
+    display: grid;
+    grid-template-columns: auto repeat(3, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px 14px;
+    margin-inline: -16px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--color-line);
+    background: var(--color-inset);
+    color: var(--color-muted);
+  }
+
+  .provider-strip.provider-stale {
+    opacity: 0.72;
+  }
+
+  .provider-name {
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .provider-metric {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 6px;
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    white-space: nowrap;
+  }
+
+  .provider-metric strong {
+    color: var(--color-ink);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .provider-total strong {
+    color: var(--color-amber);
+  }
+
   .lens-body {
     flex: 1;
     overflow-y: auto;
@@ -372,6 +438,23 @@
       max-height: none;
       border: 0;
       overflow: hidden;
+    }
+
+    .provider-strip {
+      grid-template-columns: 1fr 1fr;
+      gap: 7px 12px;
+    }
+
+    .provider-name {
+      grid-column: 1 / -1;
+    }
+
+    .provider-metric {
+      justify-content: space-between;
+    }
+
+    .provider-total {
+      grid-column: 1 / -1;
     }
   }
 </style>

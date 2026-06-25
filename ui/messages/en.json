@@ -2052,5 +2052,9 @@
   "files_load_error": "Couldn't load scratchpad files.",
   "files_download_aria": "Download {name}",
   "feat_scratchpad_files_title": "Browse & download a session's scratchpad",
-  "feat_scratchpad_files_body": "A live session's viewport now has a Files tab whenever its scratchpad holds artifacts. Browse the folders the agent wrote and download any file straight to your machine."
+  "feat_scratchpad_files_body": "A live session's viewport now has a Files tab whenever its scratchpad holds artifacts. Browse the folders the agent wrote and download any file straight to your machine.",
+  "topbar_tokens_total": "total",
+  "topbar_tokens_window": "{period} tokens",
+  "feat_codex_usage_topbar_title": "Codex usage in the topbar",
+  "feat_codex_usage_topbar_body": "The topbar usage popover now includes Codex token telemetry when a local Codex CLI is configured, so Claude and Codex capacity are visible from the same place."
 }

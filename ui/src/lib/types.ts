@@ -876,7 +876,29 @@ export interface UsageLimits {
   calibratedAt: number | null;
   /** true in api-key auth mode: usage tracking is subscription-only, meters carry no data. */
   subscriptionOnly: boolean;
+  providers?: UsageProviderSnapshot[];
 }
+
+export type UsageProviderSnapshot =
+  | {
+      provider: "claude";
+      kind: "limits";
+      session5h: LimitWindow | null;
+      week: LimitWindow | null;
+      credits: CreditWindow | null;
+      stale: boolean;
+      calibratedAt: number | null;
+      subscriptionOnly: boolean;
+    }
+  | {
+      provider: "codex";
+      kind: "tokens";
+      totalTokens: number;
+      session5hTokens: number;
+      weekTokens: number;
+      updatedAt: number | null;
+      stale: boolean;
+    };
 
 export type UsageRange = "24h" | "7d" | "30d" | "all";
 

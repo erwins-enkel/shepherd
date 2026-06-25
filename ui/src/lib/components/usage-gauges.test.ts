@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { gaugeList, hotterGauge, overspending, gaugeColor } from "./usage-gauges";
+import {
+  codexTokenUsage,
+  gaugeList,
+  hotterGauge,
+  overspending,
+  providerSnapshots,
+  gaugeColor,
+} from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
 function w(pct: number, resetAt = 0): LimitWindow {
@@ -41,6 +48,51 @@ describe("gaugeList", () => {
   it("lists only the present window", () => {
     expect(gaugeList(limits({ week: w(20) })).map((g) => g.label)).toEqual(["WK"]);
     expect(gaugeList(limits({ session5h: w(10) })).map((g) => g.label)).toEqual(["5H"]);
+  });
+});
+
+describe("providerSnapshots", () => {
+  it("falls back to a Claude provider snapshot for legacy payloads", () => {
+    const l = limits({ session5h: w(10), week: w(20) });
+    expect(providerSnapshots(l)).toEqual([
+      {
+        provider: "claude",
+        kind: "limits",
+        session5h: w(10),
+        week: w(20),
+        credits: null,
+        stale: false,
+        calibratedAt: null,
+        subscriptionOnly: false,
+      },
+    ]);
+  });
+
+  it("extracts Codex token usage from provider payloads", () => {
+    const l = limits({
+      providers: [
+        {
+          provider: "claude",
+          kind: "limits",
+          session5h: null,
+          week: null,
+          credits: null,
+          stale: false,
+          calibratedAt: null,
+          subscriptionOnly: false,
+        },
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 12_000,
+          session5hTokens: 1_000,
+          weekTokens: 9_000,
+          updatedAt: 123,
+          stale: false,
+        },
+      ],
+    });
+    expect(codexTokenUsage(l)?.totalTokens).toBe(12_000);
   });
 });
 

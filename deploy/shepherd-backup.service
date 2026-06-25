@@ -1,0 +1,15 @@
+[Unit]
+Description=Shepherd — hourly SQLite backup (VACUUM INTO → integrity_check → gzip → GFS rotation)
+Documentation=https://github.com/erwins-enkel/shepherd
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Work/shepherd
+ExecStart=%h/.bun/bin/bun run scripts/backup.ts
+
+# bun lives in ~/.bun/bin; keep the same resolvable PATH as shepherd.service
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# optional overrides (SHEPHERD_DB, SHEPHERD_BACKUP_DIR) — shared with the main unit; file may be absent
+EnvironmentFile=-%h/.shepherd/env
+
+# Output goes to journald: `journalctl --user -u shepherd-backup`

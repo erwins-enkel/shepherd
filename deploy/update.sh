@@ -42,6 +42,29 @@ bun install
 note "building UI"
 (cd ui && bun run build)
 
+# ── sync backup units (#1080) ─────────────────────────────────────────────────
+# update.sh historically only restarts; provision.ts installs units only on a fresh box. So an
+# existing live host would never pick up the hourly-backup timer. Re-sync it here, idempotently, so
+# every `bun run update` self-heals: template the .service (WorkingDirectory → this checkout), copy
+# the .timer verbatim, reload, enable --now, and (re)write the backup-expected marker. Soft-skip
+# where there's no systemd user manager (macOS / core-only) — those hosts get no backups by design.
+if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  note "syncing backup timer units"
+  UNIT_DIR="$HOME/.config/systemd/user"
+  mkdir -p "$UNIT_DIR"
+  sed "s|^WorkingDirectory=.*|WorkingDirectory=${REPO}|" \
+    "$REPO/deploy/shepherd-backup.service" >"$UNIT_DIR/shepherd-backup.service"
+  cp "$REPO/deploy/shepherd-backup.timer" "$UNIT_DIR/shepherd-backup.timer"
+  # Resolve the backup dir via the shared resolver so the marker can't drift from the script.
+  BACKUP_DIR="$(bun -e 'import {resolveBackupDir} from "./src/backup-paths"; process.stdout.write(resolveBackupDir())')"
+  mkdir -p "$BACKUP_DIR"
+  [[ -f "$BACKUP_DIR/.backup-configured" ]] || printf 'shepherd-backup.timer enabled\n' >"$BACKUP_DIR/.backup-configured"
+  systemctl --user daemon-reload
+  systemctl --user enable --now shepherd-backup.timer
+else
+  warn "no systemd user manager — skipping backup timer sync (no automated backups on this host)"
+fi
+
 # ── restart ───────────────────────────────────────────────────────────────────
 note "restarting $UNIT"
 systemctl --user restart "$UNIT"

@@ -113,8 +113,8 @@
   const allResolved = $derived(
     steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped"),
   );
-  const anyRunning = $derived(steps.some((s) => s.status === "active" || s.status === "done"));
-  const runState = $derived(allResolved ? "done" : anyRunning ? "running" : "queued");
+  const anyStarted = $derived(steps.some((s) => s.status === "active" || s.status === "done"));
+  const runState = $derived(allResolved ? "done" : anyStarted ? "running" : "queued");
 
   const approvalLabel = $derived(
     queue?.approvalKind === "auto"

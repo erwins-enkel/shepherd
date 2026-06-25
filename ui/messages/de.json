@@ -1610,6 +1610,8 @@
   "topbar_held_resets": "· Reset {time}",
   "topbar_held_title": "Zurückgehaltene Aufgaben",
   "topbar_held_spawn_now": "Jetzt starten",
+  "topbar_held_spawn_cli_label": "Starten mit",
+  "topbar_held_original_cli": "Zurückgestellt für {cli}",
   "topbar_held_discard": "Verwerfen",
   "topbar_held_empty": "Keine zurückgehaltenen Aufgaben",
   "topbar_held_why": "Zurückgehalten, weil die Nutzung hoch ist – sie starten automatisch beim nächsten Reset.",
@@ -1962,5 +1964,7 @@
   "settings_cli_codex_auth_hint": "Codex verwendet aktuell den lokalen CLI-Login, der dem Serverprozess zur Verfügung steht.",
   "settings_cli_codex_auth_local": "Lokaler Codex-CLI-Login",
   "feat_codex_cli_title": "Codex-CLI-Alpha",
-  "feat_codex_cli_body": "Neue Aufgaben können jetzt über die lokale Codex-CLI als Alpha/MVP-Provider laufen. Wähle Codex im Aufgabendialog oder lege es unter Einstellungen → Coding CLIs als Standard fest; Codex startet als steuerbare Terminal-Session, während CLI-spezifische Automation noch verdrahtet wird."
+  "feat_codex_cli_body": "Neue Aufgaben können jetzt über die lokale Codex-CLI als Alpha/MVP-Provider laufen. Wähle Codex im Aufgabendialog oder lege es unter Einstellungen → Coding CLIs als Standard fest; Codex startet als steuerbare Terminal-Session, während CLI-spezifische Automation noch verdrahtet wird.",
+  "feat_held_task_cli_handoff_title": "Zurückgestellte Aufgaben an eine andere CLI geben",
+  "feat_held_task_cli_handoff_body": "Zurückgestellte Aufgaben zeigen jetzt, für welche Coding-CLI sie ursprünglich eingereiht wurden. Öffne das Popover, stelle Starten mit auf einen anderen Provider und starte die Aufgabe dort, wo noch Kapazität frei ist."
 }

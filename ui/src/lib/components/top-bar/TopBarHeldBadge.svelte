@@ -2,7 +2,27 @@
   import { m } from "$lib/paraglide/messages";
   import { formatResetIn } from "$lib/format";
   import type { Gauge } from "../usage-gauges";
-  import type { HeldTask } from "$lib/types";
+  import { AGENT_PROVIDERS, type AgentProvider, type HeldTask } from "$lib/types";
+
+  const fallbackProvider: AgentProvider = "claude";
+
+  let spawnProviders = $state<Record<string, AgentProvider>>({});
+
+  function providerFor(task: HeldTask): AgentProvider {
+    return task.input.agentProvider ?? fallbackProvider;
+  }
+
+  function selectedProvider(task: HeldTask): AgentProvider {
+    return spawnProviders[task.id] ?? providerFor(task);
+  }
+
+  function setSpawnProvider(id: string, value: string) {
+    spawnProviders[id] = value === "codex" ? "codex" : "claude";
+  }
+
+  function providerLabel(provider: AgentProvider): string {
+    return provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex();
+  }
 
   let {
     heldCount,
@@ -32,7 +52,7 @@
     heldBadgeBtn: HTMLButtonElement | null;
     heldPopEl: HTMLDivElement | null;
     toggleHeldPop: () => void;
-    doSpawnHeld: (id: string) => void;
+    doSpawnHeld: (id: string, agentProvider?: AgentProvider) => void;
     doDiscardHeld: (id: string) => void;
   } = $props();
 </script>
@@ -80,17 +100,34 @@
           <div class="held-pop-empty">{m.topbar_held_empty()}</div>
         {:else}
           {#each heldItems as task (task.id)}
+            {@const originalProvider = providerFor(task)}
+            {@const spawnProvider = selectedProvider(task)}
             <div class="held-row">
               <div class="held-row-info">
                 <span class="held-row-prompt">{task.input.prompt}</span>
                 <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span
                 >
+                <span class="held-row-cli">
+                  {m.topbar_held_original_cli({ cli: providerLabel(originalProvider) })}
+                </span>
               </div>
               <div class="held-row-actions">
+                <label class="held-cli">
+                  <span>{m.topbar_held_spawn_cli_label()}</span>
+                  <select
+                    value={spawnProvider}
+                    onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
+                  >
+                    {#each AGENT_PROVIDERS as provider (provider)}
+                      <option value={provider}>{providerLabel(provider)}</option>
+                    {/each}
+                  </select>
+                </label>
                 <button
                   type="button"
                   class="held-action held-spawn"
-                  onclick={() => doSpawnHeld(task.id)}>{m.topbar_held_spawn_now()}</button
+                  onclick={() => doSpawnHeld(task.id, spawnProvider)}
+                  >{m.topbar_held_spawn_now()}</button
                 >
                 <button
                   type="button"
@@ -153,7 +190,7 @@
     right: 0;
     z-index: 20;
     margin-top: 4px;
-    width: 340px;
+    width: 390px;
     max-width: 90vw;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
@@ -205,7 +242,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
     padding: 8px 14px;
     border-top: 1px solid var(--color-line);
   }
@@ -232,11 +269,47 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .held-row-cli {
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .held-row-actions {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    width: 124px;
     flex-shrink: 0;
+  }
+  .held-cli {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .held-cli select {
+    width: 100%;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.04em;
+    padding: 3px 6px;
+    text-transform: none;
+    cursor: pointer;
+  }
+  .held-cli select:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .held-action {
     background: transparent;
@@ -249,6 +322,7 @@
     cursor: pointer;
     white-space: nowrap;
     color: var(--color-ink);
+    width: 100%;
   }
   .held-action:hover {
     border-color: var(--color-amber);
@@ -260,5 +334,13 @@
   }
   .held-spawn:hover {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+  }
+  @media (max-width: 420px) {
+    .held-row {
+      flex-direction: column;
+    }
+    .held-row-actions {
+      width: 100%;
+    }
   }
 </style>

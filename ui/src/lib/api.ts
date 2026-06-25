@@ -202,8 +202,12 @@ export async function listHeld(): Promise<HeldTask[]> {
 }
 
 /** Spawn a held task now (bypasses the usage hold). */
-export async function spawnHeld(id: string): Promise<Session> {
-  const r = await fetch(`/api/held/${id}/spawn`, { method: "POST", headers: JSON_HEADERS });
+export async function spawnHeld(id: string, agentProvider?: AgentProvider): Promise<Session> {
+  const r = await fetch(`/api/held/${id}/spawn`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(agentProvider ? { agentProvider } : {}),
+  });
   if (!r.ok) throw await failed(r, "spawn held");
   return r.json();
 }

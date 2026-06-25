@@ -9,7 +9,7 @@
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
   import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
-  import type { HeldTask } from "$lib/types";
+  import type { AgentProvider, HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { DOCS_URL } from "$lib/build-info";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -329,9 +329,9 @@
     else openHeldPop();
   }
 
-  async function doSpawnHeld(id: string) {
+  async function doSpawnHeld(id: string, agentProvider?: AgentProvider) {
     try {
-      await spawnHeld(id);
+      await spawnHeld(id, agentProvider);
       await loadHeld();
     } catch {
       // ignore; WS will update count

@@ -279,6 +279,33 @@ test("POST /api/held/:id/spawn → calls service.create, removes row, returns 20
   expect((spawned!.data as { id: string }).id).toBe((await res.json()).id);
 });
 
+test("POST /api/held/:id/spawn accepts an agent provider override", async () => {
+  const { app, store, creates } = harness();
+
+  const input = {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "task to hand off",
+    agentProvider: "claude" as const,
+    model: null,
+    images: [],
+  };
+  store.addHeldTask({ id: "held-1", repoPath: repoDir, input, createdAt: 1000 });
+
+  const res = await app.fetch(
+    new Request("http://x/api/held/held-1/spawn", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentProvider: "codex" }),
+    }),
+  );
+  expect(res.status).toBe(201);
+
+  expect(creates).toHaveLength(1);
+  expect((creates[0] as { agentProvider?: string }).agentProvider).toBe("codex");
+  expect(store.countHeldTasks()).toBe(0);
+});
+
 test("POST /api/held/:id/spawn with linked issue → re-stamps the drain claim", async () => {
   const { app, store, labeled } = harness();
 

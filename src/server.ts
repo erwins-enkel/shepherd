@@ -83,6 +83,7 @@ import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
+  AgentProvider,
   Learning,
   LearningStatus,
   SignalKind,
@@ -3390,12 +3391,30 @@ function heldList(deps: AppDeps): Response {
   return json(deps.store.listHeldTasks());
 }
 
-async function heldSpawn(id: string, deps: AppDeps): Promise<Response> {
+function parseHeldSpawnProvider(body: unknown): { ok: true; value?: AgentProvider } | Response {
+  if (body == null) return { ok: true };
+  if (typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "body must be a non-null object" }, 400);
+  }
+  const obj = body as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (key !== "agentProvider") return json({ error: `unknown key: ${key}` }, 400);
+  }
+  if (!("agentProvider" in obj)) return { ok: true };
+  const provider = normalizeAgentProvider(obj.agentProvider);
+  if (provider === null) return json({ error: "agentProvider must be one of: claude, codex" }, 400);
+  return { ok: true, value: provider };
+}
+
+async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promise<Response> {
   const h = deps.store.getHeldTask(id);
   if (!h) return json({ error: "not found" }, 404);
+  const provider = parseHeldSpawnProvider(body);
+  if (provider instanceof Response) return provider;
+  const input = provider.value ? { ...h.input, agentProvider: provider.value } : h.input;
   let s;
   try {
-    s = await deps.service.create(h.input);
+    s = await deps.service.create(input);
   } catch (e) {
     return createErrorResponse(e);
   }
@@ -3431,8 +3450,10 @@ async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method === "GET" && !parts[2]) return heldList(deps);
 
   // POST /api/held/:id/spawn — release one held task immediately
-  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4])
-    return heldSpawn(parts[2], deps);
+  if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
+    const body = await req.json().catch(() => null);
+    return heldSpawn(parts[2], deps, body);
+  }
 
   // DELETE /api/held/:id — discard a held task
   if (req.method === "DELETE" && parts[2] && !parts[3]) return heldDiscard(parts[2], deps);

@@ -1947,7 +1947,7 @@
   "newtask_agent_provider_label": "Coding CLI",
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Codex integration is an Alpha/MVP feature and is under heavy development.",
-  "newtask_agent_provider_codex_suggested_for_hold": "Claude Code is at the usage-hold threshold, so Shepherd selected Codex for this task. Switch back to Claude Code if you want to hold it until the reset or submit anyway.",
+  "newtask_agent_provider_codex_suggested_for_hold": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead.",
   "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session. Plan Gate and Autopilot are off for this task; the model picker uses Codex CLI models.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",

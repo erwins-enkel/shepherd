@@ -996,22 +996,102 @@ async function fillPromptAndClickRun() {
 }
 
 describe("NewTask first-task confirm step", () => {
-  it("likely Claude hold selects Codex and explains why", async () => {
-    const repoPath = "/repo/hold-prefers-codex";
+  it("usage hold keeps the operator's Claude default and offers a manual handoff", async () => {
+    const repoPath = "/repo/hold-keeps-claude";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
     const onsubmit = vi.fn().mockResolvedValue(undefined);
+    // Default CLI is Claude; a usage hold must NOT silently switch it to Codex.
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath, holdLikely: true } });
 
     const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    await expect.poll(() => provider().value).toBe("claude");
+    // Held → the dual Hold-for-reset / Submit-anyway buttons offer the handoff
+    // without hijacking the selected CLI.
+    await expect.poll(() => document.querySelector("button.run-hold")).toBeTruthy();
+    expect(document.querySelector("button.run-anyway")).toBeTruthy();
+
+    // The Codex hold note only appears once the operator picks Codex by hand.
+    provider().value = "codex";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => provider().value).toBe("codex");
     await expect
       .element(page.getByText(m.newtask_agent_provider_codex_suggested_for_hold()))
       .toBeInTheDocument();
-    expect(document.querySelector("button.run-hold")).toBeNull();
+  });
 
-    await fillPromptAndClickRun();
-    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
-    expect(onsubmit.mock.calls[0]?.[0]?.agentProvider).toBe("codex");
+  it("switching Codex→Claude restores plan gate / autopilot in one flip", async () => {
+    const repoPath = "/repo/codex-restore";
+    // Repo defaults both automation toggles ON.
+    mockGetRepoConfig.mockResolvedValue({
+      ...confirmedRepoConfig(),
+      planGateEnabled: true,
+      autopilotEnabled: true,
+    });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    const boxByLabel = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+        el.closest("label")?.textContent?.includes(label),
+      )!;
+    const planGateBox = () => boxByLabel(m.newtask_plan_gate_label());
+    const autopilotBox = () => boxByLabel(m.newtask_autopilot_label());
+
+    // Seeded ON from the repo default.
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+
+    // Codex can't plan-gate/autopilot → both forced off and disabled.
+    provider().value = "codex";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(false);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+    expect(planGateBox().disabled).toBe(true);
+    expect(autopilotBox().disabled).toBe(true);
+
+    // Back to Claude in a single flip → restored to the repo default, not stuck off.
+    provider().value = "claude";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+    expect(planGateBox().disabled).toBe(false);
+    expect(autopilotBox().disabled).toBe(false);
+  });
+
+  it("preserves a manual plan-gate / autopilot override across a Codex round-trip", async () => {
+    const repoPath = "/repo/codex-preserve-override";
+    // Repo defaults both automation toggles OFF.
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    const boxByLabel = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+        el.closest("label")?.textContent?.includes(label),
+      )!;
+    const planGateBox = () => boxByLabel(m.newtask_plan_gate_label());
+    const autopilotBox = () => boxByLabel(m.newtask_autopilot_label());
+
+    // Settle, then manually turn BOTH on — differs from the repo default.
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    planGateBox().click();
+    autopilotBox().click();
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+
+    // Codex displays them off (state is preserved underneath, not mutated).
+    provider().value = "codex";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(false);
+    await expect.poll(() => autopilotBox().checked).toBe(false);
+
+    // Back to Claude → the manual override survives the round-trip.
+    provider().value = "claude";
+    provider().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => autopilotBox().checked).toBe(true);
   });
 
   it("confirmed repo: Run calls onsubmit directly, no confirm step shown", async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -139,12 +139,12 @@
   // discuss/iterate and approve each step yourself — without changing the repo default.
   let autopilot = $state(false);
   let autopilotTouched = $state(false);
-  let agentProvider = $state<AgentProvider>(
-    untrack(() =>
-      holdLikely && defaultAgentProvider === "claude" ? "codex" : defaultAgentProvider,
-    ),
-  );
-  let agentProviderTouched = $state(false);
+  // Seeds once from the operator's explicit default-CLI setting. A usage hold no
+  // longer auto-switches this to Codex — that silently overrode an explicit choice.
+  // When held, Claude stays selected and the dual Hold-for-reset / Submit-anyway
+  // buttons below offer the handoff; Codex remains one manual pick away.
+  // svelte-ignore state_referenced_locally
+  let agentProvider = $state<AgentProvider>(defaultAgentProvider);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   let research = $state(false);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
@@ -345,22 +345,11 @@
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
-  $effect(() => {
-    if (agentProvider !== "codex") return;
-    if (planGate) {
-      planGate = false;
-      planGateTouched = true;
-    }
-    if (autopilot) {
-      autopilot = false;
-      autopilotTouched = true;
-    }
-  });
-
-  $effect(() => {
-    if (!holdLikely || agentProviderTouched || agentProvider !== "claude") return;
-    agentProvider = "codex";
-  });
+  // Codex can't plan-gate or autopilot yet. Rather than mutate planGate/autopilot
+  // (which would silently lose a manual override across a Codex round-trip), the
+  // checkboxes just DISPLAY off + disabled while Codex is selected (see
+  // NewTaskRunSettings) and submit forces them off via automationFlag — the
+  // underlying Claude-context choice is preserved untouched.
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
   // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit
@@ -582,6 +571,14 @@
     e.stopPropagation();
   }
 
+  // Per-task plan-gate / autopilot flag at submit. Codex can't plan-gate or
+  // autopilot yet, so force both off; otherwise send the user's manual choice, or
+  // null to inherit the repo default.
+  function automationFlag(touched: boolean, value: boolean): boolean | null {
+    if (agentProvider === "codex") return false;
+    return touched ? value : null;
+  }
+
   async function doSpawn(force = false) {
     submitting = true;
     error = null;
@@ -602,8 +599,8 @@
               body: issueRef.body,
             }
           : undefined,
-        planGateEnabled: planGateTouched ? planGate : null,
-        autopilotEnabled: autopilotTouched ? autopilot : null,
+        planGateEnabled: automationFlag(planGateTouched, planGate),
+        autopilotEnabled: automationFlag(autopilotTouched, autopilot),
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
         research,
         force: force || undefined,
@@ -908,7 +905,6 @@
         {holdLikely}
         onPlanGateTouched={() => (planGateTouched = true)}
         onAutopilotTouched={() => (autopilotTouched = true)}
-        onAgentProviderTouched={() => (agentProviderTouched = true)}
         onModelTouched={() => (modelTouched = true)}
         {planGateLoading}
         {autopilotLoading}

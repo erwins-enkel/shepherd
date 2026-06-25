@@ -20,7 +20,6 @@
     sandboxProfile = $bindable(),
     onPlanGateTouched,
     onAutopilotTouched,
-    onAgentProviderTouched,
     onModelTouched,
     planGateLoading,
     autopilotLoading,
@@ -40,7 +39,6 @@
     // (write-only `$bindable` would trip no-useless-assignment here)
     onPlanGateTouched: () => void;
     onAutopilotTouched: () => void;
-    onAgentProviderTouched: () => void;
     onModelTouched: () => void;
     planGateLoading: boolean;
     autopilotLoading: boolean;
@@ -60,7 +58,6 @@
   }
 
   function agentProviderChanged() {
-    onAgentProviderTouched();
     if (!modelAvailableForProvider(model)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }
@@ -84,8 +81,9 @@
     <label class="plan-gate" use:coachTarget={"plan-gate"}>
       <input
         type="checkbox"
-        bind:checked={planGate}
-        onchange={() => {
+        checked={agentProvider === "codex" ? false : planGate}
+        onchange={(e) => {
+          planGate = e.currentTarget.checked;
           onPlanGateTouched();
           if (planGate) research = false;
         }}
@@ -111,8 +109,11 @@
       <label class="plan-gate" use:coachTarget={"task-autopilot"}>
         <input
           type="checkbox"
-          bind:checked={autopilot}
-          onchange={() => onAutopilotTouched()}
+          checked={agentProvider === "codex" ? false : autopilot}
+          onchange={(e) => {
+            autopilot = e.currentTarget.checked;
+            onAutopilotTouched();
+          }}
           disabled={autopilotLoading || agentProvider === "codex"}
         />
         <span class="pg-label">{m.newtask_autopilot_label()}</span>

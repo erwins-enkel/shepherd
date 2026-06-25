@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
+  import { portal } from "$lib/portal";
   import { recommendPrompt, replySession } from "$lib/api";
   import { modelLabel } from "$lib/model-label";
   import type { AgentProvider } from "$lib/types";
@@ -85,6 +86,7 @@
 <div
   class="overlay"
   role="presentation"
+  use:portal
   onclick={(e) => {
     if (e.target === e.currentTarget) onclose();
   }}

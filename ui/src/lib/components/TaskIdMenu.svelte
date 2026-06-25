@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { portal } from "$lib/portal";
   import type { AgentProvider } from "$lib/types";
 
   // Small anchored, non-blocking menu opened by clicking a card's task-id button.
@@ -88,6 +89,7 @@
 
 <div
   bind:this={el}
+  use:portal
   class="taskid-menu"
   role="menu"
   tabindex="-1"

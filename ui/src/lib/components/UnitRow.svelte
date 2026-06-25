@@ -26,6 +26,7 @@
   import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
+  import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
   import { isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
@@ -442,7 +443,7 @@
 
     <span class="meta">
       <span class="meta-text"
-        ><span class="desig">{session.desig}</span> · {session.model
+        ><TaskIdButton {session} /> · {session.model
           ? modelLabel(session.model)
           : m.newtask_model_default()}</span
       >
@@ -909,13 +910,6 @@
     display: inline-flex;
     align-items: center;
   }
-  /* the task designation is metadata, not the human marker — demoted to the
-     quietest spot, the bottom-right meta line, next to the session's model */
-  .meta .desig {
-    color: var(--color-faint);
-    letter-spacing: 0.1em;
-  }
-
   @media (max-width: 768px) {
     .unit {
       min-height: 44px;

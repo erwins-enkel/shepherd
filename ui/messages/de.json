@@ -1947,7 +1947,7 @@
   "newtask_agent_provider_label": "Coding CLI",
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Die Codex-Integration ist eine Alpha/MVP-Funktion und wird gerade intensiv weiterentwickelt.",
-  "newtask_agent_provider_codex_suggested_for_hold": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, deshalb hat Shepherd für diese Aufgabe Codex ausgewählt. Wechsle zurück zu Claude Code, wenn du bis zum Reset zurückhalten oder trotzdem einreichen möchtest.",
+  "newtask_agent_provider_codex_suggested_for_hold": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, daher umgeht das Ausführen dieser Aufgabe auf Codex den Rückhalt. Wechsle die Coding-CLI zurück zu Claude Code, um sie stattdessen bis zum Reset zurückzuhalten oder trotzdem einzureichen.",
   "newtask_agent_provider_codex_note": "Codex startet als interaktive Terminal-Session. Plan Gate und Autopilot sind für diese Aufgabe aus; die Modellauswahl nutzt Codex-CLI-Modelle.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",

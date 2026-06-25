@@ -20,7 +20,6 @@
     sandboxProfile = $bindable(),
     onPlanGateTouched,
     onAutopilotTouched,
-    onAgentProviderTouched,
     onModelTouched,
     planGateLoading,
     autopilotLoading,
@@ -40,7 +39,6 @@
     // (write-only `$bindable` would trip no-useless-assignment here)
     onPlanGateTouched: () => void;
     onAutopilotTouched: () => void;
-    onAgentProviderTouched: () => void;
     onModelTouched: () => void;
     planGateLoading: boolean;
     autopilotLoading: boolean;
@@ -60,7 +58,6 @@
   }
 
   function agentProviderChanged() {
-    onAgentProviderTouched();
     if (!modelAvailableForProvider(model)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }

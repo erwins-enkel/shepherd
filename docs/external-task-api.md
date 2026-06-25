@@ -3,14 +3,15 @@
 Shepherd's HTTP API is the same surface the UI uses — there is **no separate
 "public" API and no CORS barrier** for non-browser clients. Any agent that can
 reach the core process (Hermes, a cron job, another service) can queue work by
-calling one endpoint.
+calling one endpoint — once it authenticates (the server is gated by default;
+see [What actually gates access](#what-actually-gates-access)).
 
 ## TL;DR
 
 ```bash
 curl -X POST http://localhost:7330/api/sessions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $SHEPHERD_TOKEN" \   # omit if SHEPHERD_TOKEN is unset
+  -H "Authorization: Bearer $SHEPHERD_TOKEN" \   # required — the server is gated by default
   -d '{
         "repoPath": "~/Work/my-repo",
         "baseBranch": "main",
@@ -49,18 +50,20 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ## What actually gates access
 
-| Gate                 | Default                           | What Hermes must do                                                                               |
-| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Network bind**     | `127.0.0.1:7330` (loopback only)  | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC |
-| **Auth token**       | `SHEPHERD_TOKEN` unset → open     | If set, send `Authorization: Bearer <token>` on every request (timing-safe compare)               |
-| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home) | `repoPath` must resolve **inside** the root, or the request is rejected `400`                     |
+| Gate                 | Default                                               | What Hermes must do                                                                                                                                                                                                |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Network bind**     | `127.0.0.1:7330` (loopback only)                      | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC                                                                                                                  |
+| **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login — set `SHEPHERD_TOKEN=<random>` and send `Authorization: Bearer <token>` on every request (timing-safe compare). Without a valid cookie or bearer the request is `401` |
+| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                      |
 
 ### Recommended setup for a remote agent
 
 1. Expose the core to the agent's network — prefer **Tailscale serve** over
    `SHEPHERD_HOST=0.0.0.0`. Add the ts.net hostname to `SHEPHERD_ALLOWED_HOSTS`
    only if the agent is browser-based (sends `Origin`).
-2. Set a shared secret: `SHEPHERD_TOKEN=<random>` and give it to Hermes.
+2. Set a shared secret: `SHEPHERD_TOKEN=<random>` and give it to Hermes. The
+   server is **gated by default**, and machine clients can't use the browser
+   password login — the bearer token is how they authenticate.
 3. Keep `SHEPHERD_REPO_ROOT` tight so Hermes can only target intended repos.
 
 ## Request schema
@@ -79,14 +82,14 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ### Responses
 
-| Status | Meaning                                                                                                               |
-| ------ | --------------------------------------------------------------------------------------------------------------------- |
-| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below) |
-| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                     |
-| `400`  | Validation failed — body `{ error }`                                                                                  |
-| `401`  | `SHEPHERD_TOKEN` set and bearer missing/wrong                                                                         |
-| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                             |
-| `415`  | Missing/incorrect `Content-Type`                                                                                      |
+| Status | Meaning                                                                                                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                  |
+| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                      |
+| `400`  | Validation failed — body `{ error }`                                                                                                                   |
+| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer) |
+| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                              |
+| `415`  | Missing/incorrect `Content-Type`                                                                                                                       |
 
 ## Usage-aware hold gate
 

@@ -67,6 +67,12 @@ tailscale serve --bg 7330
 # (in ~/.shepherd/env or deploy/shepherd.service)
 ```
 
+The HUD is gated by a **single-operator password**: the first time you open it
+you'll get a login screen. Set the password with `SHEPHERD_PASSWORD` (in
+`~/.shepherd/env`), or use the strong one Shepherd generates and prints to the
+log **once** on first boot (`systemctl --user status shepherd` / `journalctl
+--user -u shepherd`). Log out from **Settings → Session**.
+
 **Settings → DIAGNOSE** surfaces any remaining gaps with one-click fixes.
 
 ## From-clone / development path

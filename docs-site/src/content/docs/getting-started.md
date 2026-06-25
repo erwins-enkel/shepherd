@@ -38,8 +38,8 @@ before running it. Read it first:
 
 | OS | Mode | Notes |
 | --- | --- | --- |
-| **Linux** (systemd + unprivileged userns) | Full | The only fully supported target — sandbox membrane, egress allowlist, auto-drain, Tailscale-serve previews, and the systemd user unit. |
-| **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. **No** sandbox, egress allowlist, auto-drain, previews, or systemd unit — run `bun run start` manually. |
+| **Linux** (systemd + unprivileged userns) | Full | The only fully supported target — sandbox membrane, egress allowlist, auto-drain, Tailscale-serve previews, the systemd user unit, and the hourly DB backup timer. |
+| **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. **No** sandbox, egress allowlist, auto-drain, previews, systemd unit, or automated backups — run `bun run start` manually. |
 | **Windows** | Not supported | The installer refuses and routes you to **WSL2**. |
 
 ### Installer environment knobs

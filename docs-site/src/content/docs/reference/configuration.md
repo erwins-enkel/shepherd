@@ -16,7 +16,9 @@ lines), read by the systemd unit if present.
 | `SHEPHERD_DB` | `~/.shepherd/shepherd.db` | SQLite session store path |
 | `SHEPHERD_REPO_ROOT` | `~` (home) | Repos must live under this root (spawn is confined to it) |
 | `SHEPHERD_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1,[::1]` | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard) |
-| `SHEPHERD_TOKEN` | _(none)_ | When set, require `Authorization: Bearer <token>` |
+| `SHEPHERD_PASSWORD` | _(auto-generated)_ | Single-operator login password. When set it's authoritative — argon2id-hashed and re-seeded into the persisted hash every boot. Unset → the persisted hash is reused, or (first boot) a strong password is generated, hashed, persisted, and printed to the log **once**. The browser exchanges it for an HMAC-signed session cookie that gates every HTTP route plus the `/events` + `/pty` WebSocket channels |
+| `SHEPHERD_COOKIE_SECRET` | _(generated + persisted)_ | HMAC secret that signs the session cookie. Set it to pin a stable secret across DB resets; rotating it invalidates every outstanding session (the all-sessions kill-switch) |
+| `SHEPHERD_TOKEN` | _(none)_ | Optional operator bearer for CLI/curl/machine clients: when set, `Authorization: Bearer <token>` is accepted as an alternative to the session cookie. Browser operators use the password login instead; spawned agents don't use this (they reach the server over the loopback ingress) |
 | `HERDR_BIN` | `herdr` | Path to the herdr binary |
 | `HERDR_SESSION` | `default` | herdr session name |
 | `SHEPHERD_FORGES` | `~/.shepherd/forges.json` | Path to the git-host config |

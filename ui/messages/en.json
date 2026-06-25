@@ -1925,5 +1925,17 @@
   "integrated_epics_rebase_paused_conflict": "Landing PR has a real conflict — over to you",
   "integrated_epics_rebase_paused_driver": "Merge driver unavailable on the server — over to you",
   "feat_auto_rebase_landing_prs_title": "Auto-rebase for landing PRs",
-  "feat_auto_rebase_landing_prs_body": "When an epic's landing PR falls behind its base, Shepherd now rebases it automatically. If it hits a conflict, a retry cap, or a missing merge driver, a warn chip on the band row tells you exactly why and hands off to you."
+  "feat_auto_rebase_landing_prs_body": "When an epic's landing PR falls behind its base, Shepherd now rebases it automatically. If it hits a conflict, a retry cap, or a missing merge driver, a warn chip on the band row tells you exactly why and hands off to you.",
+  "login_title": "Shepherd",
+  "login_subtitle": "This instance is protected. Enter the operator password to continue.",
+  "login_password_label": "Password",
+  "login_password_placeholder": "Operator password",
+  "login_submit": "Sign in",
+  "login_busy": "Signing in…",
+  "login_error": "Incorrect password.",
+  "settings_logout_title": "Sign out",
+  "settings_logout_hint": "End this session on this device. You'll need the operator password to sign back in.",
+  "settings_logout_button": "Sign out",
+  "feat_operator_auth_title": "Password login",
+  "feat_operator_auth_body": "Shepherd now sits behind a single-operator password. Every page, the live terminal, and the activity stream require a session — set SHEPHERD_PASSWORD, or grab the auto-generated one from the server log on first boot. Sign out anytime from Settings → Session."
 }

@@ -3,18 +3,33 @@
   import { onMount } from "svelte";
   import { theme } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { auth } from "$lib/auth.svelte";
+  import { getMe } from "$lib/api";
+  import Login from "$lib/components/Login.svelte";
 
   let { children } = $props();
 
   // keep `data-theme` in sync with OS changes when the preference is "system"
-  onMount(() => theme.init());
+  onMount(() => {
+    theme.init();
+    // Single-operator auth (issue #1079): probe /api/me before rendering the app so an
+    // unauthenticated session goes straight to the login view with no flash of failing calls.
+    getMe()
+      .then((ok) => (auth.unauthenticated = !ok))
+      .catch(() => (auth.unauthenticated = true))
+      .finally(() => (auth.checked = true));
+  });
 </script>
 
 <!-- Skip link: first focusable element, visually hidden until focused, jumps
      keyboard users straight past the chrome to the primary <main> region. -->
 <a class="skip-link" href="#main-content">{m.a11y_skip_to_main()}</a>
 
-{@render children()}
+{#if auth.checked && auth.unauthenticated}
+  <Login />
+{:else if auth.checked}
+  {@render children()}
+{/if}
 
 <style>
   .skip-link {

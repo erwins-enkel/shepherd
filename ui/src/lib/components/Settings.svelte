@@ -17,6 +17,7 @@
     putReducedPushMode,
     putTuiFullscreen,
     putTuiDisableMouse,
+    logout,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
@@ -788,6 +789,13 @@
             {/if}
           </div>
         {/if}
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_logout_title()}</span>
+        <p class="hint">{m.settings_logout_hint()}</p>
+        <button type="button" class="gbtn" onclick={() => logout()}>
+          {m.settings_logout_button()}
+        </button>
       </div>
       <div class="rc">
         <span class="micro">{m.settings_extra_credits_ceiling_title()}</span>

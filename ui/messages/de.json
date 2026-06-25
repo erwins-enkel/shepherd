@@ -1925,5 +1925,17 @@
   "integrated_epics_rebase_paused_conflict": "Landing-PR hat einen echten Konflikt — du bist dran",
   "integrated_epics_rebase_paused_driver": "Merge-Treiber auf dem Server nicht verfügbar — du bist dran",
   "feat_auto_rebase_landing_prs_title": "Auto-Rebase für Landing-PRs",
-  "feat_auto_rebase_landing_prs_body": "Wenn ein Landing-PR eines Epics hinter seiner Basis zurückfällt, führt Shepherd jetzt automatisch einen Rebase durch. Bei einem Konflikt, einem Wiederholungslimit oder einem fehlenden Merge-Treiber zeigt ein Warn-Chip in der Band-Zeile genau den Grund an und übergibt an dich."
+  "feat_auto_rebase_landing_prs_body": "Wenn ein Landing-PR eines Epics hinter seiner Basis zurückfällt, führt Shepherd jetzt automatisch einen Rebase durch. Bei einem Konflikt, einem Wiederholungslimit oder einem fehlenden Merge-Treiber zeigt ein Warn-Chip in der Band-Zeile genau den Grund an und übergibt an dich.",
+  "login_title": "Shepherd",
+  "login_subtitle": "Diese Instanz ist geschützt. Gib das Betreiber-Passwort ein, um fortzufahren.",
+  "login_password_label": "Passwort",
+  "login_password_placeholder": "Betreiber-Passwort",
+  "login_submit": "Anmelden",
+  "login_busy": "Anmeldung läuft…",
+  "login_error": "Falsches Passwort.",
+  "settings_logout_title": "Abmelden",
+  "settings_logout_hint": "Diese Sitzung auf diesem Gerät beenden. Zum erneuten Anmelden ist das Betreiber-Passwort nötig.",
+  "settings_logout_button": "Abmelden",
+  "feat_operator_auth_title": "Passwort-Anmeldung",
+  "feat_operator_auth_body": "Shepherd ist jetzt durch ein Einzelbetreiber-Passwort geschützt. Jede Seite, das Live-Terminal und der Aktivitätsstrom erfordern eine Sitzung — setze SHEPHERD_PASSWORD oder hol dir das automatisch generierte Passwort beim ersten Start aus dem Server-Log. Abmelden jederzeit über Einstellungen → Sitzung."
 }

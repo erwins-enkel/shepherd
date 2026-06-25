@@ -34,6 +34,17 @@ import {
   validateEpicRunPatch,
   validateEgressExtraHosts,
 } from "./validate";
+import {
+  parseCookie,
+  verifyCookie,
+  signCookie,
+  serializeCookie,
+  clearCookie,
+  shouldRestamp,
+  isSecureRequest,
+  verifyPassword,
+  SESSION_COOKIE,
+} from "./operator-auth";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
@@ -368,11 +379,87 @@ const sessionUsage = (s: Session) =>
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function checkAuth(req: Request): Response | null {
-  if (!isAuthorized(req.headers.get("Authorization"), config.token)) {
-    return json({ error: "unauthorized" }, 401);
+/**
+ * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
+ *  - `POST /api/login` — the only unauthenticated mutation (it's how you GET a cookie);
+ *  - static-shell GET/HEAD — the SPA bundle must load so the login view can render. This is
+ *    NOT a blanket "any non-/api GET": `/events` and `/pty/:id` are GET WebSocket upgrades that
+ *    MUST stay gated (they're the live-PTY hole this feature closes), so they're excluded here.
+ */
+function isPublicRequest(req: Request): boolean {
+  const path = new URL(req.url).pathname;
+  if (req.method === "POST" && path === "/api/login") return true;
+  if (req.method === "GET" || req.method === "HEAD") {
+    if (path.startsWith("/api")) return false;
+    if (path === "/events" || path.startsWith("/pty/")) return false;
+    return true; // static SPA shell
   }
-  return null;
+  return false;
+}
+
+/**
+ * The single auth seam (issue #1079). Pass when the request is public (above), carries a valid
+ * signed session cookie (humans), or carries a valid operator bearer token (CLI/curl — when the
+ * operator set `config.token`). Spawned agents do NOT pass here — they reach the server via the
+ * loopback ingress listener, which builds its app with `skipAuth` (see makeAgentIngressApp).
+ * Called by BOTH makeApp.fetch and serve().fetch, so HTTP routes and the WS upgrades inherit the
+ * gate from this one function.
+ *
+ * Fail-closed in production: the boot bootstrap (bootstrapAuth, src/index.ts) ALWAYS provisions a
+ * cookie-signing secret + password hash before the server serves, so a deployed instance is always
+ * gated. When NO auth is configured at all (no cookie secret AND no token — only ever the case in
+ * an un-bootstrapped unit-test app) the gate is open, mirroring the prior `config.token === null`
+ * contract the test suite relies on.
+ */
+function checkAuth(req: Request): Response | null {
+  if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
+  if (isPublicRequest(req)) return null;
+  if (
+    config.cookieSecret &&
+    verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie"))).ok
+  ) {
+    return null;
+  }
+  if (config.token !== null && isAuthorized(req.headers.get("Authorization"), config.token)) {
+    return null;
+  }
+  return json({ error: "unauthorized" }, 401);
+}
+
+/**
+ * Sliding-window re-stamp (issue #1079). When a cookie-authed request is past its half-life and
+ * the response is a success, attach a fresh `Set-Cookie` so an active operator effectively never
+ * re-logs-in. Attached at exactly ONE seam — the makeApp wrapper — so it can't double-apply; WS
+ * upgrades return before this seam, so they never carry a cookie. Re-verifying here is a cheap
+ * HMAC. Token-authed (no cookie) requests and failures are left untouched.
+ *
+ * CRITICAL: never re-stamp a response that ALREADY sets the session cookie. The handler owns the
+ * cookie in those cases — `POST /api/logout` clears it (Max-Age=0) and `POST /api/login` mints a
+ * fresh one — and the incoming request still carries the OLD cookie. Appending a second, valid
+ * `Set-Cookie` would re-authenticate the operator on logout (stateless: no server-side revocation),
+ * silently defeating it; on login it would just duplicate. So the handler's own cookie always wins.
+ */
+function responseSetsSessionCookie(res: Response): boolean {
+  const cookies =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie") ?? ""];
+  return cookies.some((c) => c.includes(`${SESSION_COOKIE}=`));
+}
+
+function maybeRestamp(req: Request, res: Response): Response {
+  if (res.status >= 400) return res;
+  if (responseSetsSessionCookie(res)) return res; // handler owns the cookie (login/logout)
+  const secret = config.cookieSecret;
+  if (!secret) return res;
+  const v = verifyCookie(secret, parseCookie(req.headers.get("cookie")));
+  if (!v.ok || !shouldRestamp(v.iat)) return res;
+  const headers = new Headers(res.headers);
+  headers.append(
+    "Set-Cookie",
+    serializeCookie(signCookie(secret), { secure: isSecureRequest(req) }),
+  );
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 function checkOrigin(req: Request): Response | null {
@@ -403,6 +490,50 @@ function requireJsonContentType(req: Request): Response | null {
 // can claim them.
 
 type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps };
+
+// ── single-operator auth routes (issue #1079) ──────────────────────────────
+// login is the only unauthenticated mutation (isPublicRequest); logout + me sit behind the gate.
+
+async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "login" || parts[2]) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+  const password =
+    typeof body === "object" &&
+    body !== null &&
+    typeof (body as { password?: unknown }).password === "string"
+      ? (body as { password: string }).password
+      : "";
+  const hash = config.passwordHash;
+  if (!hash || !config.cookieSecret || !(await verifyPassword(password, hash))) {
+    return json({ error: "invalid password" }, 401);
+  }
+  const headers = new Headers({ "content-type": "application/json" });
+  headers.append(
+    "Set-Cookie",
+    serializeCookie(signCookie(config.cookieSecret), { secure: isSecureRequest(req) }),
+  );
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+}
+
+function handleLogout({ req, parts }: Ctx): Response | null {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "logout" || parts[2]) return null;
+  const headers = new Headers({ "content-type": "application/json" });
+  headers.append("Set-Cookie", clearCookie({ secure: isSecureRequest(req) }));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+}
+
+function handleMe({ req, parts }: Ctx): Response | null {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "me" || parts[2]) return null;
+  // Only reachable when checkAuth already passed — an unauthed /api/me 401s at the gate.
+  return json({ authenticated: true });
+}
 
 function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
@@ -4809,6 +4940,9 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
 
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
 const ROUTE_HANDLERS = [
+  handleLogin,
+  handleLogout,
+  handleMe,
   handlePing,
   handleGitSnapshot,
   handleActivitySnapshot,
@@ -4888,12 +5022,20 @@ const ROUTE_HANDLERS = [
   handleCommands,
 ] as const;
 
-/** Returns an object with a `fetch(Request)` method — unit-testable without a port. */
-export function makeApp(deps: AppDeps) {
+/**
+ * Returns an object with a `fetch(Request)` method — unit-testable without a port.
+ *
+ * `skipAuth` bypasses the human cookie/token gate (issue #1079) — used ONLY by the loopback
+ * agent-ingress listener (makeAgentIngressApp), whose loopback bind + route allowlist + per-session
+ * UUID IS the agent's auth. The `Origin` (CSRF) check still applies. The main server never sets it.
+ */
+export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   const app = {
     async fetch(req: Request): Promise<Response> {
-      const authErr = checkAuth(req);
-      if (authErr) return authErr;
+      if (!opts.skipAuth) {
+        const authErr = checkAuth(req);
+        if (authErr) return authErr;
+      }
 
       const originErr = checkOrigin(req);
       if (originErr) return originErr;
@@ -4925,6 +5067,9 @@ export function makeApp(deps: AppDeps) {
     fetch: (req: Request): Promise<Response> =>
       app
         .fetch(req)
+        // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
+        // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
+        .then((res) => (opts.skipAuth ? res : maybeRestamp(req, res)))
         .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500)),
   };
 }
@@ -4949,16 +5094,20 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
 }
 
 /** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise
- *  DELEGATE to the full app (so checkAuth + checkOrigin + the real handlers all still apply). This is
- *  the autonomous netns's ONLY reachable control-plane surface (see isAgentIngressRoute). */
+ *  DELEGATE to the full app. Built with `skipAuth` (issue #1079): spawned agents carry neither a
+ *  human session cookie nor (by default) a bearer token — autonomous agents run under `--clearenv`
+ *  which strips any env var — so the human gate must NOT apply here. The ingress's loopback-only
+ *  bind + isAgentIngressRoute allowlist + unguessable per-session UUID IS the agent's auth. The
+ *  `checkOrigin` (CSRF) guard still applies (agents send no Origin → allowed). This preserves the
+ *  pre-#1079 effective behaviour (token-null ⇒ checkAuth was already a no-op here). */
 export function makeAgentIngressApp(deps: AppDeps) {
-  const app = makeApp(deps);
+  const app = makeApp(deps, { skipAuth: true });
   return {
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
       if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
-      return app.fetch(req); // MUST delegate — preserves checkAuth (token) + checkOrigin (CSRF) + handlers
+      return app.fetch(req); // delegate — preserves checkOrigin (CSRF) + the real handlers
     },
   };
 }

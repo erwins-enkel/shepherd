@@ -27,10 +27,16 @@ tailscale serve --bg 7330    # → https://<host>.<tailnet>.ts.net proxies to 12
 ```
 
 Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the
-Tailscale name). Access control is **tailnet membership** — there is no app-level
-password.
+Tailscale name). Access control is layered: the network reach is gated by
+**tailnet membership**, and the app itself is gated by a **single-operator
+password**. The password is exchanged for an HMAC-signed session cookie that
+covers every HTTP route plus the live `/events` and `/pty` WebSocket channels.
+Set it with `SHEPHERD_PASSWORD`; if you leave it unset, Shepherd generates a
+strong one on first boot and prints it to the log **once** (`systemctl --user
+status shepherd` / `journalctl --user -u shepherd`) — change it by setting
+`SHEPHERD_PASSWORD` in `~/.shepherd/env` and restarting.
 
-Per-deployment overrides (token, repo root, alternate hosts) go in
+Per-deployment overrides (password, token, repo root, alternate hosts) go in
 `~/.shepherd/env` (`KEY=value` lines), read by the unit if present. See
 [Configuration](/reference/configuration/) for the full list.
 

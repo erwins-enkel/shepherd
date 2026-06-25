@@ -2411,7 +2411,7 @@ async function postBuildStepStatus(
 
 // POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
 function approveBuildQueue(deps: AppDeps, id: string): Response {
-  deps.store.setBuildQueueApproved(id, true);
+  deps.store.setBuildQueueApproved(id, true, "operator");
   const q = deps.store.getBuildQueue(id);
   deps.events?.emit("queue:update", q);
   deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return

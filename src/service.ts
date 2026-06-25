@@ -1618,7 +1618,7 @@ export class SessionService {
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
       if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
-        this.deps.store.setBuildQueueApproved(sessionId, true);
+        this.deps.store.setBuildQueueApproved(sessionId, true, "auto");
       this.scheduleRefine(session, herdSlug);
       this.#maybeRegisterTrain(session, input);
       return session;

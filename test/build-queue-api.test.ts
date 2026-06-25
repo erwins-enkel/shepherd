@@ -429,6 +429,51 @@ test("POST queue/approve for unknown session → 404", async () => {
   expect(res.status).toBe(404);
 });
 
+// ── approvalKind round-trips ──────────────────────────────────────────────────
+
+test("POST queue/approve sets approvalKind=operator in response and store", async () => {
+  const { app, store } = harness();
+  const session = makeSession(store, repoDir);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.approvalKind).toBe("operator");
+  expect(store.getBuildQueue(session.id).approvalKind).toBe("operator");
+});
+
+test("POST queue/approve emits queue:update with approvalKind=operator", async () => {
+  const { app, store, emitted } = harness();
+  const session = makeSession(store, repoDir);
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+
+  const ev = emitted.find((e) => e.event === "queue:update");
+  expect(ev).toBeDefined();
+  const data = ev!.data as { sessionId: string; approved: boolean; approvalKind?: string };
+  expect(data.approvalKind).toBe("operator");
+});
+
+test("store: auto-approved queue has approvalKind=auto, unapproved has no approvalKind", () => {
+  const { store } = harness();
+  const session = makeSession(store, repoDir);
+
+  // unapproved: approvalKind must be absent (undefined)
+  expect(store.getBuildQueue(session.id).approvalKind).toBeUndefined();
+
+  // auto-approve
+  store.setBuildQueueApproved(session.id, true, "auto");
+  expect(store.getBuildQueue(session.id).approvalKind).toBe("auto");
+});
+
 // ── GET /api/queues — bulk snapshot ──────────────────────────────────────────
 
 test("GET /api/queues returns keyed map of sessions with steps, approved flag", async () => {

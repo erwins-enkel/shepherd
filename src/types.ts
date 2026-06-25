@@ -489,6 +489,10 @@ export interface BuildQueue {
   sessionId: string;
   steps: BuildStep[];
   approved: boolean;
+  /** How `approved` was set: "auto" = autopilot pre-approval at spawn, "operator" = a human
+   *  clicked Approve & run. Absent for an unapproved queue or a legacy row written before this
+   *  field existed (renders as plain "approved"). */
+  approvalKind?: "auto" | "operator";
 }
 
 /** Input shape for replacing a queue. A present `id` is kept VERBATIM as the step's id

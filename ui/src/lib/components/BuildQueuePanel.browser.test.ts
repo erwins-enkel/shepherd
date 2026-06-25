@@ -42,6 +42,8 @@ beforeEach(() => {
     --color-amber: #f5a623;
     --color-green: #4caf50;
     --color-red: #f44336;
+    --color-slate: #708090;
+    --status-done: var(--color-slate);
     --fs-meta: 12px;
     --fs-micro: 10px;
   }
@@ -229,7 +231,114 @@ describe("BuildQueuePanel — approved/running state", () => {
       queue: approvedQueue,
       onbootstrap: noop,
     });
-    await expect.element(page.getByText(m.buildqueue_approved_header())).toBeInTheDocument();
+    // approvedQueue has steps [done, active] and no approvalKind → operator + running
+    await expect
+      .element(
+        page.getByText(`${m.buildqueue_approval_operator()} · ${m.buildqueue_run_running()}`),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("shows auto-approved · queued for auto-approved queue with all pending steps", async () => {
+    const autoQueuedQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      approvalKind: "auto",
+      steps: [
+        { id: "a", title: "Step 1", status: "pending", position: 0 },
+        { id: "b", title: "Step 2", status: "pending", position: 1 },
+      ],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: autoQueuedQueue,
+      onbootstrap: noop,
+    });
+    await expect
+      .element(page.getByText(`${m.buildqueue_approval_auto()} · ${m.buildqueue_run_queued()}`))
+      .toBeInTheDocument();
+  });
+
+  it("shows auto-approved · running for auto-approved queue with an active step", async () => {
+    const autoRunningQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      approvalKind: "auto",
+      steps: [
+        { id: "a", title: "Step 1", status: "done", position: 0 },
+        { id: "b", title: "Step 2", status: "active", position: 1 },
+      ],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: autoRunningQueue,
+      onbootstrap: noop,
+    });
+    await expect
+      .element(page.getByText(`${m.buildqueue_approval_auto()} · ${m.buildqueue_run_running()}`))
+      .toBeInTheDocument();
+  });
+
+  it("shows approved · done for operator-approved queue with all steps done/skipped", async () => {
+    const operatorDoneQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      approvalKind: "operator",
+      steps: [
+        { id: "a", title: "Step 1", status: "done", position: 0 },
+        { id: "b", title: "Step 2", status: "skipped", position: 1 },
+      ],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: operatorDoneQueue,
+      onbootstrap: noop,
+    });
+    await expect
+      .element(page.getByText(`${m.buildqueue_approval_operator()} · ${m.buildqueue_run_done()}`))
+      .toBeInTheDocument();
+  });
+
+  it("renders operator label for undefined approvalKind and auto label only for explicit auto", async () => {
+    const undefinedKindQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      steps: [{ id: "a", title: "Step 1", status: "pending", position: 0 }],
+    };
+    const { unmount } = render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: undefinedKindQueue,
+      onbootstrap: noop,
+    });
+    // undefined kind → renders operator label
+    await expect
+      .element(page.getByText(`${m.buildqueue_approval_operator()} · ${m.buildqueue_run_queued()}`))
+      .toBeInTheDocument();
+    // auto label must NOT appear
+    const autoLabel = document.querySelector(".bqp-approved");
+    expect(autoLabel?.textContent).not.toContain(m.buildqueue_approval_auto());
+    unmount();
+
+    // Now render an explicit auto queue — the auto label DOES appear
+    const autoKindQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      approvalKind: "auto",
+      steps: [{ id: "a", title: "Step 1", status: "pending", position: 0 }],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: autoKindQueue,
+      onbootstrap: noop,
+    });
+    await expect
+      .element(page.getByText(`${m.buildqueue_approval_auto()} · ${m.buildqueue_run_queued()}`))
+      .toBeInTheDocument();
   });
 
   it("renders status badges for done and active steps", async () => {

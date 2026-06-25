@@ -879,7 +879,13 @@ export class SessionStore implements CapStore, CreditStore {
       `CREATE INDEX IF NOT EXISTS build_queue_steps_session ON build_queue_steps (sessionId, position)`,
     );
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
-      sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`);
+      sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, approvalKind TEXT, updatedAt INTEGER NOT NULL)`);
+    // migrate build_queue_state rows that predate the approvalKind column (legacy rows NULL = unknown kind)
+    const bqStateCols = this.db.query(`PRAGMA table_info(build_queue_state)`).all() as {
+      name: string;
+    }[];
+    if (!bqStateCols.some((c) => c.name === "approvalKind"))
+      this.db.run(`ALTER TABLE build_queue_state ADD COLUMN approvalKind TEXT`);
     // One stamp per workflow-protocol comment posted on a session's backlog issue
     // (issue-log: `waiting:<pr>` / `merged:<pr>`), so each transition comments exactly
     // once per PR across restarts and CI flaps.
@@ -3754,8 +3760,8 @@ export class SessionStore implements CapStore, CreditStore {
       status: string;
     }[];
     const state = this.db
-      .query(`SELECT approved FROM build_queue_state WHERE sessionId = ?`)
-      .get(sessionId) as { approved: number } | null;
+      .query(`SELECT approved, approvalKind FROM build_queue_state WHERE sessionId = ?`)
+      .get(sessionId) as { approved: number; approvalKind: string | null } | null;
     const steps: BuildStep[] = rows.map((r) => ({
       id: r.id,
       title: r.title,
@@ -3763,7 +3769,13 @@ export class SessionStore implements CapStore, CreditStore {
       status: r.status as BuildStepStatus,
       position: r.position,
     }));
-    return { sessionId, steps, approved: state ? !!state.approved : false };
+    const kind = state?.approvalKind as "auto" | "operator" | null | undefined;
+    return {
+      sessionId,
+      steps,
+      approved: state ? !!state.approved : false,
+      ...(kind ? { approvalKind: kind } : {}),
+    };
   }
 
   /**
@@ -3909,11 +3921,12 @@ export class SessionStore implements CapStore, CreditStore {
   }
 
   /** Flip the human-curation gate for a session's queue. */
-  setBuildQueueApproved(sessionId: string, approved: boolean): void {
+  setBuildQueueApproved(sessionId: string, approved: boolean, kind?: "auto" | "operator"): void {
+    const approvalKind = approved ? (kind ?? null) : null;
     this.db.run(
-      `INSERT INTO build_queue_state (sessionId, approved, updatedAt) VALUES (?,?,?)
-       ON CONFLICT(sessionId) DO UPDATE SET approved = excluded.approved, updatedAt = excluded.updatedAt`,
-      [sessionId, approved ? 1 : 0, Date.now()],
+      `INSERT INTO build_queue_state (sessionId, approved, approvalKind, updatedAt) VALUES (?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET approved = excluded.approved, approvalKind = excluded.approvalKind, updatedAt = excluded.updatedAt`,
+      [sessionId, approved ? 1 : 0, approvalKind, Date.now()],
     );
   }
 
@@ -3922,7 +3935,7 @@ export class SessionStore implements CapStore, CreditStore {
   listBuildQueues(): BuildQueue[] {
     const rows = this.db
       .query(
-        `SELECT s.id AS stepId, s.sessionId, s.position, s.title, s.detail, s.status, st.approved
+        `SELECT s.id AS stepId, s.sessionId, s.position, s.title, s.detail, s.status, st.approved, st.approvalKind
          FROM build_queue_steps s
          LEFT JOIN build_queue_state st ON st.sessionId = s.sessionId
          ORDER BY s.sessionId, s.position`,
@@ -3935,12 +3948,19 @@ export class SessionStore implements CapStore, CreditStore {
       detail: string;
       status: string;
       approved: number | null;
+      approvalKind: string | null;
     }[];
     const map = new Map<string, BuildQueue>();
     for (const r of rows) {
       let q = map.get(r.sessionId);
       if (!q) {
-        q = { sessionId: r.sessionId, steps: [], approved: !!r.approved };
+        const kind = r.approvalKind as "auto" | "operator" | null;
+        q = {
+          sessionId: r.sessionId,
+          steps: [],
+          approved: !!r.approved,
+          ...(kind ? { approvalKind: kind } : {}),
+        };
         map.set(r.sessionId, q);
       }
       q.steps.push({

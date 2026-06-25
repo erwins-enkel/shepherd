@@ -14,6 +14,9 @@ export interface BuildQueue {
   sessionId: string;
   steps: BuildStep[];
   approved: boolean;
+  /** "auto" = autopilot pre-approval at spawn; "operator" = a human clicked Approve & run.
+   *  Absent for an unapproved queue or a legacy row → renders as plain "approved". */
+  approvalKind?: "auto" | "operator";
 }
 
 export interface RepoEntry {

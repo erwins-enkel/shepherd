@@ -1610,6 +1610,8 @@
   "topbar_held_resets": "· resets {time}",
   "topbar_held_title": "Held tasks",
   "topbar_held_spawn_now": "Spawn now",
+  "topbar_held_spawn_cli_label": "Run on",
+  "topbar_held_original_cli": "Held for {cli}",
   "topbar_held_discard": "Discard",
   "topbar_held_empty": "No held tasks",
   "topbar_held_why": "Held because usage is high — they start automatically when usage resets.",
@@ -1962,5 +1964,7 @@
   "settings_cli_codex_auth_hint": "Codex currently uses the local CLI login available to the server process.",
   "settings_cli_codex_auth_local": "Local Codex CLI login",
   "feat_codex_cli_title": "Codex CLI alpha",
-  "feat_codex_cli_body": "New tasks can now run through the local Codex CLI as an Alpha/MVP provider path. Choose Codex in the task dialog or set it as the default under Settings → Coding CLIs; Codex starts as a steerable terminal session while CLI-specific automation is still being wired."
+  "feat_codex_cli_body": "New tasks can now run through the local Codex CLI as an Alpha/MVP provider path. Choose Codex in the task dialog or set it as the default under Settings → Coding CLIs; Codex starts as a steerable terminal session while CLI-specific automation is still being wired.",
+  "feat_held_task_cli_handoff_title": "Hand off held tasks to another CLI",
+  "feat_held_task_cli_handoff_body": "Held tasks now show which coding CLI they were originally queued for. Open the held-tasks popover, switch Run on to another provider, and Spawn now to hand the task to a CLI that still has room."
 }

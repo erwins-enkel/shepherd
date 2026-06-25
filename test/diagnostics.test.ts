@@ -31,6 +31,7 @@ const HEALTHY_VERSIONS: Record<string, string> = {
   node: "v24.14.1",
   git: "git version 2.45.0",
   claude: "1.2.3 (Claude Code)",
+  codex: "@openai/codex 0.122.0",
 };
 
 // A fully-healthy deps bag; spread + override per test.
@@ -74,10 +75,11 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(7);
+    expect(snap.checks).toHaveLength(8);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
+      "codex",
       "gh",
       "git",
       "herdr",
@@ -166,21 +168,63 @@ describe("DiagnosticsService probes", () => {
     expect(c.hintKey).toBe("diagnostics_hint_git_missing");
   });
 
-  // ── claude: presence-only ────────────────────────────────────────────────────
+  // ── agent CLIs: Claude Code OR Codex is required; the other is optional ──────
   it("claude: ok when present", async () => {
     const svc = new DiagnosticsService(healthyDeps());
     const c = byId((await svc.check(0)).checks, "claude");
     expect(c.state).toBe("ok");
     expect(c.hintKey).toBe("diagnostics_hint_claude_ok");
   });
-  it("claude: error when missing", async () => {
+  it("codex: ok when present", async () => {
+    const svc = new DiagnosticsService(healthyDeps());
+    const c = byId((await svc.check(0)).checks, "codex");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_codex_ok");
+  });
+  it("claude: optional when missing but Codex is present", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
       runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: new Error("ENOENT") }),
     });
     const c = byId((await svc.check(0)).checks, "claude");
-    expect(c.state).toBe("error");
-    expect(c.hintKey).toBe("diagnostics_hint_claude_missing");
+    expect(c.state).toBe("optional");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_optional");
+  });
+  it("codex: optional when missing but Claude Code is present", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, codex: new Error("ENOENT") }),
+    });
+    const c = byId((await svc.check(0)).checks, "codex");
+    expect(c.state).toBe("optional");
+    expect(c.hintKey).toBe("diagnostics_hint_codex_optional");
+  });
+  it("agent CLIs: both error when neither Claude Code nor Codex is present", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({
+        ...HEALTHY_VERSIONS,
+        claude: new Error("ENOENT"),
+        codex: new Error("ENOENT"),
+      }),
+    });
+    const snap = await svc.check(0);
+    const claude = byId(snap.checks, "claude");
+    const codex = byId(snap.checks, "codex");
+    expect(claude.state).toBe("error");
+    expect(claude.hintKey).toBe("diagnostics_hint_claude_missing");
+    expect(codex.state).toBe("error");
+    expect(codex.hintKey).toBe("diagnostics_hint_codex_missing");
+    expect(snap.overall).toBe("error");
+  });
+  it("agent CLIs: optional missing peer keeps overall ok", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, codex: new Error("ENOENT") }),
+    });
+    const snap = await svc.check(0);
+    expect(byId(snap.checks, "codex").state).toBe("optional");
+    expect(snap.overall).toBe("ok");
   });
 
   // ── gh: exit-code only, never stdout ─────────────────────────────────────────
@@ -412,10 +456,11 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(8);
+    expect(snap.checks).toHaveLength(9);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
+      "codex",
       "gh",
       "git",
       "git_mergetree",

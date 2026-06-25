@@ -59,12 +59,17 @@
   }
 
   // State → color token. Design rule: never --color-green for healthy.
-  // ok → --status-done (slate), warning → --status-warn, error → --color-red.
+  // ok/optional → --status-done (slate), warning → --status-warn, error → --color-red.
   const stateColor: Record<DiagnosticCheck["state"], string> = {
     ok: "var(--status-done)",
+    optional: "var(--status-done)",
     warning: "var(--status-warn)",
     error: "var(--color-red)",
   };
+
+  function isClear(state: DiagnosticCheck["state"]): boolean {
+    return state === "ok" || state === "optional";
+  }
 </script>
 
 <!-- Data wins: once checks arrive (HTTP seed or the WS push) they render even if
@@ -73,12 +78,12 @@
   {#if checks.length === 0}
     <div class="all-ok micro">{m.diagnostics_all_ok()}</div>
   {:else}
-    {@const allOk = checks.every((c) => c.state === "ok")}
+    {@const allOk = checks.every((c) => isClear(c.state))}
     {#each checks as check (check.id)}
       <div class="rc">
         <div class="row-head">
           <span class="glyph" style="color:{stateColor[check.state]}" aria-hidden="true">
-            {#if check.state === "ok"}✓{:else if check.state === "warning"}⚠{:else}✗{/if}
+            {#if check.state === "ok"}✓{:else if check.state === "optional"}–{:else if check.state === "warning"}⚠{:else}✗{/if}
           </span>
           <span class="micro label">{label(check.id)}</span>
           <span class="state-word micro" style="color:{stateColor[check.state]}"

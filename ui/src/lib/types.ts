@@ -1055,7 +1055,7 @@ export interface ReadinessReport {
 }
 
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────
-export type DiagnosticState = "ok" | "warning" | "error";
+export type DiagnosticState = "ok" | "optional" | "warning" | "error";
 export interface DiagnosticCheck {
   id: string;
   state: DiagnosticState;

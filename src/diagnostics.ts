@@ -57,9 +57,9 @@ export interface DiagnosticsDeps {
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
 type Probe = () => Promise<DiagnosticCheck>;
 
-const STATE_RANK: Record<DiagnosticState, number> = { ok: 0, warning: 1, error: 2 };
+const STATE_RANK: Record<DiagnosticState, number> = { ok: 0, optional: 0, warning: 1, error: 2 };
 
-/** worst-of: error > warning > ok. Empty ⇒ ok. */
+/** worst-of: error > warning > ok/optional. Empty ⇒ ok. */
 function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
   let worst: DiagnosticState = "ok";
   for (const c of checks) {
@@ -117,7 +117,7 @@ export function defaultRunRemediation(
 }
 
 /**
- * Server-side environment-readiness diagnostics (issue #623). Fans 7 dependency
+ * Server-side environment-readiness diagnostics (issue #623). Fans dependency
  * probes with `Promise.all` behind a TTL cache. Mirrors HerdrUpdateService:
  * injectable runners for unit tests, `check(now)` (force re-run), `current(now)`
  * (TTL-cached read).
@@ -263,11 +263,39 @@ export class DiagnosticsService {
     return { id: "git_mergetree", state: "ok", hintKey: "diagnostics_hint_gitcap_ok" };
   };
 
-  /** claude is PRESENCE-ONLY (brief No-Go: no login/auth probe, no ~/.claude
-   *  parsing). A successful `claude --version` ⇒ ok, anything else ⇒ missing. */
-  private claudeProbe = async (): Promise<DiagnosticCheck> => {
-    await this.runVersion("claude", ["--version"]);
-    return { id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" };
+  /** Claude Code and Codex are interchangeable agent runtimes for Shepherd:
+   *  at least one must exist, the other is optional but still diagnosed. Both are
+   *  PRESENCE-ONLY (no login/auth probe, no config-dir parsing). */
+  private agentCliProbes = async (): Promise<DiagnosticCheck[]> => {
+    const [claudeOk, codexOk] = await Promise.all([
+      this.runVersion("claude", ["--version"])
+        .then(() => true)
+        .catch(() => false),
+      this.runVersion("codex", ["--version"])
+        .then(() => true)
+        .catch(() => false),
+    ]);
+    const anyAgentCli = claudeOk || codexOk;
+    return [
+      claudeOk
+        ? { id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" }
+        : {
+            id: "claude",
+            state: anyAgentCli ? "optional" : "error",
+            hintKey: anyAgentCli
+              ? "diagnostics_hint_claude_optional"
+              : "diagnostics_hint_claude_missing",
+          },
+      codexOk
+        ? { id: "codex", state: "ok", hintKey: "diagnostics_hint_codex_ok" }
+        : {
+            id: "codex",
+            state: anyAgentCli ? "optional" : "error",
+            hintKey: anyAgentCli
+              ? "diagnostics_hint_codex_optional"
+              : "diagnostics_hint_codex_missing",
+          },
+    ];
   };
 
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
@@ -327,10 +355,6 @@ export class DiagnosticsService {
         },
       },
       {
-        run: this.claudeProbe,
-        onTimeout: { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
-      },
-      {
         run: this.bunProbe,
         onTimeout: { id: "bun", state: "error", hintKey: "diagnostics_hint_bun_missing" },
       },
@@ -355,9 +379,14 @@ export class DiagnosticsService {
   /** Force a fresh run of all probes; sets the TTL cache. A probe that throws /
    *  times out resolves to its defined non-OK fallback — the batch never rejects. */
   async check(now: number): Promise<DiagnosticsSnapshot> {
-    const checks = await Promise.all(
-      this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout)),
-    );
+    const [checks, agentCliChecks] = await Promise.all([
+      Promise.all(this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout))),
+      this.agentCliProbes().catch((): DiagnosticCheck[] => [
+        { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
+        { id: "codex", state: "error", hintKey: "diagnostics_hint_codex_missing" },
+      ]),
+    ]);
+    checks.splice(4, 0, ...agentCliChecks);
     // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
     // attach the key when a command exists (guidance-only / ok stay absent), so
     // payload-purity expectations hold.

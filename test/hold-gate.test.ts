@@ -306,6 +306,58 @@ test("POST /api/held/:id/spawn accepts an agent provider override", async () => 
   expect(store.countHeldTasks()).toBe(0);
 });
 
+test("POST /api/held/:id/spawn resets model to the selected provider default", async () => {
+  const { app, store, creates } = harness();
+
+  store.addHeldTask({
+    id: "held-codex",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "task to hand off",
+      agentProvider: "claude",
+      model: "opus",
+      images: [],
+    },
+    createdAt: 1000,
+  });
+
+  const codexRes = await app.fetch(
+    new Request("http://x/api/held/held-codex/spawn", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentProvider: "codex" }),
+    }),
+  );
+  expect(codexRes.status).toBe(201);
+  expect(creates.at(-1)).toMatchObject({ agentProvider: "codex", model: "gpt-5.5" });
+
+  store.addHeldTask({
+    id: "held-claude",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "task to hand back",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      images: [],
+    },
+    createdAt: 1001,
+  });
+
+  const claudeRes = await app.fetch(
+    new Request("http://x/api/held/held-claude/spawn", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentProvider: "claude" }),
+    }),
+  );
+  expect(claudeRes.status).toBe(201);
+  expect(creates.at(-1)).toMatchObject({ agentProvider: "claude", model: null });
+});
+
 test("POST /api/held/:id/spawn with linked issue → re-stamps the drain claim", async () => {
   const { app, store, labeled } = harness();
 

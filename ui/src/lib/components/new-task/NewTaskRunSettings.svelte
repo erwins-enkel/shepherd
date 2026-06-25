@@ -58,9 +58,8 @@
   }
 
   function agentProviderChanged() {
-    if (!modelAvailableForProvider(model)) {
-      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
-    }
+    model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
+    onModelTouched();
   }
 
   $effect(() => {

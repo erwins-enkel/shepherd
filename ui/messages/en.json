@@ -471,7 +471,7 @@
   "viewport_preview_open_new_tab": "Open in new tab",
   "viewport_preview_setup_hint": "Blank? Ensure the preview port is reachable over Tailscale; see setup.",
   "viewport_preview_start": "Start dev server",
-  "viewport_preview_start_note": "Types a dev-server start command into the agent's live terminal",
+  "viewport_preview_start_note": "Sends the agent-specific background-start instruction into the live terminal",
   "viewport_preview_start_sent": "Preview start sent to {name} (running: {command})",
   "viewport_preview_start_failed": "Couldn't start preview; check terminal for details",
   "viewport_preview_start_confirm_working": "Confirm start (agent busy)",

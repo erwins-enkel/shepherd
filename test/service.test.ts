@@ -3564,7 +3564,11 @@ test("create with draftMode=false: system prompt has no <draft-mode> block", asy
 
 // ── startPreview ──────────────────────────────────────────────────────────────
 
-function makePreviewSvc(opts: { terminalId: string; liveIds: string[] }) {
+function makePreviewSvc(opts: {
+  terminalId: string;
+  liveIds: string[];
+  agentProvider?: "claude" | "codex";
+}) {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -3577,6 +3581,7 @@ function makePreviewSvc(opts: { terminalId: string; liveIds: string[] }) {
     isolated: true,
     herdrSession: "default",
     herdrAgentId: opts.terminalId,
+    agentProvider: opts.agentProvider,
   });
   const svc = new SessionService({
     store,
@@ -3616,6 +3621,29 @@ test("startPreview: sends PREVIEW_START_STEER as bracketed paste + CR, returns t
 test("startPreview: steer contains the command in backticks", () => {
   const steer = PREVIEW_START_STEER("cd ui && npm run dev");
   expect(steer).toContain("`cd ui && npm run dev`");
+});
+
+test("startPreview: claude steer keeps the Claude Code background wording", () => {
+  const steer = PREVIEW_START_STEER("bun run dev");
+  expect(steer).toContain("For Claude Code:");
+  expect(steer).toContain("use Claude Code's background run / append `&`");
+  expect(steer).not.toContain("For Codex:");
+});
+
+test("startPreview: codex steer uses Codex background terminal wording", () => {
+  const { svc, s, sent } = makePreviewSvc({
+    terminalId: "term_c",
+    liveIds: ["term_c"],
+    agentProvider: "codex",
+  });
+  const result = svc.startPreview(s.id, "bun run dev");
+  expect(result).toBe(true);
+  const [paste] = sent;
+  expect(paste!.text).toContain("For Codex:");
+  expect(paste!.text).toContain("Codex-managed long-running/background terminal command");
+  expect(paste!.text).toContain("`/ps`");
+  expect(paste!.text).toContain("`/stop`");
+  expect(paste!.text).not.toContain("For Claude Code:");
 });
 
 test("startPreview: steer demands the tailnet HTTPS URL, not just localhost", () => {

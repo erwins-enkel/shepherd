@@ -4235,12 +4235,21 @@ function handlePing({ req, parts }: Ctx): Response | null {
 
 // Public liveness probe (issue #1112) — DISTINCT from handlePing on purpose. `handlePing`
 // is a POST behind checkAuth + checkOrigin (CSRF): a probe for an already-logged-in client.
-// This is the opposite: an un-credentialed GET that answers BEFORE login, so deploy/update.sh's
+// This is the opposite: an un-credentialed GET/HEAD that answers BEFORE login, so deploy/update.sh's
 // health check and the onboarding harness's boot poll can confirm the server serves HTTP
 // without a cookie/token (isPublicRequest exempts exactly this method+path). Discloses nothing.
+// Answers HEAD as well as GET — isPublicRequest exempts both, so a HEAD must not fall through
+// to the /api 404 (a liveness monitor probing with HEAD expects a bodyless 200).
 function handleHealth({ req, parts }: Ctx): Response | null {
-  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "health" || parts[2]) return null;
-  return json({ ok: true });
+  if (
+    (req.method !== "GET" && req.method !== "HEAD") ||
+    parts[0] !== "api" ||
+    parts[1] !== "health" ||
+    parts[2]
+  ) {
+    return null;
+  }
+  return req.method === "HEAD" ? new Response(null, { status: 200 }) : json({ ok: true });
 }
 
 // ── Epic API routes ──────────────────────────────────────────────────────────

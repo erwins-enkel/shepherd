@@ -107,9 +107,9 @@
 {/if}
 
 <style>
-  /* Shared `.drain-fields` / `.drain-field` / `.drain-label` / `.num` layout comes
-     from ./automation-fields.css (imported above). Only the field-doc copy below
-     is local to this component. */
+  /* Shared `.drain-fields` / `.drain-field` / `.drain-label` / `.afield-num` layout
+     comes from ./automation-fields.css (imported above). Only the field-doc copy
+     below is local to this component. */
   /* Lead-in sentence framing the three dials as Auto-Drain's rails. */
   .drain-intro {
     margin: 0 0 2px;

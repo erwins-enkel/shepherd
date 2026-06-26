@@ -13,6 +13,7 @@ lines), read by the systemd unit if present.
 | --- | --- | --- |
 | `SHEPHERD_PORT` | `7330` | HTTP/WS listen port |
 | `SHEPHERD_HOST` | `127.0.0.1` | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs) |
+| `SHEPHERD_AGENT_INGRESS_PORT` | `SHEPHERD_PORT + 1` (e.g. `7331`) | Pinned loopback port for the auth-exempt agent-ingress listener (agent hook callbacks). Stable so the URL baked into a live agent's `--settings` survives restarts/deploys; validated at startup against collisions with the main port, served port, or preview range. Set `0` for an ephemeral port (the pre-pinning behavior) |
 | `SHEPHERD_DB` | `~/.shepherd/shepherd.db` | SQLite session store path |
 | `SHEPHERD_BACKUP_DIR` | `~/.shepherd/backups` (next to the DB) | Destination dir for the automated hourly SQLite backups (Linux backup timer); see [Operating Shepherd](/operating/) |
 | `SHEPHERD_REPO_ROOT` | `~` (home) | Repos must live under this root (spawn is confined to it) |

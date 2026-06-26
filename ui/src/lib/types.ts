@@ -1081,6 +1081,17 @@ export interface DocAgentRun {
   outcome: DocAgentOutcome;
 }
 
+/** A loaded server-side plugin as shown in Settings → Plugins (issue #1124). `health` is
+ *  core-derived (unspoofable); `status` is the plugin's last publishStatus blob (verbatim). */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  health: "ok" | "errored" | "timed-out";
+  lastError: string | null;
+  status: unknown;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | { event: "session:status"; data: { id: string; status: SessionStatus } }
@@ -1141,6 +1152,10 @@ export type WsEvent =
     }
   | { event: "session:plangate-reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "learnings:update"; data: { pending: number } }
+  | {
+      event: "plugin:status";
+      data: { id: string; health: PluginInfo["health"]; status: unknown };
+    }
   | { event: "backlog:update"; data: BacklogPayload }
   | { event: "drain:status"; data: DrainStatus }
   | { event: "automerge:status"; data: AutoMergeStatus }

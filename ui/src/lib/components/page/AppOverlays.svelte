@@ -448,6 +448,7 @@
   <Settings
     initialTab={settingsTab}
     initialDiagnostics={store.diagnostics?.checks ?? null}
+    plugins={store.plugins}
     onclose={onsettingsclose}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={onsettingsherdrupdate}

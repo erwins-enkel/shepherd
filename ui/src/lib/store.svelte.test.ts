@@ -103,6 +103,23 @@ test("session:ready patches the target session's readyToMerge", () => {
   expect(s.byId("s1")?.readyToMerge).toBe(false);
 });
 
+test("plugin:status updates the matching plugin's health + published status in place", () => {
+  const s = new HerdStore();
+  s.setPlugins([
+    { id: "p1", name: "P1", version: "1.0.0", health: "ok", lastError: null, status: null },
+    { id: "p2", name: "P2", version: "2.0.0", health: "ok", lastError: null, status: null },
+  ]);
+  s.apply({ event: "plugin:status", data: { id: "p1", health: "errored", status: { n: 7 } } });
+  expect(s.plugins.find((p) => p.id === "p1")).toMatchObject({
+    health: "errored",
+    status: { n: 7 },
+  });
+  // unrelated plugin untouched; unknown id is ignored (no row added)
+  expect(s.plugins.find((p) => p.id === "p2")?.health).toBe("ok");
+  s.apply({ event: "plugin:status", data: { id: "ghost", health: "ok", status: null } });
+  expect(s.plugins).toHaveLength(2);
+});
+
 test("backlog:update replaces the backlog snapshot so the overview stays live", () => {
   const s = new HerdStore();
   expect(s.backlog).toBeNull();

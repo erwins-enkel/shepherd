@@ -71,6 +71,7 @@ import {
   type EgressBackend,
 } from "./egress";
 import type { EgressWatcher } from "./egress-watch";
+import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
 
@@ -126,6 +127,11 @@ export interface ServiceDeps {
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
+  /** Server-side plugin spawn-hook runner (issue #1124): runs every plugin `onSpawn`
+   *  hook and returns the merged, bounded SpawnPatch. Absent (no plugins / tests) → no
+   *  hooks fire. May reject with PluginSpawnAborted to hard-block the spawn. Wired from
+   *  the PluginRegistry in src/index.ts. */
+  runSpawnHooks?: (d: SpawnDescriptor) => Promise<SpawnPatch>;
   /** Sandbox backend probe seam (tests inject `() => "bwrap"` / `() => null` so no real
    *  bwrap is spawned); defaults to the cached real self-test in sandbox.ts. */
   detectBackend?: () => SandboxBackend;
@@ -1256,7 +1262,60 @@ export class SessionService {
     };
   }
 
-  private prepareSpawn(
+  /** Run plugin onSpawn hooks (issue #1124) and fold the result into spawn inputs: the
+   *  env overlay to merge LAST into both membrane.extraEnv and spawnEnv (so a plugin's
+   *  CLAUDE_CONFIG_DIR wins over api-key mode's credential-less mirror) + the inner argv
+   *  with any extraArgs appended. No-op passthrough when no registry is wired. A hook's
+   *  ctx.abortSpawn surfaces as PluginSpawnAborted → returned as a holdReason so the
+   *  caller models it as an auto-refuse (create rolls back, resume returns null). */
+  private async runSpawnHookPatch(
+    innerArgv: string[],
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    envParts: {
+      willWrap: boolean;
+      passthroughEnv: Record<string, string>;
+      rendererEnv: Record<string, string>;
+      apiKeyPassthrough: Record<string, string>;
+    },
+  ): Promise<
+    { patchEnv: Record<string, string>; finalInnerArgv: string[] } | { holdReason: string }
+  > {
+    if (!this.deps.runSpawnHooks) return { patchEnv: {}, finalInnerArgv: innerArgv };
+    // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
+    // process env (see SpawnDescriptor). Under trusted the agent also inherits the parent
+    // env; the sandbox passthrough vars are only set explicitly when a membrane wraps.
+    const descriptorEnv: Record<string, string> = {
+      ...(envParts.willWrap ? envParts.passthroughEnv : {}),
+      ...envParts.rendererEnv,
+      ...envParts.apiKeyPassthrough,
+    };
+    let patch: SpawnPatch;
+    try {
+      patch = await this.deps.runSpawnHooks({
+        sessionId: ctx.sessionId,
+        repoRoot: ctx.repoPath,
+        model: ctx.model ?? null,
+        agentProvider: ctx.agentProvider ?? config.defaultAgentProvider,
+        argv: [...innerArgv],
+        env: descriptorEnv,
+        isolated: ctx.isolated,
+      });
+    } catch (e) {
+      if (e instanceof PluginSpawnAborted) {
+        return { holdReason: `plugin ${e.pluginId} aborted spawn: ${e.reason}` };
+      }
+      throw e;
+    }
+    // credentialDir is sugar for env.CLAUDE_CONFIG_DIR and wins over it when both are set.
+    const patchEnv: Record<string, string> = {
+      ...(patch.env ?? {}),
+      ...(patch.credentialDir ? { CLAUDE_CONFIG_DIR: patch.credentialDir } : {}),
+    };
+    const finalInnerArgv = patch.extraArgs?.length ? [...innerArgv, ...patch.extraArgs] : innerArgv;
+    return { patchEnv, finalInnerArgv };
+  }
+
+  private async prepareSpawn(
     innerArgv: string[],
     ctx: {
       sessionId: string;
@@ -1266,8 +1325,11 @@ export class SessionService {
       isolated: boolean;
       auto: boolean | undefined;
       profileOverride?: string | null;
+      /** For the plugin onSpawn descriptor (issue #1124); advisory, never mutated. */
+      model?: string | null;
+      agentProvider?: string;
     },
-  ): SpawnOutcome {
+  ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
     // Resolve api-key auth wiring once: fail-closed hold reason (null when OK),
     // the membrane mask/helper fields, and the passthrough config-dir env.
@@ -1313,6 +1375,21 @@ export class SessionService {
     // git/realpath resolution avoids needless host work — and the placeholder is never read.
     const willWrap = profile !== "trusted" && backend !== null;
     const nodeBinReal = willWrap ? safeRealpath(config.nodeBin) : config.nodeBin;
+    const passthroughEnv = collectPassthroughEnv();
+    const apiKeyPassthrough = apiKeyAuth.passthroughEnv(willWrap) ?? {};
+
+    // Plugin onSpawn hooks (issue #1124): fire AFTER core builds the inner argv/env, just
+    // before the membrane wrap, on BOTH create and resume. abort → {ok:false} rides the
+    // existing auto-refuse machinery (create rolls back, resume returns null). See helper.
+    const hook = await this.runSpawnHookPatch(innerArgv, ctx, {
+      willWrap,
+      passthroughEnv,
+      rendererEnv,
+      apiKeyPassthrough,
+    });
+    if ("holdReason" in hook) return { ok: false, holdReason: hook.holdReason };
+    const { patchEnv, finalInnerArgv } = hook;
+
     const membrane: MembraneInputs = willWrap
       ? {
           worktreePath: ctx.worktreePath,
@@ -1323,7 +1400,7 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
-          extraEnv: { ...collectPassthroughEnv(), ...rendererEnv },
+          extraEnv: { ...passthroughEnv, ...rendererEnv, ...patchEnv },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
@@ -1331,7 +1408,7 @@ export class SessionService {
       : ({} as MembraneInputs);
 
     const { wrapped, egressAllowlist, egressDnsLog } = this.wrapSpawnArgv({
-      innerArgv,
+      innerArgv: finalInnerArgv,
       profile,
       backend,
       egressBackend,
@@ -1344,8 +1421,8 @@ export class SessionService {
     // no membrane to mask the credential in place, so point the spawn at the
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
-    // The egress branch is always willWrap, so this is undefined there.
-    const spawnEnv = { ...(apiKeyAuth.passthroughEnv(willWrap) ?? {}), ...rendererEnv };
+    // The egress branch is always willWrap, so this is undefined there. patchEnv LAST.
+    const spawnEnv = { ...apiKeyPassthrough, ...rendererEnv, ...patchEnv };
     const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
@@ -1417,11 +1494,11 @@ export class SessionService {
 
   /** prepareSpawn for callers that can't proceed on an auto-refuse: throws
    *  SandboxAutoRefused on hold so the caller (create() → route 4xx / drain catch) sees it. */
-  private prepareSpawnOrThrow(
+  private async prepareSpawnOrThrow(
     innerArgv: string[],
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
-  ): SpawnSuccess {
-    const outcome = this.prepareSpawn(innerArgv, ctx);
+  ): Promise<SpawnSuccess> {
+    const outcome = await this.prepareSpawn(innerArgv, ctx);
     if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason);
     return outcome;
   }
@@ -1601,7 +1678,7 @@ export class SessionService {
     return true;
   }
 
-  private prepareResumeSpawn(session: Session, innerArgv: string[]): SpawnOutcome {
+  private prepareResumeSpawn(session: Session, innerArgv: string[]): Promise<SpawnOutcome> {
     return this.prepareSpawn(innerArgv, {
       sessionId: session.id,
       name: session.name,
@@ -1613,6 +1690,10 @@ export class SessionService {
       // profile must NOT silently resume weaker (e.g. trusted) just because the repo
       // default is weaker. Legacy rows (null) fall back to repo-config resolution.
       profileOverride: session.sandboxApplied ?? undefined,
+      // Plugin onSpawn descriptor (fires on resume too — a plugin keeps continuity via
+      // ctx.state keyed by sessionId; see issue #1124).
+      model: session.model ?? null,
+      agentProvider: session.agentProvider,
     });
   }
 
@@ -1740,7 +1821,7 @@ export class SessionService {
               baseUrl,
             );
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
-      const outcome = this.prepareSpawnOrThrow(argv, {
+      const outcome = await this.prepareSpawnOrThrow(argv, {
         sessionId,
         name,
         worktreePath: wt.worktreePath,
@@ -1748,6 +1829,8 @@ export class SessionService {
         isolated: wt.isolated,
         auto: input.auto,
         profileOverride,
+        model: input.model,
+        agentProvider,
       });
       const session = this.deps.store.create({
         id: sessionId,
@@ -2116,9 +2199,18 @@ export class SessionService {
     const trim = await this.trimFor(session.auto);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
+    // PLUGIN NOTE (#1124): this teardown runs ONLY on a forced resume (a non-forced
+    // resume with a live agent returned early above; a non-forced resume with no live
+    // agent has no husk). So if a plugin onSpawn then hard-blocks via abortSpawn, the
+    // husk is already gone and the session is left stopped — intended: a forced resume
+    // is an explicit "replace the live agent" action, and aborting it (e.g. "don't run
+    // under the wrong account") is honored by NOT spawning a replacement.
     if (agent) this.deps.herdr.stop(agent.terminalId);
 
-    const outcome = this.prepareResumeSpawn(session, this.buildResumeArgv(session, provider, trim));
+    const outcome = await this.prepareResumeSpawn(
+      session,
+      this.buildResumeArgv(session, provider, trim),
+    );
     if (!outcome.ok) {
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
       // server returns 409 — so an auto-refused resume resolves null rather than throwing.

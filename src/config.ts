@@ -15,6 +15,11 @@ const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.
 // post-mortem is `cat ~/.shepherd/herdr-update.log`; SHEPHERD_HERDR_UPDATE_LOG overrides.
 const herdrUpdateLogPath =
   process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
+// Server-side plugin dir (issue #1124): private/out-of-repo extensions live here,
+// alongside the db, so they survive `bun run update` and can never leak into the public
+// repo. Default ~/.shepherd/plugins; SHEPHERD_PLUGINS_DIR overrides. A missing/empty dir
+// loads nothing (the clean zero-plugin invariant).
+const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "plugins");
 
 // Two independent review caps, each how many reviewer→agent steer rounds a findings
 // streak may spend before escalating to a human. Global, UI-configurable + persisted;
@@ -366,6 +371,7 @@ export const config = {
   // with the main port, served port, or preview range).
   agentIngressPort: Number(process.env.SHEPHERD_AGENT_INGRESS_PORT ?? mainPort + 1),
   dbPath,
+  pluginsDir,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,
   // node binary for the PTY attach helper (pty-attach.mjs). Resolved so a node

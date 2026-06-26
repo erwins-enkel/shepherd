@@ -72,8 +72,8 @@ in the repo's Settings panel, or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`
 - **Unattended reviewers** (PR critic + plan-gate) run **read-only**, not
   skip-permissions: `--safe-mode --disable-slash-commands --allowedTools Read
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)
-Write --permission-mode dontAsk` (`src/reviewer-argv.ts:14-117`,
-  `readonlyReviewerArgv`).
+Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
+  `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
   (`src/service.ts` `researchSafeProfileOverride`, ~L1478-1496, warns once),
@@ -95,4 +95,4 @@ Write --permission-mode dontAsk` (`src/reviewer-argv.ts:14-117`,
 - `docs/research/claude-anthropic-tos-compliance-audit.md` — the full audit
   (added by PR #646; may not be merged at time of writing).
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/reviewer-argv.ts`.
+  `src/transient-agent-argv.ts`.

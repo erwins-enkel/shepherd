@@ -665,7 +665,7 @@ input, select, textarea {
     <h2>Filter popover</h2>
     <p class="when">
       <strong>When:</strong> collapsing a set of related list filters into a compact
-      <em>Filters · N</em> control — e.g. the issue lists in the Backlog and New Task. Uses the
+      <em>Filters · N</em> control — e.g. the issue lists in the Repos pane and New Task. Uses the
       native <code>popover="manual"</code> top-layer together with the <code>anchorPopover</code>
       recipe from <code>$lib/floating-anchor</code> (same pattern as InfoTip). Non-modal, small,
       anchored: no scrim, dismiss on Esc or outside pointerdown.

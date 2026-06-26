@@ -1098,8 +1098,8 @@
         e.preventDefault();
         showNew = true;
         break;
-      case "b":
-        // mirror the ActionBar gate: backlog only exists once there are sessions
+      case "r":
+        // mirror the ActionBar gate: Repos only exists once there are sessions
         if (store.sessions.length > 0) {
           e.preventDefault();
           showBacklog = true;

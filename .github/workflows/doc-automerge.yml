@@ -3,6 +3,11 @@ name: Auto-merge doc PRs
 # Auto-merges Shepherd's OWN documentation PRs — the ones the doc agent opens on
 # `shepherd/docs-update-*` branches — once they're green, instead of waiting on a human merge.
 #
+# Provenance is NOT established by the branch prefix alone (#1125): the per-PR loop also requires
+# authorAssociation ∈ {OWNER, MEMBER}, a same-repo (non-fork) head, and a diff confined to the doc
+# tree (`docs/` + `docs-site/`). A fork / outsider PR wearing the prefix but carrying arbitrary
+# changes is skipped, never merged.
+#
 # Why a workflow and not a Shepherd setting: the doc agent runs ONLY against this repo (its
 # in-scope file list + DOC_TREE_MARKER are this repo's own doc tree), and Shepherd lives only on
 # GitHub — so a per-repo Shepherd toggle would be a dead switch in every other repo. This keeps the
@@ -70,12 +75,36 @@ jobs:
 
           failed=0
           for n in "${prs[@]}"; do
-            info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews)"
+            info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews,isCrossRepository,files,changedFiles)"
 
             draft=$(jq -r '.isDraft' <<<"$info")
             mergeable=$(jq -r '.mergeable' <<<"$info")
             base=$(jq -r '.baseRefName' <<<"$info")
             total=$(jq '(.statusCheckRollup // []) | length' <<<"$info")
+            cross=$(jq -r '.isCrossRepository' <<<"$info")
+            nfiles=$(jq '(.files // []) | length' <<<"$info")
+            changed=$(jq -r '.changedFiles' <<<"$info")
+
+            # Identity hardening (#1125): the branch PREFIX alone is not proof of provenance — a fork
+            # or outside-collaborator PR can carry the same `shepherd/docs-update-*` name with
+            # ARBITRARY file changes. So gate on WHO opened it and WHAT it touches, not just the name.
+            #
+            #   authorAssociation ∈ {OWNER, MEMBER}: Shepherd's own bot/account. REST-only field (not
+            #     exposed by `gh pr view --json`), so fetched via the API.
+            #   isCrossRepository == false: blocks a fork head. DELIBERATELY beyond the issue's two
+            #     checkboxes — authorAssociation alone does NOT stop a fork (a MEMBER can open a PR
+            #     from their own fork and still read MEMBER); this is the direct answer to the issue's
+            #     "a fork PR" threat, and every legit doc PR is same-repo so it never mis-fires.
+            assoc="$(gh api "repos/$GH_REPO/pulls/$n" --jq '.author_association')"
+
+            # Path scope (#1125): the diff must touch ONLY the doc tree. We use the COARSE prefixes
+            # `docs/` + `docs-site/` rather than mirroring doc-agent.ts's exact IN_SCOPE_PATHS list —
+            # robust to in-scope-list edits with no YAML↔TS drift, while still blocking any change
+            # outside the doc tree (src/, .github/, package.json, lockfiles, …). `gh` returns at most
+            # 100 files, so we fail-closed when the list is truncated (changed != nfiles) — a PR can't
+            # pad past 100 doc files to smuggle a hidden non-doc path. Doc PRs touch ≤8 files.
+            nondoc=$(jq '[(.files // [])[].path
+              | select((startswith("docs/") or startswith("docs-site/")) | not)] | length' <<<"$info")
 
             # Every check must be a terminal success (SUCCESS/NEUTRAL/SKIPPED). statusCheckRollup
             # mixes CheckRun (.conclusion; null while pending) and StatusContext (.state) shapes —
@@ -90,6 +119,15 @@ jobs:
               | select((.body // "") | contains($m) | not)
               | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")]
               | sort_by(.submittedAt) | last | (.state == "CHANGES_REQUESTED")' <<<"$info")
+
+            # Identity + path gates FIRST: an untrusted or out-of-scope PR is rejected before CI
+            # eligibility is even considered. Skip (loud log), never fail red — consistent with every
+            # gate below; the daily-cron cadence would otherwise turn a lingering suspicious PR into
+            # perpetual red noise, and skipping already meets the security goal (never merge it).
+            if [ "$assoc" != "OWNER" ] && [ "$assoc" != "MEMBER" ]; then echo "#$n: author_association=$assoc not OWNER/MEMBER — skip"; continue; fi
+            if [ "$cross" != "false" ];                 then echo "#$n: cross-repository (fork) head — skip";  continue; fi
+            if [ "$changed" -eq 0 ] || [ "$nfiles" != "$changed" ]; then echo "#$n: file list empty/truncated ($nfiles/$changed) — skip"; continue; fi
+            if [ "$nondoc" -ne 0 ];                     then echo "#$n: $nondoc non-doc path(s) changed — skip"; continue; fi
 
             if [ "$draft" != "false" ];                 then echo "#$n: draft — skip";                     continue; fi
             if [ "$base" != "$DEFAULT_BRANCH" ];        then echo "#$n: non-default base ($base) — skip";  continue; fi

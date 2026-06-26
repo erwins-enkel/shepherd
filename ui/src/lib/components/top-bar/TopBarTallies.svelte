@@ -6,6 +6,7 @@
 
   let {
     mobile,
+    compact = false,
     total,
     working,
     idle,
@@ -15,6 +16,10 @@
     clickStatus,
   }: {
     mobile: boolean;
+    /** Collapse to the dot+digit form under measured overflow (desktop AND touch-desktop /
+     *  the unfolded fold) — the same compact form phones get from `mobile`. Matches the
+     *  sibling NEEDS-YOU / held badges, which also compact on the measured-overflow signal. */
+    compact?: boolean;
     total: number;
     working: number;
     idle: number;
@@ -25,7 +30,7 @@
   } = $props();
 </script>
 
-{#if mobile}
+{#if mobile || compact}
   <div class="tallies compact">
     <!-- aria-labels carry the COUNT alongside the action (the visible text is a
          bare digit, and an action-only label would hide the tally from screen
@@ -194,12 +199,19 @@
     font: inherit;
     color: inherit;
     cursor: pointer;
-    /* 44px touch floor in HEIGHT only (matches .hud.mobile .gear/.needsyou); a
-       44px width floor for four buttons would blow the ~260px usable line-1
-       budget on fold-cover phones. 24px min width keeps even the bare-digit
-       Idle segment at the WCAG 2.5.8 (AA) target size. */
-    min-height: 44px;
+    /* WCAG 2.5.8 (AA) 24px target floor on ALL pointers — keeps even the bare-digit
+       Idle segment hittable when the compact tallies render on a fine-pointer desktop
+       under measured overflow. Coarse pointers (phones, foldables) get the larger 44px
+       touch floor in HEIGHT below. A 44px WIDTH floor for four buttons would blow the
+       ~260px usable line-1 budget on fold-cover phones, so width stays at 24px. */
+    min-height: 24px;
     min-inline-size: 24px;
+  }
+  /* Coarse-pointer touch floor: 44px height (matches .hud.mobile .gear/.needsyou). */
+  @media (pointer: coarse) {
+    .ctally {
+      min-height: 44px;
+    }
   }
   .ctally.active {
     background: var(--color-inset);

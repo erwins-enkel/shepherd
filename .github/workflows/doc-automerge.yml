@@ -64,6 +64,7 @@ jobs:
           if [ "${#prs[@]}" -eq 0 ]; then echo "No open doc PRs."; exit 0; fi
           echo "Found ${#prs[@]} open doc PR(s): ${prs[*]}"
 
+          failed=0
           for n in "${prs[@]}"; do
             info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews)"
 
@@ -94,5 +95,12 @@ jobs:
             if [ "$human_block" = "true" ];             then echo "#$n: human changes-requested — skip";    continue; fi
 
             echo "#$n: eligible — merging (squash, delete branch)"
-            gh pr merge "$n" --squash --delete-branch
+            # Tolerate a per-PR merge failure: log it and keep going so one stuck PR doesn't block
+            # the rest of this pass. Still flag the run red at the end so the failure isn't swallowed.
+            if ! gh pr merge "$n" --squash --delete-branch; then
+              echo "#$n: merge FAILED — continuing with remaining PRs"
+              failed=1
+            fi
           done
+
+          if [ "$failed" -ne 0 ]; then echo "One or more doc PR merges failed."; exit 1; fi

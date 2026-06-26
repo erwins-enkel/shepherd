@@ -153,12 +153,21 @@
     align-items: center;
   }
   .tally {
+    box-sizing: border-box;
     display: flex;
     gap: 7px;
     align-items: center;
+    /* shared bar control height (matches the right cluster); box-sizing keeps the
+       rendered box at exactly --topbar-ctl-h despite the 1px border, and the text
+       centers via align-items instead of vertical padding driving the height */
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     background: none;
     border: 1px solid transparent;
-    padding: 2px 4px;
+    /* horizontal-only: vertical padding no longer drives height. Side padding stays
+       4px so the full-label width — what the measured compaction threshold reads — is
+       unchanged */
+    padding: 0 4px;
     font: inherit;
     color: inherit;
     cursor: pointer;
@@ -189,6 +198,7 @@
     flex-shrink: 0;
   }
   .ctally {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -196,18 +206,23 @@
     background: none;
     border: 1px solid transparent;
     padding: 0 5px;
+    line-height: 1;
     font: inherit;
     color: inherit;
     cursor: pointer;
-    /* WCAG 2.5.8 (AA) 24px target floor on ALL pointers — keeps even the bare-digit
-       Idle segment hittable when the compact tallies render on a fine-pointer desktop
-       under measured overflow. Coarse pointers (phones, foldables) get the larger 44px
-       touch floor in HEIGHT below. A 44px WIDTH floor for four buttons would blow the
-       ~260px usable line-1 budget on fold-cover phones, so width stays at 24px. */
-    min-height: 24px;
+    /* HEIGHT: shares the bar's --topbar-ctl-h so the compact tallies sit flush with the
+       right cluster (#1131). box-sizing makes that a true 30px box despite the 1px
+       border; 30px > the 24px WCAG 2.5.8 (AA) target minimum, so the AA height floor is
+       still met. WIDTH: min-inline-size keeps the 24px AA target floor on the narrow
+       axis — now a true 24px border-box width (content-box previously inflated it to
+       ~36px). A 44px WIDTH floor for four buttons would blow the ~260px usable line-1
+       budget on fold-cover phones, so width stays at the 24px floor. */
+    min-height: var(--topbar-ctl-h);
     min-inline-size: 24px;
   }
-  /* Coarse-pointer touch floor: 44px height (matches .hud.mobile .gear/.needsyou). */
+  /* Coarse-pointer touch floor: 44px height (matches .hud.mobile .gear/.needsyou).
+     With box-sizing:border-box above this renders a true 44px box (was ~46px content-box)
+     and still overrides the 30px shared height since 44 > 30. */
   @media (pointer: coarse) {
     .ctally {
       min-height: 44px;

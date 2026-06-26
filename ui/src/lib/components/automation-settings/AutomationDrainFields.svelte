@@ -12,6 +12,10 @@
   // the parent's already-large template flat.
   let { repoPath, active }: { repoPath: string; active: boolean } = $props();
 
+  // Per-instance prefix so the hint IDs (and the inputs' aria-describedby) stay
+  // unique even if two panels mount at once (e.g. in-task popover + backlog tab).
+  const uid = $props.id();
+
   // Seeded from stored config; re-seeded whenever the repo changes (the component
   // stays mounted across repo switches as long as Auto-Drain remains on).
   // svelte-ignore state_referenced_locally
@@ -61,44 +65,44 @@
     <label class="drain-field">
       <span class="drain-label">{m.drain_cap_label()}</span>
       <input
-        class="num"
+        class="afield-num"
         type="number"
         min="1"
         max="20"
         bind:value={drainCap}
         aria-label={m.drain_cap_label()}
-        aria-describedby="drain-hint-cap"
+        aria-describedby="{uid}-cap"
         onchange={commitDrainCap}
       />
     </label>
-    <p id="drain-hint-cap" class="drain-hint">{m.drain_cap_hint()}</p>
+    <p id="{uid}-cap" class="drain-hint">{m.drain_cap_hint()}</p>
     <label class="drain-field">
       <span class="drain-label">{m.drain_label_label()}</span>
       <input
-        class="num txt"
+        class="afield-num txt"
         type="text"
         bind:value={drainLabel}
         aria-label={m.drain_label_label()}
-        aria-describedby="drain-hint-label"
+        aria-describedby="{uid}-label"
         onchange={commitDrainLabel}
         onblur={commitDrainLabel}
       />
     </label>
-    <p id="drain-hint-label" class="drain-hint">{m.drain_label_hint()}</p>
+    <p id="{uid}-label" class="drain-hint">{m.drain_label_hint()}</p>
     <label class="drain-field">
       <span class="drain-label">{m.drain_ceiling_label()}</span>
       <input
-        class="num"
+        class="afield-num"
         type="number"
         min="0"
         max="100"
         bind:value={drainCeiling}
         aria-label={m.drain_ceiling_label()}
-        aria-describedby="drain-hint-ceiling"
+        aria-describedby="{uid}-ceiling"
         onchange={commitDrainCeiling}
       />
     </label>
-    <p id="drain-hint-ceiling" class="drain-hint">{m.drain_ceiling_hint()}</p>
+    <p id="{uid}-ceiling" class="drain-hint">{m.drain_ceiling_hint()}</p>
   </div>
 {/if}
 

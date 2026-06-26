@@ -84,7 +84,7 @@
   <label class="drain-field">
     <span class="drain-label">{m.automation_default_model_label()}</span>
     <select
-      class="num model-select"
+      class="afield-num model-select"
       aria-label={m.automation_default_model_label()}
       value={repoConfig.defaultModelFor(repoPath)}
       onchange={(e) =>
@@ -175,7 +175,7 @@
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
-  /* .drain-fields / .drain-field / .drain-label / .num come from
+  /* .drain-fields / .drain-field / .drain-label / .afield-num come from
      ./automation-fields.css (imported in <script>). */
   .role-select,
   .role-input {

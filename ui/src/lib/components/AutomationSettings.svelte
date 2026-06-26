@@ -387,7 +387,7 @@
     <label class="drain-field">
       <span class="drain-label">{m.automation_signoff_authority_label()}</span>
       <select
-        class="num signoff-select"
+        class="afield-num signoff-select"
         aria-label={m.automation_signoff_authority_label()}
         value={repoConfig.signoffAuthorityFor(repoPath)}
         onchange={(e) =>
@@ -416,7 +416,7 @@
   <label class="drain-field" use:coachIf={{ id: "sandbox-profile", on: armCoachmarks }}>
     <span class="drain-label">{m.automation_sandbox_profile_label()}</span>
     <select
-      class="num sandbox-select"
+      class="afield-num sandbox-select"
       aria-label={m.automation_sandbox_profile_label()}
       value={repoConfig.sandboxProfileFor(repoPath)}
       onchange={(e) =>
@@ -617,9 +617,9 @@
       opacity: 1;
     }
   }
-  /* .drain-fields / .drain-field / .drain-label / .num come from
+  /* .drain-fields / .drain-field / .drain-label / .afield-num come from
      ./automation-settings/automation-fields.css (imported in <script>). */
-  /* Sign-off authority selector — inherits .num token styling, left-aligned */
+  /* Sign-off authority selector — inherits .afield-num token styling, left-aligned */
   .signoff-select {
     flex: 1 1 auto;
     width: auto;
@@ -633,7 +633,7 @@
     color: var(--color-faint);
     padding: 0 12px 6px;
   }
-  /* Sandbox-profile selector — inherits .num token styling, left-aligned (mirrors .signoff-select) */
+  /* Sandbox-profile selector — inherits .afield-num token styling, left-aligned (mirrors .signoff-select) */
   .sandbox-select {
     flex: 1 1 auto;
     width: auto;

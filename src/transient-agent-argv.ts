@@ -1,0 +1,155 @@
+import { randomUUID } from "node:crypto";
+import { apiKeySettingsFragment } from "./spawn-auth";
+
+/**
+ * One home for the transient-`claude` argv shape that 10 spawn sites used to re-assemble
+ * byte-for-byte (issue #1093). A transient agent is a short-lived, non-interactive-to-the-operator
+ * `claude` spawned in a herdr pane to do one unattended job (review, name, classify, distill,
+ * recap, …) and then be torn down. They all share the SAME hard-won invocation posture; only the
+ * tool allowlist and MCP isolation vary, and that variation is captured in {@link PRESETS}.
+ *
+ * ── The MECHANICAL invariant (universal — this is why it lives here ONCE) ───────────────────────
+ *
+ *   claude
+ *     --session-id <uuid>          forced so the transcript lands at a predictable path
+ *     --settings <json>            { disableAllHooks:true, [enableAllProjectMcpServers:true],
+ *                                    [env:{MAX_THINKING_TOKENS}], ...apiKeySettingsFragment() }
+ *     --disable-slash-commands
+ *     [--safe-mode]                emitted IFF the preset is mcpIsolated (see coupling note)
+ *     --allowedTools <tools…>      VARIADIC — swallows every following token until the next --flag
+ *     [--model <model>]            emitted IFF opts.model is truthy
+ *     --permission-mode dontAsk    single-value flag — MUST sit between the variadic allowlist
+ *                                  and the trailing prompt positional, or `claude` folds the prompt
+ *                                  into the allowlist, launches with no task, and the unattended
+ *                                  pane hangs until timeout. DON'T REORDER.
+ *     <prompt>                     trailing positional, last
+ *
+ * NOT --dangerously-skip-permissions and NOT --bare:
+ *   - dontAsk auto-denies anything off the allowlist (an unattended PTY would otherwise hang on a
+ *     permission prompt) without granting blanket exec.
+ *   - --bare refuses OAuth/keychain auth (strictly ANTHROPIC_API_KEY); shepherd defaults to
+ *     subscription OAuth with no API key, so --bare would break auth. In api-key auth mode the key
+ *     arrives via `apiKeyHelper` folded into --settings (NOT --bare) plus a credential-less
+ *     CLAUDE_CONFIG_DIR supplied by the caller's spawn env (see spawn-auth / spawn-membrane).
+ * disableAllHooks strips inherited global hooks (notably a superpowers SessionStart "you MUST
+ * invoke a skill" preamble that would thrash an agent whose allowlist lacks Skill);
+ * --disable-slash-commands removes skills entirely.
+ *
+ * --settings key order is preserved (disableAllHooks first, then enableAllProjectMcpServers, then
+ * env, then the apiKeySettingsFragment() spread) so subscription mode stays BYTE-FOR-BYTE identical
+ * to the historical per-site output — the consumer argv tests are the byte-identity regression gate.
+ *
+ * ── MCP isolation: ONE coupled field, not two independent flags ─────────────────────────────────
+ *
+ * `--safe-mode` and `enableAllProjectMcpServers` MUST travel together and are modeled as a single
+ * preset field, `mcpIsolated`, so they cannot drift apart:
+ *   (1) --safe-mode disables MCP *loading* (file + plugin sources) and other customizations while
+ *       keeping Auth/tools/permissions normal — the OAuth-safe alternative to --bare. It is a
+ *       boolean flag and MUST precede the variadic --allowedTools.
+ *   (2) enableAllProjectMcpServers pre-approves the repo's project .mcp.json so Claude's interactive
+ *       "N new MCP servers found" gate never renders (that gate is SEPARATE from loading; neither
+ *       --safe-mode nor dontAsk suppresses it on an interactive pane, and a fresh disposable-worktree
+ *       path makes the servers look "newly discovered" every time → invisible hang).
+ * COUPLING: dropping --safe-mode while enableAllProjectMcpServers is true would auto-LOAD every
+ * project MCP server into an untrusted-input sandbox. Safety rests on two independent axes —
+ * --safe-mode (servers don't load) and dontAsk (any MCP tool call is denied off the allowlist).
+ * VERSION: gate-clearing is verified on the Claude CLI in use and depends on Claude's project-MCP
+ * approval semantics, which no unit test can assert. Re-run the manual repro (temp repo with a
+ * committed .mcp.json → reviewer launches with no gate and runs to completion) on every CLI upgrade.
+ */
+
+export type TransientAgentKind = "reviewer" | "doc" | "writer-ro" | "writer-only";
+
+export interface TransientAgentArgvOptions {
+  /** Model to pin, or null to inherit the spawn default. `--model` is emitted only when truthy. */
+  model: string | null;
+  /** The agent's task — the trailing positional. */
+  prompt: string;
+  /** Optional extended-thinking budget; folds into --settings env.MAX_THINKING_TOKENS only when set.
+   *  The ONLY knob that grants a spawned session's initial positional prompt a thinking budget (the
+   *  think/ultrathink magic words do NOT fire from it); a no-op on a non-thinking model. Passed by
+   *  the reviewer/doc callers only. */
+  thinkingTokens?: number;
+}
+
+/** Read-only git grounding — diff/log/show/status only. NO add/commit/push. Shared by reviewer+doc. */
+const READONLY_GIT = [
+  "Read",
+  "Grep",
+  "Glob",
+  "Bash(git diff *)",
+  "Bash(git log *)",
+  "Bash(git show *)",
+  "Bash(git status)",
+];
+
+interface KindPreset {
+  /** The exact --allowedTools set for this kind. */
+  allowedTools: string[];
+  /** true → emit BOTH --safe-mode AND enableAllProjectMcpServers (the coupled MCP-isolation pair). */
+  mcpIsolated: boolean;
+}
+
+/**
+ * Per-kind variation. The SECURITY rationale lives here (not flattened into the header) because
+ * input trust differs by kind:
+ *
+ *  - `reviewer`  UNTRUSTED input (PR diff / agent-written plan text). Closed read-only allowlist —
+ *                a prompt-injection hidden in the input must not exec, commit, push, or escape the
+ *                disposable worktree. Bare `Write` (NOT path-scoped — scoped Write is silently denied
+ *                under dontAsk) lets it write its verdict; the worktree is detached + disposable.
+ *  - `doc`       UNTRUSTED input (recent source history). Same posture as reviewer; the ONLY widening
+ *                is bare `Edit` — it edits existing prose pages. NO git mutation / gh / network / general
+ *                Bash; all publishing is done by the trusted server, never the agent.
+ *  - `writer-ro` UNTRUSTED input (agent/repo text: learnings, agent-authored rule text). Read-only
+ *                inspection + bare `Write`. Not mcpIsolated: runs in a scratch dir with no project
+ *                .mcp.json, so the MCP gate never arises.
+ *  - `writer-only` MIXED trust — do NOT assume untrusted input here. Some callers pass the operator's
+ *                OWN text (namer: the task prompt; verify-key: a fixed sentinel), others pass untrusted
+ *                text (autopilot: agent-stop tail; recap / herd-digest: session transcript). Bare
+ *                `Write` is acceptable across all of them because of the SANDBOX SHAPE — a disposable
+ *                temp dir, dontAsk, and no exec/Edit/network on the allowlist — which holds regardless
+ *                of input trust, NOT because the input is untrusted.
+ */
+const PRESETS: Record<TransientAgentKind, KindPreset> = {
+  reviewer: { allowedTools: [...READONLY_GIT, "Write"], mcpIsolated: true },
+  doc: { allowedTools: [...READONLY_GIT, "Write", "Edit"], mcpIsolated: true },
+  "writer-ro": { allowedTools: ["Read", "Grep", "Glob", "Write"], mcpIsolated: false },
+  "writer-only": { allowedTools: ["Write"], mcpIsolated: false },
+};
+
+/**
+ * Build the argv (and the forced session id) for a transient `claude` agent of the given kind.
+ * Returns the pinned `--session-id` so callers can locate the spawn's transcript. Pure: no I/O,
+ * no spawn, no membrane wrapping — those stay at each call site (the auth seam is unchanged).
+ */
+export function buildTransientAgentArgv(
+  kind: TransientAgentKind,
+  opts: TransientAgentArgvOptions,
+): { argv: string[]; sessionId: string } {
+  const preset = PRESETS[kind];
+  const sessionId = randomUUID();
+
+  const settings: Record<string, unknown> = { disableAllHooks: true };
+  if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;
+  if (opts.thinkingTokens) settings.env = { MAX_THINKING_TOKENS: String(opts.thinkingTokens) };
+  // api-key mode folds in `apiKeyHelper` AFTER the existing keys (stable order; subscription spreads
+  // {} → byte-identical JSON). The membrane masks the operator's OAuth credential in place.
+  Object.assign(settings, apiKeySettingsFragment());
+
+  const argv = [
+    "claude",
+    "--session-id",
+    sessionId,
+    "--settings",
+    JSON.stringify(settings),
+    "--disable-slash-commands",
+  ];
+  if (preset.mcpIsolated) argv.push("--safe-mode");
+  argv.push("--allowedTools", ...preset.allowedTools);
+  if (opts.model) argv.push("--model", opts.model);
+  argv.push("--permission-mode", "dontAsk");
+  argv.push(opts.prompt);
+
+  return { argv, sessionId };
+}

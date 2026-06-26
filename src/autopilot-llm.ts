@@ -1,15 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { HerdrDriver } from "./herdr";
 import type { AutopilotVerdict, AutopilotKind } from "./types";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 
 /** The file the classifier agent writes its verdict JSON to, in its temp cwd. */
 export const VERDICT_FILE = ".shepherd-autopilot.json";
@@ -103,30 +98,12 @@ function defaultCleanup(cwd: string): void {
   }
 }
 
-/**
- * The `claude` argv for the classifier spawn — identical isolation to the namer
- * (src/namer-llm.ts) and critic: clean context (disableAllHooks + disable-slash-commands),
- * subscription OAuth (NOT --bare), bare `Write` (scoped Write denied under dontAsk),
- * and --permission-mode dontAsk LAST (after the variadic --allowedTools, before the
- * trailing prompt). Don't reorder. In api-key auth mode the key arrives via apiKeyHelper
- * in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR — still NOT --bare.
- */
+/** The classifier spawn's argv — the shared `writer-only` transient-agent shape. NOTE the input
+ *  (the agent-stop tail) is UNTRUSTED; bare `Write` is safe here via the sandbox shape (disposable
+ *  temp dir, dontAsk, no exec/Edit/network), NOT because the input is trusted. See
+ *  buildTransientAgentArgv for the flag-order + isolation rationale. */
 function classifierArgv(model: string | null, prompt: string): string[] {
-  const argv = [
-    "claude",
-    "--session-id",
-    randomUUID(),
-    "--settings",
-    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
-    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Write",
-  ];
-  if (model) argv.push("--model", model);
-  argv.push("--permission-mode", "dontAsk");
-  argv.push(prompt);
-  return argv;
+  return buildTransientAgentArgv("writer-only", { model, prompt }).argv;
 }
 
 interface PollClock {

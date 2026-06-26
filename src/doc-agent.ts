@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { docAgentArgv } from "./doc-agent-argv";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { EmptyDiffError } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
 import { isSettledIdle } from "./recap-core";
@@ -225,7 +225,7 @@ export interface DocAgentDeps extends MembraneSeams {
  * PR-gated AI doc agent (issue #882, epic #875 Phase 3).
  *
  * Manual-trigger, flag-gated (config.docAgentEnabled). On `consider(repoPath)` it spawns a scoped,
- * `dontAsk` Claude Code agent in a disposable worktree (see {@link docAgentArgv}); the agent EDITS
+ * `dontAsk` Claude Code agent in a disposable worktree (`buildTransientAgentArgv("doc", …)`); the agent EDITS
  * stale prose docs and writes a {@link SENTINEL} summary, but runs NO git. On the next `tick()` the
  * trusted server stages ONLY the in-scope file list, commits `--no-verify`, pushes, and opens a PR
  * via `forge.openPr()` — never an auto-merge. Mirrors the worktree+git tail of {@link
@@ -695,10 +695,10 @@ export class DocAgentService {
     base: string,
     promptCtx?: RetargetPromptCtx,
   ): { terminalId: string; spawnSessionId: string } | null {
-    const { argv, sessionId } = docAgentArgv(
-      this.deps.model ?? null,
-      this.buildPrompt(base, promptCtx),
-    );
+    const { argv, sessionId } = buildTransientAgentArgv("doc", {
+      model: this.deps.model ?? null,
+      prompt: this.buildPrompt(base, promptCtx),
+    });
     const { wrapped, backend } = resolveSpawnMembrane({
       argv,
       worktreePath,

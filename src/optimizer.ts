@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,12 +5,9 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Promoter } from "./promote";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { reapTransientByLabel } from "./transient-tab-reaper";
 
 const INPUT_FILE = "input.json";
 const OUTPUT_FILE = "optimized.json";
@@ -186,33 +182,6 @@ export class OptimizerService {
     return { targets, targetIds, promotedIds };
   }
 
-  /** Build the read-only claude argv (same hard-won contract as the critic/distiller).
-   *  Read-only optimizer (src/review.ts:begin, src/distiller.ts:begin). NOT
-   *  --dangerously-skip-permissions: it reads untrusted agent/repo text. dontAsk MUST be
-   *  last (after the variadic --allowedTools) so the trailing prompt isn't swallowed. Bare
-   *  Write only. Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
-   *  apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR. */
-  private buildArgv(sessionId: string): string[] {
-    const argv = [
-      "claude",
-      "--session-id",
-      sessionId,
-      "--settings",
-      // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
-      JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-      "--disable-slash-commands",
-      "--allowedTools",
-      "Read",
-      "Grep",
-      "Glob",
-      "Write",
-    ];
-    if (this.deps.model) argv.push("--model", this.deps.model);
-    argv.push("--permission-mode", "dontAsk");
-    argv.push(optimizePrompt());
-    return argv;
-  }
-
   private begin(repoPath: string, ids: string[]): void {
     const { dir } = this.deps.scratch.create();
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
@@ -236,9 +205,13 @@ export class OptimizerService {
       this.recordHealthFailure(repoPath, "write");
       return;
     }
-    const sessionId = randomUUID();
+    // Read-only optimizer — the shared `writer-ro` transient-agent shape (untrusted agent/repo
+    // text); see buildTransientAgentArgv for the flag-order + isolation rationale.
+    const { argv, sessionId } = buildTransientAgentArgv("writer-ro", {
+      model: this.deps.model ?? null,
+      prompt: optimizePrompt(),
+    });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
-    const argv = this.buildArgv(sessionId);
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -279,18 +252,7 @@ export class OptimizerService {
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    let reaped = 0;
-    try {
-      for (const a of this.deps.herdr.list()) {
-        if (!a.name.startsWith(OPTIMIZE_LABEL)) continue;
-        if (ownedTerms.has(a.terminalId)) continue; // spare a live run started by THIS process
-        this.deps.herdr.closeTab(a.tabId);
-        reaped++;
-      }
-    } catch (err) {
-      console.warn("[optimize] reapOrphans:", err); // herdr may be unavailable at boot — no-op
-    }
-    if (reaped > 0) console.warn(`[optimize] reapOrphans: closed ${reaped} orphan tab(s)`);
+    reapTransientByLabel(this.deps.herdr, OPTIMIZE_LABEL, ownedTerms, "[optimize]");
   }
 
   /** Finalize any run whose output file is ready or that timed out, then drain queue. */

@@ -5,7 +5,7 @@ import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
-import { readonlyReviewerArgv } from "./reviewer-argv";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
@@ -542,12 +542,12 @@ export class ReviewService {
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context.
-    return readonlyReviewerArgv(
-      this.deps.model ?? null,
-      reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
+    return buildTransientAgentArgv("reviewer", {
+      model: this.deps.model ?? null,
+      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
       // Extended thinking budget (#604) — reasoning headroom for the #597 cross-file VERIFY pass.
-      CRITIC_THINKING_TOKENS,
-    );
+      thinkingTokens: CRITIC_THINKING_TOKENS,
+    });
   }
 
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.

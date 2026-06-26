@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,12 +7,9 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Learning, MergeSuggestionKind } from "./types";
 import { normalizeRule } from "./distiller";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { reapTransientByLabel } from "./transient-tab-reaper";
 
 const RULES_FILE = "rules.json";
 const OUTPUT_FILE = ".shepherd-merge.json";
@@ -233,26 +230,13 @@ export class MergeSuggestionService {
       this.recordHealthFailure(key, "write");
       return;
     }
-    // Same read-only subscription spawn contract as the distiller/critic. dontAsk MUST be
-    // last (after variadic --allowedTools) so the trailing prompt isn't swallowed.
-    const sessionId = randomUUID();
+    // Read-only merge suggester — the shared `writer-ro` transient-agent shape (untrusted
+    // agent-authored rule text); see buildTransientAgentArgv for the flag-order + isolation rationale.
+    const { argv, sessionId } = buildTransientAgentArgv("writer-ro", {
+      model: this.deps.model ?? null,
+      prompt: kind === "cross" ? crossPrompt() : intraPrompt(),
+    });
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
-    const argv = [
-      "claude",
-      "--session-id",
-      sessionId,
-      "--settings",
-      JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-      "--disable-slash-commands",
-      "--allowedTools",
-      "Read",
-      "Grep",
-      "Glob",
-      "Write",
-    ];
-    if (this.deps.model) argv.push("--model", this.deps.model);
-    argv.push("--permission-mode", "dontAsk");
-    argv.push(kind === "cross" ? crossPrompt() : intraPrompt());
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
@@ -295,18 +279,7 @@ export class MergeSuggestionService {
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    let reaped = 0;
-    try {
-      for (const a of this.deps.herdr.list()) {
-        if (!a.name.startsWith(MERGE_LABEL)) continue;
-        if (ownedTerms.has(a.terminalId)) continue; // spare a live run started by THIS process
-        this.deps.herdr.closeTab(a.tabId);
-        reaped++;
-      }
-    } catch (err) {
-      console.warn("[merge] reapOrphans:", err); // herdr may be unavailable at boot — no-op
-    }
-    if (reaped > 0) console.warn(`[merge] reapOrphans: closed ${reaped} orphan tab(s)`);
+    reapTransientByLabel(this.deps.herdr, MERGE_LABEL, ownedTerms, "[merge]");
   }
 
   /** Finalize any run whose output file is ready or that timed out, then drain the queue. */

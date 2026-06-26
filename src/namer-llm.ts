@@ -1,15 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { HerdrDriver } from "./herdr";
 import { slugifyManual } from "./namer";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 
 /** The file the namer agent writes its slug to, in its temp cwd. */
 export const NAME_FILE = ".shepherd-name";
@@ -63,40 +58,11 @@ function defaultCleanup(cwd: string): void {
   }
 }
 
-/**
- * The `claude` argv for the namer spawn — mirrors the critic (src/review.ts):
- *  - CLEAN context: user's global hooks (e.g. the SessionStart superpowers preamble)
- *    would inject a "you MUST invoke a skill" message that dontAsk can't satisfy,
- *    making the agent thrash. `--disable-slash-commands` removes skills entirely.
- *    NOT `--bare`: it refuses subscription OAuth (demands ANTHROPIC_API_KEY). In
- *    api-key auth mode the key arrives via `apiKeyHelper` in --settings (folded in
- *    below) and the spawn points at a credential-less CLAUDE_CONFIG_DIR — still NOT --bare.
- *  - Bare `Write` — NOT Write(<path>): path-scoped Write rules are silently denied
- *    under `dontAsk`, which would block the slug write. Bare Write is not cwd-scoped,
- *    so an absolute-path write is technically permitted — an accepted trade-off (same
- *    as the critic) because the only input is the user's OWN prompt, not untrusted text.
- *    The agent still has no Bash/Edit/network, so it can't exec, commit, push, or fetch.
- *  - `--permission-mode dontAsk` LAST: `--allowedTools` is variadic and eats every
- *    following token until the next flag, so a single-value flag must sit between the
- *    allowlist and the trailing prompt — else the prompt is folded into the allowlist
- *    and the agent launches with no task. Don't reorder.
- */
+/** The namer spawn's argv — the shared `writer-only` transient-agent shape (Write-only, dontAsk,
+ *  clean context). The only input is the user's OWN task prompt (trusted), so bare `Write` is an
+ *  accepted trade-off; see buildTransientAgentArgv for the full flag-order + posture rationale. */
 function namerArgv(model: string | null, taskText: string): string[] {
-  const argv = [
-    "claude",
-    "--session-id",
-    randomUUID(),
-    "--settings",
-    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
-    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Write",
-  ];
-  if (model) argv.push("--model", model);
-  argv.push("--permission-mode", "dontAsk");
-  argv.push(namingPrompt(taskText));
-  return argv;
+  return buildTransientAgentArgv("writer-only", { model, prompt: namingPrompt(taskText) }).argv;
 }
 
 interface PollClock {

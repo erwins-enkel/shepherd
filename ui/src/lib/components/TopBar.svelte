@@ -591,7 +591,7 @@
   <div class="sep"></div>
   <TopBarTallies
     {mobile}
-    compact={touch && compactBadges}
+    compact={compactBadges}
     total={sessions.length}
     {working}
     {idle}

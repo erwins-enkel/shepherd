@@ -655,6 +655,58 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
   });
 });
 
+describe("TopBar — fine-pointer desktop tallies ALSO collapse under measured overflow", () => {
+  // Tally compaction is gated on the measured-overflow signal (`compactBadges`), matching the
+  // sibling NEEDS-YOU / held badges — NOT on `touch`, so a NARROW fine-pointer desktop window
+  // (a small/split-screen window, still wider than the 768px mobile breakpoint) doesn't keep
+  // full-label tallies after the right side has compacted and overflow the bar. Desktop renders
+  // BOTH usage gauges inline (wider than touch's single collapsed gauge-btn), so it overflows
+  // EARLIER than touch-desktop — exactly the case the `touch &&` guard would have left unfixed.
+  // Same font-robust coupling-sweep shape as the touch-desktop test above.
+  async function renderDesktopBar(width: number, extra: Record<string, unknown>) {
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(2),
+      limits: fullLimits,
+      ...extra,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    return hud!;
+  }
+
+  it("narrow desktop window collapses the tallies to fit; wide keeps full labels (no over-compaction)", async () => {
+    const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
+    for (const width of [960, 1150, 1350, 1500, 1650]) {
+      const hud = await renderDesktopBar(width, { heldCount: 3, needsYou: 2 });
+      await waitNoOverflow(hud);
+      await drainFrames(hud);
+      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
+      const talliesCompact = !!hud.querySelector(".tallies.compact");
+      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(clockDropped);
+      if (talliesCompact) {
+        expect(hud.querySelector(".tally"), `no full tally at ${width}px`).toBeNull();
+      } else {
+        expect(hud.querySelector(".tally"), `full tally present at ${width}px`).not.toBeNull();
+      }
+      assertControlsHittable(hud);
+      states.push({ width, clockDropped, talliesCompact });
+    }
+    expect(
+      states.some((s) => s.talliesCompact),
+      "sweep exercises the compacted state (a narrow desktop window collapses the tallies)",
+    ).toBe(true);
+    expect(
+      states.some((s) => !s.talliesCompact),
+      "sweep exercises the full state (a wide desktop keeps full tally labels — no over-compaction)",
+    ).toBe(true);
+  });
+});
+
 describe("TopBar — async held-task arrival re-measures (touch-desktop reactivity gap)", () => {
   // The held badge (added in #1089) appears via the held:changed WS event AFTER first paint.
   // Like the gauge-arrival case above, its arrival changes NEITHER mode NOR the .shell-capped

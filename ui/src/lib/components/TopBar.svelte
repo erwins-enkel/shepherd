@@ -59,6 +59,7 @@
     learningsCurate = 0,
     onlearnings,
     heldCount = 0,
+    onedithheld,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -95,6 +96,8 @@
     onlearnings?: () => void;
     /** Number of held tasks; updated live by held:changed WS events. */
     heldCount?: number;
+    /** Edit a held task: page opens the New Task composer pre-filled from its input. */
+    onedithheld?: (task: HeldTask) => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -404,6 +407,13 @@
     }
   }
 
+  // Edit a held task: close the popover (the composer is a separate modal that would
+  // otherwise sit behind this anchored surface) and hand the task to the page opener.
+  function doEditHeld(task: HeldTask) {
+    closeHeldPop();
+    onedithheld?.(task);
+  }
+
   async function doDiscardHeld(id: string) {
     if (heldPending[id]) return;
     delete heldErrors[id];
@@ -694,6 +704,7 @@
       {closeHeldPop}
       {doSpawnHeld}
       {doDiscardHeld}
+      onEditHeld={doEditHeld}
     />
     {#if !mobile}
       <TopBarUsage

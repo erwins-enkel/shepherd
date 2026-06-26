@@ -26,10 +26,12 @@
   import type { HerdStore } from "$lib/store.svelte";
   import type { BlockedEntry } from "$lib/triage";
   import type {
+    AgentProvider,
     BacklogPayload,
     DeployState,
     Issue,
     PullRequest,
+    SandboxProfile,
     Session,
     Settings as Settings_,
     StarPromptStatus,
@@ -106,6 +108,7 @@
     showNew,
     onsubmit,
     relaunchOriginal,
+    editHeld,
     composeRepoPath,
     repoFilter,
     composeBaseBranch,
@@ -114,6 +117,11 @@
     composeImages,
     composePrompt,
     composeModel,
+    composeAgentProvider,
+    composePlanGate,
+    composeAutopilot,
+    composeSandbox,
+    composeResearch,
     holdLikely,
     onnewclose,
     onnewclone,
@@ -198,6 +206,7 @@
     showNew: boolean;
     onsubmit: ComponentProps<typeof NewTask>["onsubmit"];
     relaunchOriginal: boolean;
+    editHeld: boolean;
     composeRepoPath: string | null;
     repoFilter: string | null;
     composeBaseBranch: string | null;
@@ -206,6 +215,11 @@
     composeImages: { path: string; name: string }[];
     composePrompt: string | null;
     composeModel: string | null;
+    composeAgentProvider: AgentProvider | null;
+    composePlanGate: boolean | null;
+    composeAutopilot: boolean | null;
+    composeSandbox: SandboxProfile | null;
+    composeResearch: boolean;
     holdLikely: boolean;
     onnewclose: () => void;
     onnewclone: () => void;
@@ -406,6 +420,7 @@
   <NewTask
     {onsubmit}
     relaunch={relaunchOriginal}
+    {editHeld}
     initialRepoPath={newTaskInitialRepo}
     initialBaseBranch={newTaskInitialBaseBranch}
     initialIssue={newTaskInitialIssue}
@@ -413,6 +428,11 @@
     initialImages={composeImages}
     initialPrompt={newTaskInitialPrompt}
     initialModel={newTaskInitialModel}
+    initialAgentProvider={composeAgentProvider ?? undefined}
+    initialPlanGate={composePlanGate}
+    initialAutopilot={composeAutopilot}
+    initialSandboxProfile={composeSandbox}
+    initialResearch={composeResearch}
     defaultAgentProvider={settings?.defaultAgentProvider}
     defaultModel={settings?.defaultModel}
     fableAvailable={newTaskFableAvailable}

@@ -425,6 +425,14 @@
     /* keep a long list from pushing the actions off-screen on short viewports */
     max-height: 180px;
     overflow-y: auto;
+    /* Don't let the flex column collapse this list away. The card is capped at
+       80dvh and both this list and the release-notes box are scroll containers
+       (automatic min-size 0), so when long notes overflow the cap flexbox is
+       free to shrink BOTH to a sliver — which hid the running-sessions list
+       entirely. The notes box is the intended shrinkable one (min-height: 0);
+       the sessions list is this dialog's whole point, so pin it and let the
+       notes absorb the shrinkage instead. */
+    flex-shrink: 0;
   }
   .session {
     width: 100%;

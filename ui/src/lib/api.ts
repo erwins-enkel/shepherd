@@ -621,8 +621,8 @@ export async function recommendPrompt(
 }
 
 /**
- * Bring a finished session back — re-spawns `claude --resume` in its worktree.
- * `force` tears down a surviving husk shell first, for the case claude exited but
+ * Bring a finished session back — re-spawns the provider's resume in its worktree.
+ * `force` tears down a surviving husk shell first, for the case the provider exited but
  * its herdr tab is still alive (so the session lists as idle, not gone).
  */
 export async function resumeSession(id: string, force = false): Promise<Session> {

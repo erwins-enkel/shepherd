@@ -2053,8 +2053,8 @@ async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response 
 }
 
 // POST /api/sessions/:id/resume — resume a finished session in a fresh agent.
-// Body `{ force: true }` forces a fresh `claude --resume` even when a husk shell
-// still backs the worktree (claude exited but its herdr tab survived).
+// Body `{ force: true }` forces a fresh provider resume even when a husk shell
+// still backs the worktree (agent exited but its herdr tab survived).
 async function handleSessionResume({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "resume")) return null;
   const body = (await req.json().catch(() => null)) as { force?: unknown } | null;

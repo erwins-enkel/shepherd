@@ -3,8 +3,8 @@ import type { Session, SessionStatus, GitState } from "./types";
 import { isMerging } from "./components/merge-train";
 
 /**
- * Whether to offer a Resume control for a session: idle/done with a pinned
- * claude id, and the claude process verifiably gone.
+ * Whether to offer a Resume control for a session: idle/done with a provider-
+ * specific resume target, and the claude process verifiably gone.
  *
  * herdr ≥0.6 `agent list` exposes no per-agent command/liveness field, so a husk
  * shell and an idle-at-prompt claude are indistinguishable from its API. The
@@ -16,8 +16,11 @@ import { isMerging } from "./components/merge-train";
  * (awaiting input) are unambiguously live, so they're excluded regardless.
  */
 export function canResume(s: Session, claudeAlive?: boolean): boolean {
+  const provider = s.agentProvider ?? "claude";
   return (
-    !!s.claudeSessionId && (s.status === "idle" || s.status === "done") && claudeAlive !== true
+    (provider === "codex" || !!s.claudeSessionId) &&
+    (s.status === "idle" || s.status === "done") &&
+    claudeAlive !== true
   );
 }
 

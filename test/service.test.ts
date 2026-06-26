@@ -148,6 +148,7 @@ test("createSession: codex provider starts interactive codex and disables claude
   ]);
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
+  expect(s.claudeSessionId).toBe("");
   expect(s.planGateEnabled).toBe(false);
   expect(s.autopilotEnabled).toBe(false);
   expect(store.get(s.id)?.agentProvider).toBe("codex");
@@ -1674,6 +1675,50 @@ test("resume omits --model when the session had none", async () => {
     "abc-123",
     "--settings",
     spawnSettingsOverlay(),
+  ]);
+});
+
+test("resume uses codex resume --last for codex sessions", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: (_n: string, cwd: string, argv: string[]) => {
+        calls.start = { cwd, argv };
+        return { terminalId: "term_codex_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    model: "gpt-5.5",
+  });
+
+  const out = await svc.resume(s.id);
+
+  expect(out?.herdrAgentId).toBe("term_codex_new");
+  expect(out?.status).toBe("running");
+  expect(calls.start.cwd).toBe("/wt/x");
+  expect(calls.start.argv).toEqual([
+    "codex",
+    "resume",
+    "--last",
+    "--no-alt-screen",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--model",
+    "gpt-5.5",
   ]);
 });
 

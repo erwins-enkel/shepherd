@@ -226,7 +226,7 @@
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
-  // splits the two cases: "gone" = the agent exited (offer claude --resume),
+  // splits the two cases: "gone" = the agent exited (offer provider resume),
   // "unreachable" = herdr itself is down (offer a plain re-attach).
   let ended = $state(false);
   let endReason = $state<"gone" | "unreachable">("gone");
@@ -333,7 +333,7 @@
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
 
-  // a parked (idle/done) session whose claude process is actually gone can be
+  // a parked (idle/done) session whose provider process is actually gone can be
   // brought back — surface a header Resume button so the user isn't stranded at a
   // bare shell with no affordance (the in-terminal overlay only shows once the PTY
   // closes for good). A verifiably-alive claude (server /proc sweep) hides it.
@@ -901,11 +901,11 @@
     scrolledUp = false;
   }
 
-  // bring a finished session back: ask the server to respawn `claude --resume` in
+  // bring a finished session back: ask the server to respawn the provider resume in
   // the worktree, then bump the epoch so the terminal effect rebuilds and attaches
   // to the fresh agent (the old PtyConn stopped for good on the ended-close).
   // force=true (header button) tears down a surviving husk shell and respawns
-  // claude; force=false (the agent-gone overlay) just respawns into the empty tab.
+  // the agent; force=false (the agent-gone overlay) just respawns into the empty tab.
   async function resumeSession(force = false) {
     if (resuming) return;
     resuming = true;
@@ -965,7 +965,7 @@
     redrawOpen = false;
     conn?.send(composeKeystrokes("/tui fullscreen"));
   }
-  // 4) Heavy: force a fresh `claude --resume` — re-renders the FULL conversation
+  // 4) Heavy: force a fresh provider resume — re-renders the FULL conversation
   //    at the current width, but aborts an in-flight turn (hence last + hinted).
   function redrawResume() {
     redrawOpen = false;
@@ -1060,7 +1060,7 @@
         parked = true;
       },
       // the connection stopped for good — note it in the buffer + surface a
-      // recovery prompt. "gone" → claude exited (status badge already flipped to
+      // recovery prompt. "gone" → agent exited (status badge already flipped to
       // "done" via session:status); "unreachable" → herdr is down, just re-attach.
       (reason) => {
         endReason = reason;
@@ -2073,7 +2073,7 @@
       {endReason}
       {resuming}
       {resumeFailed}
-      {session}
+      {resumable}
       {scrollToBottom}
       {takeover}
       {reattach}

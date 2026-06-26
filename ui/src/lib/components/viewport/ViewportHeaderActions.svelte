@@ -126,8 +126,8 @@
     {/if}
   {/if}
   {#if resumable}
-    <!-- bring claude back when the session is parked (idle/done) — e.g. claude
-         exited to a shell after a herdr restart. Forces a fresh claude --resume. -->
+    <!-- bring the agent back when the session is parked (idle/done) — e.g. the
+         provider exited to a shell after a herdr restart. Forces a fresh resume. -->
     <button
       class="vp-resume"
       class:icon-btn={compact}

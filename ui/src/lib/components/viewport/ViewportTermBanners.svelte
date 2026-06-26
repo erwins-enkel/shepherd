@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -10,7 +9,7 @@
     endReason,
     resuming,
     resumeFailed,
-    session,
+    resumable,
     scrollToBottom,
     takeover,
     reattach,
@@ -23,7 +22,7 @@
     endReason: "gone" | "unreachable";
     resuming: boolean;
     resumeFailed: boolean;
-    session: Session;
+    resumable: boolean;
     scrollToBottom: () => void;
     takeover: () => void;
     reattach: () => void;
@@ -56,7 +55,7 @@
     <span class="parked-title">{m.viewport_reconnect_title()}</span>
     <span class="parked-sub">{m.viewport_reconnect_sub()}</span>
   </button>
-{:else if ended && !parked && tab === "term" && session.claudeSessionId}
+{:else if ended && !parked && tab === "term" && resumable}
   <button class="parked resume" type="button" onclick={() => resumeSession()} disabled={resuming}>
     <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
     <span class="parked-title"

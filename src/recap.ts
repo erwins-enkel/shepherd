@@ -13,7 +13,7 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
@@ -26,12 +26,7 @@ import { readSessionUsage } from "./usage";
 import { computeDiff } from "./diff";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
@@ -125,35 +120,11 @@ function defaultCleanup(cwd: string): void {
   }
 }
 
-/**
- * The `claude` argv for the recap spawn — mirrors namerArgv exactly, with model
- * defaulting to "sonnet" instead of "haiku".
- *
- * Layout: --session-id uuid --settings '{"disableAllHooks":true}'
- *   --disable-slash-commands --allowedTools Write [--model <m>]
- *   --permission-mode dontAsk <prompt>
- * NOTE: --allowedTools is variadic and eats tokens until the next flag, so
- * --permission-mode must follow it and the prompt must be last. Don't reorder.
- * Subscription OAuth (NOT --bare); in api-key auth mode the key arrives via
- * apiKeyHelper in --settings (folded in) + a credential-less CLAUDE_CONFIG_DIR.
- */
+/** The recap spawn's argv — the shared `writer-only` transient-agent shape (model defaults to
+ *  "sonnet" at the call site). The input is the session transcript (UNTRUSTED); bare `Write` is safe
+ *  via the sandbox shape, not an input-trust claim. See buildTransientAgentArgv for the rationale. */
 function recapArgv(model: string | null, prompt: string): { argv: string[]; sessionId: string } {
-  const sessionId = randomUUID();
-  const argv = [
-    "claude",
-    "--session-id",
-    sessionId,
-    "--settings",
-    // subscription → byte-identical `{"disableAllHooks":true}`; api-key folds in apiKeyHelper.
-    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Write",
-  ];
-  if (model) argv.push("--model", model);
-  argv.push("--permission-mode", "dontAsk");
-  argv.push(prompt);
-  return { argv, sessionId };
+  return buildTransientAgentArgv("writer-only", { model, prompt });
 }
 
 // ── deps interface ────────────────────────────────────────────────────────────

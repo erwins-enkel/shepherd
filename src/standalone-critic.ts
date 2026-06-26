@@ -23,7 +23,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
-import { readonlyReviewerArgv } from "./reviewer-argv";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
@@ -404,13 +404,13 @@ export class StandalonePrCriticService {
       this.deps.worktree.remove(worktreePath);
       return;
     }
-    const { argv, sessionId: criticSessionId } = readonlyReviewerArgv(
-      this.deps.model ?? null,
-      prReviewPrompt(diffBase, pr.title, prBody),
+    const { argv, sessionId: criticSessionId } = buildTransientAgentArgv("reviewer", {
+      model: this.deps.model ?? null,
+      prompt: prReviewPrompt(diffBase, pr.title, prBody),
       // Same extended thinking budget as the session critic (#604): the standalone PR critic runs
       // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
-      CRITIC_THINKING_TOKENS,
-    );
+      thinkingTokens: CRITIC_THINKING_TOKENS,
+    });
     const { wrapped, backend } = resolveSpawnMembrane({
       argv,
       worktreePath,

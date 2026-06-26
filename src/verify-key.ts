@@ -1,14 +1,9 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { HerdrDriver } from "./herdr";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 
 /**
  * Token the verify agent must write to {@link VERIFY_FILE}. Distinctive + unlikely
@@ -98,34 +93,11 @@ function defaultCleanup(cwd: string): void {
   }
 }
 
-/**
- * The `claude` argv for the verify spawn — mirrors the namer (src/namer-llm.ts):
- *  - `--disable-slash-commands`: drop the user's global hooks/skills so a SessionStart
- *    preamble can't make the agent thrash under dontAsk. NOT `--bare` (refuses sub-OAuth);
- *    in api-key mode the key arrives via `apiKeyHelper` in --settings + a credential-less
- *    CLAUDE_CONFIG_DIR (see spawn-auth).
- *  - Bare `Write` — NOT Write(<path>): path-scoped Write is silently denied under dontAsk,
- *    which would block the sentinel write. The agent has no Bash/Edit/network.
- *  - `--permission-mode dontAsk` LAST before the prompt: `--allowedTools` is variadic and
- *    eats following tokens until the next flag, so a single-value flag must sit between the
- *    allowlist and the trailing prompt. Don't reorder.
- */
+/** The verify spawn's argv — the shared `writer-only` transient-agent shape, pinned to `haiku` (a
+ *  cheap, fast end-to-end auth check). The input is a fixed sentinel prompt (trusted). See
+ *  buildTransientAgentArgv for the flag-order + isolation rationale. */
 function verifyArgv(): string[] {
-  return [
-    "claude",
-    "--session-id",
-    randomUUID(),
-    "--settings",
-    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Write",
-    "--model",
-    "haiku",
-    "--permission-mode",
-    "dontAsk",
-    verifyPrompt(),
-  ];
+  return buildTransientAgentArgv("writer-only", { model: "haiku", prompt: verifyPrompt() }).argv;
 }
 
 /** Single readable line for `detail`: newlines collapsed, clipped to ~500 chars. */

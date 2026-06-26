@@ -216,7 +216,7 @@ export function resetPluginIdsCacheForTests(): void {
  * user's settings so the rest of their env is untouched. (Reviewer/critic/plan-gate spawns don't
  * use this overlay — they run `--safe-mode`, which disables file/plugin MCP *loading* + other
  * customizations, plus `enableAllProjectMcpServers` in their own `--settings` to clear Claude's
- * interactive project-.mcp.json approval gate; see readonlyReviewerArgv.)
+ * interactive project-.mcp.json approval gate; see buildTransientAgentArgv.)
  *
  * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
  * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin

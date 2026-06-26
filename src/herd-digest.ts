@@ -17,19 +17,14 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { HerdDigest, ReviewVerdict, PlanGate, Recap, RundownEpicItem } from "./types";
 import type { GitState } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
-import {
-  isApiKeyMode,
-  isApiKeyConfigured,
-  apiKeySettingsFragment,
-  apiKeyPassthroughEnv,
-} from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import {
   assembleHerdState,
   buildRundownPrompt,
@@ -85,30 +80,12 @@ function defaultCleanup(cwd: string): void {
 }
 
 /**
- * The `claude` argv for the rundown spawn — mirrors recapArgv exactly.
- *
- * Layout: --session-id uuid --settings '{"disableAllHooks":true}'
- *   --disable-slash-commands --allowedTools Write [--model <m>]
- *   --permission-mode dontAsk <prompt>
- * NOTE: --allowedTools is variadic and eats tokens until the next flag, so
- * --permission-mode must follow it and the prompt must be last. Don't reorder.
+ * The rundown spawn's argv — the shared `writer-only` transient-agent shape. The input is
+ * cross-session digest text (UNTRUSTED); bare `Write` is safe via the sandbox shape, not an
+ * input-trust claim. See buildTransientAgentArgv for the flag-order + isolation rationale.
  */
 function rundownArgv(model: string | null, prompt: string): { argv: string[]; sessionId: string } {
-  const sessionId = randomUUID();
-  const argv = [
-    "claude",
-    "--session-id",
-    sessionId,
-    "--settings",
-    JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
-    "--disable-slash-commands",
-    "--allowedTools",
-    "Write",
-  ];
-  if (model) argv.push("--model", model);
-  argv.push("--permission-mode", "dontAsk");
-  argv.push(prompt);
-  return { argv, sessionId };
+  return buildTransientAgentArgv("writer-only", { model, prompt });
 }
 
 /** `YYYY-MM-DD` for the operator's LOCAL day at `now`. The single-flight key. */

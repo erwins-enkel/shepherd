@@ -13,7 +13,7 @@ import {
   parseVisualBlocks,
   groundPlanBlocks,
 } from "./visual-blocks";
-import { readonlyReviewerArgv } from "./reviewer-argv";
+import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
@@ -83,7 +83,7 @@ export function reviewerArgv(
   model: string | null,
   prompt: string,
 ): { argv: string[]; sessionId: string } {
-  return readonlyReviewerArgv(model, prompt);
+  return buildTransientAgentArgv("reviewer", { model, prompt });
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.

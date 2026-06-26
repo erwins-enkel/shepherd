@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  renameSync,
-  copyFileSync,
-  rmSync,
-  readdirSync,
-  statSync,
-  existsSync,
-} from "node:fs";
+import { mkdirSync, copyFileSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { SessionStore } from "./store";
 
@@ -44,23 +36,26 @@ export function uploadFilename(ext: string): string {
 }
 
 /**
- * Move each staged file into the worktree's uploads dir; return new absolute
- * paths (basename preserved). Falls back to copy+unlink across devices.
+ * Copy each staged file into the worktree's uploads dir; return new absolute paths
+ * (basename preserved) for the files that actually existed. COPY-not-move keeps the
+ * staged original recoverable: a spawn that fails after this runs (or a "Jetzt starten"
+ * retry of a held task) finds the source still present, so the move is idempotent — the
+ * old renameSync made a failed first spawn permanently un-retryable (ENOENT). The
+ * sweepStaging TTL reclaims the leftover staged copies. A source that is genuinely gone
+ * (e.g. already swept after 24h) is skipped, not thrown on, so the spawn proceeds without
+ * it; the caller surfaces the drop.
  */
-export function moveStagedIntoWorktree(images: string[], worktreePath: string): string[] {
+export function copyStagedIntoWorktree(images: string[], worktreePath: string): string[] {
   const dir = worktreeUploadsDir(worktreePath);
   mkdirSync(dir, { recursive: true });
-  return images.map((src) => {
+  const copied: string[] = [];
+  for (const src of images) {
+    if (!existsSync(src)) continue; // source swept/lost — skip, caller reports the drop
     const dest = join(dir, basename(src));
-    try {
-      renameSync(src, dest);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw e;
-      copyFileSync(src, dest);
-      rmSync(src, { force: true });
-    }
-    return dest;
-  });
+    copyFileSync(src, dest);
+    copied.push(dest);
+  }
+  return copied;
 }
 
 /** Best-effort: delete staged files older than maxAgeMs. No-op if dir absent. */

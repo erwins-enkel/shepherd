@@ -53,6 +53,19 @@ describe("bootShepherd", () => {
     expect(boot).not.toContain("run start");
     expect(boot).toContain("setsid"); // survives the exec session
     expect(boot).toContain(".local/bin"); // remediation installs resolve on PATH
+    // #1112: boots WITH a bearer token (not unset) so the gated diagnostics probe authorizes.
+    expect(boot).toContain("SHEPHERD_TOKEN=onboarding-harness-probe-token");
+    expect(boot).not.toContain("env -u SHEPHERD_TOKEN");
+  });
+
+  // #1112: liveness polls the PUBLIC /api/health, never the now-gated /api/diagnostics.
+  it("polls the public /api/health liveness route, not the gated diagnostics route", async () => {
+    const { run, calls } = dispatcher({ launch: OK, poll: OK });
+    const d = new IncusDriver(run, "shep-onb-");
+    await bootShepherd(d, "node-too-old");
+    const poll = calls.find((c) => kindOf(c) === "poll")!.join(" ");
+    expect(poll).toContain("/api/health");
+    expect(poll).not.toContain("/api/diagnostics");
   });
 
   // (a) the poll ceiling was widened 60 → 120.
@@ -138,5 +151,7 @@ describe("probeDiagnostics", () => {
     const cmd = calls[0]!.join(" ");
     expect(cmd).toContain("curl");
     expect(cmd).toContain("/api/diagnostics?refresh=1");
+    // #1112: the gated snapshot carries the operator bearer the harness booted with.
+    expect(cmd).toContain("Authorization: Bearer onboarding-harness-probe-token");
   });
 });

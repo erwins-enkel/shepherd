@@ -108,6 +108,24 @@ test("exemption: a static-shell GET is not gated (no 401)", async () => {
   expect(res.status).not.toBe(401); // serveStatic owns it (200 or 404), never the gate
 });
 
+test("exemption: GET /api/health is public 200 WHILE /api/diagnostics still 401s — same app (#1112)", async () => {
+  // Locks the exemption's NARROWNESS: in one bootstrapped app (gate active), the
+  // un-credentialed liveness route answers while a sibling gated /api route does not.
+  const app = makeApp(makeDeps());
+  const health = await app.fetch(new Request("http://x/api/health"));
+  expect(health.status).toBe(200);
+  expect(await health.json()).toEqual({ ok: true });
+  // HEAD is exempt too (isPublicRequest covers GET+HEAD) → bodyless 200, NOT the /api 404.
+  const headRes = await app.fetch(new Request("http://x/api/health", { method: "HEAD" }));
+  expect(headRes.status).toBe(200);
+  expect(await headRes.text()).toBe("");
+  // /api/diagnostics is NOT exempt: an un-credentialed GET is rejected by checkAuth
+  // (before its handler — so it 401s even though deps.diagnostics is unwired here).
+  const diag = await app.fetch(new Request("http://x/api/diagnostics"));
+  expect(diag.status).toBe(401);
+  expect(await diag.json()).toEqual({ error: "unauthorized" });
+});
+
 test("exemption: POST /api/login is reachable un-credentialed; wrong password → handler 401", async () => {
   const app = makeApp(makeDeps());
   const res = await app.fetch(

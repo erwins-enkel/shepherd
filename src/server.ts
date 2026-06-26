@@ -400,6 +400,9 @@ function isPublicRequest(req: Request): boolean {
   const path = new URL(req.url).pathname;
   if (req.method === "POST" && path === "/api/login") return true;
   if (req.method === "GET" || req.method === "HEAD") {
+    // Public liveness (handleHealth): an un-credentialed probe deploy/update.sh + the
+    // onboarding harness can hit BEFORE login. Exempt it ahead of the /api reject below.
+    if (path === "/api/health") return true;
     if (path.startsWith("/api")) return false;
     if (path === "/events" || path.startsWith("/pty/")) return false;
     return true; // static SPA shell
@@ -4230,6 +4233,25 @@ function handlePing({ req, parts }: Ctx): Response | null {
   return json({ ok: true });
 }
 
+// Public liveness probe (issue #1112) — DISTINCT from handlePing on purpose. `handlePing`
+// is a POST behind checkAuth + checkOrigin (CSRF): a probe for an already-logged-in client.
+// This is the opposite: an un-credentialed GET/HEAD that answers BEFORE login, so deploy/update.sh's
+// health check and the onboarding harness's boot poll can confirm the server serves HTTP
+// without a cookie/token (isPublicRequest exempts exactly this method+path). Discloses nothing.
+// Answers HEAD as well as GET — isPublicRequest exempts both, so a HEAD must not fall through
+// to the /api 404 (a liveness monitor probing with HEAD expects a bodyless 200).
+function handleHealth({ req, parts }: Ctx): Response | null {
+  if (
+    (req.method !== "GET" && req.method !== "HEAD") ||
+    parts[0] !== "api" ||
+    parts[1] !== "health" ||
+    parts[2]
+  ) {
+    return null;
+  }
+  return req.method === "HEAD" ? new Response(null, { status: 200 }) : json({ ok: true });
+}
+
 // ── Epic API routes ──────────────────────────────────────────────────────────
 
 /** Build a default EpicRun from repo + parent when no stored run exists. */
@@ -5017,6 +5039,7 @@ const ROUTE_HANDLERS = [
   handleLogout,
   handleMe,
   handlePing,
+  handleHealth,
   handleGitSnapshot,
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,

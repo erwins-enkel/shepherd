@@ -53,9 +53,13 @@ jobs:
 
           DEFAULT_BRANCH="$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')"
 
-          mapfile -t prs < <(gh pr list --state open --limit 50 \
-            --json number,headRefName \
-            --jq ".[] | select(.headRefName | startswith(\"$PREFIX\")) | .number")
+          # Capture into a variable FIRST: a `gh` failure here propagates under `set -e` (assignment
+          # from command substitution carries the command's exit status), unlike a failure hidden
+          # inside `mapfile < <(gh ...)` process substitution — which would silently look like "no
+          # PRs" and exit 0 on a transient API error.
+          prs_json="$(gh pr list --state open --limit 50 --json number,headRefName)"
+          mapfile -t prs < <(jq -r --arg p "$PREFIX" \
+            '.[] | select(.headRefName | startswith($p)) | .number' <<<"$prs_json")
 
           if [ "${#prs[@]}" -eq 0 ]; then echo "No open doc PRs."; exit 0; fi
           echo "Found ${#prs[@]} open doc PR(s): ${prs[*]}"

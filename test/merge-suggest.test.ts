@@ -299,3 +299,60 @@ test("api-key mode without a configured key fails closed (no spawn)", () => {
     expect(started.length).toBe(0);
   });
 });
+
+// ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
+
+test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-owned", () => {
+  const store = new SessionStore(":memory:");
+  seedActive(store, "/r", "Use bun, not npm");
+  seedActive(store, "/r", "Prefer bun over npm for installs");
+  const closed: string[] = [];
+  const listed = [
+    { name: MERGE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { name: "some-session", terminalId: "u1", tabId: "tabU" },
+    { name: MERGE_LABEL + "live0001", terminalId: "m1", tabId: "tabL" },
+  ];
+  const svc = new MergeSuggestionService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "m1" }),
+      stop: () => {},
+      list: () => listed,
+      closeTab: (t: string) => closed.push(t),
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minRules: 2,
+    writeRules: () => {},
+    readOutput: () => null, // run stays in flight (not finalized)
+    log: () => {},
+  } as never);
+  svc.consider("/r"); // in-flight run owns terminalId "m1"
+  svc.reapOrphans();
+  expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
+});
+
+test("reapOrphans is a no-op when herdr is unavailable (merge-suggest)", () => {
+  const store = new SessionStore(":memory:");
+  let closes = 0;
+  const svc = new MergeSuggestionService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "t" }),
+      stop: () => {},
+      list: () => {
+        throw new Error("herdr down");
+      },
+      closeTab: () => {
+        closes++;
+      },
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    log: () => {},
+  } as never);
+  expect(() => svc.reapOrphans()).not.toThrow();
+  expect(closes).toBe(0);
+});

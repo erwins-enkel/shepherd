@@ -355,7 +355,12 @@ test("distiller increments ineffective for cited active rule ids with validated 
       retireLearning: () => null,
       getLearning: () => null,
     },
-    herdr: { start: () => ({ terminalId: "t1" }) as never, stop: () => {} },
+    herdr: {
+      start: () => ({ terminalId: "t1" }) as never,
+      stop: () => {},
+      list: () => [],
+      closeTab: () => {},
+    },
     scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
     onChange: () => {},
     now: () => 1000,
@@ -1037,4 +1042,58 @@ test("reaffirm: proposedRules passed to writeSignals include proposed rules sort
   expect(capturedProposed[1]!.id).toBe(p1.id);
   // Should only contain id+rule (no other fields)
   expect(Object.keys(capturedProposed[0]!)).toEqual(["id", "rule"]);
+});
+
+// ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
+
+test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight-owned", () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const closed: string[] = [];
+  const listed = [
+    { name: DISTILL_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { name: "my-feature-branch", terminalId: "u1", tabId: "tabU" },
+    { name: DISTILL_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
+  ];
+  const svc = new DistillerService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "live1" }),
+      stop: () => {},
+      list: () => listed,
+      closeTab: (id: string) => closed.push(id),
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+    minSignals: 3,
+    writeSignals: () => {},
+    readProposals: () => null, // run stays in flight (not finalized)
+  } as never);
+  svc.distillNow("/r"); // in-flight run owns terminalId "live1"
+  svc.reapOrphans();
+  expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
+});
+
+test("reapOrphans is a no-op when herdr is unavailable", () => {
+  const store = new SessionStore(":memory:");
+  let closes = 0;
+  const svc = new DistillerService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "t" }),
+      stop: () => {},
+      list: () => {
+        throw new HerdrUnavailableError();
+      },
+      closeTab: () => {
+        closes++;
+      },
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    onChange: () => {},
+    now: () => 1000,
+  } as never);
+  expect(() => svc.reapOrphans()).not.toThrow();
+  expect(closes).toBe(0);
 });

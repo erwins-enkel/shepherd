@@ -68,7 +68,7 @@ export interface MergeSuggestionDeps {
     | "getMergePassSignature"
     | "setMergePassSignature"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
   model?: string | null;
@@ -281,6 +281,32 @@ export class MergeSuggestionService {
       members: new Map(input.map((l) => [l.id, l])),
       sig,
     });
+  }
+
+  /** Boot reconcile (issue #1135): close orphaned merge-suggestion tabs left by a PRIOR
+   *  server lifetime. `inflight` is memory-only, so a restart loses tracking of live runs;
+   *  the spawned interactive `claude` idles at the prompt forever after writing its output
+   *  (agent_status "done" = finished-turn, pane alive), and the husk-only tab reaper
+   *  (tab-reaper.ts) spares it as an alive (non-shell) `claude`. Scan herdr once for agents
+   *  whose name starts with MERGE_LABEL and are NOT owned by a current-process inflight run,
+   *  and close their tabs. Name-based — no persisted state (the issue's preferred approach);
+   *  the prefix's underscores can't appear in a real session slug. */
+  reapOrphans(): void {
+    const ownedTerms = new Set(
+      [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
+    );
+    let reaped = 0;
+    try {
+      for (const a of this.deps.herdr.list()) {
+        if (!a.name.startsWith(MERGE_LABEL)) continue;
+        if (ownedTerms.has(a.terminalId)) continue; // spare a live run started by THIS process
+        this.deps.herdr.closeTab(a.tabId);
+        reaped++;
+      }
+    } catch (err) {
+      console.warn("[merge] reapOrphans:", err); // herdr may be unavailable at boot — no-op
+    }
+    if (reaped > 0) console.warn(`[merge] reapOrphans: closed ${reaped} orphan tab(s)`);
   }
 
   /** Finalize any run whose output file is ready or that timed out, then drain the queue. */

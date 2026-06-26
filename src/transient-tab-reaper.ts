@@ -5,9 +5,15 @@ import type { HerdrDriver } from "./herdr";
  *
  * This is ONE of four distinct teardown mechanisms across the transient-agent fleet, and the only
  * one whose body was byte-identical across consumers (distiller / optimizer / merge-suggest) — so
- * only it is deduped here. The other three are deliberately NOT unified: persisted `reviewer_spawns`
- * rows (plan-gate / review / doc-agent), store `generating` state (recap / herd-digest), and
- * synchronous block-and-clean (namer / autopilot / verify-key) are genuinely different lifecycles.
+ * only it is deduped here. The other seven consumers gain NO new boot reaping from #1093 BY DESIGN:
+ * they already have appropriate teardown via a different lifecycle, and forcing them onto this
+ * label-prefix scan would be wrong, not a missing feature —
+ *   - persisted `reviewer_spawns` rows → adoptOrphans/reapOrphans (plan-gate / review / doc-agent);
+ *   - store `generating` state → reapGenerating (recap / herd-digest);
+ *   - synchronous block-and-clean — start→poll→stop in a `finally`, random temp dirs, no stable
+ *     name to squat → no husk on clean exit (namer / autopilot / verify-key).
+ * So #1093 delivers the argv consolidation across all 10 plus this one reaper dedup; a universal
+ * "reap every kind" base is intentionally out of scope (see the PR description + issue #1093).
  *
  * Why this mechanism exists: `inflight` is memory-only, so a server restart loses tracking of live
  * runs; the spawned interactive `claude` idles at the prompt forever after writing its output

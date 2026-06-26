@@ -955,6 +955,11 @@
     padding: 8px 10px;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
+    /* pin the line box to 1×font-size so the compact badge height is
+       font-independent and matches .held-badge.compact: this badge renders in the
+       UA button font (no font-family set) while the held badge uses `font: inherit`
+       (mono), so their `normal` line-heights otherwise differ by ~2px. */
+    line-height: 1;
   }
   .needsyou.compact .ny-icon {
     font-weight: 700;

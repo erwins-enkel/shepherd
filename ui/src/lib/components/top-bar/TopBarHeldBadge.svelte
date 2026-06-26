@@ -122,6 +122,7 @@
       bind:this={heldBadgeBtn}
       class="held-badge"
       class:compact={mobile || compactBadges}
+      class:mobile
       type="button"
       aria-haspopup="dialog"
       aria-expanded={heldPopOpen}
@@ -232,6 +233,22 @@
     justify-content: center;
     min-width: 44px;
     letter-spacing: 0;
+    /* mirror .needsyou.compact padding so both compact badges share the same box
+       height when neither carries a min-height floor (fine-pointer desktop overflow) */
+    padding: 8px 10px;
+    /* pin the line box to 1×font-size so height is font-independent: `.needsyou`
+       renders in the UA button font while this badge uses `font: inherit` (mono),
+       and their `normal` line-heights differ by ~2px. `.needsyou.compact` carries
+       the matching `line-height: 1`. */
+    line-height: 1;
+  }
+  /* Width-gated 44px floor mirroring `.hud.mobile .needsyou` (TopBar.svelte): `mobile`
+     is width-only (≤768px), so fine-pointer narrow viewports need this — the coarse-
+     pointer floor below does not cover them. Keyed off `mobile`, NOT `.compact`, so it
+     never fires in the desktop measured-overflow case where needsyou has no floor (~36px),
+     which would otherwise make held the taller box. */
+  .held-badge.mobile {
+    min-height: 44px;
   }
   .held-badge .held-n {
     font-weight: 600;

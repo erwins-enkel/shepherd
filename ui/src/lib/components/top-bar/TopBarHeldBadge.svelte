@@ -480,16 +480,21 @@
     text-overflow: clip;
     white-space: normal;
     line-height: 1.35;
+    /* Match the select, which the iOS zoom-guard (app.css) floors to
+       max(16px, var(--fs-lg)) on mobile — keep title/buttons on the same
+       expression so the fullscreen popover reads as one size at every scale. */
+    font-size: max(16px, var(--fs-lg));
   }
+  /* Single full-width column: at enlarged iOS Dynamic Type (--ui-scale up to
+     1.5 → 24px) a 16px label like the German "Jetzt starten" truncates inside a
+     2-up grid at 320px; full-width buttons render every locale's labels in full. */
   .held-fullscreen .held-row-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     width: 100%;
   }
-  .held-fullscreen .held-cli,
-  .held-fullscreen .held-row-error {
-    grid-column: 1 / -1;
+  .held-fullscreen .held-cli {
     gap: 4px;
   }
   .held-fullscreen .held-row-error {
@@ -501,10 +506,9 @@
     padding: 0 12px;
   }
   .held-fullscreen .held-action {
-    font-size: var(--fs-base);
+    /* Same expression as the iOS-floored select (see .held-row-prompt above). */
+    font-size: max(16px, var(--fs-lg));
     letter-spacing: 0.04em;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   @media (max-width: 420px) {
     .held-pop:not(.held-fullscreen) .held-row {

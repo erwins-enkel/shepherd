@@ -2011,5 +2011,12 @@
   "automation_drain_fields_intro": "These dials govern Auto-Drain and apply only while it's on:",
   "drain_cap_hint": "Most auto-started agents allowed to run at once. Once it's reached, Shepherd waits for a slot to free before picking up the next issue.",
   "drain_label_hint": "Only issues carrying this label get picked up — tag the tickets you want worked automatically with it.",
-  "drain_ceiling_hint": "Pause new auto-starts once your account usage reaches this percentage. A higher value lets the drain keep going longer; the default is 80."
+  "drain_ceiling_hint": "Pause new auto-starts once your account usage reaches this percentage. A higher value lets the drain keep going longer; the default is 80.",
+  "vblock_mermaid_expand": "Enlarge diagram",
+  "diagram_lightbox_title": "Diagram",
+  "diagram_zoom_in": "Zoom in",
+  "diagram_zoom_out": "Zoom out",
+  "diagram_zoom_fit": "Fit to screen",
+  "feat_diagram_lightbox_title": "Open plan diagrams full-screen",
+  "feat_diagram_lightbox_body": "Click any diagram in a plan to open it near full-screen, then zoom and drag to read the fine labels. The plan view is also wider on desktop, so diagrams, data-model cards and diffs get more room."
 }

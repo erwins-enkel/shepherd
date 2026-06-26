@@ -8,11 +8,15 @@
   import { m } from "$lib/paraglide/messages";
   import { theme } from "$lib/theme.svelte";
   import InferredBadge from "./InferredBadge.svelte";
+  import DiagramLightbox from "./DiagramLightbox.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "mermaid" }> } = $props();
 
   let svg = $state<string | null>(null);
   let error = $state<boolean>(false);
+  // Click the diagram to inspect it near-fullscreen (zoom + pan) — inline it's
+  // capped to the plan column and complex graphs render too small to read.
+  let zoomed = $state(false);
 
   $effect(() => {
     // Read reactive deps at top so the effect re-runs on theme/contrast change.
@@ -91,15 +95,25 @@
       <pre class="mb-source">{block.source}</pre>
     </div>
   {:else if svg !== null}
-    <div class="mb-svg">
+    <button
+      type="button"
+      class="mb-svg"
+      onclick={() => (zoomed = true)}
+      aria-label={m.vblock_mermaid_expand()}
+    >
       <!-- eslint-disable-next-line svelte/no-at-html-tags -- mermaid securityLevel:"strict" sanitizes output -->
       {@html svg}
-    </div>
+      <span class="mb-zoom" aria-hidden="true">⤢</span>
+    </button>
   {/if}
   {#if block.caption}
     <p class="mb-caption">{block.caption}</p>
   {/if}
 </div>
+
+{#if zoomed && svg}
+  <DiagramLightbox {svg} title={block.caption} onclose={() => (zoomed = false)} />
+{/if}
 
 <style>
   .mermaid-block {
@@ -116,14 +130,51 @@
     padding: 4px 10px;
     border-bottom: 1px solid var(--color-line);
   }
+  /* the rendered SVG is the click target — reset the button, keep the inset look,
+     and hint that it opens larger (cursor + corner glyph on hover/focus) */
   .mb-svg {
+    position: relative;
+    display: block;
+    width: 100%;
     padding: 12px;
     overflow-x: auto;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: zoom-in;
   }
   .mb-svg :global(svg) {
     display: block;
     max-width: 100%;
     height: auto;
+  }
+  .mb-zoom {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    background: var(--color-panel);
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+    pointer-events: none;
+  }
+  .mb-svg:hover .mb-zoom,
+  .mb-svg:focus-visible .mb-zoom {
+    opacity: 1;
+  }
+  .mb-svg:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .mb-error {
     display: flex;

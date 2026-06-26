@@ -237,7 +237,11 @@
   }
   .card {
     position: relative;
-    width: min(640px, 92vw);
+    /* Desktop plans carry diagrams, data-model cards, diffs and tables — give
+       them room. Running prose is capped to a readable measure separately
+       (.md/.summary/.findings) so widening the sheet helps structure without
+       letting paragraphs sprawl. */
+    width: min(1040px, 92vw);
     max-height: 86vh;
     overflow-y: auto;
     /* lock horizontal axis: long code/plan text wraps or scrolls inside its own
@@ -351,6 +355,7 @@
   }
   .summary {
     margin: 0;
+    max-width: 74ch;
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
   }
@@ -364,6 +369,17 @@
     font-size: var(--fs-base);
     line-height: 1.45;
     overflow-wrap: anywhere;
+  }
+  /* Cap running text to a comfortable measure on wide desktop sheets; leave
+     pre/table free to use the full width. */
+  .md :global(p),
+  .md :global(ul),
+  .md :global(ol),
+  .md :global(h1),
+  .md :global(h2),
+  .md :global(h3),
+  .md :global(h4) {
+    max-width: 74ch;
   }
   .md :global(pre) {
     background: var(--color-panel);
@@ -382,6 +398,7 @@
   }
   .findings {
     margin: 0;
+    max-width: 74ch;
     padding-left: 18px;
     color: var(--color-ink);
     font-size: var(--fs-base);

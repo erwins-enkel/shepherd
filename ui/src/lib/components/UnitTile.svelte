@@ -18,6 +18,7 @@
   import { resumeSession } from "$lib/api";
   import { theme, xtermTheme } from "$lib/theme.svelte";
   import CardMenu from "./CardMenu.svelte";
+  import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
   import PrBadge from "./PrBadge.svelte";
   import TimePopover from "./TimePopover.svelte";
@@ -307,7 +308,7 @@
         >{statusLabel(dStatus)}</span
       >
     {/if}
-    <span class="desig" id="tile-desig-{session.id}">{session.desig}</span>
+    <TaskIdButton {session} id="tile-desig-{session.id}" />
   </div>
   <div class="t-body">
     <div class="t-mount" bind:this={el}></div>
@@ -407,14 +408,6 @@
     flex-shrink: 0;
     white-space: nowrap;
     overflow: hidden;
-  }
-  /* designation is metadata: demoted to the end of the header, quietest tone */
-  .desig {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-faint);
-    flex-shrink: 0;
   }
   .name {
     color: var(--color-ink-bright);

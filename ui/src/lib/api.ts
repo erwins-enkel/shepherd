@@ -586,6 +586,34 @@ export async function replySession(id: string, text: string): Promise<void> {
   if (!r.ok) throw await failed(r, "reply");
 }
 
+/** A next-prompt recommendation: the suggested prompt, or a stable error code the
+ *  RecommendDialog maps to a localized message. Never throws — the dialog needs a
+ *  distinct error state, not a crash. */
+export type RecommendResult = { prompt: string } | { error: string };
+
+/**
+ * Ask the server to analyze a session's recent terminal history via a transient second
+ * agent (claude `opus` / codex `gpt-5.5`) and return a recommended next prompt. Long-running
+ * (the analysis spawns a real agent), so callers must show a loading state.
+ */
+export async function recommendPrompt(
+  id: string,
+  provider: AgentProvider,
+  model: string,
+): Promise<RecommendResult> {
+  const r = await fetch(`/api/sessions/${id}/recommend-prompt`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ provider, model }),
+  });
+  const data = (await r.json().catch(() => null)) as {
+    prompt?: unknown;
+    error?: unknown;
+  } | null;
+  if (r.ok && data && typeof data.prompt === "string") return { prompt: data.prompt };
+  return { error: data && typeof data.error === "string" ? data.error : "timeout" };
+}
+
 /**
  * Bring a finished session back — re-spawns `claude --resume` in its worktree.
  * `force` tears down a surviving husk shell first, for the case claude exited but

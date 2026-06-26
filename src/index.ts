@@ -75,6 +75,7 @@ import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
+import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper } from "./process-reaper";
@@ -1825,6 +1826,26 @@ const appDeps: AppDeps = {
   },
   autoMerge: { snapshot: () => autoMerge.snapshot() },
   holds: { snapshot: () => holdService.snapshot() },
+  // Read the source session's recent terminal history off its live pane and hand it to a
+  // transient second agent for a next-prompt recommendation. The menu offers this on every
+  // session, so a dead/unknown pane (no live terminal to read) is expected here → "no-history",
+  // which the RecommendDialog surfaces as a distinct error rather than a silent failure.
+  recommend: async (id, provider, model) => {
+    const s = store.get(id);
+    if (!s) return { error: "no-history" as const };
+    const live = matchAgent(s, herdr.list());
+    if (!live) return { error: "no-history" as const };
+    let tail: string[];
+    try {
+      tail = tailLines(herdr.read(live.terminalId, "recent", 600), 600);
+    } catch {
+      return { error: "no-history" as const };
+    }
+    return recommendPrompt(
+      { tail, taskPrompt: s.prompt, provider, model, label: `recommend ${s.desig}` },
+      { herdr },
+    );
+  },
 };
 const server = serve(appDeps, config.port);
 console.log(`shepherd core on http://localhost:${server.port}`);

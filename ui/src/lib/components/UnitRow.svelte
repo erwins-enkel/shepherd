@@ -824,9 +824,9 @@
     line-height: 1.3;
     color: var(--color-muted);
   }
-  /* The heartbeat claims the whole activity line on every device. Scoped under
-     .u-activity so the strip override can't leak to a future global .strip; kept
-     before the narrow @container block so that block's 64px override still wins. */
+  /* The heartbeat claims the whole activity line on every device — including the
+     narrow ≤300px sidebar (no container-query override pins it back). Scoped under
+     .u-activity so the rule can't leak to a future global .strip. */
   .u-activity :global(.strip) {
     flex: 1 1 auto;
     width: auto;

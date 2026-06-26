@@ -2006,5 +2006,9 @@
   "feat_herdr_update_session_list_title": "See and visit the sessions an update would end",
   "feat_herdr_update_session_list_body": "The herdr-update dialog no longer just shows a count of running sessions — it lists each one, and every row jumps straight to that session. Wrap them up one by one, then update without worrying you've lost work.",
   "topbar_held_spawning": "Starting…",
-  "topbar_held_discarding": "Discarding…"
+  "topbar_held_discarding": "Discarding…",
+  "automation_drain_fields_intro": "These dials govern Auto-Drain and apply only while it's on:",
+  "drain_cap_hint": "Most auto-started agents allowed to run at once. Once it's reached, Shepherd waits for a slot to free before picking up the next issue.",
+  "drain_label_hint": "Only issues carrying this label get picked up — tag the tickets you want worked automatically with it.",
+  "drain_ceiling_hint": "Pause new auto-starts once your account usage reaches this percentage. A higher value lets the drain keep going longer; the default is 80."
 }

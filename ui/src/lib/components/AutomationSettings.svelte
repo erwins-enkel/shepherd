@@ -3,6 +3,8 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
+  import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
+  import "./automation-settings/automation-fields.css";
   import type { Session, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
@@ -44,6 +46,9 @@
   const flags = $derived(repoConfig.flags(repoPath));
   /** True when this repo is configured for local-only (lightweight) mode. */
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
+  /** Auto-Drain's rails are live only when drain is on, not epic-suspended, and the
+   *  repo is a forge — mirrors the Auto-Drain switch's own enabled condition. */
+  const drainRailsActive = $derived(flags.autoDrain && !epicActive && !lightweight);
   // Switch-pulse is per-task; only meaningful when this instance is bound to a session.
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
@@ -297,6 +302,11 @@
     <span class="knob"></span>
   </button>
 </div>
+<!-- Auto-Drain's rails (cap / label / usage ceiling), inline directly under its
+     toggle so they read as part of that switch. The component renders them only
+     while drain is genuinely active (on, not epic-suspended, forge repo) —
+     visibility is gated inside it via `active` so this template stays flat. -->
+<AutomationDrainFields {repoPath} active={drainRailsActive} />
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">
@@ -377,7 +387,7 @@
     <label class="drain-field">
       <span class="drain-label">{m.automation_signoff_authority_label()}</span>
       <select
-        class="num signoff-select"
+        class="afield-num signoff-select"
         aria-label={m.automation_signoff_authority_label()}
         value={repoConfig.signoffAuthorityFor(repoPath)}
         onchange={(e) =>
@@ -406,7 +416,7 @@
   <label class="drain-field" use:coachIf={{ id: "sandbox-profile", on: armCoachmarks }}>
     <span class="drain-label">{m.automation_sandbox_profile_label()}</span>
     <select
-      class="num sandbox-select"
+      class="afield-num sandbox-select"
       aria-label={m.automation_sandbox_profile_label()}
       value={repoConfig.sandboxProfileFor(repoPath)}
       onchange={(e) =>
@@ -435,7 +445,7 @@
   </div>
 </div>
 
-<AutomationRepoFields {repoPath} autoDrain={flags.autoDrain} />
+<AutomationRepoFields {repoPath} />
 
 <!-- Clickable "ⓘ" that toggles a row's long-form explanation, and the detail
      block it reveals. Reused by every row so each function carries a thorough,
@@ -607,38 +617,9 @@
       opacity: 1;
     }
   }
-  .drain-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 12px 12px 22px;
-    border-top: 1px solid var(--color-line);
-    background: var(--color-panel);
-  }
-  .drain-field {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .drain-label {
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    white-space: nowrap;
-  }
-  .num {
-    flex: 0 0 auto;
-    width: 90px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    padding: 3px 6px;
-    text-align: right;
-  }
-  /* Sign-off authority selector — inherits .num token styling, left-aligned */
+  /* .drain-fields / .drain-field / .drain-label / .afield-num come from
+     ./automation-settings/automation-fields.css (imported in <script>). */
+  /* Sign-off authority selector — inherits .afield-num token styling, left-aligned */
   .signoff-select {
     flex: 1 1 auto;
     width: auto;
@@ -652,7 +633,7 @@
     color: var(--color-faint);
     padding: 0 12px 6px;
   }
-  /* Sandbox-profile selector — inherits .num token styling, left-aligned (mirrors .signoff-select) */
+  /* Sandbox-profile selector — inherits .afield-num token styling, left-aligned (mirrors .signoff-select) */
   .sandbox-select {
     flex: 1 1 auto;
     width: auto;

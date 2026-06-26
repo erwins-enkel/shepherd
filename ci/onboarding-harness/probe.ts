@@ -7,16 +7,26 @@ const BOOT_POLL_CEILING = 120; // seconds the poll waits for the HTTP API (was 6
 const SHEPHERD_LOG = "/var/log/shepherd.log"; // detached server's stdout+stderr
 const LOG_TAIL_LINES = 60; // lines of the boot log appended to a failure message
 
+/** Operator bearer token the harness boots Shepherd with so it can read the GATED
+ *  diagnostics snapshot. Single-operator auth (#1079/#1081) gates the whole `/api/*`
+ *  surface once `config.cookieSecret` is bootstrapped (always, at boot), so an
+ *  un-credentialed `/api/diagnostics` now 401s. The harness owns both ends — it sets
+ *  `SHEPHERD_TOKEN` (→ `config.token`) on the booted server (or the unit's
+ *  `~/.shepherd/env`) and sends `Authorization: Bearer ${HARNESS_TOKEN}` on the
+ *  snapshot probe (checkAuth's bearer branch). Liveness uses the public `/api/health`
+ *  and needs NO token. A fixed in-repo constant is correct here: this is test infra,
+ *  not a secret, and timing-safe compare only needs the two ends to match. #1112 */
+export const HARNESS_TOKEN = "onboarding-harness-probe-token";
+
 /** Start Shepherd detached inside the instance and poll until its HTTP API
  *  answers (or time out). Degraded boots are expected — we only need the server
  *  process up far enough to serve `/api/diagnostics`.
  *
- *  AUTH (point 7): `GET /api/diagnostics` passes through `checkAuth`, which only
- *  authorizes when `config.token` (`SHEPHERD_TOKEN`) is null. We boot with the
- *  var explicitly UNSET (`env -u SHEPHERD_TOKEN`) so the plain `curl` probe below
- *  is authorized — the harness controls the env, so this is safe and the simplest
- *  correct option. (If a future scenario needs a token, the probe must add
- *  `-H "Authorization: Bearer $SHEPHERD_TOKEN"` instead.) */
+ *  AUTH (#1112): single-operator auth (#1079/#1081) gates `/api/*`, so the boot poll
+ *  hits the PUBLIC liveness route `/api/health` (pollApiCmd) — no credential — and the
+ *  GATED diagnostics snapshot (probeDiagnostics) is authorized by a bearer token. We
+ *  therefore boot WITH `SHEPHERD_TOKEN=${HARNESS_TOKEN}` set (NOT unset) so the server's
+ *  `config.token` matches the `Authorization: Bearer` header the snapshot probe sends. */
 export async function bootShepherd(driver: IncusDriver, name: string): Promise<void> {
   // The launch command. `redirect` is the shell redirect for the server's log:
   // - `>`  truncates — the FIRST launch starts a clean log.
@@ -30,8 +40,10 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
   // - PATH adds ~/.local/bin + ~/.bun/bin so binaries a remediation installs there
   //   (node symlink, claude, herdr) are visible to the running server's probes,
   //   which resolve each tool via PATH on every `?refresh=1`.
+  // - SHEPHERD_TOKEN=${HARNESS_TOKEN}: set (not unset) so the gated diagnostics probe
+  //   authorizes via `Authorization: Bearer` (single-operator auth #1081). #1112
   const launch = (redirect: ">" | ">>"): string =>
-    `cd ${SHEPHERD_DIR} && setsid env -u SHEPHERD_TOKEN ` +
+    `cd ${SHEPHERD_DIR} && setsid env SHEPHERD_TOKEN=${HARNESS_TOKEN} ` +
     `PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH" ` +
     `~/.bun/bin/bun src/index.ts ${redirect}${SHEPHERD_LOG} 2>&1 </dev/null &`;
 
@@ -72,10 +84,13 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
 }
 
 /** The poll command shared by the manual-boot retry path and `waitForApi`: poll
- *  the HTTP API until it answers or the ceiling elapses (degraded boots are
- *  expected — we only need the server up far enough to serve /api/diagnostics). */
+ *  the server until it answers or the ceiling elapses (degraded boots are expected —
+ *  we only need the process up far enough to serve HTTP). Hits the PUBLIC `/api/health`
+ *  liveness route (#1112): single-operator auth (#1081) gates `/api/diagnostics`, so an
+ *  un-credentialed poll of it now 401s and `curl -sf` would never succeed; health is
+ *  auth-exempt and needs no token. */
 const pollApiCmd = (): string =>
-  `for i in $(seq 1 ${BOOT_POLL_CEILING}); do curl -sf localhost:${PORT}/api/diagnostics >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1`;
+  `for i in $(seq 1 ${BOOT_POLL_CEILING}); do curl -sf localhost:${PORT}/api/health >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1`;
 
 /** Best-effort: append a tail of the boot log to `base`. On any failure (exec
  *  throws, non-zero, or empty/whitespace-only log) returns the bare `base` so the
@@ -120,7 +135,9 @@ export async function assertUnitActive(driver: IncusDriver, name: string): Promi
   }
 }
 
-/** Capture a fresh diagnostics snapshot from inside the instance. */
+/** Capture a fresh diagnostics snapshot from inside the instance. `/api/diagnostics`
+ *  is GATED by single-operator auth (#1081), so authorize with the operator bearer the
+ *  harness boots Shepherd with (HARNESS_TOKEN → config.token). #1112 */
 export async function probeDiagnostics(
   driver: IncusDriver,
   name: string,
@@ -128,7 +145,7 @@ export async function probeDiagnostics(
   const r = await driver.exec(name, [
     "sh",
     "-c",
-    `curl -s localhost:${PORT}/api/diagnostics?refresh=1`,
+    `curl -s -H "Authorization: Bearer ${HARNESS_TOKEN}" localhost:${PORT}/api/diagnostics?refresh=1`,
   ]);
   if (r.code !== 0 || !r.stdout.trim()) {
     throw new Error(`diagnostics probe failed in ${name}: ${r.stderr || "empty"}`);

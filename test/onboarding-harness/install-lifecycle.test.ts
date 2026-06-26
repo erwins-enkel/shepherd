@@ -62,6 +62,13 @@ describe("install-e2e-service runScenario (lifecycle)", () => {
     expect(bus).toBeDefined();
     expect(bus!).toContain("/run/user/0/bus");
 
+    // #1112: the unit's EnvironmentFile is seeded with the operator bearer BEFORE install,
+    // so the started service's config.token matches the gated diagnostics probe's bearer.
+    const envSeed = flat.find((c) => c.startsWith("exec") && c.includes("/root/.shepherd/env"));
+    expect(envSeed).toBeDefined();
+    expect(envSeed!).toContain("SHEPHERD_TOKEN="); // written into the unit's EnvironmentFile
+    expect(envSeed!).toContain("onboarding-harness-probe-token");
+
     // install.sh THROUGH the service path: correct env, and NO SHEPHERD_NO_SERVICE.
     const install = flat.find((c) => c.startsWith("exec") && c.includes("bash /root/install.sh"));
     expect(install).toBeDefined();
@@ -78,10 +85,11 @@ describe("install-e2e-service runScenario (lifecycle)", () => {
     // health-check through the running unit + probe.
     expect(flat.some((c) => c.includes("/api/diagnostics?refresh=1"))).toBe(true);
 
-    // ORDER: git-checkout → bus → install → is-active.
+    // ORDER: git-checkout → bus → env-seed → install → is-active.
     const idx = (needle: string) => flat.findIndex((c) => c.includes(needle));
     expect(idx("git init -q -b main")).toBeLessThan(idx("loginctl enable-linger root"));
-    expect(idx("loginctl enable-linger root")).toBeLessThan(idx("bash /root/install.sh"));
+    expect(idx("loginctl enable-linger root")).toBeLessThan(idx("/root/.shepherd/env"));
+    expect(idx("/root/.shepherd/env")).toBeLessThan(idx("bash /root/install.sh"));
     expect(idx("bash /root/install.sh")).toBeLessThan(idx("systemctl --user is-active shepherd"));
 
     // outcome

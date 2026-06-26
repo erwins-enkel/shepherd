@@ -77,9 +77,12 @@ note "restarting $UNIT"
 systemctl --user restart "$UNIT"
 
 # ── health check ───────────────────────────────────────────────────────────────
+# Hit the PUBLIC liveness route, not /api/sessions: single-operator auth (#1079/#1081) gates
+# the whole /api/* surface, so an un-credentialed deploy probe of a gated route now 401s
+# (never 200). /api/health is auth-exempt and proves the restarted server serves HTTP. #1112
 note "health check"
 for i in $(seq 1 10); do
-  code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${PORT}/api/sessions" 2>/dev/null || true)"
+  code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || true)"
   if [[ "$code" == "200" ]]; then
     printf '\033[32m✓ shepherd healthy on :%s (HTTP 200)\033[0m\n' "$PORT"
     exit 0

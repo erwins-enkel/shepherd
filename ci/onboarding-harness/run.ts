@@ -5,7 +5,13 @@ import { dirname, join } from "node:path";
 import { IncusDriver } from "./incus";
 import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
-import { assertUnitActive, bootShepherd, probeDiagnostics, waitForApi } from "./probe";
+import {
+  assertUnitActive,
+  bootShepherd,
+  HARNESS_TOKEN,
+  probeDiagnostics,
+  waitForApi,
+} from "./probe";
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport, gateGapScenarios, statusDescription } from "./report";
@@ -99,6 +105,14 @@ const INSTALL_SERVICE_CMD =
   "XDG_RUNTIME_DIR=/run/user/0 USER=root " +
   "SHEPHERD_SRC=/opt/shepherd SHEPHERD_DIR=/opt/shepherd bash /root/install.sh";
 
+/** Seed the operator bearer into the systemd unit's EnvironmentFile BEFORE install
+ *  (#1112). The unit owns the process and reads its env from `EnvironmentFile=-%h/.shepherd/env`
+ *  (%h=/root), NOT from INSTALL_SERVICE_CMD's exec env — so to let the GATED diagnostics
+ *  probe authorize (probeDiagnostics sends `Authorization: Bearer ${HARNESS_TOKEN}`), the
+ *  token must land in that file so the started unit's `config.token` matches. provision's
+ *  `mkdir -p ~/.shepherd` is idempotent and never clobbers this file. */
+const SEED_UNIT_TOKEN_SCRIPT = `mkdir -p /root/.shepherd && printf 'SHEPHERD_TOKEN=%s\\n' '${HARNESS_TOKEN}' > /root/.shepherd/env`;
+
 /** Inverse flow PLUS the real systemd USER-UNIT lifecycle: bare host → git-checkout
  *  /opt/shepherd → enable-linger + user bus → real deploy/install.sh THROUGH the
  *  service path → assert the `shepherd` unit is active → health-check through the
@@ -125,6 +139,15 @@ async function runInstallLifecycleE2E(
   const bus = await driver.exec(scenario.id, ["sh", "-c", BUS_ESTABLISH_SCRIPT]);
   if (bus.code !== 0) {
     throw new Error(`user bus did not come up in ${scenario.id}:\n${bus.stderr || bus.stdout}`);
+  }
+
+  // Seed the unit's EnvironmentFile token before install so the started service is
+  // bearer-authorizable for the gated diagnostics probe (#1112).
+  const envSeed = await driver.exec(scenario.id, ["sh", "-c", SEED_UNIT_TOKEN_SCRIPT]);
+  if (envSeed.code !== 0) {
+    throw new Error(
+      `unit token seed failed in ${scenario.id}:\n${envSeed.stderr || envSeed.stdout}`,
+    );
   }
 
   const install = await driver.exec(scenario.id, ["sh", "-c", INSTALL_SERVICE_CMD]);

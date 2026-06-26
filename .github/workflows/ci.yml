@@ -164,7 +164,7 @@ jobs:
       # events — extraction into node_modules happens every run regardless — so the
       # retry below, not this cache, is what absorbs the tarball-extraction flake.
       - name: Cache bun store (docs-site)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-docs-site-${{ hashFiles('docs-site/bun.lock') }}

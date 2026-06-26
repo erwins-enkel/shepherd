@@ -1893,8 +1893,13 @@ const appDeps: AppDeps = {
 // server accepts requests, so a spawn can never race an unfinished registry. A missing/
 // empty plugins dir is a clean no-op (the zero-plugin invariant).
 await pluginRegistry.loadAll();
-if (pluginRegistry.loadedCount() > 0) {
-  console.log(`[plugins] ${pluginRegistry.loadedCount()} plugin(s) loaded`);
+const loadedPlugins = pluginRegistry.list();
+if (loadedPlugins.length > 0) {
+  // "loaded" counts only plugins that actually registered (health ok); apiVersion
+  // mismatches / register() failures are recorded for the panel but reported separately.
+  const ok = loadedPlugins.filter((p) => p.health === "ok").length;
+  const failed = loadedPlugins.length - ok;
+  console.log(`[plugins] ${ok} plugin(s) loaded${failed > 0 ? `, ${failed} failed/skipped` : ""}`);
 }
 
 const server = serve(appDeps, config.port);

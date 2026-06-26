@@ -10,35 +10,38 @@ import type { PluginContext, SpawnDescriptor } from "../../../src/plugins/types"
 export function register(ctx: PluginContext): () => void {
   ctx.log.log(`registering (config keys: ${Object.keys(ctx.config).join(", ") || "none"})`);
 
-  // Observe the read-only core event stream (just count, for the demo).
-  let eventCount = (ctx.state.get<number>("eventCount") ?? 0) as number;
+  // Counters live IN MEMORY (seeded from durable state at load). The core event stream is
+  // high-frequency, so the subscriber must NOT do blocking I/O per event — that would stall
+  // the single server loop (see docs/plugins.md → "single-loop discipline"). We persist
+  // lazily: on teardown for eventCount, and only on the low-frequency onSpawn for spawnCount.
+  let eventCount = ctx.state.get<number>("eventCount") ?? 0;
+  let spawnCount = ctx.state.get<number>("spawnCount") ?? 0;
+
+  // Observe the read-only core event stream — memory-only increment, no I/O.
   const unsub = ctx.events.subscribe(() => {
     eventCount += 1;
-    ctx.state.set("eventCount", eventCount);
   });
 
-  // Observe spawns and publish a running counter to the status panel. Returns nothing —
-  // a template stays a no-op until you decide to mutate the spawn via a SpawnPatch.
+  // Observe spawns (rare) and publish a running counter to the status panel. Returns
+  // nothing — a template stays a no-op until you decide to mutate the spawn via a
+  // SpawnPatch. Persisting spawnCount here is fine: spawns are infrequent.
   ctx.onSpawn((d: SpawnDescriptor) => {
-    const spawns = ((ctx.state.get<number>("spawnCount") ?? 0) as number) + 1;
-    ctx.state.set("spawnCount", spawns);
-    ctx.log.log(`onSpawn: session=${d.sessionId} repo=${d.repoRoot} spawns=${spawns}`);
-    ctx.publishStatus({ spawnCount: spawns, lastSession: d.sessionId, eventCount });
+    spawnCount += 1;
+    ctx.state.set("spawnCount", spawnCount);
+    ctx.log.log(`onSpawn: session=${d.sessionId} repo=${d.repoRoot} spawns=${spawnCount}`);
+    ctx.publishStatus({ spawnCount, lastSession: d.sessionId, eventCount });
     // return; // a real plugin could `return { env: { CLAUDE_CONFIG_DIR: "/path" } }`
   });
 
-  // A read-only HTTP route under /api/plugins/example-plugin/status.
-  ctx.route("GET", "status", () =>
-    Response.json({
-      spawnCount: ctx.state.get<number>("spawnCount") ?? 0,
-      eventCount: ctx.state.get<number>("eventCount") ?? 0,
-    }),
-  );
+  // A read-only HTTP route under /api/plugins/example-plugin/status — serves the live
+  // in-memory counters (no state read needed).
+  ctx.route("GET", "status", () => Response.json({ spawnCount, eventCount }));
 
-  ctx.publishStatus({ spawnCount: ctx.state.get<number>("spawnCount") ?? 0, eventCount });
+  ctx.publishStatus({ spawnCount, eventCount });
 
   return () => {
     unsub();
+    ctx.state.set("eventCount", eventCount); // persist once, lazily, at shutdown
     ctx.log.log("torn down");
   };
 }

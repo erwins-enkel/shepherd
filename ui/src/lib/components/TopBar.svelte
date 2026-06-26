@@ -375,7 +375,14 @@
   // toast won't do: the mobile popover is a fullscreen portal at the same z-index as
   // the toast stack, so a bottom toast renders behind it. Inline feedback lives inside
   // the surface and stays visible on both desktop and mobile.
-  let heldErrors = $state<Record<string, "spawn" | "discard">>({});
+  let heldErrors = $state<Record<string, { kind: "spawn" | "discard"; detail?: string }>>({});
+
+  // Carry the server's real `{error}` cause (agent-name-taken, worktree/create failure,
+  // sandbox refusal, …) so the popover can show *why* it failed, not just "try again".
+  function heldErrorDetail(e: unknown): string | undefined {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return msg ? msg : undefined;
+  }
 
   // In-flight per-task action. A spawn runs server-side worktree creation + agent launch
   // (seconds), so without a pending affordance the button looks inert the whole time and
@@ -390,8 +397,8 @@
     try {
       await spawnHeld(id, agentProvider);
       await loadHeld();
-    } catch {
-      heldErrors[id] = "spawn";
+    } catch (e) {
+      heldErrors[id] = { kind: "spawn", detail: heldErrorDetail(e) };
     } finally {
       delete heldPending[id];
     }
@@ -404,8 +411,8 @@
     try {
       await discardHeld(id);
       await loadHeld();
-    } catch {
-      heldErrors[id] = "discard";
+    } catch (e) {
+      heldErrors[id] = { kind: "discard", detail: heldErrorDetail(e) };
     } finally {
       delete heldPending[id];
     }

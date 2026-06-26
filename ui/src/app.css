@@ -108,6 +108,14 @@
   --icon-btn-hit: 28px; /* desktop square hit area for header icon buttons */
   --icon-btn-glyph: 18px; /* canonical inline-SVG glyph size */
 
+  /* Shared height for the top bar's right-cluster boxed controls (needsyou/held/
+     update/learnings badges, what's-new, docs link, gear) — single source so a
+     box's glyph or padding can't drift its height (the recurring "zoo of heights").
+     A fixed chrome height: NOT scaled by --ui-scale; consumers use it as a
+     min-height so content can still grow under iOS Dynamic Type. The coarse-pointer
+     /mobile 44px floors override it on touch. */
+  --topbar-ctl-h: 30px;
+
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is
      NOT actionable-complete, so it must not read green/"ignore me" — it reads as

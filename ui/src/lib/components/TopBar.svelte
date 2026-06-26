@@ -867,12 +867,19 @@
     color: var(--color-muted);
   }
   .needsyou {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* shared bar control height; glyph/text centers, padding no longer drives height */
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     background: color-mix(in srgb, var(--color-red) 18%, transparent);
     border: 1px solid var(--color-red);
     color: var(--color-red);
     letter-spacing: 0.14em;
     font-size: var(--fs-meta);
-    padding: 5px 10px;
+    padding: 0 10px;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -898,11 +905,14 @@
   /* Standalone docs link: a quiet icon button matching the gear's at-rest muted ink,
      going amber on hover/focus. Coarse-pointer 44px floor handled in the shared block. */
   .docs-link {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     color: var(--color-muted);
-    padding: 5px 8px;
+    padding: 0 8px;
     flex-shrink: 0;
   }
   .docs-link:hover,
@@ -985,7 +995,7 @@
      so .hud.mobile .gauge-btn can never match — verified dead (#855). */
   .hud.mobile .needsyou {
     min-height: 44px;
-    padding: 8px 12px;
+    padding: 0 12px;
   }
   /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
      fits on line 1 next to the gauge/gear instead of forcing the right-side
@@ -996,7 +1006,7 @@
     justify-content: center;
     gap: 4px;
     min-width: 44px;
-    padding: 8px 10px;
+    padding: 0 10px;
     letter-spacing: 0;
     font-variant-numeric: tabular-nums;
     /* pin the line box to 1×font-size so the compact badge height is

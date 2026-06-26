@@ -2004,5 +2004,7 @@
   "herdrupdate_sessions_label": "Laufende Sessions",
   "herdrupdate_jump_to": "Zu {name} springen",
   "feat_herdr_update_session_list_title": "Sieh die Sessions, die ein Update beenden würde — und spring hin",
-  "feat_herdr_update_session_list_body": "Der herdr-Update-Dialog zeigt nicht mehr nur eine Zahl laufender Sessions, sondern listet jede einzeln auf — und jede Zeile springt direkt zu dieser Session. Schließe sie nach und nach ab und aktualisiere dann, ohne Angst, etwas zu verlieren."
+  "feat_herdr_update_session_list_body": "Der herdr-Update-Dialog zeigt nicht mehr nur eine Zahl laufender Sessions, sondern listet jede einzeln auf — und jede Zeile springt direkt zu dieser Session. Schließe sie nach und nach ab und aktualisiere dann, ohne Angst, etwas zu verlieren.",
+  "topbar_held_spawning": "Wird gestartet…",
+  "topbar_held_discarding": "Wird verworfen…"
 }

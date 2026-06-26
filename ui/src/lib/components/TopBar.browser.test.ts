@@ -986,6 +986,54 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
     // announced assertively so it reaches a screen reader.
     await expect.element(page.getByRole("alert")).toHaveTextContent(m.topbar_held_spawn_failed());
   });
+
+  it("shows in-flight state on the spawn button while a held-task spawn is pending", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const heldItems: HeldTask[] = [
+      {
+        id: "held-1",
+        repoPath: "/work/shepherd",
+        createdAt: 1_700_000_000_000,
+        input: {
+          repoPath: "/work/shepherd",
+          baseBranch: "main",
+          prompt: "In der Dashboard-Übersicht",
+          agentProvider: "claude",
+          model: null,
+        },
+      },
+    ];
+
+    render(TopBarHeldBadge, {
+      heldCount: 1,
+      mobile: false,
+      compactBadges: false,
+      hotter: null,
+      nowMs: 1_700_000_000_000,
+      heldPopFlipUp: false,
+      heldItems,
+      heldLoading: false,
+      heldPending: { "held-1": "spawn" },
+      heldAutoRelease: true,
+      heldAutoReleaseBusy: false,
+      toggleHeldAutoRelease: vi.fn(),
+      heldPopOpen: true,
+      heldBadgeBtn: null,
+      heldPopEl: null,
+      toggleHeldPop: vi.fn(),
+      closeHeldPop: vi.fn(),
+      doSpawnHeld: vi.fn(),
+      doDiscardHeld: vi.fn(),
+    });
+    await nextFrame();
+
+    // While spawning, the button reads "starting…", is busy, and is disabled so the
+    // click can't fire twice — the missing affordance that made it read as "does nothing".
+    const spawn = page.getByRole("button", { name: m.topbar_held_spawning() });
+    await expect.element(spawn).toBeDisabled();
+    expect((spawn.element() as HTMLElement).getAttribute("aria-busy")).toBe("true");
+  });
 });
 
 describe("TopBar — working-while-blocked counts in the working tally, not blocked", () => {

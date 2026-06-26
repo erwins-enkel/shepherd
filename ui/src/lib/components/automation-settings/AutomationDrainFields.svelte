@@ -1,0 +1,157 @@
+<script lang="ts">
+  import { untrack } from "svelte";
+  import { m } from "$lib/paraglide/messages";
+  import { repoConfig } from "$lib/reviews.svelte";
+  import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
+
+  // The Auto-Drain "rails" (cap / label / usage ceiling). Rendered inline directly
+  // beneath the Auto-Drain toggle — and only while it's on — so the dials read as
+  // belonging to that switch rather than floating in an unrelated section below.
+  let { repoPath }: { repoPath: string } = $props();
+
+  // Seeded from stored config; re-seeded whenever the repo changes (the component
+  // stays mounted across repo switches as long as Auto-Drain remains on).
+  // svelte-ignore state_referenced_locally
+  let drainCap = $state(repoConfig.maxAutoFor(repoPath));
+  // svelte-ignore state_referenced_locally
+  let drainLabel = $state(repoConfig.autoLabelFor(repoPath));
+  // svelte-ignore state_referenced_locally
+  let drainCeiling = $state(repoConfig.usageCeilingFor(repoPath));
+  $effect(() => {
+    // untrack the store reads so committing a field (which writes back to the
+    // store) never retriggers this effect and clobbers an in-flight edit.
+    const repo = repoPath;
+    untrack(() => {
+      drainCap = repoConfig.maxAutoFor(repo);
+      drainLabel = repoConfig.autoLabelFor(repo);
+      drainCeiling = repoConfig.usageCeilingFor(repo);
+    });
+  });
+
+  async function commitDrainCap() {
+    const n = clampCap(drainCap);
+    drainCap = n;
+    await repoConfig.setMaxAuto(repoPath, n);
+    drainCap = repoConfig.maxAutoFor(repoPath);
+  }
+  async function commitDrainLabel() {
+    const t = sanitizeLabel(drainLabel);
+    if (t === null) {
+      drainLabel = repoConfig.autoLabelFor(repoPath);
+      return;
+    }
+    drainLabel = t;
+    await repoConfig.setAutoLabel(repoPath, t);
+    drainLabel = repoConfig.autoLabelFor(repoPath);
+  }
+  async function commitDrainCeiling() {
+    const n = clampCeiling(drainCeiling);
+    drainCeiling = n;
+    await repoConfig.setUsageCeiling(repoPath, n);
+    drainCeiling = repoConfig.usageCeilingFor(repoPath);
+  }
+</script>
+
+<div class="drain-fields" role="group" aria-label={m.automation_autodrain_name()}>
+  <p class="drain-intro">{m.automation_drain_fields_intro()}</p>
+  <label class="drain-field">
+    <span class="drain-label">{m.drain_cap_label()}</span>
+    <input
+      class="num"
+      type="number"
+      min="1"
+      max="20"
+      bind:value={drainCap}
+      aria-label={m.drain_cap_label()}
+      aria-describedby="drain-hint-cap"
+      onchange={commitDrainCap}
+    />
+  </label>
+  <p id="drain-hint-cap" class="drain-hint">{m.drain_cap_hint()}</p>
+  <label class="drain-field">
+    <span class="drain-label">{m.drain_label_label()}</span>
+    <input
+      class="num txt"
+      type="text"
+      bind:value={drainLabel}
+      aria-label={m.drain_label_label()}
+      aria-describedby="drain-hint-label"
+      onchange={commitDrainLabel}
+      onblur={commitDrainLabel}
+    />
+  </label>
+  <p id="drain-hint-label" class="drain-hint">{m.drain_label_hint()}</p>
+  <label class="drain-field">
+    <span class="drain-label">{m.drain_ceiling_label()}</span>
+    <input
+      class="num"
+      type="number"
+      min="0"
+      max="100"
+      bind:value={drainCeiling}
+      aria-label={m.drain_ceiling_label()}
+      aria-describedby="drain-hint-ceiling"
+      onchange={commitDrainCeiling}
+    />
+  </label>
+  <p id="drain-hint-ceiling" class="drain-hint">{m.drain_ceiling_hint()}</p>
+</div>
+
+<style>
+  /* Mirrors the parent's `.drain-fields` nesting: indented under the toggle row,
+     panel ground + hairline top border, so it reads as expanding from the switch. */
+  .drain-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px 12px 22px;
+    border-top: 1px solid var(--color-line);
+    background: var(--color-panel);
+  }
+  .drain-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .drain-label {
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    white-space: nowrap;
+  }
+  .num {
+    flex: 0 0 auto;
+    width: 90px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    padding: 3px 6px;
+    text-align: right;
+  }
+  /* The label is free text (e.g. "shepherd:auto") that overflows the fixed numeric
+     width on narrow screens — let it grow and read from the start. */
+  .num.txt {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    text-align: left;
+  }
+  /* Lead-in sentence framing the three dials as Auto-Drain's rails. */
+  .drain-intro {
+    margin: 0 0 2px;
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+    color: var(--color-muted);
+  }
+  /* Per-field explanation: quiet, sits flush under its field so the meaning of
+     each dial is legible inline rather than hidden behind a tooltip. */
+  .drain-hint {
+    margin: -2px 0 2px;
+    font-size: var(--fs-micro);
+    line-height: 1.45;
+    color: var(--color-faint);
+  }
+</style>

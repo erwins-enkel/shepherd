@@ -3,6 +3,7 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
+  import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import type { Session, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
@@ -297,6 +298,12 @@
     <span class="knob"></span>
   </button>
 </div>
+<!-- Auto-Drain's rails (cap / label / usage ceiling), inline directly under its
+     toggle so they read as part of that switch. Only while drain is actually
+     active (on, not epic-suspended, forge repo) — otherwise they'd be inert. -->
+{#if flags.autoDrain && !epicActive && !lightweight}
+  <AutomationDrainFields {repoPath} />
+{/if}
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">
@@ -435,7 +442,7 @@
   </div>
 </div>
 
-<AutomationRepoFields {repoPath} autoDrain={flags.autoDrain} />
+<AutomationRepoFields {repoPath} />
 
 <!-- Clickable "ⓘ" that toggles a row's long-form explanation, and the detail
      block it reveals. Reused by every row so each function carries a thorough,

@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import { repoConfig } from "$lib/reviews.svelte";
-  import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { MODELS } from "$lib/types";
   import { modelLabel } from "$lib/model-label";
@@ -10,55 +8,9 @@
 
   let {
     repoPath,
-    autoDrain,
   }: {
     repoPath: string;
-    autoDrain: boolean;
   } = $props();
-
-  // Drain config fields, seeded from stored config and re-seeded whenever the
-  // section becomes visible (drain turned on) or the repo changes.
-  // svelte-ignore state_referenced_locally
-  let drainCap = $state(repoConfig.maxAutoFor(repoPath));
-  // svelte-ignore state_referenced_locally
-  let drainLabel = $state(repoConfig.autoLabelFor(repoPath));
-  // svelte-ignore state_referenced_locally
-  let drainCeiling = $state(repoConfig.usageCeilingFor(repoPath));
-  $effect(() => {
-    // Re-seed the inputs when the repo changes or the drain section (re)appears.
-    // untrack the store reads so committing a field (which writes back to the
-    // store) never retriggers this effect and clobbers an in-flight edit.
-    const repo = repoPath;
-    if (!autoDrain) return;
-    untrack(() => {
-      drainCap = repoConfig.maxAutoFor(repo);
-      drainLabel = repoConfig.autoLabelFor(repo);
-      drainCeiling = repoConfig.usageCeilingFor(repo);
-    });
-  });
-
-  async function commitDrainCap() {
-    const n = clampCap(drainCap);
-    drainCap = n;
-    await repoConfig.setMaxAuto(repoPath, n);
-    drainCap = repoConfig.maxAutoFor(repoPath);
-  }
-  async function commitDrainLabel() {
-    const t = sanitizeLabel(drainLabel);
-    if (t === null) {
-      drainLabel = repoConfig.autoLabelFor(repoPath);
-      return;
-    }
-    drainLabel = t;
-    await repoConfig.setAutoLabel(repoPath, t);
-    drainLabel = repoConfig.autoLabelFor(repoPath);
-  }
-  async function commitDrainCeiling() {
-    const n = clampCeiling(drainCeiling);
-    drainCeiling = n;
-    await repoConfig.setUsageCeiling(repoPath, n);
-    drainCeiling = repoConfig.usageCeilingFor(repoPath);
-  }
 
   // Repo responsibilities (.shepherd/roles.json): who reviews, who merges. Loaded
   // lazily when the panel mounts / the repo changes — the herd reads the computed
@@ -147,45 +99,6 @@
   </label>
   <div class="signoff-note">{m.automation_default_model_hint()}</div>
 </div>
-{#if autoDrain}
-  <div class="drain-fields">
-    <label class="drain-field">
-      <span class="drain-label">{m.drain_cap_label()}</span>
-      <input
-        class="num"
-        type="number"
-        min="1"
-        max="20"
-        bind:value={drainCap}
-        aria-label={m.drain_cap_label()}
-        onchange={commitDrainCap}
-      />
-    </label>
-    <label class="drain-field">
-      <span class="drain-label">{m.drain_label_label()}</span>
-      <input
-        class="num txt"
-        type="text"
-        bind:value={drainLabel}
-        aria-label={m.drain_label_label()}
-        onchange={commitDrainLabel}
-        onblur={commitDrainLabel}
-      />
-    </label>
-    <label class="drain-field">
-      <span class="drain-label">{m.drain_ceiling_label()}</span>
-      <input
-        class="num"
-        type="number"
-        min="0"
-        max="100"
-        bind:value={drainCeiling}
-        aria-label={m.drain_ceiling_label()}
-        onchange={commitDrainCeiling}
-      />
-    </label>
-  </div>
-{/if}
 
 <!-- Repo responsibilities: reviewer + merger (committed to .shepherd/roles.json) -->
 <div class="auto-group" id="repo-roles">{m.automation_group_roles()}</div>
@@ -291,15 +204,6 @@
     font-size: var(--fs-base);
     padding: 3px 6px;
     text-align: right;
-  }
-  /* The label is free text (e.g. "shepherd:auto") that overflows the fixed
-     numeric width on narrow screens — let it grow with the row and read from
-     the start instead of clipping the left side under right-alignment. */
-  .num.txt {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-    text-align: left;
   }
   .role-select,
   .role-input {

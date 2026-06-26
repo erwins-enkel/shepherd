@@ -245,6 +245,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+    /* Last-resort scroll when even the shrinkable notes box can't free enough
+       space — e.g. no release notes at all (nothing shrinkable) plus a full
+       180px sessions list on a short viewport — so the action buttons are never
+       clipped below the 80dvh cap. (Mobile re-sets this in the media query.) */
+    overflow-y: auto;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     padding: 18px 18px 16px;
@@ -425,6 +430,14 @@
     /* keep a long list from pushing the actions off-screen on short viewports */
     max-height: 180px;
     overflow-y: auto;
+    /* Don't let the flex column collapse this list away. The card is capped at
+       80dvh and both this list and the release-notes box are scroll containers
+       (automatic min-size 0), so when long notes overflow the cap flexbox is
+       free to shrink BOTH to a sliver — which hid the running-sessions list
+       entirely. The notes box is the intended shrinkable one (min-height: 0);
+       the sessions list is this dialog's whole point, so pin it and let the
+       notes absorb the shrinkage instead. */
+    flex-shrink: 0;
   }
   .session {
     width: 100%;

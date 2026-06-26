@@ -9,7 +9,13 @@ import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { matchAgents } from "./herdr";
 import { config } from "./config";
-import type { CreateSessionInput, IssueRef, RelaunchOverrides, Session } from "./types";
+import type {
+  AgentProvider,
+  CreateSessionInput,
+  IssueRef,
+  RelaunchOverrides,
+  Session,
+} from "./types";
 import {
   moveStagedIntoWorktree,
   stagingDir,
@@ -330,6 +336,7 @@ async function trimDecision(
     trimmed: true,
   };
 }
+type TrimDecision = Awaited<ReturnType<typeof trimDecision>>;
 
 /**
  * Appended to every spawned session's system prompt. The async namer
@@ -1512,6 +1519,95 @@ export class SessionService {
     return argv;
   }
 
+  private buildClaudeResumeArgv(s: Session, trim: TrimDecision): string[] {
+    const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
+    const argv = [
+      "claude",
+      "--dangerously-skip-permissions",
+      "--resume",
+      s.claudeSessionId,
+      ...trim.extraFlags,
+      "--settings",
+      spawnSettingsOverlay({
+        ...trim.overlayOpts,
+        hooks: { sessionId: s.id, baseUrl, token: config.token },
+      }),
+    ];
+    this.pushModelFlag(argv, s.model);
+    return argv;
+  }
+
+  private buildResumeArgv(s: Session, provider: AgentProvider, trim: TrimDecision): string[] {
+    return provider === "codex"
+      ? this.buildCodexResumeArgv(s.model)
+      : this.buildClaudeResumeArgv(s, trim);
+  }
+
+  private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {
+    const session = this.deps.store.get(id);
+    if (!session || session.status === "archived") return null;
+
+    const provider = session.agentProvider ?? "claude";
+    if (provider === "claude" && !session.claudeSessionId) return null;
+
+    return { session, provider };
+  }
+
+  private liveAgentFor(id: string): HerdrAgent | null {
+    return (
+      matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
+      null
+    );
+  }
+
+  private adoptLiveResumeAgent(session: Session, agent: HerdrAgent): Session | null {
+    if (agent.terminalId === session.herdrAgentId) return session;
+
+    this.deps.store.update(session.id, { herdrAgentId: agent.terminalId });
+    return this.deps.store.get(session.id);
+  }
+
+  private resumeRefusedByAutoGate(session: Session): boolean {
+    const hold = session.auto ? this.resumeAutoHold(session) : null;
+    if (!hold) return false;
+
+    console.warn(`[sandbox] resume refused for ${session.id} (husk preserved): ${hold}`);
+    return true;
+  }
+
+  private prepareResumeSpawn(session: Session, innerArgv: string[]): SpawnOutcome {
+    return this.prepareSpawn(innerArgv, {
+      sessionId: session.id,
+      name: session.name,
+      worktreePath: session.worktreePath,
+      repoPath: session.repoPath,
+      isolated: session.isolated,
+      auto: session.auto,
+      // Preserve spawn-time confinement: a session created with a stricter per-spawn
+      // profile must NOT silently resume weaker (e.g. trusted) just because the repo
+      // default is weaker. Legacy rows (null) fall back to repo-config resolution.
+      profileOverride: session.sandboxApplied ?? undefined,
+    });
+  }
+
+  private finishResumeSpawn(
+    session: Session,
+    outcome: Extract<SpawnOutcome, { ok: true }>,
+  ): Session | null {
+    this.deps.store.update(session.id, {
+      herdrAgentId: outcome.terminalId,
+      status: "running",
+      lastState: "idle",
+    });
+    this.deps.store.setSandboxState(session.id, {
+      applied: outcome.applied,
+      degraded: outcome.degraded,
+      egressApplied: outcome.egressApplied,
+      egressDegraded: outcome.egressDegraded,
+    });
+    return this.deps.store.get(session.id);
+  }
+
   /**
    * Resolve the per-spawn sandbox profile override for a create(), accounting for the
    * research downgrade: research needs OPEN web egress (web search / fetch + sub-agents),
@@ -1963,91 +2059,38 @@ export class SessionService {
    * scrollback in the rare misclick-on-live-claude case.
    */
   async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
-    const s = this.deps.store.get(id);
-    const agentProvider = s?.agentProvider ?? "claude";
-    if (!s || s.status === "archived") return null;
-    if (agentProvider === "claude" && !s.claudeSessionId) return null;
-    const agent =
-      matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
-      null;
+    const target = this.resumeTarget(id);
+    if (!target) return null;
+
+    const { session, provider } = target;
+    const agent = this.liveAgentFor(id);
     if (agent && !opts.force) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new
       // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.
-      if (agent.terminalId !== s.herdrAgentId) {
-        this.deps.store.update(id, { herdrAgentId: agent.terminalId });
-        return this.deps.store.get(id);
-      }
-      return s;
+      return this.adoptLiveResumeAgent(session, agent);
     }
+
     // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
     // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or
     // backend change leaves the running session intact rather than stopping it dead.
     // prepareSpawn re-checks below (defense in depth); this just guards the teardown.
-    const hold = s.auto ? this.resumeAutoHold(s) : null;
-    if (hold) {
-      console.warn(`[sandbox] resume refused for ${s.id} (husk preserved): ${hold}`);
-      return null;
-    }
+    if (this.resumeRefusedByAutoGate(session)) return null;
+
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the skill catalog + plugin hooks.
-    const trim = await this.trimFor(s.auto);
+    const trim = await this.trimFor(session.auto);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     if (agent) this.deps.herdr.stop(agent.terminalId);
-    // Bake the URL matching the SAME profile prepareSpawn resumes with (s.sandboxApplied), so an
-    // egress-confined resume reaches Shepherd via the restricted ingress listener, not the netns
-    // loopback. Uses the identical predicate/probe/port as prepareSpawn below → can't diverge.
-    const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
-    const innerArgv =
-      agentProvider === "codex"
-        ? this.buildCodexResumeArgv(s.model)
-        : [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--resume",
-            s.claudeSessionId,
-            ...trim.extraFlags,
-          ];
-    if (agentProvider === "claude") {
-      innerArgv.push(
-        "--settings",
-        spawnSettingsOverlay({
-          ...trim.overlayOpts,
-          hooks: { sessionId: s.id, baseUrl, token: config.token },
-        }),
-      );
-      this.pushModelFlag(innerArgv, s.model);
-    }
-    const outcome = this.prepareSpawn(innerArgv, {
-      sessionId: s.id,
-      name: s.name,
-      worktreePath: s.worktreePath,
-      repoPath: s.repoPath,
-      isolated: s.isolated,
-      auto: s.auto,
-      // Preserve spawn-time confinement: a session created with a stricter per-spawn
-      // profile must NOT silently resume weaker (e.g. trusted) just because the repo
-      // default is weaker. Legacy rows (null) fall back to repo-config resolution.
-      profileOverride: s.sandboxApplied ?? undefined,
-    });
+
+    const outcome = this.prepareResumeSpawn(session, this.buildResumeArgv(session, provider, trim));
     if (!outcome.ok) {
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
       // server returns 409 — so an auto-refused resume resolves null rather than throwing.
-      console.warn(`[sandbox] resume refused for ${s.id}: ${outcome.holdReason}`);
+      console.warn(`[sandbox] resume refused for ${session.id}: ${outcome.holdReason}`);
       return null;
     }
-    this.deps.store.update(id, {
-      herdrAgentId: outcome.terminalId,
-      status: "running",
-      lastState: "idle",
-    });
-    this.deps.store.setSandboxState(id, {
-      applied: outcome.applied,
-      degraded: outcome.degraded,
-      egressApplied: outcome.egressApplied,
-      egressDegraded: outcome.egressDegraded,
-    });
-    return this.deps.store.get(id);
+    return this.finishResumeSpawn(session, outcome);
   }
 
   /**

@@ -15,6 +15,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { handleImagePaste } from "$lib/clipboard";
   import {
+    CODEX_MODELS,
     type Issue,
     type IssueRef,
     type AgentProvider,
@@ -357,6 +358,9 @@
   const repoModelOverride = $derived(repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit");
   const effectiveModelSetting = $derived(
     repoModelOverride !== "inherit" ? repoModelOverride : (defaultModel ?? "auto"),
+  );
+  const providerDefaultModel = $derived(
+    agentProvider === "codex" ? CODEX_MODELS[0] : preselectModel(effectiveModelSetting),
   );
   $effect(() => {
     if (initialModel == null && !modelTouched) model = preselectModel(effectiveModelSetting);
@@ -902,10 +906,12 @@
         bind:agentProvider
         bind:model
         bind:sandboxProfile
+        {providerDefaultModel}
         {holdLikely}
         onPlanGateTouched={() => (planGateTouched = true)}
         onAutopilotTouched={() => (autopilotTouched = true)}
         onModelTouched={() => (modelTouched = true)}
+        onProviderDefaultModelSelected={(provider) => (modelTouched = provider === "codex")}
         {planGateLoading}
         {autopilotLoading}
         {autopilotDefault}

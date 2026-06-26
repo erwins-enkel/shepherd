@@ -18,9 +18,11 @@
     agentProvider = $bindable(),
     model = $bindable(),
     sandboxProfile = $bindable(),
+    providerDefaultModel,
     onPlanGateTouched,
     onAutopilotTouched,
     onModelTouched,
+    onProviderDefaultModelSelected,
     planGateLoading,
     autopilotLoading,
     autopilotDefault,
@@ -35,11 +37,13 @@
     agentProvider: AgentProvider;
     model: string;
     sandboxProfile: "default" | SandboxProfile;
+    providerDefaultModel: string;
     // touched flags live in the parent; the child only signals a manual change
     // (write-only `$bindable` would trip no-useless-assignment here)
     onPlanGateTouched: () => void;
     onAutopilotTouched: () => void;
     onModelTouched: () => void;
+    onProviderDefaultModelSelected: (provider: AgentProvider) => void;
     planGateLoading: boolean;
     autopilotLoading: boolean;
     autopilotDefault: boolean;
@@ -58,8 +62,8 @@
   }
 
   function agentProviderChanged() {
-    model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
-    onModelTouched();
+    model = providerDefaultModel;
+    onProviderDefaultModelSelected(agentProvider);
   }
 
   $effect(() => {

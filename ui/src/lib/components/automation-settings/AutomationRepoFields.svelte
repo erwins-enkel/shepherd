@@ -5,6 +5,7 @@
   import { MODELS } from "$lib/types";
   import { modelLabel } from "$lib/model-label";
   import type { RepoRoles } from "$lib/types";
+  import "./automation-fields.css";
 
   let {
     repoPath,
@@ -174,37 +175,8 @@
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
-  .drain-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 12px 12px 22px;
-    border-top: 1px solid var(--color-line);
-    background: var(--color-panel);
-  }
-  .drain-field {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .drain-label {
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    white-space: nowrap;
-  }
-  .num {
-    flex: 0 0 auto;
-    width: 90px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    padding: 3px 6px;
-    text-align: right;
-  }
+  /* .drain-fields / .drain-field / .drain-label / .num come from
+     ./automation-fields.css (imported in <script>). */
   .role-select,
   .role-input {
     flex: 0 0 auto;

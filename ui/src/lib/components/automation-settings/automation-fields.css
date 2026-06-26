@@ -1,0 +1,44 @@
+/* Shared layout for the automation panel's inset field rows (drain rails, sandbox
+   profile, default model, sign-off). Hoisted out of the individual components so
+   the rules live in exactly one place instead of being copied into each scoped
+   <style> block. These class names are used only by the automation-settings
+   components, so global scope here is safe (and intentional). */
+.drain-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px 22px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-panel);
+}
+.drain-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.drain-label {
+  font-size: var(--fs-meta);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+.num {
+  flex: 0 0 auto;
+  width: 90px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+  padding: 3px 6px;
+  text-align: right;
+}
+/* The label is free text (e.g. "shepherd:auto") that overflows the fixed numeric
+   width on narrow screens — let it grow and read from the start. */
+.num.txt {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  text-align: left;
+}

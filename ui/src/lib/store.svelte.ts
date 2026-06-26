@@ -2,6 +2,7 @@ import { SvelteMap } from "svelte/reactivity";
 import type {
   Session,
   WsEvent,
+  PluginInfo,
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -40,6 +41,9 @@ export class HerdStore {
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   diagnostics = $state<DiagnosticsSnapshot | null>(null);
+  /** Loaded server-side plugins (issue #1124). Empty → Settings → Plugins tab hidden.
+   *  Seeded by a bootstrap GET /api/plugins; live-updated by the `plugin:status` event. */
+  plugins = $state<PluginInfo[]>([]);
   herdrUpdateLog = $state<string[]>([]);
   herdrUpdateDone = $state<{
     ok: boolean;
@@ -145,6 +149,19 @@ export class HerdStore {
   /** Seed (or replace) the hold-reason map after a bootstrap GET. */
   setHolds(map: Record<string, HoldReason>): void {
     this.holds = map;
+  }
+  /** Seed (or replace) the loaded-plugins list after the bootstrap GET /api/plugins. */
+  setPlugins(list: PluginInfo[]): void {
+    this.plugins = list;
+  }
+  /** Live `plugin:status` push: update the matching plugin's core-derived health +
+   *  published blob in place. Extracted from apply() for the complexity gate. */
+  private applyPluginStatus(data: { id: string; health: PluginInfo["health"]; status: unknown }) {
+    const i = this.plugins.findIndex((p) => p.id === data.id);
+    if (i === -1) return; // unknown id (pre-bootstrap race) — the GET seed will catch up
+    this.plugins = this.plugins.map((p) =>
+      p.id === data.id ? { ...p, health: data.health, status: data.status } : p,
+    );
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -536,6 +553,9 @@ export class HerdStore {
         break;
       case "diagnostics:status":
         this.diagnostics = ev.data;
+        break;
+      case "plugin:status":
+        this.applyPluginStatus(ev.data);
         break;
       case "star-prompt:status":
         this.starPrompt = ev.data;

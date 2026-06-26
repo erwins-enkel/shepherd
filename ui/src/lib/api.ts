@@ -21,6 +21,7 @@ import type {
   DeployState,
   HerdrUpdateStatus,
   DiagnosticsSnapshot,
+  PluginInfo,
   StarPromptStatus,
   Steer,
   DiffResult,
@@ -987,6 +988,15 @@ export async function getDiagnostics(refresh = false): Promise<DiagnosticsSnapsh
   const r = await fetch(`/api/diagnostics${refresh ? "?refresh=1" : ""}`);
   if (!r.ok) throw await failed(r, "diagnostics");
   return r.json();
+}
+
+/** Loaded server-side plugins (issue #1124). Empty array when none — the UI hides the
+ *  Settings → Plugins tab. 404-safe: a build without the registry returns `{plugins:[]}`. */
+export async function getPlugins(): Promise<PluginInfo[]> {
+  const r = await fetch("/api/plugins");
+  if (!r.ok) throw await failed(r, "plugins");
+  const body = (await r.json()) as { plugins: PluginInfo[] };
+  return body.plugins ?? [];
 }
 
 /** Run the verbatim remediation for a diagnostics check, then return the re-probed

@@ -36,6 +36,7 @@
     landEpic,
     getEpic,
     getDiagnostics,
+    getPlugins,
     halt as apiHalt,
     resumeQuota,
     dismissQuota,
@@ -391,6 +392,14 @@
       .catch(() => {
         if (!store.diagnostics) diagnosticsLoadFailed = true;
       });
+  }
+  // Bootstrap the loaded-plugins list (issue #1124). Best-effort: a missing registry
+  // returns an empty list, keeping the Settings → Plugins tab hidden. Live `plugin:status`
+  // pushes update it thereafter via the store.
+  function loadPlugins() {
+    getPlugins()
+      .then((list) => store.setPlugins(list))
+      .catch(() => {});
   }
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks, store.holds));
   // Once every "needs you" item is handled the drawer has nothing left to show —
@@ -1196,6 +1205,7 @@
       .then((u) => (store.herdrUpdate = u))
       .catch(() => {});
     loadDiagnostics();
+    loadPlugins();
     getStarPrompt()
       .then((s) => (store.starPrompt = s))
       .catch(() => {});

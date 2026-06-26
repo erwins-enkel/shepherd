@@ -29,11 +29,13 @@
     type AgentProvider,
     type HerdrUpdateStatus,
     type DiagnosticCheck,
+    type PluginInfo,
   } from "$lib/types";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
   import SettingsWorkspacePanel from "$lib/components/settings/SettingsWorkspacePanel.svelte";
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
+  import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -45,26 +47,30 @@
   // (runtime defaults + review gates), DEVICE (this browser's notifications + theme).
   // The HERDR-update CTA is an alert,
   // not a section, so it stays pinned above the tab strip.
-  const TABS = [
+  // The Plugins tab (issue #1124) is appended but only RENDERED when ≥1 plugin is loaded
+  // (see `visibleTabs` below) — a fresh clone with no plugins never shows it.
+  const ALL_TABS = [
     { id: "workspace", label: m.settings_tab_workspace },
     { id: "codingAgents", label: m.settings_tab_coding_agents },
     { id: "session", label: m.settings_tab_session },
     { id: "device", label: m.settings_tab_device },
     { id: "diagnose", label: m.settings_tab_diagnose },
+    { id: "plugins", label: m.settings_tab_plugins },
   ] as const;
-  type TabId = (typeof TABS)[number]["id"];
+  type TabId = (typeof ALL_TABS)[number]["id"];
   let tabEls: HTMLButtonElement[] = [];
 
   function onTabKey(e: KeyboardEvent, i: number) {
+    const tabs = visibleTabs;
     let next: number;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % TABS.length;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % tabs.length;
     else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
-      next = (i - 1 + TABS.length) % TABS.length;
+      next = (i - 1 + tabs.length) % tabs.length;
     else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = TABS.length - 1;
+    else if (e.key === "End") next = tabs.length - 1;
     else return;
     e.preventDefault();
-    tab = TABS[next].id;
+    tab = tabs[next].id;
     tabEls[next]?.focus();
   }
 
@@ -78,6 +84,7 @@
     onwhatsnew,
     initialTab = "workspace",
     initialDiagnostics = null,
+    plugins = [],
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -89,12 +96,17 @@
     initialTab?: TabId;
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
     initialDiagnostics?: DiagnosticCheck[] | null;
+    /** Loaded server-side plugins (issue #1124); empty → the Plugins tab is hidden. */
+    plugins?: PluginInfo[];
   } = $props();
 
   // initialTab seeds the starting tab; the user then freely switches it, so we
   // only ever read the prop once (untrack silences the initial-value warning).
   let tab = $state<TabId>(untrack(() => initialTab));
   let steersEl = $state<HTMLDivElement | null>(null);
+
+  // Hide the Plugins tab entirely when no plugins are loaded (the zero-plugin invariant).
+  const visibleTabs = $derived(ALL_TABS.filter((t) => t.id !== "plugins" || plugins.length > 0));
 
   onMount(() => {
     if (initialTab === "session") {
@@ -606,7 +618,7 @@
     {/if}
 
     <div class="tabs" role="tablist" aria-label={m.settings_tabs_aria()}>
-      {#each TABS as t, i (t.id)}
+      {#each visibleTabs as t, i (t.id)}
         <button
           type="button"
           role="tab"
@@ -1018,6 +1030,19 @@
     >
       <SettingsDiagnosePanel {initialDiagnostics} />
     </div>
+
+    {#if plugins.length > 0}
+      <div
+        class="panel"
+        role="tabpanel"
+        id="settings-panel-plugins"
+        aria-labelledby="settings-tab-plugins"
+        tabindex="0"
+        hidden={tab !== "plugins"}
+      >
+        <SettingsPluginsPanel {plugins} />
+      </div>
+    {/if}
   </div>
 </div>
 

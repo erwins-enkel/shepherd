@@ -90,6 +90,7 @@
     herdrUpdating,
     onherdrupdateconfirm,
     onherdrupdateclose,
+    onherdrupdatejump,
     showOnboarding,
     diagnosticsLoadFailed,
     ononboardingretry,
@@ -182,6 +183,7 @@
     herdrUpdating: boolean;
     onherdrupdateconfirm: () => void;
     onherdrupdateclose: () => void;
+    onherdrupdatejump: (id: string) => void;
     showOnboarding: boolean;
     diagnosticsLoadFailed: boolean;
     ononboardingretry: () => void;
@@ -370,12 +372,14 @@
        working-while-blocked agent is genuinely mid-turn, so it counts as working -->
   <HerdrUpdateModal
     update={store.herdrUpdate}
-    sessions={store.sessions.filter((s) => displayStatus(s, store.workingBlocked) === "running")
-      .length}
+    sessions={store.sessions
+      .filter((s) => displayStatus(s, store.workingBlocked) === "running")
+      .map((s) => ({ id: s.id, desig: s.desig, name: s.name }))}
     log={store.herdrUpdateLog}
     done={store.herdrUpdateDone}
     onconfirm={onherdrupdateconfirm}
     onclose={onherdrupdateclose}
+    onjump={onherdrupdatejump}
   />
 {/if}
 

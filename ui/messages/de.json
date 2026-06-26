@@ -2000,5 +2000,9 @@
   "topbar_held_why_manual": "Zurückgehalten, weil die Nutzung hoch ist. Sie bleiben zurückgehalten, bis du sie manuell startest.",
   "topbar_held_autostart_label": "Automatisch starten beim nächsten Reset",
   "feat_held_autostart_title": "Bestimme, wann zurückgehaltene Aufgaben starten",
-  "feat_held_autostart_body": "Das Popover für zurückgehaltene Aufgaben hat jetzt eine Checkbox zum automatischen Starten. Lässt du sie aktiviert, starten zurückgehaltene Aufgaben wie bisher automatisch beim nächsten Reset. Deaktivierst du sie, bleiben sie zurückgehalten, bis du jede einzeln manuell startest — praktisch, wenn du genau steuern willst, was nach einem Reset läuft."
+  "feat_held_autostart_body": "Das Popover für zurückgehaltene Aufgaben hat jetzt eine Checkbox zum automatischen Starten. Lässt du sie aktiviert, starten zurückgehaltene Aufgaben wie bisher automatisch beim nächsten Reset. Deaktivierst du sie, bleiben sie zurückgehalten, bis du jede einzeln manuell startest — praktisch, wenn du genau steuern willst, was nach einem Reset läuft.",
+  "herdrupdate_sessions_label": "Laufende Sessions",
+  "herdrupdate_jump_to": "Zu {name} springen",
+  "feat_herdr_update_session_list_title": "Sieh die Sessions, die ein Update beenden würde — und spring hin",
+  "feat_herdr_update_session_list_body": "Der herdr-Update-Dialog zeigt nicht mehr nur eine Zahl laufender Sessions, sondern listet jede einzeln auf — und jede Zeile springt direkt zu dieser Session. Schließe sie nach und nach ab und aktualisiere dann, ohne Angst, etwas zu verlieren."
 }

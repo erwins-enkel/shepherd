@@ -44,6 +44,7 @@ function baseProps(): Props {
     herdrUpdating: false,
     onherdrupdateconfirm: vi.fn(),
     onherdrupdateclose: vi.fn(),
+    onherdrupdatejump: vi.fn(),
     showOnboarding: false,
     diagnosticsLoadFailed: false,
     ononboardingretry: vi.fn(),

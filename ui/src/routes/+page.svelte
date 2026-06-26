@@ -2168,6 +2168,12 @@
     herdrUpdating = false;
     store.herdrUpdateDone = null;
   }}
+  onherdrupdatejump={(id) => {
+    showHerdrUpdate = false;
+    herdrUpdating = false;
+    store.herdrUpdateDone = null;
+    selectUnit(id);
+  }}
   {showOnboarding}
   {diagnosticsLoadFailed}
   ononboardingretry={loadDiagnostics}

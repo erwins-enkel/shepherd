@@ -26,14 +26,20 @@ export interface HeldReleaseDeps {
  *
  * When `cfg.enabled` is false the threshold is ignored and held tasks are released
  * unconditionally — the operator turned the gate off, so nothing should remain blocked.
+ *
+ * When `cfg.autoRelease` is false (and the gate is still enabled) automatic release is
+ * suppressed entirely: held tasks stay queued until the operator starts or discards each one
+ * manually from the held-tasks popover. Turning the gate off (`enabled: false`) overrides this
+ * and still flushes everything.
  */
 export async function releaseHeldTasks(
   deps: HeldReleaseDeps,
-  cfg: { enabled: boolean; holdPct: number },
+  cfg: { enabled: boolean; holdPct: number; autoRelease: boolean },
   now: number,
   maxPerTick = 3,
 ): Promise<{ released: number }> {
   if (cfg.enabled) {
+    if (!cfg.autoRelease) return { released: 0 };
     const lim = deps.usageLimits.limits(now);
     const maxPct = Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0);
     if (maxPct >= cfg.holdPct) return { released: 0 };

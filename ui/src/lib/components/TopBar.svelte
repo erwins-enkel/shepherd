@@ -8,7 +8,14 @@
   } from "$lib/types";
   import { displayStatus } from "$lib/display-status";
   import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
-  import { refreshUsage, listHeld, spawnHeld, discardHeld } from "$lib/api";
+  import {
+    refreshUsage,
+    listHeld,
+    spawnHeld,
+    discardHeld,
+    getSettings,
+    putUsageHoldAutoRelease,
+  } from "$lib/api";
   import type { AgentProvider, HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { DOCS_URL } from "$lib/build-info";
@@ -305,6 +312,11 @@
   let heldPopFlipUp = $state(false);
   let heldItems = $state<HeldTask[]>([]);
   let heldLoading = $state(false);
+  // Auto-start toggle: when on, the server's 30s sweeper releases held tasks once usage drops
+  // below the threshold; when off, they stay queued until started/discarded manually. Loaded
+  // from settings when the popover opens so it reflects changes made elsewhere (Settings).
+  let heldAutoRelease = $state(true);
+  let heldAutoReleaseBusy = $state(false);
 
   async function loadHeld() {
     heldLoading = true;
@@ -317,9 +329,33 @@
     }
   }
 
+  async function loadHeldAutoRelease() {
+    try {
+      heldAutoRelease = (await getSettings()).usageHoldAutoRelease;
+    } catch {
+      // best-effort; leave the last known value
+    }
+  }
+
+  async function toggleHeldAutoRelease() {
+    if (heldAutoReleaseBusy) return;
+    heldAutoReleaseBusy = true;
+    const next = !heldAutoRelease;
+    heldAutoRelease = next; // optimistic
+    try {
+      const r = await putUsageHoldAutoRelease(next);
+      heldAutoRelease = r.usageHoldAutoRelease;
+    } catch {
+      heldAutoRelease = !next; // revert on failure
+    } finally {
+      heldAutoReleaseBusy = false;
+    }
+  }
+
   function openHeldPop() {
     heldPopOpen = true;
     loadHeld();
+    loadHeldAutoRelease();
   }
 
   function closeHeldPop(returnFocus = false) {
@@ -625,6 +661,9 @@
       {heldItems}
       {heldLoading}
       {heldErrors}
+      {heldAutoRelease}
+      {heldAutoReleaseBusy}
+      {toggleHeldAutoRelease}
       bind:heldPopOpen
       bind:heldBadgeBtn
       bind:heldPopEl

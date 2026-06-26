@@ -77,6 +77,9 @@ export interface Settings {
   /** Usage percentage at or above which new tasks are held (0–100); also the threshold
    *  below which the usage-halt retry trigger becomes available. */
   usageHoldPct: number;
+  /** Whether held tasks auto-start once usage drops below the threshold. When false, held
+   *  tasks stay queued until the operator starts (or discards) each one manually. */
+  usageHoldAutoRelease: boolean;
   /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
   fableAvailable: boolean;
   /** Opt the main session into Claude Code's fullscreen renderer (research preview). */

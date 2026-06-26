@@ -227,6 +227,12 @@ export const putUsageHoldEnabled = (enabled: boolean): Promise<{ usageHoldEnable
 export const putUsageHoldPct = (pct: number): Promise<{ usageHoldPct: number }> =>
   patchSettings({ usageHoldPct: pct });
 
+// Toggle whether held tasks auto-start when usage drops below the threshold. When false,
+// held tasks stay queued until the operator starts or discards each one manually.
+export const putUsageHoldAutoRelease = (
+  enabled: boolean,
+): Promise<{ usageHoldAutoRelease: boolean }> => patchSettings({ usageHoldAutoRelease: enabled });
+
 // Toggle whether Fable is globally available; when false, Fable-targeted tasks run on Opus (1M).
 export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boolean }> =>
   patchSettings<{ fableAvailable: boolean }>({ fableAvailable: value });

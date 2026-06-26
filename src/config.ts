@@ -579,6 +579,14 @@ export const config = {
     (process.env.SHEPHERD_USAGE_HOLD_ENABLED ?? "").toLowerCase(),
   ),
   usageHoldPct: clampCap(Number(process.env.SHEPHERD_USAGE_HOLD_PCT ?? 80), 0, 100, 80),
+  // When true (default), the 30s sweeper auto-starts held tasks once usage drops below the
+  // threshold. When false, held tasks stay queued indefinitely — the operator starts each one
+  // manually (or discards it) from the held-tasks popover. Set SHEPHERD_USAGE_HOLD_AUTO_RELEASE=0
+  // to default to manual-only. Only gates the threshold path; turning the gate off entirely
+  // (usageHoldEnabled=false) still flushes everything.
+  usageHoldAutoRelease: !["0", "false"].includes(
+    (process.env.SHEPHERD_USAGE_HOLD_AUTO_RELEASE ?? "").toLowerCase(),
+  ),
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

@@ -3153,6 +3153,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // usage-aware task holding
       usageHoldEnabled: config.usageHoldEnabled,
       usageHoldPct: config.usageHoldPct,
+      usageHoldAutoRelease: config.usageHoldAutoRelease,
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
       // TUI renderer opt-in (research preview) + mouse-capture disable; apply to new/resumed sessions.
@@ -3192,6 +3193,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["anthropicApiKey", putAnthropicApiKey],
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
+  ["usageHoldAutoRelease", putUsageHoldAutoRelease],
   ["fableAvailable", putFableAvailable],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
@@ -3324,6 +3326,15 @@ function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {
   config.usageHoldPct = n;
   deps.store.setSetting("usageHoldPct", String(n));
   return json({ usageHoldPct: config.usageHoldPct });
+}
+
+function putUsageHoldAutoRelease(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "usageHoldAutoRelease must be a boolean" }, 400);
+  }
+  config.usageHoldAutoRelease = value;
+  deps.store.setSetting("usageHoldAutoRelease", value ? "1" : "0");
+  return json({ usageHoldAutoRelease: config.usageHoldAutoRelease });
 }
 
 function putFableAvailable(value: unknown, deps: Ctx["deps"]): Response {

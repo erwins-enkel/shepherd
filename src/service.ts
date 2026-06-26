@@ -1508,6 +1508,11 @@ export class SessionService {
   }
 
   private buildCodexResumeArgv(model: string | null): string[] {
+    // Codex has `codex resume [SESSION_ID]`, but Shepherd does not yet persist the
+    // Codex session id. `--last` is scoped by the Codex CLI's own resume selection
+    // rules, so concurrent/non-isolated Codex sessions sharing a cwd can target the
+    // most recent Codex session for that cwd rather than this exact Shepherd row.
+    // Keep this visible until Codex spawn/ingest records a provider-native id.
     const argv = [
       "codex",
       "resume",

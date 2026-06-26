@@ -336,7 +336,7 @@
   // a parked (idle/done) session whose provider process is actually gone can be
   // brought back — surface a header Resume button so the user isn't stranded at a
   // bare shell with no affordance (the in-terminal overlay only shows once the PTY
-  // closes for good). A verifiably-alive claude (server /proc sweep) hides Claude.
+  // closes for good). A verifiably-alive claude (server /proc sweep) hides it.
   const resumable = $derived(canResume(session, claudeAlive));
   // a11y: the fold button's aria-controls points at the tab switcher — the always-
   // mounted primary region it collapses (the git rail + build queue come and go with

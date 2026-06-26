@@ -17,7 +17,7 @@ on:
     workflows: ["CI", "PR hygiene"]
     types: [completed]
   schedule:
-    - cron: "*/30 * * * *" # safety net for any missed workflow_run event
+    - cron: "17 6 * * *" # once-daily safety net for any missed workflow_run event
   workflow_dispatch:
 
 # Least privilege: merge a PR + delete its branch. NB: a merge performed with GITHUB_TOKEN does not

@@ -1980,8 +1980,6 @@
         ready={session.readyToMerge}
         status={dStatus}
         planPhase={session.planPhase}
-        isolated={session.isolated}
-        baseBranch={session.baseBranch}
         {drain}
         autopilotOn={autopilotEffective}
         issueNumber={session.issueNumber}

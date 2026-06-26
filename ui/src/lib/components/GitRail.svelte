@@ -20,7 +20,6 @@
   import { featureDiscovery } from "$lib/featureDiscovery.svelte";
   import { featureAnnouncements } from "$lib/feature-announcements";
   import Coachmark from "$lib/components/Coachmark.svelte";
-  import { offerUpdateMain } from "$lib/pull-offer";
   import { pollWhileVisible } from "$lib/visibility";
 
   let {
@@ -33,8 +32,6 @@
     status = "idle",
     showReady = true,
     planPhase = null,
-    isolated = false,
-    baseBranch = "",
     drain = null,
     autopilotOn = false,
     issueNumber = null,
@@ -49,8 +46,6 @@
     status?: SessionStatus;
     showReady?: boolean;
     planPhase?: Session["planPhase"];
-    isolated?: boolean;
-    baseBranch?: string;
     /** Live drain status for this session's repo; passed through to AutomationPanel. */
     drain?: DrainStatus | null;
     /** Effective autopilot state. When on, the agent opens the PR itself, so the manual
@@ -282,10 +277,6 @@
           key: `decommission-offer:${mergedId}`,
         });
       }
-      // A non-isolated session has its feature branch checked out in the canonical
-      // clone, so there's no separate default-branch checkout to fast-forward — the
-      // offer would always report wrong_branch. Only offer for isolated sessions.
-      if (isolated) offerUpdateMain(repoPath, baseBranch);
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

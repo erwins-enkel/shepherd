@@ -2,8 +2,6 @@ import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
 
-vi.mock("./pull-offer", () => ({ offerUpdateMain: vi.fn() }));
-import { offerUpdateMain } from "./pull-offer";
 import type {
   AutoMergeStatus,
   BacklogPayload,
@@ -687,12 +685,14 @@ test("setBuildQueue does not clobber other sessions", () => {
 
 // ── mergetrain:landed ──────────────────────────────────────────────────────
 
-test("mergetrain:landed calls offerUpdateMain with the repoPath", () => {
-  vi.mocked(offerUpdateMain).mockClear();
+test("mergetrain:landed enqueues a repo-keyed landed confirmation toast", () => {
+  toasts.items = [];
   const s = new HerdStore();
   s.apply({ event: "mergetrain:landed", data: { repoPath: "/repos/my-project" } });
-  expect(offerUpdateMain).toHaveBeenCalledOnce();
-  expect(offerUpdateMain).toHaveBeenCalledWith("/repos/my-project");
+  const t = toasts.items.find((x) => x.key === "mergetrain-landed:/repos/my-project");
+  expect(t).toBeDefined();
+  expect(t!.text).toContain("my-project"); // repo basename interpolated, no Update action
+  expect(t!.actionLabel).toBeUndefined();
 });
 
 // ── draftreconcile:status ──────────────────────────────────────────────────

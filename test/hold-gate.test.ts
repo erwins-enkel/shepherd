@@ -405,6 +405,38 @@ test("PATCH /api/held/:id → replaces input, stays held, emits held:changed", a
   expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
 });
 
+test("PATCH /api/held/:id preserves merge-train membership the composer can't edit", async () => {
+  const { app, store } = harness();
+
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "merge train",
+      model: null,
+      images: [],
+      mergeTrainPrs: [11, 22],
+    },
+    createdAt: 1000,
+  });
+
+  // The edit composer never sends mergeTrainPrs; the held row's value must survive.
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "merge train (edited)",
+    model: null,
+    images: [],
+  });
+  expect(res.status).toBe(200);
+
+  const updated = store.getHeldTask("held-1");
+  expect(updated?.input.prompt).toBe("merge train (edited)");
+  expect(updated?.input.mergeTrainPrs).toEqual([11, 22]);
+});
+
 test("PATCH /api/held/:id with unknown id → 404", async () => {
   const { app } = harness();
   const res = await patchHeld(app, "no-such-id", {

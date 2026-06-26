@@ -3489,10 +3489,17 @@ function heldDiscard(id: string, deps: AppDeps): Response {
 // later fail on spawn. Count is unchanged; held:changed still fires so any other client
 // recomputing off the badge stays consistent.
 async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Response> {
-  if (!deps.store.getHeldTask(id)) return json({ error: "not found" }, 404);
+  const existing = deps.store.getHeldTask(id);
+  if (!existing) return json({ error: "not found" }, 404);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
-  deps.store.updateHeldTask(id, result.value);
+  // The edit composer round-trips every field EXCEPT merge-train membership, which has no
+  // UI — so carry mergeTrainPrs forward from the held row. Otherwise editing a held
+  // merge-train task would strip its participant PRs and they'd never be marked "merging".
+  const value = existing.input.mergeTrainPrs?.length
+    ? { ...result.value, mergeTrainPrs: existing.input.mergeTrainPrs }
+    : result.value;
+  deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);
 }

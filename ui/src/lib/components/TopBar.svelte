@@ -377,23 +377,37 @@
   // the surface and stays visible on both desktop and mobile.
   let heldErrors = $state<Record<string, "spawn" | "discard">>({});
 
+  // In-flight per-task action. A spawn runs server-side worktree creation + agent launch
+  // (seconds), so without a pending affordance the button looks inert the whole time and
+  // reads as dead — the same "button does nothing" failure #1105 fixed for errors. Track
+  // it to disable the row's controls and show a "starting…" label while the request runs.
+  let heldPending = $state<Record<string, "spawn" | "discard">>({});
+
   async function doSpawnHeld(id: string, agentProvider?: AgentProvider) {
+    if (heldPending[id]) return;
     delete heldErrors[id];
+    heldPending[id] = "spawn";
     try {
       await spawnHeld(id, agentProvider);
       await loadHeld();
     } catch {
       heldErrors[id] = "spawn";
+    } finally {
+      delete heldPending[id];
     }
   }
 
   async function doDiscardHeld(id: string) {
+    if (heldPending[id]) return;
     delete heldErrors[id];
+    heldPending[id] = "discard";
     try {
       await discardHeld(id);
       await loadHeld();
     } catch {
       heldErrors[id] = "discard";
+    } finally {
+      delete heldPending[id];
     }
   }
 
@@ -662,6 +676,7 @@
       {heldItems}
       {heldLoading}
       {heldErrors}
+      {heldPending}
       {heldAutoRelease}
       {heldAutoReleaseBusy}
       {toggleHeldAutoRelease}

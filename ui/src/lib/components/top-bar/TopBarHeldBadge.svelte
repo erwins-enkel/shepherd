@@ -36,6 +36,7 @@
     heldItems,
     heldLoading,
     heldErrors = {},
+    heldPending = {},
     heldAutoRelease,
     heldAutoReleaseBusy,
     toggleHeldAutoRelease,
@@ -56,6 +57,7 @@
     heldItems: HeldTask[];
     heldLoading: boolean;
     heldErrors?: Record<string, "spawn" | "discard">;
+    heldPending?: Record<string, "spawn" | "discard">;
     heldAutoRelease: boolean;
     heldAutoReleaseBusy: boolean;
     toggleHeldAutoRelease: () => void;
@@ -98,6 +100,7 @@
     {#each heldItems as task (task.id)}
       {@const originalProvider = providerFor(task)}
       {@const spawnProvider = selectedProvider(task)}
+      {@const pending = heldPending[task.id]}
       <div class="held-row">
         <div class="held-row-info">
           <span class="held-row-prompt">{task.input.prompt}</span>
@@ -111,6 +114,7 @@
             <span>{m.topbar_held_spawn_cli_label()}</span>
             <select
               value={spawnProvider}
+              disabled={!!pending}
               onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
             >
               {#each AGENT_PROVIDERS as provider (provider)}
@@ -121,12 +125,18 @@
           <button
             type="button"
             class="held-action held-spawn"
-            onclick={() => doSpawnHeld(task.id, spawnProvider)}>{m.topbar_held_spawn_now()}</button
+            disabled={!!pending}
+            aria-busy={pending === "spawn"}
+            onclick={() => doSpawnHeld(task.id, spawnProvider)}
+            >{pending === "spawn" ? m.topbar_held_spawning() : m.topbar_held_spawn_now()}</button
           >
           <button
             type="button"
             class="held-action held-discard"
-            onclick={() => doDiscardHeld(task.id)}>{m.topbar_held_discard()}</button
+            disabled={!!pending}
+            aria-busy={pending === "discard"}
+            onclick={() => doDiscardHeld(task.id)}
+            >{pending === "discard" ? m.topbar_held_discarding() : m.topbar_held_discard()}</button
           >
           {#if heldErrors[task.id]}
             <p class="held-row-error" role="alert">
@@ -503,9 +513,16 @@
     color: var(--color-ink);
     width: 100%;
   }
-  .held-action:hover {
+  .held-action:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  /* In-flight: spawn runs server-side worktree + agent launch (seconds). Keep the row's
+     controls inert and signal progress so the button never reads as dead mid-request. */
+  .held-action:disabled,
+  .held-cli select:disabled {
+    cursor: progress;
+    opacity: 0.6;
   }
   .held-row-error {
     margin: 0;
@@ -517,7 +534,7 @@
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
-  .held-spawn:hover {
+  .held-spawn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
   .held-fullscreen .held-pop-why {

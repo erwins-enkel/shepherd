@@ -329,21 +329,31 @@
     else openHeldPop();
   }
 
+  // Per-task action error, shown inline in the held popover. A spawn/discard can be
+  // refused server-side (sandbox block, name collision, herdr failure, already gone)
+  // and the task stays in the list — without feedback the button reads as dead. A
+  // toast won't do: the mobile popover is a fullscreen portal at the same z-index as
+  // the toast stack, so a bottom toast renders behind it. Inline feedback lives inside
+  // the surface and stays visible on both desktop and mobile.
+  let heldErrors = $state<Record<string, "spawn" | "discard">>({});
+
   async function doSpawnHeld(id: string, agentProvider?: AgentProvider) {
+    delete heldErrors[id];
     try {
       await spawnHeld(id, agentProvider);
       await loadHeld();
     } catch {
-      // ignore; WS will update count
+      heldErrors[id] = "spawn";
     }
   }
 
   async function doDiscardHeld(id: string) {
+    delete heldErrors[id];
     try {
       await discardHeld(id);
       await loadHeld();
     } catch {
-      // ignore
+      heldErrors[id] = "discard";
     }
   }
 
@@ -610,6 +620,7 @@
       {heldPopFlipUp}
       {heldItems}
       {heldLoading}
+      {heldErrors}
       bind:heldPopOpen
       bind:heldBadgeBtn
       bind:heldPopEl

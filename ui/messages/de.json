@@ -1614,6 +1614,8 @@
   "topbar_held_spawn_cli_label": "Starten mit",
   "topbar_held_original_cli": "Zurückgestellt für {cli}",
   "topbar_held_discard": "Verwerfen",
+  "topbar_held_spawn_failed": "Aufgabe konnte nicht gestartet werden. Sie bleibt zurückgehalten – bitte erneut versuchen.",
+  "topbar_held_discard_failed": "Aufgabe konnte nicht verworfen werden. Bitte erneut versuchen.",
   "topbar_held_empty": "Keine zurückgehaltenen Aufgaben",
   "topbar_held_why": "Zurückgehalten, weil die Nutzung hoch ist – sie starten automatisch beim nächsten Reset.",
   "topbar_held_why_at": "Nächster Reset {time}.",

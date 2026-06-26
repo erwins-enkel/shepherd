@@ -37,6 +37,7 @@ import { resolveDiffBase } from "./diff-base";
 import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
 import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
+import { reapTransientByLabel } from "./transient-tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { PluginRegistry } from "./plugins/loader";
@@ -773,6 +774,7 @@ const standaloneCritic = new StandalonePrCriticService({
         .map((s) => s.branch!),
     ),
 });
+standaloneCritic.reapOrphans(); // issue #1136: close orphaned pr-critic tabs left by a prior lifetime
 
 // Pre-execution plan gate (#348): the planning-phase twin of the PR critic. An
 // adversarial reviewer reads the agent's `.shepherd-plan.md` BEFORE it writes code;
@@ -1485,6 +1487,15 @@ setInterval(() => {
   if (maintenance.active) return;
   void mergeSuggest.tick();
 }, 30_000);
+// Issue #1136: the synchronous block-and-clean helpers (namer / autopilot / verify-key) stop their
+// spawn in a `finally`, so they leave NO husk on a CLEAN exit — but a server restart mid-poll skips
+// that finally, orphaning an interactive `claude` that idles at the prompt forever (the husk-only
+// reaper spares it as a live non-shell proc). They track no inflight and none is running at this
+// synchronous boot point, so an empty owned set is correct: close every prior-lifetime orphan by
+// label prefix. Space-prefixed / multi-word labels can't collide with an `[a-z0-9-]` session slug.
+reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
+reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
+reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.

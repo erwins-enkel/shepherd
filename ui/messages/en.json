@@ -2000,5 +2000,9 @@
   "topbar_held_why_manual": "Held because usage is high. They stay held until you start them manually.",
   "topbar_held_autostart_label": "Start automatically when usage resets",
   "feat_held_autostart_title": "Choose when held tasks start",
-  "feat_held_autostart_body": "The held-tasks popover now has an auto-start checkbox. Leave it on and held tasks start automatically when usage resets, as before. Turn it off and they stay queued until you start each one manually — handy when you want to control exactly what runs after a reset."
+  "feat_held_autostart_body": "The held-tasks popover now has an auto-start checkbox. Leave it on and held tasks start automatically when usage resets, as before. Turn it off and they stay queued until you start each one manually — handy when you want to control exactly what runs after a reset.",
+  "herdrupdate_sessions_label": "Running sessions",
+  "herdrupdate_jump_to": "Go to {name}",
+  "feat_herdr_update_session_list_title": "See and visit the sessions an update would end",
+  "feat_herdr_update_session_list_body": "The herdr-update dialog no longer just shows a count of running sessions — it lists each one, and every row jumps straight to that session. Wrap them up one by one, then update without worrying you've lost work."
 }

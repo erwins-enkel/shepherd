@@ -7,19 +7,26 @@
 
   let {
     update,
-    sessions = 0,
+    sessions = [],
     log = [],
     done = null,
     onconfirm,
     onclose,
+    onjump,
   }: {
     update: HerdrUpdateStatus;
-    sessions?: number;
+    /** The running sessions the herdr restart would interrupt — listed so the
+     *  operator can jump to each and wrap it up before updating. */
+    sessions?: { id: string; desig: string; name: string }[];
     log?: string[];
     done?: { ok: boolean; from: string | null; to: string | null; error?: string } | null;
     onconfirm?: () => void;
     onclose?: () => void;
+    /** Jump to a running session (closes this modal, selects the session). */
+    onjump?: (id: string) => void;
   } = $props();
+
+  const count = $derived(sessions.length);
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -159,8 +166,29 @@
 
     <div class="instructions">{m.herdrupdate_instructions()}</div>
 
-    {#if sessions > 0}
-      <div class="warning">{m.herdrupdate_warning({ count: sessions })}</div>
+    {#if count > 0}
+      <div class="warning">{m.herdrupdate_warning({ count })}</div>
+      {#if !submitting}
+        <!-- List the interrupted sessions so the operator can jump to each and
+             wrap it up first, instead of guessing what the bare count refers to. -->
+        <div class="sessions-label micro">{m.herdrupdate_sessions_label()}</div>
+        <ul class="sessions">
+          {#each sessions as s (s.id)}
+            <li>
+              <button
+                type="button"
+                class="session"
+                onclick={() => onjump?.(s.id)}
+                aria-label={m.herdrupdate_jump_to({ name: s.name || s.desig })}
+              >
+                <span class="desig">{s.desig}</span>
+                <span class="sname">{s.name}</span>
+                <span class="jump" aria-hidden="true">↗</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
 
     {#if submitting}
@@ -192,9 +220,7 @@
       {/if}
       {#if !done}
         <button type="button" class="run" onclick={confirm} disabled={busy}>
-          {sessions > 0
-            ? m.herdrupdate_confirm({ count: sessions })
-            : m.herdrupdate_confirm_plain()}
+          {count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain()}
         </button>
       {/if}
     </div>
@@ -385,6 +411,62 @@
     font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-red);
+  }
+  .sessions-label {
+    margin-bottom: -8px;
+  }
+  .sessions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    /* keep a long list from pushing the actions off-screen on short viewports */
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .session {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 8px 10px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink-bright);
+    cursor: pointer;
+    text-align: left;
+  }
+  .session:hover,
+  .session:focus-visible {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .session .desig {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+  }
+  .session .sname {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-base);
+  }
+  .session .jump {
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+  }
+  .session:hover .jump,
+  .session:focus-visible .jump {
+    color: var(--color-amber);
   }
   .status {
     color: var(--color-amber);

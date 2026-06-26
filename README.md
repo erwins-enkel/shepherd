@@ -293,6 +293,15 @@ The HTTP API the UI uses is open to any client that can reach the core — no
 separate endpoint or CORS exception is required. Agents like Hermes can queue
 work via `POST /api/sessions`. See [docs/external-task-api.md](docs/external-task-api.md).
 
+### Server-side plugins
+
+Private, out-of-repo extensions can run **in-process** inside the server — loaded at boot
+from `~/.shepherd/plugins/` (override `SHEPHERD_PLUGINS_DIR`), so they survive redeploys and
+never enter the public repo. A plugin reaches core only through a versioned `ctx` seam
+(`onSpawn`, read-only events, scoped state, HTTP routes, status panel), and a missing dir is
+a clean no-op. See [docs/plugins.md](docs/plugins.md) for the manifest schema, the `ctx` API,
+and the `onSpawn` contract.
+
 ## Development
 
 ```bash

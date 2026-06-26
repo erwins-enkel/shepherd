@@ -4154,6 +4154,25 @@ function handlePing({ req, parts }: Ctx): Response | null {
 // without a cookie/token (isPublicRequest exempts exactly this method+path). Discloses nothing.
 // Answers HEAD as well as GET — isPublicRequest exempts both, so a HEAD must not fall through
 // to the /api 404 (a liveness monitor probing with HEAD expects a bodyless 200).
+/** Server-side plugin routes (issue #1124):
+ *  - `GET /api/plugins` → the status-panel listing (empty array when no registry / no
+ *    plugins, so the UI hides the section; a fresh public clone behaves as today).
+ *  - `/api/plugins/<id>/<sub…>` → a plugin-registered route (any method). Unknown
+ *    plugin/route → null (falls through to the standard `/api` 404). All of these sit
+ *    behind the operator auth gate in makeApp (checkAuth runs before ROUTE_HANDLERS). */
+async function handlePluginRoutes({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "plugins") return null;
+  if (!parts[2]) {
+    if (req.method !== "GET") return null;
+    return json({ plugins: deps.pluginRegistry?.list() ?? [] });
+  }
+  const registry = deps.pluginRegistry;
+  if (!registry) return null;
+  const subPath = parts.slice(3).join("/");
+  if (!subPath) return null; // /api/plugins/<id> with no sub-route → 404
+  return registry.handleRoute(req.method, parts[2], subPath, req);
+}
+
 function handleHealth({ req, parts }: Ctx): Response | null {
   if (
     (req.method !== "GET" && req.method !== "HEAD") ||
@@ -4954,6 +4973,7 @@ const ROUTE_HANDLERS = [
   handleMe,
   handlePing,
   handleHealth,
+  handlePluginRoutes,
   handleGitSnapshot,
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,

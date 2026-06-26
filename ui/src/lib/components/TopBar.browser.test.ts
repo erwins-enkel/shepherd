@@ -968,7 +968,7 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
       heldPopFlipUp: false,
       heldItems,
       heldLoading: false,
-      heldErrors: { "held-1": "spawn" },
+      heldErrors: { "held-1": { kind: "spawn", detail: "task name already in use, retry" } },
       heldAutoRelease: true,
       heldAutoReleaseBusy: false,
       toggleHeldAutoRelease: vi.fn(),
@@ -985,6 +985,10 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
     // The failure surfaces inline (a toast would render behind the fullscreen dialog),
     // announced assertively so it reaches a screen reader.
     await expect.element(page.getByRole("alert")).toHaveTextContent(m.topbar_held_spawn_failed());
+    // …and carries the server's real cause so the operator can see *why* it failed.
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("task name already in use, retry");
   });
 
   it("shows in-flight state on the spawn button while a held-task spawn is pending", async () => {

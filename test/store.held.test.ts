@@ -56,6 +56,25 @@ test("held_tasks: getHeldTask returns null for unknown id", () => {
   expect(s.getHeldTask("nonexistent")).toBeNull();
 });
 
+test("held_tasks: updateHeldTask replaces input and mirrors repoPath", () => {
+  const s = new SessionStore(":memory:");
+  s.addHeldTask({ id: "h1", repoPath: "/repo/a", input: sampleInput, createdAt: 1000 });
+
+  const edited: CreateSessionInput = {
+    ...sampleInput,
+    repoPath: "/repo/b",
+    prompt: "edited prompt",
+    model: "fable",
+  };
+  s.updateHeldTask("h1", edited);
+
+  const got = s.getHeldTask("h1");
+  expect(got?.repoPath).toBe("/repo/b"); // top-level column mirrors input.repoPath
+  expect(got?.createdAt).toBe(1000); // queue position (FIFO key) is preserved
+  expect(got?.input).toEqual(edited);
+  expect(s.countHeldTasks()).toBe(1); // edit never changes the count
+});
+
 test("held_tasks: removeHeldTask removes row and leaves others intact", () => {
   const s = new SessionStore(":memory:");
   s.addHeldTask({ id: "h1", repoPath: "/repo/a", input: sampleInput, createdAt: 1000 });

@@ -218,6 +218,17 @@ export async function discardHeld(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "discard held");
 }
 
+/** Replace a held task's input (operator edited it while it stays held). */
+export async function updateHeld(id: string, input: CreateInput): Promise<HeldTask> {
+  const r = await fetch(`/api/held/${id}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  });
+  if (!r.ok) throw await failed(r, "update held");
+  return r.json();
+}
+
 // Toggle usage-aware task holding (pause new tasks when usage is high and a session is running).
 export const putUsageHoldEnabled = (enabled: boolean): Promise<{ usageHoldEnabled: boolean }> =>
   patchSettings({ usageHoldEnabled: enabled });

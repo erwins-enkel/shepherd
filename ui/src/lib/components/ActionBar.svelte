@@ -50,8 +50,8 @@
         class:tip={!mobile}
         type="button"
         onclick={onbacklog}
-        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "B" }) : undefined}
-        aria-keyshortcuts={!mobile ? "b" : undefined}>{m.actionbar_backlog()}</button
+        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
+        aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
       >
     {/if}
     {#if !mobile}

@@ -1,4 +1,5 @@
 import type { SessionStore } from "./store";
+import type { PluginRegistry } from "./plugins/loader";
 import type { SessionService } from "./service";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
@@ -181,6 +182,9 @@ export interface AppDeps {
    *  `index.ts` injects explicit singletons so production shares one instance. */
   learnings?: LearningsService;
   repoConfig?: RepoConfigService;
+  /** Server-side plugin registry (issue #1124); absent → `/api/plugins/*` 404s and the
+   *  Settings → Plugins panel stays hidden (the zero-plugin invariant). */
+  pluginRegistry?: PluginRegistry;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live

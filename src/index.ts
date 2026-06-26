@@ -39,6 +39,7 @@ import { reconcile } from "./reconcile";
 import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
+import { PluginRegistry } from "./plugins/loader";
 import { makeProductionForgeResolver } from "./forge/resolve";
 import { EmptyDiffError, type GitState } from "./forge/types";
 import { parseManualSteps } from "./manual-steps";
@@ -330,11 +331,19 @@ const agentIngressState: { port: number | undefined } = { port: undefined };
 // the service so create() can pull an attached issue's comments at spawn (composePromptArg).
 const resolveForge = makeProductionForgeResolver(store, config.forges);
 
+// Server-side plugin registry (issue #1124). Constructed before SessionService so the
+// spawn path can call its hook runner; plugins are actually loaded (register(ctx)) later,
+// after ALL core services exist and just before serve() — runSpawnHooks is a safe no-op
+// until then (no spawn can be requested over HTTP before the server boots).
+const pluginRegistry = new PluginRegistry({ pluginsDir: config.pluginsDir, store, events });
+
 const service = new SessionService({
   store,
   worktree,
   herdr,
   resolveForge,
+  // Plugin onSpawn hooks fire from prepareSpawn (create + resume); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
   detectEgressHostLoopback,
   namer: generateName,
@@ -1774,6 +1783,7 @@ const appDeps: AppDeps = {
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,
   events,
+  pluginRegistry,
   usageLimits,
   usageRollup,
   refreshUsage,
@@ -1878,6 +1888,15 @@ const appDeps: AppDeps = {
     );
   },
 };
+
+// Load server-side plugins ONCE, now that every core service exists — and before the
+// server accepts requests, so a spawn can never race an unfinished registry. A missing/
+// empty plugins dir is a clean no-op (the zero-plugin invariant).
+await pluginRegistry.loadAll();
+if (pluginRegistry.loadedCount() > 0) {
+  console.log(`[plugins] ${pluginRegistry.loadedCount()} plugin(s) loaded`);
+}
+
 const server = serve(appDeps, config.port);
 console.log(`shepherd core on http://localhost:${server.port}`);
 
@@ -1898,6 +1917,7 @@ process.on("exit", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
+  pluginRegistry.teardown(); // best-effort plugin teardown (also covers the SIGTERM path)
 });
 // Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we
 // must exit explicitly — otherwise `systemctl stop/restart shepherd` hangs until the

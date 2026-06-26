@@ -1,0 +1,38 @@
+name: bun install (retry on tarball-extraction flake)
+description: >
+  Run `bun install --frozen-lockfile` with up to 3 attempts, purging the bun
+  store (~/.bun/install/cache) before the FINAL attempt so a poisoned half-written
+  native tarball is re-downloaded fresh rather than re-hit identically. Absorbs a
+  one-off tarball-extraction flake (#944 docs-site / #1134 verify) without masking
+  a genuine lockfile error. --frozen-lockfile is kept so lockfile integrity is still
+  enforced. Only the install is wrapped — callers run check/build/lint outside, so a
+  real error still fails fast.
+
+inputs:
+  working-directory:
+    description: Directory containing the package to install (default repo root).
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    # `shell: bash` is MANDATORY for composite run steps — unlike a workflow `run:`
+    # they have no default shell and fail to load without it.
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        n=0
+        until bun install --frozen-lockfile; do
+          n=$((n + 1))
+          if [ "$n" -ge 3 ]; then
+            echo "bun install failed after $n attempts" >&2
+            exit 1
+          fi
+          if [ "$n" -eq 2 ]; then
+            echo "purging bun store before final retry…" >&2
+            rm -rf ~/.bun/install/cache
+          fi
+          echo "bun install failed (attempt $n) — retrying in 5s…" >&2
+          sleep 5
+        done

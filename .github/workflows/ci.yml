@@ -48,14 +48,21 @@ jobs:
           bun-version: latest
 
       # Three packages, each with its own lockfile (root server + ui/ + extension/).
+      # Each install goes through the shared retry-with-store-purge composite action
+      # (.github/actions/bun-install-retry) so a one-off native-tarball-extraction flake
+      # self-heals instead of redding the whole job (#1134, extending docs-site's #944).
       - name: Install (root)
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install-retry
 
       - name: Install (ui)
-        run: cd ui && bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: ui
 
       - name: Install (extension)
-        run: cd extension && bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: extension
 
       - name: Lint (prettier + eslint)
         run: |
@@ -164,27 +171,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-docs-site-
 
-      # Retry `bun install` to absorb a one-off @pagefind tarball-extraction flake
-      # (#944). Only the install is retried — re-running check/build on a genuine
-      # type/content error would just burn 3× the time. Before the FINAL attempt the
-      # bun store is purged so a poisoned half-written tarball is re-downloaded fresh
-      # rather than re-hit identically.
+      # Install via the shared retry-with-store-purge composite action
+      # (.github/actions/bun-install-retry) so a one-off @pagefind tarball-extraction
+      # flake (#944) self-heals: it purges the bun store before the final attempt so a
+      # poisoned half-written tarball is re-downloaded fresh. Only the install is
+      # retried — re-running check/build on a genuine type/content error would burn 3×
+      # the time. The cache step above still precedes (and is purged by) this install.
+      - name: Install (docs-site)
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: docs-site
+
       - name: Build (docs-site)
+        working-directory: docs-site
         run: |
-          cd docs-site
-          n=0
-          until bun install --frozen-lockfile; do
-            n=$((n + 1))
-            if [ "$n" -ge 3 ]; then
-              echo "bun install failed after $n attempts" >&2
-              exit 1
-            fi
-            if [ "$n" -eq 2 ]; then
-              echo "purging bun store before final retry…" >&2
-              rm -rf ~/.bun/install/cache
-            fi
-            echo "bun install failed (attempt $n) — retrying in 5s…" >&2
-            sleep 5
-          done
           bun run check
           bun run build

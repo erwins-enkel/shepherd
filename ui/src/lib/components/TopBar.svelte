@@ -314,7 +314,8 @@
   let heldLoading = $state(false);
   // Auto-start toggle: when on, the server's 30s sweeper releases held tasks once usage drops
   // below the threshold; when off, they stay queued until started/discarded manually. Loaded
-  // from settings when the popover opens so it reflects changes made elsewhere (Settings).
+  // from settings when the popover opens so it reflects out-of-band changes (settings API / env
+  // override) rather than a possibly-stale value.
   let heldAutoRelease = $state(true);
   let heldAutoReleaseBusy = $state(false);
 

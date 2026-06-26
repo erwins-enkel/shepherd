@@ -935,17 +935,14 @@
       -webkit-line-clamp: 1;
       line-clamp: 1;
     }
-    /* keep the heartbeat (tiny), drop the stepper so a narrow sidebar row stays
-       dense and doesn't balloon */
+    /* drop the stepper so a narrow sidebar row stays dense and doesn't balloon.
+       The heartbeat strip is deliberately NOT pinned narrow here (was flex:none/
+       width:64px): on the unfolded-foldable compact sidebar that left it a ~64px
+       stub, so it now inherits the full-width default above and spans the activity
+       row on every device — matching the strip's "claims the whole activity line"
+       intent. */
     .meta-stepper {
       display: none;
-    }
-    /* the strip IS the heartbeat here — keep it, just narrower. Scoped under
-       .u-activity so the override can't leak to a future global .strip. flex:none
-       overrides the full-width grow above so the narrow strip stays at 64px. */
-    .u-activity :global(.strip) {
-      flex: none;
-      width: 64px;
     }
   }
 

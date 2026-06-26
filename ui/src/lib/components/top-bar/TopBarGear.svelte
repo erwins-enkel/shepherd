@@ -236,13 +236,20 @@
     background: var(--color-line);
   }
   .gear {
+    box-sizing: border-box;
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* shared bar control height — its 20px glyph defined the token, so it's unchanged;
+       border-box keeps this borderless button level with the 1px-bordered badges */
+    min-height: var(--topbar-ctl-h);
     background: transparent;
     border: none;
     color: var(--color-muted);
     font-size: var(--fs-xl);
     line-height: 1;
-    padding: 5px 8px;
+    padding: 0 8px;
     cursor: pointer;
   }
   .gear:hover {
@@ -294,7 +301,7 @@
   .gear.mobile {
     min-height: 44px;
     min-width: 44px;
-    padding: 5px 11px;
+    padding: 0 11px;
     font-size: var(--fs-xl);
   }
 

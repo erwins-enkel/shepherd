@@ -242,8 +242,14 @@
     position: relative;
   }
   .held-badge {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    /* shared bar control height; the hourglass glyph (#1122) centers instead of
+       stretching the box, so it stays equal-height with its siblings */
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     gap: 5px;
     background: transparent;
     border: 1px solid var(--color-amber);
@@ -252,7 +258,7 @@
     font: inherit;
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
-    padding: 3px 8px;
+    padding: 0 8px;
     cursor: pointer;
     white-space: nowrap;
   }
@@ -267,9 +273,9 @@
     justify-content: center;
     min-width: 44px;
     letter-spacing: 0;
-    /* mirror .needsyou.compact padding so both compact badges share the same box
-       height when neither carries a min-height floor (fine-pointer desktop overflow) */
-    padding: 8px 10px;
+    /* horizontal-only: box height comes from the shared --topbar-ctl-h min-height on
+       the base rule, so this matches .needsyou.compact without padding tuning */
+    padding: 0 10px;
     /* pin the line box to 1×font-size so height is font-independent: `.needsyou`
        renders in the UA button font while this badge uses `font: inherit` (mono),
        and their `normal` line-heights differ by ~2px. `.needsyou.compact` carries

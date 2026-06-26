@@ -166,10 +166,15 @@
 
 <style>
   .update-badge {
+    box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: center;
+    /* shared bar control height; glyph centers, padding no longer drives height */
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     gap: 6px;
-    padding: 5px 11px;
+    padding: 0 11px;
     background: color-mix(in srgb, var(--color-amber) 14%, transparent);
     border: 1px solid var(--color-amber);
     color: var(--color-amber);
@@ -212,10 +217,14 @@
   /* What's New affordance — blue informational accent (shared with the herdr cue),
      distinct from amber (app-update). */
   .whatsnew-badge {
+    box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: center;
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     gap: 6px;
-    padding: 5px 11px;
+    padding: 0 11px;
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
     border: 1px solid var(--color-blue);
     color: var(--color-blue);
@@ -232,19 +241,22 @@
   .whatsnew-badge .wn-dot {
     font-size: var(--fs-micro);
   }
-  /* Phone-only: bare pip button, no label. */
+  /* Compact-only: bare pip button, no label (desktop measured-overflow + phone). */
   .whatsnew-dot-btn {
+    box-sizing: border-box;
     position: relative;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     color: var(--color-muted);
     font-size: var(--fs-lg);
     line-height: 1;
-    padding: 5px 8px;
+    padding: 0 8px;
     border-radius: 2px;
     cursor: pointer;
-    min-height: 44px;
-    min-width: 44px;
+    /* token height on fine-pointer desktop; the 44px touch floor is coarse-gated
+       below so it no longer makes this a desktop outlier among the bar's boxes */
+    min-height: var(--topbar-ctl-h);
+    min-width: var(--topbar-ctl-h);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -290,8 +302,12 @@
     background: var(--color-red);
   }
   .learnings-btn {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    min-height: var(--topbar-ctl-h);
+    line-height: 1;
     gap: 6px;
     background: transparent;
     border: 1px solid var(--color-line-bright);
@@ -300,7 +316,7 @@
     text-transform: uppercase;
     font: inherit;
     font-size: var(--fs-meta);
-    padding: 5px 10px;
+    padding: 0 10px;
     border-radius: 2px;
     cursor: pointer;
     white-space: nowrap;
@@ -322,7 +338,7 @@
   .learnings-btn.compact {
     justify-content: center;
     min-width: 44px;
-    padding: 8px 10px;
+    padding: 0 10px;
     letter-spacing: 0;
   }
   .learn-n {
@@ -330,9 +346,13 @@
     font-weight: 700;
   }
 
-  /* Coarse pointers (touch, any layout width): secondary icon buttons need ≥44px hit area. */
+  /* Coarse pointers (touch, any layout width): secondary icon buttons need ≥44px hit area.
+     The 44px floor lives here (not unconditionally) so on a fine-pointer desktop these
+     boxes drop to --topbar-ctl-h and stay equal-height with their siblings. */
   @media (pointer: coarse) {
     .update-badge,
+    .whatsnew-badge,
+    .whatsnew-dot-btn,
     .learnings-btn {
       min-height: 44px;
       min-width: 44px;

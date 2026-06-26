@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { WorktreeMgr } from "../src/worktree";
+import { ProcessReaper } from "../src/process-reaper";
 
 let repo: string;
 beforeEach(() => {
@@ -35,6 +36,24 @@ test("create makes an isolated worktree on a shepherd/ branch", () => {
     cwd: repo,
   }).toString();
   expect(branches).toContain("shepherd/repo-flatten");
+});
+
+test("remove() sweeps the worktree for orphaned processes before tearing it down (#1133)", () => {
+  const calls: string[] = [];
+  const stubReaper = {
+    reapOrphansUnder: (p: string) => {
+      // assert the worktree still exists when the sweep runs — it must reap BEFORE removal,
+      // so a process' cwd still resolves to the real path the sweep matches on.
+      expect(existsSync(p)).toBe(true);
+      calls.push(p);
+      return 0;
+    },
+  } as unknown as ProcessReaper;
+  const wt = new WorktreeMgr(stubReaper);
+  const r = wt.create(repo, "main", "reap-orphans");
+  wt.remove(r.worktreePath);
+  expect(calls).toEqual([r.worktreePath]);
+  expect(existsSync(r.worktreePath)).toBe(false);
 });
 
 test("currentBranch reports the worktree's checked-out branch and follows a rename", () => {

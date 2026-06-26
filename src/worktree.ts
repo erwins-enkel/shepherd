@@ -7,6 +7,7 @@ import { timedAsync } from "./instrument";
 import { ensureShepherdExclude } from "./shepherd-exclude";
 import { removeWorktreeScratch } from "./tmp-sweep";
 import { upstreamStatus } from "./upstream-status";
+import { ProcessReaper } from "./process-reaper";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +47,9 @@ export interface ResolvedBase {
 }
 
 export class WorktreeMgr {
+  /** Injectable so tests can assert the teardown orphan sweep fires without real /proc. */
+  constructor(private reaper: ProcessReaper = new ProcessReaper()) {}
+
   private isGit(repoPath: string): boolean {
     try {
       execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: repoPath, stdio: "pipe" });
@@ -499,6 +503,16 @@ export class WorktreeMgr {
   }
 
   remove(worktreePath: string, opts?: { branch?: string | null; baseBranch?: string }): void {
+    // Reap detached orphans (PPID-1 busy-loops/servers the agent left running) BEFORE
+    // unlinking the worktree, while their cwd still resolves to the real path so the
+    // sweep can match them (#1133). Best-effort: a sweep failure must never block
+    // teardown. reapOrphansUnder self-guards against non-worktree paths.
+    try {
+      const reaped = this.reaper.reapOrphansUnder(worktreePath);
+      if (reaped > 0) console.warn(`[worktree] reaped ${reaped} orphan(s) under ${worktreePath}`);
+    } catch (err) {
+      console.warn("[worktree] orphan sweep failed:", err);
+    }
     let mainRepo: string | null = null;
     if (existsSync(worktreePath)) {
       try {

@@ -394,7 +394,11 @@ const ENGINEERING_POSTURE =
   "style. Delete only the imports/vars/functions YOUR change orphaned; for pre-existing unrelated " +
   "dead code, surface it rather than silently expanding the diff.\n" +
   "- Goal-driven execution: turn the task into explicit, verifiable success criteria up front, then " +
-  "loop until they actually pass — never declare work done before verifying against them.";
+  "loop until they actually pass — never declare work done before verifying against them.\n" +
+  "- Ephemeral scaffolding self-cleans: never leave a detached `&` background job (load generator, " +
+  "busy-loop, dev server, watcher) running past the step that needs it. Backgrounded jobs reparent to " +
+  "PID 1 when their shell exits and outlive you — silently burning CPU for days. Kill what you spawn in " +
+  "the SAME shell, or wrap a throwaway repro script so a `trap` reaps its jobs on exit.";
 
 /**
  * Fixed, repo-independent standing guidance injected into every spawn (issue #347, sourced from

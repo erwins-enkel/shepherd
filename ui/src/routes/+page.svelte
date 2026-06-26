@@ -198,6 +198,17 @@
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
   // selection and global counts stay whole.
   let repoFilter = $state<string | null>(null);
+  // Latches set by selectNewSession when the herd filter follows a just-started task
+  // onto its repo. That session isn't in the store yet (it arrives via WS), so two
+  // effects below need coordinating until it does. Both are plain `let` (NON-reactive):
+  // reading/clearing them inside an effect must not feed back into reactivity.
+  //   • followingRepo — the followed repo path; holds the auto-clear effect off that
+  //     repo until its chip appears (else shouldClearRepoFilter, seeing no chip yet,
+  //     would immediately null the filter we just set). Released once the chip lands.
+  //   • followingNewSession — one-shot; suppresses the repo-switch re-target for the
+  //     single filter change selectNewSession makes (selection is already on the new task).
+  let followingRepo: string | null = null;
+  let followingNewSession = false;
   // Chips for the repo switcher: one per repo with a live session, computed from the
   // unfiltered herd (selection/global counts stay whole). Single source — passed to the switcher.
   const repoChips = $derived(
@@ -207,6 +218,15 @@
   // Clear the filter only when its repo has no live session left (no chip) —
   // a filter on a vanished repo would strand an empty view.
   $effect(() => {
+    // Release the follow latch once the just-started task's session has arrived (its
+    // chip now exists). repoChips is reactive, so its WS-driven change re-runs this.
+    if (followingRepo !== null && repoChips.some((c) => c.repoPath === followingRepo)) {
+      followingRepo = null;
+    }
+    // A just-followed repo has no chip until its session arrives — that gap is expected,
+    // not a vanished repo, so don't auto-clear the filter we just set onto it. Scoped to
+    // repoFilter === followingRepo so a *different* active filter still auto-clears normally.
+    if (repoFilter !== null && repoFilter === followingRepo) return;
     if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
   });
   // Picking a repo chip narrows the herd list to that repo — but the terminal would
@@ -217,15 +237,16 @@
   // session/block update that would yank the user off their session.
   $effect(() => {
     const rf = repoFilter;
+    // Consume the one-shot suppression FIRST — before any early return — so it can't
+    // leak (if the auto-clear effect nulled the filter this same flush, an early
+    // `rf == null` return would otherwise strand the flag true and suppress the next
+    // legitimate repo-chip re-target). selectNewSession already pointed selection at a
+    // just-started session in `rf` (not in the store yet — it arrives via WS), so when
+    // set this skips the one re-target that would grab a *different* existing session.
+    const skipFollow = followingNewSession;
+    followingNewSession = false;
     if (rf == null) return; // "all repos" view keeps selection whole
-    // selectNewSession already pointed selection at a just-created session in `rf`
-    // (not in the store yet — it arrives via WS), so skip the one re-target that
-    // would otherwise grab a *different* existing session in the repo. Plain `let`,
-    // not $state: reading/clearing it here must not feed back into reactivity.
-    if (followingNewSession) {
-      followingNewSession = false;
-      return;
-    }
+    if (skipFollow) return;
     untrack(() => {
       const target = pickRepoSwitchTarget(
         rf,
@@ -436,17 +457,16 @@
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
-  // One-shot guard: suppress the repo-switch re-target effect for the single filter
-  // change that selectNewSession makes (see that effect above). Non-reactive on purpose.
-  let followingNewSession = false;
-
   // Select a freshly-started session and follow the herd's repo filter onto its repo.
   // A new task lands in `repoPath`; if the filter is pinned to a *different* repo the
   // task would be hidden behind that stale filter (the user just launched it but can't
   // see it). null filter = "all repos" already shows it, so leave that view whole.
   // Shared by every create/relaunch path so the behaviour can't drift between them.
+  // Arms both follow latches (declared near repoFilter) so the auto-clear and re-target
+  // effects coordinate until the new session arrives via WS.
   function selectNewSession(id: string, repoPath: string) {
     if (shouldFollowFilterToRepo(repoFilter, repoPath)) {
+      followingRepo = repoPath;
       followingNewSession = true;
       repoFilter = repoPath;
     }

@@ -325,6 +325,13 @@
       <div class="sheet-sep"></div>
     {/if}
 
+    <!-- Settings -->
+    <button type="button" class="sheet-item" onclick={chooseSettings}>
+      <span class="sheet-glyph" aria-hidden="true">⚙</span>
+      <span class="sheet-label">{m.settings_title()}</span>
+    </button>
+    <div class="sheet-sep"></div>
+
     <!-- Feedback -->
     <button type="button" class="sheet-item" onclick={() => onFeedback("bug")}>
       <span class="sheet-glyph" aria-hidden="true">🐛</span>
@@ -337,13 +344,6 @@
     <button type="button" class="sheet-item" onclick={() => onFeedback("feedback")}>
       <span class="sheet-glyph" aria-hidden="true">💬</span>
       <span class="sheet-label">{m.feedback_dialog_title_feedback()}</span>
-    </button>
-    <div class="sheet-sep"></div>
-
-    <!-- Settings -->
-    <button type="button" class="sheet-item" onclick={chooseSettings}>
-      <span class="sheet-glyph" aria-hidden="true">⚙</span>
-      <span class="sheet-label">{m.settings_title()}</span>
     </button>
 
     <!-- Docs + version footer -->

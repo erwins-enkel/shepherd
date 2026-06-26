@@ -245,6 +245,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+    /* Last-resort scroll when even the shrinkable notes box can't free enough
+       space — e.g. no release notes at all (nothing shrinkable) plus a full
+       180px sessions list on a short viewport — so the action buttons are never
+       clipped below the 80dvh cap. (Mobile re-sets this in the media query.) */
+    overflow-y: auto;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     padding: 18px 18px 16px;

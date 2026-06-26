@@ -1,5 +1,7 @@
-import type { SessionStore, RepoConfig } from "./store";
+import type { SessionStore } from "./store";
 import type { SessionService } from "./service";
+import { LearningsService } from "./learnings-service";
+import { RepoConfigService } from "./repo-config-service";
 import type { CreateSessionInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
@@ -47,7 +49,6 @@ import {
 } from "./operator-auth";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
-import { planHouseRulesInjection, prioritize } from "./house-rules";
 import {
   listRepos,
   readTodo,
@@ -84,9 +85,7 @@ import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
   AgentProvider,
-  Learning,
   LearningStatus,
-  SignalKind,
   SessionPreviewState,
   IssueRef,
   RelaunchOverrides,
@@ -175,6 +174,13 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Memo slots (#1092) for the learnings + repo-config deep modules. Optional so the
+   *  many test `makeDeps()` builders need no change; routes never read these directly —
+   *  they go through the total `learnings(deps)` / `repoConfig(deps)` accessors below,
+   *  which lazily build-and-cache an instance from `store`(+`events`) on first use.
+   *  `index.ts` injects explicit singletons so production shares one instance. */
+  learnings?: LearningsService;
+  repoConfig?: RepoConfigService;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
@@ -388,6 +394,21 @@ const sessionUsage = (s: Session) =>
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/**
+ * Total accessors (#1092) for the learnings / repo-config deep modules. They lazily
+ * build-and-memoize an instance onto the `deps` object from the always-present
+ * `store`(+`events`), so a handler reached via ANY dispatch entry point (both
+ * `makeApp.fetch` and `serve().fetch`) always gets a defined instance — no `deps.x!`
+ * non-null assertion, no makeApp-only fallback to drift. `index.ts` injects explicit
+ * singletons, so in production these return that shared instance.
+ */
+function learnings(deps: AppDeps): LearningsService {
+  return (deps.learnings ??= new LearningsService(deps.store, deps.events));
+}
+function repoConfigSvc(deps: AppDeps): RepoConfigService {
+  return (deps.repoConfig ??= new RepoConfigService(deps.store));
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -977,58 +998,21 @@ async function parseRepoConfigPatch(req: Request): Promise<
 /** Merge a validated patch onto the current repo config, returning the new full config.
  *  Patch fields are only ever undefined (absent) or a valid value, so every defined
  *  field overrides and absent fields keep the current value. */
-function mergeRepoConfig(
-  cur: RepoConfig,
-  patch: Omit<
-    Exclude<Awaited<ReturnType<typeof parseRepoConfigPatch>>, Response>,
-    "automationConfirmed"
-  >,
-): RepoConfig {
-  const out: RepoConfig = { ...cur };
-  const writable = out as unknown as Record<string, unknown>;
-  for (const [k, v] of Object.entries(patch)) {
-    if (v !== undefined) writable[k] = v;
-  }
-  return out;
-}
-
-function repoConfigResponse(deps: Ctx["deps"], dir: string): Response {
-  return json({
-    ...deps.store.getRepoConfig(dir),
-    automationConfirmed: deps.store.isAutomationConfirmed(dir),
-    automationRowExists: deps.store.automationRowExists(dir),
-  });
-}
-
 async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (req.method === "GET") return repoConfigResponse(deps, dir);
+  if (req.method === "GET") return json(repoConfigSvc(deps).read(dir));
   if (req.method !== "PUT") return null;
 
   const patch = await parseRepoConfigPatch(req);
   if (patch instanceof Response) return patch;
-  // Load-bearing destructure: keeps the metadata flag off the RepoConfig written by mergeRepoConfig.
+  // Load-bearing destructure: the automationConfirmed metadata is applied separately
+  // by the service, never merged into the RepoConfig row.
   const { automationConfirmed, ...cfgPatch } = patch;
-  const merged = mergeRepoConfig(deps.store.getRepoConfig(dir), cfgPatch);
-  if (merged.draftMode && merged.autoMergeEnabled) {
-    return json({ error: "draftMode and autoMergeEnabled are mutually exclusive" }, 400);
-  }
-  // A critic-reliant sign-off authority with the critic OFF can never promote a draft → it
-  // would deadlock as a permanent draft. (With the critic off, "either" also reduces to the
-  // human check, so it's equivalent to "human" anyway.) Force an explicit "human" authority.
-  if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human") {
-    return json(
-      {
-        error: `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
-      },
-      400,
-    );
-  }
-  deps.store.setRepoConfig(dir, merged);
-  if (automationConfirmed === true) deps.store.markAutomationConfirmed(dir);
-  return repoConfigResponse(deps, dir);
+  const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
+  if (!r.ok) return json({ error: r.error }, 400);
+  return json(r.config);
 }
 
 // /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +
@@ -1157,95 +1141,19 @@ async function handleLearnings(ctx: Ctx): Promise<Response | null> {
   return null;
 }
 
-/** Flatten a captured signal payload to a short single-line preview for the
- *  drawer's evidence list (terminal tails / corrections can be multi-line).
- *  Truncates on code points so an emoji at the cut never leaves a lone
- *  surrogate (�) before the ellipsis. */
-function evidenceExcerpt(payload: string, max = 140): string {
-  const flat = payload.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  return [...flat].slice(0, max - 1).join("") + "…";
-}
-
 function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
-  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge).
-  // Resolve each rule's cited signal ids into provenance: a per-kind breakdown
-  // plus the source session + excerpt for each signal, so the drawer shows where
-  // the rule came from rather than a bare count.
+  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge),
+  // each rule's cited signals resolved into provenance (kind breakdown + source
+  // session + excerpt). The N+N+1 read lives in LearningsService now.
   if (parts[2] === "pending") {
-    const pending = deps.store.listPendingLearnings().map((l) => {
-      const evidenceKinds: Partial<Record<SignalKind, number>> = {};
-      const evidenceDetail = deps.store.getSignalsByIds(l.evidence).map((s) => {
-        evidenceKinds[s.kind] = (evidenceKinds[s.kind] ?? 0) + 1;
-        return {
-          id: s.id,
-          kind: s.kind,
-          desig: s.sessionId ? (deps.store.get(s.sessionId)?.desig ?? null) : null,
-          excerpt: evidenceExcerpt(s.payload),
-          ts: s.ts,
-        };
-      });
-      return { ...l, evidenceKinds, evidenceDetail };
-    });
-    return json(pending);
+    return json(learnings(deps).pendingWithEvidence());
   }
 
   // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).
-  // One entry per repo with ≥1 active/promoted or retired rule; the budget value
-  // flows from here so the UI never hardcodes it. Shares the planner
-  // (planHouseRulesInjection) with service.recordInjectedHouseRules.
+  // The budget value flows from here so the UI never hardcodes it; the per-repo
+  // aggregation + planner share live in LearningsService.injectableOverview.
   if (parts[2] === "injectable") {
-    const budgetChars = config.houseRulesBudgetChars;
-    // Union of repos with injectable (active/promoted) or retired rules — deduped,
-    // injectable-first order (so a retired-only repo still appears for the banner).
-    const injectableRepos = deps.store.listRepoPathsWithInjectableLearnings();
-    const retiredRepos = deps.store.listRepoPathsWithRetiredLearnings();
-    const seen = new Set(injectableRepos);
-    const allRepos = [...injectableRepos, ...retiredRepos.filter((r) => !seen.has(r))];
-    const out = allRepos.map((repoPath) => {
-      const rules = deps.store.listActiveLearnings(repoPath);
-      const retired = deps.store.listRetiredLearnings(repoPath);
-      const seenAt = deps.store.getRetiredSeenAt(repoPath);
-      const unseenRetired = retired.filter((r) => (r.retiredAt ?? 0) > seenAt).length;
-      const enabled = deps.store.getRepoConfig(repoPath).learningsEnabled;
-      if (!enabled) {
-        // Injection disabled: skip the planner; every rule uninjected, used 0.
-        return {
-          repoPath,
-          enabled,
-          budgetChars,
-          usedChars: 0,
-          rules: prioritize(rules).map((r) => ({
-            ...r,
-            injected: false,
-            scoped: r.scopeGlobs.length > 0,
-          })),
-          retired,
-          unseenRetired,
-        };
-      }
-      // No session here, so no target files: planHouseRulesInjection gates every scoped
-      // rule into `scoped` (its globs decide injection only at spawn). usedChars therefore
-      // reflects the Always-rules baseline only — scoped rules never count against budget.
-      const plan = planHouseRulesInjection(rules, budgetChars);
-      const injectedIds = new Set(plan.injected.map((r) => r.id));
-      // injected (priority order), then dropped (over budget), then scope-gated — same
-      // ordering the drawer renders; `scoped` marks the glob-conditional rules.
-      return {
-        repoPath,
-        enabled,
-        budgetChars,
-        usedChars: plan.usedChars,
-        rules: [...plan.injected, ...plan.dropped, ...plan.scoped].map((r) => ({
-          ...r,
-          injected: injectedIds.has(r.id),
-          scoped: r.scopeGlobs.length > 0,
-        })),
-        retired,
-        unseenRetired,
-      };
-    });
-    return json(out);
+    return json(learnings(deps).injectableOverview(config.houseRulesBudgetChars));
   }
 
   // GET /api/learnings/health — distiller health (fail-safe: safe default when absent)
@@ -1258,17 +1166,9 @@ function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
 
   // GET /api/learnings/merge-suggestions — pending Phase-4 merge suggestions (intra + cross),
   // each with its member rules hydrated for the drawer. Stale members (no longer present) are
-  // dropped here; pruneOrphanMergeSuggestions sweeps fully-broken suggestions on the daily pass.
+  // dropped; pruneOrphanMergeSuggestions sweeps fully-broken suggestions on the daily pass.
   if (parts[2] === "merge-suggestions") {
-    const out = deps.store.listMergeSuggestions({ status: "pending" }).map((s) => {
-      const memberIds = [...(s.targetId ? [s.targetId] : []), ...s.sourceIds];
-      const members = memberIds
-        .map((mid) => deps.store.getLearning(mid))
-        .filter((l): l is Learning => l !== null)
-        .map((l) => ({ id: l.id, repoPath: l.repoPath, rule: l.rule, status: l.status }));
-      return { ...s, members };
-    });
-    return json(out);
+    return json(learnings(deps).mergeSuggestionsWithMembers());
   }
 
   // GET /api/learnings?repo=&status=
@@ -1312,21 +1212,11 @@ async function handleMergeApply(req: Request, deps: AppDeps): Promise<Response> 
   const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
   const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
   if (!id) return json({ error: "suggestionId required" }, 400);
-  const s = deps.store.getMergeSuggestion(id);
-  if (!s || s.kind !== "intra" || !s.targetId) return json({ error: "not found" }, 404);
-  if (s.status !== "pending") return json({ error: "already resolved" }, 409);
-  const members = [s.targetId, ...s.sourceIds].map((mid) => deps.store.getLearning(mid));
-  if (members.some((m) => !m || m.status !== "active")) {
-    // A member was promoted/retired/edited since the pass — the merge no longer applies.
-    deps.store.setMergeSuggestionStatus(id, "dismissed");
-    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
-    return json({ error: "stale" }, 409);
-  }
-  deps.store.mergeLearning(s.targetId, s.mergedRule, s.mergedRationale || undefined);
-  for (const sid of s.sourceIds) deps.store.retireLearningMerged(sid, s.targetId);
-  deps.store.setMergeSuggestionStatus(id, "applied");
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
-  return json({ ok: true });
+  const r = learnings(deps).applyMergeSuggestion(id);
+  if (r.ok) return json({ ok: true });
+  if (r.reason === "not-found") return json({ error: "not found" }, 404);
+  if (r.reason === "stale") return json({ error: "stale" }, 409);
+  return json({ error: "already resolved" }, 409); // already-resolved
 }
 
 /** Route the two Phase-4 merge-suggestion POSTs (`merge` apply, `merge-dismiss`). Returns
@@ -1357,8 +1247,10 @@ async function handleMergePromoteGlobal(req: Request, deps: AppDeps): Promise<Re
   if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
   const res = await deps.promoter.promoteGlobal(sug.mergedRule);
   if (!res.ok) return json({ error: res.error }, res.status);
+  // Promoter-orchestrated (separate service): the suggestion bookkeeping stays inline; only
+  // the recurring emit tail unifies through the learnings service (#1092).
   deps.store.setMergeSuggestionStatus(id, "applied");
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  learnings(deps).emitPending();
   return json({ ok: true });
 }
 
@@ -1368,9 +1260,7 @@ async function handleMergeDismiss(req: Request, deps: AppDeps): Promise<Response
   const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
   const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
   if (!id) return json({ error: "suggestionId required" }, 400);
-  const updated = deps.store.setMergeSuggestionStatus(id, "dismissed");
-  if (!updated) return json({ error: "not found" }, 404);
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  if (!learnings(deps).dismissMergeSuggestion(id)) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 
@@ -1378,7 +1268,8 @@ async function handleLearningPromote(deps: AppDeps, id: string): Promise<Respons
   if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
   const res = await deps.promoter.promote(id);
   if (!res.ok) return json({ error: res.error }, res.status);
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
+  // Promoter-orchestrated; only the emit tail unifies through the learnings service (#1092).
+  learnings(deps).emitPending();
   return json({ url: res.url });
 }
 
@@ -1413,9 +1304,8 @@ async function handleLearningIdAction(ctx: Ctx): Promise<Response | null> {
 
   // POST /api/learnings/:id/restore — restore a retired rule to its previous status
   if (parts[3] === "restore") {
-    const updated = deps.store.restoreLearning(parts[2]);
+    const updated = learnings(deps).restore(parts[2]);
     if (!updated) return json({ error: "not found" }, 404);
-    deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
     return json(updated);
   }
 
@@ -1441,9 +1331,8 @@ async function handleLearningScope(req: Request, deps: AppDeps, id: string): Pro
   const globs = Array.isArray(body?.globs)
     ? body!.globs.filter((g): g is string => typeof g === "string")
     : [];
-  const updated = deps.store.setLearningScope(id, globs);
+  const updated = learnings(deps).setScope(id, globs);
   if (!updated) return json({ error: "not found" }, 404);
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
   return json(updated);
 }
 
@@ -1459,9 +1348,8 @@ async function handleLearningRevertTrial(
   const target = body?.target;
   if (target !== "proposed" && target !== "dismissed")
     return json({ error: "invalid target" }, 400);
-  const updated = deps.store.revertTrial(id, target);
+  const updated = learnings(deps).revertTrial(id, target);
   if (!updated) return json({ error: "not found" }, 404);
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
   return json(updated);
 }
 
@@ -1471,21 +1359,15 @@ async function handleLearningStatus(
   id: string,
   action: "approve" | "dismiss",
 ): Promise<Response> {
-  let rule: string | undefined;
+  // The edited-rule body is parsed here (HTTP concern); the service normalizes it (trim + 240
+  // cap, blank → fall back to the stored rule) to match addLearning's contract.
+  let ruleEdit: string | undefined;
   if (action === "approve") {
     const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
-    if (body && typeof body.rule === "string") {
-      // Normalize an edited rule to match addLearning's contract (trim + 240 cap).
-      // An empty/whitespace-only edit falls back to the stored rule rather than
-      // persisting a blank active rule (e.g. operator cleared the textarea).
-      const trimmed = body.rule.trim().slice(0, 240);
-      if (trimmed) rule = trimmed;
-    }
+    if (body && typeof body.rule === "string") ruleEdit = body.rule;
   }
-  const status = action === "approve" ? "active" : "dismissed";
-  const updated = deps.store.setLearningStatus(id, status, rule);
+  const updated = learnings(deps).setStatus(id, action, ruleEdit);
   if (!updated) return json({ error: "not found" }, 404);
-  deps.events.emit("learnings:update", { pending: deps.store.pendingLearningCount() });
   return json(updated);
 }
 

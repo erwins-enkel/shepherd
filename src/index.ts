@@ -29,6 +29,8 @@ import { generateName } from "./namer";
 import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
 import { SessionService } from "./service";
+import { LearningsService } from "./learnings-service";
+import { RepoConfigService } from "./repo-config-service";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -358,6 +360,12 @@ const service = new SessionService({
       () => {},
     ),
 });
+
+// Deep modules for the learnings + repo-config route seams (#1092). Singletons so every
+// route + every background onChange below emit through the SAME instance; the server's
+// total accessors return these when injected via appDeps.
+const learningsSvc = new LearningsService(store, events);
+const repoConfigSvc = new RepoConfigService(store);
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -1434,7 +1442,7 @@ const distiller = new DistillerService({
   store,
   herdr,
   scratch: defaultScratch,
-  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+  onChange: () => learningsSvc.emitPending(),
 });
 distiller.reapOrphans(); // issue #1135: close orphaned __distill__ tabs left by a prior lifetime
 setInterval(() => {
@@ -1447,7 +1455,7 @@ const optimizer = new OptimizerService({
   herdr,
   scratch: defaultOptimizerScratch,
   promoter,
-  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+  onChange: () => learningsSvc.emitPending(),
 });
 optimizer.reapOrphans(); // issue #1135: close orphaned __optimize__ tabs left by a prior lifetime
 setInterval(() => {
@@ -1461,7 +1469,7 @@ const mergeSuggest = new MergeSuggestionService({
   store,
   herdr,
   scratch: defaultMergeScratch,
-  onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
+  onChange: () => learningsSvc.emitPending(),
 });
 mergeSuggest.reapOrphans(); // issue #1135: close orphaned __merge__ tabs left by a prior lifetime
 setInterval(() => {
@@ -1556,7 +1564,7 @@ const runDailySweep = () => {
   // nudge clients (banner refresh) when something actually changed.
   const retired = runAutoRetire({ store, optimizer });
   if (retired.length > 0) {
-    events.emit("learnings:update", { pending: store.pendingLearningCount() });
+    learningsSvc.emitPending();
     // Best-effort push so operators learn of background retirements without opening the
     // drawer (issue #852). One summary push across all repos; suppressed while the app is
     // active and for devices that muted the "agent" category. Guarded so a rejection can't
@@ -1579,7 +1587,7 @@ const runDailySweep = () => {
   const reaped = runReapStaleTrials({ store });
   const expired = runAutoExpire({ store });
   if (trialed.length + reaped.length + expired.length > 0) {
-    events.emit("learnings:update", { pending: store.pendingLearningCount() });
+    learningsSvc.emitPending();
   }
   if (trialed.length > 0) {
     // Best-effort push so operators learn of background trials without opening the drawer.
@@ -1763,6 +1771,8 @@ backlogPoller.start();
 const appDeps: AppDeps = {
   store,
   service,
+  learnings: learningsSvc,
+  repoConfig: repoConfigSvc,
   events,
   usageLimits,
   usageRollup,

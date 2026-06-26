@@ -694,8 +694,6 @@
   "toast_merge_train_no_prs": "No ready-to-merge PRs to run a merge train on",
   "toast_merge_train_failed": "Couldn't start the merge train",
   "toast_merged": "Merged {name}",
-  "toast_update_main_offer": "PR merged. Update your local default branch?",
-  "toast_update_main_action": "Update",
   "toast_update_main_done": "Updated local {branch} to latest",
   "toast_update_main_uptodate": "Local {branch} already up to date",
   "toast_update_main_wrong_branch": "Local checkout isn't on {branch}; left it untouched",
@@ -1997,5 +1995,6 @@
   "recommend_err_timeout": "The analysis didn't return a recommendation. Try again.",
   "recommend_err_unavailable": "Prompt recommendations are unavailable right now.",
   "feat_taskid_recommend_title": "Click a task ID for actions",
-  "feat_taskid_recommend_body": "The task ID on each card is now a button. Click it to copy the ID, or have a second agent (Opus or GPT-5.5) analyze the session's terminal history and recommend the next prompt — ready to copy or inject straight into the session."
+  "feat_taskid_recommend_body": "The task ID on each card is now a button. Click it to copy the ID, or have a second agent (Opus or GPT-5.5) analyze the session's terminal history and recommend the next prompt — ready to copy or inject straight into the session.",
+  "toast_mergetrain_landed": "Merge train landed in {repo}"
 }

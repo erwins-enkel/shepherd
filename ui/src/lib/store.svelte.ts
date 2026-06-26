@@ -29,7 +29,6 @@ import { herdDigest } from "./herd-digest.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
-import { offerUpdateMain } from "./pull-offer";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 
@@ -573,12 +572,20 @@ export class HerdStore {
         toasts.info(m.halt_done({ count: ev.data.halted }), { key: "halt-done" });
         break;
       case "mergetrain:landed":
-        offerUpdateMain(ev.data.repoPath);
+        this.confirmMergeTrainLanded(ev.data.repoPath);
         break;
       case "draftreconcile:status":
         this.applyDraftReconcile(ev.data);
         break;
     }
+  }
+
+  /** Confirm a merge train landed. A train lands a batch (no single PR number), so this
+   *  is a plain repo-keyed info toast — no per-merge update offer. The local default-branch
+   *  checkout stays updatable on demand via BacklogView's Fast-forward button. */
+  private confirmMergeTrainLanded(repoPath: string): void {
+    const repo = repoPath.split("/").pop() ?? repoPath;
+    toasts.info(m.toast_mergetrain_landed({ repo }), { key: `mergetrain-landed:${repoPath}` });
   }
 
   /** Handle a draft-reconcile status push. On error: raise a persistent, assertive

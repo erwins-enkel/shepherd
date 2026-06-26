@@ -3,7 +3,6 @@
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
-  import { offerUpdateMain } from "$lib/pull-offer";
   import { showRebaseOffer } from "./pr-row";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
@@ -105,7 +104,6 @@
     try {
       await mergeBacklogPr(repoPath, pr.number);
       onmerged(pr.number);
-      offerUpdateMain(repoPath);
     } catch {
       failed = true;
       mergeBusy = false;

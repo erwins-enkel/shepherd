@@ -38,16 +38,3 @@ export async function pullMainAndToast(repoPath: string, branch?: string): Promi
       return;
   }
 }
-
-/** After a PR merge, offer a one-click fast-forward of the repo's local default-branch
- *  checkout. Auto-dismisses after 15s (paused while hovered/focused) and per-repo
- *  deduped so repeated merges to one repo re-arm a single offer. */
-export function offerUpdateMain(repoPath: string, branch?: string): void {
-  if (!repoPath) return;
-
-  toasts.info(m.toast_update_main_offer(), {
-    action: { label: m.toast_update_main_action(), run: () => pullMainAndToast(repoPath, branch) },
-    duration: 15_000,
-    key: `update-main-offer:${repoPath}`,
-  });
-}

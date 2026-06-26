@@ -694,8 +694,6 @@
   "toast_merge_train_no_prs": "Keine merge-bereiten PRs für einen Merge-Train vorhanden",
   "toast_merge_train_failed": "Merge-Train konnte nicht gestartet werden",
   "toast_merged": "{name} gemergt",
-  "toast_update_main_offer": "PR gemergt. Deinen lokalen Standard-Branch aktualisieren?",
-  "toast_update_main_action": "Aktualisieren",
   "toast_update_main_done": "Lokalen {branch} auf den neuesten Stand gebracht",
   "toast_update_main_uptodate": "Lokaler {branch} ist bereits aktuell",
   "toast_update_main_wrong_branch": "Lokaler Checkout ist nicht auf {branch}; unverändert gelassen",
@@ -1997,5 +1995,6 @@
   "recommend_err_timeout": "Die Analyse hat keine Empfehlung geliefert. Versuch es erneut.",
   "recommend_err_unavailable": "Promptempfehlungen sind derzeit nicht verfügbar.",
   "feat_taskid_recommend_title": "Task-ID anklicken für Aktionen",
-  "feat_taskid_recommend_body": "Die Task-ID auf jeder Karte ist jetzt ein Button. Klicke darauf, um die ID zu kopieren, oder lass einen zweiten Agenten (Opus oder GPT-5.5) den Terminal-Verlauf der Session analysieren und den nächsten Prompt empfehlen — fertig zum Kopieren oder direkt in die Session einfügen."
+  "feat_taskid_recommend_body": "Die Task-ID auf jeder Karte ist jetzt ein Button. Klicke darauf, um die ID zu kopieren, oder lass einen zweiten Agenten (Opus oder GPT-5.5) den Terminal-Verlauf der Session analysieren und den nächsten Prompt empfehlen — fertig zum Kopieren oder direkt in die Session einfügen.",
+  "toast_mergetrain_landed": "Merge-Train in {repo} gelandet"
 }

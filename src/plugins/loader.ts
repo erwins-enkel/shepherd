@@ -259,7 +259,7 @@ export class PluginRegistry {
       },
       publishStatus: (status) => {
         rec.status = status;
-        this.deps.events.emit("plugin:status", { id, health: rec.health, status });
+        this.emitStatus(rec);
       },
       state,
       route: (method, path, handler) => {
@@ -287,6 +287,17 @@ export class PluginRegistry {
     return merger.result();
   }
 
+  /** Emit a `plugin:status` event carrying this plugin's CURRENT core-derived health +
+   *  last-published blob. Fired both on an explicit publishStatus and on a health flip,
+   *  so the live panel never shows stale (e.g. `ok`) health after a hook fails. */
+  private emitStatus(rec: LoadedPlugin): void {
+    this.deps.events.emit("plugin:status", {
+      id: rec.manifest.id,
+      health: rec.health,
+      status: rec.status,
+    });
+  }
+
   /** Invoke one hook, timeout-bounded. Returns its patch, or null on a fail-open
    *  error/timeout (the plugin's health is marked). Rethrows PluginSpawnAborted so the
    *  caller (prepareSpawn) can hard-block the spawn. */
@@ -303,6 +314,9 @@ export class PluginRegistry {
       if (rec) {
         rec.health = e instanceof HookTimeoutError ? "timed-out" : "errored";
         rec.lastError = errMsg(e);
+        // Push the health flip to any open Settings → Plugins panel so the badge
+        // reflects errored/timed-out live, without waiting for the next publishStatus.
+        this.emitStatus(rec);
       }
       console.warn(
         `[plugins] ${pluginId} onSpawn failed (fail-open, spawn proceeds): ${errMsg(e)}`,

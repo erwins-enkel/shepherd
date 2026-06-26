@@ -205,6 +205,26 @@ test("runSpawnHooks: a throwing hook fails open (spawn proceeds) + marks errored
   rmSync(root, { recursive: true, force: true });
 });
 
+test("runSpawnHooks: a health flip on hook failure emits plugin:status (live panel)", async () => {
+  const root = tmpDir();
+  writePlugin(root, "a-throw", {
+    index: "export function register(ctx){ ctx.onSpawn(() => { throw new Error('boom'); }); }",
+  });
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const seen: Array<{ id: string; health: string; status: unknown }> = [];
+  events.subscribe((event, data) => {
+    if (event === "plugin:status")
+      seen.push(data as { id: string; health: string; status: unknown });
+  });
+  const registry = new PluginRegistry({ pluginsDir: root, store, events });
+  await registry.loadAll();
+  seen.length = 0; // drop the load-time publishStatus, if any
+  await registry.runSpawnHooks(DESC);
+  expect(seen).toContainEqual({ id: "a-throw", health: "errored", status: null });
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("runSpawnHooks: a hook that never resolves times out (fail-open) + marks timed-out", async () => {
   const root = tmpDir();
   writePlugin(root, "slow", {

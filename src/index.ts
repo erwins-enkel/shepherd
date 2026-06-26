@@ -224,6 +224,8 @@ if (savedUhp !== null) {
   const n = Number(savedUhp);
   if (Number.isFinite(n)) config.usageHoldPct = Math.min(100, Math.max(0, Math.floor(n)));
 }
+const savedUhar = store.getSetting("usageHoldAutoRelease");
+if (savedUhar !== null) config.usageHoldAutoRelease = savedUhar === "1";
 
 // ── single-operator auth (issue #1079): fail-closed bootstrap ───────────────
 // Resolve the argon2id password hash + HMAC cookie-signing secret before serving, so the gate
@@ -1604,7 +1606,11 @@ setInterval(async () => {
   try {
     await releaseHeldTasks(
       { store, service, usageLimits, events, resolveForge },
-      { enabled: config.usageHoldEnabled, holdPct: config.usageHoldPct },
+      {
+        enabled: config.usageHoldEnabled,
+        holdPct: config.usageHoldPct,
+        autoRelease: config.usageHoldAutoRelease,
+      },
       Date.now(),
     );
   } catch (e) {

@@ -85,7 +85,11 @@ test("usage high (>=holdPct) + enabled → released:0, service not called", asyn
     week: null,
   });
 
-  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now());
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+  );
   expect(result.released).toBe(0);
   expect(deps.creates).toHaveLength(0);
   expect(deps.emitted).toHaveLength(0);
@@ -108,7 +112,12 @@ test("usage low + 3 held → releases all 3 FIFO", async () => {
     },
   );
 
-  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 10);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
   expect(result.released).toBe(3);
   expect(creates).toHaveLength(3);
   expect(creates[0]!.prompt).toBe("task 1");
@@ -134,7 +143,12 @@ test("5 held, maxPerTick=2 → only 2 released, 3 remain", async () => {
     week: null,
   });
 
-  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 2);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+    2,
+  );
   expect(result.released).toBe(2);
   expect(deps.store.countHeldTasks()).toBe(3);
 });
@@ -152,12 +166,51 @@ test("service.create throws on 2nd → 1 released, loop stops, rows intact", asy
     return fakeSession("fake");
   });
 
-  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 10);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
   expect(result.released).toBe(1);
   // row for t1 removed, t2 and t3 still in the list (t2 failed → loop breaks; t3 untouched)
   expect(deps.store.countHeldTasks()).toBe(2);
   // held:changed emitted for the 1 successful release
   expect(deps.emitted.some((e) => e.event === "held:changed")).toBe(true);
+});
+
+test("usage low + enabled but autoRelease off → released:0, nothing spawned", async () => {
+  const tasks = [
+    { id: "t1", input: makeInput("task 1") },
+    { id: "t2", input: makeInput("task 2") },
+  ];
+  const deps = makeDeps(tasks, { session5h: { pct: 20, resetAt: 0 }, week: null });
+
+  // usage is below threshold but auto-release is off → tasks stay queued for manual start
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: false },
+    Date.now(),
+    10,
+  );
+  expect(result.released).toBe(0);
+  expect(deps.creates).toHaveLength(0);
+  expect(deps.store.countHeldTasks()).toBe(2);
+  expect(deps.emitted).toHaveLength(0);
+});
+
+test("disabled + autoRelease off → still flushes (gate off overrides)", async () => {
+  const tasks = [{ id: "t1", input: makeInput("task 1") }];
+  const deps = makeDeps(tasks, { session5h: { pct: 95, resetAt: 0 }, week: null });
+
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: false, holdPct: 80, autoRelease: false },
+    Date.now(),
+    10,
+  );
+  expect(result.released).toBe(1);
+  expect(deps.store.countHeldTasks()).toBe(0);
 });
 
 test("disabled + tasks present → releases them (below-threshold behavior)", async () => {
@@ -171,7 +224,12 @@ test("disabled + tasks present → releases them (below-threshold behavior)", as
   });
 
   // disabled: ignore usage, release anyway
-  const result = await releaseHeldTasks(deps, { enabled: false, holdPct: 80 }, Date.now(), 10);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: false, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
   expect(result.released).toBe(2);
   expect(deps.store.countHeldTasks()).toBe(0);
 });
@@ -185,7 +243,12 @@ test("released task with linked issue → re-stamps the drain claim", async () =
     { session5h: { pct: 20, resetAt: 0 }, week: null },
   );
 
-  const result = await releaseHeldTasks(deps, { enabled: true, holdPct: 80 }, Date.now(), 10);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
   await flush();
   expect(result.released).toBe(2);
   // only the issue-linked task stamps ACTIVE_LABEL (one claim, for #42)

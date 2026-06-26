@@ -1996,5 +1996,9 @@
   "recommend_err_unavailable": "Promptempfehlungen sind derzeit nicht verfügbar.",
   "feat_taskid_recommend_title": "Task-ID anklicken für Aktionen",
   "feat_taskid_recommend_body": "Die Task-ID auf jeder Karte ist jetzt ein Button. Klicke darauf, um die ID zu kopieren, oder lass einen zweiten Agenten (Opus oder GPT-5.5) den Terminal-Verlauf der Session analysieren und den nächsten Prompt empfehlen — fertig zum Kopieren oder direkt in die Session einfügen.",
-  "toast_mergetrain_landed": "Merge-Train in {repo} gelandet"
+  "toast_mergetrain_landed": "Merge-Train in {repo} gelandet",
+  "topbar_held_why_manual": "Zurückgehalten, weil die Nutzung hoch ist. Sie bleiben zurückgehalten, bis du sie manuell startest.",
+  "topbar_held_autostart_label": "Automatisch starten beim nächsten Reset",
+  "feat_held_autostart_title": "Bestimme, wann zurückgehaltene Aufgaben starten",
+  "feat_held_autostart_body": "Das Popover für zurückgehaltene Aufgaben hat jetzt eine Checkbox zum automatischen Starten. Lässt du sie aktiviert, starten zurückgehaltene Aufgaben wie bisher automatisch beim nächsten Reset. Deaktivierst du sie, bleiben sie zurückgehalten, bis du jede einzeln manuell startest — praktisch, wenn du genau steuern willst, was nach einem Reset läuft."
 }

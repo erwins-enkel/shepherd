@@ -69,6 +69,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     previewHost: null,
     usageHoldEnabled: true,
     usageHoldPct: 90,
+    usageHoldAutoRelease: true,
     fableAvailable: true,
     tuiFullscreen: false,
     tuiDisableMouse: false,

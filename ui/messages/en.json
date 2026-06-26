@@ -1996,5 +1996,9 @@
   "recommend_err_unavailable": "Prompt recommendations are unavailable right now.",
   "feat_taskid_recommend_title": "Click a task ID for actions",
   "feat_taskid_recommend_body": "The task ID on each card is now a button. Click it to copy the ID, or have a second agent (Opus or GPT-5.5) analyze the session's terminal history and recommend the next prompt — ready to copy or inject straight into the session.",
-  "toast_mergetrain_landed": "Merge train landed in {repo}"
+  "toast_mergetrain_landed": "Merge train landed in {repo}",
+  "topbar_held_why_manual": "Held because usage is high. They stay held until you start them manually.",
+  "topbar_held_autostart_label": "Start automatically when usage resets",
+  "feat_held_autostart_title": "Choose when held tasks start",
+  "feat_held_autostart_body": "The held-tasks popover now has an auto-start checkbox. Leave it on and held tasks start automatically when usage resets, as before. Turn it off and they stay queued until you start each one manually — handy when you want to control exactly what runs after a reset."
 }

@@ -36,6 +36,9 @@
     heldItems,
     heldLoading,
     heldErrors = {},
+    heldAutoRelease,
+    heldAutoReleaseBusy,
+    toggleHeldAutoRelease,
     heldPopOpen = $bindable(),
     heldBadgeBtn = $bindable(null),
     heldPopEl = $bindable(null),
@@ -53,6 +56,9 @@
     heldItems: HeldTask[];
     heldLoading: boolean;
     heldErrors?: Record<string, "spawn" | "discard">;
+    heldAutoRelease: boolean;
+    heldAutoReleaseBusy: boolean;
+    toggleHeldAutoRelease: () => void;
     heldPopOpen: boolean;
     heldBadgeBtn: HTMLButtonElement | null;
     heldPopEl: HTMLDivElement | null;
@@ -62,6 +68,26 @@
     doDiscardHeld: (id: string) => void;
   } = $props();
 </script>
+
+{#snippet heldWhy()}
+  <p class="held-pop-why">
+    {#if heldAutoRelease}
+      {m.topbar_held_why()}{#if hotter?.w.resetAt}
+        {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
+    {:else}
+      {m.topbar_held_why_manual()}
+    {/if}
+  </p>
+  <label class="held-autostart">
+    <input
+      type="checkbox"
+      checked={heldAutoRelease}
+      disabled={heldAutoReleaseBusy}
+      onchange={toggleHeldAutoRelease}
+    />
+    <span>{m.topbar_held_autostart_label()}</span>
+  </label>
+{/snippet}
 
 {#snippet heldRows()}
   {#if heldLoading}
@@ -175,10 +201,7 @@
             </button>
           </div>
           <div class="held-dialog-body">
-            <p class="held-pop-why">
-              {m.topbar_held_why()}{#if hotter?.w.resetAt}
-                {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
-            </p>
+            {@render heldWhy()}
             {@render heldRows()}
           </div>
         </div>
@@ -192,10 +215,7 @@
         tabindex="-1"
       >
         <div class="held-pop-head">{m.topbar_held_title()}</div>
-        <p class="held-pop-why">
-          {m.topbar_held_why()}{#if hotter?.w.resetAt}
-            {m.topbar_held_why_at({ time: formatResetIn(hotter.w.resetAt, nowMs) })}{/if}
-        </p>
+        {@render heldWhy()}
         {@render heldRows()}
       </div>
     {/if}
@@ -350,6 +370,22 @@
     color: var(--color-faint);
     padding: 0 14px 10px;
   }
+  .held-autostart {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px 10px;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .held-autostart input {
+    accent-color: var(--color-amber);
+    cursor: pointer;
+  }
+  .held-autostart input:disabled {
+    cursor: progress;
+  }
   .held-pop-empty {
     font-size: var(--fs-base);
     color: var(--color-faint);
@@ -461,6 +497,10 @@
   .held-fullscreen .held-pop-why {
     padding: 12px 16px 14px;
     color: var(--color-muted);
+    font-size: var(--fs-base);
+  }
+  .held-fullscreen .held-autostart {
+    padding: 0 16px 16px;
     font-size: var(--fs-base);
   }
   .held-fullscreen .held-pop-empty {

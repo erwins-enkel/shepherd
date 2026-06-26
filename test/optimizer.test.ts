@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { OptimizerService, OPTIMIZE_LABEL, type OptimizerTarget } from "../src/optimizer";
 import { SessionStore } from "../src/store";
+import { HerdrUnavailableError } from "../src/herdr";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 beforeEach(() => {
@@ -270,4 +271,60 @@ test("spawn argv follows the safe contract + unique __optimize__ name", () => {
   expect(write).toBeLessThan(mode);
   expect(argv).toContain('{"disableAllHooks":true}');
   expect(argv.length).toBeGreaterThan(mode + 2); // prompt trails dontAsk
+});
+
+// ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
+
+test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + inflight-owned", () => {
+  const store = new SessionStore(":memory:");
+  const id = seedActiveRule(store, "/r", "old rule");
+  flag(store, "/r", id);
+  const closed: string[] = [];
+  const listed = [
+    { name: OPTIMIZE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { name: "review TASK-09", terminalId: "u1", tabId: "tabU" },
+    { name: OPTIMIZE_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
+  ];
+  const svc = new OptimizerService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "live1" }),
+      stop: () => {},
+      list: () => listed,
+      closeTab: (t: string) => closed.push(t),
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    promoter: fakePromoter(),
+    onChange: () => {},
+    now: () => 1000,
+    writeInput: () => {},
+    readOutput: () => null, // run stays in flight (not finalized)
+  } as never);
+  svc.optimizeOne(id); // in-flight run owns terminalId "live1"
+  svc.reapOrphans();
+  expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
+});
+
+test("reapOrphans is a no-op when herdr is unavailable (optimizer)", () => {
+  const store = new SessionStore(":memory:");
+  let closes = 0;
+  const svc = new OptimizerService({
+    store,
+    herdr: {
+      start: () => ({ terminalId: "t" }),
+      stop: () => {},
+      list: () => {
+        throw new HerdrUnavailableError();
+      },
+      closeTab: () => {
+        closes++;
+      },
+    },
+    scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
+    promoter: fakePromoter(),
+    onChange: () => {},
+    now: () => 1000,
+  } as never);
+  expect(() => svc.reapOrphans()).not.toThrow();
+  expect(closes).toBe(0);
 });

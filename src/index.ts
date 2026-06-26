@@ -1436,6 +1436,7 @@ const distiller = new DistillerService({
   scratch: defaultScratch,
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });
+distiller.reapOrphans(); // issue #1135: close orphaned __distill__ tabs left by a prior lifetime
 setInterval(() => {
   if (maintenance.active) return;
   void distiller.tick();
@@ -1448,6 +1449,7 @@ const optimizer = new OptimizerService({
   promoter,
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });
+optimizer.reapOrphans(); // issue #1135: close orphaned __optimize__ tabs left by a prior lifetime
 setInterval(() => {
   if (maintenance.active) return;
   void optimizer.tick();
@@ -1461,6 +1463,7 @@ const mergeSuggest = new MergeSuggestionService({
   scratch: defaultMergeScratch,
   onChange: () => events.emit("learnings:update", { pending: store.pendingLearningCount() }),
 });
+mergeSuggest.reapOrphans(); // issue #1135: close orphaned __merge__ tabs left by a prior lifetime
 setInterval(() => {
   if (maintenance.active) return;
   void mergeSuggest.tick();

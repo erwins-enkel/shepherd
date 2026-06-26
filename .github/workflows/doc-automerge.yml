@@ -1,0 +1,94 @@
+name: Auto-merge doc PRs
+
+# Auto-merges Shepherd's OWN documentation PRs — the ones the doc agent opens on
+# `shepherd/docs-update-*` branches — once they're green, instead of waiting on a human merge.
+#
+# Why a workflow and not a Shepherd setting: the doc agent runs ONLY against this repo (its
+# in-scope file list + DOC_TREE_MARKER are this repo's own doc tree), and Shepherd lives only on
+# GitHub — so a per-repo Shepherd toggle would be a dead switch in every other repo. This keeps the
+# convenience where it actually applies, and it works even when the Shepherd server is offline.
+#
+# Trigger: after the PR CI workflows finish (workflow_run fires even when the upstream run was
+# driven by GITHUB_TOKEN, unlike check_suite), plus a periodic safety net and a manual button. Each
+# run re-derives eligibility from the live PR state, so it's idempotent and order-independent.
+
+on:
+  workflow_run:
+    workflows: ["CI", "PR hygiene"]
+    types: [completed]
+  schedule:
+    - cron: "*/30 * * * *" # safety net for any missed workflow_run event
+  workflow_dispatch:
+
+# Least privilege: merge a PR + delete its branch. NB: a merge performed with GITHUB_TOKEN does not
+# itself re-trigger push-driven workflows (e.g. release-please) — the next human merge to main
+# reconciles the changelog. Swap GH_TOKEN to a PAT below if you want doc merges to trigger them.
+permissions:
+  contents: write
+  pull-requests: write
+
+# One merge pass at a time; never cancel a pass mid-merge.
+concurrency:
+  group: doc-automerge
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    name: merge green doc PRs
+    runs-on: ubuntu-latest # a tiny control job — kept off the self-hosted CI runner on purpose
+    steps:
+      - name: Merge eligible doc PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Branch prefix every doc-agent PR carries: the agent's worktree stem is `docs-update-*`
+          # and worktree.create() prepends `shepherd/`. Keep in sync with doc-agent.ts.
+          PREFIX="shepherd/docs-update-"
+          # Invisible marker the critic stamps on its own reviews (forge/types.ts CRITIC_REVIEW_MARKER)
+          # so we can tell a human "changes requested" apart from the critic's advisory one.
+          CRITIC_MARKER="<!-- shepherd-critic -->"
+
+          DEFAULT_BRANCH="$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')"
+
+          mapfile -t prs < <(gh pr list --state open --limit 50 \
+            --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"$PREFIX\")) | .number")
+
+          if [ "${#prs[@]}" -eq 0 ]; then echo "No open doc PRs."; exit 0; fi
+          echo "Found ${#prs[@]} open doc PR(s): ${prs[*]}"
+
+          for n in "${prs[@]}"; do
+            info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews)"
+
+            draft=$(jq -r '.isDraft' <<<"$info")
+            mergeable=$(jq -r '.mergeable' <<<"$info")
+            base=$(jq -r '.baseRefName' <<<"$info")
+            total=$(jq '(.statusCheckRollup // []) | length' <<<"$info")
+
+            # Every check must be a terminal success (SUCCESS/NEUTRAL/SKIPPED). statusCheckRollup
+            # mixes CheckRun (.conclusion; null while pending) and StatusContext (.state) shapes —
+            # a missing/null verdict ⇒ "PENDING" ⇒ counted as not-green, so a pending check holds.
+            notgreen=$(jq '[(.statusCheckRollup // [])[]
+              | ((.conclusion // .state) // "PENDING") | ascii_upcase
+              | select(. != "SUCCESS" and . != "NEUTRAL" and . != "SKIPPED")] | length' <<<"$info")
+
+            # Latest HUMAN review verdict (critic-marked reviews excluded; only APPROVED /
+            # CHANGES_REQUESTED carry a decision). A human's "changes requested" holds the merge.
+            human_block=$(jq --arg m "$CRITIC_MARKER" '[(.reviews // [])[]
+              | select((.body // "") | contains($m) | not)
+              | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")]
+              | sort_by(.submittedAt) | last | (.state == "CHANGES_REQUESTED")' <<<"$info")
+
+            if [ "$draft" != "false" ];                 then echo "#$n: draft — skip";                     continue; fi
+            if [ "$base" != "$DEFAULT_BRANCH" ];        then echo "#$n: non-default base ($base) — skip";  continue; fi
+            if [ "$mergeable" != "MERGEABLE" ];         then echo "#$n: mergeable=$mergeable — skip";       continue; fi
+            if [ "$total" -eq 0 ];                      then echo "#$n: no checks yet — skip";              continue; fi
+            if [ "$notgreen" -ne 0 ];                   then echo "#$n: $notgreen check(s) not green — skip"; continue; fi
+            if [ "$human_block" = "true" ];             then echo "#$n: human changes-requested — skip";    continue; fi
+
+            echo "#$n: eligible — merging (squash, delete branch)"
+            gh pr merge "$n" --squash --delete-branch
+          done

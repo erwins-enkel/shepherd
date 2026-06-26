@@ -78,7 +78,7 @@ import { tailLines } from "./blocked";
 import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
-import { ProcessReaper } from "./process-reaper";
+import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
 import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees } from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
@@ -414,6 +414,18 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
       ),
     )
     .catch((err) => console.warn(`[tmp-sweep] ${phase} fallow/prune failed:`, err));
+
+  // Safety net for #1133: reap detached PPID-1 orphans (leaked `yes`/load-gen busy-loops)
+  // whose cwd is an already-deleted shepherd worktree — leaks the teardown sweep missed
+  // (pre-fix, or a removal path that didn't run it). Deferred off the synchronous boot
+  // path; never throws onto the loop.
+  void Promise.resolve()
+    .then(() => {
+      const { reaped } = reapDeletedWorktreeOrphans();
+      if (reaped > 0)
+        console.warn(`[tmp-sweep] ${phase}: reaped ${reaped} deleted-worktree orphan(s)`);
+    })
+    .catch((err) => console.warn(`[tmp-sweep] ${phase} orphan reap failed:`, err));
 };
 
 fireTmpSweep("boot");

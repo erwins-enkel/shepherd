@@ -3,6 +3,7 @@ import {
   ProcessReaper,
   leftoverKey,
   scanClaudeAliveByWorktree,
+  reapDeletedWorktreeOrphans,
   type ReaperProbes,
 } from "../src/process-reaper";
 import { jsonlPathFor } from "../src/usage";
@@ -372,4 +373,118 @@ test("claude-alive: every supplied worktree appears as a key; empty input is fin
   expect(scanClaudeAliveByWorktree([], makeProbes()).size).toBe(0);
   const out = scanClaudeAliveByWorktree(["/wt/a"], makeProbes());
   expect(out.get("/wt/a")).toBe(false);
+});
+
+// ── #1133: orphan reaping (PPID-1 busy-loops the port-based detector misses) ──
+
+const WT = "/home/u/Work/.shepherd-worktrees/repo-x"; // a real worktree path (has the marker)
+
+// killPid spy: record (pid, signal) so tests can assert SIGKILL + exactly-who.
+function killSpy() {
+  const killed: { pid: number; signal?: NodeJS.Signals }[] = [];
+  return {
+    killed,
+    killPid: (pid: number, signal?: NodeJS.Signals) => killed.push({ pid, signal }),
+  };
+}
+
+test("reapOrphansUnder: SIGKILLs a PPID-1 non-agent orphan whose cwd is under the worktree", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: WT, comm: "yes" }],
+      ppidForPid: () => 1,
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(1);
+  expect(k.killed).toEqual([{ pid: 4242, signal: "SIGKILL" }]);
+});
+
+test("reapOrphansUnder: spares self, agent comm, non-orphan (PPID!=1), and out-of-worktree procs", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [
+        { pid: process.pid, cwd: WT, comm: "bun" }, // self
+        { pid: 11, cwd: WT, comm: "claude" }, // agent comm
+        { pid: 12, cwd: WT, comm: "node" }, // PPID != 1 → live child, not orphan
+        { pid: 13, cwd: "/home/u/Work/.shepherd-worktrees/other", comm: "yes" }, // other worktree
+      ],
+      ppidForPid: (pid) => (pid === 12 ? 9000 : 1),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("reapOrphansUnder: refuses a non-worktree path (no /.shepherd-worktrees/) and kills nothing", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      // A matching PPID-1 orphan is present, but the target path is a repo root.
+      scanProcs: () => [{ pid: 999, cwd: "/home/u/Work/repo", comm: "yes" }],
+      ppidForPid: () => 1,
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder("/home/u/Work/repo")).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("reapOrphansUnder: when ppidForPid is absent it can't confirm orphanhood, so it kills nothing", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 5, cwd: WT, comm: "yes" }],
+      killPid: k.killPid, // makeProbes omits ppidForPid
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("reapDeletedWorktreeOrphans: SIGKILLs a PPID-1 orphan whose cwd is a deleted shepherd worktree", () => {
+  const k = killSpy();
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => [{ pid: 808, cwd: `${WT} (deleted)`, comm: "yes" }],
+      ppidForPid: () => 1,
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(1);
+  expect(k.killed).toEqual([{ pid: 808, signal: "SIGKILL" }]);
+});
+
+test("reapDeletedWorktreeOrphans: spares a live (non-deleted) cwd, even under the worktree marker", () => {
+  const k = killSpy();
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => [{ pid: 809, cwd: WT, comm: "yes" }], // still-existing worktree → out of scope
+      ppidForPid: () => 1,
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("reapDeletedWorktreeOrphans: spares a deleted cwd that isn't a shepherd worktree, the agent, PPID!=1, and self", () => {
+  const k = killSpy();
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => [
+        { pid: 20, cwd: "/tmp/scratch (deleted)", comm: "yes" }, // deleted but not a worktree
+        { pid: 21, cwd: `${WT} (deleted)`, comm: "claude" }, // agent comm
+        { pid: 22, cwd: `${WT} (deleted)`, comm: "node" }, // PPID != 1
+        { pid: process.pid, cwd: `${WT} (deleted)`, comm: "bun" }, // self
+      ],
+      ppidForPid: (pid) => (pid === 22 ? 5000 : 1),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(0);
+  expect(k.killed).toEqual([]);
 });

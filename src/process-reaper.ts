@@ -59,10 +59,28 @@ export interface ReaperProbes {
    * Falls back to `portsForPid` when absent.
    */
   socketInodesForPid?(pid: number): number[];
+  /**
+   * Parent pid for a single process (the `PPid:` field of /proc/<pid>/status), or
+   * null when unreadable. Used by the orphan sweeps to recognise a process the
+   * kernel has reparented to PID 1 (its launching shell exited) — the load-bearing
+   * "this is an orphan, not a live child" signal. Optional + read per-candidate so
+   * the hot scanProcs() pollers never pay for it.
+   */
+  ppidForPid?(pid: number): number | null;
 }
 
 // The agent itself runs `claude` with cwd == worktree; never offer to kill it.
 const AGENT_COMMS = new Set(["claude", "codex"]);
+
+// Path segment every shepherd session/review worktree lives under. The orphan
+// sweeps refuse to act on any path lacking it, so a mistaken caller passing a repo
+// root (or any non-worktree path) can never SIGKILL unrelated host processes.
+const WORKTREE_MARKER = "/.shepherd-worktrees/";
+
+// readlink(/proc/<pid>/cwd) appends this once the directory is unlinked; the kernel
+// keeps the inode alive for the still-running process. A "(deleted)" cwd under the
+// worktree marker is the unambiguous signal of an orphan whose worktree is already gone.
+const DELETED_SUFFIX = " (deleted)";
 
 /** Stable selection key — lets the client echo a choice back without trusting raw pids. */
 export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">): string {
@@ -146,6 +164,18 @@ function listeningInodeToPort(): Map<number, number> {
   return map;
 }
 
+/** Read a process's parent pid from the `PPid:` line of /proc/<pid>/status. */
+function readPpid(pid: number): number | null {
+  let text: string;
+  try {
+    text = readFileSync(`/proc/${pid}/status`, "utf8");
+  } catch {
+    return null; // process gone, or not ours to inspect
+  }
+  const m = text.match(/^PPid:\s+(\d+)/m);
+  return m ? Number(m[1]) : null;
+}
+
 /** Read the socket inodes held open by a single process from /proc/<pid>/fd. */
 function readSocketInodes(pid: number): number[] {
   let fds: string[];
@@ -211,6 +241,9 @@ const defaultProbes: ReaperProbes = {
   },
   socketInodesForPid(pid) {
     return readSocketInodes(pid);
+  },
+  ppidForPid(pid) {
+    return readPpid(pid);
   },
   readTranscript(path) {
     try {
@@ -311,6 +344,41 @@ export class ProcessReaper {
     return count;
   }
 
+  /**
+   * Layer A (worktree teardown): SIGKILL every orphaned (PPID-1) process whose cwd is
+   * under `worktreePath`. This is the leak the port-based class-2 detector misses — a
+   * detached busy-loop (`yes &`, a load generator) listens on nothing, so the
+   * listening-port test never flags it, yet it pegs cores forever once its launching
+   * shell exits and reparents it to PID 1 (issue #1133).
+   *
+   * The PPID-1 filter is the orphan signal: a live agent-managed process has its
+   * herdr/PTY as parent, not 1, so this never touches a running child — making it safe
+   * at the generic teardown chokepoint regardless of whether the agent was stopped
+   * first. `claude`/`codex` and the shepherd server itself are always spared.
+   *
+   * Defensive precondition: refuses any path not under `/.shepherd-worktrees/`, so a
+   * caller that mistakenly passes a repo root cannot sweep unrelated host processes.
+   *
+   * Returns the count of processes signalled (signals SENT, not deaths confirmed).
+   */
+  reapOrphansUnder(worktreePath: string): number {
+    const root = worktreePath.replace(/\/+$/, "");
+    if (!(root + "/").includes(WORKTREE_MARKER)) return 0;
+    let count = 0;
+    for (const p of this.probes.scanProcs()) {
+      if (p.pid === process.pid || AGENT_COMMS.has(p.comm)) continue;
+      if (!isUnder(p.cwd, root)) continue;
+      if ((this.probes.ppidForPid?.(p.pid) ?? null) !== 1) continue;
+      try {
+        this.probes.killPid(p.pid, "SIGKILL");
+        count++;
+      } catch {
+        /* best-effort: process may have already exited */
+      }
+    }
+    return count;
+  }
+
   /** Best-effort terminate each leftover (kill pid / run counter-command). */
   reap(leftovers: Leftover[]): void {
     for (const l of leftovers) {
@@ -322,6 +390,42 @@ export class ProcessReaper {
       }
     }
   }
+}
+
+/**
+ * Layer B (boot + daily safety net): SIGKILL every orphaned (PPID-1) process whose cwd
+ * resolves to an already-DELETED shepherd worktree (`…/.shepherd-worktrees/… (deleted)`).
+ *
+ * This catches leaks the teardown sweep (`reapOrphansUnder`) could not — anything that
+ * leaked before this fix existed, or whose worktree was removed by a path that did not
+ * run the teardown sweep. The "(deleted)" cwd + worktree marker + PPID-1 conjunction is
+ * unambiguous, so this carries zero false-positive risk: it acts only on processes
+ * whose working directory is a gone shepherd worktree and that the kernel has
+ * reparented to PID 1. `claude`/`codex` and the shepherd server itself are spared.
+ *
+ * It deliberately does NOT touch orphans whose worktree still exists on disk (a quiet
+ * but possibly-active session) — that needs liveness checks and is out of scope (#1133).
+ *
+ * Returns the count of processes signalled (signals SENT, not deaths confirmed).
+ */
+export function reapDeletedWorktreeOrphans(probes: ReaperProbes = defaultProbes): {
+  reaped: number;
+} {
+  let reaped = 0;
+  for (const p of probes.scanProcs()) {
+    if (p.pid === process.pid || AGENT_COMMS.has(p.comm)) continue;
+    if (!p.cwd.endsWith(DELETED_SUFFIX)) continue;
+    const realCwd = p.cwd.slice(0, -DELETED_SUFFIX.length);
+    if (!(realCwd + "/").includes(WORKTREE_MARKER)) continue;
+    if ((probes.ppidForPid?.(p.pid) ?? null) !== 1) continue;
+    try {
+      probes.killPid(p.pid, "SIGKILL");
+      reaped++;
+    } catch {
+      /* best-effort: process may have already exited */
+    }
+  }
+  return { reaped };
 }
 
 // ── batched port scan ─────────────────────────────────────────────────────────

@@ -39,7 +39,7 @@ export function uploadFilename(ext: string): string {
  * Copy each staged file into the worktree's uploads dir; return new absolute paths
  * (basename preserved) for the files that actually existed. COPY-not-move keeps the
  * staged original recoverable: a spawn that fails after this runs (or a "Jetzt starten"
- * retry of a held task) finds the source still present, so the move is idempotent — the
+ * retry of a held task) finds the source still present, so this copy is repeatable — the
  * old renameSync made a failed first spawn permanently un-retryable (ENOENT). The
  * sweepStaging TTL reclaims the leftover staged copies. A source that is genuinely gone
  * (e.g. already swept after 24h) is skipped, not thrown on, so the spawn proceeds without

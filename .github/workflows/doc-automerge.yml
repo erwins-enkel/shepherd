@@ -37,6 +37,10 @@ jobs:
     name: merge green doc PRs
     runs-on: ubuntu-latest # a tiny control job — kept off the self-hosted CI runner on purpose
     steps:
+      # Give the job git context: `gh repo view` (and gh's repo auto-detection generally) falls back
+      # to the local git remote, so without a checkout it dies with "fatal: not a git repository".
+      # A shallow checkout fixes every gh call deterministically — cheaper than per-command reasoning.
+      - uses: actions/checkout@v7
       - name: Merge eligible doc PRs
         env:
           GH_TOKEN: ${{ github.token }}

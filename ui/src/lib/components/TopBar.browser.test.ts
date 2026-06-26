@@ -408,6 +408,44 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
       "sweep exercises the full state (some wide width keeps clock + full labels)",
     ).toBe(true);
   });
+
+  it("tallies COLLAPSE under measured overflow and stay FULL when there's room (held + needsYou + gauges)", async () => {
+    // The reported bug: on an unfolded fold the right-side cluster compacts but the tallies
+    // (HERD/BUSY/IDLE/BLOCKED) stay full-label off-`mobile`, so the bar still overflows and
+    // clips the gear. The fix extends compaction to the tallies on touch. Asserted as the
+    // same coupling invariant the test above uses — but for the TALLIES — over a width sweep,
+    // so it's robust to the CI monospace fallback's font metrics (the exact transition width
+    // varies). Content mirrors the screenshot: held badge + needsYou + several sessions
+    // (non-zero tallies) + both usage gauges. `needsYou` is present so `drainFrames` (which
+    // keys off `.needsyou`) actually waits for the measurement to settle.
+    const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
+    for (const width of [800, 920, 1040, 1200, 1400, 1600]) {
+      const hud = await renderTD(width, { ...sessionsProp(4), heldCount: 3, needsYou: 2 });
+      await waitNoOverflow(hud);
+      await drainFrames(hud);
+      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
+      const talliesCompact = !!hud.querySelector(".tallies.compact");
+      // Coupling: tallies compact iff the measured-overflow signal fired (clock dropped).
+      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(clockDropped);
+      // Whichever form rendered, it must be the right one — never both, never neither.
+      if (talliesCompact) {
+        expect(hud.querySelector(".tally"), `no full tally at ${width}px`).toBeNull();
+      } else {
+        expect(hud.querySelector(".tally"), `full tally present at ${width}px`).not.toBeNull();
+        expect(hud.querySelector(".micro"), `full tally label at ${width}px`).not.toBeNull();
+      }
+      assertControlsHittable(hud);
+      states.push({ width, clockDropped, talliesCompact });
+    }
+    expect(
+      states.some((s) => s.talliesCompact),
+      "sweep exercises the compacted state (a narrow fold collapses the tallies)",
+    ).toBe(true);
+    expect(
+      states.some((s) => !s.talliesCompact),
+      "sweep exercises the full state (a wide tablet keeps full tally labels — no over-compaction)",
+    ).toBe(true);
+  });
 });
 
 describe("TopBar — wide desktop keeps full labels (measurement does NOT over-compact)", () => {
@@ -610,6 +648,83 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
       // a fitting form. waitNoOverflow re-runs until the rAF lands OR times out into a
       // real failure — a bar that genuinely keeps overflowing still fails here.
       await waitNoOverflow(hud!);
+      assertControlsHittable(hud!);
+    } finally {
+      globalThis.ResizeObserver = RealResizeObserver;
+    }
+  });
+});
+
+describe("TopBar — async held-task arrival re-measures (touch-desktop reactivity gap)", () => {
+  // The held badge (added in #1089) appears via the held:changed WS event AFTER first paint.
+  // Like the gauge-arrival case above, its arrival changes NEITHER mode NOR the .shell-capped
+  // box width — only inner content grows, going to scrollWidth — so unless the measure effect
+  // tracks held state, nothing re-fires and the bar silently overflows. Held is folded into
+  // ChromeState/badgeCount so the effect's `void badgeCount(chrome)` read covers it. On
+  // touch-desktop the recompaction also collapses the tallies (the fix), which is what lets
+  // the bar fit at this narrow fold width once held arrives.
+  //
+  // Same two rig details as the gauge test make it faithful AND able to catch the bug:
+  //   1. Harness flips ONLY heldCount (setHeld), not the whole prop bag (rerender would
+  //      re-read every prop and spuriously re-fire the effect, masking the gap).
+  //   2. ResizeObserver stubbed to a no-op so the effect is the SOLE recompaction path —
+  //      in production the RO doesn't fire on held arrival (the box stays put), but an
+  //      unconstrained test mount would jitter the box and self-heal, hiding the gap.
+  //
+  // Mutation check (verified): removing `held` from badgeCount (top-bar-layout.ts) OR from
+  // the `chrome` object (TopBar.svelte) makes this FAIL — with the RO stubbed nothing
+  // re-measures on held arrival, the bar stays full-tally and overflows. Restoring it passes.
+  it("touch-desktop 880 — a task is held after mount, bar re-compacts the tallies to fit", async () => {
+    // 880 is the window where the held badge is the deciding factor: held=0 fits with FULL
+    // tallies; held=3 overflows and only fits once the tallies collapse (probed). Wider and
+    // held fits without compaction; narrower and the bar is already compact before held.
+    await page.viewport(880, 900);
+    document.body.style.width = "880px";
+
+    const RealResizeObserver = globalThis.ResizeObserver;
+    class NoopResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      // Mount fitting: gauges present + constant, but heldCount starts 0 → the bar fits 800
+      // with full tallies (the existing lone-content touch-desktop 800 cases fit).
+      const { component } = render(TopBarLimitsHarness, {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        ...FLAGS["touch-desktop"],
+        ...sessionsProp(2),
+        initialLimits: fullLimits,
+        initialHeldCount: 0,
+      });
+      const hud = document.querySelector<HTMLElement>(".hud");
+      expect(hud, "TopBar .hud mounted").not.toBeNull();
+
+      // Settle the initial measurement and fully drain churn so no stale measuring frame is
+      // left pending that could self-heal after held arrives and mask the bug.
+      await waitNoOverflow(hud!);
+      await drainFrames(hud!);
+      expect(hud!.querySelector(".held-badge"), "no held badge before held arrives").toBeNull();
+      expect(
+        hud!.querySelector(".tallies.compact"),
+        "tallies full before held arrives (bar fits)",
+      ).toBeNull();
+
+      // ASYNC arrival: a task is held → the held badge renders, pushing the bar over 800.
+      // With the RO stubbed, ONLY the held-tracking measure effect can react and re-compact.
+      component.setHeld(3);
+      await nextFrame();
+      expect(hud!.querySelector(".held-badge"), "held badge renders after arrival").not.toBeNull();
+
+      // The re-measure (driven by the tracked badgeCount read now containing held) must
+      // re-compact the bar back to a fitting form — collapsing the tallies on touch-desktop.
+      await waitNoOverflow(hud!);
+      expect(
+        hud!.querySelector(".tallies.compact"),
+        "tallies collapse on held arrival so the bar fits",
+      ).not.toBeNull();
       assertControlsHittable(hud!);
     } finally {
       globalThis.ResizeObserver = RealResizeObserver;

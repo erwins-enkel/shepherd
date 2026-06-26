@@ -10,6 +10,7 @@
   than the spurious full-props re-read that vitest-browser-svelte's rerender() causes.
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import TopBar from "./TopBar.svelte";
   import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
 
@@ -21,6 +22,8 @@
     touch = false,
     needsYou = 0,
     update = null,
+    initialLimits = null,
+    initialHeldCount = 0,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -29,14 +32,31 @@
     touch?: boolean;
     needsYou?: number;
     update?: UpdateStatus | null;
+    /** Seed for the internal `limits` $state. Defaults to null so the gauge-arrival
+     *  test (which flips null→populated via setLimits) is unaffected; the held test
+     *  seeds it with gauges already present and constant. */
+    initialLimits?: UsageLimits | null;
+    /** Seed for the internal `heldCount` $state, flipped later via setHeld(). */
+    initialHeldCount?: number;
   } = $props();
 
-  // Starts null (no gauges) — the production first-paint state. The test flips it to a
-  // populated value AFTER mount via setLimits(), reproducing the async snapshot/SSE arrival.
-  let limits = $state<UsageLimits | null>(null);
+  // Starts at the seed (null by default → no gauges) — the production first-paint state.
+  // The gauge-arrival test flips it to a populated value AFTER mount via setLimits(),
+  // reproducing the async snapshot/SSE arrival. Seeded once from the prop on purpose
+  // (the prop is a one-time initial value; later changes come through setLimits()).
+  let limits = $state<UsageLimits | null>(untrack(() => initialLimits));
 
   export function setLimits(next: UsageLimits | null) {
     limits = next;
+  }
+
+  // Held tasks arrive async via the held:changed WS event. The held test flips ONLY this
+  // after mount via setHeld() — the same single-state-change faithfulness setLimits gives
+  // the gauge test — so held arrival is the sole change the measure effect must react to.
+  let heldCount = $state(untrack(() => initialHeldCount));
+
+  export function setHeld(next: number) {
+    heldCount = next;
   }
 </script>
 
@@ -50,7 +70,17 @@
   The host width is set by the test via document.body.style.width on this wrapper.
 -->
 <div class="shell-cap">
-  <TopBar {sessions} {nowMs} {connected} {mobile} {touch} {limits} {needsYou} {update} />
+  <TopBar
+    {sessions}
+    {nowMs}
+    {connected}
+    {mobile}
+    {touch}
+    {limits}
+    {needsYou}
+    {update}
+    {heldCount}
+  />
 </div>
 
 <style>

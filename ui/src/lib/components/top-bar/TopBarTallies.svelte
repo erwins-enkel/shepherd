@@ -6,6 +6,7 @@
 
   let {
     mobile,
+    compact = false,
     total,
     working,
     idle,
@@ -15,6 +16,9 @@
     clickStatus,
   }: {
     mobile: boolean;
+    /** Collapse to the dot+digit form under measured overflow on touch-desktop (the
+     *  unfolded fold) — the same compact form phones get from `mobile`. */
+    compact?: boolean;
     total: number;
     working: number;
     idle: number;
@@ -25,7 +29,7 @@
   } = $props();
 </script>
 
-{#if mobile}
+{#if mobile || compact}
   <div class="tallies compact">
     <!-- aria-labels carry the COUNT alongside the action (the visible text is a
          bare digit, and an action-only label would hide the tally from screen

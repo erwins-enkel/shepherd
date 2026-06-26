@@ -122,6 +122,9 @@
     needsYou,
     whatsNew,
     learnings: learnings + learningsCurate,
+    // held arrives async via the held:changed WS event; counting it here makes the
+    // measure effect's `void badgeCount(chrome)` read re-fire on its arrival.
+    held: heldCount,
   });
 
   // ── Compaction is MEASURED, not count-based (desktop AND touch-desktop) ───────
@@ -588,6 +591,7 @@
   <div class="sep"></div>
   <TopBarTallies
     {mobile}
+    compact={touch && compactBadges}
     total={sessions.length}
     {working}
     {idle}

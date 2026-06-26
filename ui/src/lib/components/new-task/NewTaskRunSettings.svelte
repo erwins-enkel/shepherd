@@ -109,12 +109,12 @@
       <label class="plan-gate" use:coachTarget={"task-autopilot"}>
         <input
           type="checkbox"
-          checked={agentProvider === "codex" ? false : autopilot}
+          checked={autopilot}
           onchange={(e) => {
             autopilot = e.currentTarget.checked;
             onAutopilotTouched();
           }}
-          disabled={autopilotLoading || agentProvider === "codex"}
+          disabled={autopilotLoading}
         />
         <span class="pg-label">{m.newtask_autopilot_label()}</span>
       </label>

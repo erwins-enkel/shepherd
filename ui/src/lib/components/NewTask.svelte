@@ -599,10 +599,16 @@
     e.stopPropagation();
   }
 
-  // Per-task plan-gate / autopilot flag at submit. Codex can't plan-gate or
-  // autopilot yet, so force both off; otherwise send the user's manual choice, or
-  // null to inherit the repo default.
+  // Per-task autopilot flag at submit: send the user's manual choice, or null to inherit
+  // the repo default — for both providers. Codex autopilot is best-effort/Alpha and the
+  // server stands it down for non-isolated sessions (see AutopilotBadge for the surfacing).
   function automationFlag(touched: boolean, value: boolean): boolean | null {
+    return touched ? value : null;
+  }
+
+  // Plan-gate stays codex-forced-off: codex gets no spawn directives via
+  // --append-system-prompt, so the plan-gate wiring is not available for it yet.
+  function planGateFlag(touched: boolean, value: boolean): boolean | null {
     if (agentProvider === "codex") return false;
     return touched ? value : null;
   }
@@ -627,7 +633,7 @@
               body: issueRef.body,
             }
           : undefined,
-        planGateEnabled: automationFlag(planGateTouched, planGate),
+        planGateEnabled: planGateFlag(planGateTouched, planGate),
         autopilotEnabled: automationFlag(autopilotTouched, autopilot),
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
         research,

@@ -109,16 +109,64 @@ describe("hideStatusBadge", () => {
 
 describe("autopilotBadgeShown", () => {
   const session = (over: Partial<Session>): Session =>
-    ({ autopilotPaused: false, autopilotComplete: false, ...over }) as Session;
+    ({
+      autopilotPaused: false,
+      autopilotComplete: false,
+      autopilotEnabled: null,
+      agentProvider: "claude",
+      isolated: true,
+      ...over,
+    }) as Session;
 
   it("returns true when autopilotPaused", () =>
-    expect(autopilotBadgeShown(session({ autopilotPaused: true }))).toBe(true));
+    expect(autopilotBadgeShown(session({ autopilotPaused: true }), false)).toBe(true));
 
   it("returns true when autopilotComplete", () =>
-    expect(autopilotBadgeShown(session({ autopilotComplete: true }))).toBe(true));
+    expect(autopilotBadgeShown(session({ autopilotComplete: true }), false)).toBe(true));
 
-  it("returns false when neither paused nor complete", () =>
-    expect(autopilotBadgeShown(session({}))).toBe(false));
+  it("returns false when neither paused nor complete (claude)", () =>
+    expect(autopilotBadgeShown(session({}), false)).toBe(false));
+
+  // Codex non-isolated "unavailable" state — both explicit-true and inherited-default-ON.
+  it("returns true for codex + non-isolated + autopilotEnabled=true", () =>
+    expect(
+      autopilotBadgeShown(
+        session({ agentProvider: "codex", isolated: false, autopilotEnabled: true }),
+        false,
+      ),
+    ).toBe(true));
+
+  it("returns true for codex + non-isolated + inherited-default-ON (autopilotEnabled=null)", () =>
+    expect(
+      autopilotBadgeShown(
+        session({ agentProvider: "codex", isolated: false, autopilotEnabled: null }),
+        true, // repo default ON
+      ),
+    ).toBe(true));
+
+  it("returns false for codex + isolated (autopilot available)", () =>
+    expect(
+      autopilotBadgeShown(
+        session({ agentProvider: "codex", isolated: true, autopilotEnabled: true }),
+        false,
+      ),
+    ).toBe(false));
+
+  it("returns false for codex + non-isolated when autopilot resolves OFF", () =>
+    expect(
+      autopilotBadgeShown(
+        session({ agentProvider: "codex", isolated: false, autopilotEnabled: null }),
+        false, // repo default OFF, no override → not on → nothing to surface
+      ),
+    ).toBe(false));
+
+  it("returns false for claude + non-isolated (guard is codex-only)", () =>
+    expect(
+      autopilotBadgeShown(
+        session({ agentProvider: "claude", isolated: false, autopilotEnabled: true }),
+        false,
+      ),
+    ).toBe(false));
 });
 
 describe("relativeAge", () => {

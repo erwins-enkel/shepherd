@@ -33,7 +33,7 @@
   import TimePopover from "./TimePopover.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -182,7 +182,9 @@
   });
 
   const reviewing = $derived(reviews.isReviewing(session.id));
-  const autopilotShown = $derived(autopilotBadgeShown(session));
+  const autopilotShown = $derived(
+    autopilotBadgeShown(session, repoConfig.isAutopilotEnabled(session.repoPath)),
+  );
   const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
   // The status slot renders for merging / ready / a running working-line; every

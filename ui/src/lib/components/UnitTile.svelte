@@ -23,7 +23,7 @@
   import PrBadge from "./PrBadge.svelte";
   import TimePopover from "./TimePopover.svelte";
   import CriticBadge from "./CriticBadge.svelte";
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, repoConfig } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import AutopilotBadge from "./AutopilotBadge.svelte";
@@ -64,7 +64,9 @@
   const dStatus = $derived(displayStatus(session, workingBlocked));
 
   const reviewing = $derived(reviews.isReviewing(session.id));
-  const autopilotShown = $derived(autopilotBadgeShown(session));
+  const autopilotShown = $derived(
+    autopilotBadgeShown(session, repoConfig.isAutopilotEnabled(session.repoPath)),
+  );
   const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
   // The status slot renders for ready / a running working-line / a blocked alert
@@ -302,7 +304,10 @@
     <CriticBadge sessionId={session.id} />
     <PlanGateBadge {session} allowView={false} />
     <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
-    {#if !reviewing}<AutopilotBadge {session} />{/if}
+    {#if !reviewing}<AutopilotBadge
+        {session}
+        repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+      />{/if}
     <AutoPip {session} />
     {#if session.readyToMerge}
       <span class="badge" id="tile-status-{session.id}">{m.status_ready_to_merge()}</span>

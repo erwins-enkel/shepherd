@@ -890,6 +890,12 @@ export class SessionStore implements CapStore, CreditStore {
     );
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
       sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, approvalKind TEXT, updatedAt INTEGER NOT NULL)`);
+    // Scoped, durable per-plugin key/value (issue #1124). Plugins reach this ONLY via
+    // ctx.state — they never touch the session schema. Composite PK keeps each plugin's
+    // keys isolated; values are plugin-authored JSON strings.
+    this.db.run(`CREATE TABLE IF NOT EXISTS plugin_state (
+      pluginId TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (pluginId, key))`);
     // migrate build_queue_state rows that predate the approvalKind column (legacy rows NULL = unknown kind)
     const bqStateCols = this.db.query(`PRAGMA table_info(build_queue_state)`).all() as {
       name: string;
@@ -1012,6 +1018,33 @@ export class SessionStore implements CapStore, CreditStore {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
     );
+  }
+
+  // ── plugin_state (scoped per-plugin key/value, issue #1124) ──────────────
+  getPluginState(pluginId: string, key: string): string | null {
+    const r = this.db
+      .query(`SELECT value FROM plugin_state WHERE pluginId = ? AND key = ?`)
+      .get(pluginId, key) as { value: string } | null;
+    return r ? r.value : null;
+  }
+
+  setPluginState(pluginId: string, key: string, value: string): void {
+    this.db.run(
+      `INSERT INTO plugin_state (pluginId, key, value, updatedAt) VALUES (?, ?, ?, ?)
+       ON CONFLICT(pluginId, key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+      [pluginId, key, value, Date.now()],
+    );
+  }
+
+  deletePluginState(pluginId: string, key: string): void {
+    this.db.run(`DELETE FROM plugin_state WHERE pluginId = ? AND key = ?`, [pluginId, key]);
+  }
+
+  listPluginStateKeys(pluginId: string): string[] {
+    const rows = this.db
+      .query(`SELECT key FROM plugin_state WHERE pluginId = ? ORDER BY key`)
+      .all(pluginId) as { key: string }[];
+    return rows.map((r) => r.key);
   }
 
   // ── doc-agent run history (capped KV JSON, newest-first) ─────────────────

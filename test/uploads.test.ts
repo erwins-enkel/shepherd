@@ -15,7 +15,7 @@ import {
   MAX_UPLOAD_BYTES,
   stagingDir,
   worktreeUploadsDir,
-  moveStagedIntoWorktree,
+  copyStagedIntoWorktree,
   sweepStaging,
   uploadFilename,
   handleUpload,
@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-test("moveStagedIntoWorktree moves files in and returns new absolute paths", () => {
+test("copyStagedIntoWorktree copies files in, keeping the staged source recoverable", () => {
   const staging = stagingDir(root);
   mkdirSync(staging, { recursive: true });
   const a = join(staging, "a.png");
@@ -57,16 +57,33 @@ test("moveStagedIntoWorktree moves files in and returns new absolute paths", () 
   const wt = join(root, "wt");
   mkdirSync(wt);
 
-  const moved = moveStagedIntoWorktree([a, b], wt);
+  const copied = copyStagedIntoWorktree([a, b], wt);
 
-  expect(moved).toEqual([
+  expect(copied).toEqual([
     join(worktreeUploadsDir(wt), "a.png"),
     join(worktreeUploadsDir(wt), "b.jpg"),
   ]);
-  expect(existsSync(a)).toBe(false); // moved, not copied
-  expect(existsSync(b)).toBe(false);
-  expect(readFileSync(moved[0]!, "utf8")).toBe("AAA");
-  expect(readFileSync(moved[1]!, "utf8")).toBe("BBB");
+  expect(existsSync(a)).toBe(true); // copied, not moved — survives a failed/retried spawn
+  expect(existsSync(b)).toBe(true);
+  expect(readFileSync(copied[0]!, "utf8")).toBe("AAA");
+  expect(readFileSync(copied[1]!, "utf8")).toBe("BBB");
+});
+
+test("copyStagedIntoWorktree skips a missing source and copies the rest", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const present = join(staging, "present.png");
+  const gone = join(staging, "gone.png"); // never created — simulates a swept upload
+  writeFileSync(present, "OK");
+  const wt = join(root, "wt");
+  mkdirSync(wt);
+
+  const copied = copyStagedIntoWorktree([gone, present], wt);
+
+  // The missing source is skipped (not thrown on); only the present one is copied through.
+  expect(copied).toEqual([join(worktreeUploadsDir(wt), "present.png")]);
+  expect(existsSync(join(worktreeUploadsDir(wt), "gone.png"))).toBe(false);
+  expect(readFileSync(copied[0]!, "utf8")).toBe("OK");
 });
 
 test("sweepStaging deletes files older than maxAge, keeps fresh ones", () => {

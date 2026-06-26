@@ -1153,6 +1153,7 @@ export type WsEvent =
   | { event: "epic:completed"; data: CompletedEpic }
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } }
+  | { event: "session:uploads-dropped"; data: { id: string; count: number } }
   | { event: "held:changed"; data: { count: number } }
   | { event: "post-merge-steps:changed"; data: Record<string, never> }
   | {

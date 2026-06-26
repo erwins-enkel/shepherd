@@ -878,7 +878,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
   expect(store.get(s.id)?.model).toBe("opus");
 });
 
-test("createSession: moves images into worktree and appends paths to the prompt", async () => {
+test("createSession: copies images into worktree and appends paths to the prompt", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -905,7 +905,7 @@ test("createSession: moves images into worktree and appends paths to the prompt"
       },
       list: () => [],
     } as any,
-    moveUploads: (images: string[], worktreePath: string) =>
+    copyUploads: (images: string[], worktreePath: string) =>
       images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
   });
 
@@ -917,12 +917,67 @@ test("createSession: moves images into worktree and appends paths to the prompt"
     images: ["/stage/a.png", "/stage/b.png"],
   });
 
-  // prompt argv (last element) carries the user text + the moved image paths
+  // prompt argv (last element) carries the user text + the copied image paths
   expect(calls.argv[calls.argv.length - 1]).toBe(
     "look at this\n\nAttached images:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/b.png",
   );
   // stored prompt stays the clean user text
   expect(store.get(s.id)?.prompt).toBe("look at this");
+});
+
+test("createSession: a dropped (swept) image still spawns, notes the loss, emits a toast event", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const events: { event: string; data: any }[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return {
+          terminalId: "term_y",
+          cwd: "/wt/repo-x",
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      list: () => [],
+    } as any,
+    events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
+    // One of two staged images is gone — the copy seam returns only the survivor.
+    copyUploads: (images: string[], worktreePath: string) =>
+      images
+        .filter((i) => !i.includes("gone"))
+        .map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+  });
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "look at this",
+    model: null,
+    images: ["/stage/gone.png", "/stage/kept.png"],
+  });
+
+  const prompt = calls.argv[calls.argv.length - 1] as string;
+  // The surviving image is still attached, and the loss is noted in-prompt.
+  expect(prompt).toContain("Attached images:\n/wt/repo-x/.shepherd-uploads/kept.png");
+  expect(prompt).toContain("1 attached image(s) could not be restored");
+  // Operator-visible signal emitted against the new session id.
+  expect(events).toContainEqual({
+    event: "session:uploads-dropped",
+    data: { id: s.id, count: 1 },
+  });
 });
 
 test("createSession: no images leaves the prompt argv unchanged", async () => {
@@ -4108,7 +4163,7 @@ function relaunchHarness(store: SessionStore) {
       list: () => [],
       stop: (id: string) => calls.stopped.push(id),
     } as any,
-    moveUploads: (images: string[], worktreePath: string) =>
+    copyUploads: (images: string[], worktreePath: string) =>
       images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
   });
   return { service, calls, breakOverride };
@@ -4204,7 +4259,7 @@ test("relaunch carries images over (staged copies created, originals untouched)"
     expect(staged).toHaveLength(2);
     expect(staged.filter((f) => f.endsWith(".png"))).toHaveLength(1);
     expect(staged.filter((f) => f.endsWith(".jpg"))).toHaveLength(1);
-    // both images flowed into the spawn argv (via moveUploads mock)
+    // both images flowed into the spawn argv (via copyUploads mock)
     const argv = calls.started[0]!.argv;
     expect(argv[argv.length - 1]).toContain("Attached images:");
   } finally {

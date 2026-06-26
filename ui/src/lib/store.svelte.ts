@@ -341,6 +341,12 @@ export class HerdStore {
           alert: true,
         });
         break;
+      case "session:uploads-dropped":
+        toasts.info(m.toast_uploads_dropped({ count: ev.data.count }), {
+          key: "uploads-dropped-" + ev.data.id,
+          alert: true,
+        });
+        break;
       default:
         // Simple data-update, review/plan-gate, and app-global events are handled
         // out of line to keep this dispatch switch under the complexity gate.

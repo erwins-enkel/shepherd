@@ -17,7 +17,7 @@ import type {
   Session,
 } from "./types";
 import {
-  moveStagedIntoWorktree,
+  copyStagedIntoWorktree,
   stagingDir,
   sweepStaging,
   STAGING_TTL_MS,
@@ -108,8 +108,8 @@ export interface ServiceDeps {
   refineName?: (args: { taskText: string; label: string }) => Promise<string | null>;
   /** Event bus for live state pushes (e.g. session:ready); absent in tests that skip it. */
   events?: Pick<EventHub, "emit">;
-  /** Inject point for tests; defaults to the real fs move. */
-  moveUploads?: (images: string[], worktreePath: string) => string[];
+  /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
+  copyUploads?: (images: string[], worktreePath: string) => string[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
@@ -1049,13 +1049,30 @@ export class SessionService {
    * against the 8000-char human-prompt guard (the same approach for each). The comment
    * thread is the human discussion that refined the original request; fetching it is
    * best-effort (see fetchIssueCommentsBlock) so a spawn never fails on comments.
+   *
+   * Returns the prompt plus `dropped`: the count of attached images whose staged source
+   * was gone (e.g. swept after 24h) so copyStagedIntoWorktree skipped it. The spawn still
+   * proceeds without them; the caller emits an operator-visible signal for the drop.
    */
-  private async composePromptArg(input: CreateSessionInput, worktreePath: string): Promise<string> {
+  private async composePromptArg(
+    input: CreateSessionInput,
+    worktreePath: string,
+  ): Promise<{ promptArg: string; dropped: number }> {
     let promptArg = input.prompt;
+    let dropped = 0;
     if (input.images.length > 0) {
-      const move = this.deps.moveUploads ?? moveStagedIntoWorktree;
-      const moved = move(input.images, worktreePath);
-      promptArg = `${promptArg}\n\nAttached images:\n${moved.join("\n")}`;
+      const copy = this.deps.copyUploads ?? copyStagedIntoWorktree;
+      const copied = copy(input.images, worktreePath);
+      if (copied.length > 0) promptArg = `${promptArg}\n\nAttached images:\n${copied.join("\n")}`;
+      dropped = input.images.length - copied.length;
+      if (dropped > 0) {
+        // A staged upload vanished before spawn (swept after STAGING_TTL_MS, or otherwise
+        // lost). Note it in-prompt so the agent knows an attachment is missing, and warn.
+        promptArg = `${promptArg}\n\n[Note: ${dropped} attached image(s) could not be restored — the upload expired and is unavailable for this session.]`;
+        console.warn(
+          `[uploads] ${dropped}/${input.images.length} staged image(s) missing at spawn; proceeding without them`,
+        );
+      }
     }
     if (input.issueRef) {
       const r = input.issueRef;
@@ -1063,7 +1080,7 @@ export class SessionService {
       const comments = await this.fetchIssueCommentsBlock(input.repoPath, r.number);
       if (comments) promptArg = `${promptArg}\n\n${comments}`;
     }
-    return promptArg;
+    return { promptArg, dropped };
   }
 
   /** Best-effort fetch + compose of an attached issue's comment thread. Any missing forge,
@@ -1684,7 +1701,10 @@ export class SessionService {
       // before the store row exists — the store.create() call below receives this id explicitly.
       const sessionId = randomUUID();
 
-      const promptArg = await this.composePromptArg(input, wt.worktreePath);
+      const { promptArg, dropped: droppedImages } = await this.composePromptArg(
+        input,
+        wt.worktreePath,
+      );
       const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
       const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
       // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
@@ -1756,6 +1776,12 @@ export class SessionService {
       // after authoring the queue without waiting for a human gate that will never come.
       if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
         this.deps.store.setBuildQueueApproved(sessionId, true, "auto");
+      // An attached image was lost before spawn (staged upload swept after 24h). The session
+      // started without it; surface that to the operator as a toast — they can relaunch with
+      // the image re-attached if it was essential. Emitted after the store row exists so the
+      // UI can map the toast to the session.
+      if (droppedImages > 0)
+        this.deps.events?.emit("session:uploads-dropped", { id: sessionId, count: droppedImages });
       this.scheduleRefine(session, herdSlug);
       this.#maybeRegisterTrain(session, input);
       return session;

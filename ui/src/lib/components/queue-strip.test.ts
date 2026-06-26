@@ -13,6 +13,7 @@ import {
   queueOpenable,
   repoChipRows,
   shouldClearRepoFilter,
+  shouldFollowFilterToRepo,
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
 import type { BlockState } from "../triage";
@@ -471,6 +472,22 @@ describe("shouldClearRepoFilter", () => {
 
   it("TRUE when no chips remain (all sessions ended)", () => {
     expect(shouldClearRepoFilter("/repos/a", [])).toBe(true);
+  });
+});
+
+// ─── shouldFollowFilterToRepo ─────────────────────────────────────────────────
+
+describe("shouldFollowFilterToRepo", () => {
+  it("false when no filter is active (null) — 'all repos' already shows the task", () => {
+    expect(shouldFollowFilterToRepo(null, "/repos/a")).toBe(false);
+  });
+
+  it("false when the filter already points at the new task's repo", () => {
+    expect(shouldFollowFilterToRepo("/repos/a", "/repos/a")).toBe(false);
+  });
+
+  it("TRUE when the filter is pinned to a different repo — would hide the new task", () => {
+    expect(shouldFollowFilterToRepo("/repos/a", "/repos/b")).toBe(true);
   });
 });
 

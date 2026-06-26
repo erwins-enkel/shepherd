@@ -98,6 +98,14 @@ export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip
   return repoFilter !== null && !chips.some((c) => c.repoPath === repoFilter);
 }
 
+/** Whether the herd's repo filter should follow a just-started task onto its repo.
+ *  A new task lands in `repoPath`; if the filter is pinned to a *different* repo the
+ *  task would be hidden behind that stale filter — so follow it. A null filter ("all
+ *  repos") already shows the task, and a filter already on `repoPath` needs no change. */
+export function shouldFollowFilterToRepo(repoFilter: string | null, repoPath: string): boolean {
+  return repoFilter !== null && repoFilter !== repoPath;
+}
+
 /**
  * The session the terminal should re-target onto after the user picks a repo chip.
  * Narrowing the herd to a repo would otherwise leave the terminal on whatever session

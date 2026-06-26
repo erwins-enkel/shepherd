@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
-import type { Learning, SignalKind } from "./types";
+import type { EvidenceItem, Learning, SignalKind } from "./types";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
 
 /** Flatten + clip a signal payload to a one-line evidence excerpt for the drawer. */
@@ -13,6 +13,13 @@ function evidenceExcerpt(payload: string, max = 140): string {
 export type ApplyMergeResult =
   | { ok: true }
   | { ok: false; reason: "not-found" | "already-resolved" | "stale" };
+
+/** A pending learning with its evidence resolved — both provenance fields (optional on
+ *  Learning, since they're only attached here) are always present on this projection. */
+export type PendingLearningRow = Learning & {
+  evidenceKinds: Partial<Record<SignalKind, number>>;
+  evidenceDetail: EvidenceItem[];
+};
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type LearningsStore = Pick<
@@ -150,7 +157,7 @@ export class LearningsService {
    * provenance (per-kind breakdown + source session designation + excerpt) — the
    * drawer's N+N+1 read projection.
    */
-  pendingWithEvidence(): Learning[] {
+  pendingWithEvidence(): PendingLearningRow[] {
     return this.store.listPendingLearnings().map((l) => {
       const evidenceKinds: Partial<Record<SignalKind, number>> = {};
       const evidenceDetail = this.store.getSignalsByIds(l.evidence).map((s) => {

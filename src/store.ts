@@ -4105,6 +4105,16 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`DELETE FROM held_tasks WHERE id = ?`, [id]);
   }
 
+  /** Replace a held task's stored input (e.g. an operator edited it while it stays
+   *  held). repoPath mirrors input.repoPath so a repo change updates both columns. */
+  updateHeldTask(id: string, input: CreateSessionInput): void {
+    this.db.run(`UPDATE held_tasks SET repoPath = ?, input = ? WHERE id = ?`, [
+      input.repoPath,
+      JSON.stringify(input),
+      id,
+    ]);
+  }
+
   countHeldTasks(): number {
     const row = this.db.query(`SELECT COUNT(*) AS n FROM held_tasks`).get() as { n: number };
     return row.n;

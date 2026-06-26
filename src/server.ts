@@ -3484,6 +3484,26 @@ function heldDiscard(id: string, deps: AppDeps): Response {
   return json({ ok: true });
 }
 
+// PATCH /api/held/:id — replace a held task's input while it stays held. Reuses the
+// New-Task create validation so an edit can't persist a malformed input that would
+// later fail on spawn. Count is unchanged; held:changed still fires so any other client
+// recomputing off the badge stays consistent.
+async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Response> {
+  const existing = deps.store.getHeldTask(id);
+  if (!existing) return json({ error: "not found" }, 404);
+  const result = validateCreate(body, config.repoRoot);
+  if (!result.ok) return json({ error: result.error }, 400);
+  // The edit composer round-trips every field EXCEPT merge-train membership, which has no
+  // UI — so carry mergeTrainPrs forward from the held row. Otherwise editing a held
+  // merge-train task would strip its participant PRs and they'd never be marked "merging".
+  const value = existing.input.mergeTrainPrs?.length
+    ? { ...result.value, mergeTrainPrs: existing.input.mergeTrainPrs }
+    : result.value;
+  deps.store.updateHeldTask(id, value);
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json(deps.store.getHeldTask(id), 200);
+}
+
 async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "held") return null;
 
@@ -3494,6 +3514,14 @@ async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
     const body = await req.json().catch(() => null);
     return heldSpawn(parts[2], deps, body);
+  }
+
+  // PATCH /api/held/:id — edit a held task's input while it stays held
+  if (req.method === "PATCH" && parts[2] && !parts[3]) {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    const body = await req.json().catch(() => null);
+    return heldUpdate(parts[2], deps, body);
   }
 
   // DELETE /api/held/:id — discard a held task

@@ -361,3 +361,112 @@ test("DELETE /api/held/:id → removes row, returns {ok:true}", async () => {
   expect(store.countHeldTasks()).toBe(0);
   expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
 });
+
+function patchHeld(
+  app: ReturnType<typeof makeApp>,
+  id: string,
+  input: Record<string, unknown>,
+): Promise<Response> {
+  return app.fetch(
+    new Request(`http://x/api/held/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+test("PATCH /api/held/:id → replaces input, stays held, emits held:changed", async () => {
+  const { app, store, creates, emitted } = harness();
+
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: { repoPath: repoDir, baseBranch: "main", prompt: "old prompt", model: null, images: [] },
+    createdAt: 1000,
+  });
+
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "dev",
+    prompt: "new prompt",
+    model: "fable",
+    images: [],
+  });
+  expect(res.status).toBe(200);
+
+  // edit never spawns; the task remains in the queue with the new input
+  expect(creates).toHaveLength(0);
+  expect(store.countHeldTasks()).toBe(1);
+  const updated = store.getHeldTask("held-1");
+  expect(updated?.input.prompt).toBe("new prompt");
+  expect(updated?.input.baseBranch).toBe("dev");
+  expect(updated?.input.model).toBe("fable");
+  expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
+});
+
+test("PATCH /api/held/:id preserves merge-train membership the composer can't edit", async () => {
+  const { app, store } = harness();
+
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "merge train",
+      model: null,
+      images: [],
+      mergeTrainPrs: [11, 22],
+    },
+    createdAt: 1000,
+  });
+
+  // The edit composer never sends mergeTrainPrs; the held row's value must survive.
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "merge train (edited)",
+    model: null,
+    images: [],
+  });
+  expect(res.status).toBe(200);
+
+  const updated = store.getHeldTask("held-1");
+  expect(updated?.input.prompt).toBe("merge train (edited)");
+  expect(updated?.input.mergeTrainPrs).toEqual([11, 22]);
+});
+
+test("PATCH /api/held/:id with unknown id → 404", async () => {
+  const { app } = harness();
+  const res = await patchHeld(app, "no-such-id", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "x",
+    model: null,
+    images: [],
+  });
+  expect(res.status).toBe(404);
+});
+
+test("PATCH /api/held/:id with invalid input → 400, row unchanged", async () => {
+  const { app, store } = harness();
+
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: { repoPath: repoDir, baseBranch: "main", prompt: "keep me", model: null, images: [] },
+    createdAt: 1000,
+  });
+
+  // empty prompt fails validateCreate
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "",
+    model: null,
+    images: [],
+  });
+  expect(res.status).toBe(400);
+  expect(store.getHeldTask("held-1")?.input.prompt).toBe("keep me");
+});

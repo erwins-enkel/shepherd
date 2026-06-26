@@ -47,6 +47,7 @@
     closeHeldPop,
     doSpawnHeld,
     doDiscardHeld,
+    onEditHeld,
   }: {
     heldCount: number;
     mobile: boolean;
@@ -68,6 +69,7 @@
     closeHeldPop: (returnFocus?: boolean) => void;
     doSpawnHeld: (id: string, agentProvider?: AgentProvider) => void;
     doDiscardHeld: (id: string) => void;
+    onEditHeld: (task: HeldTask) => void;
   } = $props();
 </script>
 
@@ -122,6 +124,12 @@
               {/each}
             </select>
           </label>
+          <button
+            type="button"
+            class="held-action held-edit"
+            disabled={!!pending}
+            onclick={() => onEditHeld(task)}>{m.topbar_held_edit()}</button
+          >
           <button
             type="button"
             class="held-action held-spawn"

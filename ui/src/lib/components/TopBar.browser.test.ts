@@ -912,6 +912,7 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
       closeHeldPop,
       doSpawnHeld: vi.fn(),
       doDiscardHeld: vi.fn(),
+      onEditHeld: vi.fn(),
     });
     await nextFrame();
 
@@ -979,6 +980,7 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
       closeHeldPop: vi.fn(),
       doSpawnHeld: vi.fn(),
       doDiscardHeld: vi.fn(),
+      onEditHeld: vi.fn(),
     });
     await nextFrame();
 
@@ -1029,6 +1031,7 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
       closeHeldPop: vi.fn(),
       doSpawnHeld: vi.fn(),
       doDiscardHeld: vi.fn(),
+      onEditHeld: vi.fn(),
     });
     await nextFrame();
 
@@ -1037,6 +1040,51 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
     const spawn = page.getByRole("button", { name: m.topbar_held_spawning() });
     await expect.element(spawn).toBeDisabled();
     expect((spawn.element() as HTMLElement).getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("clicking Edit hands the whole held task to onEditHeld", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const task: HeldTask = {
+      id: "held-1",
+      repoPath: "/work/shepherd",
+      createdAt: 1_700_000_000_000,
+      input: {
+        repoPath: "/work/shepherd",
+        baseBranch: "main",
+        prompt: "fix the thing",
+        agentProvider: "claude",
+        model: null,
+      },
+    };
+    const onEditHeld = vi.fn();
+
+    render(TopBarHeldBadge, {
+      heldCount: 1,
+      mobile: false,
+      compactBadges: false,
+      hotter: null,
+      nowMs: 1_700_000_000_000,
+      heldPopFlipUp: false,
+      heldItems: [task],
+      heldLoading: false,
+      heldAutoRelease: true,
+      heldAutoReleaseBusy: false,
+      toggleHeldAutoRelease: vi.fn(),
+      heldPopOpen: true,
+      heldBadgeBtn: null,
+      heldPopEl: null,
+      toggleHeldPop: vi.fn(),
+      closeHeldPop: vi.fn(),
+      doSpawnHeld: vi.fn(),
+      doDiscardHeld: vi.fn(),
+      onEditHeld,
+    });
+    await nextFrame();
+
+    await page.getByRole("button", { name: m.topbar_held_edit() }).click();
+    expect(onEditHeld).toHaveBeenCalledTimes(1);
+    expect(onEditHeld.mock.calls[0]![0]).toEqual(task);
   });
 });
 

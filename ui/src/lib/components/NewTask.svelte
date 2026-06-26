@@ -48,9 +48,15 @@
     defaultAgentProvider = "claude",
     defaultModel,
     relaunch = false,
+    editHeld = false,
     initialBaseBranch,
     relaunchIssueNumber,
     initialImages,
+    initialAgentProvider,
+    initialPlanGate,
+    initialAutopilot,
+    initialSandboxProfile,
+    initialResearch = false,
     holdLikely = false,
     fableAvailable = true,
   }: {
@@ -79,9 +85,17 @@
     defaultAgentProvider?: AgentProvider;
     defaultModel?: string;
     relaunch?: boolean;
+    editHeld?: boolean;
     initialBaseBranch?: string;
     relaunchIssueNumber?: number | null;
     initialImages?: { path: string; name: string }[];
+    initialAgentProvider?: AgentProvider;
+    /** Seed the per-task plan-gate override (editing a held task). A concrete boolean
+     *  pins it (explicit override); null/undefined leaves it inheriting the repo default. */
+    initialPlanGate?: boolean | null;
+    initialAutopilot?: boolean | null;
+    initialSandboxProfile?: SandboxProfile | null;
+    initialResearch?: boolean;
     holdLikely?: boolean;
     fableAvailable?: boolean;
   } = $props();
@@ -127,28 +141,42 @@
   // svelte-ignore state_referenced_locally
   let model = $state(safeInitial ?? preselectModel(defaultModel));
   let modelTouched = $state(false);
-  // Relaunch reuses this composer with a distinct title + note set.
-  const heading = $derived(relaunch ? m.newtask_relaunch_title() : m.newtask_title());
+  // Relaunch + edit-held reuse this composer with a distinct title.
+  const heading = $derived(
+    editHeld
+      ? m.newtask_edit_held_title()
+      : relaunch
+        ? m.newtask_relaunch_title()
+        : m.newtask_title(),
+  );
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
-  let planGate = $state(false);
-  let planGateTouched = $state(false);
+  // A seeded concrete value (editing a held task with an explicit override) pre-pins it;
+  // a null seed (inherit) leaves it deriving from the repo default.
+  // svelte-ignore state_referenced_locally
+  let planGate = $state(initialPlanGate ?? false);
+  // svelte-ignore state_referenced_locally
+  let planGateTouched = $state(initialPlanGate != null);
   // Autopilot override: defaults to the selected repo's stored flag until the user
   // toggles it. `autopilotTouched` pins a manual choice so switching repos doesn't
   // clobber it. Lets a single task opt out of "drive autonomously to a PR" — e.g. to
   // discuss/iterate and approve each step yourself — without changing the repo default.
-  let autopilot = $state(false);
-  let autopilotTouched = $state(false);
+  // svelte-ignore state_referenced_locally
+  let autopilot = $state(initialAutopilot ?? false);
+  // svelte-ignore state_referenced_locally
+  let autopilotTouched = $state(initialAutopilot != null);
   // Seeds once from the operator's explicit default-CLI setting. A usage hold no
   // longer auto-switches this to Codex — that silently overrode an explicit choice.
   // When held, Claude stays selected and the dual Hold-for-reset / Submit-anyway
   // buttons below offer the handoff; Codex remains one manual pick away.
   // svelte-ignore state_referenced_locally
-  let agentProvider = $state<AgentProvider>(defaultAgentProvider);
+  let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
-  let research = $state(false);
+  // svelte-ignore state_referenced_locally
+  let research = $state(initialResearch);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
-  let sandboxProfile = $state<"default" | SandboxProfile>("default");
+  // svelte-ignore state_referenced_locally
+  let sandboxProfile = $state<"default" | SandboxProfile>(initialSandboxProfile ?? "default");
   let submitting = $state(false);
   let error = $state<string | null>(null);
   // re-invokes whichever action last failed (upload or create) from an inline Retry
@@ -608,6 +636,9 @@
     } catch (err) {
       if (isPreviewBlocked(err)) {
         error = (err as Error).message;
+      } else if (editHeld) {
+        error = reason(err, m.newtask_edit_held_failed());
+        retry = () => doSpawn(force);
       } else if (relaunch) {
         // The page maps relaunch ApiError codes to localized messages before
         // throwing; render that verbatim, falling back to a generic relaunch error.
@@ -639,7 +670,14 @@
     // over a deliberate planGate=off. On failure we can't know the repo's state, so degrade to
     // the prior behavior (spawn directly); the gate re-fires next task once the fetch lands.
     const configLoaded = await repoConfig.ensure(repo);
-    if (agentProvider === "claude" && configLoaded && !repoConfig.isAutomationConfirmed(repo)) {
+    // Editing a held task isn't a create — skip the brand-new-repo automation-confirm
+    // interstitial (and its default-seeding side effects); just persist the edit.
+    if (
+      !editHeld &&
+      agentProvider === "claude" &&
+      configLoaded &&
+      !repoConfig.isAutomationConfirmed(repo)
+    ) {
       // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
       // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
       if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
@@ -951,11 +989,15 @@
           title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
         >
           <span
-            >{submitting
-              ? m.newtask_spawning()
-              : selectedRepoName
-                ? m.newtask_submit_in_repo({ repo: selectedRepoName })
-                : m.newtask_submit()}</span
+            >{editHeld
+              ? submitting
+                ? m.newtask_edit_held_saving()
+                : m.newtask_edit_held_submit()
+              : submitting
+                ? m.newtask_spawning()
+                : selectedRepoName
+                  ? m.newtask_submit_in_repo({ repo: selectedRepoName })
+                  : m.newtask_submit()}</span
           >
           {#if !submitting && !coarse.current}
             <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>

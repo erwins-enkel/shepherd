@@ -41,11 +41,14 @@
     dismissQuota,
     getBuildQueues,
     listHeld,
+    updateHeld,
   } from "$lib/api";
   import type {
+    AgentProvider,
     CompletedEpic,
     DeployState,
     BacklogPayload,
+    HeldTask,
     Issue,
     IssueRef,
     PullRequest,
@@ -428,6 +431,16 @@
   // Carried images from the original session, staged on relaunch-elsewhere so the composer
   // seeds them as removable chips (its image list is the single source of truth on submit).
   let composeImages = $state<{ path: string; name: string }[]>([]);
+  // Edit-held: when set, the New Task dialog runs in edit mode and its submit routes to
+  // updateHeld(id, …) instead of createSession, keeping the task held with the new input.
+  let editHeldId = $state<string | null>(null);
+  // Run-config seeds carried into the composer when editing a held task, so a prompt-only
+  // tweak round-trips the original agent/plan-gate/autopilot/sandbox/research choices.
+  let composeAgentProvider = $state<AgentProvider | null>(null);
+  let composePlanGate = $state<boolean | null>(null);
+  let composeAutopilot = $state<boolean | null>(null);
+  let composeSandbox = $state<SandboxProfile | null>(null);
+  let composeResearch = $state(false);
   // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
   let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
@@ -451,9 +464,12 @@
       Math.max(store.usageLimits?.session5h?.pct ?? 0, store.usageLimits?.week?.pct ?? 0) >=
         usageHoldPct,
   );
-  // Held only when creating fresh (not a relaunch). Pre-computed here so the
-  // ternary lives in <script>, keeping it out of the AppOverlays mount markup.
-  const composeHoldLikely = $derived(relaunchOriginalId === null ? holdLikely : false);
+  // Held only when creating fresh (not a relaunch, not editing an already-held task).
+  // Pre-computed here so the ternary lives in <script>, keeping it out of the
+  // AppOverlays mount markup.
+  const composeHoldLikely = $derived(
+    relaunchOriginalId === null && editHeldId === null ? holdLikely : false,
+  );
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
@@ -1326,6 +1342,12 @@
     relaunchOriginalId = null;
     relaunchIssueNumber = null;
     composeImages = [];
+    editHeldId = null;
+    composeAgentProvider = null;
+    composePlanGate = null;
+    composeAutopilot = null;
+    composeSandbox = null;
+    composeResearch = false;
   }
 
   // NewProject partial-success warning code → message map. A lookup (not a ternary
@@ -1438,10 +1460,35 @@
     archiveSession(id).catch(() => {});
   }
 
+  // Persist an edited held task: replace its stored input via PATCH, keeping it held.
+  // Errors THROW so NewTask renders them inline (dialog stays open with a Retry).
+  async function submitEditHeld(
+    id: string,
+    input: {
+      repoPath: string;
+      baseBranch: string;
+      prompt: string;
+      agentProvider?: AgentProvider;
+      model: string | null;
+      images: string[];
+      issueRef?: IssueRef;
+      planGateEnabled: boolean | null;
+      autopilotEnabled: boolean | null;
+      sandboxProfile?: SandboxProfile;
+      research: boolean;
+    },
+  ) {
+    await updateHeld(id, input);
+    showNew = false;
+    resetCompose();
+    toasts.info(m.toast_held_edit_saved());
+  }
+
   async function onsubmit(input: {
     repoPath: string;
     baseBranch: string;
     prompt: string;
+    agentProvider?: AgentProvider;
     model: string | null;
     images: string[];
     issueRef?: IssueRef;
@@ -1451,7 +1498,9 @@
     research: boolean;
     force?: boolean;
   }) {
-    // Relaunch-elsewhere path branches off to submitRelaunch; otherwise the New Task create.
+    // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
+    // branches to submitRelaunch; otherwise the normal New Task create.
+    if (editHeldId !== null) return submitEditHeld(editHeldId, input);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
     const r = await createSession(input);
     if ("held" in r) {
@@ -1503,6 +1552,33 @@
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
     composeImages = staged;
+    showNew = true;
+  }
+
+  // Edit a still-held task: open the New Task composer pre-filled from the task's stored
+  // input so the operator can change the prompt / repo / settings before it spawns. Submit
+  // routes through onsubmit's edit-held branch (editHeldId set). All seeds are assigned
+  // synchronously (no await) so a bare onnew can't interleave a half-set edit state. The
+  // held task's uploads are already staged paths, so we seed them directly as chips.
+  function onEditHeld(task: HeldTask) {
+    const input = task.input;
+    composePrompt = input.prompt;
+    composeRepoPath = input.repoPath;
+    composeBaseBranch = input.baseBranch;
+    // Mirror relaunch's null-model handling: null = "claude default" → literal "default".
+    composeModel = input.model ?? "default";
+    composeImages = (input.images ?? []).map((p) => ({ path: p, name: p.split("/").at(-1) ?? p }));
+    // The held input carries an IssueRef (no labels/assignees); pad it to the Issue shape
+    // the composer chip expects. The body rides out-of-band, same as a fresh attach.
+    composeIssue = input.issueRef
+      ? { ...input.issueRef, labels: [], createdAt: 0, assignees: [] }
+      : null;
+    composeAgentProvider = input.agentProvider ?? null;
+    composePlanGate = input.planGateEnabled ?? null;
+    composeAutopilot = input.autopilotEnabled ?? null;
+    composeSandbox = input.sandboxProfile ?? null;
+    composeResearch = input.research ?? false;
+    editHeldId = task.id;
     showNew = true;
   }
 
@@ -1826,6 +1902,7 @@
           showSettings = true;
         }}
         heldCount={store.heldCount}
+        onedithheld={onEditHeld}
       />
       <RepoSwitcher
         chips={repoChips}
@@ -2202,6 +2279,7 @@
   {showNew}
   {onsubmit}
   relaunchOriginal={relaunchOriginalId !== null}
+  editHeld={editHeldId !== null}
   {composeRepoPath}
   {repoFilter}
   {composeBaseBranch}
@@ -2210,6 +2288,11 @@
   {composeImages}
   {composePrompt}
   {composeModel}
+  {composeAgentProvider}
+  {composePlanGate}
+  {composeAutopilot}
+  {composeSandbox}
+  {composeResearch}
   holdLikely={composeHoldLikely}
   onnewclose={() => {
     showNew = false;

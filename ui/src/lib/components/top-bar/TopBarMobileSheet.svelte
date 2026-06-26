@@ -247,7 +247,18 @@
         }}
         aria-label={m.topbar_update_badge()}
       >
-        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <svg
+          class="sheet-glyph sheet-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+        </svg>
         <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
       </button>
     {/if}
@@ -538,6 +549,10 @@
     width: var(--fs-lg);
     text-align: center;
     flex-shrink: 0;
+  }
+  .sheet-svg {
+    height: var(--fs-lg);
+    display: block;
   }
   .sheet-label {
     font-variant-numeric: tabular-nums;

@@ -155,6 +155,20 @@
       aria-label={m.topbar_held_badge({ count: heldCount ?? 0 })}
       onclick={toggleHeldPop}
     >
+      <svg
+        class="held-glyph"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M5 2h14M5 22h14" />
+        <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
+        <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
+      </svg>
       {#if mobile || compactBadges}
         <span class="held-n">{heldCount}</span>
       {:else}
@@ -269,6 +283,12 @@
      which would otherwise make held the taller box. */
   .held-badge.mobile {
     min-height: 44px;
+  }
+  .held-badge .held-glyph {
+    width: 1.15em;
+    height: 1.15em;
+    display: block;
+    flex-shrink: 0;
   }
   .held-badge .held-n {
     font-weight: 600;

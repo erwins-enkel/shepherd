@@ -52,7 +52,18 @@
       ? m.updatemodal_commits_one()
       : m.updatemodal_commits_other()}"
   >
-    <span class="up-dot">▲</span>
+    <svg
+      class="up-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+    </svg>
     {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
     <span class="up-n">{update!.behind}</span>
   </button>
@@ -155,6 +166,12 @@
     text-transform: uppercase;
     border-radius: 2px;
     animation: update-pulse 2.4s ease-in-out infinite;
+  }
+  .update-badge .up-glyph {
+    width: 1.15em;
+    height: 1.15em;
+    display: block;
+    flex-shrink: 0;
   }
   .update-badge .up-dot {
     font-size: var(--fs-micro);

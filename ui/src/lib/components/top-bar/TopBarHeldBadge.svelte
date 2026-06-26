@@ -162,7 +162,8 @@
 {/snippet}
 
 {#if (heldCount ?? 0) > 0}
-  <!-- Held-tasks badge: non-modal anchored popover (design-system exemption). -->
+  <!-- Held-tasks badge: anchored popover that dims+blurs the app behind it via a
+       blocking .scrim backdrop (desktop) / fullscreen dialog (mobile). -->
   <div class="held-wrap">
     <button
       bind:this={heldBadgeBtn}
@@ -241,6 +242,14 @@
         </div>
       </div>
     {:else if heldPopOpen}
+      <!-- Blocking dim+blur backdrop behind the anchored popover (user request):
+           sits one z-index below the popover so the rest of the app recedes while
+           it stays crisp. Reuses the shared .scrim primitive. -->
+      <div
+        class="held-scrim-anchored scrim"
+        aria-hidden="true"
+        onclick={() => closeHeldPop()}
+      ></div>
       <div
         bind:this={heldPopEl}
         class={["held-pop", { "flip-up": heldPopFlipUp }]}
@@ -347,6 +356,12 @@
     margin-top: 0;
     margin-bottom: 4px;
   }
+  /* Backdrop for the anchored desktop popover. .scrim (app.css) supplies the
+     fixed inset:0, dim and blur (+ reduced-transparency handling); we only set
+     the stacking so it lands just under the popover's z-index: 20. */
+  .held-scrim-anchored {
+    z-index: 19;
+  }
   .held-dialog-portal {
     position: fixed;
     inset: 0;
@@ -396,6 +411,12 @@
   @media (pointer: coarse) {
     .held-pop:not(.held-fullscreen) {
       width: min(360px, 92vw);
+    }
+    /* Touch floor for the anchored popover's controls (wide coarse-pointer
+       viewports get the anchored variant, not the mobile fullscreen one). */
+    .held-pop:not(.held-fullscreen) .held-action,
+    .held-pop:not(.held-fullscreen) .held-cli select {
+      min-height: 44px;
     }
     .held-badge {
       min-height: 44px;
@@ -480,7 +501,7 @@
   .held-row-actions {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     width: 124px;
     flex-shrink: 0;
   }
@@ -495,6 +516,7 @@
   }
   .held-cli select {
     width: 100%;
+    min-height: 34px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -502,7 +524,7 @@
     font: inherit;
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
-    padding: 3px 6px;
+    padding: 4px 8px;
     text-transform: none;
     cursor: pointer;
   }
@@ -511,13 +533,19 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .held-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* Roomier tap target — the prior 3px padding rendered ~24px-tall buttons that
+       were too small to comfortably hit (coarse pointers floor to 44px below). */
+    min-height: 34px;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     font: inherit;
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
-    padding: 3px 10px;
+    padding: 4px 10px;
     cursor: pointer;
     white-space: nowrap;
     color: var(--color-ink);

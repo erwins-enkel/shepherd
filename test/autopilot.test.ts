@@ -734,6 +734,35 @@ test("eligible() returns null while planPhase === 'planning' (autopilot suppress
   expect(h.events.some((e) => "steer" in e)).toBe(false); // never steered
 });
 
+test("eligible() stands down a NON-isolated codex session (resume --last sibling guard)", async () => {
+  // Codex autopilot only drives isolated sessions: a non-isolated pane's resume would run
+  // `codex resume --last` against a shared cwd and could steer a sibling. Must not classify/steer.
+  let classified = false;
+  const h = harness({
+    session: sess({ agentProvider: "codex", isolated: false, status: "done" }),
+    repoEnabled: true,
+    verdict: { kind: "finished", summary: "x" },
+  });
+  (h.svc as any).deps.classify = async () => {
+    classified = true;
+    return { kind: "finished", summary: "x" };
+  };
+  await h.svc.onDone("s1");
+  expect(classified).toBe(false);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("eligible() drives an ISOLATED codex session normally (positive control)", async () => {
+  // Same as above but isolated: the guard does not fire, so onDone classifies + steers.
+  const h = harness({
+    session: sess({ agentProvider: "codex", isolated: true, status: "done" }),
+    repoEnabled: true,
+    verdict: { kind: "finished", summary: "done" },
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBeGreaterThan(0);
+});
+
 // ───────────────── tick() idle re-engagement (the silent-hang fix) ─────────────────
 // onGit/considerCi fires only on a red-CI STATE CHANGE; the PR poller emits no `session:git`
 // for an UNCHANGED red head, so an idle full-auto agent sitting on the same red PR is reached

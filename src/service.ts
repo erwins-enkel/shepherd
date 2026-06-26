@@ -1598,10 +1598,20 @@ export class SessionService {
     return argv;
   }
 
-  private buildCodexSpawnArgv(promptArg: string, model: string | null): string[] {
+  private buildCodexSpawnArgv(
+    promptArg: string,
+    model: string | null,
+    autopilotActive: boolean,
+  ): string[] {
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     if (model) argv.push("--model", model);
-    argv.push(promptArg);
+    // Codex has no --append-system-prompt, so the autopilot directive (which Claude gets via
+    // composeSystemPrompt) must ride inline on the prompt. Gated by the caller on
+    // !research && isolated && effectiveAutopilot — see buildSpawnArgv call site.
+    const prompt = autopilotActive
+      ? `${promptArg}\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`
+      : promptArg;
+    argv.push(prompt);
     return argv;
   }
 
@@ -1809,7 +1819,22 @@ export class SessionService {
       const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
       const argv =
         agentProvider === "codex"
-          ? this.buildCodexSpawnArgv(promptArg, input.model)
+          ? this.buildCodexSpawnArgv(
+              promptArg,
+              input.model,
+              // Deliberate divergence from Claude (which gates its directive on the repo
+              // default only, see buildSpawnArgv): codex uses effectiveAutopilot so the
+              // headline case (repo default OFF + per-session toggle ON) gets the directive.
+              // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
+              // (which replaces the autopilot directive) and non-isolated (which autopilot
+              // stands down on — see eligible()).
+              !input.research &&
+                wt.isolated &&
+                effectiveAutopilot(
+                  { autopilotEnabled: input.autopilotEnabled ?? null },
+                  repoConfig.autopilotEnabled,
+                ),
+            )
           : this.buildSpawnArgv(
               input,
               claudeSessionId,
@@ -1853,7 +1878,7 @@ export class SessionService {
         auto: input.auto ?? false,
         issueNumber: input.issueRef?.number ?? null,
         planGateEnabled: agentProvider === "claude" ? (input.planGateEnabled ?? null) : false,
-        autopilotEnabled: agentProvider === "claude" ? (input.autopilotEnabled ?? null) : false,
+        autopilotEnabled: input.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: input.research ?? false,
         mergeTrainPrs: input.mergeTrainPrs,

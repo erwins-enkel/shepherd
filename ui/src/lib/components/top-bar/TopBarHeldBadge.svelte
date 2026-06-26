@@ -244,7 +244,9 @@
     {:else if heldPopOpen}
       <!-- Blocking dim+blur backdrop behind the anchored popover (user request):
            sits one z-index below the popover so the rest of the app recedes while
-           it stays crisp. Reuses the shared .scrim primitive. -->
+           it stays crisp. Reuses the shared .scrim primitive. Because the scrim
+           makes this popover blocking, the dialog is now an honest modal — same
+           aria-modal + use:dialog focus-trap/Esc/restore as the mobile path. -->
       <div
         class="held-scrim-anchored scrim"
         aria-hidden="true"
@@ -254,8 +256,10 @@
         bind:this={heldPopEl}
         class={["held-pop", { "flip-up": heldPopFlipUp }]}
         role="dialog"
+        aria-modal="true"
         aria-label={m.topbar_held_title()}
         tabindex="-1"
+        use:dialog={{ onclose: () => closeHeldPop(true) }}
       >
         <div class="held-pop-head">{m.topbar_held_title()}</div>
         {@render heldWhy()}

@@ -913,6 +913,31 @@ describe("NewTask Codex model picker", () => {
     expect(modelSelect().disabled).toBe(false);
   });
 
+  it("resets to the selected provider default when the provider changes", async () => {
+    mockGetRepoConfig.mockResolvedValue({
+      ...confirmedRepoConfig(),
+      defaultModel: "sonnet",
+    });
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo/model-override",
+        defaultAgentProvider: "claude",
+        defaultModel: "opus",
+      }),
+    });
+
+    await expect.poll(() => providerSelect().value).toBe("claude");
+    await expect.poll(() => modelSelect().value).toBe("sonnet");
+
+    providerSelect().value = "codex";
+    providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.5");
+
+    providerSelect().value = "claude";
+    providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSelect().value).toBe("sonnet");
+  });
+
   it("submits the selected codex model", async () => {
     const repoPath = "/repo/codex-model";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());

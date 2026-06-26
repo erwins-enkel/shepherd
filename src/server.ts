@@ -1,6 +1,6 @@
 import type { SessionStore, RepoConfig } from "./store";
 import type { SessionService } from "./service";
-import type { CreateSessionInput } from "./types";
+import { CODEX_MODELS, type AgentProvider, type CreateSessionInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import {
@@ -83,7 +83,6 @@ import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
-  AgentProvider,
   Learning,
   LearningStatus,
   SignalKind,
@@ -3438,7 +3437,13 @@ async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promi
   if (!h) return json({ error: "not found" }, 404);
   const provider = parseHeldSpawnProvider(body);
   if (provider instanceof Response) return provider;
-  const input = provider.value ? { ...h.input, agentProvider: provider.value } : h.input;
+  const input = provider.value
+    ? {
+        ...h.input,
+        agentProvider: provider.value,
+        model: provider.value === "codex" ? CODEX_MODELS[0] : null,
+      }
+    : h.input;
   let s;
   try {
     s = await deps.service.create(input);

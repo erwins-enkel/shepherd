@@ -1262,6 +1262,59 @@ export class SessionService {
     };
   }
 
+  /** Run plugin onSpawn hooks (issue #1124) and fold the result into spawn inputs: the
+   *  env overlay to merge LAST into both membrane.extraEnv and spawnEnv (so a plugin's
+   *  CLAUDE_CONFIG_DIR wins over api-key mode's credential-less mirror) + the inner argv
+   *  with any extraArgs appended. No-op passthrough when no registry is wired. A hook's
+   *  ctx.abortSpawn surfaces as PluginSpawnAborted → returned as a holdReason so the
+   *  caller models it as an auto-refuse (create rolls back, resume returns null). */
+  private async runSpawnHookPatch(
+    innerArgv: string[],
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    envParts: {
+      willWrap: boolean;
+      passthroughEnv: Record<string, string>;
+      rendererEnv: Record<string, string>;
+      apiKeyPassthrough: Record<string, string>;
+    },
+  ): Promise<
+    { patchEnv: Record<string, string>; finalInnerArgv: string[] } | { holdReason: string }
+  > {
+    if (!this.deps.runSpawnHooks) return { patchEnv: {}, finalInnerArgv: innerArgv };
+    // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
+    // process env (see SpawnDescriptor). Under trusted the agent also inherits the parent
+    // env; the sandbox passthrough vars are only set explicitly when a membrane wraps.
+    const descriptorEnv: Record<string, string> = {
+      ...(envParts.willWrap ? envParts.passthroughEnv : {}),
+      ...envParts.rendererEnv,
+      ...envParts.apiKeyPassthrough,
+    };
+    let patch: SpawnPatch;
+    try {
+      patch = await this.deps.runSpawnHooks({
+        sessionId: ctx.sessionId,
+        repoRoot: ctx.repoPath,
+        model: ctx.model ?? null,
+        agentProvider: ctx.agentProvider ?? config.defaultAgentProvider,
+        argv: [...innerArgv],
+        env: descriptorEnv,
+        isolated: ctx.isolated,
+      });
+    } catch (e) {
+      if (e instanceof PluginSpawnAborted) {
+        return { holdReason: `plugin ${e.pluginId} aborted spawn: ${e.reason}` };
+      }
+      throw e;
+    }
+    // credentialDir is sugar for env.CLAUDE_CONFIG_DIR and wins over it when both are set.
+    const patchEnv: Record<string, string> = {
+      ...(patch.env ?? {}),
+      ...(patch.credentialDir ? { CLAUDE_CONFIG_DIR: patch.credentialDir } : {}),
+    };
+    const finalInnerArgv = patch.extraArgs?.length ? [...innerArgv, ...patch.extraArgs] : innerArgv;
+    return { patchEnv, finalInnerArgv };
+  }
+
   private async prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -1326,49 +1379,16 @@ export class SessionService {
     const apiKeyPassthrough = apiKeyAuth.passthroughEnv(willWrap) ?? {};
 
     // Plugin onSpawn hooks (issue #1124): fire AFTER core builds the inner argv/env, just
-    // before the membrane wrap, on BOTH create and resume. The descriptor is a read-only
-    // copy; the returned SpawnPatch is bounded (env/extraArgs/credentialDir — `model`
-    // deferred; see plugins/types.ts). FAIL-OPEN by default (runSpawnHooks already drops a
-    // failed/timed-out hook), but a hook may hard-block via ctx.abortSpawn → surfaces here
-    // as PluginSpawnAborted, which we model as an auto-refuse {ok:false} so it rides the
-    // EXISTING machinery: create's prepareSpawnOrThrow throws + rolls back the worktree;
-    // resume returns null (husk preserved on a non-forced resume).
-    let patch: SpawnPatch = {};
-    if (this.deps.runSpawnHooks) {
-      // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
-      // process env (see SpawnDescriptor). Under trusted the agent also inherits the parent
-      // env; the sandbox passthrough vars are only set explicitly when a membrane wraps.
-      const descriptorEnv: Record<string, string> = {
-        ...(willWrap ? passthroughEnv : {}),
-        ...rendererEnv,
-        ...apiKeyPassthrough,
-      };
-      try {
-        patch = await this.deps.runSpawnHooks({
-          sessionId: ctx.sessionId,
-          repoRoot: ctx.repoPath,
-          model: ctx.model ?? null,
-          agentProvider: ctx.agentProvider ?? config.defaultAgentProvider,
-          argv: [...innerArgv],
-          env: descriptorEnv,
-          isolated: ctx.isolated,
-        });
-      } catch (e) {
-        if (e instanceof PluginSpawnAborted) {
-          return { ok: false, holdReason: `plugin ${e.pluginId} aborted spawn: ${e.reason}` };
-        }
-        throw e;
-      }
-    }
-    // credentialDir is sugar for env.CLAUDE_CONFIG_DIR and wins over it when both are set.
-    // patchEnv is merged LAST into both the membrane extraEnv and the trusted spawnEnv, so a
-    // plugin's CLAUDE_CONFIG_DIR overrides api-key mode's credential-less mirror at :1348.
-    const patchEnv: Record<string, string> = {
-      ...(patch.env ?? {}),
-      ...(patch.credentialDir ? { CLAUDE_CONFIG_DIR: patch.credentialDir } : {}),
-    };
-    // Append plugin extraArgs to the inner agent argv (never rewrites core argv).
-    const finalInnerArgv = patch.extraArgs?.length ? [...innerArgv, ...patch.extraArgs] : innerArgv;
+    // before the membrane wrap, on BOTH create and resume. abort → {ok:false} rides the
+    // existing auto-refuse machinery (create rolls back, resume returns null). See helper.
+    const hook = await this.runSpawnHookPatch(innerArgv, ctx, {
+      willWrap,
+      passthroughEnv,
+      rendererEnv,
+      apiKeyPassthrough,
+    });
+    if ("holdReason" in hook) return { ok: false, holdReason: hook.holdReason };
+    const { patchEnv, finalInnerArgv } = hook;
 
     const membrane: MembraneInputs = willWrap
       ? {

@@ -17,6 +17,7 @@ import {
   type PluginInfo,
   type PluginLogger,
   type PluginManifest,
+  type PluginRegister,
   type PluginRouteHandler,
   type PluginState,
   type SpawnDescriptor,
@@ -183,8 +184,8 @@ export class PluginRegistry {
             ? mod.default
             : undefined;
       if (typeof register !== "function") throw new Error("entry exports no register() function");
-      const teardown = await (register as (ctx: PluginContext) => unknown)(this.makeContext(rec));
-      if (typeof teardown === "function") rec.teardown = teardown as () => void;
+      const teardown = await (register as PluginRegister)(this.makeContext(rec));
+      if (typeof teardown === "function") rec.teardown = teardown;
       console.log(`[plugins] loaded ${manifest.id} v${manifest.version}`);
     } catch (e) {
       rec.health = "errored";
@@ -278,49 +279,36 @@ export class PluginRegistry {
    *  that patch and marks the plugin errored/timed-out — EXCEPT `abortSpawn`, whose
    *  `PluginSpawnAborted` propagates so the spawn path can hard-block. */
   async runSpawnHooks(descriptor: SpawnDescriptor): Promise<SpawnPatch> {
-    const env: Record<string, string> = {};
-    const extraArgs: string[] = [];
-    let credentialDir: string | undefined;
-
+    const merger = new SpawnPatchMerger();
     for (const { pluginId, fn } of this.allSpawnHooks) {
-      const rec = this.plugins.get(pluginId);
-      let patch: SpawnPatch | void;
-      try {
-        patch = await this.withTimeout(Promise.resolve(fn(descriptor)), pluginId);
-      } catch (e) {
-        if (e instanceof PluginSpawnAborted) throw e; // hard-block: propagate to caller
-        if (rec) {
-          rec.health = e instanceof HookTimeoutError ? "timed-out" : "errored";
-          rec.lastError = errMsg(e);
-        }
-        console.warn(
-          `[plugins] ${pluginId} onSpawn failed (fail-open, spawn proceeds): ${errMsg(e)}`,
-        );
-        continue;
-      }
-      if (!patch) continue;
-      if (patch.env) {
-        for (const [k, v] of Object.entries(patch.env)) {
-          if (k in env && env[k] !== v) {
-            console.warn(`[plugins] ${pluginId} overrides env "${k}" (last-write-wins)`);
-          }
-          env[k] = v;
-        }
-      }
-      if (patch.extraArgs?.length) extraArgs.push(...patch.extraArgs);
-      if (patch.credentialDir !== undefined) {
-        if (credentialDir !== undefined && credentialDir !== patch.credentialDir) {
-          console.warn(`[plugins] ${pluginId} overrides credentialDir (last-write-wins)`);
-        }
-        credentialDir = patch.credentialDir;
-      }
+      const patch = await this.runOneHook(pluginId, fn, descriptor);
+      if (patch) merger.merge(patch, pluginId);
     }
+    return merger.result();
+  }
 
-    const merged: SpawnPatch = {};
-    if (Object.keys(env).length) merged.env = env;
-    if (extraArgs.length) merged.extraArgs = extraArgs;
-    if (credentialDir !== undefined) merged.credentialDir = credentialDir;
-    return merged;
+  /** Invoke one hook, timeout-bounded. Returns its patch, or null on a fail-open
+   *  error/timeout (the plugin's health is marked). Rethrows PluginSpawnAborted so the
+   *  caller (prepareSpawn) can hard-block the spawn. */
+  private async runOneHook(
+    pluginId: string,
+    fn: SpawnHook,
+    descriptor: SpawnDescriptor,
+  ): Promise<SpawnPatch | null> {
+    try {
+      return (await this.withTimeout(Promise.resolve(fn(descriptor)), pluginId)) || null;
+    } catch (e) {
+      if (e instanceof PluginSpawnAborted) throw e;
+      const rec = this.plugins.get(pluginId);
+      if (rec) {
+        rec.health = e instanceof HookTimeoutError ? "timed-out" : "errored";
+        rec.lastError = errMsg(e);
+      }
+      console.warn(
+        `[plugins] ${pluginId} onSpawn failed (fail-open, spawn proceeds): ${errMsg(e)}`,
+      );
+      return null;
+    }
   }
 
   private withTimeout<T>(p: Promise<T>, pluginId: string): Promise<T> {
@@ -381,6 +369,40 @@ export class PluginRegistry {
         }
       }
     }
+  }
+}
+
+/** Folds successive SpawnPatches into one: env shallow-merge, extraArgs append,
+ *  credentialDir last-write-wins. Conflicting keys are logged (last write applied). */
+class SpawnPatchMerger {
+  private readonly env: Record<string, string> = {};
+  private readonly extraArgs: string[] = [];
+  private credentialDir: string | undefined;
+
+  merge(patch: SpawnPatch, pluginId: string): void {
+    if (patch.env) {
+      for (const [k, v] of Object.entries(patch.env)) {
+        if (k in this.env && this.env[k] !== v) {
+          console.warn(`[plugins] ${pluginId} overrides env "${k}" (last-write-wins)`);
+        }
+        this.env[k] = v;
+      }
+    }
+    if (patch.extraArgs?.length) this.extraArgs.push(...patch.extraArgs);
+    if (patch.credentialDir !== undefined) {
+      if (this.credentialDir !== undefined && this.credentialDir !== patch.credentialDir) {
+        console.warn(`[plugins] ${pluginId} overrides credentialDir (last-write-wins)`);
+      }
+      this.credentialDir = patch.credentialDir;
+    }
+  }
+
+  result(): SpawnPatch {
+    const merged: SpawnPatch = {};
+    if (Object.keys(this.env).length) merged.env = this.env;
+    if (this.extraArgs.length) merged.extraArgs = this.extraArgs;
+    if (this.credentialDir !== undefined) merged.credentialDir = this.credentialDir;
+    return merged;
   }
 }
 

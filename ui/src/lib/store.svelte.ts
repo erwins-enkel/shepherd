@@ -540,26 +540,36 @@ export class HerdStore {
   /** Handle the app-global (non per-session-row) WS events: usage limits, the
    *  self/herdr update channels, project icons, learnings, backlog + drain.
    *  Split out of apply() so its dispatch switch stays under the complexity gate. */
+  /** Singleton status/snapshot pushes (usage, self-update, diagnostics, plugins,
+   *  star-prompt). Extracted from applyGlobalEvent to keep that dispatch under the
+   *  complexity gate. Returns true when handled. */
+  private applyStatusEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "usage:limits":
+        this.usageLimits = ev.data;
+        return true;
+      case "update:status":
+        this.setUpdate(ev.data);
+        return true;
+      case "diagnostics:status":
+        this.diagnostics = ev.data;
+        return true;
+      case "plugin:status":
+        this.applyPluginStatus(ev.data);
+        return true;
+      case "star-prompt:status":
+        this.starPrompt = ev.data;
+        return true;
+    }
+    return false;
+  }
+
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applyHerdrUpdateEvent(ev)) return;
     if (this.applyDocAgentEvent(ev)) return;
     if (this.applyEpicEvent(ev)) return;
+    if (this.applyStatusEvent(ev)) return;
     switch (ev.event) {
-      case "usage:limits":
-        this.usageLimits = ev.data;
-        break;
-      case "update:status":
-        this.setUpdate(ev.data);
-        break;
-      case "diagnostics:status":
-        this.diagnostics = ev.data;
-        break;
-      case "plugin:status":
-        this.applyPluginStatus(ev.data);
-        break;
-      case "star-prompt:status":
-        this.starPrompt = ev.data;
-        break;
       case "project-icons:update":
         projectIcons.apply(ev.data);
         break;

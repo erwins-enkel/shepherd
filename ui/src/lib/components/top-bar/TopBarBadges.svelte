@@ -70,8 +70,10 @@
 {/if}
 <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
      bottom sheet to free a slot in the single-row control cluster. The
-     touch-desktop badge crunch drops the label to a bare ▲ (aria-label keeps
-     it named) so two stacked update badges still fit. -->
+     touch-desktop badge crunch drops the label to a bare up-arrow (aria-label
+     keeps it named) so two stacked update badges still fit. Distinct glyph from
+     the app-update bolt: an up-arrow reads as "newer version available"
+     (informational/manual), matching the calm blue variant. -->
 {#if herdrUpdateAvailable}
   <button
     class="update-badge herdr"
@@ -82,7 +84,19 @@
       latest: herdrUpdate!.latest ?? "?",
     })}
   >
-    <span class="up-dot">▲</span>
+    <svg
+      class="up-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </svg>
     {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
   </button>
 {/if}
@@ -172,9 +186,6 @@
     height: 1.15em;
     display: block;
     flex-shrink: 0;
-  }
-  .update-badge .up-dot {
-    font-size: var(--fs-micro);
   }
   .update-badge .up-n {
     font-variant-numeric: tabular-nums;

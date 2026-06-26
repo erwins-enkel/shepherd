@@ -274,7 +274,19 @@
         }}
         aria-label={m.topbar_herdr_update_badge()}
       >
-        <span class="sheet-glyph" aria-hidden="true">▲</span>
+        <svg
+          class="sheet-glyph sheet-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 19V5" />
+          <path d="m5 12 7-7 7 7" />
+        </svg>
         <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
       </button>
     {/if}

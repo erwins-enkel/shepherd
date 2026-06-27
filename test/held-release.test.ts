@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { releaseHeldTasks, type HeldReleaseDeps } from "../src/held-release";
 import type { CreateSessionInput, Session } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
+import { SandboxAutoRefused } from "../src/sandbox";
 
 // Minimal Session stub — these tests only ever read `.id` off the created session
 // (it's the session:new payload), so a full literal would be noise.
@@ -29,7 +30,12 @@ function makeDeps(
   creates: CreateSessionInput[];
   labeled: number[];
 } {
-  const rows = tasks.map((t, i) => ({ ...t, repoPath: "/tmp/repo", createdAt: i + 1 }));
+  const rows = tasks.map((t, i) => ({
+    reason: "usage" as const,
+    ...t,
+    repoPath: "/tmp/repo",
+    createdAt: i + 1,
+  }));
   const emitted: { event: string; data: unknown }[] = [];
   const creates: CreateSessionInput[] = [];
   const labeled: number[] = [];
@@ -253,4 +259,77 @@ test("released task with linked issue → re-stamps the drain claim", async () =
   expect(result.released).toBe(2);
   // only the issue-linked task stamps ACTIVE_LABEL (one claim, for #42)
   expect(deps.labeled).toEqual([42]);
+});
+
+// ── capacity-last ordering ────────────────────────────────────────────────────
+// These tests simulate what the store's capacity-last ORDER BY produces:
+// listHeldTasks() returns usage-held tasks first, capacity-held tasks last.
+
+function makeRowsWithReason(
+  tasks: { id: string; input: CreateSessionInput; reason: "usage" | "capacity" }[],
+) {
+  return tasks.map((t, i) => ({ ...t, repoPath: "/tmp/repo", createdAt: i + 1 }));
+}
+
+test("capacity-last: usage-held task released before capacity-held (store ordering honored)", async () => {
+  // Store returns usage-held first, capacity-held last — simulate real listHeldTasks ordering.
+  const usageTask = { id: "u1", input: makeInput("usage task"), reason: "usage" as const };
+  const capTask = { id: "c1", input: makeInput("cap task"), reason: "capacity" as const };
+  const rows = makeRowsWithReason([usageTask, capTask]);
+
+  const creates: CreateSessionInput[] = [];
+  const deps = makeDeps([], {}, async (input) => {
+    creates.push(input);
+    return fakeSession("fake");
+  });
+  // Override the store to return capacity-last list
+  deps.store.listHeldTasks = () => [...rows] as import("../src/types").HeldTask[];
+  let rowsCopy = [...rows];
+  deps.store.removeHeldTask = (id: string) => {
+    rowsCopy = rowsCopy.filter((r) => r.id !== id);
+  };
+  deps.store.countHeldTasks = () => rowsCopy.length;
+
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: false, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
+  expect(result.released).toBe(2);
+  expect(creates[0]!.prompt).toBe("usage task"); // usage released first
+  expect(creates[1]!.prompt).toBe("cap task");
+});
+
+test("capacity-last: failing capacity task does not block releasable usage task ahead of it", async () => {
+  // List: usage (u1) first, capacity (c1) last — capacity-last ordering from store.
+  const usageTask = { id: "u1", input: makeInput("usage task"), reason: "usage" as const };
+  const capTask = { id: "c1", input: makeInput("cap task"), reason: "capacity" as const };
+  const rows = makeRowsWithReason([usageTask, capTask]);
+
+  const creates: CreateSessionInput[] = [];
+  const deps = makeDeps([], {}, async (input) => {
+    if (input.prompt === "cap task") throw new SandboxAutoRefused("no accounts");
+    creates.push(input);
+    return fakeSession("fake");
+  });
+  let rowsCopy = [...rows];
+  deps.store.listHeldTasks = () => [...rowsCopy] as import("../src/types").HeldTask[];
+  deps.store.removeHeldTask = (id: string) => {
+    rowsCopy = rowsCopy.filter((r) => r.id !== id);
+  };
+  deps.store.countHeldTasks = () => rowsCopy.length;
+
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: false, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
+  // u1 succeeds (released=1), c1 fails (break) — usage not blocked by capacity at end
+  expect(result.released).toBe(1);
+  expect(creates).toHaveLength(1);
+  expect(creates[0]!.prompt).toBe("usage task");
+  // c1 still queued
+  expect(rowsCopy.some((r) => r.id === "c1")).toBe(true);
 });

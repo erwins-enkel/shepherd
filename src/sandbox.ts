@@ -493,10 +493,11 @@ export function autoHoldReason(
 /** Thrown when an auto spawn is refused (auto hold reason present). */
 export class SandboxAutoRefused extends Error {
   readonly holdReason: string;
-  constructor(holdReason: string) {
+  constructor(holdReason: string, cause?: unknown) {
     super(holdReason);
     this.name = "SandboxAutoRefused";
     this.holdReason = holdReason;
+    if (cause !== undefined) this.cause = cause;
   }
 }
 

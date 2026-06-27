@@ -7,6 +7,7 @@ import { SessionService } from "../src/service";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "../src/plugins/types";
+import { SandboxAutoRefused } from "../src/sandbox";
 
 type Hooks = (d: SpawnDescriptor) => Promise<SpawnPatch>;
 
@@ -145,4 +146,59 @@ test("no runSpawnHooks dep → spawn proceeds unchanged (no-op invariant)", asyn
   expect(started).toBe(true);
   expect(s.herdrAgentId).toBe("term_z");
   void NOOP_HOOKS;
+});
+
+// ── SandboxAutoRefused.cause plumbing ─────────────────────────────────────────
+
+test("plugin abort on create surfaces as SandboxAutoRefused with PluginSpawnAborted cause", async () => {
+  const hooks = { fn: async () => Promise.reject(new PluginSpawnAborted("no creds", "swap")) };
+  const { service } = makeService(hooks as { fn: Hooks });
+
+  let caught: unknown;
+  try {
+    await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+  } catch (e) {
+    caught = e;
+  }
+
+  expect(caught).toBeInstanceOf(SandboxAutoRefused);
+  expect((caught as SandboxAutoRefused).cause).toBeInstanceOf(PluginSpawnAborted);
+  expect(((caught as SandboxAutoRefused).cause as PluginSpawnAborted).pluginId).toBe("swap");
+});
+
+test("non-plugin refusal (api-key hold) surfaces as SandboxAutoRefused with cause === undefined", async () => {
+  // Trigger the real service-level non-plugin refusal: api-key mode with no
+  // helper path configured → prepareSpawn returns holdReason without abortCause
+  // → prepareSpawnOrThrow throws SandboxAutoRefused(holdReason, undefined)
+  // → cause is undefined (contrasting the plugin-abort case which sets cause).
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = null;
+  try {
+    const { service } = makeService(NOOP_HOOKS);
+    let caught: unknown;
+    try {
+      await service.create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "go",
+        model: null,
+        images: [],
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(SandboxAutoRefused);
+    expect((caught as SandboxAutoRefused).cause).toBeUndefined();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
 });

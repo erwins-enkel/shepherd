@@ -347,8 +347,8 @@ export class AutopilotService {
    *  autopilot MUST re-read the live row (its eligible() rechecks at entry + post-classify
    *  are the correctness guard), so it deliberately does NOT consume snapshot.session.
    *  Ordering note: the seam runs drain before this. onDone kicks refreshPr immediately
-   *  before its classify (line ~358); drain-first shifts BOTH together, so the PR-poll↔classify
-   *  overlap is preserved — no separate up-front prewarm is needed (#1094). */
+   *  before its classify (see onDone below); drain-first shifts BOTH together, so the
+   *  PR-poll↔classify overlap is preserved — no separate up-front prewarm is needed (#1094). */
   async handle(change: SessionStateChange): Promise<void> {
     const { id } = change.snapshot;
     if (change.kind === "status") {

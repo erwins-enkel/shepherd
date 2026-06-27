@@ -31,7 +31,6 @@ test("buildSnapshot with status payload returns kind=status with snapshot", () =
   if (result.kind !== "status") throw new Error("unreachable");
   expect(result.status).toBe("idle");
   expect(result.snapshot.id).toBe("sess-1");
-  expect(result.snapshot.repoPath).toBe("/repos/alpha");
   expect(result.snapshot.session).toBe(session);
 });
 
@@ -46,7 +45,6 @@ test("buildSnapshot with git payload returns kind=git with snapshot", () => {
   if (result.kind !== "git") throw new Error("unreachable");
   expect(result.git).toBe(GIT_STATE);
   expect(result.snapshot.id).toBe("sess-2");
-  expect(result.snapshot.repoPath).toBe("/repos/beta");
   expect(result.snapshot.session).toBe(session);
 });
 
@@ -58,14 +56,16 @@ test("buildSnapshot returns null when getSession returns null", () => {
   expect(result).toBeNull();
 });
 
-// ── buildSnapshot: repoPath comes from session, not id ───────────────────────
+// ── buildSnapshot: carries the session row verbatim ──────────────────────────
 
-test("snapshot repoPath is sourced from session row, not echoed from id", () => {
-  // id and repoPath are intentionally different so echoing id would be detected
+test("snapshot carries the looked-up session row verbatim (id distinct from repoPath)", () => {
+  // id and repoPath are intentionally different so consumers reading session.repoPath
+  // off the row get the repo, not the id.
   const session = makeSession("task-99", "/home/user/projects/my-project");
   const acc = makeAcc(session);
   const result = buildSnapshot(acc, "task-99", { kind: "status", status: "done" });
   if (!result) throw new Error("expected non-null result");
-  expect(result.snapshot.repoPath).toBe("/home/user/projects/my-project");
-  expect(result.snapshot.repoPath).not.toBe("task-99");
+  expect(result.snapshot.id).toBe("task-99");
+  expect(result.snapshot.session).toBe(session);
+  expect(result.snapshot.session.repoPath).toBe("/home/user/projects/my-project");
 });

@@ -3,12 +3,12 @@ import type { GitState } from "./forge/types";
 
 /** The shared per-session view for a status/git event — the single `store.get(id)`
  *  result, handed to every consumer so they don't each re-fetch the trigger row.
- *  Deliberately minimal: consumers read repoPath (to pump) and the session row
- *  (auto flag, planPhase, reapMerged). Review/activity are NOT here — they are read
- *  inside drain's buildState / autopilot's internal getReview, never at the seam. */
+ *  Deliberately minimal: `id` for autopilot's delegate-by-id, and the session row
+ *  (drain reads `auto`/`repoPath` and passes it to `reapMerged`; the plan-gate hook
+ *  reads `planPhase`). Review/activity are NOT here — they are read inside drain's
+ *  buildState / autopilot's internal getReview, never at the seam. */
 export interface SessionSnapshot {
   id: string;
-  repoPath: string;
   session: Session;
 }
 
@@ -34,7 +34,7 @@ export function buildSnapshot(
 ): SessionStateChange | null {
   const session = acc.getSession(id);
   if (session === null) return null;
-  const snapshot: SessionSnapshot = { id, repoPath: session.repoPath, session };
+  const snapshot: SessionSnapshot = { id, session };
   if (payload.kind === "status") {
     return { kind: "status", status: payload.status, snapshot };
   }

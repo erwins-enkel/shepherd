@@ -2097,5 +2097,9 @@
   "upnext_started": "{count} Session(s) gestartet",
   "upnext_start_failed": "{count} Eintrag/Einträge konnten nicht gestartet werden",
   "feat_upnext_title": "Als Nächstes — was als Nächstes zu starten ist, über alle Repos",
-  "feat_upnext_body": "Eine neue oberste Ansicht reiht noch nicht begonnene GitHub-Issues über all deine Repos in eine flache Warteschlange — Priorität zuerst. Sieh das Lohnenswerteste zum Starten und starte eine Session dafür — oder mehrere — mit einem Klick."
+  "feat_upnext_body": "Eine neue oberste Ansicht reiht noch nicht begonnene GitHub-Issues über all deine Repos in eine flache Warteschlange — Priorität zuerst. Sieh das Lohnenswerteste zum Starten und starte eine Session dafür — oder mehrere — mit einem Klick.",
+  "feat_add_repo_title": "Repo aus dem Backlog hinzufügen",
+  "feat_add_repo_body": "Der Repo-Bereich im Backlog hat jetzt einen Button „+ Repo hinzufügen“ — neues Projekt anlegen, klonen oder ein Repo forken, ohne die Browse-Ansicht zu verlassen oder die Kommandozeile zu öffnen. Das neue Repo wird automatisch ausgewählt, sobald es bereit ist.",
+  "backlog_add_repo": "+ Repo hinzufügen",
+  "backlog_add_repo_menu": "Repository hinzufügen"
 }

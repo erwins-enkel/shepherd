@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectBacklogList from "./ProjectBacklogList.svelte";
 import type { BacklogProject } from "$lib/types";
@@ -37,6 +38,9 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
     onsearch: () => {},
     onselect: () => {},
     onhide: () => {},
+    onaddclone: () => {},
+    onaddfork: () => {},
+    onaddnewproject: () => {},
     ...over,
   };
 }
@@ -118,5 +122,20 @@ describe("ProjectBacklogList — hide repos", () => {
     expect(document.body.querySelector(".project-row.dim")).toBeTruthy();
     expect(document.body.textContent).not.toContain(m.backlog_filter_none_match());
     expect(document.body.textContent).not.toContain(m.backlog_filter_all_hidden());
+  });
+});
+
+describe("ProjectBacklogList — + Add repo", () => {
+  it("shows the trigger and opens the menu, forwarding each action", async () => {
+    const onaddclone = vi.fn();
+    const onaddfork = vi.fn();
+    const onaddnewproject = vi.fn();
+    render(ProjectBacklogList, baseProps({ onaddclone, onaddfork, onaddnewproject }));
+
+    await page.getByRole("button", { name: m.backlog_add_repo() }).click();
+    await page.getByRole("menuitem", { name: m.newproject_trigger() }).click();
+    expect(onaddnewproject).toHaveBeenCalledOnce();
+    expect(onaddclone).not.toHaveBeenCalled();
+    expect(onaddfork).not.toHaveBeenCalled();
   });
 });

@@ -173,6 +173,15 @@
   let showClone = $state(false);
   let showFork = $state(false);
   let showNewProject = $state(false);
+  // Where a Clone/Fork/New-project modal was opened from. The three modals are
+  // shared (mounted once), so their done/close handlers branch on this: "backlog"
+  // keeps the user in the Backlog panel (refetch + auto-select), "newtask" reopens
+  // New Task preselected. Set on EVERY open path, reset on every close/done so a
+  // cancelled backlog open can't misroute a later New-Task completion.
+  let repoAddOrigin = $state<"backlog" | "newtask" | null>(null);
+  // Path of a repo just added from the Backlog panel, forwarded to BacklogView to
+  // auto-select it. Sticky until the next backlog close (the view applies it once).
+  let backlogSelectPath = $state<string | null>(null);
   let showBroadcast = $state(false);
   let showRetry = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
@@ -1382,22 +1391,67 @@
     newproject_failed_timeout: m.newproject_failed_timeout,
   };
 
-  // NewProject.ondone: auto-select the new repo in NewTask + prefill the kickoff seed.
-  // A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
-  // info toast — the flow still proceeds to NewTask with the repo preselected.
-  // Named here (not inline in the AppOverlays mount) so its branching stays out of
-  // the route template.
+  // A repo was just added from the Backlog panel: stay in the browse surface.
+  // Refetch the backlog so the new repo appears, then hand BacklogView the path to
+  // auto-select. The Backlog overlay stays mounted underneath the (now-closing)
+  // modal — the three modals sit at z-index:30, above the overlay's 20 — so there
+  // is no remount and the user's place is preserved. Origin is reset so a later
+  // New-Task-origin completion isn't misrouted here.
+  //
+  // Order matters: set backlogSelectPath ONLY AFTER the refreshed payload is
+  // assigned. The new repo (zero issues/PRs) isn't in the old payload, so selecting
+  // against the stale list would let BacklogView's desktop "drop off-screen
+  // selection" effect ($effect at BacklogView.svelte ~223) clear the selection
+  // before the fresh payload lands — and the once-per-value select effect wouldn't
+  // re-fire. Assigning payload first guarantees the repo is in `visibleProjects`
+  // when the select effect runs. On refetch failure we skip selection (no phantom).
+  function finishBacklogAdd(path: string) {
+    getBacklog()
+      .then((p) => {
+        backlog = p;
+        backlogSelectPath = path;
+      })
+      .catch(() => {});
+    repoAddOrigin = null;
+  }
+
+  // "+ Add repo" menu actions from any Backlog repos panel (the overlay AND the
+  // inline empty-herd panels). Mark the origin so the shared modal's done handler
+  // stays in the browse surface, then open the already-mounted modal.
+  function addRepoClone() {
+    repoAddOrigin = "backlog";
+    showClone = true;
+  }
+  function addRepoFork() {
+    repoAddOrigin = "backlog";
+    showFork = true;
+  }
+  function addRepoNewProject() {
+    repoAddOrigin = "backlog";
+    showNewProject = true;
+  }
+
+  // NewProject.ondone. From the Backlog panel: refetch + auto-select (no yank into
+  // New Task). Otherwise (New-Task origin): auto-select the new repo in NewTask +
+  // prefill the kickoff seed. A warning (partial success: local ok, GitHub failed)
+  // surfaces as a non-blocking info toast in either case. Named here (not inline in
+  // the AppOverlays mount) so its branching stays out of the route template.
   function onNewProjectDone(
     entry: { path: string; warning?: string },
     kickoff: KickoffChoice,
     idea: string,
   ) {
     showNewProject = false;
-    composeRepoPath = entry.path;
-    composePrompt = buildKickoffSeed(kickoff, idea);
     if (entry.warning) {
       toasts.info((NEW_PROJECT_WARNINGS[entry.warning] ?? m.newproject_warning_github)());
     }
+    if (repoAddOrigin === "backlog") {
+      finishBacklogAdd(entry.path);
+      return;
+    }
+    composeRepoPath = entry.path;
+    composePrompt = buildKickoffSeed(kickoff, idea);
+    repoAddOrigin = null;
     showNew = true;
   }
 
@@ -2029,6 +2083,10 @@
               {onpr}
               {onadopt}
               {onlaunchtrain}
+              onaddclone={addRepoClone}
+              onaddfork={addRepoFork}
+              onaddnewproject={addRepoNewProject}
+              selectPath={backlogSelectPath}
               flow={true}
               epics={store.epics}
               {inTrainPrs}
@@ -2202,6 +2260,10 @@
             {onpr}
             {onadopt}
             {onlaunchtrain}
+            onaddclone={addRepoClone}
+            onaddfork={addRepoFork}
+            onaddnewproject={addRepoNewProject}
+            selectPath={backlogSelectPath}
             epics={store.epics}
             {inTrainPrs}
             drain={store.drain}
@@ -2349,16 +2411,19 @@
   }}
   onnewclone={() => {
     resetCompose();
+    repoAddOrigin = "newtask";
     showNew = false;
     showClone = true;
   }}
   onnewfork={() => {
     resetCompose();
+    repoAddOrigin = "newtask";
     showNew = false;
     showFork = true;
   }}
   onnewnewproject={() => {
     resetCompose();
+    repoAddOrigin = "newtask";
     showNew = false;
     showNewProject = true;
   }}
@@ -2372,14 +2437,6 @@
     showSettings = false;
     showHerdrUpdate = true;
   }}
-  onsettingsclone={() => {
-    showSettings = false;
-    showClone = true;
-  }}
-  onsettingsfork={() => {
-    showSettings = false;
-    showFork = true;
-  }}
   onsettingswhatsnew={() => {
     showSettings = false;
     showWhatsNew = true;
@@ -2387,21 +2444,40 @@
   {showUsage}
   onusageclose={() => (showUsage = false)}
   {showClone}
-  oncloneclose={() => (showClone = false)}
+  oncloneclose={() => {
+    showClone = false;
+    repoAddOrigin = null;
+  }}
   onclonedone={(entry) => {
     showClone = false;
-    composeRepoPath = entry.path;
-    showNew = true;
+    if (repoAddOrigin === "backlog") {
+      finishBacklogAdd(entry.path);
+    } else {
+      composeRepoPath = entry.path;
+      repoAddOrigin = null;
+      showNew = true;
+    }
   }}
   {showFork}
-  onforkclose={() => (showFork = false)}
+  onforkclose={() => {
+    showFork = false;
+    repoAddOrigin = null;
+  }}
   onforkdone={(entry) => {
     showFork = false;
-    composeRepoPath = entry.path;
-    showNew = true;
+    if (repoAddOrigin === "backlog") {
+      finishBacklogAdd(entry.path);
+    } else {
+      composeRepoPath = entry.path;
+      repoAddOrigin = null;
+      showNew = true;
+    }
   }}
   {showNewProject}
-  onnewprojectclose={() => (showNewProject = false)}
+  onnewprojectclose={() => {
+    showNewProject = false;
+    repoAddOrigin = null;
+  }}
   onnewprojectdone={onNewProjectDone}
   {showBroadcast}
   onbroadcastclose={() => (showBroadcast = false)}
@@ -2420,7 +2496,14 @@
   {onpr}
   {onadopt}
   {onlaunchtrain}
-  onbacklogclose={() => (showBacklog = false)}
+  onaddclone={addRepoClone}
+  onaddfork={addRepoFork}
+  onaddnewproject={addRepoNewProject}
+  {backlogSelectPath}
+  onbacklogclose={() => {
+    showBacklog = false;
+    backlogSelectPath = null;
+  }}
   {pendingTrain}
   ontrainclose={() => (pendingTrain = null)}
   ontrainconfirm={confirmTrain}

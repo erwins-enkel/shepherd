@@ -2,6 +2,7 @@
   import type { BacklogProject } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import ProjectRow from "./ProjectRow.svelte";
+  import AddRepoButton from "./AddRepoButton.svelte";
   import { partitionRecents } from "./backlog-view";
 
   let {
@@ -20,6 +21,9 @@
     onsearch,
     onselect,
     onhide = () => {},
+    onaddclone,
+    onaddfork,
+    onaddnewproject,
   }: {
     /** Already filtered by the parent (BacklogView) via filterProjects — the
      *  parent owns the filter state so it can keep the selection in sync. */
@@ -43,6 +47,11 @@
     onselect: (path: string) => void;
     /** Hide/unhide a repo by path. */
     onhide?: (path: string) => void;
+    /** "+ Add repo" menu actions — open the already-mounted Clone/Fork/New-project
+     *  modals. Bubbled up via BacklogView → BacklogOverlay → AppOverlays → +page. */
+    onaddclone: () => void;
+    onaddfork: () => void;
+    onaddnewproject: () => void;
   } = $props();
 
   const searching = $derived(query.trim() !== "");
@@ -113,6 +122,9 @@
         {m.backlog_filter_hidden({ count: hiddenCount })}
       </button>
     {/if}
+    <div class="add-repo-slot">
+      <AddRepoButton onclone={onaddclone} onfork={onaddfork} onnewproject={onaddnewproject} />
+    </div>
   </div>
 </div>
 
@@ -257,7 +269,14 @@
 
   .filter-chips {
     display: flex;
+    align-items: center;
     gap: 2px;
+  }
+
+  /* Push "+ Add repo" to the trailing edge of the chip row so it reads as a
+     panel-level action distinct from the (leading) filter chips. */
+  .add-repo-slot {
+    margin-left: auto;
   }
 
   .filter-chip {

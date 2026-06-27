@@ -14,6 +14,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { triggerDocAgent, getDocAgentRuns } from "$lib/api";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
+  import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
   import { actionsTabState, filterProjects, splitHidden } from "./backlog-view";
@@ -40,6 +41,10 @@
     docAgentEnabled = false,
     docAgentAct = false,
     docAgentDone = null,
+    onaddclone,
+    onaddfork,
+    onaddnewproject,
+    selectPath = null,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -73,6 +78,15 @@
     docAgentAct?: boolean;
     /** Reactive signal from store: a run just finished for a repo. */
     docAgentDone?: { repoPath: string; url: string | null; outcome: DocAgentOutcome } | null;
+    /** "+ Add repo" menu actions — open the already-mounted Clone/Fork/New-project
+     *  modals. Bubbled up to +page via BacklogOverlay → AppOverlays. */
+    onaddclone: () => void;
+    onaddfork: () => void;
+    onaddnewproject: () => void;
+    /** When set (a repo was just added from this panel), select that repo + switch
+     *  to the Issues tab once per distinct value. Filters are cleared first so a
+     *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
+    selectPath?: string | null;
   } = $props();
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
@@ -245,6 +259,30 @@
     activeTab = "issues";
   });
 
+  // Auto-select a just-added repo (Clone/Fork/New-project succeeded from this
+  // panel). Applied once per distinct value (appliedSelectPath read untracked so
+  // the effect depends only on `selectPath`). A brand-new repo has zero issues/PRs
+  // and won't match an active search, so the filter chips + query are cleared first
+  // — otherwise filterProjects would drop it from visibleProjects and the desktop
+  // drop-effect above would immediately clear this selection. Switch to Issues so
+  // its detail pane opens (on mobile this opens the full-screen detail overlay,
+  // which is the desired outcome of an explicit add action).
+  let appliedSelectPath = $state<string | null>(null);
+  $effect(() => {
+    const path = selectPath;
+    if (!path) {
+      appliedSelectPath = null; // reset so re-adding the SAME path re-applies
+      return;
+    }
+    if (path === untrack(() => appliedSelectPath)) return; // already applied
+    appliedSelectPath = path;
+    hasIssues = false;
+    hasPRs = false;
+    query = "";
+    selectedPath = path;
+    activeTab = "issues";
+  });
+
   // On mobile, a set selectedPath means the detail overlay is open.
   // Clearing it goes back to the project list.
   function dismissDetail() {
@@ -259,9 +297,12 @@
       <span class="skeleton-pulse">{m.backlog_loading()}</span>
     </div>
   {:else if payload.projects.length === 0}
-    <!-- intentional empty state -->
+    <!-- intentional empty state — also the primary place to surface "+ Add repo":
+         a zero-repos user has no list header, so without this the acquisition
+         affordance (the whole point of #1171) would be unreachable here. -->
     <div class="state-full">
       <span class="empty-label">{m.backlog_no_forge_repos()}</span>
+      <AddRepoButton onclone={onaddclone} onfork={onaddfork} onnewproject={onaddnewproject} />
     </div>
   {:else if mobile}
     <!-- mobile: a single project list (the same list serves both tabs, so a
@@ -287,6 +328,9 @@
         onsearch={(q) => (query = q)}
         onselect={(p) => (selectedPath = p)}
         onhide={handleHide}
+        {onaddclone}
+        {onaddfork}
+        {onaddnewproject}
       />
     </div>
     {#if selectedPath !== null}
@@ -356,6 +400,9 @@
           onsearch={(q) => (query = q)}
           onselect={(p) => (selectedPath = p)}
           onhide={handleHide}
+          {onaddclone}
+          {onaddfork}
+          {onaddnewproject}
         />
       </div>
       <div class="detail-column">
@@ -414,8 +461,10 @@
   .state-full {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 14px;
   }
 
   .skeleton-pulse {

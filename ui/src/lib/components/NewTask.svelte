@@ -373,11 +373,13 @@
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
-  // Codex can't plan-gate or autopilot yet. Rather than mutate planGate/autopilot
-  // (which would silently lose a manual override across a Codex round-trip), the
-  // checkboxes just DISPLAY off + disabled while Codex is selected (see
-  // NewTaskRunSettings) and submit forces them off via automationFlag — the
-  // underlying Claude-context choice is preserved untouched.
+  // Codex can't plan-gate yet (no spawn directives via --append-system-prompt, so the
+  // plan-gate wiring isn't available for it). Rather than mutate planGate (which would
+  // silently lose a manual override across a Codex round-trip), the plan-gate checkbox
+  // just DISPLAYS off + disabled while Codex is selected (see NewTaskRunSettings) and
+  // submit forces it off via planGateFlag — the underlying Claude-context choice is
+  // preserved untouched. Autopilot, by contrast, is now available for isolated Codex
+  // sessions (#1140) and flows through automationFlag like Claude.
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
   // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit

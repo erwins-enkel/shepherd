@@ -2,6 +2,7 @@ import type { SessionStore } from "./store";
 import type { Session, AutopilotVerdict, ReviewVerdict } from "./types";
 import type { BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
+import type { SessionStateChange } from "./session-snapshot";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { signedOff } from "./signoff";
 import { DRAFT_PR_NOTE } from "./service";
@@ -340,6 +341,22 @@ export class AutopilotService {
     const cur = this.eligible(id);
     if (!cur) return;
     await this.dispatch(cur, v);
+  }
+
+  /** SessionConsumer entry (#1094 seam). Delegates to the existing handlers by id —
+   *  autopilot MUST re-read the live row (its eligible() rechecks at entry + post-classify
+   *  are the correctness guard), so it deliberately does NOT consume snapshot.session.
+   *  Ordering note: the seam runs drain before this. onDone kicks refreshPr immediately
+   *  before its classify (see onDone below); drain-first shifts BOTH together, so the
+   *  PR-poll↔classify overlap is preserved — no separate up-front prewarm is needed (#1094). */
+  async handle(change: SessionStateChange): Promise<void> {
+    const { id } = change.snapshot;
+    if (change.kind === "status") {
+      this.onStatus(id, change.status); // clears a pause on operator reply
+      if (change.status === "done") await this.onDone(id);
+      return;
+    }
+    this.onGit(id, change.git); // sync; PR-open handoff + red-CI recovery
   }
 
   /** session:block handler. Only steerable shapes are eligible; menu/stall surface as-is. */

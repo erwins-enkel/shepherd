@@ -100,11 +100,24 @@ export class PluginRegistry {
   async loadAll(): Promise<void> {
     let names: string[];
     try {
+      // `readdir(..., { withFileTypes: true })` does NOT follow symlinks: a
+      // symlink-to-directory Dirent reports isDirectory()===false. Resolve such
+      // entries with stat() (which follows the link) so a symlinked install — the
+      // natural "run a plugin from its checkout" workflow — loads like a copy (#1176).
       const entries = await readdir(this.deps.pluginsDir, { withFileTypes: true });
-      names = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name)
-        .sort();
+      names = [];
+      for (const e of entries) {
+        if (e.isDirectory()) {
+          names.push(e.name);
+        } else if (e.isSymbolicLink()) {
+          try {
+            if ((await stat(join(this.deps.pluginsDir, e.name))).isDirectory()) names.push(e.name);
+          } catch {
+            /* dangling symlink — skip */
+          }
+        }
+      }
+      names.sort();
     } catch {
       return; // missing dir → nothing to load
     }

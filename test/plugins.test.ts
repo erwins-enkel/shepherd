@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SessionStore } from "../src/store";
@@ -133,6 +133,34 @@ test("loadAll: enabled:false is skipped", async () => {
   await registry.loadAll();
   expect(registry.loadedCount()).toBe(0);
   rmSync(root, { recursive: true, force: true });
+});
+
+// ── loader: symlinked plugin dirs (#1176) ────────────────────────────────────
+test("loadAll: a symlinked plugin dir loads identically to a copied one", async () => {
+  // The plugin's real folder lives outside the plugins dir; only a symlink to it
+  // is placed inside — the natural "run a plugin from its checkout" install.
+  const src = tmpDir();
+  writePlugin(src, "linked", { index: "export function register(){}" });
+  const pluginsDir = tmpDir();
+  symlinkSync(join(src, "linked"), join(pluginsDir, "linked"));
+
+  const { registry } = makeRegistry(pluginsDir);
+  await registry.loadAll();
+
+  const info = registry.list().find((p) => p.id === "linked");
+  expect(info).toBeDefined();
+  expect(info!.health).toBe("ok");
+  rmSync(pluginsDir, { recursive: true, force: true });
+  rmSync(src, { recursive: true, force: true });
+});
+
+test("loadAll: a dangling symlink is ignored without throwing", async () => {
+  const pluginsDir = tmpDir();
+  symlinkSync(join(pluginsDir, "no-such-target"), join(pluginsDir, "dangling"));
+  const { registry } = makeRegistry(pluginsDir);
+  await registry.loadAll(); // must not throw
+  expect(registry.loadedCount()).toBe(0);
+  rmSync(pluginsDir, { recursive: true, force: true });
 });
 
 // ── loader: example fixture (also the public template) ───────────────────────

@@ -18,13 +18,16 @@ into your plugins dir to actually run it.
 ```sh
 # 1. Copy the folder into your plugins dir (override the dir with SHEPHERD_PLUGINS_DIR).
 cp -r examples/plugins/spawn-labeler ~/.shepherd/plugins/
+# …or symlink it from a checkout so `git pull` keeps the installed plugin current:
+ln -s "$PWD/examples/plugins/spawn-labeler" ~/.shepherd/plugins/
 
 # 2. Restart Shepherd to load it. (Optional: fix the type import first — see below —
 #    for editor/type-check ergonomics; it is NOT required to run the plugin.)
 systemctl --user restart shepherd
 ```
 
-Plugins load **at boot only** — edit the folder, then restart.
+Plugins load **at boot only** — edit the folder, then restart. A **symlinked** plugin dir
+loads identically to a copied one (the loader follows the link).
 
 ### Fix the type import for editor/type-check ergonomics (optional)
 

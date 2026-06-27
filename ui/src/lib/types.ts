@@ -1126,6 +1126,20 @@ export interface DocAgentRun {
   outcome: DocAgentOutcome;
 }
 
+/** Mirror of src/plugins/types.ts PluginUINode/PluginUIView (issue #1185). Keep in sync —
+ *  plugin string props render VERBATIM (data, not i18n keys). */
+export interface PluginUINode {
+  type: string;
+  props?: Record<string, unknown>;
+  children?: PluginUINode[];
+}
+export interface PluginUIView {
+  schemaVersion: 1;
+  slot: "settings-panel" | "session-sidebar" | "dashboard-card";
+  title?: string;
+  root: PluginUINode;
+}
+
 /** A loaded server-side plugin as shown in Settings → Plugins (issue #1124). `health` is
  *  core-derived (unspoofable); `status` is the plugin's last publishStatus blob (verbatim). */
 export interface PluginInfo {
@@ -1135,6 +1149,7 @@ export interface PluginInfo {
   health: "ok" | "errored" | "timed-out";
   lastError: string | null;
   status: unknown;
+  ui: PluginUIView | null;
 }
 
 // Up Next (#1169) — cross-repo ranked queue of un-started work. Mirrors src/up-next-core.ts.

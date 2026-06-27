@@ -205,6 +205,7 @@ describe("Settings responsive tab navigation", () => {
       health: "ok" as const,
       lastError: null,
       status: {},
+      ui: null,
     },
   ];
 

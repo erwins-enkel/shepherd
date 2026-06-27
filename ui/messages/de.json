@@ -2101,5 +2101,8 @@
   "feat_add_repo_title": "Repo aus dem Backlog hinzufügen",
   "feat_add_repo_body": "Der Repo-Bereich im Backlog hat jetzt einen Button „+ Repo hinzufügen“ — neues Projekt anlegen, klonen oder ein Repo forken, ohne die Browse-Ansicht zu verlassen oder die Kommandozeile zu öffnen. Das neue Repo wird automatisch ausgewählt, sobald es bereit ist.",
   "backlog_add_repo": "+ Repo hinzufügen",
-  "backlog_add_repo_menu": "Repository hinzufügen"
+  "backlog_add_repo_menu": "Repository hinzufügen",
+  "plugin_ui_unknown_node": "Nicht unterstützte Komponente",
+  "plugin_ui_table_empty": "Keine Daten.",
+  "plugin_ui_kv_empty": "Keine Einträge."
 }

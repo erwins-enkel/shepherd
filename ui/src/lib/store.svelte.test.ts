@@ -106,8 +106,24 @@ test("session:ready patches the target session's readyToMerge", () => {
 test("plugin:status updates the matching plugin's health + published status in place", () => {
   const s = new HerdStore();
   s.setPlugins([
-    { id: "p1", name: "P1", version: "1.0.0", health: "ok", lastError: null, status: null },
-    { id: "p2", name: "P2", version: "2.0.0", health: "ok", lastError: null, status: null },
+    {
+      id: "p1",
+      name: "P1",
+      version: "1.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+    },
+    {
+      id: "p2",
+      name: "P2",
+      version: "2.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+    },
   ]);
   s.apply({ event: "plugin:status", data: { id: "p1", health: "errored", status: { n: 7 } } });
   expect(s.plugins.find((p) => p.id === "p1")).toMatchObject({

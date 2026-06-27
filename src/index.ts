@@ -84,7 +84,7 @@ import { tailLines } from "./blocked";
 import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
-import { UpNextService } from "./up-next";
+import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
 import {
   sweepClaudeTmp,
@@ -95,7 +95,7 @@ import {
 } from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
-import { listRepos, listReposPathForReal } from "./repos";
+import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
 import { enrichLandingEpics, type CompletedEpic } from "./completed-epic";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
@@ -1841,16 +1841,14 @@ backlogPoller.start();
 // by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
 // pushes each fresh snapshot to clients over the WS (upnext:snapshot).
 const upNext = new UpNextService({
-  // Forge-backed repos only (skip local/lightweight repos — no cold-issue source to rank).
+  // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
+  // the realpath→raw reconcile, hidden-repo filtering, and the exact field mapping.
   listForgeRepos: () =>
-    listRepos(config.repoRoot)
-      .map((r) => ({ entry: r, forge: resolveForge(r.path) }))
-      .filter((x) => x.forge != null && x.forge.kind !== "local")
-      .map((x) => ({
-        repoPath: x.entry.path,
-        repoSlug: x.forge!.slug,
-        repoLabel: x.entry.display,
-      })),
+    buildUpNextRepos({
+      repos: listRepos(config.repoRoot),
+      resolveForge,
+      hiddenRealPaths: store.hiddenRepoPaths(),
+    }),
   resolveForge,
   lastUsedByRepo: () => store.lastUsedByRepo(),
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
@@ -1913,6 +1911,8 @@ const appDeps: AppDeps = {
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),
+    hiddenRepoPathsRaw: () =>
+      reconcileRealPathsToRaw(store.hiddenRepoPaths(), listRepos(config.repoRoot)),
   },
   verifyKey: () => verifyApiKey({ herdr }),
   backlog,

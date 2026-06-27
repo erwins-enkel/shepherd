@@ -140,6 +140,7 @@ import {
   resolveDefaultModelSetting,
 } from "./default-model";
 import { startSerially } from "./up-next";
+import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
@@ -313,6 +314,8 @@ export interface AppDeps {
   upNext?: {
     snapshot(): UpNextSnapshot | null;
     refresh(): Promise<UpNextSnapshot>;
+    /** Raw-path-space hidden set (reconciled), applied at read time for instant freshness. */
+    hiddenRepoPathsRaw(): Set<string>;
   };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
@@ -759,7 +762,13 @@ async function handleHerdDigest({ req, parts, deps }: Ctx): Promise<Response | n
  *  a session that never opens the lens costs zero cross-repo `gh` fan-out (the 15-min loop +
  *  lens-open keep it fresh). */
 function handleUpNextGet(url: URL, deps: AppDeps): Response {
-  const snap = deps.upNext?.snapshot() ?? null;
+  const cached = deps.upNext?.snapshot() ?? null;
+  // Apply a read-time hidden filter so a repo hidden after the last background compute is
+  // excluded on the very next GET without waiting for the next recompute cycle (≤15 min).
+  const snap =
+    cached && deps.upNext
+      ? excludeHiddenSections(cached, deps.upNext.hiddenRepoPathsRaw())
+      : cached;
   if (!url.searchParams.has("peek") && deps.upNext)
     void deps.upNext.refresh().catch((err) => console.warn("[up-next] open:", err));
   return json(snap);

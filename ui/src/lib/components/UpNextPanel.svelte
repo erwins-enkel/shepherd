@@ -7,6 +7,14 @@
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
   import { SvelteSet } from "svelte/reactivity";
+  import { onMount } from "svelte";
+
+  // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
+  // triggers a background refresh that lands in place via the upnext:snapshot WS event), so the
+  // lens reflects "now" rather than the last app-load — not just on-app-load (#1169 spec).
+  onMount(() => {
+    void upNext.load();
+  });
 
   // Display caps mirror src/up-next-core PRIORITY_CAP / REPO_CAP; the server returns the full
   // ranked list and we reveal the rest in place via "show all N".
@@ -18,7 +26,10 @@
 
   const snap = $derived(upNext.snapshot);
   const sections = $derived(snap?.sections ?? []);
-  const isEmpty = $derived(upNext.loaded && sections.length === 0);
+  // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
+  // never-computed snapshot shows loading, not the all-clear.
+  const computed = $derived(snap?.generatedAt != null);
+  const isEmpty = $derived(computed && sections.length === 0);
   const updatedAgo = $derived(
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
@@ -193,12 +204,13 @@
   {/if}
 
   <div class="un-body">
-    {#if isEmpty}
+    {#if !computed}
+      <!-- No server snapshot yet (first compute in flight) → loading, never the all-clear. -->
+      <p class="un-muted">{m.common_loading()}</p>
+    {:else if isEmpty}
       <div class="un-empty">
         <p class="un-muted">{m.upnext_empty()}</p>
       </div>
-    {:else if !upNext.loaded}
-      <p class="un-muted">{m.common_loading()}</p>
     {:else}
       {#each sections as s (sectionKey(s))}
         <div class="un-section">

@@ -697,6 +697,20 @@ export async function relaunchSession(
 }
 
 /**
+ * Restore an archived session from the Done lens: re-creates the worktree on its
+ * surviving branch and resumes the conversation. Returns the restored `Session` on
+ * success. On a non-ok response throws an {@link ApiError} carrying the HTTP `status`
+ * and the server's stable `code` so the caller can branch on the failure mode.
+ */
+export async function restoreSession(id: string): Promise<Session> {
+  const r = await fetch(`/api/sessions/${id}/restore`, { method: "POST" });
+  if (r.ok) return r.json();
+  const body = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
+  const base = apiError(r.status, body, `restore failed: ${r.status}`);
+  throw new ApiError(r.status, base.message, body?.code);
+}
+
+/**
  * Stage the original session's uploads for a relaunch-elsewhere so the composer
  * can seed them as removable chips. Returns the carried images (server path +
  * display name); throws a `failed` error on a non-2xx response.

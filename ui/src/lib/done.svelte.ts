@@ -18,5 +18,10 @@ class DoneSessionsStore {
       /* best-effort; the next lens open retries */
     }
   }
+
+  /** Drop a restored session from the Done list immediately on success. */
+  remove(id: string) {
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+  }
 }
 export const doneSessions = new DoneSessionsStore();

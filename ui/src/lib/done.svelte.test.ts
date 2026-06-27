@@ -28,3 +28,15 @@ test("load() swallows api errors and leaves the list untouched (best-effort)", a
   await expect(doneSessions.load()).resolves.toBeUndefined();
   expect(doneSessions.sessions).toEqual([session("prev")]);
 });
+
+test("remove() drops the matching session by id", () => {
+  doneSessions.sessions = [session("a"), session("b"), session("c")];
+  doneSessions.remove("b");
+  expect(doneSessions.sessions.map((s) => s.id)).toEqual(["a", "c"]);
+});
+
+test("remove() is a no-op when the id is not in the list", () => {
+  doneSessions.sessions = [session("x"), session("y")];
+  doneSessions.remove("z");
+  expect(doneSessions.sessions.map((s) => s.id)).toEqual(["x", "y"]);
+});

@@ -7,6 +7,7 @@
     createSession,
     archiveSession,
     relaunchSession,
+    restoreSession,
     stageRelaunchImages,
     ApiError,
     getUsageLimits,
@@ -1644,6 +1645,32 @@
     }
   }
 
+  // Restore an archived session from the Done lens: re-creates the worktree on its
+  // surviving branch and resumes the conversation (recovers committed work only).
+  // The two-step arm lives in DoneRecapPanel, so by the time this fires the operator
+  // has already confirmed. The live Herd row arrives via session:new — no manual
+  // store mutation needed beyond dropping the row from the Done list on success.
+  async function onBringBack(id: string) {
+    const fail = (text: string) =>
+      toasts.info(text, { duration: null, alert: true, key: `restore-fail:${id}` });
+    try {
+      const s = await restoreSession(id);
+      doneSessions.remove(id);
+      toasts.info(m.restore_done({ desig: s.desig }));
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.code === "cannot_restore") fail(m.restore_cannot());
+        else if (e.code === "branch_gone") fail(m.restore_branch_gone());
+        else if (e.code === "branch_in_use") fail(m.restore_branch_in_use());
+        else if (e.code === "not_archived") fail(m.restore_not_archived());
+        else if (e.code === "in_progress") fail(m.restore_in_progress());
+        else fail(m.restore_failed());
+      } else {
+        fail(m.restore_failed());
+      }
+    }
+  }
+
   // Fleet-wide emergency stop. Interrupting every working agent is consequential, so
   // the guard against an accidental tap is the TopBar's two-step arm→confirm gesture
   // (first activation arms the red "Halt N?" pill, a second commits) — by the time
@@ -2013,7 +2040,7 @@
             >{m.done_back_to_list()}</button
           >
           {#if doneSelected}
-            <DoneRecapPanel session={doneSelected} />
+            <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
           {:else}
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
@@ -2150,7 +2177,7 @@
         {:else if herdFilter === "done"}
           <!-- Done lens: read-only recap for the picked archived session -->
           {#if doneSelected}
-            <DoneRecapPanel session={doneSelected} />
+            <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
           {:else}
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}

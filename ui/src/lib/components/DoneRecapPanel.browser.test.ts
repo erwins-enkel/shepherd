@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import DoneRecapPanel from "./DoneRecapPanel.svelte";
 import { recaps } from "$lib/recaps.svelte";
+import { m } from "$lib/paraglide/messages";
 import type { Session, Recap } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -210,6 +211,68 @@ describe("DoneRecapPanel generating state", () => {
     recaps.map = { g1: recap({ sessionId: "g1", state: "generating" }) };
     render(DoneRecapPanel, { session: session({ id: "g1" }) });
     await expect.element(page.getByText("Generating recap…")).toBeInTheDocument();
+  });
+});
+
+describe("DoneRecapPanel bring-back button", () => {
+  it("renders Bring back button only when onbringback is provided", async () => {
+    recaps.map = { bb1: recap({ sessionId: "bb1" }) };
+
+    // without onbringback: no button at all
+    const { rerender } = render(DoneRecapPanel, { session: session({ id: "bb1" }) });
+    expect(
+      page.getByRole("button", { name: m.donerecap_bringback() }).query(),
+      "no button without onbringback",
+    ).toBeNull();
+
+    // with onbringback: button appears
+    await rerender({ session: session({ id: "bb1" }), onbringback: vi.fn() });
+    await expect
+      .element(page.getByRole("button", { name: m.donerecap_bringback() }))
+      .toBeInTheDocument();
+  });
+
+  it("first click arms (no callback yet), second click fires onbringback once", async () => {
+    recaps.map = { bb2: recap({ sessionId: "bb2" }) };
+    const onbringback = vi.fn();
+    render(DoneRecapPanel, { session: session({ id: "bb2" }), onbringback });
+
+    const btn = page.getByRole("button", { name: m.donerecap_bringback() });
+    await btn.click();
+
+    // armed: callback NOT yet fired, label switches to confirm
+    expect(onbringback).not.toHaveBeenCalled();
+    const confirmBtn = page.getByRole("button", { name: m.donerecap_bringback_confirm() });
+    await expect.element(confirmBtn).toBeInTheDocument();
+
+    // second click fires it exactly once with the session id
+    await confirmBtn.click();
+    expect(onbringback).toHaveBeenCalledTimes(1);
+    expect(onbringback).toHaveBeenCalledWith("bb2");
+  });
+
+  it("auto-disarms after the arm window without firing the callback", async () => {
+    vi.useFakeTimers();
+    try {
+      recaps.map = { bb3: recap({ sessionId: "bb3" }) };
+      const onbringback = vi.fn();
+      render(DoneRecapPanel, { session: session({ id: "bb3" }), onbringback });
+
+      const btn = page.getByRole("button", { name: m.donerecap_bringback() });
+      await btn.click();
+      await expect
+        .element(page.getByRole("button", { name: m.donerecap_bringback_confirm() }))
+        .toBeInTheDocument();
+
+      // advance past the ~3s arm window → disarms back to idle label, no fire
+      vi.advanceTimersByTime(3500);
+      await expect
+        .element(page.getByRole("button", { name: m.donerecap_bringback() }))
+        .toBeInTheDocument();
+      expect(onbringback).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

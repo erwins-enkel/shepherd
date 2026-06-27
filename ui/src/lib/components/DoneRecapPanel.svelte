@@ -6,7 +6,33 @@
   import { m } from "$lib/paraglide/messages";
   import VisualReview from "./VisualReview.svelte";
 
-  let { session }: { session: Session } = $props();
+  let {
+    session,
+    onbringback,
+  }: {
+    session: Session;
+    onbringback?: (id: string) => void;
+  } = $props();
+
+  // Two-step arm → confirm for Bring back: mirroring CardMenu's relaunchArmed pattern.
+  // First click arms (label switches to confirm text, danger-wash applied); only a
+  // second click within the window fires onbringback. Auto-disarms after ~3s.
+  // Timer cleared on destroy so a dangling timer never fires after panel teardown.
+  const BRING_BACK_ARM_MS = 3000;
+  let bringBackArmed = $state(false);
+  let bringBackTimer: ReturnType<typeof setTimeout> | undefined;
+  function onBringBackClick() {
+    if (bringBackArmed) {
+      clearTimeout(bringBackTimer);
+      bringBackArmed = false;
+      onbringback?.(session.id);
+      return;
+    }
+    bringBackArmed = true;
+    clearTimeout(bringBackTimer);
+    bringBackTimer = setTimeout(() => (bringBackArmed = false), BRING_BACK_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(bringBackTimer));
 
   const recap = $derived(recaps.map[session.id]);
 
@@ -70,6 +96,13 @@
   <header class="dr-head">
     <span class="dr-desig">{session.desig}</span>
     <span class="dr-finished">{m.done_recap_finished({ ago: finishedAgo })}</span>
+    {#if onbringback}
+      <div class="dr-actions">
+        <button type="button" class="gbtn" class:armed={bringBackArmed} onclick={onBringBackClick}
+          >{bringBackArmed ? m.donerecap_bringback_confirm() : m.donerecap_bringback()}</button
+        >
+      </div>
+    {/if}
     {#if session.issueNumber != null}
       {#if session.issueUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
@@ -163,6 +196,47 @@
   .dr-finished {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+
+  /* Action cluster: sits right after the muted stamps; the issue link's auto margin
+     pushes them both to the right edge, keeping the header layout intact. */
+  .dr-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Bring-back button: canonical .gbtn recipe from the design system (token-only). */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Armed state mirrors CardMenu's armed danger-wash so the second click reads as hot. */
+  .gbtn.armed {
+    border-color: var(--color-red);
+    color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 14%, var(--color-panel));
+  }
+  .gbtn.armed:hover {
+    background: color-mix(in srgb, var(--color-red) 22%, var(--color-panel));
   }
 
   .dr-issue {

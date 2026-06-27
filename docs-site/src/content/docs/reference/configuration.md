@@ -29,6 +29,7 @@ lines), read by the systemd unit if present.
 | `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (skill catalog + optional plugins disabled per-spawn). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
 | `SHEPHERD_USAGE_HOLD_ENABLED` | `true` | Queue newly submitted tasks instead of spawning them while account usage is high (auto-released as usage falls). Set `0`/`false` to always spawn immediately |
 | `SHEPHERD_USAGE_HOLD_PCT` | `80` | Hold threshold: when the higher of the 5-hour / weekly usage window reaches this percent, new tasks are held. Range `0`–`100` |
+| `SHEPHERD_USAGE_HOLD_AUTO_RELEASE` | `true` | When on, the ~30 s sweeper auto-starts held tasks once usage drops back below the threshold. Set `0`/`false` to keep held tasks queued until the operator starts (or discards) each one manually from the held-tasks popover. Turning the gate off entirely (`SHEPHERD_USAGE_HOLD_ENABLED=0`) still flushes everything regardless of this flag |
 
 ## Live preview
 

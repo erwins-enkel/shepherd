@@ -72,6 +72,7 @@ function repoConfig(
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
     automationConfirmed: true,
     automationRowExists: true,
   };
@@ -964,6 +965,7 @@ function unconfirmedNewRepoConfig(): RepoConfig & {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
     automationConfirmed: false,
     automationRowExists: false,
   };

@@ -90,6 +90,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -112,6 +113,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -134,6 +136,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -156,6 +159,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -178,6 +182,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
 });
 
@@ -212,6 +217,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,

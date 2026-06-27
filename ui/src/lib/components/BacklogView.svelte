@@ -16,7 +16,8 @@
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
-  import { actionsTabState, filterProjects } from "./backlog-view";
+  import { actionsTabState, filterProjects, splitHidden } from "./backlog-view";
+  import { repoConfig } from "$lib/reviews.svelte";
   import { pullMainAndToast } from "$lib/pull-offer";
 
   let {
@@ -149,9 +150,34 @@
   let hasIssues = $state(false);
   let hasPRs = $state(false);
   let query = $state("");
-  let visibleProjects = $derived(
+  // Ephemeral per-session UI state (not persisted): reveal the Hidden group in-place.
+  let showHidden = $state(false);
+  const searching = $derived(query.trim() !== "");
+
+  // Filter first (unchanged predicate), then partition by hidden using repoConfig.hidden
+  // as the optimistic overlay over each project's server `hidden` baseline.
+  const filtered = $derived(
     payload ? filterProjects(payload.projects, { hasIssues, hasPRs, query }) : [],
   );
+  const split = $derived(splitHidden(filtered, repoConfig.hidden));
+  let visibleProjects = $derived(split.visible);
+  // The Hidden group is revealed when the chip is on OR a search is active (so a
+  // name search can surface a matching hidden repo even with Show-hidden off).
+  const shownHidden = $derived(showHidden || searching ? split.hidden : []);
+  // Chip badge counts ALL hidden repos, independent of the active search/scope.
+  const hiddenCount = $derived(
+    payload ? splitHidden(payload.projects, repoConfig.hidden).hidden.length : 0,
+  );
+  // Repos actually on screen = visible list ∪ any revealed hidden rows. The drop
+  // effect uses this so hiding the selected repo with Show-hidden ON keeps its
+  // (now dimmed) row + detail, while OFF removes the row and drops the selection.
+  const onScreenPaths = $derived(new Set([...visibleProjects, ...shownHidden].map((p) => p.path)));
+
+  function handleHide(path: string) {
+    const p = payload?.projects.find((q) => q.path === path);
+    if (!p) return;
+    void repoConfig.toggleHidden(path, repoConfig.isHidden(path, p.hidden));
+  }
 
   // Tab badges count the SELECTED repo's items — the same repo the detail pane
   // shows — not the all-repos `payload.totals` (which made "PRs · 5" sit over a
@@ -188,12 +214,14 @@
     }
   });
 
-  // Desktop: if an active filter hides the currently selected repo, drop the
-  // selection so the detail pane can't keep showing a repo that's no longer in
-  // the list. Mobile selects from the visible list and can't toggle filters
-  // while the detail overlay covers the list, so it never needs this.
+  // Desktop: if the currently selected repo is no longer on screen (an active
+  // filter narrowed it out, or it was hidden while Show-hidden is off), drop the
+  // selection so the detail pane can't keep showing an off-list repo. A repo
+  // hidden while Show-hidden is ON stays on screen (dimmed) → keeps its detail.
+  // Mobile selects from the visible list and can't toggle filters while the detail
+  // overlay covers the list, so it never needs this.
   $effect(() => {
-    if (!mobile && selectedPath !== null && !visibleProjects.some((p) => p.path === selectedPath)) {
+    if (!mobile && selectedPath !== null && !onScreenPaths.has(selectedPath)) {
       selectedPath = null;
     }
   });
@@ -245,6 +273,9 @@
     <div class="mobile-master">
       <ProjectBacklogList
         projects={visibleProjects}
+        hiddenProjects={shownHidden}
+        {hiddenCount}
+        {showHidden}
         pinnedPath={payload.pinnedPath}
         {selectedPath}
         {hasIssues}
@@ -252,8 +283,10 @@
         {query}
         ontoggleissues={() => (hasIssues = !hasIssues)}
         ontoggleprs={() => (hasPRs = !hasPRs)}
+        ontogglehidden={() => (showHidden = !showHidden)}
         onsearch={(q) => (query = q)}
         onselect={(p) => (selectedPath = p)}
+        onhide={handleHide}
       />
     </div>
     {#if selectedPath !== null}
@@ -309,6 +342,9 @@
       <div class="master-pane">
         <ProjectBacklogList
           projects={visibleProjects}
+          hiddenProjects={shownHidden}
+          {hiddenCount}
+          {showHidden}
           pinnedPath={payload.pinnedPath}
           {selectedPath}
           {hasIssues}
@@ -316,8 +352,10 @@
           {query}
           ontoggleissues={() => (hasIssues = !hasIssues)}
           ontoggleprs={() => (hasPRs = !hasPRs)}
+          ontogglehidden={() => (showHidden = !showHidden)}
           onsearch={(q) => (query = q)}
           onselect={(p) => (selectedPath = p)}
+          onhide={handleHide}
         />
       </div>
       <div class="detail-column">

@@ -130,6 +130,7 @@ function makeHarness(
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };

@@ -32,6 +32,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   repoMode: "forge",
   autoOptimizeFlagged: false,
   manualStepsIssueEnabled: false,
+  hidden: false,
   ...overrides,
 });
 

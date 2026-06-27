@@ -82,6 +82,7 @@ function makeDeps(
     store: {
       lastUsedByRepo: () => lastUsed,
       recentSessionCountsByRepo: () => recentCounts,
+      hiddenRepoPaths: () => new Set<string>(),
     } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,

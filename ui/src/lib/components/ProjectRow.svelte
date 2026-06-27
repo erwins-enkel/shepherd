@@ -6,13 +6,34 @@
     project,
     pinned,
     selected,
+    hidden = false,
     onselect,
+    onhide,
   }: {
     project: BacklogProject;
     pinned: boolean;
     selected: boolean;
+    /** Rendered in the dimmed "Hidden" group — the eye control acts as unhide. */
+    hidden?: boolean;
     onselect: () => void;
+    /** Toggle this repo's hidden state (hide when visible, unhide when in the Hidden group). */
+    onhide: () => void;
   } = $props();
+
+  // Keyboard activation for the role=button row (Enter/Space → select), matching
+  // native <button> semantics now that the root is a <div> (a real <button> can't
+  // legally nest the eye <button>).
+  function onRowKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onselect();
+    }
+  }
+
+  function onEyeClick(e: MouseEvent) {
+    e.stopPropagation(); // never also select the row
+    onhide();
+  }
 
   // Show the repo name (path basename), not the full path — far easier to scan.
   // Fall back to slug/display only if the path has no usable trailing segment.
@@ -32,11 +53,14 @@
   );
 </script>
 
-<button
+<div
   class="project-row"
   class:sel={selected}
+  class:dim={hidden}
+  role="button"
+  tabindex="0"
   onclick={onselect}
-  type="button"
+  onkeydown={onRowKeydown}
   title={project.display}
 >
   <div class="row-main">
@@ -89,7 +113,30 @@
       </span>
     {/if}
   </div>
-</button>
+  <button
+    class="row-hide"
+    type="button"
+    onclick={onEyeClick}
+    title={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
+    aria-label={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
+  >
+    {#if hidden}
+      <!-- eye (open): unhide -->
+      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+        <path
+          d="M12 5c-5 0-9.27 3.11-11 7.5C2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
+        />
+      </svg>
+    {:else}
+      <!-- eye-off: hide -->
+      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+        <path
+          d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C9.74 7.13 10.35 7 12 7zM2.71 3.16a.996.996 0 0 0 0 1.41l1.97 1.97A11.86 11.86 0 0 0 1 12.5C2.73 16.89 7 20 12 20c1.52 0 2.97-.3 4.31-.82l2.72 2.72a.996.996 0 1 0 1.41-1.41L4.13 3.16a.996.996 0 0 0-1.42 0zM12 17c-2.76 0-5-2.24-5-5 0-.77.18-1.5.49-2.14l1.57 1.57c-.03.18-.06.37-.06.57a3 3 0 0 0 3 3c.2 0 .38-.03.57-.07l1.57 1.57c-.65.32-1.37.5-2.14.5z"
+        />
+      </svg>
+    {/if}
+  </button>
+</div>
 
 <style>
   .project-row {
@@ -118,9 +165,66 @@
     background: var(--color-hover);
   }
 
+  .project-row:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -1px;
+  }
+
   .project-row.sel {
     border-color: var(--color-line-bright);
     background: var(--color-sel);
+  }
+
+  /* dimmed row in the Hidden group — reads as parked, not active */
+  .project-row.dim {
+    opacity: 0.55;
+  }
+  .project-row.dim .row-name {
+    color: var(--color-ink);
+    font-weight: 400;
+  }
+
+  /* eye-off / unhide control: hidden until row hover/focus on fine pointers;
+     always shown on coarse (touch) pointers where hover is unreachable. */
+  .row-hide {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 4px;
+    color: var(--color-faint);
+    font-size: var(--fs-base);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.12s,
+      color 0.12s;
+  }
+  .project-row:hover .row-hide,
+  .project-row:focus-within .row-hide,
+  .row-hide:focus-visible {
+    opacity: 1;
+  }
+  .row-hide:hover {
+    color: var(--color-red);
+  }
+  /* in the Hidden group the control is the primary affordance — always lit */
+  .project-row.dim .row-hide {
+    opacity: 1;
+    color: var(--color-muted);
+  }
+  .project-row.dim .row-hide:hover {
+    color: var(--color-ink-bright);
+  }
+
+  @media (pointer: coarse) {
+    .row-hide {
+      opacity: 1;
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
 
   .row-main {

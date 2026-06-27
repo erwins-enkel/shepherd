@@ -529,6 +529,8 @@ export interface RepoConfig {
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps (#1061).
    *  Default off — outbound write gated behind explicit per-repo opt-in. */
   manualStepsIssueEnabled: boolean;
+  /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
+  hidden: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -1017,6 +1019,8 @@ export interface BacklogProject {
   workflows: number | null;
   /** Default-branch CI rollup for the Actions tab marker; null = unknown / non-GitHub. */
   ciStatus: "success" | "failure" | "pending" | null;
+  /** Hidden from the repos panel (list-only declutter). The client filters/groups on this. */
+  hidden: boolean;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

@@ -6,6 +6,9 @@
 
   let {
     projects,
+    hiddenProjects = [],
+    hiddenCount = 0,
+    showHidden = false,
     pinnedPath,
     selectedPath,
     hasIssues,
@@ -13,12 +16,21 @@
     query,
     ontoggleissues,
     ontoggleprs,
+    ontogglehidden = () => {},
     onsearch,
     onselect,
+    onhide = () => {},
   }: {
     /** Already filtered by the parent (BacklogView) via filterProjects — the
      *  parent owns the filter state so it can keep the selection in sync. */
     projects: BacklogProject[];
+    /** Hidden repos to show in the collapsible "Hidden" group; the parent gates this
+     *  to non-empty only when the group should render (Show-hidden on, or searching). */
+    hiddenProjects?: BacklogProject[];
+    /** Total hidden repos (drives the chip badge; independent of search). */
+    hiddenCount?: number;
+    /** Whether the Show-hidden chip reads as active. */
+    showHidden?: boolean;
     pinnedPath: string | null;
     selectedPath: string | null;
     hasIssues: boolean;
@@ -26,8 +38,11 @@
     query: string;
     ontoggleissues: () => void;
     ontoggleprs: () => void;
+    ontogglehidden?: () => void;
     onsearch: (q: string) => void;
     onselect: (path: string) => void;
+    /** Hide/unhide a repo by path. */
+    onhide?: (path: string) => void;
   } = $props();
 
   const searching = $derived(query.trim() !== "");
@@ -87,14 +102,30 @@
     >
       {m.backlog_filter_has_prs()}
     </button>
+    {#if hiddenCount > 0}
+      <button
+        class="filter-chip"
+        class:active={showHidden}
+        type="button"
+        aria-pressed={showHidden}
+        onclick={ontogglehidden}
+      >
+        {m.backlog_filter_hidden({ count: hiddenCount })}
+      </button>
+    {/if}
   </div>
 </div>
 
 <!-- The parent only renders this list when there are forge repos, so an empty
-     `projects` here always means the active chips or search matched nothing. -->
+     visible `projects` here means the active chips/search matched nothing — OR every
+     repo is hidden and Show-hidden is off (a distinct, less-confusing hint). -->
 {#if projects.length === 0}
   <div class="filter-empty">
-    <span class="filter-empty-label">{m.backlog_filter_none_match()}</span>
+    {#if hiddenCount > 0 && !showHidden && !searching}
+      <span class="filter-empty-label">{m.backlog_filter_all_hidden()}</span>
+    {:else}
+      <span class="filter-empty-label">{m.backlog_filter_none_match()}</span>
+    {/if}
   </div>
 {:else}
   <div class="project-list">
@@ -106,6 +137,7 @@
           pinned={project.path === pinnedPath}
           selected={project.path === selectedPath}
           onselect={() => onselect(project.path)}
+          onhide={() => onhide(project.path)}
         />
       {/each}
       {#if grouped.rest.length > 0}
@@ -118,8 +150,31 @@
         pinned={project.path === pinnedPath}
         selected={project.path === selectedPath}
         onselect={() => onselect(project.path)}
+        onhide={() => onhide(project.path)}
       />
     {/each}
+  </div>
+{/if}
+
+<!-- Hidden group: the parent passes a non-empty `hiddenProjects` only when it should
+     show (Show-hidden on, or an active search surfacing hidden matches). Dimmed rows
+     whose eye control acts as unhide. -->
+{#if hiddenProjects.length > 0}
+  <div class="hidden-group">
+    <div class="recent-label">{m.backlog_hidden_heading()}</div>
+    <div class="recent-sep" role="presentation"></div>
+    <div class="project-list">
+      {#each hiddenProjects as project (project.path)}
+        <ProjectRow
+          {project}
+          hidden
+          pinned={project.path === pinnedPath}
+          selected={project.path === selectedPath}
+          onselect={() => onselect(project.path)}
+          onhide={() => onhide(project.path)}
+        />
+      {/each}
+    </div>
   </div>
 {/if}
 

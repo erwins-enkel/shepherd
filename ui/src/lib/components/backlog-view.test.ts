@@ -22,6 +22,8 @@ import {
   actionsTabState,
   filterProjects,
   partitionRecents,
+  effectiveHidden,
+  splitHidden,
   RECENT_LIMIT,
 } from "./backlog-view";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
@@ -32,6 +34,7 @@ function project(
   openPRs: number | null,
   workflows: number | null = null,
   ciStatus: BacklogProject["ciStatus"] = null,
+  hidden = false,
 ): BacklogProject {
   return {
     path,
@@ -43,6 +46,7 @@ function project(
     prKinds: null,
     workflows,
     ciStatus,
+    hidden,
   };
 }
 
@@ -430,5 +434,39 @@ describe("BacklogView display logic — integration of helpers", () => {
     const text = newtask_pr_review_template({ number: 142, url: "https://example/pr/142" });
     expect(text).toContain("142");
     expect(text).toContain("https://example/pr/142");
+  });
+});
+
+describe("effectiveHidden / splitHidden", () => {
+  it("effectiveHidden: overlay wins over the server baseline", () => {
+    const shownByServer = project("/r/a", 1, 0, null, null, false);
+    const hiddenByServer = project("/r/b", 1, 0, null, null, true);
+    // No overlay → server baseline.
+    expect(effectiveHidden(shownByServer, {})).toBe(false);
+    expect(effectiveHidden(hiddenByServer, {})).toBe(true);
+    // Overlay overrides the baseline in BOTH directions (optimistic toggle).
+    expect(effectiveHidden(shownByServer, { "/r/a": true })).toBe(true);
+    expect(effectiveHidden(hiddenByServer, { "/r/b": false })).toBe(false);
+  });
+
+  it("effectiveHidden: missing hidden field defaults to not-hidden", () => {
+    const p = { ...project("/r/c", 0, 0), hidden: undefined } as unknown as BacklogProject;
+    expect(effectiveHidden(p, {})).toBe(false);
+  });
+
+  it("splitHidden: partitions by effective hidden, preserving order", () => {
+    const a = project("/r/a", 1, 0); // visible
+    const b = project("/r/b", 1, 0, null, null, true); // hidden (server)
+    const c = project("/r/c", 1, 0); // visible, but overlay-hidden below
+    const { visible, hidden } = splitHidden([a, b, c], { "/r/c": true });
+    expect(visible.map((p) => p.path)).toEqual(["/r/a"]);
+    expect(hidden.map((p) => p.path)).toEqual(["/r/b", "/r/c"]);
+  });
+
+  it("splitHidden: an overlay unhide pulls a server-hidden repo back to visible", () => {
+    const b = project("/r/b", 1, 0, null, null, true);
+    const { visible, hidden } = splitHidden([b], { "/r/b": false });
+    expect(visible.map((p) => p.path)).toEqual(["/r/b"]);
+    expect(hidden).toEqual([]);
   });
 });

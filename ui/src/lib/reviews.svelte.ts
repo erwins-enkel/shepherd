@@ -164,6 +164,7 @@ class RepoConfigStore {
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
   autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
+  hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
@@ -192,6 +193,7 @@ class RepoConfigStore {
     this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
     this.autoOptimize = { ...this.autoOptimize, [repoPath]: c.autoOptimizeFlagged };
     this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: c.manualStepsIssueEnabled };
+    this.hidden = { ...this.hidden, [repoPath]: c.hidden };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
@@ -259,6 +261,7 @@ class RepoConfigStore {
         | "buildQueueEnabled"
         | "autoOptimizeFlagged"
         | "manualStepsIssueEnabled"
+        | "hidden"
         | "planGateEnabled"
         | "draftMode"
         | "signoffAuthority"
@@ -312,6 +315,23 @@ class RepoConfigStore {
     this.learnings = { ...this.learnings, [repoPath]: next }; // optimistic
     await this.apply(repoPath, { learningsEnabled: next }, () => {
       this.learnings = { ...this.learnings, [repoPath]: prev };
+    });
+  }
+
+  /** Effective hidden state for a repo: the optimistic overlay if this client has
+   *  toggled it, else the server-provided baseline (`fallback`, from the backlog payload). */
+  isHidden(repoPath: string, fallback: boolean): boolean {
+    return this.hidden[repoPath] ?? fallback;
+  }
+
+  /** Hide/unhide a repo from the Backlog panel. `current` is the effective state being
+   *  flipped (overlay or payload baseline). Optimistic, reverts on a failed PUT. */
+  async toggleHidden(repoPath: string, current: boolean) {
+    const prev = this.hidden[repoPath];
+    const next = !current;
+    this.hidden = { ...this.hidden, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { hidden: next }, () => {
+      this.hidden = { ...this.hidden, [repoPath]: prev };
     });
   }
 

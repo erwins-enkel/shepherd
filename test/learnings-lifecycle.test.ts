@@ -114,6 +114,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
     ...o,
   };
 }

@@ -17,6 +17,7 @@ function project(partial: Partial<BacklogProject> = {}): BacklogProject {
     prKinds: null,
     workflows: null,
     ciStatus: null,
+    hidden: false,
     ...partial,
   };
 }
@@ -28,6 +29,7 @@ describe("ProjectRow PR-kind counts", () => {
       pinned: false,
       selected: false,
       onselect: () => {},
+      onhide: () => {},
     });
     // prominent count = regular (2), not openPRs (4)
     const prs = document.body.querySelector(".count-prs");
@@ -44,6 +46,7 @@ describe("ProjectRow PR-kind counts", () => {
       pinned: false,
       selected: false,
       onselect: () => {},
+      onhide: () => {},
     });
     const prs = document.body.querySelector(".count-prs");
     expect(prs?.textContent?.trim()).toBe("0");
@@ -60,6 +63,7 @@ describe("ProjectRow PR-kind counts", () => {
       pinned: false,
       selected: false,
       onselect: () => {},
+      onhide: () => {},
     });
     const prs = document.body.querySelector(".count-prs");
     expect(prs?.textContent?.trim()).toBe("3");
@@ -72,6 +76,7 @@ describe("ProjectRow PR-kind counts", () => {
       pinned: false,
       selected: false,
       onselect: () => {},
+      onhide: () => {},
     });
     const prs = document.body.querySelector(".count-prs");
     expect(prs?.textContent?.trim()).toBe("5");

@@ -1775,6 +1775,7 @@ const broadcastBacklog = async () =>
       resolveForge,
       lastUsedByRepo: () => store.lastUsedByRepo(),
       recentCountsByRepo: (since) => store.recentSessionCountsByRepo(since),
+      hiddenRepoPaths: () => store.hiddenRepoPaths(),
       repoRoot: config.repoRoot,
     }),
   );

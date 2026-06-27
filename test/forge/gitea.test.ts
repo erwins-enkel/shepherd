@@ -32,6 +32,17 @@ function fakeFetch(routes: Record<string, { status?: number; json?: unknown }>) 
   return { fn: fn as unknown as typeof fetch, calls };
 }
 
+test("GiteaForge.listBacklogCounts: reads open counts from the repo summary (no CI/kinds)", async () => {
+  const { fn, calls } = fakeFetch({
+    "GET /api/v1/repos/team/proj": { json: { open_issues_count: 5, open_pr_counter: 2 } },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const counts = await forge.listBacklogCounts();
+  expect(counts).toEqual({ openIssues: 5, openPRs: 2, ciStatus: null, prKinds: null });
+  expect(calls[0]!.url).toBe("https://git.example.com/api/v1/repos/team/proj");
+  expect(calls[0]!.headers.get("authorization")).toBe("token secret");
+});
+
 test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {

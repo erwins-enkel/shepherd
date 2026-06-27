@@ -6,7 +6,7 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, MergeInput, PullRequest } from "../src/forge/types";
-import { DEPENDABOT_REBASE_COMMAND } from "../src/forge/types";
+import { DEPENDABOT_REBASE_COMMAND, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
 
 let tmpRoot: string;
@@ -41,6 +41,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [PR],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},

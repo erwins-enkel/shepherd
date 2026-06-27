@@ -6,6 +6,7 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, Issue } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
 
 let tmpRoot: string;
@@ -36,6 +37,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
     deployWorkflow: null,
     listIssues: async () => [ISSUE],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},

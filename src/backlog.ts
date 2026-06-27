@@ -1,30 +1,15 @@
-import { execFileSync } from "./instrument";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseRemote } from "./forge/remote";
 import { detectForge } from "./forge";
 import { makeForgeMemo } from "./forge/resolve";
-import { classifyPr } from "./forge/pr-kind";
-import type { ForgeMap, GitForge } from "./forge/types";
+import type { GhRunner } from "./forge/github";
+import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
+import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
 
-/** Default-branch CI rollup state, or null when unknown / no CI / non-GitHub. */
-export type CiStatus = "success" | "failure" | "pending" | null;
-
-export interface RepoCounts {
-  openIssues: number | null;
-  openPRs: number | null;
-  /** Default-branch CI health for the Actions tab marker. GitHub-only; null otherwise. */
-  ciStatus: CiStatus;
-  /** Open-PR breakdown by kind for the repo-list row. GitHub-only; null for Gitea/unknown. */
-  prKinds: { release: number; dependabot: number; regular: number } | null;
-}
-
-/**
- * Runs `gh` and returns stdout. Sync or async — the background warmer passes an
- * async runner so handleBacklog's per-repo `Promise.all` actually fans out in
- * parallel instead of serializing on a blocking `execFileSync`.
- */
-export type CountsRunner = (args: string[]) => string | Promise<string>;
+// RepoCounts now lives with the GitForge seam (each adapter returns it); re-export
+// so existing importers (backlog-poller, server) keep their "./backlog" path. (CiStatus
+// is exported from forge/types.ts directly — backlog.ts no longer has a consumer for it.)
+export type { RepoCounts } from "./forge/types";
 
 interface CacheEntry {
   at: number;
@@ -42,12 +27,7 @@ const TTL_MS = 60_000;
  */
 const DEFAULT_MAX_CONCURRENCY = 6;
 
-const NULL_COUNTS: RepoCounts = {
-  openIssues: null,
-  openPRs: null,
-  ciStatus: null,
-  prKinds: null,
-};
+const NULL_COUNTS = EMPTY_BACKLOG_COUNTS;
 
 /**
  * Minimal FIFO semaphore — bounds how many gated thunks run concurrently.
@@ -98,33 +78,6 @@ export function countDefinedWorkflows(repoDir: string): number {
   }
 }
 
-function originUrl(repoDir: string): string | null {
-  try {
-    return execFileSync("git", ["-C", repoDir, "remote", "get-url", "origin"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
-/** GitHub StatusState rollup → our CiStatus. Unknown/absent → null. */
-function mapRollupState(state: string | undefined | null): CiStatus {
-  switch (state) {
-    case "SUCCESS":
-      return "success";
-    case "FAILURE":
-    case "ERROR":
-      return "failure";
-    case "PENDING":
-    case "EXPECTED":
-      return "pending";
-    default:
-      return null;
-  }
-}
-
 export class CountsService {
   /** Forge resolver: positives cached for the process lifetime, negatives (e.g. a repo
    *  whose `origin` is added later) re-probed after a TTL so they self-heal without a
@@ -139,7 +92,9 @@ export class CountsService {
 
   constructor(
     private readonly forges: ForgeMap,
-    private readonly run: CountsRunner,
+    /** `gh` runner forwarded to the resolved GitHub adapter (production: an untimed
+     *  async runner so per-repo GraphQL counts fan out in parallel; tests: a fake). */
+    private readonly run: GhRunner,
     private readonly fetchFn: typeof fetch = fetch,
     maxConcurrency = DEFAULT_MAX_CONCURRENCY,
     /** Optional: when provided, lightweight repos are treated as not-forge-backed.
@@ -149,7 +104,13 @@ export class CountsService {
     forgeMemoOpts?: { negativeTtlMs?: number; now?: () => number },
   ) {
     this.gate = new Semaphore(maxConcurrency);
-    this.resolveForgeCached = makeForgeMemo((dir) => detectForge(dir, this.forges), forgeMemoOpts);
+    // Resolve adapters with OUR runner/fetch so the counts call (forge.listBacklogCounts)
+    // uses them instead of the adapter's built-in defaults — load-bearing for both the
+    // injected test fakes and production's untimed runner.
+    this.resolveForgeCached = makeForgeMemo(
+      (dir) => detectForge(dir, this.forges, { ghRunner: this.run, fetchFn: this.fetchFn }),
+      forgeMemoOpts,
+    );
   }
 
   /**
@@ -210,112 +171,15 @@ export class CountsService {
 
   private async fetch(repoPath: string): Promise<RepoCounts> {
     // Lightweight repos have no remote forge — skip counts regardless of origin URL.
-    // Read repoMode per call so a runtime toggle propagates without a restart.
+    // Read repoMode per call so a runtime toggle propagates without a restart. (This is
+    // a config gate, NOT a forge-kind check: detectForge still yields a GithubForge for a
+    // lightweight github-origin repo, so we must short-circuit before resolving.)
     if (this.getRepoConfig?.(repoPath)?.repoMode === "lightweight") return NULL_COUNTS;
 
     const forge = this.resolveForgeCached(repoPath);
     if (!forge) return NULL_COUNTS;
 
-    if (forge.kind === "github") {
-      return this.fetchGitHub(forge.slug!);
-    }
-    return this.fetchGitea(forge.slug!, repoPath);
-  }
-
-  private async fetchGitHub(slug: string): Promise<RepoCounts> {
-    const [owner, name] = slug.split("/");
-    const out = await this.run([
-      "api",
-      "graphql",
-      "-F",
-      `owner=${owner}`,
-      "-F",
-      `name=${name}`,
-      "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName labels(first:10){nodes{name}} } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
-    ]);
-    const json = JSON.parse(out) as {
-      data?: {
-        repository?: {
-          issues?: { totalCount?: number };
-          pullRequests?: {
-            totalCount?: number;
-            nodes?: Array<{
-              author?: { login?: string } | null;
-              title?: string;
-              headRefName?: string;
-              labels?: { nodes?: Array<{ name?: string } | null> } | null;
-            } | null>;
-          };
-          defaultBranchRef?: {
-            target?: { statusCheckRollup?: { state?: string } | null } | null;
-          } | null;
-        };
-      };
-    };
-    const repo = json.data?.repository;
-    const issues = repo?.issues?.totalCount;
-    const prs = repo?.pullRequests?.totalCount;
-    const openPRs = typeof prs === "number" ? prs : null;
-
-    // Open-PR breakdown for the repo-list row. We fetch only the first 100 open
-    // PRs (one page — no extra request); each node is classified once. `regular`
-    // is derived from the authoritative `totalCount` minus the bot kinds (clamped
-    // at 0), NOT by counting "regular" nodes — so a repo with >100 open PRs
-    // classifies the first page and its unfetched tail safely falls into
-    // `regular` rather than silently vanishing.
-    let prKinds: RepoCounts["prKinds"] = null;
-    if (openPRs !== null) {
-      const kinds = (repo?.pullRequests?.nodes ?? [])
-        .filter((n): n is NonNullable<typeof n> => !!n)
-        .map((n) =>
-          classifyPr({
-            author: n.author?.login ?? "",
-            title: n.title ?? "",
-            headRefName: n.headRefName ?? undefined,
-            labels: (n.labels?.nodes ?? [])
-              .map((l) => l?.name)
-              .filter((name): name is string => !!name),
-          }),
-        );
-      const release = kinds.filter((k) => k === "release").length;
-      const dependabot = kinds.filter((k) => k === "dependabot").length;
-      prKinds = { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) };
-    }
-
-    return {
-      openIssues: typeof issues === "number" ? issues : null,
-      openPRs,
-      ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
-      prKinds,
-    };
-  }
-
-  private async fetchGitea(slug: string, repoPath: string): Promise<RepoCounts> {
-    const url = originUrl(repoPath);
-    if (!url) return NULL_COUNTS;
-    const remote = parseRemote(url);
-    if (!remote) return NULL_COUNTS;
-
-    const cfg = this.forges[remote.host] ?? {};
-    const base = (cfg.baseUrl ?? "").replace(/\/+$/, "");
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (cfg.token) headers.Authorization = `token ${cfg.token}`;
-
-    const res = await this.fetchFn(`${base}/api/v1/repos/${slug}`, { headers });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`gitea GET /api/v1/repos/${slug} → ${res.status}: ${text}`);
-    }
-    const data = (await res.json()) as {
-      open_issues_count?: number;
-      open_pr_counter?: number;
-    };
-    return {
-      openIssues: typeof data.open_issues_count === "number" ? data.open_issues_count : null,
-      openPRs: typeof data.open_pr_counter === "number" ? data.open_pr_counter : null,
-      ciStatus: null,
-      prKinds: null,
-    };
+    // Each adapter answers in its own way (GitHub GraphQL / Gitea REST / Local null).
+    return forge.listBacklogCounts();
   }
 }

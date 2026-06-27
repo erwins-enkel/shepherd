@@ -8,6 +8,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { makeApp, type AppDeps } from "../src/server";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { PrCache } from "../src/pr-poller";
 
 const ORIGIN = "http://localhost";
@@ -123,6 +124,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }),
     merge: async () => {},

@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { DrainService } from "../src/drain";
 import { SessionStore } from "../src/store";
-import { EmptyDiffError } from "../src/forge/types";
+import { EmptyDiffError, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { GitForge, Issue, OpenPrInput, PrStatus, SubIssueRef } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { CompletedEpic } from "../src/completed-epic";
@@ -56,6 +56,7 @@ function fakeForge(opts: {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async (head: string) => {
       prStatusCalls.push(head);
       return (

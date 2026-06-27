@@ -13,6 +13,7 @@ import type {
   PrStatus,
   PullRequest,
   RedeployInput,
+  RepoCounts,
   WorkflowJob,
   WorkflowRun,
 } from "./types";
@@ -96,6 +97,21 @@ export class GiteaForge implements GitForge {
     if (res.status === 204) return null;
     const text = await res.text();
     return text ? JSON.parse(text) : null;
+  }
+
+  async listBacklogCounts(): Promise<RepoCounts> {
+    // The repo summary carries both open counts in one cheap call. Gitea exposes no
+    // default-branch CI rollup or PR-kind split, so those stay null (as today).
+    const data = (await this.req("GET", `/api/v1/repos/${this.slug}`)) as {
+      open_issues_count?: number;
+      open_pr_counter?: number;
+    };
+    return {
+      openIssues: typeof data?.open_issues_count === "number" ? data.open_issues_count : null,
+      openPRs: typeof data?.open_pr_counter === "number" ? data.open_pr_counter : null,
+      ciStatus: null,
+      prKinds: null,
+    };
   }
 
   async listIssues(): Promise<Issue[]> {

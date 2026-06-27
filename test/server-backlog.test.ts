@@ -17,6 +17,7 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { RepoCounts } from "../src/backlog";
 import { config } from "../src/config";
 
@@ -54,6 +55,7 @@ function fakeForge(slug: string, kind: "github" | "gitea" = "github"): GitForge 
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     openPr: async () => ({ state: "none", checks: "none", deployConfigured: false }),
     merge: async () => {},

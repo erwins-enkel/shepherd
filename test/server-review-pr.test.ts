@@ -5,6 +5,7 @@ import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { Session } from "../src/types";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { PrCache } from "../src/pr-poller";
 import type { ReviewOutcome } from "../src/review";
 
@@ -67,6 +68,7 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {
     deployWorkflow: "deploy.yaml",
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async (head) => {
       log.push(`status:${head}`);
       return { state: "open", number: 5, checks: "success", deployConfigured: true } as PrStatus;

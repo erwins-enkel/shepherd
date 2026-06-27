@@ -31,49 +31,38 @@
   {#if label != null}
     <span class="pui-gauge-label">{label}</span>
   {/if}
-  <svg
-    class="pui-gauge-svg"
-    viewBox="0 0 100 100"
-    role="meter"
-    aria-valuenow={rawValue}
-    aria-valuemin={0}
-    aria-valuemax={max}
-    aria-label={ariaLabel}
-  >
-    {#if ariaLabel != null}
-      <title>{ariaLabel}</title>
-    {/if}
-    <circle cx="50" cy="50" r={R} fill="none" stroke="var(--color-inset)" stroke-width="8" />
-    <circle
-      cx="50"
-      cy="50"
-      r={R}
-      fill="none"
-      stroke={arcColor}
-      stroke-width="8"
-      stroke-linecap="round"
-      stroke-dasharray={CIRCUMFERENCE}
-      stroke-dashoffset={dashOffset}
-      transform="rotate(-90 50 50)"
-    />
-    <text
-      x="50"
-      y="42"
-      text-anchor="middle"
-      dominant-baseline="middle"
-      font-size="18"
-      font-weight="600"
-      style="font-variant-numeric: tabular-nums; fill: {arcColor};">{pct}%</text
+  <div class="pui-gauge-ring">
+    <svg
+      class="pui-gauge-svg"
+      viewBox="0 0 100 100"
+      role="meter"
+      aria-valuenow={rawValue}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-label={ariaLabel}
     >
-    <text
-      x="50"
-      y="58"
-      text-anchor="middle"
-      dominant-baseline="middle"
-      font-size="9"
-      style="fill: var(--color-muted);">{rawValue}/{max}</text
-    >
-  </svg>
+      {#if ariaLabel != null}
+        <title>{ariaLabel}</title>
+      {/if}
+      <circle cx="50" cy="50" r={R} fill="none" stroke="var(--color-inset)" stroke-width="8" />
+      <circle
+        cx="50"
+        cy="50"
+        r={R}
+        fill="none"
+        stroke={arcColor}
+        stroke-width="8"
+        stroke-linecap="round"
+        stroke-dasharray={CIRCUMFERENCE}
+        stroke-dashoffset={dashOffset}
+        transform="rotate(-90 50 50)"
+      />
+    </svg>
+    <div class="pui-gauge-overlay" aria-hidden="true">
+      <span class="pui-gauge-value" style:color={arcColor}>{pct}%</span>
+      <span class="pui-gauge-max">{rawValue}/{max}</span>
+    </div>
+  </div>
   {#if caption != null}
     <span class="pui-gauge-caption">{caption}</span>
   {/if}
@@ -91,10 +80,35 @@
     color: var(--color-ink);
     font-weight: 600;
   }
-  .pui-gauge-svg {
+  .pui-gauge-ring {
+    position: relative;
     width: 100%;
     max-width: 120px;
+  }
+  .pui-gauge-svg {
+    width: 100%;
     height: auto;
+    display: block;
+  }
+  .pui-gauge-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .pui-gauge-value {
+    font-size: var(--fs-xl);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .pui-gauge-max {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
   }
   .pui-gauge-caption {
     font-size: var(--fs-micro);

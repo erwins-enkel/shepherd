@@ -35,7 +35,7 @@
       .join(" ");
   });
 
-  const ariaLabel = $derived(label ?? caption ?? undefined);
+  const ariaLabel = $derived(label ?? caption ?? m.plugin_ui_sparkline_label());
 </script>
 
 {#if points.length === 0}
@@ -52,9 +52,7 @@
       role="img"
       aria-label={ariaLabel}
     >
-      {#if ariaLabel != null}
-        <title>{ariaLabel}</title>
-      {/if}
+      <title>{ariaLabel}</title>
       <polyline
         points={polylinePoints}
         fill="none"

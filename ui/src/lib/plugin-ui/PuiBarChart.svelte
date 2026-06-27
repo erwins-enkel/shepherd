@@ -47,7 +47,11 @@
 {#if bars.length === 0}
   <p class="pui-barchart-empty">{m.plugin_ui_barchart_empty()}</p>
 {:else if orientation === "horizontal"}
-  <div class="pui-barchart pui-barchart--horiz" role="list">
+  <div
+    class="pui-barchart pui-barchart--horiz"
+    role="list"
+    aria-label={m.plugin_ui_barchart_label()}
+  >
     {#each bars as bar, i (i)}
       <div class="pui-barchart-row" role="listitem" aria-label="{bar.label}: {bar.value}">
         <span class="pui-barchart-row-label">{bar.label}</span>
@@ -63,7 +67,11 @@
     {/each}
   </div>
 {:else}
-  <div class="pui-barchart pui-barchart--vert" role="list">
+  <div
+    class="pui-barchart pui-barchart--vert"
+    role="list"
+    aria-label={m.plugin_ui_barchart_label()}
+  >
     <div class="pui-barchart-cols">
       {#each bars as bar, i (i)}
         <div class="pui-barchart-vcol" role="listitem" aria-label="{bar.label}: {bar.value}">

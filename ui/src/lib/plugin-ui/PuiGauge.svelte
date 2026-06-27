@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PluginUINode } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
 
   let { node }: { node: PluginUINode } = $props();
@@ -24,7 +25,7 @@
   const R = 38;
   const CIRCUMFERENCE = 2 * Math.PI * R;
   const dashOffset = $derived(CIRCUMFERENCE * (1 - ratio));
-  const ariaLabel = $derived(label ?? caption ?? undefined);
+  const ariaLabel = $derived(label ?? caption ?? m.plugin_ui_gauge_label());
 </script>
 
 <div class="pui-gauge">
@@ -41,9 +42,7 @@
       aria-valuemax={max}
       aria-label={ariaLabel}
     >
-      {#if ariaLabel != null}
-        <title>{ariaLabel}</title>
-      {/if}
+      <title>{ariaLabel}</title>
       <circle cx="50" cy="50" r={R} fill="none" stroke="var(--color-inset)" stroke-width="8" />
       <circle
         cx="50"

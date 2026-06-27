@@ -65,15 +65,17 @@
     return `0.00,${H} ${line} ${W.toFixed(2)},${H}`;
   }
 
-  const ariaLabel = $derived.by((): string | undefined => {
+  const ariaLabel = $derived.by((): string => {
     const labels = series
       .map((s) => s.label)
       .filter(Boolean)
       .join(", ");
     if (labels) return labels;
     if (caption) return caption;
-    return undefined;
+    return m.plugin_ui_timeseries_label();
   });
+
+  const labelledSeries = $derived(series.filter((s) => s.label.length > 0));
 </script>
 
 {#if !hasData}
@@ -87,9 +89,7 @@
       role="img"
       aria-label={ariaLabel}
     >
-      {#if ariaLabel != null}
-        <title>{ariaLabel}</title>
-      {/if}
+      <title>{ariaLabel}</title>
       {#each series as s, i (i)}
         {#if s.points.length > 0}
           {#if kind === "area"}
@@ -112,9 +112,9 @@
         {/if}
       {/each}
     </svg>
-    {#if series.some((s) => s.label)}
+    {#if labelledSeries.length > 0}
       <div class="pui-timeseries-legend">
-        {#each series as s, i (i)}
+        {#each labelledSeries as s, i (i)}
           <span class="pui-timeseries-legend-item">
             <span class="pui-timeseries-swatch" style:background={toneColor(s.tone)}></span>
             <span class="pui-timeseries-legend-label">{s.label}</span>

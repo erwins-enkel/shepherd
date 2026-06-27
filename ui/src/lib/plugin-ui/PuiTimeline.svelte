@@ -33,7 +33,7 @@
 {#if events.length === 0}
   <p class="pui-timeline-empty">{m.plugin_ui_timeline_empty()}</p>
 {:else}
-  <ol class="pui-timeline">
+  <ol class="pui-timeline" aria-label={m.plugin_ui_timeline_label()}>
     {#each events as ev, i (i)}
       <li class="pui-timeline-event">
         <span class="pui-timeline-dot" style:background={ev.color}></span>

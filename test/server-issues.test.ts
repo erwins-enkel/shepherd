@@ -76,7 +76,7 @@ test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async 
   expect(await res.json()).toEqual({ slug: null, webUrl: null, issues: [], viewer: null });
 });
 
-test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => {
+test("GET /api/issues flags forge errors → {slug, issues:[], error}", async () => {
   const app = makeApp(
     makeDeps(() =>
       fakeForge({
@@ -88,11 +88,14 @@ test("GET /api/issues swallows forge errors → {slug, issues:[]}", async () => 
   );
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
+  // Empty issues but error set, so the UI can say "couldn't load" instead of
+  // the indistinguishable "no open issues" (e.g. a rate-limited forge).
   expect(await res.json()).toEqual({
     slug: "team/proj",
     webUrl: null,
     issues: [],
     viewer: null,
+    error: "fetch_failed",
   });
 });
 

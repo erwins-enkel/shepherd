@@ -728,6 +728,10 @@ export async function listIssues(repoPath: string): Promise<{
    *  resolved (offline/unauth/local forge). Drives the "mine & unassigned"
    *  filter (#824); null → fail open (show all). */
   viewer: string | null;
+  /** Set when the forge listing threw (missing/un-authed CLI, network, or a
+   *  rate-limited forge): the empty issues[] is a failure, not a genuine zero.
+   *  Lets the UI distinguish "couldn't load" from "no open issues". */
+  error?: string | null;
 }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");

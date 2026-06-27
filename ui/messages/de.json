@@ -2056,5 +2056,7 @@
   "topbar_tokens_total": "gesamt",
   "topbar_tokens_window": "{period} Tokens",
   "feat_codex_usage_topbar_title": "Codex-Auslastung in der Topbar",
-  "feat_codex_usage_topbar_body": "Das Auslastungs-Popover in der Topbar zeigt jetzt auch Codex-Token-Telemetrie, wenn eine lokale Codex-CLI konfiguriert ist. So bleiben Claude- und Codex-Kapazität an derselben Stelle sichtbar."
+  "feat_codex_usage_topbar_body": "Das Auslastungs-Popover in der Topbar zeigt jetzt auch Codex-Token-Telemetrie, wenn eine lokale Codex-CLI konfiguriert ist. So bleiben Claude- und Codex-Kapazität an derselben Stelle sichtbar.",
+  "feat_working_line_title": "Eine Arbeitslinie statt „AKTIV“",
+  "feat_working_line_body": "Eine laufende Sitzung zeigt jetzt eine dünne animierte Linie dort, wo zuvor „AKTIV“ stand. Leerlaufende und wartende Sitzungen zeigen dort nichts an — Status-Punkt und Herzschlag tragen den Zustand bereits, sodass die Karte ruhiger wirkt und die Zeit mehr Platz hat."
 }

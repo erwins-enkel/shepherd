@@ -1713,4 +1713,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_scratchpad_files_body",
     targetId: "files-tab",
   },
+  {
+    // No targetId: the working line only renders on a running session card (idle/
+    // parked cards show nothing in that slot), so there's no stable coachmark
+    // anchor — surface via the What's-New drawer only. 1.37.0 is the latest
+    // released tag, so this ships in the next release (1.38.0).
+    id: "working-line",
+    sinceVersion: "1.38.0",
+    titleKey: "feat_working_line_title",
+    bodyKey: "feat_working_line_body",
+  },
 ];

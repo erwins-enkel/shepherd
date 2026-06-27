@@ -315,6 +315,38 @@ body {
     opacity: 0.55;
   }
 }
+/* WORKING line — replaces the BUSY text badge on a running session. A very thin
+   muted glint sweeping a transparent rail, à la a working/indeterminate bar; its
+   mere presence means "busy", its absence means parked/idle. Deliberately quiet
+   (muted ink, not amber): the left StatusPip already pulses amber and the
+   heartbeat strip also encodes activity, so this third running signal must not
+   add to the amber wall. */
+.busy-line {
+  width: 48px;
+  height: 1.5px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.busy-line::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--color-ink-bright), transparent);
+  opacity: 0.7;
+  transform: translateX(-100%);
+  animation: busy-sweep 1.5s ease-in-out infinite;
+}
+@keyframes busy-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* Blanket-disable decorative motion under reduced-motion. Functional status
    indicators ("work happening": CI dot-pulse, pip-pulse, critic rev-pulse,
    in-progress blink) intentionally override this with `animation: ... !important`
@@ -325,6 +357,14 @@ body {
   *::before,
   *::after {
     animation: none !important;
+  }
+  /* The working line is functional, not decorative: with the sweep stilled the
+     glint would park off-rail (invisible), dropping the busy signal — so fall
+     back to a static muted line that still reads as "busy". */
+  .busy-line::before {
+    transform: none;
+    background: var(--color-muted);
+    opacity: 0.6;
   }
 }
 

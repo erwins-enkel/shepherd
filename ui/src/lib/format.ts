@@ -159,9 +159,27 @@ export function hideStatusBadge(
  * IMPORTANT: if a new autopilot state is added, it MUST be reflected in BOTH
  * this helper AND `AutopilotBadge.svelte`'s render condition, or status-badge
  * suppression silently desyncs.
+ *
+ * Takes the repo's autopilot default so the codex-non-isolated "unavailable" state
+ * can resolve the inherited-default case (autopilotEnabled === null) — see
+ * codexAutopilotUnavailable.
  */
-export function autopilotBadgeShown(s: Session): boolean {
-  return s.autopilotPaused || s.autopilotComplete;
+export function autopilotBadgeShown(s: Session, repoAutopilotDefault: boolean): boolean {
+  return (
+    s.autopilotPaused || s.autopilotComplete || codexAutopilotUnavailable(s, repoAutopilotDefault)
+  );
+}
+
+/**
+ * Codex autopilot stands down on non-isolated sessions (server-side `eligible()` gate:
+ * an exited pane's `codex resume --last` could steer a sibling session in a shared cwd).
+ * The badge surfaces that as an explicit "unavailable" state so an opted-in toggle is
+ * never silently inert. Needs the repo default to catch the inherited-default-ON case
+ * where the per-session override is null — mirrors `effectiveAutopilot` (override ?? default).
+ */
+export function codexAutopilotUnavailable(s: Session, repoAutopilotDefault: boolean): boolean {
+  const on = s.autopilotEnabled ?? repoAutopilotDefault;
+  return on && (s.agentProvider ?? "claude") === "codex" && !s.isolated;
 }
 
 export function statusLabel(s: SessionStatus): string {

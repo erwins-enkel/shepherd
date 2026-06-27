@@ -9,6 +9,7 @@
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
+  import { repoConfig } from "$lib/reviews.svelte";
 
   let {
     session,
@@ -110,7 +111,10 @@
     >
   {/if}
   <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
-  {#if !reviewing}<AutopilotBadge {session} />{/if}
+  {#if !reviewing}<AutopilotBadge
+      {session}
+      repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+    />{/if}
   <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
        are quiet informational badges (slate). Trusted-manual renders nothing. -->
   {#if session.sandboxDegraded}

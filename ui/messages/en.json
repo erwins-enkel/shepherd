@@ -1967,7 +1967,7 @@
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Codex integration is an Alpha/MVP feature and is under heavy development.",
   "newtask_agent_provider_codex_suggested_for_hold": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead.",
-  "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session. Plan Gate and Autopilot are off for this task; the model picker uses Codex CLI models.",
+  "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is off. Autopilot is best-effort (Alpha) and drives an isolated session toward an open PR. The model picker uses Codex CLI models.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",
   "agent_provider_codex_alpha": "Codex (Alpha MVP)",
@@ -2058,5 +2058,9 @@
   "feat_codex_usage_topbar_title": "Codex usage in the topbar",
   "feat_codex_usage_topbar_body": "The topbar usage popover now includes Codex token telemetry when a local Codex CLI is configured, so Claude and Codex capacity are visible from the same place.",
   "feat_working_line_title": "A working line, not a BUSY label",
-  "feat_working_line_body": "A running session now shows a thin animated line where the BUSY label used to be. Idle and waiting sessions show nothing there — the status pip and heartbeat already carry the state, so the card stays calmer and the time has more room."
+  "feat_working_line_body": "A running session now shows a thin animated line where the BUSY label used to be. Idle and waiting sessions show nothing there — the status pip and heartbeat already carry the state, so the card stays calmer and the time has more room.",
+  "session_autopilot_unavailable_label": "AP unavailable",
+  "session_autopilot_unavailable_title": "Codex autopilot needs an isolated worktree session; this session shares its working directory, so autopilot stands down.",
+  "feat_codex_autopilot_title": "Autopilot for Codex (Alpha)",
+  "feat_codex_autopilot_body": "Autopilot-until-PR is now available for Codex tasks. Toggle it on in New Task and Codex runs unattended toward an open PR. It is best-effort (Alpha): it drives isolated sessions only and stops at the open PR — it never auto-merges."
 }

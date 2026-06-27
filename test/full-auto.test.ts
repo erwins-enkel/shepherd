@@ -57,6 +57,37 @@ test("isFullAuto: draftMode off, autopilot off → false (unchanged behavior)", 
   expect(isFullAuto(session, fullAutoCfg)).toBe(false);
 });
 
+test("isFullAuto: codex provider → false even with autopilot + auto-merge both on (bis zum PR, never landed)", () => {
+  const codexSession = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: true as boolean | null,
+    baseBranch: "main",
+    agentProvider: "codex" as const,
+  };
+  // Codex autopilot deliberately stops AT the open PR — the merge train must never carry it.
+  expect(isFullAuto(codexSession, fullAutoCfg)).toBe(false);
+});
+
+test("isFullAuto: codex provider → false even when it inherits repo auto-merge (session autoMerge null)", () => {
+  const codexInherits = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: null as boolean | null,
+    baseBranch: "main",
+    agentProvider: "codex" as const,
+  };
+  expect(isFullAuto(codexInherits, fullAutoCfg)).toBe(false);
+});
+
+test("isFullAuto: claude provider with same config → true (codex guard does not regress claude)", () => {
+  const claudeSession = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: true as boolean | null,
+    baseBranch: "main",
+    agentProvider: "claude" as const,
+  };
+  expect(isFullAuto(claudeSession, fullAutoCfg)).toBe(true);
+});
+
 test("isFullAuto: epic-child base (epic/9-x) → false even when autopilot + auto-merge both on", () => {
   const epicChild = {
     autopilotEnabled: true as boolean | null,

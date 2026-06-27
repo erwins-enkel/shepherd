@@ -203,6 +203,17 @@ export class AutopilotService {
     if (!s || s.status === "archived") return null;
     if (s.planPhase === "planning") return null; // plan gate owns a planning session; autopilot stands down until it's released into execution
     if (!this.enabled(s)) return null;
+    // Codex autopilot only on isolated sessions: an exited pane triggers resume() →
+    // `codex resume --last`, which in a shared-cwd (non-isolated) session would resume and
+    // steer a SIBLING codex session (corruption). An isolated worktree holds exactly one
+    // codex session per cwd, so --last targets correctly. Manual + automerge resume are
+    // unaffected — only the autopilot-driven path is constrained here.
+    if ((s.agentProvider ?? "claude") === "codex" && !s.isolated) {
+      console.warn(
+        `[autopilot] codex ${s.id}: standing down — autopilot requires an isolated session`,
+      );
+      return null;
+    }
     if (s.autopilotPaused) return null; // already handed back; waits for operator
     if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive
     // A PR exists → autopilot normally stands down (critic territory). EXCEPTION: a full-auto

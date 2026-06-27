@@ -1948,7 +1948,10 @@
       <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
            autopilot badge — mirror the cards' precedence so NEEDS YOU/DELIVERED never
            co-renders with REVIEWING anywhere. -->
-      {#if !reviews.isReviewing(session.id)}<AutopilotBadge {session} />{/if}
+      {#if !reviews.isReviewing(session.id)}<AutopilotBadge
+          {session}
+          repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+        />{/if}
     {/if}
     <ViewportHeaderActions
       {compact}

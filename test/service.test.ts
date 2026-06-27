@@ -94,7 +94,9 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
-test("createSession: codex provider starts interactive codex and disables claude-only automation", async () => {
+// Build a SessionService whose worktree.create yields the given `isolated`, capturing the
+// spawned argv. Used by the codex-autopilot directive tests below.
+function codexHarness(isolated: boolean) {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -106,7 +108,7 @@ test("createSession: codex provider starts interactive codex and disables claude
       create: () => ({
         worktreePath: "/wt/repo-codex",
         branch: "shepherd/repo-codex",
-        isolated: true,
+        isolated,
       }),
       remove: () => {},
     } as any,
@@ -126,6 +128,38 @@ test("createSession: codex provider starts interactive codex and disables claude
       list: () => [],
     } as any,
   });
+  return { store, service, calls };
+}
+
+function setRepoAutopilot(store: SessionStore, on: boolean) {
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+    autopilotEnabled: on,
+    planGateEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "trusted",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+    repoMode: "forge",
+    autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
+  } as any);
+}
+
+const hasDirective = (argv: string[]) => argv.some((a) => a.includes("<autopilot-directive>"));
+
+test("createSession: codex provider starts interactive codex; plan-gate forced off, autopilot off → no directive", async () => {
+  const { store, service, calls } = codexHarness(true);
 
   const s = await service.create({
     repoPath: "/repo",
@@ -134,8 +168,8 @@ test("createSession: codex provider starts interactive codex and disables claude
     agentProvider: "codex",
     model: "gpt-5.5",
     images: [],
-    planGateEnabled: true,
-    autopilotEnabled: true,
+    planGateEnabled: true, // forced off for codex
+    autopilotEnabled: false,
   });
 
   expect(calls.start.argv).toEqual([
@@ -149,10 +183,90 @@ test("createSession: codex provider starts interactive codex and disables claude
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
   expect(s.claudeSessionId).toBe("");
-  expect(s.planGateEnabled).toBe(false);
+  expect(s.planGateEnabled).toBe(false); // plan-gate stays codex-forced-off
   expect(s.autopilotEnabled).toBe(false);
   expect(store.get(s.id)?.agentProvider).toBe("codex");
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
+});
+
+test("createSession: codex + isolated + autopilotEnabled=true → directive injected, persisted true", async () => {
+  const { store, service, calls } = codexHarness(true);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "build it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    autopilotEnabled: true,
+  });
+  expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(store.get(s.id)?.autopilotEnabled).toBe(true);
+});
+
+test("createSession: codex + NON-isolated + autopilotEnabled=true → NO directive, persisted true", async () => {
+  const { store, service, calls } = codexHarness(false);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "build it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    autopilotEnabled: true,
+  });
+  // Persistence honors the override; the directive is gated on isolation (eligibility/badge
+  // surface the non-isolated stand-down).
+  expect(hasDirective(calls.start.argv)).toBe(false);
+  expect(store.get(s.id)?.autopilotEnabled).toBe(true);
+});
+
+// Inherited-default path (review point 3): autopilotEnabled=null + repo-default ON, across
+// isolated AND non-isolated — persistence, directive, and the effectiveAutopilot resolution agree.
+test("createSession: codex + isolated + inherited-default ON (null override) → directive injected, persisted null", async () => {
+  const { store, service, calls } = codexHarness(true);
+  setRepoAutopilot(store, true);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "build it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    // autopilotEnabled omitted → null → inherits repo default ON
+  });
+  expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(store.get(s.id)?.autopilotEnabled).toBe(null);
+});
+
+test("createSession: codex + NON-isolated + inherited-default ON (null override) → NO directive, persisted null", async () => {
+  const { store, service, calls } = codexHarness(false);
+  setRepoAutopilot(store, true);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "build it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+  });
+  expect(hasDirective(calls.start.argv)).toBe(false);
+  expect(store.get(s.id)?.autopilotEnabled).toBe(null);
+});
+
+test("createSession: codex + isolated + research + repo-default ON → NO directive (research precedence)", async () => {
+  const { store, service, calls } = codexHarness(true);
+  setRepoAutopilot(store, true);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    research: true,
+  });
+  expect(hasDirective(calls.start.argv)).toBe(false);
 });
 
 // Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the

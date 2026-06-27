@@ -3552,8 +3552,17 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
         viewer: (await forge.currentUser?.()) ?? null,
       });
     } catch {
-      // missing/un-authed CLI or network error → graceful empty (matches prior behavior)
-      return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, issues: [], viewer: null });
+      // missing/un-authed CLI, network error, or a rate-limited forge (gh issue
+      // list runs on GitHub's GraphQL quota, which can hit 0) → empty list, but
+      // flag it as a fetch failure so the UI can say "couldn't load" instead of
+      // the indistinguishable "no open issues".
+      return json({
+        slug: forge.slug,
+        webUrl: forge.webUrl ?? null,
+        issues: [],
+        viewer: null,
+        error: "fetch_failed",
+      });
     }
   }
   return null;

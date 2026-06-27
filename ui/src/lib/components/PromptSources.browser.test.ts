@@ -140,6 +140,27 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     issuesFilter.setActive(false);
   });
 
+  it("Issues tab: a flagged fetch error shows 'couldn't load', not 'no open issues'", async () => {
+    // Empty list but error set (e.g. rate-limited forge) — must read as a
+    // failure, not as the repo genuinely having zero open issues.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+
+    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+
+    await expect
+      .poll(() => document.querySelector(".ps-body")?.textContent)
+      .toContain(m.common_issues_load_failed());
+    expect(document.querySelector(".ps-body")?.textContent).not.toContain(
+      m.common_no_open_issues(),
+    );
+  });
+
   it("Commands tab: search-input bar covers the rows behind it", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

@@ -32,6 +32,9 @@
   let slug = $state<string | null>(null);
   let viewer = $state<string | null>(null);
   let loading = $state(false);
+  // True when the issue fetch failed (rate-limit/unauth/network) rather than the
+  // repo genuinely having no open issues — drives a distinct empty state.
+  let loadError = $state(false);
   // "Mine & unassigned" filter (#824), shared with IssuesPanel via issuesFilter.
   // No-op identity when the chip is hidden (viewer unknown) → fail open. Composed
   // with the viewer-agnostic "hide in progress" filter; the explicit
@@ -133,6 +136,7 @@
           slug = r.slug;
           issues = r.issues;
           viewer = r.viewer;
+          loadError = r.error != null;
           loading = false;
         })
         .catch(() => {
@@ -140,6 +144,7 @@
           slug = null;
           issues = [];
           viewer = null;
+          loadError = true;
           loading = false;
         });
     }
@@ -239,7 +244,9 @@
       <!-- Issues path: only reachable when allowIssues. The "issues" tab is
            absent and the no-TODO auto-switch is redirected to Commands when
            !allowIssues, so this branch is provably unreachable in that mode. -->
-      {#if slug === null}
+      {#if loadError}
+        <div class="muted">{m.common_issues_load_failed()}</div>
+      {:else if slug === null}
         <div class="muted">{m.promptsources_no_github()}</div>
       {:else if issues.length === 0}
         <div class="muted">{m.common_no_open_issues()}</div>

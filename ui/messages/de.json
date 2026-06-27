@@ -2044,5 +2044,13 @@
   "backlog_hide_repo": "Repo ausblenden",
   "backlog_unhide_repo": "Repo einblenden",
   "feat_hide_repos_title": "Repos aus dem Panel ausblenden",
-  "feat_hide_repos_body": "Räume das Backlog-Repos-Panel auf: Fahre über eine Repo-Zeile und klicke auf das Auge, um sie auszublenden. Ein „Ausgeblendet“-Chip zeigt ausgeblendete Repos wieder an, sodass du sie zurückholen kannst. Nur die Anzeige – Sessions, Drain und Summen bleiben unberührt."
+  "feat_hide_repos_body": "Räume das Backlog-Repos-Panel auf: Fahre über eine Repo-Zeile und klicke auf das Auge, um sie auszublenden. Ein „Ausgeblendet“-Chip zeigt ausgeblendete Repos wieder an, sodass du sie zurückholen kannst. Nur die Anzeige – Sessions, Drain und Summen bleiben unberührt.",
+  "viewport_files_tab": "Dateien",
+  "files_root_crumb": "Scratchpad",
+  "files_breadcrumb_aria": "Scratchpad-Pfad",
+  "files_empty": "Noch keine Dateien im Scratchpad.",
+  "files_load_error": "Scratchpad-Dateien konnten nicht geladen werden.",
+  "files_download_aria": "{name} herunterladen",
+  "feat_scratchpad_files_title": "Scratchpad einer Session durchsuchen & herunterladen",
+  "feat_scratchpad_files_body": "Die Ansicht einer laufenden Session hat jetzt einen Dateien-Tab, sobald ihr Scratchpad Artefakte enthält. Durchsuche die vom Agenten erstellten Ordner und lade jede Datei direkt auf deinen Rechner."
 }

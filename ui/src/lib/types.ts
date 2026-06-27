@@ -106,6 +106,21 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/** One entry in a session scratchpad listing (#1164). `path` is relative to the scratchpad root. */
+export interface ScratchEntry {
+  name: string;
+  type: "file" | "dir";
+  path: string;
+}
+
+/** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the
+ *  scratchpad root ("" = root); `parent` is null at the root. */
+export interface ScratchListing {
+  path: string;
+  parent: string | null;
+  entries: ScratchEntry[];
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -758,6 +773,10 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
   manualStepsAckedAt: number | null;
+  /** Transient, server-derived: true when the session's scratchpad holds any file/dir (#1164).
+   *  Gates the Files tab. Not persisted — folded into the /api/sessions payload + session:status
+   *  (idle/done) push; absent (undefined) on partial pushes that don't recompute it. */
+  hasScratchpadFiles?: boolean;
 }
 
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
@@ -1098,7 +1117,10 @@ export interface PluginInfo {
 
 export type WsEvent =
   | { event: "session:new"; data: Session }
-  | { event: "session:status"; data: { id: string; status: SessionStatus } }
+  | {
+      event: "session:status";
+      data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean };
+    }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
   | {
       event: "session:merging";

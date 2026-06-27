@@ -83,7 +83,13 @@ import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
 import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
-import { sweepClaudeTmp, compileCacheDir, reapFallowCaches, pruneRepoWorktrees } from "./tmp-sweep";
+import {
+  sweepClaudeTmp,
+  compileCacheDir,
+  reapFallowCaches,
+  pruneRepoWorktrees,
+  scratchpadHasFiles,
+} from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal } from "./repos";
@@ -490,7 +496,25 @@ const hookIngest = new HookIngest();
 const poller = new StatusPoller(
   store,
   herdr,
-  (id, status) => events.emit("session:status", { id, status }),
+  (id, status) => {
+    // On turn-end transitions (idle/done — when the agent has finished writing files), fold a
+    // fresh scratchpad-non-empty flag into the status push so the UI's Files tab appears/hides
+    // without a second poll (#1164). Computed only here, not on every running↔idle flap, to keep
+    // a readdir off the hot poll path. Other transitions emit the bare {id, status}; the UI merge
+    // guards against undefined so a status-only push never clobbers the live flag.
+    if (status === "idle" || status === "done") {
+      const s = store.get(id);
+      if (s) {
+        void scratchpadHasFiles(s.worktreePath, s.claudeSessionId)
+          .then((hasScratchpadFiles) =>
+            events.emit("session:status", { id, status, hasScratchpadFiles }),
+          )
+          .catch(() => events.emit("session:status", { id, status }));
+        return;
+      }
+    }
+    events.emit("session:status", { id, status });
+  },
   (id, block) => events.emit("session:block", { id, block }),
   undefined, // intervalMs
   undefined, // reclassifyMs
@@ -1191,7 +1215,10 @@ const drain = new DrainService({
   dropPrCache: (id) => prPoller.drop(id),
   emitEpic: (epic) => events.emit("epic:update", epic),
   emitEpicCompleted: (e) => events.emit("epic:completed", e),
-  emitSessionNew: (s) => events.emit("session:new", s),
+  // A brand-new session's agent is only just starting — its scratchpad can't hold artifacts
+  // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
+  // session:status (idle/done) push and the /api/sessions list enrichment.
+  emitSessionNew: (s) => events.emit("session:new", { ...s, hasScratchpadFiles: false }),
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,
 });

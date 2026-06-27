@@ -7,13 +7,14 @@
   import { SvelteMap } from "svelte/reactivity";
   import type { Session } from "$lib/types";
 
-  type Tab = "term" | "todo" | "activity" | "diff" | "preview";
+  type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview";
 
   let {
     tab = $bindable(),
     session,
     previewPort,
     todoExists,
+    hasFiles,
     hasPreview,
     compact,
     headerFolded,
@@ -25,6 +26,7 @@
     session: Session;
     previewPort: number | null;
     todoExists: boolean;
+    hasFiles: boolean;
     hasPreview: boolean;
     compact: boolean;
     headerFolded: boolean;
@@ -226,6 +228,20 @@
       aria-controls={vpBodyId}
       onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
     >
+    {#if hasFiles}
+      <!-- only when the session's scratchpad holds files (server-derived hasScratchpadFiles):
+           skips an empty browser. Updates live at turn-end via the session:status push. -->
+      <button
+        class="tab-btn"
+        class:active={tab === "files"}
+        role="tab"
+        id={tabId("files")}
+        aria-selected={tab === "files"}
+        aria-controls={vpBodyId}
+        use:coachTarget={"files-tab"}
+        onclick={() => (tab = "files")}>{m.viewport_files_tab()}</button
+      >
+    {/if}
   </div>
   {#if hasPreview}
     <!-- only while the server reports a bound preview listener (single source of

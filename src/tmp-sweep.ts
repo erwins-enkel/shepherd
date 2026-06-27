@@ -69,6 +69,41 @@ export function worktreeScratchDir(worktreePath: string): string {
   return join(claudeTmpRoot(), `claude-${uid()}`, dashify(worktreePath));
 }
 
+/**
+ * The per-session SCRATCHPAD dir for a Shepherd session's OWN (top-level) claude agent:
+ * `<claudeTmpRoot>/<dashified-worktree>/<claudeSessionId>/scratchpad`.
+ *
+ * DISTINCT from `worktreeScratchDir` above: that helper models the doubled `claude-$uid` base
+ * a NESTED sub-agent derives (those dirs hold `<uuid>/tasks`, never a `scratchpad`). A session's
+ * own artifacts live under the SINGLE base, keyed by the claude session UUID. The issue (#1164)
+ * originally said to reuse `worktreeScratchDir` — that is the wrong base; verified empirically
+ * against the live tmp tree (the server runs with no TMPDIR override, so `claudeTmpRoot()` here
+ * matches the agent's). Reuses the same `claudeTmpRoot()` + `dashify()` primitives, dropping the
+ * nested `claude-$uid` segment and appending the session-scoped tail.
+ */
+export function sessionScratchpadDir(worktreePath: string, claudeSessionId: string): string {
+  return join(claudeTmpRoot(), dashify(worktreePath), claudeSessionId, "scratchpad");
+}
+
+/**
+ * Shallow, async, non-throwing "does this session's scratchpad hold any entry?" probe — the
+ * cheap signal that gates the UI's Files tab (#1164). Counts ANY entry (files OR subdirs,
+ * dotfiles included). Returns false on a blank `claudeSessionId` (pre-`--session-id` session /
+ * agent not yet started), a missing dir, or any read error. Single shallow `readdir`.
+ */
+export async function scratchpadHasFiles(
+  worktreePath: string,
+  claudeSessionId: string,
+): Promise<boolean> {
+  if (!claudeSessionId) return false;
+  try {
+    const entries = await fsp.readdir(sessionScratchpadDir(worktreePath, claudeSessionId));
+    return entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export interface SweepResult {
   swept: boolean;
   reason: string;

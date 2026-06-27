@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
-import { WorktreeMgr } from "../src/worktree";
+import { WorktreeMgr, WorktreeRestoreError } from "../src/worktree";
 import { ProcessReaper } from "../src/process-reaper";
 
 let repo: string;
@@ -453,6 +453,87 @@ test("create: cleanupPartial removes leftover dir → retry succeeds", () => {
 });
 
 // ── end Task A tests ──────────────────────────────────────────────────────────
+
+test("restoreExisting: attaches to an existing branch at the given path", () => {
+  const wt = new WorktreeMgr();
+  // create + remove a worktree so the branch survives but its worktree dir is gone
+  const r = wt.create(repo, "main", "restore-me");
+  const { worktreePath, branch } = r;
+  wt.remove(worktreePath); // no branch opts → branch kept
+  expect(existsSync(worktreePath)).toBe(false);
+
+  const got = wt.restoreExisting(repo, branch!, worktreePath);
+  expect(got).toBe(worktreePath);
+  expect(existsSync(worktreePath)).toBe(true);
+  // worktree checks out the branch
+  expect(wt.currentBranch(worktreePath)).toBe(branch);
+  wt.remove(worktreePath);
+});
+
+test("restoreExisting: branch_gone when the branch no longer exists", () => {
+  const wt = new WorktreeMgr();
+  let err: unknown;
+  try {
+    wt.restoreExisting(
+      repo,
+      "shepherd/nonexistent-branch",
+      join(dirname(repo), ".shepherd-worktrees/x-restore-gone"),
+    );
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(WorktreeRestoreError);
+  expect((err as WorktreeRestoreError).code).toBe("branch_gone");
+});
+
+test("restoreExisting: removes a stale worktree dir before re-attaching", () => {
+  const wt = new WorktreeMgr();
+  const r = wt.create(repo, "main", "restore-stale");
+  const { worktreePath, branch } = r;
+  // Properly tear down the worktree (dir + git registration removed, branch kept).
+  wt.remove(worktreePath);
+  expect(existsSync(worktreePath)).toBe(false);
+
+  // Plant a stale leftover at the target path to exercise the `if (existsSync) this.remove`
+  // branch inside restoreExisting (simulates a crash between dir creation and git add).
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "leftover.txt"), "stale");
+  expect(existsSync(worktreePath)).toBe(true);
+
+  const got = wt.restoreExisting(repo, branch!, worktreePath);
+  expect(got).toBe(worktreePath);
+  expect(existsSync(worktreePath)).toBe(true);
+  // stale file is gone; the branch is freshly checked out
+  expect(existsSync(join(worktreePath, "leftover.txt"))).toBe(false);
+  expect(wt.currentBranch(worktreePath)).toBe(branch);
+  wt.remove(worktreePath);
+});
+
+test("restoreExisting: invalid branch name throws", () => {
+  const wt = new WorktreeMgr();
+  expect(() => wt.restoreExisting(repo, "--bad-branch", "/some/path")).toThrow("invalid branch");
+});
+
+test("restoreExisting: branch_in_use when branch is already checked out elsewhere", () => {
+  const wt = new WorktreeMgr();
+  // Create a worktree so the branch is actively checked out at worktreePath.
+  const r = wt.create(repo, "main", "in-use");
+  const { worktreePath, branch } = r;
+
+  // Attempt to attach the SAME branch to a DIFFERENT path — git refuses with
+  // "already checked out", which maps to WorktreeRestoreError("branch_in_use").
+  const altPath = worktreePath + "-alt";
+  let err: unknown;
+  try {
+    wt.restoreExisting(repo, branch!, altPath);
+  } catch (e) {
+    err = e;
+  }
+  wt.remove(worktreePath);
+
+  expect(err).toBeInstanceOf(WorktreeRestoreError);
+  expect((err as WorktreeRestoreError).code).toBe("branch_in_use");
+});
 
 test("behindBase: false when up-to-date, true when base advanced", async () => {
   const dir = mkdtempSync(join(tmpdir(), "wt-"));

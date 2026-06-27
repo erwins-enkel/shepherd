@@ -2062,5 +2062,16 @@
   "session_autopilot_unavailable_label": "AP unavailable",
   "session_autopilot_unavailable_title": "Codex autopilot needs an isolated worktree session; this session shares its working directory, so autopilot stands down.",
   "feat_codex_autopilot_title": "Autopilot for Codex (Alpha)",
-  "feat_codex_autopilot_body": "Autopilot-until-PR is now available for Codex tasks. Toggle it on in New Task and Codex runs unattended toward an open PR. It is best-effort (Alpha): it drives isolated sessions only and stops at the open PR — it never auto-merges."
+  "feat_codex_autopilot_body": "Autopilot-until-PR is now available for Codex tasks. Toggle it on in New Task and Codex runs unattended toward an open PR. It is best-effort (Alpha): it drives isolated sessions only and stops at the open PR — it never auto-merges.",
+  "donerecap_bringback": "Bring back",
+  "donerecap_bringback_confirm": "Bring back?",
+  "restore_done": "Brought {desig} back to the herd",
+  "restore_cannot": "Can't bring this one back — relaunch it instead",
+  "restore_branch_gone": "Its branch was merged and removed — relaunch instead",
+  "restore_branch_in_use": "Its branch is checked out elsewhere",
+  "restore_not_archived": "This session isn't done",
+  "restore_in_progress": "Already bringing this one back…",
+  "restore_failed": "Couldn't bring it back",
+  "feat_bring_back_title": "Bring back a done session",
+  "feat_bring_back_body": "Select any session in the Done lens and click Bring back to resume it — Shepherd restores your committed branch work and continues the conversation from where it left off. Uncommitted edits are not recovered."
 }

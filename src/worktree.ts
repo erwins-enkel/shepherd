@@ -46,6 +46,13 @@ export interface ResolvedBase {
     | "none";
 }
 
+export class WorktreeRestoreError extends Error {
+  constructor(public readonly code: "branch_gone" | "branch_in_use") {
+    super(`worktree restore failed: ${code}`);
+    this.name = "WorktreeRestoreError";
+  }
+}
+
 export class WorktreeMgr {
   /** Injectable so tests can assert the teardown orphan sweep fires without real /proc. */
   constructor(private reaper: ProcessReaper = new ProcessReaper()) {}
@@ -631,6 +638,53 @@ export class WorktreeMgr {
       execFileAsync("git", ["worktree", "add", "--detach", worktreePath, sha], { cwd: repoPath }),
     );
     return { worktreePath, branch: null, isolated: true };
+  }
+
+  /**
+   * Attach an existing branch to a new worktree path. Unlike `create()`, does NOT create
+   * a new branch — it checks out an existing one. Used by `restore()` to re-surface an
+   * archived session whose branch survived on disk.
+   *
+   * Steps:
+   * 1. Validate `branch` refname.
+   * 2. Remove any stale `worktreePath` (no branch opts — must not prune the branch).
+   * 3. Verify the branch ref exists; throw `WorktreeRestoreError("branch_gone")` if not.
+   * 4. Ensure the parent directory exists.
+   * 5. `git worktree add <worktreePath> <branch>` (no -b).
+   *    - Already checked out elsewhere → `WorktreeRestoreError("branch_in_use")`.
+   *    - Any other failure → rethrow.
+   * 6. Return `worktreePath`.
+   */
+  restoreExisting(repoPath: string, branch: string, worktreePath: string): string {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) {
+      throw new Error("invalid branch");
+    }
+    if (existsSync(worktreePath)) {
+      this.remove(worktreePath); // no branch opts → never prunes the branch
+    }
+    // Pre-check: branch ref must exist
+    try {
+      execFileSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
+        cwd: repoPath,
+        stdio: "pipe",
+      });
+    } catch {
+      throw new WorktreeRestoreError("branch_gone");
+    }
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    try {
+      execFileSync("git", ["worktree", "add", worktreePath, branch], {
+        cwd: repoPath,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const stderr = this.gitStderr(err);
+      if (/already checked out|is already used by worktree/i.test(stderr)) {
+        throw new WorktreeRestoreError("branch_in_use");
+      }
+      throw err;
+    }
+    return worktreePath;
   }
 
   /** Delete `branch` iff it is fully merged into `baseBranch`; otherwise retain it. */

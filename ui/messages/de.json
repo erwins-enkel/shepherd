@@ -2062,5 +2062,16 @@
   "session_autopilot_unavailable_label": "AP nicht verfügbar",
   "session_autopilot_unavailable_title": "Codex-Autopilot braucht eine isolierte Worktree-Session; diese Session teilt sich ihr Arbeitsverzeichnis, daher steht der Autopilot still.",
   "feat_codex_autopilot_title": "Autopilot für Codex (Alpha)",
-  "feat_codex_autopilot_body": "Autopilot-bis-zum-PR ist jetzt für Codex-Aufgaben verfügbar. Schalte ihn im Neue-Aufgabe-Dialog ein, und Codex läuft unbeaufsichtigt bis zu einem offenen PR. Es ist best-effort (Alpha): nur isolierte Sessions werden getrieben, und es stoppt am offenen PR — niemals automatischer Merge."
+  "feat_codex_autopilot_body": "Autopilot-bis-zum-PR ist jetzt für Codex-Aufgaben verfügbar. Schalte ihn im Neue-Aufgabe-Dialog ein, und Codex läuft unbeaufsichtigt bis zu einem offenen PR. Es ist best-effort (Alpha): nur isolierte Sessions werden getrieben, und es stoppt am offenen PR — niemals automatischer Merge.",
+  "donerecap_bringback": "Zurückholen",
+  "donerecap_bringback_confirm": "Zurückholen?",
+  "restore_done": "{desig} wurde zur Herde zurückgeholt",
+  "restore_cannot": "Diese Session kann nicht zurückgeholt werden — starte sie stattdessen neu",
+  "restore_branch_gone": "Ihr Branch wurde gemergt und entfernt — starte sie stattdessen neu",
+  "restore_branch_in_use": "Ihr Branch ist anderswo ausgecheckt",
+  "restore_not_archived": "Diese Session ist nicht abgeschlossen",
+  "restore_in_progress": "Wird bereits zurückgeholt…",
+  "restore_failed": "Zurückholen fehlgeschlagen",
+  "feat_bring_back_title": "Eine abgeschlossene Session zurückholen",
+  "feat_bring_back_body": "Wähle eine Session in der Fertig-Ansicht aus und klicke auf Zurückholen, um sie fortzusetzen — Shepherd stellt deine committeten Branch-Änderungen wieder her und führt das Gespräch dort weiter, wo es aufgehört hat. Nicht committete Änderungen werden nicht wiederhergestellt."
 }

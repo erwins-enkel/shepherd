@@ -1941,6 +1941,11 @@ export class SessionStore implements CapStore, CreditStore {
     ]);
   }
 
+  unarchive(id: string) {
+    const now = Date.now();
+    this.db.run(`UPDATE sessions SET archivedAt=NULL, updatedAt=? WHERE id=?`, [now, id]);
+  }
+
   // ── usage limit caps (CapStore) ──────────────────────────────────────────
   getCaps(): CapRow[] {
     return this.db

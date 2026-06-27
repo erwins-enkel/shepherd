@@ -167,6 +167,19 @@ describe("autopilotBadgeShown", () => {
         false,
       ),
     ).toBe(false));
+
+  it("returns false for codex + non-isolated + research (directive suppressed at spawn)", () =>
+    expect(
+      autopilotBadgeShown(
+        session({
+          agentProvider: "codex",
+          isolated: false,
+          autopilotEnabled: true,
+          research: true,
+        }),
+        false,
+      ),
+    ).toBe(false));
 });
 
 describe("relativeAge", () => {

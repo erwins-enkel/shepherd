@@ -176,10 +176,14 @@ export function autopilotBadgeShown(s: Session, repoAutopilotDefault: boolean): 
  * The badge surfaces that as an explicit "unavailable" state so an opted-in toggle is
  * never silently inert. Needs the repo default to catch the inherited-default-ON case
  * where the per-session override is null — mirrors `effectiveAutopilot` (override ?? default).
+ *
+ * Excludes research tasks: a research session's autopilot directive is suppressed at spawn
+ * regardless of provider/isolation (it delivers a report-PR/issue, never code-PR-steered),
+ * so "unavailable" would be misleading noise rather than a real stood-down toggle.
  */
 export function codexAutopilotUnavailable(s: Session, repoAutopilotDefault: boolean): boolean {
   const on = s.autopilotEnabled ?? repoAutopilotDefault;
-  return on && (s.agentProvider ?? "claude") === "codex" && !s.isolated;
+  return on && (s.agentProvider ?? "claude") === "codex" && !s.isolated && !s.research;
 }
 
 export function statusLabel(s: SessionStatus): string {

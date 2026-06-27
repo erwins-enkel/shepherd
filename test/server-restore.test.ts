@@ -152,9 +152,55 @@ test("wrong method → no match (null)", async () => {
 });
 
 test("in_progress guard: concurrent restore of same id → 409", async () => {
-  // We can't easily test the concurrent guard in isolation without real concurrency,
-  // but we can verify the code path exists by checking the module exports.
-  // The guard is module-level state — a real concurrent test would need two overlapping requests.
-  // Covered implicitly by the integration: the Set is initialised + cleaned up in finally.
-  expect(true).toBe(true); // placeholder so the describe block is not empty
+  // Make service.restore hang until released so two requests overlap.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let restoreCalls = 0;
+
+  const deps: AppDeps = {
+    store: {
+      get: (id: string) =>
+        id === "sess"
+          ? ({
+              id: "sess",
+              status: "archived",
+              archivedAt: Date.now() - 1000,
+              claudeSessionId: "abc-123",
+              agentProvider: "claude",
+              repoPath: "/r",
+            } as unknown as Session)
+          : undefined,
+    } as unknown as SessionStore,
+    service: {
+      restore: async () => {
+        restoreCalls++;
+        await gate;
+        return {
+          id: "sess",
+          status: "running",
+          archivedAt: null,
+          claudeSessionId: "abc-123",
+          agentProvider: "claude",
+          repoPath: "/r",
+        } as unknown as Session;
+      },
+    } as unknown as SessionService,
+    events: {
+      emit: () => {},
+    } as unknown as EventHub,
+    usageLimits: { limits: () => ({}) } as never,
+  };
+  const app = makeApp(deps);
+
+  const first = app.fetch(restoreReq()); // starts, hangs waiting for gate
+  // give the first request time to advance through the dispatch chain and register in inFlightRestore
+  await new Promise((r) => setTimeout(r, 10));
+  const secondRes = await app.fetch(restoreReq());
+  expect(secondRes.status).toBe(409);
+  expect((await secondRes.json()).code).toBe("in_progress");
+  expect(restoreCalls).toBe(1); // second did NOT invoke restore
+
+  release();
+  const firstRes = await first;
+  expect(firstRes.status).toBe(200);
 });

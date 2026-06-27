@@ -490,20 +490,49 @@ test("restoreExisting: removes a stale worktree dir before re-attaching", () => 
   const wt = new WorktreeMgr();
   const r = wt.create(repo, "main", "restore-stale");
   const { worktreePath, branch } = r;
-  // branch+worktree both exist — simulates a stale partial state
-  // detach the registered worktree but leave the directory via a plain remove
-  // (we can't easily simulate a "stale dir" without going through git,
-  //  so we remove+restore to prove the method handles re-attach correctly)
+  // Properly tear down the worktree (dir + git registration removed, branch kept).
   wt.remove(worktreePath);
+  expect(existsSync(worktreePath)).toBe(false);
+
+  // Plant a stale leftover at the target path to exercise the `if (existsSync) this.remove`
+  // branch inside restoreExisting (simulates a crash between dir creation and git add).
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "leftover.txt"), "stale");
+  expect(existsSync(worktreePath)).toBe(true);
+
   const got = wt.restoreExisting(repo, branch!, worktreePath);
   expect(got).toBe(worktreePath);
   expect(existsSync(worktreePath)).toBe(true);
+  // stale file is gone; the branch is freshly checked out
+  expect(existsSync(join(worktreePath, "leftover.txt"))).toBe(false);
+  expect(wt.currentBranch(worktreePath)).toBe(branch);
   wt.remove(worktreePath);
 });
 
 test("restoreExisting: invalid branch name throws", () => {
   const wt = new WorktreeMgr();
   expect(() => wt.restoreExisting(repo, "--bad-branch", "/some/path")).toThrow("invalid branch");
+});
+
+test("restoreExisting: branch_in_use when branch is already checked out elsewhere", () => {
+  const wt = new WorktreeMgr();
+  // Create a worktree so the branch is actively checked out at worktreePath.
+  const r = wt.create(repo, "main", "in-use");
+  const { worktreePath, branch } = r;
+
+  // Attempt to attach the SAME branch to a DIFFERENT path — git refuses with
+  // "already checked out", which maps to WorktreeRestoreError("branch_in_use").
+  const altPath = worktreePath + "-alt";
+  let err: unknown;
+  try {
+    wt.restoreExisting(repo, branch!, altPath);
+  } catch (e) {
+    err = e;
+  }
+  wt.remove(worktreePath);
+
+  expect(err).toBeInstanceOf(WorktreeRestoreError);
+  expect((err as WorktreeRestoreError).code).toBe("branch_in_use");
 });
 
 test("behindBase: false when up-to-date, true when base advanced", async () => {

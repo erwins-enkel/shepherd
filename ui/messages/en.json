@@ -1665,6 +1665,7 @@
   "learnings_help_rate": "helped {helped}/{pulls}",
   "settings_auto_optimize_flagged_label": "Auto-optimize flagged rules",
   "settings_auto_optimize_flagged_help": "When a rule starts failing, rewrite it once automatically before it becomes eligible for auto-retirement.",
+  "automation_autooptimize_needs_learnings": "Needs Learnings on",
   "feat_learnings_auto_retire_title": "Learnings auto-retirement",
   "feat_learnings_auto_retire_body": "Rules that consistently fail to help agents are now automatically retired. Review them in the Learnings drawer and restore any that were retired by mistake.",
   "feat_ready_lens_hides_waiting_title": "Ready shows only your turn",

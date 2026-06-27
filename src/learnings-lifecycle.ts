@@ -387,7 +387,16 @@ export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
     for (const rule of candidates) {
       if (!shouldRetire(rule, base, { nMin })) continue;
 
-      if (cfg.autoOptimizeFlagged && store.autoOptimizedAt(rule.id) === null) {
+      // Auto-optimize is moot when learnings injection is off (the rewritten rule is
+      // never injected), so gate it on learningsEnabled too — keeping the toggle honest
+      // with the UI, which disables Auto-optimize when Learnings is off. With learnings
+      // off the candidate falls through to the retire branch exactly as if the toggle
+      // were off.
+      if (
+        cfg.autoOptimizeFlagged &&
+        cfg.learningsEnabled &&
+        store.autoOptimizedAt(rule.id) === null
+      ) {
         // Enqueue rewrite; do not retire yet, do not consume budget
         optimizer.optimizeOne(rule.id);
       } else if (retiredThisSweep < maxRetirePerSweep) {

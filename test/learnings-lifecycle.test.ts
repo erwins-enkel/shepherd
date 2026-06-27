@@ -505,6 +505,31 @@ describe("runAutoRetire", () => {
     expect(optimizeCalls).toHaveLength(0);
   });
 
+  test("auto-optimize branch: flag ON but learnings OFF → retire directly, no optimizeOne", () => {
+    // A rewritten rule is never injected when learnings injection is off, so auto-optimize
+    // is moot — it must not fire (keeps the toggle honest with the UI gate).
+    const rule = makeLearning({
+      id: "r4",
+      repoPath: "/repo",
+      status: "active",
+      injectedCount: 10,
+      helpfulCount: 0,
+      ineffectiveCount: 2,
+    });
+
+    const { store, optimizer, optimizeCalls } = makeFakeDeps({
+      active: [rule],
+      retired: [],
+      cfg: { autoOptimizeFlagged: true, learningsEnabled: false },
+      autoOptimizedAtMap: { r4: null },
+    });
+
+    const result = runAutoRetire({ store, optimizer, nMin: 8, maxRetirePerSweep: 5 });
+
+    expect(result.map((r) => r.id)).toEqual(["r4"]); // retired directly
+    expect(optimizeCalls).toHaveLength(0); // optimizeOne NOT called
+  });
+
   test("auto-optimize does NOT consume retire budget", () => {
     // 2 rules: first gets optimize path (no retire), second should still retire within cap
     const opt = makeLearning({

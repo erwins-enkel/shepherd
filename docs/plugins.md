@@ -195,7 +195,10 @@ ctx.onSpawn((d): SpawnPatch => {
   const repo = basename(d.repoRoot);
   const n = (repoCounts[repo] ?? 0) + 1; // noUncheckedIndexedAccess → guard the read
   repoCounts = { ...repoCounts, [repo]: n };
-  const label = template.replaceAll("{repo}", repo).replaceAll("{n}", String(n));
+  const label = template
+    .replaceAll("{repo}", repo)
+    .replaceAll("{n}", String(n))
+    .replaceAll("{session}", d.sessionId);
   ctx.state.set("repoCounts", repoCounts); // spawns are infrequent → a write here is fine
   return { env: { [envVar]: label } };
 });

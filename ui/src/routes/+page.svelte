@@ -1250,7 +1250,9 @@
     planGates.load();
     recaps.load();
     herdDigest.load();
-    upNext.load();
+    // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
+    // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
+    upNext.load({ peek: true });
     learnings.load().then(() => (learningsLoaded = true));
     refreshHeldCount();
     loadSettings();

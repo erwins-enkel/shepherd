@@ -8,9 +8,11 @@ class UpNextStore {
   snapshot = $state<UpNextSnapshot | null>(null);
   loaded = $state(false);
 
-  async load() {
+  /** Load the snapshot. `peek` (app-load) paints the cached snapshot only; the default
+   *  (lens-open) lets the server kick a recompute that lands in place via WS. */
+  async load(opts?: { peek?: boolean }) {
     try {
-      this.snapshot = await getUpNext();
+      this.snapshot = await getUpNext(opts);
     } catch {
       /* best-effort; live events still populate */
     } finally {

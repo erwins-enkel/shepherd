@@ -754,16 +754,22 @@ async function handleHerdDigest({ req, parts, deps }: Ctx): Promise<Response | n
 // POST /api/up-next/start    — start one or many items; spawns are SERIALIZED server-side
 //                              because WorktreeMgr.create() (sync `git worktree add`) is not
 //                              parallel-safe per repo.
+/** GET /api/up-next — paint the cached snapshot. The default (lens-open) path also kicks a
+ *  single-flight recompute that lands in place via WS; `?peek` (app-load) paints cached only so
+ *  a session that never opens the lens costs zero cross-repo `gh` fan-out (the 15-min loop +
+ *  lens-open keep it fresh). */
+function handleUpNextGet(url: URL, deps: AppDeps): Response {
+  const snap = deps.upNext?.snapshot() ?? null;
+  if (!url.searchParams.has("peek") && deps.upNext)
+    void deps.upNext.refresh().catch((err) => console.warn("[up-next] open:", err));
+  return json(snap);
+}
+
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, deps } = ctx;
+  const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
 
-  if (req.method === "GET" && !parts[2]) {
-    const snap = deps.upNext?.snapshot() ?? null;
-    if (deps.upNext)
-      void deps.upNext.refresh().catch((err) => console.warn("[up-next] open:", err));
-    return json(snap);
-  }
+  if (req.method === "GET" && !parts[2]) return handleUpNextGet(url, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);

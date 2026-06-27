@@ -35,6 +35,7 @@ function harness(
   const store = new SessionStore(":memory:");
   const createCalls: Array<{ at: number; repoPath: string; number: number | undefined }> = [];
   const labelCalls: number[] = [];
+  let refreshCalls = 0;
   let n = 0;
   const deps: AppDeps = {
     store,
@@ -57,10 +58,13 @@ function harness(
       }) as unknown as ReturnType<NonNullable<AppDeps["resolveForge"]>>,
     upNext: {
       snapshot: () => opts.snapshot ?? null,
-      refresh: async () => SNAP,
+      refresh: async () => {
+        refreshCalls++;
+        return SNAP;
+      },
     },
   };
-  return { app: makeApp(deps), createCalls, labelCalls };
+  return { app: makeApp(deps), createCalls, labelCalls, refreshCalls: () => refreshCalls };
 }
 
 const startReq = (items: unknown) =>
@@ -70,11 +74,20 @@ const startReq = (items: unknown) =>
     body: JSON.stringify({ items }),
   });
 
-test("GET /api/up-next returns the cached snapshot", async () => {
-  const { app } = harness({ snapshot: SNAP });
+test("GET /api/up-next returns the cached snapshot and kicks a recompute", async () => {
+  const { app, refreshCalls } = harness({ snapshot: SNAP });
   const res = await app.fetch(new Request("http://x/api/up-next"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(SNAP);
+  expect(refreshCalls()).toBe(1); // lens-open path kicks a recompute
+});
+
+test("GET /api/up-next?peek paints cached only (no recompute)", async () => {
+  const { app, refreshCalls } = harness({ snapshot: SNAP });
+  const res = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(SNAP);
+  expect(refreshCalls()).toBe(0); // app-load path costs zero cross-repo gh fan-out
 });
 
 test("POST /api/up-next/refresh returns 202", async () => {

@@ -1187,9 +1187,10 @@ export async function regenerateHerdDigest(): Promise<{ ok: boolean; status: str
   return postJson("/api/herd/digest/regenerate", {}, "regenerate herd digest");
 }
 
-/** Cached Up Next snapshot (the server also kicks a background recompute on this GET). */
-export async function getUpNext(): Promise<UpNextSnapshot | null> {
-  return getJson("/api/up-next", "up next");
+/** Up Next snapshot. By default (lens-open) the server also kicks a background recompute;
+ *  pass `peek` to paint the cached snapshot only (app-load), costing zero cross-repo `gh`. */
+export async function getUpNext(opts?: { peek?: boolean }): Promise<UpNextSnapshot | null> {
+  return getJson(opts?.peek ? "/api/up-next?peek=1" : "/api/up-next", "up next");
 }
 
 /** Force an Up Next recompute (the manual refresh button). */

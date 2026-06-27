@@ -2116,5 +2116,7 @@
   "plugin_ui_timeline_empty": "No events.",
   "plugins_raw_json": "Raw data",
   "feat_plugin_ui_title": "Plugins show real panels",
-  "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump."
+  "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump.",
+  "feat_plugin_ui_charts_title": "Plugins can show charts",
+  "feat_plugin_ui_charts_body": "Plugins can now publish gauges, sparklines, time-series, bar charts and timelines in Settings → Plugins — not just meters, badges and tables."
 }

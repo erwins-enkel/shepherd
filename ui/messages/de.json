@@ -2116,5 +2116,7 @@
   "plugin_ui_timeline_empty": "Keine Ereignisse.",
   "plugins_raw_json": "Rohdaten",
   "feat_plugin_ui_title": "Plugins zeigen echte Panels",
-  "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps."
+  "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps.",
+  "feat_plugin_ui_charts_title": "Plugins können Diagramme anzeigen",
+  "feat_plugin_ui_charts_body": "Plugins können jetzt Tacho-Anzeigen, Sparklines, Zeitreihen, Balkendiagramme und Zeitachsen unter Einstellungen → Plugins veröffentlichen — nicht nur Messanzeigen, Badges und Tabellen."
 }

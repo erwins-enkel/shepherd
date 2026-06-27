@@ -231,6 +231,7 @@ test("GET /api/held returns FIFO held tasks", async () => {
       images: [],
     },
     createdAt: 1000,
+    reason: "usage",
   });
   store.addHeldTask({
     id: "held-2",
@@ -243,6 +244,7 @@ test("GET /api/held returns FIFO held tasks", async () => {
       images: [],
     },
     createdAt: 2000,
+    reason: "usage",
   });
 
   const res = await app.fetch(new Request("http://x/api/held"));
@@ -264,7 +266,7 @@ test("POST /api/held/:id/spawn → calls service.create, removes row, returns 20
     model: null,
     images: [],
   };
-  store.addHeldTask({ id: "held-1", repoPath: repoDir, input, createdAt: 1000 });
+  store.addHeldTask({ id: "held-1", repoPath: repoDir, input, createdAt: 1000, reason: "usage" });
 
   const res = await app.fetch(new Request("http://x/api/held/held-1/spawn", { method: "POST" }));
   expect(res.status).toBe(201);
@@ -290,7 +292,7 @@ test("POST /api/held/:id/spawn accepts an agent provider override", async () => 
     model: null,
     images: [],
   };
-  store.addHeldTask({ id: "held-1", repoPath: repoDir, input, createdAt: 1000 });
+  store.addHeldTask({ id: "held-1", repoPath: repoDir, input, createdAt: 1000, reason: "usage" });
 
   const res = await app.fetch(
     new Request("http://x/api/held/held-1/spawn", {
@@ -321,6 +323,7 @@ test("POST /api/held/:id/spawn with linked issue → re-stamps the drain claim",
       issueRef: { number: 99, url: "http://x/i/99", title: "t", body: "" },
     },
     createdAt: 1000,
+    reason: "usage",
   });
 
   const res = await app.fetch(new Request("http://x/api/held/held-1/spawn", { method: "POST" }));
@@ -352,6 +355,7 @@ test("DELETE /api/held/:id → removes row, returns {ok:true}", async () => {
       images: [],
     },
     createdAt: 1000,
+    reason: "usage",
   });
 
   const res = await app.fetch(new Request("http://x/api/held/held-1", { method: "DELETE" }));
@@ -384,6 +388,7 @@ test("PATCH /api/held/:id → replaces input, stays held, emits held:changed", a
     repoPath: repoDir,
     input: { repoPath: repoDir, baseBranch: "main", prompt: "old prompt", model: null, images: [] },
     createdAt: 1000,
+    reason: "usage",
   });
 
   const res = await patchHeld(app, "held-1", {
@@ -420,6 +425,7 @@ test("PATCH /api/held/:id preserves merge-train membership the composer can't ed
       mergeTrainPrs: [11, 22],
     },
     createdAt: 1000,
+    reason: "usage",
   });
 
   // The edit composer never sends mergeTrainPrs; the held row's value must survive.
@@ -457,6 +463,7 @@ test("PATCH /api/held/:id with invalid input → 400, row unchanged", async () =
     repoPath: repoDir,
     input: { repoPath: repoDir, baseBranch: "main", prompt: "keep me", model: null, images: [] },
     createdAt: 1000,
+    reason: "usage",
   });
 
   // empty prompt fails validateCreate

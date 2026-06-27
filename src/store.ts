@@ -4145,11 +4145,11 @@ export class SessionStore implements CapStore, CreditStore {
     repoPath: string;
     input: CreateSessionInput;
     createdAt: number;
-    reason?: "usage" | "capacity";
+    reason: "usage" | "capacity";
   }): void {
     this.db.run(
       `INSERT INTO held_tasks (id, repoPath, input, createdAt, reason) VALUES (?, ?, ?, ?, ?)`,
-      [row.id, row.repoPath, JSON.stringify(row.input), row.createdAt, row.reason ?? "usage"],
+      [row.id, row.repoPath, JSON.stringify(row.input), row.createdAt, row.reason],
     );
   }
 

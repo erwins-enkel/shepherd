@@ -173,7 +173,32 @@ test("plugin abort on create surfaces as SandboxAutoRefused with PluginSpawnAbor
 });
 
 test("non-plugin refusal (api-key hold) surfaces as SandboxAutoRefused with cause === undefined", async () => {
-  // A non-plugin SandboxAutoRefused (e.g. api-key hold) has no cause.
-  const err = new SandboxAutoRefused("api-key hold reason");
-  expect(err.cause).toBeUndefined();
+  // Trigger the real service-level non-plugin refusal: api-key mode with no
+  // helper path configured → prepareSpawn returns holdReason without abortCause
+  // → prepareSpawnOrThrow throws SandboxAutoRefused(holdReason, undefined)
+  // → cause is undefined (contrasting the plugin-abort case which sets cause).
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = null;
+  try {
+    const { service } = makeService(NOOP_HOOKS);
+    let caught: unknown;
+    try {
+      await service.create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "go",
+        model: null,
+        images: [],
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(SandboxAutoRefused);
+    expect((caught as SandboxAutoRefused).cause).toBeUndefined();
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
 });

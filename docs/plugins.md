@@ -71,7 +71,16 @@ export function register(ctx: PluginContext): void | (() => void) {
 > imports) or vendor the type definitions from `src/plugins/types.ts`. The `import type`
 > line is erased at runtime, so it never affects loading.
 
-See **`test/fixtures/example-plugin/`** for a complete, generic "hello world" you can copy.
+**Two examples ship with the repo:**
+
+- **`examples/plugins/spawn-labeler/`** — the **recommended copy-me reference**: a fuller,
+  documented plugin that returns a real `SpawnPatch`, has routes that read/write `state`,
+  and publishes a non-trivial status payload. Start here. See the walkthrough below.
+- **`test/fixtures/example-plugin/`** — the **minimal skeleton**: the bare-minimum wiring
+  as a pure observer (its `onSpawn` returns nothing). It exists mainly to back the loader
+  tests — reach for it only when you want the smallest possible starting point.
+
+Neither auto-loads from the repo (the loader only ever scans `~/.shepherd/plugins/`).
 
 ## The `ctx` capability seam
 
@@ -167,3 +176,63 @@ panel updates live.
 `ctx.route("GET", "status", handler)` serves at `GET /api/plugins/<id>/status`. All plugin
 routes sit **behind operator auth** (the same cookie/token gate as the rest of `/api`). An
 unknown plugin or sub-route returns 404.
+
+## A fuller example: `spawn-labeler`
+
+The skeleton fixture shows the wiring; **`examples/plugins/spawn-labeler/`** shows the seam
+doing real work. It stamps every spawned agent with a per-repo label env var (e.g.
+`SHEPHERD_SPAWN_LABEL=shepherd#3` — "the 3rd agent spawned in the `shepherd` repo"). It's a
+deliberately benign, public-safe analog of the private `claude-swap` env-injection seam —
+same `onSpawn → { env }` mechanic, no credential logic. Read it end to end; the highlights:
+
+**A real `SpawnPatch` from `onSpawn`.** It increments this repo's spawn count, formats a
+label, and returns an actual env overlay the agent then sees. The label is built **only
+from `SpawnDescriptor` fields** — `{repo}` = `basename(d.repoRoot)`, `{n}` = the per-repo
+count, `{session}` = `d.sessionId`:
+
+```ts
+ctx.onSpawn((d): SpawnPatch => {
+  const repo = basename(d.repoRoot);
+  const n = (repoCounts[repo] ?? 0) + 1; // noUncheckedIndexedAccess → guard the read
+  repoCounts = { ...repoCounts, [repo]: n };
+  const label = template
+    .replaceAll("{repo}", repo)
+    .replaceAll("{n}", String(n))
+    .replaceAll("{session}", d.sessionId);
+  ctx.state.set("repoCounts", repoCounts); // spawns are infrequent → a write here is fine
+  return { env: { [envVar]: label } };
+});
+```
+
+**Routes that read _and_ write `state`.** `GET stats` returns the live counters;
+`POST reset` clears them — so persisted state is both surfaced and mutated over HTTP, behind
+operator auth:
+
+```
+GET  /api/plugins/spawn-labeler/stats   → { envVar, labelTemplate, totalSpawns, repos, lastSpawn }
+POST /api/plugins/spawn-labeler/reset   → { ok: true, cleared: true }
+```
+
+**A non-trivial `publishStatus` payload.** Instead of a bare counter it publishes the config
+in effect plus live totals, the per-repo breakdown, and the last spawn — all rendered in the
+Settings → Plugins panel:
+
+```jsonc
+{
+  "envVar": "SHEPHERD_SPAWN_LABEL",
+  "labelTemplate": "{repo}#{n}",
+  "totalSpawns": 4,
+  "repos": { "shepherd": 3, "ui": 1 },
+  "lastSpawn": { "sessionId": "…", "repoRoot": "…", "label": "shepherd#3", "at": "…" },
+}
+```
+
+**Driven by `config.json`.** `ctx.config` (the folder's `config.json`, parsed) overrides the
+env var name (`envVar`) and label template (`labelTemplate`); both default sensibly when
+absent.
+
+**Copy it to run it.** `cp -r examples/plugins/spawn-labeler ~/.shepherd/plugins/`, then —
+because the example's `import type` uses a repo-relative path that won't resolve out-of-repo
+— **drop the `import type` line or vendor `src/plugins/types.ts`** (the import is erased at
+runtime, so loading is unaffected either way), and restart Shepherd. See
+`examples/plugins/README.md`.

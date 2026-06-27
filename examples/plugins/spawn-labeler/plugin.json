@@ -1,0 +1,7 @@
+{
+  "id": "spawn-labeler",
+  "name": "Spawn Labeler",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "capabilities": ["spawn", "state", "routes", "status"]
+}

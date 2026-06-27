@@ -1,0 +1,4 @@
+{
+  "envVar": "SHEPHERD_SPAWN_LABEL",
+  "labelTemplate": "{repo}#{n}"
+}

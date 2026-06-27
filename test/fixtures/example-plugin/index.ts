@@ -1,6 +1,9 @@
-// Example Shepherd plugin — a generic "echo/status" demo. It doubles as the public
-// "hello world" template: copy this folder into ~/.shepherd/plugins/ and edit. It is a
-// pure OBSERVER (its onSpawn returns nothing), so it is always safe to load.
+// Minimal Shepherd plugin skeleton — a generic "echo/status" demo. This is the
+// bare-minimum wiring (manifest, register, one route, state, publishStatus, teardown)
+// and exists mainly to back the loader tests; it is a pure OBSERVER (its onSpawn returns
+// nothing), so it is always safe to load. For a fuller, real-world copy-me reference —
+// one that returns an actual SpawnPatch and reads/writes state through routes — see
+// examples/plugins/spawn-labeler/ (docs/plugins.md → "A fuller example").
 //
 // Types: this in-repo fixture imports the contract for type-checking. An out-of-repo
 // plugin can drop the `import type` line (entry runs untyped) or vendor the type defs —

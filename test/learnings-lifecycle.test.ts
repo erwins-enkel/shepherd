@@ -505,9 +505,11 @@ describe("runAutoRetire", () => {
     expect(optimizeCalls).toHaveLength(0);
   });
 
-  test("auto-optimize branch: flag ON but learnings OFF → retire directly, no optimizeOne", () => {
-    // A rewritten rule is never injected when learnings injection is off, so auto-optimize
-    // is moot — it must not fire (keeps the toggle honest with the UI gate).
+  test("learnings OFF → repo skipped entirely (no retire, no optimize)", () => {
+    // When Learnings injection is off, the whole rule lifecycle is dormant for the repo —
+    // consistent with runAutoTrial / reapStaleTrial / expireProposed, which all skip
+    // learnings-disabled repos. So neither retire nor optimize fires (and no
+    // learnings_retired notification is emitted downstream).
     const rule = makeLearning({
       id: "r4",
       repoPath: "/repo",
@@ -526,7 +528,7 @@ describe("runAutoRetire", () => {
 
     const result = runAutoRetire({ store, optimizer, nMin: 8, maxRetirePerSweep: 5 });
 
-    expect(result.map((r) => r.id)).toEqual(["r4"]); // retired directly
+    expect(result).toHaveLength(0); // nothing retired
     expect(optimizeCalls).toHaveLength(0); // optimizeOne NOT called
   });
 

@@ -18,6 +18,7 @@
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import RundownPanel from "./RundownPanel.svelte";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
+  import UpNextPanel from "./UpNextPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -438,7 +439,10 @@
   </div>
   {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
   <div class="units" class:flow>
-    {#if filter === "rundown"}
+    {#if filter === "next"}
+      <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
+      <UpNextPanel />
+    {:else if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
     {:else if filter === "owed"}

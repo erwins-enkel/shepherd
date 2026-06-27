@@ -84,6 +84,7 @@ import { tailLines } from "./blocked";
 import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { BacklogPoller } from "./backlog-poller";
+import { UpNextService } from "./up-next";
 import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
 import {
   sweepClaudeTmp,
@@ -1836,6 +1837,28 @@ const backlogPoller = new BacklogPoller(
 setTimeout(() => void backlogPoller.tick(), 3_000);
 backlogPoller.start();
 
+// Up Next (#1169): cross-repo ranked queue of un-started work. In-memory snapshot kept warm
+// by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
+// pushes each fresh snapshot to clients over the WS (upnext:snapshot).
+const upNext = new UpNextService({
+  // Forge-backed repos only (skip local/lightweight repos — no cold-issue source to rank).
+  listForgeRepos: () =>
+    listRepos(config.repoRoot)
+      .map((r) => ({ entry: r, forge: resolveForge(r.path) }))
+      .filter((x) => x.forge != null && x.forge.kind !== "local")
+      .map((x) => ({
+        repoPath: x.entry.path,
+        repoSlug: x.forge!.slug,
+        repoLabel: x.entry.display,
+      })),
+  resolveForge,
+  lastUsedByRepo: () => store.lastUsedByRepo(),
+  buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
+  getEpicRun: (repoPath) => store.getEpicRun(repoPath),
+  onChange: (snapshot) => events.emit("upnext:snapshot", { snapshot }),
+});
+upNext.start();
+
 const appDeps: AppDeps = {
   store,
   service,
@@ -1886,6 +1909,10 @@ const appDeps: AppDeps = {
     snapshot: () => herdDigestService.snapshot(),
     currentFingerprint: () => herdDigestService.currentAttentionFingerprint(),
     regenerate: () => herdDigestService.regenerate(),
+  },
+  upNext: {
+    snapshot: () => upNext.snapshot(),
+    refresh: () => upNext.refresh(),
   },
   verifyKey: () => verifyApiKey({ herdr }),
   backlog,

@@ -22,6 +22,11 @@ export interface Issue {
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  UI's "mine & unassigned" filter (#824); filtering is purely client-side. */
   assignees: string[];
+  /** Login of the issue's author. Optional — only forges/paths that fetch it populate
+   *  it (GitHub `listIssues`); absent elsewhere. Up Next (#1169) uses it to exclude
+   *  bot-authored issues (the PR-only `classifyPr` heuristics don't transfer to issues,
+   *  so the bot filter collapses to author-login matching). */
+  author?: string;
 }
 
 export type ForgeKind = "github" | "gitea" | "local";
@@ -424,6 +429,13 @@ export interface GitForge {
     summaries: Map<number, { total: number; completed: number }>;
     subIssueNumbers: number[];
   }>;
+  /** Issue numbers that an OPEN pull request would close (GraphQL `closingIssuesReferences`,
+   *  GitHub only). Catches UI-linked PRs and `Closes #N`/`Fixes #N` bodies alike. Used by
+   *  Up Next (#1169) as the best-effort secondary "this issue already has work in flight"
+   *  exclusion (the primary signal is the `shepherd:active` label). Best-effort: a forge
+   *  without it, or a transient failure, yields an empty set and the exclusion degrades to
+   *  `shepherd:active`-only. Optional: only hosts with the GraphQL field implement it. */
+  listOpenPrClosingIssues?(): Promise<number[]>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

@@ -136,7 +136,11 @@ import {
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRepoDefaultModelSetting,
+  drainSpawnModel,
+  resolveDefaultModelSetting,
 } from "./default-model";
+import { startSerially } from "./up-next";
+import type { UpNextSnapshot } from "./up-next-core";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import {
@@ -302,6 +306,13 @@ export interface AppDeps {
     snapshot(): import("./types").HerdDigest | null;
     currentFingerprint(): Record<string, string[]>;
     regenerate(): Promise<"started" | "in-flight" | "empty" | "error">;
+  };
+  /** Up Next (#1169) cross-repo ranked queue of un-started work. `snapshot` is the cached
+   *  in-memory snapshot (null until the first compute); `refresh` forces a single-flight
+   *  recompute. Absent in tests/environments that don't wire it. */
+  upNext?: {
+    snapshot(): UpNextSnapshot | null;
+    refresh(): Promise<UpNextSnapshot>;
   };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
@@ -735,6 +746,120 @@ async function handleHerdDigest({ req, parts, deps }: Ctx): Promise<Response | n
   }
 
   return null;
+}
+
+// GET  /api/up-next          — cached Up Next snapshot; kicks a single-flight recompute so an
+//                              open lens updates in place (paint cached, then refresh).
+// POST /api/up-next/refresh  — force a recompute (the manual refresh button); 202.
+// POST /api/up-next/start    — start one or many items; spawns are SERIALIZED server-side
+//                              because WorktreeMgr.create() (sync `git worktree add`) is not
+//                              parallel-safe per repo.
+async function handleUpNext(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
+
+  if (req.method === "GET" && !parts[2]) {
+    const snap = deps.upNext?.snapshot() ?? null;
+    if (deps.upNext)
+      void deps.upNext.refresh().catch((err) => console.warn("[up-next] open:", err));
+    return json(snap);
+  }
+
+  if (req.method === "POST" && parts[2] === "refresh") {
+    if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
+    void deps.upNext.refresh().catch((err) => console.warn("[up-next] manual refresh:", err));
+    return json({ ok: true }, 202);
+  }
+
+  if (req.method === "POST" && parts[2] === "start") {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    return handleUpNextStart(req, deps);
+  }
+  return null;
+}
+
+interface UpNextStartItem {
+  dir: string;
+  issueRef: { number: number; url: string; title: string; body: string };
+}
+
+/** Validate the POST /api/up-next/start body into safe, repo-scoped start items. */
+function parseUpNextStartItems(body: unknown): UpNextStartItem[] | null {
+  const itemsRaw = (body as { items?: unknown } | null)?.items;
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) return null;
+  const items: UpNextStartItem[] = [];
+  for (const raw of itemsRaw) {
+    const it = raw as { repoPath?: unknown; issueRef?: Record<string, unknown> };
+    const dir = safeRepoDir(typeof it?.repoPath === "string" ? it.repoPath : "", config.repoRoot);
+    const ir = it?.issueRef;
+    if (
+      !dir ||
+      !ir ||
+      typeof ir.number !== "number" ||
+      typeof ir.url !== "string" ||
+      typeof ir.title !== "string"
+    )
+      return null;
+    items.push({
+      dir,
+      issueRef: {
+        number: ir.number,
+        url: ir.url,
+        title: ir.title,
+        body: typeof ir.body === "string" ? ir.body : "",
+      },
+    });
+  }
+  return items;
+}
+
+async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response> {
+  const items = parseUpNextStartItems(await req.json().catch(() => null));
+  if (!items) return json({ error: "items required" }, 400);
+
+  const created: Session[] = [];
+  const errors: { number: number; error: string }[] = [];
+  // Strictly serial — concurrent `git worktree add` on the same repo would contend.
+  await startSerially(items, async (it) => {
+    const forge = deps.resolveForge?.(it.dir) ?? null;
+    if (!forge) {
+      errors.push({ number: it.issueRef.number, error: "no forge for repo" });
+      return;
+    }
+    try {
+      // Base + prompt = the drain auto-prompt for a plain issue (issue title on the default
+      // branch). Manual epic-child starts also base on default here; integration-branch
+      // orchestration stays the auto epic-runner's job (documented v1 scoping, #1169).
+      const base = await forge.defaultBranch();
+      const rc = deps.store.getRepoConfig(it.dir);
+      const s = await deps.service.create({
+        repoPath: it.dir,
+        baseBranch: base,
+        prompt: it.issueRef.title,
+        // Operator default model (repo override wins; "auto"/"inherit" → no --model flag).
+        // The Fable promo is client-only and never applied here, matching drain spawns.
+        model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        images: [],
+        auto: false,
+        issueRef: it.issueRef,
+      });
+      created.push(s);
+      deps.events.emit("session:new", s);
+      // Stamp the drain claim so the board reflects it's being worked (mirrors New Task).
+      void claimLinkedIssue(forge, it.issueRef.number);
+    } catch (e) {
+      errors.push({
+        number: it.issueRef.number,
+        error: e instanceof Error ? e.message : "create failed",
+      });
+    }
+  });
+
+  // Drop the just-started items from the lens promptly.
+  if (deps.upNext)
+    void deps.upNext.refresh().catch((err) => console.warn("[up-next] post-start:", err));
+  return json({ created, errors }, created.length > 0 ? 201 : 502);
 }
 
 async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -5102,6 +5227,7 @@ const ROUTE_HANDLERS = [
   handlePlanGates,
   handleRecaps,
   handleHerdDigest,
+  handleUpNext,
   handleDrain,
   handleAutoMerge,
   handleEpicsList,

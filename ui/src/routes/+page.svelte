@@ -66,6 +66,7 @@
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
+  import { upNext } from "$lib/up-next.svelte";
   import { doneSessions } from "$lib/done.svelte";
   import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
   import { learnings } from "$lib/learnings.svelte";
@@ -1249,6 +1250,7 @@
     planGates.load();
     recaps.load();
     herdDigest.load();
+    upNext.load();
     learnings.load().then(() => (learningsLoaded = true));
     refreshHeldCount();
     loadSettings();

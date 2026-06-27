@@ -155,3 +155,9 @@ test("attachmentDisposition: percent-encodes a non-ASCII name in filename*", () 
   expect(d).toContain("filename*=UTF-8''caf%C3%A9.txt");
   expect(d).toContain('filename="caf_.txt"'); // é replaced in the ASCII fallback
 });
+
+test("attachmentDisposition: percent-encodes RFC 5987 non-attr-chars ('()*) in filename*", () => {
+  const d = attachmentDisposition("a'b(c)*d.txt");
+  // ' ( ) * → %27 %28 %29 %2A (encodeURIComponent would otherwise leave them raw)
+  expect(d).toContain("filename*=UTF-8''a%27b%28c%29%2Ad.txt");
+});

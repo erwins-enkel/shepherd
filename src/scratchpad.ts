@@ -155,5 +155,11 @@ export function attachmentDisposition(name: string): string {
         return code < 0x20 || code > 0x7e || c === '"' || c === "\\" ? "_" : c;
       })
       .join("") || "download";
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  // RFC 5987 ext-value: encodeURIComponent leaves `'()*` unescaped, but those are not valid
+  // `attr-char`s — percent-encode them too so the header is conformant.
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }

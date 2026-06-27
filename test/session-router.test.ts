@@ -155,17 +155,15 @@ test("getSession is called exactly once per onGit even with two consumers", asyn
 
 test("unknown session (getSession null) calls no consumer and no hooks", async () => {
   const log: string[] = [];
-  let prewarm = 0;
   let settled = 0;
   const router = new SessionRouter(
     { getSession: () => null },
     [recordingConsumer("drain", log), recordingConsumer("autopilot", log)],
-    { onStatusPrewarm: () => prewarm++, onStatusSettled: () => settled++ },
+    { onStatusSettled: () => settled++ },
   );
   await router.onStatus("missing", "idle");
   await router.onGit("missing", GIT_STATE);
   expect(log).toEqual([]);
-  expect(prewarm).toBe(0);
   expect(settled).toBe(0);
 });
 
@@ -199,9 +197,9 @@ test("a throwing first consumer is caught; second consumer and settled hook stil
   expect(warnings.some((w) => w.includes("drain"))).toBe(true);
 });
 
-// ── 5. Prewarm / settled hook ordering ────────────────────────────────────────
+// ── 5. Settled hook ordering ───────────────────────────────────────────────────
 
-test("onStatus fires prewarm before the consumer chain and settled after it", async () => {
+test("onStatus fires the settled hook after the consumer chain", async () => {
   const log: string[] = [];
   const gate = deferred();
 
@@ -215,28 +213,26 @@ test("onStatus fires prewarm before the consumer chain and settled after it", as
   };
 
   const router = new SessionRouter({ getSession: () => makeSession("s1", "/r") }, [slow], {
-    onStatusPrewarm: () => log.push("prewarm"),
     onStatusSettled: () => log.push("settled"),
   });
 
   const done = router.onStatus("s1", "idle");
   await Promise.resolve();
   await Promise.resolve();
-  // Prewarm fired before the chain; settled has NOT fired yet.
-  expect(log).toEqual(["prewarm", "consumer:start"]);
+  // Settled has NOT fired yet — the chain is still parked on the deferred.
+  expect(log).toEqual(["consumer:start"]);
 
   gate.resolve();
   await done;
-  expect(log).toEqual(["prewarm", "consumer:start", "consumer:finish", "settled"]);
+  expect(log).toEqual(["consumer:start", "consumer:finish", "settled"]);
 });
 
-test("onGit invokes neither prewarm nor settled hook", async () => {
+test("onGit invokes the settled hook never", async () => {
   const log: string[] = [];
   const router = new SessionRouter(
     { getSession: () => makeSession("s1", "/r") },
     [recordingConsumer("drain", log)],
     {
-      onStatusPrewarm: () => log.push("prewarm"),
       onStatusSettled: () => log.push("settled"),
     },
   );

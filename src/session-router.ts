@@ -9,9 +9,6 @@ export interface SessionConsumer {
 }
 
 export interface SessionRouterHooks {
-  /** Fired on a `status` change BEFORE the consumer chain is awaited — used to hoist
-   *  autopilot's PR-prewarm kick so awaiting drain doesn't delay it. Best-effort/sync. */
-  onStatusPrewarm?: (id: string) => void;
   /** Fired on a `status` change AFTER the consumer chain — an independent side-effect
    *  (plan-gate). Reached regardless of any consumer throwing. */
   onStatusSettled?: (change: Extract<SessionStateChange, { kind: "status" }>) => void;
@@ -34,7 +31,9 @@ export class SessionRouter {
   async onStatus(id: string, status: string): Promise<void> {
     const change = buildSnapshot(this.acc, id, { kind: "status", status });
     if (!change) return;
-    this.safeSync(() => this.hooks.onStatusPrewarm?.(id), "prewarm");
+    // No up-front PR-prewarm hook: drain runs before autopilot, and autopilot.onDone
+    // kicks refreshPr right before its classify, so the PR-poll↔classify overlap is
+    // preserved without a separate kick (see autopilot.handle).
     await this.dispatch(change);
     this.safeSync(
       () => this.hooks.onStatusSettled?.(change as Extract<SessionStateChange, { kind: "status" }>),

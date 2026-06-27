@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
 import type { CreateSessionInput, Session } from "./types";
+import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
 import { settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
@@ -1778,6 +1779,24 @@ export class DrainService {
   }
 
   // ── event handlers (public surface) ───────────────────────────────────────────
+
+  /** SessionConsumer entry (#1094 seam). Sources the trigger row from the shared snapshot
+   *  instead of a fresh store.get — drain runs FIRST in the ordered chain, so the snapshot
+   *  (built this tick) is current for its purposes. Mirrors onGit/onStatus exactly. */
+  async handle(change: SessionStateChange): Promise<void> {
+    const s = change.snapshot.session;
+    if (change.kind === "git") {
+      if (!s.auto) return; // drain only manages auto sessions
+      if (change.git.state === "merged") {
+        await this.reapMerged(s);
+        return;
+      }
+      await this.pumpIfEnabled(s.repoPath);
+      return;
+    }
+    // kind === "status"
+    await this.pumpIfEnabled(s.repoPath);
+  }
 
   /** pr-poller observed a new git state for a session. */
   async onGit(id: string, git: GitState): Promise<void> {

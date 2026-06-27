@@ -1250,6 +1250,7 @@ export type WsEvent =
       event: "plugin:status";
       data: { id: string; health: PluginInfo["health"]; status: unknown };
     }
+  | { event: "plugin:ui"; data: { id: string; ui: PluginUIView | null } }
   | { event: "backlog:update"; data: BacklogPayload }
   | { event: "drain:status"; data: DrainStatus }
   | { event: "automerge:status"; data: AutoMergeStatus }

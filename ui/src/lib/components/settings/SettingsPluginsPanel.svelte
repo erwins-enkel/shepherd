@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import type { PluginInfo } from "$lib/types";
+  import type { PluginInfo, PluginUIView } from "$lib/types";
+  import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
 
   let { plugins = [] }: { plugins?: PluginInfo[] } = $props();
 
@@ -12,7 +13,7 @@
     errored: { color: "var(--color-red)", label: m.plugins_health_errored },
   };
 
-  // Which rows are expanded to show the published status blob.
+  // Which rows are expanded to show the published status blob / raw-JSON debug dump.
   let expanded = $state<Record<string, boolean>>({});
 
   function pretty(status: unknown): string {
@@ -22,12 +23,18 @@
       return String(status);
     }
   }
+
+  /** Returns the view only when it targets this panel's slot. */
+  function panelView(p: PluginInfo): PluginUIView | null {
+    return p.ui && p.ui.slot === "settings-panel" ? p.ui : null;
+  }
 </script>
 
 <div class="plugins">
   <p class="intro micro">{m.plugins_intro()}</p>
   {#each plugins as p (p.id)}
     {@const h = HEALTH[p.health]}
+    {@const view = panelView(p)}
     <div class="row">
       <button
         type="button"
@@ -43,11 +50,24 @@
       {#if p.lastError}
         <p class="err micro" title={p.lastError}>{m.plugins_last_error()}: {p.lastError}</p>
       {/if}
-      {#if expanded[p.id]}
-        {#if p.status !== null && p.status !== undefined}
+      {#if view}
+        {#if view.title}
+          <p class="view-title">{view.title}</p>
+        {/if}
+        <div class="view-body">
+          <PluginUIRenderer node={view.root} />
+        </div>
+        {#if expanded[p.id]}
+          <p class="raw-label micro">{m.plugins_raw_json()}</p>
           <pre class="status">{pretty(p.status)}</pre>
-        {:else}
-          <p class="empty micro">{m.plugins_no_status()}</p>
+        {/if}
+      {:else}
+        {#if expanded[p.id]}
+          {#if p.status !== null && p.status !== undefined}
+            <pre class="status">{pretty(p.status)}</pre>
+          {:else}
+            <p class="empty micro">{m.plugins_no_status()}</p>
+          {/if}
         {/if}
       {/if}
     </div>
@@ -105,6 +125,21 @@
   .empty {
     color: var(--color-muted);
     margin: 6px 0 0;
+  }
+  .view-title {
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    color: var(--color-muted);
+    margin: 8px 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .view-body {
+    margin: 6px 0 0;
+  }
+  .raw-label {
+    color: var(--color-muted);
+    margin: 8px 0 2px;
   }
   .status {
     margin: 6px 0 0;

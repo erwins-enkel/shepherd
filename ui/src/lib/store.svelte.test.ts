@@ -136,6 +136,71 @@ test("plugin:status updates the matching plugin's health + published status in p
   expect(s.plugins).toHaveLength(2);
 });
 
+test("plugin:ui updates the matching plugin's ui descriptor in place", () => {
+  const s = new HerdStore();
+  s.setPlugins([
+    {
+      id: "p1",
+      name: "P1",
+      version: "1.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+    },
+    {
+      id: "p2",
+      name: "P2",
+      version: "2.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+    },
+  ]);
+  const view = {
+    schemaVersion: 1 as const,
+    slot: "settings-panel" as const,
+    root: { type: "text", props: { value: "hello" } },
+  };
+  s.apply({ event: "plugin:ui", data: { id: "p1", ui: view } });
+  expect(s.plugins.find((p) => p.id === "p1")?.ui).toEqual(view);
+  // unrelated plugin untouched
+  expect(s.plugins.find((p) => p.id === "p2")?.ui).toBeNull();
+  // setting back to null is supported
+  s.apply({ event: "plugin:ui", data: { id: "p1", ui: null } });
+  expect(s.plugins.find((p) => p.id === "p1")?.ui).toBeNull();
+});
+
+test("plugin:ui for an unknown id is a no-op (pre-bootstrap guard)", () => {
+  const s = new HerdStore();
+  s.setPlugins([
+    {
+      id: "p1",
+      name: "P1",
+      version: "1.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+    },
+  ]);
+  s.apply({
+    event: "plugin:ui",
+    data: {
+      id: "ghost",
+      ui: {
+        schemaVersion: 1,
+        slot: "settings-panel",
+        root: { type: "text", props: { value: "x" } },
+      },
+    },
+  });
+  // no new plugin row added; existing plugin untouched
+  expect(s.plugins).toHaveLength(1);
+  expect(s.plugins[0].ui).toBeNull();
+});
+
 test("backlog:update replaces the backlog snapshot so the overview stays live", () => {
   const s = new HerdStore();
   expect(s.backlog).toBeNull();

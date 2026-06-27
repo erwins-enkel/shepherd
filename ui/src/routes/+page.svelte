@@ -2012,6 +2012,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onbacklog={() => (showBacklog = true)}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
             <BacklogView
@@ -2172,6 +2173,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onbacklog={() => (showBacklog = true)}
           />
         {/if}
         {#if panelOnlyLens}

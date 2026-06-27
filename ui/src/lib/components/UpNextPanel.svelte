@@ -9,6 +9,9 @@
   import { SvelteSet } from "svelte/reactivity";
   import { onMount } from "svelte";
 
+  // Open the Backlog overlay from the empty state (threaded up through Herd to +page).
+  let { onbacklog }: { onbacklog?: () => void } = $props();
+
   // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
   // triggers a background refresh that lands in place via the upnext:snapshot WS event), so the
   // lens reflects "now" rather than the last app-load — not just on-app-load (#1169 spec).
@@ -210,6 +213,11 @@
     {:else if isEmpty}
       <div class="un-empty">
         <p class="un-muted">{m.upnext_empty()}</p>
+        {#if onbacklog}
+          <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}
+            >{m.upnext_open_backlog()}</button
+          >
+        {/if}
       </div>
     {:else}
       {#each sections as s (sectionKey(s))}
@@ -489,6 +497,25 @@
   .un-empty {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 8px;
+  }
+  .un-backlog-link {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-size: var(--fs-meta);
+    color: var(--color-amber);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .un-backlog-link:hover {
+    color: var(--color-amber);
+    text-decoration: none;
+  }
+  .un-backlog-link:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 </style>

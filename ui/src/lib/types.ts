@@ -1137,6 +1137,36 @@ export interface PluginInfo {
   status: unknown;
 }
 
+// Up Next (#1169) — cross-repo ranked queue of un-started work. Mirrors src/up-next-core.ts.
+export type UpNextKind = "epic" | "bug" | "feature";
+export interface UpNextItem {
+  repoPath: string;
+  repoSlug: string | null;
+  repoLabel: string;
+  number: number;
+  title: string;
+  url: string;
+  kind: UpNextKind;
+  priority: boolean;
+  createdAt: number;
+  epicParent?: { number: number; title: string };
+  issueRef: { number: number; url: string; title: string; body: string };
+}
+export interface UpNextSection {
+  kind: "priority" | "repo";
+  repoPath: string | null;
+  repoSlug: string | null;
+  repoLabel: string | null;
+  items: UpNextItem[];
+  totalCount: number;
+}
+export interface UpNextSnapshot {
+  generatedAt: number;
+  sections: UpNextSection[];
+  repoCount: number;
+  fallback: string | null;
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
   | {
@@ -1190,6 +1220,7 @@ export type WsEvent =
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "herd:digest"; data: { digest: HerdDigest } }
+  | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
   | { event: "session:critic-activity"; data: { id: string; summary: string } }

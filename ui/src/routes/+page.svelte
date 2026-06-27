@@ -66,6 +66,7 @@
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
+  import { upNext } from "$lib/up-next.svelte";
   import { doneSessions } from "$lib/done.svelte";
   import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
   import { learnings } from "$lib/learnings.svelte";
@@ -945,9 +946,15 @@
   let herdFilter = $state<HerdFilter>("all");
   // Panel-only lenses (rundown + owed, #1061): the rail swaps in a dedicated panel and the main
   // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
-  const panelOnlyLens = $derived(herdFilter === "rundown" || herdFilter === "owed");
+  const panelOnlyLens = $derived(
+    herdFilter === "rundown" || herdFilter === "owed" || herdFilter === "next",
+  );
   const panelMainHint = $derived(
-    herdFilter === "owed" ? m.owed_main_hint() : m.rundown_main_hint(),
+    herdFilter === "next"
+      ? m.upnext_main_hint()
+      : herdFilter === "owed"
+        ? m.owed_main_hint()
+        : m.rundown_main_hint(),
   );
 
   // Done lens: separate selection state. selectedId resolves against store.sessions
@@ -1249,6 +1256,9 @@
     planGates.load();
     recaps.load();
     herdDigest.load();
+    // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
+    // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
+    upNext.load({ peek: true });
     learnings.load().then(() => (learningsLoaded = true));
     refreshHeldCount();
     loadSettings();
@@ -2008,6 +2018,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onbacklog={() => (showBacklog = true)}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
             <BacklogView
@@ -2168,6 +2179,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onbacklog={() => (showBacklog = true)}
           />
         {/if}
         {#if panelOnlyLens}

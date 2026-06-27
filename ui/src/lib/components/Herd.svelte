@@ -18,6 +18,7 @@
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import RundownPanel from "./RundownPanel.svelte";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
+  import UpNextPanel from "./UpNextPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -71,6 +72,7 @@
     focusEpic = null,
     onackmigrationsepic = undefined,
     onackmanualsteps = undefined,
+    onbacklog = undefined,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -172,6 +174,8 @@
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
     onackmanualsteps?: (id: string) => void;
+    // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
+    onbacklog?: () => void;
   } = $props();
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
@@ -438,7 +442,10 @@
   </div>
   {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
   <div class="units" class:flow>
-    {#if filter === "rundown"}
+    {#if filter === "next"}
+      <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
+      <UpNextPanel {onbacklog} />
+    {:else if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
     {:else if filter === "owed"}

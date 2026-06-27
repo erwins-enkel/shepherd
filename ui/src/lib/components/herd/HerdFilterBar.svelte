@@ -23,6 +23,18 @@
 <div class="right filters">
   <button
     type="button"
+    class="micro fbtn fbtn-next"
+    class:active={statusFilter == null && filter === "next"}
+    title={m.herd_next_title()}
+    aria-pressed={statusFilter == null && filter === "next"}
+    use:coachTarget={"up-next-lens"}
+    onclick={() => {
+      filter = "next";
+      onstatusfilter?.(null);
+    }}>{m.herd_next_filter()}</button
+  >
+  <button
+    type="button"
     class="micro fbtn"
     class:active={statusFilter == null && filter === "all"}
     title={m.herd_all_title()}
@@ -144,6 +156,14 @@
     color: var(--color-ink);
   }
   .fbtn.active {
+    color: var(--color-amber);
+  }
+  /* Up Next is the headline "what to start" lens — slightly brighter at rest so it reads
+     as the primary entry point in the lens row (still amber when active, like the others). */
+  .fbtn-next:not(.active) {
+    color: var(--color-ink);
+  }
+  .fbtn-next:not(.active):hover {
     color: var(--color-amber);
   }
   .fbtn:focus-visible {

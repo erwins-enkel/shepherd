@@ -78,6 +78,32 @@ function collectSubIssueSummaryPage(
   };
 }
 
+/** Parse one page of the open-PR closingIssuesReferences GraphQL response: add every closed
+ *  issue number into `into`, and return the page's cursor info. */
+function collectClosingIssuesPage(
+  out: string,
+  into: Set<number>,
+): { hasNextPage: boolean; endCursor: string | null } {
+  const json = JSON.parse(out || "{}") as {
+    data?: {
+      repository?: {
+        pullRequests?: {
+          pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+          nodes?: Array<{ closingIssuesReferences?: { nodes?: Array<{ number?: number }> } }>;
+        };
+      };
+    };
+  };
+  const prs = json.data?.repository?.pullRequests;
+  for (const n of prs?.nodes ?? [])
+    for (const ref of n.closingIssuesReferences?.nodes ?? [])
+      if (typeof ref.number === "number") into.add(ref.number);
+  return {
+    hasNextPage: prs?.pageInfo?.hasNextPage ?? false,
+    endCursor: prs?.pageInfo?.endCursor ?? null,
+  };
+}
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -198,7 +224,7 @@ export class GithubForge implements GitForge {
       "--state",
       "open",
       "--json",
-      "number,title,body,url,labels,createdAt,assignees",
+      "number,title,body,url,labels,createdAt,assignees,author",
       // Cap matches listPullRequests; the count source (GraphQL totalCount) is
       // unbounded, so a repo with >200 open issues lists a truncated set under a
       // larger count. Raise this or paginate if such repos appear.
@@ -213,6 +239,7 @@ export class GithubForge implements GitForge {
       labels?: Array<{ name: string }>;
       createdAt?: string;
       assignees?: Array<{ login: string }>;
+      author?: { login?: string } | null;
     }>;
     return raw.map((i) => {
       const ts = Date.parse(i.createdAt ?? "");
@@ -224,6 +251,7 @@ export class GithubForge implements GitForge {
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         assignees: (i.assignees ?? []).map((a) => a.login),
+        author: i.author?.login,
       };
     });
   }
@@ -1095,5 +1123,37 @@ export class GithubForge implements GitForge {
       return { summaries: new Map(), subIssueNumbers: [] };
     }
     return { summaries, subIssueNumbers: [...subIssueSet] };
+  }
+
+  async listOpenPrClosingIssues(): Promise<number[]> {
+    // Issues an open PR would close (UI-linked + `Closes #N` bodies). Paginated like
+    // listSubIssueSummaries; capped to ~200 open PRs. Best-effort — any failure yields []
+    // and Up Next falls back to the shepherd:active exclusion alone.
+    const [owner, name] = this.slug.split("/");
+    const query =
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{closingIssuesReferences(first:20){nodes{number}}}}}}";
+    const closed = new Set<number>();
+    try {
+      let endCursor: string | null = null;
+      for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
+        const args = [
+          "api",
+          "graphql",
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-f",
+          `query=${query}`,
+        ];
+        if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
+        const pageInfo = collectClosingIssuesPage(await this.run(args), closed);
+        if (!pageInfo.hasNextPage) break;
+        endCursor = pageInfo.endCursor;
+      }
+    } catch {
+      return [];
+    }
+    return [...closed];
   }
 }

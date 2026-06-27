@@ -1,0 +1,262 @@
+// Up Next (#1169) — pure ranking/classification/collapse for the cross-repo "what to
+// start next" feed. NO I/O: the service (src/up-next.ts) fetches per-repo facts and
+// feeds them in; this module is the deterministic, unit-tested decision layer.
+//
+// Ranking (priority-dominant, lexicographic):
+//   1. shepherd:priority items across ALL repos — warm-first (repo lastUsedAt desc), then oldest age.
+//   2. per-repo clusters in warm order; within a repo: ready-epic-unit -> bug -> feature, then oldest age.
+// Epics collapse to ONE unit keyed by their next-actionable child; the unit is AGED BY THE
+// PARENT'S createdAt (the child carries none — SubIssueRef has no createdAt and
+// selectEpicCandidates hard-codes createdAt:0, so child-age would tie all epics at 0).
+import type { Issue } from "./forge/types";
+import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
+import { isDependabotAuthor } from "./forge/pr-kind";
+
+export type UpNextKind = "epic" | "bug" | "feature";
+
+/** One startable row. For an epic, `number`/`title`/`url`/`issueRef` describe the
+ *  next-actionable CHILD (what Start spawns); `createdAt` is the PARENT's age. */
+export interface UpNextItem {
+  repoPath: string;
+  repoSlug: string | null;
+  repoLabel: string;
+  number: number;
+  title: string;
+  url: string;
+  kind: UpNextKind;
+  priority: boolean;
+  createdAt: number;
+  /** Present iff this row represents an epic unit (the parent it rolls up). */
+  epicParent?: { number: number; title: string };
+  /** Payload for SessionService.create()'s issueRef on Start. */
+  issueRef: { number: number; url: string; title: string; body: string };
+}
+
+export interface UpNextSection {
+  kind: "priority" | "repo";
+  repoPath: string | null;
+  repoSlug: string | null;
+  repoLabel: string | null;
+  /** Full ranked item list (bounded by the 200/repo listIssues source). The UI renders the
+   *  first PRIORITY_CAP / REPO_CAP and reveals the rest via an in-place "show all N" expander. */
+  items: UpNextItem[];
+  /** items.length — convenience for the UI's "show all N" label. */
+  totalCount: number;
+}
+
+export interface UpNextSnapshot {
+  generatedAt: number;
+  sections: UpNextSection[];
+  /** Forge-backed repos scanned this refresh. */
+  repoCount: number;
+  /** Degraded rung applied this refresh (e.g. "warm-repos-only"), or null when clean. */
+  fallback: string | null;
+}
+
+/** A resolved epic, as fed in by the service (after buildEpic + selectEpicCandidates). */
+export interface EpicUnitInput {
+  parentNumber: number;
+  parentTitle: string;
+  parentUrl: string;
+  parentCreatedAt: number;
+  parentLabels: string[];
+  /** All epic member issue numbers — removed from the flat per-repo list (dedup). */
+  memberNumbers: number[];
+  /** selectEpicCandidates()[0], or null when no child is actionable (suppress the unit). */
+  candidate: Issue | null;
+}
+
+export interface RepoInput {
+  repoPath: string;
+  repoSlug: string | null;
+  repoLabel: string;
+  lastUsedAt: number | null;
+  openIssues: Issue[];
+  epics: EpicUnitInput[];
+  /** All native sub-issue numbers in the repo (from listSubIssueSummaries). Removed from the
+   *  flat list even when their parent is off-page, so an orphan child never lists standalone —
+   *  mirrors the backlog's hide-set. */
+  subIssueNumbers: number[];
+  /** Issue numbers an open PR would close (best-effort secondary exclusion). */
+  linkedIssueNumbers: number[];
+}
+
+/** UI display caps (items beyond these reveal via a "show all N" expander). The server
+ *  returns the full list; these document the default rendered count. */
+export const PRIORITY_CAP = 10;
+export const REPO_CAP = 5;
+
+const BUG_LABELS = new Set(["bug", "type/bug", "type:bug"]);
+const EXCLUDE_LABELS = new Set(["wontfix", "wont-fix", "blocked"]);
+const KIND_RANK: Record<UpNextKind, number> = { epic: 0, bug: 1, feature: 2 };
+
+function lc(labels: string[]): Set<string> {
+  return new Set(labels.map((l) => l.toLowerCase()));
+}
+function hasLabel(set: Set<string>, label: string): boolean {
+  return set.has(label.toLowerCase());
+}
+function intersects(set: Set<string>, want: Set<string>): boolean {
+  for (const w of want) if (set.has(w)) return true;
+  return false;
+}
+
+/** Bot-authored issues: the PR-only classifyPr heuristics don't transfer to issues, so this
+ *  collapses to author-login matching — Dependabot plus any `[bot]` suffix. Bot-authored
+ *  issues are rare in practice (bots open PRs); label exclusions carry most of the weight. */
+function isBotAuthored(issue: Issue): boolean {
+  const a = issue.author;
+  if (!a) return false;
+  return isDependabotAuthor(a) || a.toLowerCase().endsWith("[bot]");
+}
+
+function classifyKind(labelSet: Set<string>): "bug" | "feature" {
+  return intersects(labelSet, BUG_LABELS) ? "bug" : "feature";
+}
+
+/** Standalone-issue exclusions applied before ranking. Epic membership + PR-linkage are
+ *  handled by the caller (they need cross-issue context). */
+function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
+  if (hasLabel(labelSet, ACTIVE_LABEL)) return true;
+  if (intersects(labelSet, EXCLUDE_LABELS)) return true;
+  if (isBotAuthored(issue)) return true;
+  return false;
+}
+
+/** Map one standalone (non-epic) open issue to a row, or null when excluded. */
+function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): UpNextItem | null {
+  const labelSet = lc(issue.labels);
+  if (isExcludedIssue(issue, labelSet)) return null;
+  if (linkedSet.has(issue.number)) return null; // best-effort secondary
+  return {
+    repoPath: repo.repoPath,
+    repoSlug: repo.repoSlug,
+    repoLabel: repo.repoLabel,
+    number: issue.number,
+    title: issue.title,
+    url: issue.url,
+    kind: classifyKind(labelSet),
+    priority: hasLabel(labelSet, PRIORITY_LABEL),
+    createdAt: issue.createdAt,
+    issueRef: { number: issue.number, url: issue.url, title: issue.title, body: issue.body },
+  };
+}
+
+/** Map one epic to a single unit row (keyed by its next-actionable child, aged by the parent),
+ *  or null when it has no actionable child / is excluded / its child already has a PR in flight. */
+function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): UpNextItem | null {
+  const c = e.candidate;
+  if (!c) return null; // no actionable child → suppress (DAG-blocked / in-flight)
+  const parentLabelSet = lc(e.parentLabels);
+  if (hasLabel(parentLabelSet, ACTIVE_LABEL)) return null;
+  if (intersects(parentLabelSet, EXCLUDE_LABELS)) return null;
+  if (linkedSet.has(c.number)) return null; // the child already has a PR in flight
+  return {
+    repoPath: repo.repoPath,
+    repoSlug: repo.repoSlug,
+    repoLabel: repo.repoLabel,
+    number: c.number,
+    title: c.title,
+    url: c.url,
+    kind: "epic",
+    priority: hasLabel(parentLabelSet, PRIORITY_LABEL),
+    createdAt: e.parentCreatedAt,
+    epicParent: { number: e.parentNumber, title: e.parentTitle },
+    issueRef: { number: c.number, url: c.url, title: c.title, body: c.body },
+  };
+}
+
+function repoItems(repo: RepoInput): UpNextItem[] {
+  // Remove epic parents AND members from the flat list: the parent rolls up to its unit
+  // (or is suppressed when no child is actionable) and never lists as a standalone issue.
+  const memberSet = new Set<number>(repo.subIssueNumbers);
+  for (const e of repo.epics) {
+    memberSet.add(e.parentNumber);
+    for (const m of e.memberNumbers) memberSet.add(m);
+  }
+  const linkedSet = new Set(repo.linkedIssueNumbers);
+  const items: UpNextItem[] = [];
+  // Standalone issues (epic members removed → no double-listing), then one row per epic unit.
+  for (const issue of repo.openIssues) {
+    if (memberSet.has(issue.number)) continue;
+    const it = standaloneItem(repo, issue, linkedSet);
+    if (it) items.push(it);
+  }
+  for (const e of repo.epics) {
+    const it = epicItem(repo, e, linkedSet);
+    if (it) items.push(it);
+  }
+  return items;
+}
+
+/** repoPath -> warm rank (0 = warmest). lastUsedAt desc; nulls last; ties by label then path. */
+function warmRanks(repos: RepoInput[]): Map<string, number> {
+  const ordered = [...repos].sort(
+    (a, b) =>
+      (b.lastUsedAt ?? -Infinity) - (a.lastUsedAt ?? -Infinity) ||
+      a.repoLabel.localeCompare(b.repoLabel) ||
+      a.repoPath.localeCompare(b.repoPath),
+  );
+  const rank = new Map<string, number>();
+  ordered.forEach((r, i) => rank.set(r.repoPath, i));
+  return rank;
+}
+
+export function buildSnapshot(
+  repos: RepoInput[],
+  now: number,
+  fallback: string | null = null,
+): UpNextSnapshot {
+  const rank = warmRanks(repos);
+  const all = repos.flatMap((r) => repoItems(r));
+
+  // Tier 1 — priority across all repos: warm-first, then oldest age, then issue number.
+  const priority = all
+    .filter((i) => i.priority)
+    .sort(
+      (a, b) =>
+        (rank.get(a.repoPath) ?? 0) - (rank.get(b.repoPath) ?? 0) ||
+        a.createdAt - b.createdAt ||
+        a.number - b.number,
+    );
+
+  const sections: UpNextSection[] = [];
+  if (priority.length > 0) {
+    sections.push({
+      kind: "priority",
+      repoPath: null,
+      repoSlug: null,
+      repoLabel: null,
+      items: priority,
+      totalCount: priority.length,
+    });
+  }
+
+  // Tier 2 — per-repo clusters in warm order; non-priority only (priority pulled out above).
+  const byRepo = new Map<string, UpNextItem[]>();
+  for (const i of all) {
+    if (i.priority) continue;
+    (byRepo.get(i.repoPath) ?? byRepo.set(i.repoPath, []).get(i.repoPath)!).push(i);
+  }
+  const warmOrder = [...repos].sort(
+    (a, b) => (rank.get(a.repoPath) ?? 0) - (rank.get(b.repoPath) ?? 0),
+  );
+  for (const repo of warmOrder) {
+    const items = byRepo.get(repo.repoPath);
+    if (!items || items.length === 0) continue; // silently omit fully-excluded repos
+    items.sort(
+      (a, b) =>
+        KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number,
+    );
+    sections.push({
+      kind: "repo",
+      repoPath: repo.repoPath,
+      repoSlug: repo.repoSlug,
+      repoLabel: repo.repoLabel,
+      items,
+      totalCount: items.length,
+    });
+  }
+
+  return { generatedAt: now, sections, repoCount: repos.length, fallback };
+}

@@ -28,6 +28,7 @@ import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { herdDigest } from "./herd-digest.svelte";
+import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -588,6 +589,9 @@ export class HerdStore {
         break;
       case "herd:digest":
         herdDigest.apply(ev.data);
+        break;
+      case "upnext:snapshot":
+        upNext.apply(ev.data);
         break;
       case "backlog:update":
         this.backlog = ev.data;

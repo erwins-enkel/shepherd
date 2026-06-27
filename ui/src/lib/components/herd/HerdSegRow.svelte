@@ -28,6 +28,18 @@
   <button
     type="button"
     class="seg-btn"
+    class:seg-active={statusFilter == null && filter === "next"}
+    title={m.herd_next_title()}
+    aria-pressed={statusFilter == null && filter === "next"}
+    use:coachTarget={"up-next-lens"}
+    onclick={() => {
+      filter = "next";
+      onstatusfilter?.(null);
+    }}>{m.herd_seg_next()}</button
+  >
+  <button
+    type="button"
+    class="seg-btn"
     class:seg-active={statusFilter == null && filter === "all"}
     title={m.herd_all_title()}
     aria-pressed={statusFilter == null && filter === "all"}

@@ -62,6 +62,8 @@ import type {
   DocAgentRun,
   HoldReason,
   AgentProvider,
+  UpNextSnapshot,
+  UpNextItem,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 import { auth } from "$lib/auth.svelte";
@@ -1183,6 +1185,24 @@ export async function getHerdDigest(): Promise<HerdDigest | null> {
 /** Trigger a fresh Herd Rundown digest. Returns `{ok, status}` from the server. */
 export async function regenerateHerdDigest(): Promise<{ ok: boolean; status: string }> {
   return postJson("/api/herd/digest/regenerate", {}, "regenerate herd digest");
+}
+
+/** Up Next snapshot. By default (lens-open) the server also kicks a background recompute;
+ *  pass `peek` to paint the cached snapshot only (app-load), costing zero cross-repo `gh`. */
+export async function getUpNext(opts?: { peek?: boolean }): Promise<UpNextSnapshot | null> {
+  return getJson(opts?.peek ? "/api/up-next?peek=1" : "/api/up-next", "up next");
+}
+
+/** Force an Up Next recompute (the manual refresh button). */
+export async function refreshUpNext(): Promise<{ ok: boolean }> {
+  return postJson("/api/up-next/refresh", {}, "refresh up next");
+}
+
+/** Start one or many Up Next items. Spawns are serialized server-side. */
+export async function startUpNext(
+  items: { repoPath: string; issueRef: UpNextItem["issueRef"] }[],
+): Promise<{ created: Session[]; errors: { number: number; error: string }[] }> {
+  return postJson("/api/up-next/start", { items }, "start up next");
 }
 
 /** Trigger a recap regeneration for a session. Returns `{status}` from the server. */

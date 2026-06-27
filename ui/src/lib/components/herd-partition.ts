@@ -56,7 +56,7 @@ type Stage =
  *  daily Herd Rundown digest). "done" and "rundown" are NOT live-list filters — the page
  *  swaps in a dedicated panel for each; shownSessions returns [] for "rundown" (panel-only,
  *  no session list) and falls through to the live set for "done" (handled by the page). */
-export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown" | "owed";
+export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown" | "owed" | "next";
 
 /** Lifecycle stages the "ready" lens hides: the session is NOT awaiting the operator.
  *  A PR with CI still in flight (`ciRunning`) is awaiting CI, a green PR handed off to a
@@ -98,8 +98,8 @@ export function shownSessions(
         !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, now)),
     );
   if (filter === "research") return sessions.filter((s) => s.research);
-  // Rundown + Owed are panel-only lenses (a dedicated panel, no session list) — show no rows.
-  if (filter === "rundown" || filter === "owed") return [];
+  // Rundown + Owed + Up Next are panel-only lenses (a dedicated panel, no session list).
+  if (filter === "rundown" || filter === "owed" || filter === "next") return [];
   return sessions;
 }
 

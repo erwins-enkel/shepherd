@@ -7,7 +7,7 @@ export type PrKind = "regular" | "dependabot" | "release";
  *  `app/dependabot` (the `--json author` form) or `dependabot[bot]`. Match those
  *  exact forms after stripping a leading `app/` rather than a substring —
  *  `includes("dependabot")` would also catch vanity logins like `dependabot-fan`. */
-function isDependabotAuthor(author: string): boolean {
+export function isDependabotAuthor(author: string): boolean {
   const login = author.toLowerCase().replace(/^app\//, "");
   return login === "dependabot" || login === "dependabot[bot]";
 }

@@ -7,6 +7,7 @@ import { SessionService } from "../src/service";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "../src/plugins/types";
+import { SandboxAutoRefused } from "../src/sandbox";
 
 type Hooks = (d: SpawnDescriptor) => Promise<SpawnPatch>;
 
@@ -145,4 +146,34 @@ test("no runSpawnHooks dep → spawn proceeds unchanged (no-op invariant)", asyn
   expect(started).toBe(true);
   expect(s.herdrAgentId).toBe("term_z");
   void NOOP_HOOKS;
+});
+
+// ── SandboxAutoRefused.cause plumbing ─────────────────────────────────────────
+
+test("plugin abort on create surfaces as SandboxAutoRefused with PluginSpawnAborted cause", async () => {
+  const hooks = { fn: async () => Promise.reject(new PluginSpawnAborted("no creds", "swap")) };
+  const { service } = makeService(hooks as { fn: Hooks });
+
+  let caught: unknown;
+  try {
+    await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+  } catch (e) {
+    caught = e;
+  }
+
+  expect(caught).toBeInstanceOf(SandboxAutoRefused);
+  expect((caught as SandboxAutoRefused).cause).toBeInstanceOf(PluginSpawnAborted);
+  expect(((caught as SandboxAutoRefused).cause as PluginSpawnAborted).pluginId).toBe("swap");
+});
+
+test("non-plugin refusal (api-key hold) surfaces as SandboxAutoRefused with cause === undefined", async () => {
+  // A non-plugin SandboxAutoRefused (e.g. api-key hold) has no cause.
+  const err = new SandboxAutoRefused("api-key hold reason");
+  expect(err.cause).toBeUndefined();
 });

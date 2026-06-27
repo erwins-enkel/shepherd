@@ -692,6 +692,8 @@ export interface HeldTask {
   /** The original CreateSessionInput, replayed through service.create() when released. */
   input: CreateSessionInput;
   createdAt: number;
+  /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account). */
+  reason: "usage" | "capacity";
 }
 
 // ── per-session usage snapshot ────────────────────────────────────────────────

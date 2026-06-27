@@ -936,7 +936,9 @@ type SpawnSuccess = {
   /** True when an interactive autonomous session ran FS-only because egress was unavailable. */
   egressDegraded: boolean;
 };
-type SpawnOutcome = SpawnSuccess | { ok: false; holdReason: string };
+type SpawnOutcome =
+  | SpawnSuccess
+  | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
 
 /** Total char budget for the issue-comment block appended to a spawn prompt. Generous —
  *  comments ride out-of-band like the body, so they don't count against the 8000-char
@@ -1286,7 +1288,8 @@ export class SessionService {
       apiKeyPassthrough: Record<string, string>;
     },
   ): Promise<
-    { patchEnv: Record<string, string>; finalInnerArgv: string[] } | { holdReason: string }
+    | { patchEnv: Record<string, string>; finalInnerArgv: string[] }
+    | { holdReason: string; abortCause?: PluginSpawnAborted }
   > {
     if (!this.deps.runSpawnHooks) return { patchEnv: {}, finalInnerArgv: innerArgv };
     // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
@@ -1310,7 +1313,7 @@ export class SessionService {
       });
     } catch (e) {
       if (e instanceof PluginSpawnAborted) {
-        return { holdReason: `plugin ${e.pluginId} aborted spawn: ${e.reason}` };
+        return { holdReason: `plugin ${e.pluginId} aborted spawn: ${e.reason}`, abortCause: e };
       }
       throw e;
     }
@@ -1395,7 +1398,8 @@ export class SessionService {
       rendererEnv,
       apiKeyPassthrough,
     });
-    if ("holdReason" in hook) return { ok: false, holdReason: hook.holdReason };
+    if ("holdReason" in hook)
+      return { ok: false, holdReason: hook.holdReason, abortCause: hook.abortCause };
     const { patchEnv, finalInnerArgv } = hook;
 
     const membrane: MembraneInputs = willWrap
@@ -1507,7 +1511,7 @@ export class SessionService {
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
   ): Promise<SpawnSuccess> {
     const outcome = await this.prepareSpawn(innerArgv, ctx);
-    if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason);
+    if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason, outcome.abortCause);
     return outcome;
   }
 

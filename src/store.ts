@@ -690,8 +690,10 @@ export class SessionStore implements CapStore, CreditStore {
       id TEXT PRIMARY KEY,
       repoPath TEXT NOT NULL,
       input TEXT NOT NULL,
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'usage'
     )`);
+    this.migrateHeldTaskColumns();
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -2905,6 +2907,15 @@ export class SessionStore implements CapStore, CreditStore {
     })();
   }
 
+  /** Add columns to held_tasks that postdate the original schema (existing rows default
+   *  to 'usage' — they were all usage-gate holds before capacity-hold support was added). */
+  private migrateHeldTaskColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(held_tasks)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === "reason")) {
+      this.db.run(`ALTER TABLE held_tasks ADD COLUMN reason TEXT NOT NULL DEFAULT 'usage'`);
+    }
+  }
+
   // migrate repo_config that predates these opt-in columns. auto-address defaults
   // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
   private migrateRepoConfigColumns(): void {
@@ -4134,28 +4145,49 @@ export class SessionStore implements CapStore, CreditStore {
     repoPath: string;
     input: CreateSessionInput;
     createdAt: number;
+    reason?: "usage" | "capacity";
   }): void {
-    this.db.run(`INSERT INTO held_tasks (id, repoPath, input, createdAt) VALUES (?, ?, ?, ?)`, [
-      row.id,
-      row.repoPath,
-      JSON.stringify(row.input),
-      row.createdAt,
-    ]);
+    this.db.run(
+      `INSERT INTO held_tasks (id, repoPath, input, createdAt, reason) VALUES (?, ?, ?, ?, ?)`,
+      [row.id, row.repoPath, JSON.stringify(row.input), row.createdAt, row.reason ?? "usage"],
+    );
   }
 
   listHeldTasks(): HeldTask[] {
     const rows = this.db
-      .query(`SELECT id, repoPath, input, createdAt FROM held_tasks ORDER BY createdAt ASC`)
-      .all() as { id: string; repoPath: string; input: string; createdAt: number }[];
-    return rows.map((r) => ({ ...r, input: JSON.parse(r.input) as CreateSessionInput }));
+      .query(
+        `SELECT id, repoPath, input, createdAt, reason FROM held_tasks ORDER BY (reason = 'capacity'), createdAt ASC`,
+      )
+      .all() as {
+      id: string;
+      repoPath: string;
+      input: string;
+      createdAt: number;
+      reason: string;
+    }[];
+    return rows.map((r) => ({
+      ...r,
+      input: JSON.parse(r.input) as CreateSessionInput,
+      reason: r.reason as "usage" | "capacity",
+    }));
   }
 
   getHeldTask(id: string): HeldTask | null {
     const r = this.db
-      .query(`SELECT id, repoPath, input, createdAt FROM held_tasks WHERE id = ?`)
-      .get(id) as { id: string; repoPath: string; input: string; createdAt: number } | null;
+      .query(`SELECT id, repoPath, input, createdAt, reason FROM held_tasks WHERE id = ?`)
+      .get(id) as {
+      id: string;
+      repoPath: string;
+      input: string;
+      createdAt: number;
+      reason: string;
+    } | null;
     if (!r) return null;
-    return { ...r, input: JSON.parse(r.input) as CreateSessionInput };
+    return {
+      ...r,
+      input: JSON.parse(r.input) as CreateSessionInput,
+      reason: r.reason as "usage" | "capacity",
+    };
   }
 
   removeHeldTask(id: string): void {

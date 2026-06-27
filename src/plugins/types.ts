@@ -106,9 +106,10 @@ export type PluginRegister = (
   ctx: PluginContext,
 ) => void | (() => void) | Promise<void | (() => void)>;
 
-/** Thrown by `ctx.abortSpawn`; caught in the spawn path and converted to a hold so it
- *  rides the existing auto-refuse machinery (create rolls back, resume returns null)
- *  rather than escaping as an unhandled throw. */
+/** Thrown by `ctx.abortSpawn`; caught in the spawn path. A plugin-refused **New-Task
+ *  create** is parked in the `held_tasks` queue (reason `'capacity'`) and retried when
+ *  the sweeper next fires — the task is not lost. A plugin-refused **resume** still
+ *  returns null (caller skips / 409) rather than escaping as an unhandled throw. */
 export class PluginSpawnAborted extends Error {
   constructor(
     public readonly reason: string,

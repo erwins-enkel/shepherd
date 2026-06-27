@@ -154,6 +154,7 @@ import { fingerprintDiffCount } from "./rundown-core";
 import { quotaBlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
+import { PluginSpawnAborted } from "./plugins/types";
 import { randomUUID } from "node:crypto";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -1634,6 +1635,18 @@ function createErrorResponse(e: unknown): Response {
 
 /** Check hold gate; if triggered, persist the held task and return the 200 response.
  *  Returns null when the task should proceed to normal creation. */
+function persistHeldTask(
+  value: CreateSessionInput,
+  deps: AppDeps,
+  reason: "usage" | "capacity",
+): Response {
+  const id = randomUUID();
+  const createdAt = Date.now();
+  deps.store.addHeldTask({ id, repoPath: value.repoPath, input: value, createdAt, reason });
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+}
+
 function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps): Response | null {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
   if (provider !== "claude") return null;
@@ -1656,11 +1669,7 @@ function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps)
     })
   )
     return null;
-  const id = randomUUID();
-  const createdAt = Date.now();
-  deps.store.addHeldTask({ id, repoPath: value.repoPath, input: value, createdAt });
-  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-  return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+  return persistHeldTask(value, deps, "usage");
 }
 
 // POST /api/sessions — create a session.
@@ -1680,6 +1689,10 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   try {
     s = await deps.service.create(result.value);
   } catch (e) {
+    // Plugin-refused create: park in held_tasks as a capacity hold for retry.
+    if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
+      return persistHeldTask(result.value, deps, "capacity");
+    }
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it.
     return createErrorResponse(e);

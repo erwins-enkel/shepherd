@@ -231,7 +231,9 @@ Settings → Plugins panel:
 env var name (`envVar`) and label template (`labelTemplate`); both default sensibly when
 absent.
 
-**Copy it to run it.** `cp -r examples/plugins/spawn-labeler ~/.shepherd/plugins/`, then —
+**Copy it to run it.** `cp -r examples/plugins/spawn-labeler ~/.shepherd/plugins/` (or
+`ln -s "$PWD/examples/plugins/spawn-labeler" ~/.shepherd/plugins/` to run it straight from a
+checkout — the loader follows symlinked plugin dirs, so `git pull` keeps it current), then —
 because the example's `import type` uses a repo-relative path that won't resolve out-of-repo
 — **drop the `import type` line or vendor `src/plugins/types.ts`** (the import is erased at
 runtime, so loading is unaffected either way), and restart Shepherd. See

@@ -20,10 +20,12 @@ import {
   type PluginRegister,
   type PluginRouteHandler,
   type PluginState,
+  type PluginUIView,
   type SpawnDescriptor,
   type SpawnHook,
   type SpawnPatch,
 } from "./types";
+import { validatePluginUIView } from "./ui-validate";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
 
@@ -49,12 +51,13 @@ export interface PluginRegistryDeps {
   hookTimeoutMs?: number;
 }
 
-/** Internal per-plugin record. `health`/`lastError`/`status` back the status panel. */
+/** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel. */
 interface LoadedPlugin {
   manifest: PluginManifest;
   health: PluginInfo["health"];
   lastError: string | null;
   status: unknown;
+  ui: PluginUIView | null;
   hooks: SpawnHook[];
   routes: Map<string, PluginRouteHandler>;
   unsubs: Array<() => void>;
@@ -159,6 +162,7 @@ export class PluginRegistry {
         health: "errored",
         lastError: `apiVersion ${manifest.apiVersion} != supported ${PLUGIN_API_VERSION}`,
         status: null,
+        ui: null,
         hooks: [],
         routes: new Map(),
         unsubs: [],
@@ -176,6 +180,7 @@ export class PluginRegistry {
       health: "ok",
       lastError: null,
       status: null,
+      ui: null,
       hooks: [],
       routes: new Map(),
       unsubs: [],
@@ -274,6 +279,23 @@ export class PluginRegistry {
         rec.status = status;
         this.emitStatus(rec);
       },
+      publishUI: (view) => {
+        // Treat both null and undefined as "clear the view".
+        if (view == null) {
+          rec.ui = null;
+          this.emitUI(rec);
+          return;
+        }
+        const v = validatePluginUIView(view);
+        if (v === null) {
+          console.warn(
+            `[plugins] ${id} publishUI rejected an invalid view (dropped; prior view kept)`,
+          );
+          return; // leave rec.ui unchanged — fail-open, never crash the panel
+        }
+        rec.ui = v;
+        this.emitUI(rec);
+      },
       state,
       route: (method, path, handler) => {
         rec.routes.set(routeKey(method, path), handler);
@@ -309,6 +331,11 @@ export class PluginRegistry {
       health: rec.health,
       status: rec.status,
     });
+  }
+
+  /** Emit a `plugin:ui` event carrying this plugin's last validated UI view (or null). */
+  private emitUI(rec: LoadedPlugin): void {
+    this.deps.events.emit("plugin:ui", { id: rec.manifest.id, ui: rec.ui });
   }
 
   /** Invoke one hook, timeout-bounded. Returns its patch, or null on a fail-open
@@ -371,6 +398,7 @@ export class PluginRegistry {
       health: r.health,
       lastError: r.lastError,
       status: r.status,
+      ui: r.ui,
     }));
   }
 

@@ -131,6 +131,25 @@ input, select, textarea {
 }
 /* state colors come from the accent/status tokens, applied to color + border */`;
 
+  const meterMarkup = `<!-- PuiMeter — plugin UI primitive (issue #1185); rendered via PluginUIRenderer -->
+<div class="pui-meter">
+  <div class="pui-meter-header">
+    <span class="pui-meter-label">Tokens used</span>
+    <span class="pui-meter-value" style:color="var(--color-blue)">42/100</span>
+  </div>
+  <div class="pui-meter-track" role="meter" aria-valuenow={42} aria-valuemin={0} aria-valuemax={100}>
+    <div class="pui-meter-fill" style:width="42%" style:background="var(--color-blue)"></div>
+  </div>
+  <span class="pui-meter-caption">Monthly budget</span>
+</div>
+
+/* All sizing via tokens; tone color applied to value text + fill bar via style: */
+.pui-meter-track  { height:6px; background:var(--color-inset); border:1px solid var(--color-line); border-radius:3px; overflow:hidden; }
+.pui-meter-fill   { height:100%; border-radius:3px; transition:width .2s ease; }
+.pui-meter-label  { font-size:var(--fs-meta); color:var(--color-ink); font-weight:600; }
+.pui-meter-value  { font-size:var(--fs-micro); font-variant-numeric:tabular-nums; }
+.pui-meter-caption{ font-size:var(--fs-micro); color:var(--color-muted); }`;
+
   const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
 <!-- "Shepherd groups sessions under an [[epic|epic]]." -->
 
@@ -579,6 +598,41 @@ input, select, textarea {
   </section>
 
   <section class="panel">
+    <h2>Plugin UI · meter</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>meter</code> node via
+      <code>ctx.publishUI</code>
+      to display a numeric progress value relative to a maximum (e.g. token budget, rate-limit usage,
+      task completion). The filled bar and value text share the same tone color; ratio is clamped to [0,
+      1]. <strong>When not:</strong> for determinate process progress inside Shepherd's own chrome,
+      prefer a loading indicator; <code>PuiMeter</code> is plugin-data only.
+    </p>
+    <div class="demo">
+      <div class="pui-meter-demo">
+        <div class="pui-meter-header-demo">
+          <span class="pui-meter-label-demo">Tokens used</span>
+          <span class="pui-meter-value-demo" style:color="var(--color-blue)">42/100</span>
+        </div>
+        <div
+          class="pui-meter-track-demo"
+          role="meter"
+          aria-valuenow={42}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            class="pui-meter-fill-demo"
+            style:width="42%"
+            style:background="var(--color-blue)"
+          ></div>
+        </div>
+        <span class="pui-meter-caption-demo">Monthly budget</span>
+      </div>
+    </div>
+    <pre><code>{meterMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
     <h2>Glossary term</h2>
     <p class="when">
       <strong>When:</strong> a dashed underline marks a term that has a definition in the glossary
@@ -883,6 +937,43 @@ input, select, textarea {
     padding: 1px 6px;
     border: 1px solid var(--color-line);
     border-radius: 2px;
+    color: var(--color-muted);
+  }
+  /* PuiMeter demo styles (mirrors PuiMeter.svelte) */
+  .pui-meter-demo {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 280px;
+  }
+  .pui-meter-header-demo {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .pui-meter-label-demo {
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+  .pui-meter-value-demo {
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+  }
+  .pui-meter-track-demo {
+    height: 6px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .pui-meter-fill-demo {
+    height: 100%;
+    border-radius: 3px;
+  }
+  .pui-meter-caption-demo {
+    font-size: var(--fs-micro);
     color: var(--color-muted);
   }
   .mini-panel {

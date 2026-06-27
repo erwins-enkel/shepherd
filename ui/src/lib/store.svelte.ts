@@ -4,6 +4,7 @@ import type {
   SessionStatus,
   WsEvent,
   PluginInfo,
+  PluginUIView,
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -164,6 +165,13 @@ export class HerdStore {
     this.plugins = this.plugins.map((p) =>
       p.id === data.id ? { ...p, health: data.health, status: data.status } : p,
     );
+  }
+  /** Live `plugin:ui` push: update the matching plugin's descriptor view in place.
+   *  Mirrors applyPluginStatus, including the pre-bootstrap unknown-id no-op. */
+  private applyPluginUi(data: { id: string; ui: PluginUIView | null }) {
+    const i = this.plugins.findIndex((p) => p.id === data.id);
+    if (i === -1) return; // unknown id (pre-bootstrap race) — the GET seed will catch up
+    this.plugins = this.plugins.map((p) => (p.id === data.id ? { ...p, ui: data.ui } : p));
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -567,6 +575,9 @@ export class HerdStore {
         return true;
       case "plugin:status":
         this.applyPluginStatus(ev.data);
+        return true;
+      case "plugin:ui":
+        this.applyPluginUi(ev.data);
         return true;
       case "star-prompt:status":
         this.starPrompt = ev.data;

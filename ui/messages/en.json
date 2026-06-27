@@ -2101,5 +2101,11 @@
   "feat_add_repo_title": "Add a repo from the Backlog",
   "feat_add_repo_body": "The Backlog repos panel now has a \"+ Add repo\" button — create a new project, clone, or fork a repo without leaving the browse view or touching the command line. The new repo is selected automatically when it's ready.",
   "backlog_add_repo": "+ Add repo",
-  "backlog_add_repo_menu": "Add a repository"
+  "backlog_add_repo_menu": "Add a repository",
+  "plugin_ui_unknown_node": "Unsupported component",
+  "plugin_ui_table_empty": "No data.",
+  "plugin_ui_kv_empty": "No entries.",
+  "plugins_raw_json": "Raw data",
+  "feat_plugin_ui_title": "Plugins show real panels",
+  "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump."
 }

@@ -88,6 +88,9 @@ export interface PluginContext {
   events: { subscribe(fn: (event: string, data: unknown) => void): () => void };
   /** Push a small free-form JSON blob to the status panel (rendered verbatim). */
   publishStatus(status: unknown): void;
+  /** Push a declarative UI view to the status panel (issue #1185); `null` clears it.
+   *  Additive — plugins guard with `typeof ctx.publishUI === "function"`. */
+  publishUI(view: PluginUIView | null): void;
   /** Durable, scoped per-plugin key/value (backed by the `plugin_state` table). */
   state: PluginState;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
@@ -120,6 +123,28 @@ export class PluginSpawnAborted extends Error {
   }
 }
 
+/** One node in a plugin-authored declarative UI descriptor (issue #1185). `type` must
+ *  match a host registry key, else the UI renders a fallback tile. `props` are
+ *  JSON-serializable only; string props render VERBATIM (plugin-authored DATA, never an
+ *  i18n key — consistent with the verbatim-data rule for tool-use summaries / PR titles). */
+export interface PluginUINode {
+  type: string;
+  props?: Record<string, unknown>;
+  children?: PluginUINode[];
+}
+
+/** A declarative UI view a plugin pushes via `ctx.publishUI` (issue #1185). Rendered by the
+ *  host from a whitelisted Svelte registry (Server-Driven-UI). Display-only in v1. */
+export interface PluginUIView {
+  schemaVersion: 1;
+  /** Contribution point. Only `settings-panel` is host-wired in v1; the others are
+   *  reserved (validator accepts them, but the Settings panel renders only settings-panel). */
+  slot: "settings-panel" | "session-sidebar" | "dashboard-card";
+  /** Optional panel heading — verbatim plugin-authored text, NOT an i18n key. */
+  title?: string;
+  root: PluginUINode;
+}
+
 /** Panel/list view of a loaded plugin — core-derived health is authoritative. */
 export interface PluginInfo {
   id: string;
@@ -130,4 +155,6 @@ export interface PluginInfo {
   lastError: string | null;
   /** Last `publishStatus` blob (verbatim plugin-authored JSON), or null. */
   status: unknown;
+  /** Last `publishUI` view (validated/normalized), or null. */
+  ui: PluginUIView | null;
 }

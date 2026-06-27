@@ -9,7 +9,7 @@
   type CalloutTone = "info" | "warn" | "error";
   const TONE_COLOR: Record<CalloutTone, string> = {
     info: "var(--color-blue)",
-    warn: "var(--color-amber)",
+    warn: "var(--status-warn)",
     error: "var(--color-red)",
   };
 

@@ -12,6 +12,35 @@ const MAX_DEPTH = 16; // max nesting depth (root = depth 1)
 
 const VALID_SLOTS = new Set<string>(["settings-panel", "session-sidebar", "dashboard-card"]);
 
+function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
+/** True when no array value in `props` exceeds MAX_ARRAY. */
+function propsWithinBounds(props: Record<string, unknown>): boolean {
+  for (const val of Object.values(props)) {
+    if (Array.isArray(val) && val.length > MAX_ARRAY) return false;
+  }
+  return true;
+}
+
+/** Recursively validate one node (re-parsed JSON) against the structural caps.
+ *  `counter` accumulates the total node count across the whole tree. */
+function validateNode(node: unknown, depth: number, counter: { n: number }): boolean {
+  if (depth > MAX_DEPTH) return false;
+  if (!isPlainObject(node)) return false;
+  if (++counter.n > MAX_NODES) return false;
+  if (typeof node["type"] !== "string" || node["type"].length === 0) return false;
+
+  const props = node["props"];
+  if (props !== undefined && (!isPlainObject(props) || !propsWithinBounds(props))) return false;
+
+  const children = node["children"];
+  if (children === undefined) return true;
+  if (!Array.isArray(children) || children.length > MAX_ARRAY) return false;
+  return children.every((child) => validateNode(child, depth + 1, counter));
+}
+
 /** Validate and normalize a plugin-authored UI view descriptor.
  *  Returns the re-parsed (normalized) PluginUIView on success, or null if invalid.
  *  NEVER throws — invalid publishUI calls are dropped fail-open. */
@@ -31,78 +60,11 @@ export function validatePluginUIView(view: unknown): PluginUIView | null {
   // 2. Byte-size cap: rejects a buggy huge single node.
   if (Buffer.byteLength(s, "utf8") > MAX_BYTES) return null;
 
-  // 3. Re-parse (normalizes away non-JSON props) then walk the tree once.
+  // 3. Re-parse (normalizes away non-JSON props) then validate shape + tree.
   const parsed = JSON.parse(s) as unknown;
+  if (!isPlainObject(parsed)) return null;
+  if (parsed["schemaVersion"] !== 1) return null;
+  if (typeof parsed["slot"] !== "string" || !VALID_SLOTS.has(parsed["slot"])) return null;
 
-  // Top-level shape.
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const v = parsed as Record<string, unknown>;
-  if (v["schemaVersion"] !== 1) return null;
-  if (typeof v["slot"] !== "string" || !VALID_SLOTS.has(v["slot"])) return null;
-  if (!v["root"] || typeof v["root"] !== "object" || Array.isArray(v["root"])) return null;
-
-  // Walk the tree collecting violations; short-circuit on first.
-  const violations: string[] = [];
-  let nodeCount = 0;
-
-  function walkNode(node: unknown, depth: number): void {
-    if (violations.length > 0) return;
-
-    if (!node || typeof node !== "object" || Array.isArray(node)) {
-      violations.push("node must be a plain object");
-      return;
-    }
-
-    nodeCount++;
-    if (nodeCount > MAX_NODES) {
-      violations.push(`node count exceeds ${MAX_NODES}`);
-      return;
-    }
-    if (depth > MAX_DEPTH) {
-      violations.push(`depth exceeds ${MAX_DEPTH}`);
-      return;
-    }
-
-    const n = node as Record<string, unknown>;
-
-    if (typeof n["type"] !== "string" || n["type"].length === 0) {
-      violations.push("node.type must be a non-empty string");
-      return;
-    }
-
-    if (n["props"] !== undefined) {
-      const props = n["props"];
-      if (!props || typeof props !== "object" || Array.isArray(props)) {
-        violations.push("node.props must be a plain object");
-        return;
-      }
-      for (const val of Object.values(props as Record<string, unknown>)) {
-        if (Array.isArray(val) && val.length > MAX_ARRAY) {
-          violations.push(`props array length exceeds ${MAX_ARRAY}`);
-          return;
-        }
-      }
-    }
-
-    if (n["children"] !== undefined) {
-      const children = n["children"];
-      if (!Array.isArray(children)) {
-        violations.push("node.children must be an array");
-        return;
-      }
-      if (children.length > MAX_ARRAY) {
-        violations.push(`children array length exceeds ${MAX_ARRAY}`);
-        return;
-      }
-      for (const child of children) {
-        if (violations.length > 0) return;
-        walkNode(child, depth + 1);
-      }
-    }
-  }
-
-  walkNode(v["root"], 1);
-  if (violations.length > 0) return null;
-
-  return parsed as PluginUIView;
+  return validateNode(parsed["root"], 1, { n: 0 }) ? (parsed as unknown as PluginUIView) : null;
 }

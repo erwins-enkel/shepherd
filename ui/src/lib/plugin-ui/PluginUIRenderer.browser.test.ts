@@ -40,4 +40,20 @@ describe("PluginUIRenderer", () => {
     });
     await expect.element(page.getByText("**bold** stays literal")).toBeInTheDocument();
   });
+
+  it("renders UnknownNodeTile for prototype key 'constructor' (not a crash)", async () => {
+    render(PluginUIRenderer, {
+      node: { type: "constructor", props: {} },
+    });
+    await expect.element(page.getByText("Unsupported component")).toBeInTheDocument();
+    await expect.element(page.getByText("constructor")).toBeInTheDocument();
+  });
+
+  it("renders UnknownNodeTile for prototype key 'toString' (not a crash)", async () => {
+    render(PluginUIRenderer, {
+      node: { type: "toString", props: {} },
+    });
+    await expect.element(page.getByText("Unsupported component")).toBeInTheDocument();
+    await expect.element(page.getByText("toString")).toBeInTheDocument();
+  });
 });

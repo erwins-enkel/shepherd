@@ -4,7 +4,9 @@
   import UnknownNodeTile from "./UnknownNodeTile.svelte";
 
   let { node }: { node: PluginUINode } = $props();
-  const Comp = $derived(PLUGIN_UI_REGISTRY[node.type]);
+  const Comp = $derived(
+    Object.hasOwn(PLUGIN_UI_REGISTRY, node.type) ? PLUGIN_UI_REGISTRY[node.type] : undefined,
+  );
 </script>
 
 {#if Comp}<Comp {node} />{:else}<UnknownNodeTile type={node.type} />{/if}

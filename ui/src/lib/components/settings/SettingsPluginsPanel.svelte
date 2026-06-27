@@ -59,7 +59,11 @@
         </div>
         {#if expanded[p.id]}
           <p class="raw-label micro">{m.plugins_raw_json()}</p>
-          <pre class="status">{pretty(p.status)}</pre>
+          {#if p.status != null}
+            <pre class="status">{pretty(p.status)}</pre>
+          {:else}
+            <p class="empty micro">{m.plugins_no_status()}</p>
+          {/if}
         {/if}
       {:else}
         {#if expanded[p.id]}

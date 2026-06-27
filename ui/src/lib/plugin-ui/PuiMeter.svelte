@@ -4,7 +4,10 @@
   let { node }: { node: PluginUINode } = $props();
 
   const p = $derived(node.props ?? {});
-  const rawValue = $derived(Number(p.value ?? 0));
+  const rawValue = $derived.by(() => {
+    const v = Number(p.value ?? 0);
+    return Number.isFinite(v) ? v : 0;
+  });
   const max = $derived(Math.max(1, Number(p.max ?? 100)));
   const label = $derived(p.label != null ? String(p.label) : null);
   const caption = $derived(p.caption != null ? String(p.caption) : null);
@@ -29,15 +32,16 @@
 </script>
 
 <div class="pui-meter">
-  {#if label}
+  {#if label != null || Number.isFinite(rawValue)}
     <div class="pui-meter-header">
-      <span class="pui-meter-label">{label}</span>
+      {#if label != null}<span class="pui-meter-label">{label}</span>{/if}
       <span class="pui-meter-value" style:color={barColor}>{rawValue}/{max}</span>
     </div>
   {/if}
   <div
     class="pui-meter-track"
     role="meter"
+    aria-label={label ?? caption ?? undefined}
     aria-valuenow={rawValue}
     aria-valuemin={0}
     aria-valuemax={max}

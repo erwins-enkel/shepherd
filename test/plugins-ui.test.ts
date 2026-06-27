@@ -175,7 +175,7 @@ test("publishUI: valid view sets list().ui and emits plugin:ui event", async () 
     schemaVersion: 1,
     slot: "settings-panel",
     root: { type: "Label", props: { text: "hi" } },
-  };
+  } satisfies PluginUIView;
   writePlugin(root, "ui-pub", {
     index: `export function register(ctx) { ctx.publishUI(${JSON.stringify(view)}); }`,
   });
@@ -213,7 +213,11 @@ test("publishUI(null): clears list().ui to null and emits", async () => {
 
 test("publishUI: invalid view is dropped; prior view retained", async () => {
   const root = tmpDir();
-  const good = { schemaVersion: 1, slot: "settings-panel", root: { type: "Label" } };
+  const good = {
+    schemaVersion: 1,
+    slot: "settings-panel",
+    root: { type: "Label" },
+  } satisfies PluginUIView;
   writePlugin(root, "ui-drop", {
     index: `export function register(ctx) {
       ctx.publishUI(${JSON.stringify(good)});
@@ -232,5 +236,25 @@ test("publishUI: plugin that never calls publishUI has ui === null (back-compat)
   const { registry } = makeRegistry(root);
   await registry.loadAll();
   expect(registry.list().find((p) => p.id === "ui-none")!.ui).toBeNull();
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("publishUI(undefined): clears list().ui to null and emits (nullish clear)", async () => {
+  const root = tmpDir();
+  const view = { schemaVersion: 1, slot: "settings-panel", root: { type: "Label" } };
+  writePlugin(root, "ui-undef", {
+    index: `export function register(ctx) {
+      ctx.publishUI(${JSON.stringify(view)});
+      ctx.publishUI(undefined);
+    }`,
+  });
+  const { registry, events } = makeRegistry(root);
+  const uiEvents: Array<{ id: string; ui: unknown }> = [];
+  events.subscribe((event, data) => {
+    if (event === "plugin:ui") uiEvents.push(data as { id: string; ui: unknown });
+  });
+  await registry.loadAll();
+  expect(registry.list().find((p) => p.id === "ui-undef")!.ui).toBeNull();
+  expect(uiEvents.at(-1)).toEqual({ id: "ui-undef", ui: null });
   rmSync(root, { recursive: true, force: true });
 });

@@ -1,5 +1,10 @@
 <script lang="ts">
   import type { PluginUINode } from "$lib/types";
+  // Intentional cycle: a stack recursively renders its children through the same
+  // renderer (registry → PuiStack → PluginUIRenderer → registry). This is the
+  // canonical recursive-component pattern for a tree renderer and Svelte resolves
+  // it at runtime; there is no non-deprecated way to recurse without the back-edge.
+  // fallow-ignore-next-line circular-dependency
   import PluginUIRenderer from "./PluginUIRenderer.svelte";
 
   let { node }: { node: PluginUINode } = $props();

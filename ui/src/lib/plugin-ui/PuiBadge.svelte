@@ -26,5 +26,11 @@
 <style>
   .pui-badge {
     display: inline-block;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
   }
 </style>

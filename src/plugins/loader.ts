@@ -280,7 +280,8 @@ export class PluginRegistry {
         this.emitStatus(rec);
       },
       publishUI: (view) => {
-        if (view === null) {
+        // Treat both null and undefined as "clear the view".
+        if (view == null) {
           rec.ui = null;
           this.emitUI(rec);
           return;

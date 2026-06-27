@@ -1,5 +1,9 @@
 import { test, expect, describe } from "bun:test";
-import { UpNextService, startSerially, type UpNextDeps } from "../src/up-next";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { UpNextService, startSerially, buildUpNextRepos, type UpNextDeps } from "../src/up-next";
+import { listRepos } from "../src/repos";
 import type { Epic, EpicRun } from "../src/epic-core";
 import type { GitForge, Issue } from "../src/forge/types";
 
@@ -172,5 +176,80 @@ describe("startSerially", () => {
     };
     await expect(startSerially([1, 2, 3], spawn)).rejects.toThrow("nope");
     expect(seen).toEqual([1, 2]); // #3 never attempted
+  });
+});
+
+describe("buildUpNextRepos", () => {
+  const forge = fakeForge({ kind: "github", slug: "o/r" });
+  const localForge = fakeForge({ kind: "local", slug: "local/r" });
+
+  test("(a) local and non-forge repos are excluded", () => {
+    const repos = [
+      { name: "a", path: "/r/a", display: "/r/a" },
+      { name: "b", path: "/r/b", display: "/r/b" },
+      { name: "c", path: "/r/c", display: "/r/c" },
+    ];
+    // repo a → null forge, repo b → local forge, repo c → github forge
+    const resolveForge = (p: string) => {
+      if (p === "/r/a") return null;
+      if (p === "/r/b") return localForge;
+      return forge;
+    };
+    const result = buildUpNextRepos({ repos, resolveForge, hiddenRealPaths: new Set() });
+    expect(result.map((r) => r.repoPath)).toEqual(["/r/c"]);
+  });
+
+  test("(b) a hidden repo (raw path in hiddenRealPaths) is excluded", () => {
+    const repos = [
+      { name: "a", path: "/r/a", display: "/r/a" },
+      { name: "b", path: "/r/b", display: "/r/b" },
+    ];
+    const result = buildUpNextRepos({
+      repos,
+      resolveForge: () => forge,
+      hiddenRealPaths: new Set(["/r/a"]),
+    });
+    expect(result.map((r) => r.repoPath)).toEqual(["/r/b"]);
+  });
+
+  test("(c) hidden by realpath under a symlinked repoRoot — reconcile excludes the repo", () => {
+    const realRoot = mkdtempSync(join(tmpdir(), "shepherd-up-next-c-real-"));
+    const linkRoot = join(tmpdir(), `shepherd-up-next-c-link-${process.pid}`);
+    mkdirSync(join(realRoot, "myrepo"));
+    symlinkSync(realRoot, linkRoot, "dir");
+    try {
+      // listRepos(linkRoot) enumerates raw join(linkRoot, "myrepo") paths.
+      const repos = listRepos(linkRoot);
+      // safeRepoDir / store keys are realpath-resolved.
+      const realMyrepo = realpathSync(join(linkRoot, "myrepo"));
+      // Precondition: raw path != realpath (confirms symlink divergence).
+      expect(realMyrepo).not.toBe(join(linkRoot, "myrepo"));
+      // Put the realpath form in hiddenRealPaths — must still be excluded once reconciled.
+      const result = buildUpNextRepos({
+        repos,
+        resolveForge: () => forge,
+        hiddenRealPaths: new Set([realMyrepo]),
+      });
+      expect(result).toHaveLength(0);
+    } finally {
+      rmSync(linkRoot, { force: true });
+      rmSync(realRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("(d) survivors carry exact repoPath / repoSlug / repoLabel", () => {
+    const repos = [{ name: "myrepo", path: "/r/myrepo", display: "~/myrepo" }];
+    const myForge = fakeForge({ kind: "github", slug: "acme/myrepo" });
+    const result = buildUpNextRepos({
+      repos,
+      resolveForge: () => myForge,
+      hiddenRealPaths: new Set(),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      repoPath: "/r/myrepo",
+      repoSlug: "acme/myrepo",
+      repoLabel: "~/myrepo",
+    });
   });
 });

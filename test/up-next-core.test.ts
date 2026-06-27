@@ -1,10 +1,14 @@
 import { test, expect, describe } from "bun:test";
 import {
   buildSnapshot,
+  excludeHiddenSections,
   PRIORITY_CAP,
   REPO_CAP,
   type RepoInput,
   type EpicUnitInput,
+  type UpNextSnapshot,
+  type UpNextSection,
+  type UpNextItem,
 } from "../src/up-next-core";
 import type { Issue } from "../src/forge/types";
 
@@ -269,5 +273,102 @@ describe("snapshot shape", () => {
   });
   test("empty input → no sections", () => {
     expect(buildSnapshot([], NOW).sections).toEqual([]);
+  });
+});
+
+// ── excludeHiddenSections ────────────────────────────────────────────────────
+
+function makeItem(repoPath: string, num: number): UpNextItem {
+  return {
+    repoPath,
+    repoSlug: "o/r",
+    repoLabel: "r",
+    number: num,
+    title: `t${num}`,
+    url: `https://x/${num}`,
+    kind: "feature",
+    priority: false,
+    createdAt: num,
+    issueRef: { number: num, url: `https://x/${num}`, title: `t${num}`, body: "" },
+  };
+}
+
+function makeRepoSection(repoPath: string, items: UpNextItem[] = []): UpNextSection {
+  return {
+    kind: "repo",
+    repoPath,
+    repoSlug: "o/r",
+    repoLabel: "r",
+    items,
+    totalCount: items.length,
+  };
+}
+
+function makePrioritySection(items: UpNextItem[]): UpNextSection {
+  return {
+    kind: "priority",
+    repoPath: null,
+    repoSlug: null,
+    repoLabel: null,
+    items,
+    totalCount: items.length,
+  };
+}
+
+function makeSnap(sections: UpNextSection[], repoCount: number): UpNextSnapshot {
+  return { generatedAt: 1000, sections, repoCount, fallback: null };
+}
+
+describe("excludeHiddenSections", () => {
+  test("(e) hidden repo section removed; repoCount decremented", () => {
+    const snap = makeSnap([makeRepoSection("/r/a"), makeRepoSection("/r/b")], 2);
+    const result = excludeHiddenSections(snap, new Set(["/r/a"]));
+    expect(result.sections).toHaveLength(1);
+    expect(result.sections[0]!.repoPath).toBe("/r/b");
+    expect(result.repoCount).toBe(1);
+    expect(result.generatedAt).toBe(snap.generatedAt);
+    expect(result.fallback).toBe(snap.fallback);
+  });
+
+  test("(f) hidden repo item dropped from priority; section dropped when empty", () => {
+    const item = makeItem("/r/a", 1);
+    const snap = makeSnap([makePrioritySection([item]), makeRepoSection("/r/a", [item])], 1);
+    const result = excludeHiddenSections(snap, new Set(["/r/a"]));
+    expect(result.sections).toHaveLength(0);
+    expect(result.repoCount).toBe(0);
+  });
+
+  test("(f2) priority section partially filtered; totalCount recomputed; non-hidden repo kept", () => {
+    const itemA = makeItem("/r/a", 1);
+    const itemB = makeItem("/r/b", 2);
+    const snap = makeSnap(
+      [
+        makePrioritySection([itemA, itemB]),
+        makeRepoSection("/r/a", [itemA]),
+        makeRepoSection("/r/b", [itemB]),
+      ],
+      2,
+    );
+    const result = excludeHiddenSections(snap, new Set(["/r/a"]));
+    const pSec = result.sections.find((s) => s.kind === "priority");
+    expect(pSec).toBeDefined();
+    expect(pSec!.items.map((i) => i.number)).toEqual([2]);
+    expect(pSec!.totalCount).toBe(1);
+    const repoSecs = result.sections.filter((s) => s.kind === "repo");
+    expect(repoSecs).toHaveLength(1);
+    expect(repoSecs[0]!.repoPath).toBe("/r/b");
+    expect(result.repoCount).toBe(1);
+  });
+
+  test("(g) empty hiddenRaw → same snapshot reference returned (fast-path)", () => {
+    const snap = makeSnap([makeRepoSection("/r/a")], 1);
+    expect(excludeHiddenSections(snap, new Set())).toBe(snap);
+  });
+
+  test("(g2) non-empty hiddenRaw with no match → sections and repoCount unchanged", () => {
+    const snap = makeSnap([makeRepoSection("/r/a")], 1);
+    const result = excludeHiddenSections(snap, new Set(["/r/z"]));
+    expect(result.sections).toHaveLength(1);
+    expect(result.repoCount).toBe(1);
   });
 });

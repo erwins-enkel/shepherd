@@ -260,3 +260,46 @@ export function buildSnapshot(
 
   return { generatedAt: now, sections, repoCount: repos.length, fallback };
 }
+
+/**
+ * Apply a read-time hidden-repo filter to an already-computed snapshot.
+ *
+ * Used by handleUpNextGet so that a repo hidden *after* the last background compute is
+ * invisible on the very next GET, without waiting for the next recompute cycle (≤15 min).
+ * The source filter (buildUpNextRepos) prevents wasted forge fan-out for the next compute;
+ * this filter gives instant freshness for the cached payload in between.
+ *
+ * `hiddenRaw` must already be in the raw join(repoRoot,name) path-space (reconciled by the
+ * caller, e.g. via reconcileRealPathsToRaw — keeping path-space concerns out of this module).
+ */
+export function excludeHiddenSections(
+  snap: UpNextSnapshot,
+  hiddenRaw: Set<string>,
+): UpNextSnapshot {
+  if (hiddenRaw.size === 0) return snap;
+
+  let removedRepoSections = 0;
+  const sections: UpNextSection[] = [];
+
+  for (const section of snap.sections) {
+    if (section.kind === "repo") {
+      if (section.repoPath != null && hiddenRaw.has(section.repoPath)) {
+        removedRepoSections++;
+        continue; // drop this section entirely
+      }
+      sections.push(section);
+    } else if (section.kind === "priority") {
+      const filteredItems = section.items.filter((item) => !hiddenRaw.has(item.repoPath));
+      if (filteredItems.length === 0) continue; // drop priority section when it empties
+      sections.push({ ...section, items: filteredItems, totalCount: filteredItems.length });
+    } else {
+      sections.push(section);
+    }
+  }
+
+  return {
+    ...snap,
+    sections,
+    repoCount: Math.max(0, snap.repoCount - removedRepoSections),
+  };
+}

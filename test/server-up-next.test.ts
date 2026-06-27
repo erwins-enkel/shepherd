@@ -5,7 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
-import type { UpNextSnapshot } from "../src/up-next-core";
+import type { UpNextSnapshot, UpNextSection } from "../src/up-next-core";
 import type { Session } from "../src/types";
 
 let tmpRoot: string;
@@ -28,6 +28,7 @@ const SNAP: UpNextSnapshot = {
 function harness(
   opts: {
     snapshot?: UpNextSnapshot | null;
+    hiddenRepoPathsRaw?: () => Set<string>;
     create?: (input: { repoPath: string; issueRef?: { number: number } }) => Promise<Session>;
     defaultBranch?: () => Promise<string>;
   } = {},
@@ -62,6 +63,7 @@ function harness(
         refreshCalls++;
         return SNAP;
       },
+      hiddenRepoPathsRaw: opts.hiddenRepoPathsRaw ?? (() => new Set<string>()),
     },
   };
   return { app: makeApp(deps), createCalls, labelCalls, refreshCalls: () => refreshCalls };
@@ -140,4 +142,41 @@ test("POST /api/up-next/start rejects an empty / malformed body", async () => {
   expect((await app.fetch(startReq([]))).status).toBe(400);
   const bad = await app.fetch(startReq([{ repoPath: repoDir, issueRef: { number: "x" } }]));
   expect(bad.status).toBe(400);
+});
+
+test("GET /api/up-next?peek strips hidden-repo sections via hiddenRepoPathsRaw", async () => {
+  const hiddenPath = "/r/hidden";
+  const visiblePath = "/r/visible";
+  const hiddenSection: UpNextSection = {
+    kind: "repo",
+    repoPath: hiddenPath,
+    repoSlug: "hidden",
+    repoLabel: "hidden",
+    items: [],
+    totalCount: 0,
+  };
+  const visibleSection: UpNextSection = {
+    kind: "repo",
+    repoPath: visiblePath,
+    repoSlug: "visible",
+    repoLabel: "visible",
+    items: [],
+    totalCount: 0,
+  };
+  const snap: UpNextSnapshot = {
+    generatedAt: 999,
+    repoCount: 2,
+    fallback: null,
+    sections: [hiddenSection, visibleSection],
+  };
+  const { app } = harness({
+    snapshot: snap,
+    hiddenRepoPathsRaw: () => new Set([hiddenPath]),
+  });
+  const res = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as UpNextSnapshot;
+  const repoPaths = body.sections.map((s) => s.repoPath);
+  expect(repoPaths).not.toContain(hiddenPath);
+  expect(repoPaths).toContain(visiblePath);
 });

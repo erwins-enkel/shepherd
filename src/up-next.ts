@@ -8,6 +8,7 @@ import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge } from "./forge/types";
+import { reconcileRealPathsToRaw, type RepoEntry } from "./repos";
 import {
   buildSnapshot,
   type RepoInput,
@@ -19,6 +20,38 @@ export interface UpNextRepo {
   repoPath: string;
   repoSlug: string | null;
   repoLabel: string;
+}
+
+/**
+ * Build the list of forge-backed, non-hidden repos to feed into the Up Next ranked queue.
+ *
+ * Deliberate divergence from the Backlog: the Backlog includes hidden repos in its payload
+ * and flags them `hidden:true` so users can reach per-repo settings. Up Next FULLY EXCLUDES
+ * hidden repos — it has no settings drill-down and exists only to rank actionable work, so a
+ * hidden repo contributes no section or items to the queue.
+ *
+ * Path-space note: `hiddenRealPaths` are realpath/safeRepoDir-resolved keys (from
+ * store.hiddenRepoPaths()), while `repos` carries the raw join(repoRoot,name) paths that
+ * listRepos enumerates. reconcileRealPathsToRaw translates between the two so a hide under
+ * a symlinked repoRoot is still honored.
+ */
+export function buildUpNextRepos(args: {
+  repos: readonly RepoEntry[];
+  resolveForge: (p: string) => GitForge | null;
+  hiddenRealPaths: Set<string>;
+}): UpNextRepo[] {
+  // Reconcile realpath-keyed hidden set → raw join(repoRoot,name) space that listRepos uses.
+  const hiddenRaw = reconcileRealPathsToRaw(args.hiddenRealPaths, args.repos);
+  const result: UpNextRepo[] = [];
+  for (const entry of args.repos) {
+    const forge = args.resolveForge(entry.path);
+    // Skip non-forge and local repos — no cold-issue source to rank.
+    if (forge == null || forge.kind === "local") continue;
+    // Skip hidden repos — see deliberate full-exclude note above.
+    if (hiddenRaw.has(entry.path)) continue;
+    result.push({ repoPath: entry.path, repoSlug: forge.slug, repoLabel: entry.display });
+  }
+  return result;
 }
 
 export interface UpNextDeps {

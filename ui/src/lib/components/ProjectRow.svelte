@@ -24,6 +24,10 @@
   // native <button> semantics now that the root is a <div> (a real <button> can't
   // legally nest the eye <button>).
   function onRowKeydown(e: KeyboardEvent) {
+    // Only act on keys aimed at the row itself — never when Enter/Space is pressed
+    // on the nested eye <button> (whose own activation toggles hide), or the row
+    // would steal the keystroke and select instead.
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onselect();

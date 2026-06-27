@@ -77,12 +77,13 @@ function makeDeps(
   lastUsed: Record<string, number> = {},
   overrideForge?: AppDeps["resolveForge"],
   recentCounts: Record<string, number> = {},
+  hidden: Set<string> = new Set<string>(),
 ): AppDeps {
   return {
     store: {
       lastUsedByRepo: () => lastUsed,
       recentSessionCountsByRepo: () => recentCounts,
-      hiddenRepoPaths: () => new Set<string>(),
+      hiddenRepoPaths: () => hidden,
     } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
@@ -251,6 +252,26 @@ test("buildBacklogPayload: surfaces per-repo ciStatus onto each project", async 
   const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.ciStatus]));
   expect(byPath[repoA]).toBe("failure");
   expect(byPath[repoB]).toBe("success");
+});
+
+test("buildBacklogPayload: surfaces per-repo hidden flag onto each project", async () => {
+  const app = makeApp(
+    makeDeps(
+      {
+        [repoA]: { openIssues: 1, openPRs: 0 },
+        [repoB]: { openIssues: 2, openPRs: 0 },
+      },
+      {},
+      undefined,
+      {},
+      new Set([repoA]),
+    ),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as { projects: { path: string; hidden: boolean }[] };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.hidden]));
+  expect(byPath[repoA]).toBe(true);
+  expect(byPath[repoB]).toBe(false);
 });
 
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {

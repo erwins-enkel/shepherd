@@ -118,8 +118,10 @@
 
 <!-- The parent only renders this list when there are forge repos, so an empty
      visible `projects` here means the active chips/search matched nothing — OR every
-     repo is hidden and Show-hidden is off (a distinct, less-confusing hint). -->
-{#if projects.length === 0}
+     repo is hidden and Show-hidden is off (a distinct, less-confusing hint). Suppress
+     the banner entirely when the Hidden group below is populated (e.g. a search that
+     only matches hidden repos), so "No repos match" never sits above visible rows. -->
+{#if projects.length === 0 && hiddenProjects.length === 0}
   <div class="filter-empty">
     {#if hiddenCount > 0 && !showHidden && !searching}
       <span class="filter-empty-label">{m.backlog_filter_all_hidden()}</span>

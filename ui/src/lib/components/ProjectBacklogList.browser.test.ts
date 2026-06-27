@@ -102,4 +102,21 @@ describe("ProjectBacklogList — hide repos", () => {
     expect(document.body.textContent).toContain(m.backlog_filter_none_match());
     expect(document.body.textContent).not.toContain(m.backlog_filter_all_hidden());
   });
+
+  it("a search matching only hidden repos shows the Hidden group with no empty banner", () => {
+    render(
+      ProjectBacklogList,
+      baseProps({
+        projects: [],
+        hiddenCount: 2,
+        showHidden: false,
+        query: "spike",
+        hiddenProjects: [project("/r/spike", true)],
+      }),
+    );
+    // The Hidden group renders; neither empty banner appears above it.
+    expect(document.body.querySelector(".project-row.dim")).toBeTruthy();
+    expect(document.body.textContent).not.toContain(m.backlog_filter_none_match());
+    expect(document.body.textContent).not.toContain(m.backlog_filter_all_hidden());
+  });
 });

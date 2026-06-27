@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -81,5 +81,38 @@ describe("ProjectRow PR-kind counts", () => {
     const prs = document.body.querySelector(".count-prs");
     expect(prs?.textContent?.trim()).toBe("5");
     expect(document.body.querySelector(".bot-note")).toBeNull();
+  });
+});
+
+describe("ProjectRow keyboard", () => {
+  it("Enter on the row selects it", () => {
+    const onselect = vi.fn();
+    render(ProjectRow, {
+      project: project(),
+      pinned: false,
+      selected: false,
+      onselect,
+      onhide: () => {},
+    });
+    const row = document.body.querySelector<HTMLElement>(".project-row")!;
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onselect).toHaveBeenCalledTimes(1);
+  });
+
+  it("Enter on the eye button does NOT select the row (origin guard)", () => {
+    const onselect = vi.fn();
+    const onhide = vi.fn();
+    render(ProjectRow, {
+      project: project(),
+      pinned: false,
+      selected: false,
+      onselect,
+      onhide,
+    });
+    const eye = document.body.querySelector<HTMLElement>(".row-hide")!;
+    // A keydown originating on the eye bubbles to the row's handler with a foreign
+    // target; the guard must skip it so the row doesn't steal the keystroke.
+    eye.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onselect).not.toHaveBeenCalled();
   });
 });

@@ -52,6 +52,7 @@ import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-
 import { slugifyManual } from "./namer";
 import {
   listRepos,
+  listReposPathForReal,
   readTodo,
   writeTodo,
   cloneRepo,
@@ -3993,7 +3994,14 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   const recentCounts = inputs.recentCountsByRepo(
     Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );
-  const hiddenSet = inputs.hiddenRepoPaths();
+  // repo_config keys are safeRepoDir/realpath-resolved, but listRepos enumerates the
+  // raw join(repoRoot, name) path that each project's `r.path` carries. Under a
+  // symlinked repoRoot/repo those diverge, so reconcile the hidden set back into
+  // listRepos' raw space (cf. listReposPathForReal) — else a persisted hide wouldn't
+  // match its project and would silently reappear on reload.
+  const hiddenSet = new Set(
+    [...inputs.hiddenRepoPaths()].map((p) => listReposPathForReal(p, inputs.repoRoot)),
+  );
 
   const resolved = repos.map((r) => ({ ...r, forge: inputs.resolveForge(r.path) }));
 

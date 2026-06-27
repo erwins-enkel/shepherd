@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import {
   SessionService,
+  RestoreError,
   spawnSettingsOverlay,
   buildHooksFragment,
   composeSystemPrompt,
@@ -26,6 +27,7 @@ import {
   PREVIEW_START_STEER,
   buildQueueDirective,
 } from "../src/service";
+import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
@@ -1616,6 +1618,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       commitsAhead: () => 0,
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
+      restoreExisting: () => "",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
   });
@@ -1658,6 +1661,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       commitsAhead: () => 0,
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
+      restoreExisting: () => "",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: { detect: detect as any, reap: () => {}, stopListenersOnPort: () => 0 },
@@ -1702,6 +1706,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       commitsAhead: () => 0,
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
+      restoreExisting: () => "",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -1744,6 +1749,7 @@ test("archive with no reap keys never calls the reaper", async () => {
       commitsAhead: () => 0,
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
+      restoreExisting: () => "",
     },
     herdr: { start: () => ({}) as any, list: () => [], stop: () => {} } as any,
     reaper: {
@@ -1973,6 +1979,239 @@ test("resume returns null for unknown, archived, or pre-feature sessions", async
 
   const preFeature = resumable(store, { claudeSessionId: "" });
   expect(await svc.resume(preFeature.id)).toBeNull(); // nothing pinned to resume
+});
+
+// ── restore ──────────────────────────────────────────────────────────────────
+
+function archivedWithSession(
+  store: SessionStore,
+  over: Partial<Parameters<SessionStore["create"]>[0]> = {},
+) {
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+    ...over,
+  });
+  store.archive(s.id);
+  return store.get(s.id)!;
+}
+
+function makeRestoreSvc(
+  store: SessionStore,
+  calls: Record<string, unknown>,
+  opts: { startFails?: boolean; restoreExistingThrows?: unknown } = {},
+) {
+  return new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+      restoreExisting: (repoPath: string, branch: string, worktreePath: string) => {
+        calls.restoreExisting = { repoPath, branch, worktreePath };
+        if (opts.restoreExistingThrows) throw opts.restoreExistingThrows;
+        return worktreePath;
+      },
+    } as any,
+    herdr: {
+      start: (_name: string, _cwd: string, argv: string[]) => {
+        calls.start = argv;
+        if (opts.startFails) return null as any;
+        return { terminalId: "term_new", cwd: "/wt/x", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+}
+
+test("restore: happy path — calls restoreExisting, unarchives, returns running session", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls);
+  const s = archivedWithSession(store);
+
+  const out = await svc.restore(s.id);
+  expect(out).not.toBeNull();
+  expect(out?.status).toBe("running");
+  expect(out?.archivedAt).toBeNull();
+  expect(out?.herdrAgentId).toBe("term_new");
+  expect(calls.restoreExisting).toMatchObject({
+    repoPath: "/r",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+  });
+  // claude --resume with the pinned session id
+  expect(calls.start).toContain("--resume");
+  expect(calls.start).toContain("abc-123");
+});
+
+test("restore: returns null for unknown id (route maps to 404)", async () => {
+  const store = new SessionStore(":memory:");
+  const svc = makeRestoreSvc(store, {});
+  expect(await svc.restore("ghost")).toBeNull();
+});
+
+test("restore: not_archived error for non-archived row", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls);
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+  });
+  let err: unknown;
+  try {
+    await svc.restore(s.id);
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(RestoreError);
+  expect((err as RestoreError).code).toBe("not_archived");
+});
+
+test("restore: cannot_restore for codex session", async () => {
+  const store = new SessionStore(":memory:");
+  const svc = makeRestoreSvc(store, {});
+  const s = archivedWithSession(store, { agentProvider: "codex", claudeSessionId: "" });
+  let err: unknown;
+  try {
+    await svc.restore(s.id);
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(RestoreError);
+  expect((err as RestoreError).code).toBe("cannot_restore");
+});
+
+test("restore: cannot_restore for claude with empty claudeSessionId", async () => {
+  const store = new SessionStore(":memory:");
+  const svc = makeRestoreSvc(store, {});
+  const s = archivedWithSession(store, { claudeSessionId: "" });
+  let err: unknown;
+  try {
+    await svc.restore(s.id);
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(RestoreError);
+  expect((err as RestoreError).code).toBe("cannot_restore");
+});
+
+test("restore: branch_gone error propagates from worktree", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls, {
+    restoreExistingThrows: new WorktreeRestoreError("branch_gone"),
+  });
+  const s = archivedWithSession(store);
+  let err: unknown;
+  try {
+    await svc.restore(s.id);
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(WorktreeRestoreError);
+  expect((err as WorktreeRestoreError).code).toBe("branch_gone");
+  // row stays archived — no unarchive happened
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
+test("restore: non-isolated session skips restoreExisting", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls);
+  const s = archivedWithSession(store, { isolated: false, branch: null });
+  const out = await svc.restore(s.id);
+  expect(out?.status).toBe("running");
+  expect(calls.restoreExisting).toBeUndefined();
+});
+
+test("restore: legacy archived row with null archivedAt still restores", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls);
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+  });
+  // legacy: status flipped without stamping archivedAt
+  store.update(s.id, { status: "archived" });
+  const row = store.get(s.id)!;
+  expect(row.archivedAt).toBeNull();
+  const out = await svc.restore(s.id);
+  expect(out?.status).toBe("running");
+});
+
+test("restore: spawn failure rolls back worktree and returns null", async () => {
+  // Force a hold via api-key mode with no helper path — prepareSpawn returns {ok:false}
+  // without ever calling herdr.start, matching the real spawn-refused contract.
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  const store = new SessionStore(":memory:");
+  const calls: any = { removed: [] };
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: (path: string, opts: unknown) => {
+        calls.removed.push({ path, opts });
+      },
+      branchExists: () => false,
+      restoreExisting: () => "/wt/x",
+      gitCommonDir: () => "/wt/x/.git",
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t" }) as any,
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  try {
+    config.authMode = "api-key";
+    config.authApiKeyHelperPath = null;
+    const s = archivedWithSession(store);
+    const out = await svc.restore(s.id);
+    expect(out).toBeNull();
+    // worktree was rolled back
+    expect(calls.removed.length).toBeGreaterThan(0);
+    expect(calls.removed[0].path).toBe("/wt/x");
+    // row stays archived
+    expect(store.get(s.id)?.status).toBe("archived");
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
+  }
 });
 
 test("reply delivers the text as a bracketed paste, then submits with a carriage return", () => {

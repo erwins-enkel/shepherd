@@ -1,6 +1,8 @@
 import type { SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { SessionService } from "./service";
+import { RestoreError } from "./service";
+import { WorktreeRestoreError } from "./worktree";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import type { CreateSessionInput } from "./types";
@@ -2156,6 +2158,7 @@ async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Respon
 // — a re-opened menu or a second client isn't covered. Module-level so it's shared
 // across requests within a process.
 const inFlightRelaunch = new Set<string>();
+const inFlightRestore = new Set<string>();
 
 // Re-resolve a relaunch original's linked issue (by number) in the route — the service
 // has no forge access. The issue BODY rides the argv into the new prompt, so an
@@ -2318,6 +2321,39 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+// POST /api/sessions/:id/restore — bring an archived session back into the active Herd.
+// Re-creates the worktree (if isolated), resumes the Claude conversation, clears archivedAt.
+async function handleSessionRestore({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "restore")) return null;
+  const id = parts[2];
+
+  if (inFlightRestore.has(id))
+    return json({ error: "restore already in progress", code: "in_progress" }, 409);
+  inFlightRestore.add(id);
+  try {
+    let s: import("./types").Session | null;
+    try {
+      s = await deps.service.restore(id);
+    } catch (e) {
+      if (e instanceof RestoreError) {
+        return json({ error: e.message, code: e.code }, 409);
+      }
+      if (e instanceof WorktreeRestoreError) {
+        return json({ error: e.message, code: e.code }, 409);
+      }
+      throw e;
+    }
+    if (!s) {
+      if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+      return json({ error: "could not restore", code: "spawn_refused" }, 409);
+    }
+    deps.events.emit("session:new", s);
+    return json(s);
+  } finally {
+    inFlightRestore.delete(id);
+  }
+}
+
 // POST /api/sessions/:id/relaunch-uploads — stage the original's uploaded images so a
 // relaunch composer can seed them as carried-over chips. Read-only on the session: it
 // copies (not moves) the originals into staging and returns { images: [{ path, name }] }.
@@ -2473,6 +2509,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAutopilot,
     handleSessionAutoMerge,
     handleSessionRelaunch,
+    handleSessionRestore,
     handleRelaunchUploads,
   ]) {
     const res = await sub(ctx);

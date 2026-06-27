@@ -389,6 +389,27 @@ test("get / list / update / archive", () => {
   expect(s.list({ activeOnly: true }).length).toBe(0);
 });
 
+test("unarchive clears archivedAt to null", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.archive(a.id);
+  expect(s.get(a.id)?.archivedAt).toBeGreaterThan(0);
+  s.unarchive(a.id);
+  expect(s.get(a.id)?.archivedAt).toBeNull();
+  // status stays archived (finishResumeSpawn updates it separately)
+  expect(s.get(a.id)?.status).toBe("archived");
+});
+
+test("unarchive is a no-op for an already-null archivedAt (legacy row)", () => {
+  const s = mk();
+  const a = s.create(base);
+  // legacy: status flipped without stamping archivedAt
+  s.update(a.id, { status: "archived" });
+  expect(s.get(a.id)?.archivedAt).toBeNull();
+  s.unarchive(a.id); // must not throw
+  expect(s.get(a.id)?.archivedAt).toBeNull();
+});
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 

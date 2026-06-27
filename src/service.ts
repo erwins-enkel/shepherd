@@ -81,6 +81,13 @@ import type { GitForge, GitState, IssueComment } from "./forge/types";
  *  started in clearMergingForTrain. NOTE: per-session marks are NOT aged out by
  *  this — they persist for the life of the train (see sweepStaleMerging, which
  *  releases a mark only when its train leaves #liveTrains). */
+export class RestoreError extends Error {
+  constructor(public readonly code: "not_archived" | "cannot_restore") {
+    super(`restore failed: ${code}`);
+    this.name = "RestoreError";
+  }
+}
+
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
@@ -102,6 +109,7 @@ export interface ServiceDeps {
     | "commitsAhead"
     | "currentBranch"
     | "gitCommonDir"
+    | "restoreExisting"
   >;
   herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel">;
   namer: (prompt: string) => string | Promise<string>;
@@ -2243,6 +2251,52 @@ export class SessionService {
       return null;
     }
     return this.finishResumeSpawn(session, outcome);
+  }
+
+  /**
+   * Restore an archived session: re-create its worktree (if isolated), resume the Claude
+   * conversation via `--resume`, and clear `archivedAt` so the session re-enters the Herd.
+   *
+   * Returns the updated Session on success, null on spawn failure (callers map that to
+   * a generic 409). Throws `RestoreError` for precondition violations, and propagates
+   * `WorktreeRestoreError` from the worktree layer so the route can map specific codes to 409.
+   */
+  async restore(id: string): Promise<Session | null> {
+    const s = this.deps.store.get(id);
+    if (!s) return null;
+
+    if (s.status !== "archived") throw new RestoreError("not_archived");
+
+    const provider = s.agentProvider ?? "claude";
+    if (provider !== "claude" || !s.claudeSessionId) throw new RestoreError("cannot_restore");
+
+    let worktreeCreated = false;
+    if (s.isolated && s.branch) {
+      // WorktreeRestoreError propagates to the route; it is a hard stop (no rollback needed
+      // since the worktree either wasn't created or was a stale one we just removed).
+      this.deps.worktree.restoreExisting(s.repoPath, s.branch, s.worktreePath);
+      worktreeCreated = true;
+    }
+
+    const trim = await this.trimFor(s.auto);
+    const outcome = await this.prepareResumeSpawn(s, this.buildResumeArgv(s, provider, trim));
+    if (!outcome.ok) {
+      console.warn(`[restore] spawn refused for ${s.id}: ${outcome.holdReason}`);
+      if (worktreeCreated) {
+        try {
+          this.deps.worktree.remove(s.worktreePath, {
+            branch: s.branch,
+            baseBranch: s.baseBranch,
+          });
+        } catch {
+          /* best-effort rollback */
+        }
+      }
+      return null;
+    }
+
+    this.deps.store.unarchive(s.id);
+    return this.finishResumeSpawn(s, outcome);
   }
 
   /**

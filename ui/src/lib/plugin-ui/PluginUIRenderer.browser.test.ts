@@ -56,4 +56,51 @@ describe("PluginUIRenderer", () => {
     await expect.element(page.getByText("Unsupported component")).toBeInTheDocument();
     await expect.element(page.getByText("toString")).toBeInTheDocument();
   });
+
+  it("dispatches gauge → PuiGauge (role=meter present)", async () => {
+    const { container } = render(PluginUIRenderer, {
+      node: { type: "gauge", props: { value: 1, max: 2, label: "G" } },
+    });
+    expect(container.querySelector("[role=meter]")).not.toBeNull();
+    // Label is in both the visible span and the SVG <title>; query span directly
+    const labelEl = container.querySelector(".pui-gauge-label");
+    expect(labelEl?.textContent).toBe("G");
+  });
+
+  it("dispatches sparkline → PuiSparkline (polyline present)", async () => {
+    const { container } = render(PluginUIRenderer, {
+      node: { type: "sparkline", props: { points: [1, 2, 3] } },
+    });
+    expect(container.querySelector("polyline")).not.toBeNull();
+  });
+
+  it("dispatches time-series → PuiTimeSeries (polyline present)", async () => {
+    const { container } = render(PluginUIRenderer, {
+      node: {
+        type: "time-series",
+        props: { series: [{ label: "X", points: [1, 2] }] },
+      },
+    });
+    expect(container.querySelector("polyline")).not.toBeNull();
+  });
+
+  it("dispatches bar-chart → PuiBarChart (role=list present)", async () => {
+    const { container } = render(PluginUIRenderer, {
+      node: {
+        type: "bar-chart",
+        props: { bars: [{ label: "A", value: 5 }] },
+      },
+    });
+    expect(container.querySelector("[role=list]")).not.toBeNull();
+  });
+
+  it("dispatches timeline → PuiTimeline (<ol> present)", async () => {
+    const { container } = render(PluginUIRenderer, {
+      node: {
+        type: "timeline",
+        props: { events: [{ at: "Now", label: "Launched" }] },
+      },
+    });
+    expect(container.querySelector("ol.pui-timeline")).not.toBeNull();
+  });
 });

@@ -127,6 +127,22 @@ export class PluginSpawnAborted extends Error {
  *  match a host registry key, else the UI renders a fallback tile. `props` are
  *  JSON-serializable only; string props render VERBATIM (plugin-authored DATA, never an
  *  i18n key — consistent with the verbatim-data rule for tool-use summaries / PR titles). */
+/**
+ * Graphical node types (issue #1189) the host renders from `PLUGIN_UI_REGISTRY`, in
+ * addition to the flat primitives. All props are JSON-serializable; string props render
+ * VERBATIM (plugin-authored data). Tones reuse the vocabulary `neutral | ok | warn | error | info`.
+ *
+ * - `gauge`        — radial snapshot of one value.
+ *                    props: { label: string; value: number; max: number; tone?: Tone; caption?: string }
+ * - `sparkline`    — inline mini-trend from a short history.
+ *                    props: { label?: string; points: number[]; tone?: Tone; caption?: string }
+ * - `time-series`  — line/area chart of a value over time.
+ *                    props: { series: { label: string; tone?: Tone; points: number[] }[]; yMax?: number; kind?: "line" | "area"; caption?: string }
+ * - `bar-chart`    — categorical distribution.
+ *                    props: { bars: { label: string; value: number; tone?: Tone }[]; max?: number; orientation?: "horizontal" | "vertical" }
+ * - `timeline`     — recent discrete events.
+ *                    props: { events: { at: string; label: string; caption?: string; tone?: Tone }[] }
+ */
 export interface PluginUINode {
   type: string;
   props?: Record<string, unknown>;

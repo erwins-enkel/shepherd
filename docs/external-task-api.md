@@ -123,5 +123,10 @@ Once a task exists, an external agent can also drive it:
 - `DELETE /api/sessions/:id` — archive (end) the session.
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,
   `/activity`, `/usage` for inspection.
+- `GET /api/sessions/:id/scratchpad[?path=]` — read-only browse of a live
+  session's own scratchpad subtree; `GET /api/sessions/:id/scratchpad/download?path=`
+  streams a single file. Paths are relative to the scratchpad root and
+  realpath-contained to it (`..`, absolute, and symlink escapes are rejected);
+  both `404` on a missing/archived session.
 
 All of these honor the same auth/origin rules as task creation.

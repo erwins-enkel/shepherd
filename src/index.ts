@@ -74,6 +74,7 @@ import { createIssueLogger } from "./issue-log";
 import { PlanGateService } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
+import { SessionRouter, type SessionConsumer } from "./session-router";
 import { AutoMergeService } from "./automerge";
 import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
@@ -1151,29 +1152,14 @@ const autopilot = new AutopilotService({
   rebaseCap: config.autoMergeRebaseCap,
 });
 
-// Drive autopilot off the same poller events the rest of the system already emits.
+// Drive autopilot's block handling off the poller events. `session:status`/`session:git`
+// no longer fan out here — they flow through the ordered SessionRouter seam (built after
+// `drain`) so drain (retire) is awaited before autopilot (steer). Only `session:block`
+// stays an independent autopilot subscription.
 events.subscribe((event, data) => {
-  if (event === "session:block") {
-    const { id, block } = data as { id: string; block: import("./blocked").BlockReason | null };
-    void autopilot.onBlock(id, block).catch((err) => console.warn("[autopilot] onBlock:", err));
-  } else if (event === "session:status") {
-    const { id, status } = data as { id: string; status: string };
-    autopilot.onStatus(id, status); // clears a pause when the operator replies
-    if (status === "done") {
-      void autopilot.onDone(id).catch((err) => console.warn("[autopilot] onDone:", err));
-      // A planning-phase session that just settled has likely finished writing
-      // `.shepherd-plan.md` — kick off the adversarial plan review (no-op unless it's
-      // in the planning phase with a fresh, un-reviewed plan).
-      const sess = store.get(id);
-      if (sess?.planPhase === "planning")
-        void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));
-    }
-  } else if (event === "session:git") {
-    const { id, git } = data as { id: string; git: import("./forge/types").GitState };
-    // PR-open handoff to the critic loop AND red-CI recovery (the critic skips a red PR, so
-    // autopilot drives the agent to fix its own failing checks).
-    autopilot.onGit(id, git);
-  }
+  if (event !== "session:block") return;
+  const { id, block } = data as { id: string; block: import("./blocked").BlockReason | null };
+  void autopilot.onBlock(id, block).catch((err) => console.warn("[autopilot] onBlock:", err));
 });
 
 // Self-draining work queue (#222): when an auto session's PR merges, archive it and
@@ -1196,20 +1182,51 @@ const drain = new DrainService({
   rebaseCap: config.autoMergeRebaseCap,
 });
 
-// Drive the drain off the poller events the rest of the system already emits.
+// Drive the drain's archived/review handling off the poller events. `session:git`/`session:status`
+// flow through the ordered SessionRouter seam below (drain before autopilot); only the
+// archived/review side-effects stay independent drain subscriptions.
 events.subscribe((event, data) => {
-  if (event === "session:git") {
-    const { id, git } = data as { id: string; git: import("./forge/types").GitState };
-    void drain.onGit(id, git).catch((err) => console.warn("[drain] onGit:", err));
-  } else if (event === "session:status") {
-    const { id } = data as { id: string };
-    void drain.onStatus(id).catch((err) => console.warn("[drain] onStatus:", err));
-  } else if (event === "session:archived") {
+  if (event === "session:archived") {
     const { id } = data as { id: string };
     void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
+  }
+});
+
+// #1094: one ordered "what happens next" seam. `session:status`/`session:git` used to fan out to
+// two fire-and-forget subscriptions (drain retire + autopilot steer) that interleaved within a
+// single poller tick and raced. The router builds the shared per-session snapshot once and dispatches
+// consumers in order, AWAITING each — drain (retire) before autopilot (steer) — so a ready session is
+// retired/handed off before autopilot spends a classify on it, and autopilot never steers a row drain
+// is about to archive. autoMerge + every other session:git/status subscriber stay independent.
+const sessionRouter = new SessionRouter(
+  { getSession: (id) => store.get(id) },
+  [
+    { name: "drain", handle: (change) => drain.handle(change) },
+    { name: "autopilot", handle: (change) => autopilot.handle(change) },
+  ] satisfies SessionConsumer[],
+  {
+    // Plan-gate is an independent status side-effect (not a [drain,autopilot] consumer): a
+    // planning-phase session that just settled likely finished writing .shepherd-plan.md → kick the
+    // adversarial review. Runs after the consumer chain, reached regardless of a consumer throwing.
+    onStatusSettled: (change) => {
+      const sess = change.snapshot.session;
+      if (change.status === "done" && sess.planPhase === "planning")
+        void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));
+    },
+  },
+);
+events.subscribe((event, data) => {
+  if (event === "session:status") {
+    const { id, status } = data as { id: string; status: string };
+    void sessionRouter
+      .onStatus(id, status)
+      .catch((err) => console.warn("[session-router] onStatus:", err));
+  } else if (event === "session:git") {
+    const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+    void sessionRouter.onGit(id, git).catch((err) => console.warn("[session-router] onGit:", err));
   }
 });
 // Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).

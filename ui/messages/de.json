@@ -2052,5 +2052,9 @@
   "files_load_error": "Scratchpad-Dateien konnten nicht geladen werden.",
   "files_download_aria": "{name} herunterladen",
   "feat_scratchpad_files_title": "Scratchpad einer Session durchsuchen & herunterladen",
-  "feat_scratchpad_files_body": "Die Ansicht einer laufenden Session hat jetzt einen Dateien-Tab, sobald ihr Scratchpad Artefakte enthält. Durchsuche die vom Agenten erstellten Ordner und lade jede Datei direkt auf deinen Rechner."
+  "feat_scratchpad_files_body": "Die Ansicht einer laufenden Session hat jetzt einen Dateien-Tab, sobald ihr Scratchpad Artefakte enthält. Durchsuche die vom Agenten erstellten Ordner und lade jede Datei direkt auf deinen Rechner.",
+  "topbar_tokens_total": "gesamt",
+  "topbar_tokens_window": "{period} Tokens",
+  "feat_codex_usage_topbar_title": "Codex-Auslastung in der Topbar",
+  "feat_codex_usage_topbar_body": "Das Auslastungs-Popover in der Topbar zeigt jetzt auch Codex-Token-Telemetrie, wenn eine lokale Codex-CLI konfiguriert ist. So bleiben Claude- und Codex-Kapazität an derselben Stelle sichtbar."
 }

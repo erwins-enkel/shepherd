@@ -7,7 +7,13 @@
     DiagnosticState,
   } from "$lib/types";
   import { displayStatus } from "$lib/display-status";
-  import { gaugeList, hotterGauge, overspending, type GaugeKey } from "./usage-gauges";
+  import {
+    codexTokenUsage,
+    gaugeList,
+    hotterGauge,
+    overspending,
+    type GaugeKey,
+  } from "./usage-gauges";
   import {
     refreshUsage,
     listHeld,
@@ -262,6 +268,7 @@
   // entry — its window shape carries no credit fields, and a 0%-pct credit gauge
   // must never become the "hotter" collapsed gauge). Null → render nothing.
   const credits = $derived(limits?.credits ?? null);
+  const codexUsage = $derived(codexTokenUsage(limits));
   const overspend = $derived(overspending(limits));
   // Bar fill is spent/cap (NOT pct — pct rounds to 0 while money is already spent).
   const creditFill = $derived(
@@ -483,7 +490,7 @@
     // Close the popover when there's nothing left to show. Both desktop and touch drive
     // popoverOpen now, so the only force-close is "no usage windows AND no credits" (a non-empty
     // `gauges` implies `hotter`, so this also covers the touch collapse case).
-    if (!gauges.length && !credits) popoverOpen = false;
+    if (!gauges.length && !credits && !codexUsage) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -714,6 +721,7 @@
         {hotter}
         {gauges}
         {credits}
+        {codexUsage}
         {overspend}
         {creditFill}
         {creditColor}
@@ -812,6 +820,7 @@
   <TopBarMobileSheet
     {gauges}
     {credits}
+    {codexUsage}
     {subscriptionOnly}
     stale={limits?.stale ?? false}
     {diagnosticsOverall}

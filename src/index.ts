@@ -47,6 +47,7 @@ import { parseManualSteps } from "./manual-steps";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
+import { CodexUsageProvider } from "./codex-usage";
 import { singleFlight } from "./single-flight";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
@@ -393,7 +394,9 @@ const buildQueueReminder = new BuildQueueReminderService({
 
 const accountIndex = new AccountUsageIndex();
 const usageRollup = new SessionUsageRollup();
-const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr), store);
+const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr), store, [
+  new CodexUsageProvider(),
+]);
 
 reconcile(store, herdr);
 

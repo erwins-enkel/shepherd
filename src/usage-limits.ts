@@ -248,6 +248,7 @@ export interface UsageLimits {
   /** true in api-key auth mode: usage tracking is subscription-only, so the meters carry no
    *  data and the UI shows an explicit subscription-only state (not a fake zero meter). */
   subscriptionOnly: boolean;
+  providers?: UsageProviderSnapshot[];
 }
 
 export interface UsageProjection {
@@ -255,6 +256,31 @@ export interface UsageProjection {
   projectedPct: number; // projected % at reset if burn holds (NOT clamped; may exceed 100)
   resetAt: number; // ms epoch of window reset
   burnRatePerHour: number; // recent weighted units/hour
+}
+
+export type UsageProviderSnapshot =
+  | {
+      provider: "claude";
+      kind: "limits";
+      session5h: LimitWindow | null;
+      week: LimitWindow | null;
+      credits: CreditWindow | null;
+      stale: boolean;
+      calibratedAt: number | null;
+      subscriptionOnly: boolean;
+    }
+  | {
+      provider: "codex";
+      kind: "tokens";
+      totalTokens: number;
+      session5hTokens: number;
+      weekTokens: number;
+      updatedAt: number | null;
+      stale: boolean;
+    };
+
+export interface UsageProviderSource {
+  snapshot(now: number): UsageProviderSnapshot | null;
 }
 
 // Credits is scrape-fresh-only (no local signal to recompute from), so it goes stale fast —
@@ -305,6 +331,7 @@ export class UsageLimitsService {
     private caps: CapStore,
     private probe: UsageProbe,
     private creditStore: CreditStore,
+    private providerSources: UsageProviderSource[] = [],
   ) {}
 
   // `now` of the last calibrate whose probe returned a usable frame. A manual-refresh caller
@@ -420,7 +447,29 @@ export class UsageLimitsService {
         stale: now - snap.scrapedAt > CREDIT_STALE_MS,
       };
     }
-    return { session5h, week, credits, stale, calibratedAt, subscriptionOnly: isApiKeyMode() };
+    const subscriptionOnly = isApiKeyMode();
+    const claude: UsageProviderSnapshot = {
+      provider: "claude",
+      kind: "limits",
+      session5h,
+      week,
+      credits,
+      stale,
+      calibratedAt,
+      subscriptionOnly,
+    };
+    const providers = [
+      claude,
+      ...this.providerSources.flatMap((source) => {
+        try {
+          const snap = source.snapshot(now);
+          return snap ? [snap] : [];
+        } catch {
+          return [];
+        }
+      }),
+    ];
+    return { session5h, week, credits, stale, calibratedAt, subscriptionOnly, providers };
   }
 
   /** Burn-rate projections: projected % at window reset, based on a trailing lookback window. */

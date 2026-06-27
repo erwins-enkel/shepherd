@@ -17,6 +17,7 @@ import {
   type CreditSnapshot,
   type CreditStore,
   type UsageProbe,
+  type UsageProviderSource,
 } from "../src/usage-limits";
 import { AccountUsageIndex } from "../src/usage";
 import { config } from "../src/config";
@@ -375,6 +376,25 @@ test("limits clamps to 100 and reports stale when never calibrated", () => {
   caps.putCap({ window: "week", cap: 10, resetAt: NOW + 1000, pct: 99, scrapedAt: NOW });
   const over = new UsageLimitsService(fakeIndex(999), caps, new StubProbe(null), new MemCredits());
   expect(over.limits(NOW).week!.pct).toBe(100);
+});
+
+test("limits keeps Claude usage when an extra provider throws", () => {
+  const caps = new MemCaps();
+  caps.putCap({ window: "week", cap: 200, resetAt: NOW + 1000, pct: 20, scrapedAt: NOW });
+  const throwingProvider: UsageProviderSource = {
+    snapshot: () => {
+      throw new Error("provider unavailable");
+    },
+  };
+  const svc = new UsageLimitsService(fakeIndex(50), caps, new StubProbe(null), new MemCredits(), [
+    throwingProvider,
+  ]);
+
+  const l = svc.limits(NOW);
+
+  expect(l.week!.pct).toBe(25);
+  expect(l.providers).toHaveLength(1);
+  expect(l.providers?.[0]?.provider).toBe("claude");
 });
 
 // ── credits: calibrate persist + live passthrough ────────────────────────────

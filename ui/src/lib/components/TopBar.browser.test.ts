@@ -1355,6 +1355,43 @@ describe("TopBar — CR extra-credit gauge", () => {
     return { ...limitsWithCredit(credit), session5h: null, week: null };
   }
 
+  function codexOnly({ stale = false }: { stale?: boolean } = {}): UsageLimits {
+    return {
+      session5h: null,
+      week: null,
+      credits: null,
+      stale: false,
+      calibratedAt: null,
+      subscriptionOnly: false,
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 92_600_000,
+          session5hTokens: 404_000,
+          weekTokens: 92_600_000,
+          updatedAt: 1_700_000_000_000,
+          stale,
+        },
+      ],
+    };
+  }
+
+  async function renderTouch(limits: UsageLimits | null) {
+    await page.viewport(1000, 900);
+    document.body.style.width = "1000px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS["touch-desktop"],
+      ...sessionsProp(0),
+      limits,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    return hud!;
+  }
+
   it("below cap: shows the percentages inline, NOT the CR amount (CR lives in the popover)", async () => {
     const hud = await renderDesktop(limitsWithCredit({})); // 88% / 64% → not capped
     const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
@@ -1484,6 +1521,35 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(pop!.textContent ?? "", "no 5-Hour window block").not.toContain(
       m.topbar_gauge_period_5h(),
     );
+  });
+
+  it("codex-only: clicking the toggle opens provider token telemetry", async () => {
+    const hud = await renderDesktop(codexOnly());
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "codex-only toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "inline codex token count").toContain(
+      m.agent_provider_codex(),
+    );
+
+    openDesktopPopover(hud);
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop, "popover rendered").not.toBeNull();
+    const text = pop!.textContent ?? "";
+    expect(text, "codex provider label").toContain(m.agent_provider_codex());
+    expect(text, "5H token row").toContain(m.topbar_tokens_window({ period: "5H" }));
+    expect(text, "weekly token row").toContain(m.topbar_tokens_window({ period: "WK" }));
+  });
+
+  it("codex-only touch toggle dims when the Codex snapshot is stale", async () => {
+    const hud = await renderTouch(codexOnly({ stale: true }));
+    const toggle = hud.querySelector<HTMLElement>(".gauge-btn");
+
+    expect(toggle, "codex-only touch toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "inline codex token count").toContain(
+      m.agent_provider_codex(),
+    );
+    expect(toggle!.classList.contains("stale"), "stale codex-only toggle is dimmed").toBe(true);
   });
 
   it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {

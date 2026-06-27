@@ -1608,6 +1608,15 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_codex_cli_body",
   },
   {
+    // Codex token telemetry now joins Claude usage in the topbar usage popover. No targetId —
+    // the details only mount while the operator has the usage popover/sheet open; surface via
+    // the What's-New drawer only. Ships in 1.37.0 alongside the Codex provider path.
+    id: "codex-usage-topbar",
+    sinceVersion: "1.37.0",
+    titleKey: "feat_codex_usage_topbar_title",
+    bodyKey: "feat_codex_usage_topbar_body",
+  },
+  {
     // Held tasks now show the coding CLI they were originally held for and can be manually
     // spawned on a different provider, e.g. hand a Claude-held task to Codex while Claude usage is
     // capped. No targetId — the held-task popover only mounts when the queue is non-empty. Ships

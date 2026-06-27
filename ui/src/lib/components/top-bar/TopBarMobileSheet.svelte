@@ -1,12 +1,17 @@
 <script lang="ts">
   import type { Gauge, GaugeKey } from "../usage-gauges";
-  import type { CreditWindow, UpdateStatus, DiagnosticState } from "$lib/types";
+  import type {
+    CreditWindow,
+    UpdateStatus,
+    DiagnosticState,
+    UsageProviderSnapshot,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import CreditDetail from "./CreditDetail.svelte";
   import { gaugeColor } from "../usage-gauges";
-  import { formatResetIn, formatReset } from "$lib/format";
+  import { formatResetIn, formatReset, formatTokenLabel } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
@@ -33,6 +38,7 @@
   let {
     gauges,
     credits,
+    codexUsage,
     subscriptionOnly,
     stale,
     diagnosticsOverall,
@@ -68,6 +74,7 @@
   }: {
     gauges: Gauge[];
     credits: CreditWindow | null;
+    codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     subscriptionOnly: boolean;
     stale: boolean;
     diagnosticsOverall: DiagnosticState;
@@ -163,9 +170,9 @@
     <div class="sheet-sep"></div>
 
     <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
-    {#if gauges.length || credits || subscriptionOnly}
+    {#if gauges.length || credits || subscriptionOnly || codexUsage}
       <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
-      {#if subscriptionOnly}
+      {#if subscriptionOnly && !codexUsage}
         <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
       {:else}
         <div class="sheet-gauges {stale ? 'stale' : ''}">
@@ -200,6 +207,22 @@
             {refreshError}
             {onRefresh}
           />
+          {#if codexUsage}
+            <div class="sheet-token-row" class:stale={codexUsage.stale}>
+              <div class="sheet-gauge-head">
+                <span class="gp-period">{m.agent_provider_codex()}</span>
+                <span class="token-total">{formatTokenLabel(codexUsage.totalTokens)}</span>
+              </div>
+              <div class="token-line">
+                <span>{m.topbar_tokens_window({ period: "5H" })}</span>
+                <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
+              </div>
+              <div class="token-line">
+                <span>{m.topbar_tokens_window({ period: "WK" })}</span>
+                <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
+              </div>
+            </div>
+          {/if}
         </div>
       {/if}
       <button
@@ -496,6 +519,32 @@
     align-items: baseline;
     justify-content: space-between;
     font-variant-numeric: tabular-nums;
+  }
+  .sheet-token-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-line);
+  }
+  .sheet-token-row.stale {
+    opacity: 0.5;
+  }
+  .token-total,
+  .token-line {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    font-variant-numeric: tabular-nums;
+  }
+  .token-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .token-line span:first-child {
+    color: var(--color-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
   /* Sheet action rows: ≥44px targets, token-driven, no role=menuitem (invalid in dialog). */
   .sheet-item {

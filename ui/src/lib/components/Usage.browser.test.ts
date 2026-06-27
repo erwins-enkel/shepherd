@@ -3,6 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+import { formatTokenLabel } from "$lib/format";
+import { m } from "$lib/paraglide/messages";
 import * as api from "$lib/api";
 
 const BASE = Date.now();
@@ -15,6 +17,27 @@ const inlineLimits: UsageLimits = {
   stale: false,
   calibratedAt: BASE - 5 * 60_000,
   subscriptionOnly: false,
+  providers: [
+    {
+      provider: "claude",
+      kind: "limits",
+      session5h: { pct: 38, resetAt: BASE + 2.5 * H },
+      week: { pct: 22, resetAt: BASE + 58 * H },
+      credits: null,
+      stale: false,
+      calibratedAt: BASE - 5 * 60_000,
+      subscriptionOnly: false,
+    },
+    {
+      provider: "codex",
+      kind: "tokens",
+      totalTokens: 123_456_789,
+      session5hTokens: 23_456_789,
+      weekTokens: 87_654_321,
+      updatedAt: BASE - 60_000,
+      stale: false,
+    },
+  ],
 };
 
 const inlineProjections: UsageProjection[] = [
@@ -97,6 +120,16 @@ describe("Usage modal component", () => {
     );
     expect(activeBtns.length, "one active range button").toBe(1);
     expect(activeBtns[0].textContent?.trim()).toBe("7d");
+  });
+
+  it("shows Codex token usage in the modal chrome", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    await expect.element(page.getByText(m.agent_provider_codex())).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.topbar_tokens_window({ period: "5H" })))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(formatTokenLabel(123_456_789))).toBeInTheDocument();
   });
 
   it("clicking the ✕ close button calls onclose", async () => {

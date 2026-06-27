@@ -104,6 +104,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   store.setEpicRun({
     repoPath: REPO,

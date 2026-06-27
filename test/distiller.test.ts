@@ -306,6 +306,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
@@ -345,6 +346,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         repoMode: "forge",
         autoOptimizeFlagged: false,
         manualStepsIssueEnabled: false,
+        hidden: false,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {
         bumped.push({ id, signals });

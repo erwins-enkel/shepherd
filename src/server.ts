@@ -52,6 +52,7 @@ import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-
 import { slugifyManual } from "./namer";
 import {
   listRepos,
+  reconcileRealPathsToRaw,
   readTodo,
   writeTodo,
   cloneRepo,
@@ -825,6 +826,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "draftMode",
   "autoOptimizeFlagged",
   "manualStepsIssueEnabled",
+  "hidden",
 ] as const;
 
 type RepoCfgBody = {
@@ -840,6 +842,7 @@ type RepoCfgBody = {
   draftMode?: unknown;
   autoOptimizeFlagged?: unknown;
   manualStepsIssueEnabled?: unknown;
+  hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
@@ -918,6 +921,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       draftMode?: boolean;
       autoOptimizeFlagged?: boolean;
       manualStepsIssueEnabled?: boolean;
+      hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
@@ -935,7 +939,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/hidden) must be booleans",
       },
       400,
     );
@@ -969,7 +973,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, automationConfirmed",
       },
       400,
     );
@@ -987,6 +991,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     draftMode: body.draftMode as boolean | undefined,
     autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
+    hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
     defaultModel,
@@ -3943,6 +3948,8 @@ export interface BacklogProject {
   workflows: number | null;
   /** Default-branch CI rollup state for the Actions tab marker; null = unknown / non-GitHub. */
   ciStatus: "success" | "failure" | "pending" | null;
+  /** Hidden from the repos panel (list-only declutter). The client filters on this. */
+  hidden: boolean;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -3965,6 +3972,8 @@ export interface BacklogPayloadInputs {
   lastUsedByRepo: () => Record<string, number>;
   /** repoPath → agents run since `since` (ms epoch) — store.recentSessionCountsByRepo. */
   recentCountsByRepo: (since: number) => Record<string, number>;
+  /** repoPaths flagged hidden from the repos panel — store.hiddenRepoPaths(). */
+  hiddenRepoPaths: () => Set<string>;
   repoRoot: string;
 }
 
@@ -3985,6 +3994,13 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   const recentCounts = inputs.recentCountsByRepo(
     Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );
+  // repo_config keys are safeRepoDir/realpath-resolved, but listRepos enumerates the
+  // raw join(repoRoot, name) path that each project's `r.path` carries. Under a
+  // symlinked repoRoot/repo those diverge, so reconcile the hidden set back into
+  // listRepos' raw space — else a persisted hide wouldn't match its project and would
+  // silently reappear on reload. Reuses the `repos` enumeration above so the realpath
+  // map is built once (not re-readdir'd per hidden repo).
+  const hiddenSet = reconcileRealPathsToRaw(inputs.hiddenRepoPaths(), repos);
 
   const resolved = repos.map((r) => ({ ...r, forge: inputs.resolveForge(r.path) }));
 
@@ -4024,6 +4040,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       // (plain "Actions" label) rather than a count that has no panel behind it.
       workflows: r.forge?.kind === "github" ? countDefinedWorkflows(r.path) : null,
       ciStatus: counts.ciStatus,
+      hidden: hiddenSet.has(r.path),
     };
   });
 
@@ -4102,6 +4119,7 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       resolveForge: (p) => deps.resolveForge?.(p) ?? null,
       lastUsedByRepo: () => deps.store.lastUsedByRepo(),
       recentCountsByRepo: (since) => deps.store.recentSessionCountsByRepo(since),
+      hiddenRepoPaths: () => deps.store.hiddenRepoPaths(),
       repoRoot: config.repoRoot,
     }),
   );

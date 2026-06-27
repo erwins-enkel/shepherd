@@ -92,6 +92,31 @@ export function listReposPathForReal(realDir: string, repoRoot: string): string 
   return match?.path ?? realDir;
 }
 
+/**
+ * Batch counterpart to {@link listReposPathForReal}: translate a set of realpath-
+ * resolved repo dirs (e.g. repo_config keys written via safeRepoDir) into the raw
+ * `join(repoRoot, name)` form {@link listRepos} enumerates, reusing an *already-
+ * enumerated* `repos` list so it builds the realpath→raw map once instead of
+ * re-readdir'ing per entry. Unmatched entries (a repo outside the root, a broken
+ * symlink) pass through unchanged, mirroring the single-path fallback.
+ */
+export function reconcileRealPathsToRaw(
+  realPaths: Iterable<string>,
+  repos: readonly { path: string }[],
+): Set<string> {
+  const realToRaw = new Map<string, string>();
+  for (const r of repos) {
+    try {
+      realToRaw.set(realpathSync(r.path), r.path);
+    } catch {
+      // broken symlink / vanished entry — can't be matched, skip it
+    }
+  }
+  const out = new Set<string>();
+  for (const p of realPaths) out.add(realToRaw.get(p) ?? p);
+  return out;
+}
+
 const TODO = "TODO.md";
 
 export function readTodo(

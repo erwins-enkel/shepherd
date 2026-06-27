@@ -76,3 +76,25 @@ test("patch: without the automationConfirmed flag, confirmation stays untouched"
   svc.patch("/r", { criticEnabled: true });
   expect(store.isAutomationConfirmed("/r")).toBe(false);
 });
+
+test("patch: hidden survives a later unrelated patch (no read-modify-write clobber)", () => {
+  const { store, svc } = harness();
+  // Hide the repo, then toggle an unrelated field. If `hidden` were missing from
+  // getRepoConfig's SELECT, the merge would silently rewrite hidden=false here.
+  expect(svc.patch("/r", { hidden: true }).ok).toBe(true);
+  const r = svc.patch("/r", { criticEnabled: false });
+  expect(r.ok && r.config.hidden).toBe(true);
+  expect(store.getRepoConfig("/r").hidden).toBe(true);
+});
+
+test("hiddenRepoPaths: returns exactly the repos flagged hidden", () => {
+  const { store, svc } = harness();
+  expect(store.hiddenRepoPaths()).toEqual(new Set());
+  svc.patch("/a", { hidden: true });
+  svc.patch("/b", { criticEnabled: false }); // not hidden
+  svc.patch("/c", { hidden: true });
+  expect(store.hiddenRepoPaths()).toEqual(new Set(["/a", "/c"]));
+  // Unhiding drops it from the set.
+  svc.patch("/a", { hidden: false });
+  expect(store.hiddenRepoPaths()).toEqual(new Set(["/c"]));
+});

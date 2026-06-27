@@ -1274,6 +1274,7 @@ export async function putRepoConfig(
       | "repoMode"
       | "autoOptimizeFlagged"
       | "manualStepsIssueEnabled"
+      | "hidden"
     >
   > & { automationConfirmed?: boolean },
 ): Promise<RepoConfigResponse> {

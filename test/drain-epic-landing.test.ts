@@ -135,6 +135,7 @@ function makeHarness(opts: {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   if (!opts.noEpicRun) {
     store.setEpicRun({

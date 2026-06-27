@@ -2037,5 +2037,12 @@
   "diagram_zoom_out": "Zoom out",
   "diagram_zoom_fit": "Fit to screen",
   "feat_diagram_lightbox_title": "Open plan diagrams full-screen",
-  "feat_diagram_lightbox_body": "Click any diagram in a plan to open it near full-screen, then zoom and drag to read the fine labels. The plan view is also wider on desktop, so diagrams, data-model cards and diffs get more room."
+  "feat_diagram_lightbox_body": "Click any diagram in a plan to open it near full-screen, then zoom and drag to read the fine labels. The plan view is also wider on desktop, so diagrams, data-model cards and diffs get more room.",
+  "backlog_filter_hidden": "Hidden · {count}",
+  "backlog_filter_all_hidden": "All repos hidden — show hidden to reveal",
+  "backlog_hidden_heading": "Hidden",
+  "backlog_hide_repo": "Hide repo",
+  "backlog_unhide_repo": "Unhide repo",
+  "feat_hide_repos_title": "Hide repos from the panel",
+  "feat_hide_repos_body": "Declutter the Backlog repos panel: hover a repo row and click the eye to hide it. A \"Hidden\" chip reveals hidden repos so you can bring them back. It's list-only — the repo's sessions, drain and totals are untouched."
 }

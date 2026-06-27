@@ -178,6 +178,7 @@ function makeHarness(
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
 
   const forgeRec: ForgeRec = {
@@ -771,6 +772,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -793,6 +795,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
 
   const forgeRec: ForgeRec = {
@@ -1454,6 +1457,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    hidden: false,
   });
 
   const candidateIssue = issue(42);

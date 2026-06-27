@@ -2037,5 +2037,12 @@
   "diagram_zoom_out": "Verkleinern",
   "diagram_zoom_fit": "Einpassen",
   "feat_diagram_lightbox_title": "Plan-Diagramme im Vollbild öffnen",
-  "feat_diagram_lightbox_body": "Klicke ein Diagramm im Plan an, um es nahezu im Vollbild zu öffnen — dann zoomen und ziehen, um auch feine Beschriftungen zu lesen. Die Plan-Ansicht ist auf dem Desktop zudem breiter, sodass Diagramme, Datenmodell-Karten und Diffs mehr Platz bekommen."
+  "feat_diagram_lightbox_body": "Klicke ein Diagramm im Plan an, um es nahezu im Vollbild zu öffnen — dann zoomen und ziehen, um auch feine Beschriftungen zu lesen. Die Plan-Ansicht ist auf dem Desktop zudem breiter, sodass Diagramme, Datenmodell-Karten und Diffs mehr Platz bekommen.",
+  "backlog_filter_hidden": "Ausgeblendet · {count}",
+  "backlog_filter_all_hidden": "Alle Repos ausgeblendet – zum Anzeigen einblenden",
+  "backlog_hidden_heading": "Ausgeblendet",
+  "backlog_hide_repo": "Repo ausblenden",
+  "backlog_unhide_repo": "Repo einblenden",
+  "feat_hide_repos_title": "Repos aus dem Panel ausblenden",
+  "feat_hide_repos_body": "Räume das Backlog-Repos-Panel auf: Fahre über eine Repo-Zeile und klicke auf das Auge, um sie auszublenden. Ein „Ausgeblendet“-Chip zeigt ausgeblendete Repos wieder an, sodass du sie zurückholen kannst. Nur die Anzeige – Sessions, Drain und Summen bleiben unberührt."
 }

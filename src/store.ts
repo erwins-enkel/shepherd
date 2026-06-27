@@ -110,6 +110,9 @@ export interface RepoConfig {
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
    *  (#1061). Default OFF — outbound write gated behind explicit per-repo opt-in (house rule). */
   manualStepsIssueEnabled: boolean;
+  /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
+   *  Default OFF. */
+  hidden: boolean;
 }
 
 export interface LocalPr {
@@ -416,6 +419,7 @@ type RepoCfgRow = {
   repoMode: string;
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
+  hidden: number;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -540,6 +544,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       repoMode: "forge",
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
+      hidden: false,
     };
   }
   return {
@@ -563,6 +568,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
+    hidden: !!r.hidden,
   };
 }
 
@@ -1073,7 +1079,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled
+                autoOptimizeFlagged, manualStepsIssueEnabled, hidden
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1086,8 +1092,8 @@ export class SessionStore implements CapStore, CreditStore {
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -1108,6 +1114,7 @@ export class SessionStore implements CapStore, CreditStore {
          repoMode = excluded.repoMode,
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
+         hidden = excluded.hidden,
          updatedAt = excluded.updatedAt`,
       [
         repoPath,
@@ -1131,9 +1138,19 @@ export class SessionStore implements CapStore, CreditStore {
         cfg.repoMode,
         cfg.autoOptimizeFlagged ? 1 : 0,
         cfg.manualStepsIssueEnabled ? 1 : 0,
+        cfg.hidden ? 1 : 0,
         Date.now(),
       ],
     );
+  }
+
+  /** repoPaths flagged hidden from the Backlog repos panel — one batch read for the
+   *  backlog payload (avoids a per-repo getRepoConfig). */
+  hiddenRepoPaths(): Set<string> {
+    const rows = this.db.query(`SELECT repoPath FROM repo_config WHERE hidden = 1`).all() as {
+      repoPath: string;
+    }[];
+    return new Set(rows.map((r) => r.repoPath));
   }
 
   // ── automation-confirmation (issue #1025) ────────────────────────────────
@@ -2915,6 +2932,8 @@ export class SessionStore implements CapStore, CreditStore {
     // #1061: open a GitHub tracking issue for manual operator steps on merge. Default OFF —
     // outbound write gated behind explicit per-repo opt-in (house rule).
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
+    // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
+    add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

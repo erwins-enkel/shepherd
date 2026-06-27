@@ -138,6 +138,34 @@ export function partitionRecents(
 }
 
 /**
+ * Effective hidden state for a repo: the client's optimistic overlay (`overrides`,
+ * keyed by repo path — set when this client has toggled hide) wins; otherwise the
+ * server baseline `project.hidden` from the backlog payload. The overlay-first order
+ * lets a hide/unhide reflect immediately before the `backlog:update` broadcast lands.
+ */
+export function effectiveHidden(
+  project: BacklogProject,
+  overrides: Record<string, boolean>,
+): boolean {
+  return overrides[project.path] ?? project.hidden ?? false;
+}
+
+/**
+ * Partition projects into `visible` (shown in the main list) and `hidden` (the
+ * collapsible Hidden group), by {@link effectiveHidden}. Order within each group is
+ * preserved from the input.
+ */
+export function splitHidden(
+  projects: readonly BacklogProject[],
+  overrides: Record<string, boolean>,
+): { visible: BacklogProject[]; hidden: BacklogProject[] } {
+  const visible: BacklogProject[] = [];
+  const hidden: BacklogProject[] = [];
+  for (const p of projects) (effectiveHidden(p, overrides) ? hidden : visible).push(p);
+  return { visible, hidden };
+}
+
+/**
  * Narrow the repo list by activity and optional name search. Each active
  * predicate is AND'd together:
  * - `hasIssues` keeps only repos with open issues.

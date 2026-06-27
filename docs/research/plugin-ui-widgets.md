@@ -34,16 +34,16 @@ Today an operator sees this as an **expandable JSON dump** in Settings → Plugi
 
 ### 2.1 Plugin system (server, in-process, **trusted**)
 
-Plugins are trusted single-author in-process code (one Bun event loop, server privileges; **not sandboxed** — `docs/plugins.md`). The whole contract is the versioned `ctx` seam (`src/plugins/types.ts:60`). Manifest (`plugin.json`, `src/plugins/types.ts:15`): `id`, `name`, `version`, `apiVersion` (must equal `PLUGIN_API_VERSION` = 1), optional `capabilities[]` (advisory in v1), optional `enabled`.
+Plugins are trusted single-author in-process code (one Bun event loop, server privileges; **not sandboxed** — `docs/plugins.md`). The whole contract is the versioned `ctx` seam (`PluginContext`, `src/plugins/types.ts:80`). Manifest (`plugin.json`, `src/plugins/types.ts:15`): `id`, `name`, `version`, `apiVersion` (must equal `PLUGIN_API_VERSION` = 1), optional `capabilities[]` (advisory in v1), optional `enabled`.
 
-| Capability                                                | Contract (`src/plugins/types.ts`)                          | UI relevance                      |
-| --------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
-| `ctx.onSpawn(fn)`                                         | Mutate spawn env/args/credentialDir, 5s-bounded, fail-open | none                              |
-| `ctx.events.subscribe(fn)`                                | Read-only core event stream                                | none (plugins can't emit)         |
-| **`ctx.publishStatus(json)`**                             | Push free-form JSON → emits `plugin:status` over `/events` | **the only UI integration today** |
-| `ctx.state`                                               | Durable per-plugin K/V (SQLite `plugin_state`)             | backing data                      |
-| `ctx.route(method, path, fn)`                             | `GET/POST /api/plugins/<id>/<path>`, behind operator auth  | data API, not surfaced            |
-| `ctx.log`, `ctx.config`, `ctx.manifest`, `ctx.abortSpawn` | logging / config / manifest / hard-block                   | none                              |
+| Capability                                                | Contract (`src/plugins/types.ts`)                              | UI relevance                      |
+| --------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------- |
+| `ctx.onSpawn(fn)`                                         | Mutate spawn env/args/credentialDir, 5s-bounded, fail-open     | none                              |
+| `ctx.events.subscribe(fn)`                                | Read-only core event stream                                    | none (plugins can't emit)         |
+| **`ctx.publishStatus(json)`**                             | Push free-form JSON → emits `plugin:status` over `/events`     | **the only UI integration today** |
+| `ctx.state`                                               | Durable per-plugin K/V (SQLite `plugin_state`)                 | backing data                      |
+| `ctx.route(method, path, fn)`                             | Any method at `/api/plugins/<id>/<path>`, behind operator auth | data API, not surfaced            |
+| `ctx.log`, `ctx.config`, `ctx.manifest`, `ctx.abortSpawn` | logging / config / manifest / hard-block                       | none                              |
 
 Health (`ok` / `errored` / `timed-out`) is **core-derived and unspoofable** (`src/plugins/loader.ts:305`). Plugins **cannot** register UI pages, sidebar items, components, or routes in the frontend. `publishStatus` is view-only JSON; `ctx.route` serves data the UI never auto-mounts.
 

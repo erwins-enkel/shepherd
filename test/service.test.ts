@@ -2203,9 +2203,10 @@ test("restore: spawn failure rolls back worktree and returns null", async () => 
     const s = archivedWithSession(store);
     const out = await svc.restore(s.id);
     expect(out).toBeNull();
-    // worktree was rolled back
+    // worktree was rolled back without branch opts (must not prune the branch)
     expect(calls.removed.length).toBeGreaterThan(0);
     expect(calls.removed[0].path).toBe("/wt/x");
+    expect(calls.removed[0].opts).toBeUndefined();
     // row stays archived
     expect(store.get(s.id)?.status).toBe("archived");
   } finally {

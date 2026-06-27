@@ -2284,10 +2284,10 @@ export class SessionService {
       console.warn(`[restore] spawn refused for ${s.id}: ${outcome.holdReason}`);
       if (worktreeCreated) {
         try {
-          this.deps.worktree.remove(s.worktreePath, {
-            branch: s.branch,
-            baseBranch: s.baseBranch,
-          });
+          // No branch opts — rollback must only remove the worktree, never prune
+          // the branch (pruneMergedBranch would delete a merged branch, making a
+          // retry fail with branch_gone).
+          this.deps.worktree.remove(s.worktreePath);
         } catch {
           /* best-effort rollback */
         }

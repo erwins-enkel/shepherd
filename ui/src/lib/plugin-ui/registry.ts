@@ -8,6 +8,9 @@ import PuiKeyValue from "./PuiKeyValue.svelte";
 import PuiCallout from "./PuiCallout.svelte";
 import PuiGauge from "./PuiGauge.svelte";
 import PuiSparkline from "./PuiSparkline.svelte";
+import PuiTimeSeries from "./PuiTimeSeries.svelte";
+import PuiBarChart from "./PuiBarChart.svelte";
+import PuiTimeline from "./PuiTimeline.svelte";
 
 /** Whitelist of plugin UI node types. Unknown types fall through to UnknownNodeTile. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,4 +24,7 @@ export const PLUGIN_UI_REGISTRY: Record<string, Component<any>> = {
   callout: PuiCallout,
   gauge: PuiGauge,
   sparkline: PuiSparkline,
+  "time-series": PuiTimeSeries,
+  "bar-chart": PuiBarChart,
+  timeline: PuiTimeline,
 };

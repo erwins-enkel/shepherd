@@ -2106,6 +2106,9 @@
   "plugin_ui_table_empty": "No data.",
   "plugin_ui_kv_empty": "No entries.",
   "plugin_ui_sparkline_empty": "No data.",
+  "plugin_ui_timeseries_empty": "No data.",
+  "plugin_ui_barchart_empty": "No data.",
+  "plugin_ui_timeline_empty": "No events.",
   "plugins_raw_json": "Raw data",
   "feat_plugin_ui_title": "Plugins show real panels",
   "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump."

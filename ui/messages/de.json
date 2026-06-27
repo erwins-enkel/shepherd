@@ -2106,6 +2106,9 @@
   "plugin_ui_table_empty": "Keine Daten.",
   "plugin_ui_kv_empty": "Keine Einträge.",
   "plugin_ui_sparkline_empty": "Keine Daten.",
+  "plugin_ui_timeseries_empty": "Keine Daten.",
+  "plugin_ui_barchart_empty": "Keine Daten.",
+  "plugin_ui_timeline_empty": "Keine Ereignisse.",
   "plugins_raw_json": "Rohdaten",
   "feat_plugin_ui_title": "Plugins zeigen echte Panels",
   "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps."

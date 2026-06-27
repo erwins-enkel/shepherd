@@ -1397,11 +1397,21 @@
   // modal — the three modals sit at z-index:30, above the overlay's 20 — so there
   // is no remount and the user's place is preserved. Origin is reset so a later
   // New-Task-origin completion isn't misrouted here.
+  //
+  // Order matters: set backlogSelectPath ONLY AFTER the refreshed payload is
+  // assigned. The new repo (zero issues/PRs) isn't in the old payload, so selecting
+  // against the stale list would let BacklogView's desktop "drop off-screen
+  // selection" effect ($effect at BacklogView.svelte ~223) clear the selection
+  // before the fresh payload lands — and the once-per-value select effect wouldn't
+  // re-fire. Assigning payload first guarantees the repo is in `visibleProjects`
+  // when the select effect runs. On refetch failure we skip selection (no phantom).
   function finishBacklogAdd(path: string) {
     getBacklog()
-      .then((p) => (backlog = p))
+      .then((p) => {
+        backlog = p;
+        backlogSelectPath = path;
+      })
       .catch(() => {});
-    backlogSelectPath = path;
     repoAddOrigin = null;
   }
 

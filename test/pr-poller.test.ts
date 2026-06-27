@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { PrPoller, trustsTerminal } from "../src/pr-poller";
 import type { GitForge, PrStatus } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 
 const baseSession = {
   name: "x",
@@ -23,6 +24,7 @@ function forgeReturning(status: () => PrStatus): GitForge {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => status(),
     openPr: async () => status(),
     merge: async () => {},
@@ -328,6 +330,7 @@ function forgeByBranch(byBranch: Record<string, PrStatus>): GitForge {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async (head: string) => byBranch[head] ?? NONE,
     openPr: async () => NONE,
     merge: async () => {},

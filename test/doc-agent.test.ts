@@ -334,6 +334,7 @@ function mkHarness(opts?: {
       ? null
       : ({
           kind: o.forgeKind,
+          isLightweight: o.forgeKind === "local",
           defaultBranch: async () => {
             if (o.defaultBranchThrows) throw new Error("forge offline");
             return "main";

@@ -1,8 +1,18 @@
 import { execFileSync } from "../instrument";
-import { GithubForge } from "./github";
+import { GithubForge, type GhRunner } from "./github";
 import { GiteaForge } from "./gitea";
 import { parseRemote } from "./remote";
 import type { ForgeKind, ForgeMap, GitForge } from "./types";
+
+/** Optional I/O clients a caller can supply to the constructed adapters — lets
+ *  CountsService route its own `gh` runner / `fetch` (production: an untimed async
+ *  runner; tests: injected fakes) into the resolved forge. Omitted ⇒ each adapter
+ *  uses its built-in default (`defaultRunner` / global `fetch`). resolve.ts (the
+ *  app-wide resolver) intentionally passes nothing and keeps those defaults. */
+export interface ForgeDeps {
+  ghRunner?: GhRunner;
+  fetchFn?: typeof fetch;
+}
 
 /** Decide the forge kind for a host: explicit config wins, else github.com is github. */
 function kindFor(host: string, map: ForgeMap): ForgeKind | null {
@@ -24,16 +34,17 @@ export function buildIssueUrl(
   return `${webUrl}/issues/${issueNumber}`;
 }
 
-/** Build a GitForge from a remote URL + forge config map, or null if unsupported. */
-export function forgeFor(remoteUrl: string, map: ForgeMap): GitForge | null {
+/** Build a GitForge from a remote URL + forge config map, or null if unsupported.
+ *  `deps` optionally supplies the adapter's I/O clients (see {@link ForgeDeps}). */
+export function forgeFor(remoteUrl: string, map: ForgeMap, deps?: ForgeDeps): GitForge | null {
   const parsed = parseRemote(remoteUrl);
   if (!parsed) return null;
   const kind = kindFor(parsed.host, map);
   if (!kind) return null;
   const cfg = map[parsed.host] ?? {};
-  if (kind === "github") return new GithubForge(parsed.slug, cfg);
+  if (kind === "github") return new GithubForge(parsed.slug, cfg, deps?.ghRunner);
   if (kind === "local") return null; // local repos have no remote forge
-  return new GiteaForge(parsed.slug, cfg);
+  return new GiteaForge(parsed.slug, cfg, deps?.fetchFn);
 }
 
 /** Read a named remote's URL for a repo dir, or null if the remote is absent. */
@@ -68,7 +79,7 @@ function remoteUrl(repoDir: string, remote: string): string | null {
  * which detectForge — sync and hot-path cached — must avoid). Rename the remote to
  * opt out.
  */
-export function detectForge(repoDir: string, map: ForgeMap): GitForge | null {
+export function detectForge(repoDir: string, map: ForgeMap, deps?: ForgeDeps): GitForge | null {
   const origin = remoteUrl(repoDir, "origin");
   if (!origin) return null;
 
@@ -84,9 +95,9 @@ export function detectForge(repoDir: string, map: ForgeMap): GitForge | null {
       kindFor(originParsed.host, map) === "github"
     ) {
       const cfg = map[upstreamParsed.host] ?? {};
-      return new GithubForge(upstreamParsed.slug, cfg, undefined, originParsed.slug);
+      return new GithubForge(upstreamParsed.slug, cfg, deps?.ghRunner, originParsed.slug);
     }
   }
 
-  return forgeFor(origin, map);
+  return forgeFor(origin, map, deps);
 }

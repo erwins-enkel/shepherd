@@ -10,6 +10,7 @@ import type {
   PrStatus,
   SubIssueRef,
 } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
@@ -76,6 +77,7 @@ function fakeForge(
       return issues;
     },
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }) as PrStatus,
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     defaultBranch: async () => "main",

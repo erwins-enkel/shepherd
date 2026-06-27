@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import type { SessionStore } from "../store";
 import {
+  EMPTY_BACKLOG_COUNTS,
   EmptyDiffError,
   type GitForge,
   type Issue,
@@ -10,6 +11,7 @@ import {
   type OpenPrInput,
   type PrStatus,
   type PullRequest,
+  type RepoCounts,
 } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -295,6 +297,7 @@ export class LocalForge implements GitForge {
   readonly mergeMethod: MergeMethod = "squash";
   readonly deployWorkflow = null;
   readonly webUrl = null;
+  readonly isLightweight = true;
 
   constructor(
     readonly repoPath: string,
@@ -311,6 +314,12 @@ export class LocalForge implements GitForge {
 
   async listPullRequests(): Promise<PullRequest[]> {
     return [];
+  }
+
+  /** No remote backlog surface — the overview shows blank counts for lightweight repos.
+   *  (CountsService never resolves a LocalForge, so this is belt-and-suspenders.) */
+  async listBacklogCounts(): Promise<RepoCounts> {
+    return EMPTY_BACKLOG_COUNTS;
   }
 
   async defaultBranch(): Promise<string> {

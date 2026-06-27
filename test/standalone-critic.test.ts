@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { StandalonePrCriticService } from "../src/standalone-critic";
 import { CRITIC_THINKING_TOKENS, type RawVerdict } from "../src/critic-core";
 import type { VerdictRead } from "../src/json-tolerant";
-import { CRITIC_REVIEW_MARKER } from "../src/forge/types";
+import { CRITIC_REVIEW_MARKER, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
@@ -90,6 +90,7 @@ function makeForge(
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => opts.prs ?? [pr()],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "open", checks: "success", deployConfigured: false }),
     openPr: async () => ({ state: "open", checks: "success", deployConfigured: false }),
     merge: async () => {},

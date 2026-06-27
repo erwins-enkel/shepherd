@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { DrainService } from "../src/drain";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { CreateSessionInput, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 
@@ -31,6 +32,7 @@ function fakeForge(branchesRef: BranchesRef): GitForge {
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }) as PrStatus,
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     defaultBranch: async () => "main",

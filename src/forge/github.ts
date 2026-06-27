@@ -5,6 +5,7 @@ import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
 import { classifyPr } from "./pr-kind";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "./types";
 import type {
+  CiStatus,
   ForgeConfig,
   GitForge,
   Issue,
@@ -19,6 +20,7 @@ import type {
   PrStatus,
   PullRequest,
   RedeployInput,
+  RepoCounts,
   RollupEntry,
   SubIssueRef,
   WorkflowJob,
@@ -167,6 +169,22 @@ function mapMergeable(v: string | undefined): boolean | null {
   return null; // UNKNOWN / undefined
 }
 
+/** GitHub StatusState rollup → our CiStatus. Unknown/absent → null. */
+function mapRollupState(state: string | undefined | null): CiStatus {
+  switch (state) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return null;
+  }
+}
+
 const MERGE_STATE_VALUES = new Set<string>([
   "behind",
   "blocked",
@@ -213,6 +231,75 @@ export class GithubForge implements GitForge {
   /** Fork mode = a fork slug was supplied (`slug` is the upstream it forked from). */
   get isFork(): boolean {
     return !!this.forkSlug;
+  }
+
+  async listBacklogCounts(): Promise<RepoCounts> {
+    const [owner, name] = this.slug.split("/");
+    const out = await this.run([
+      "api",
+      "graphql",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-f",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName labels(first:10){nodes{name}} } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
+    ]);
+    const json = JSON.parse(out) as {
+      data?: {
+        repository?: {
+          issues?: { totalCount?: number };
+          pullRequests?: {
+            totalCount?: number;
+            nodes?: Array<{
+              author?: { login?: string } | null;
+              title?: string;
+              headRefName?: string;
+              labels?: { nodes?: Array<{ name?: string } | null> } | null;
+            } | null>;
+          };
+          defaultBranchRef?: {
+            target?: { statusCheckRollup?: { state?: string } | null } | null;
+          } | null;
+        };
+      };
+    };
+    const repo = json.data?.repository;
+    const issues = repo?.issues?.totalCount;
+    const prs = repo?.pullRequests?.totalCount;
+    const openPRs = typeof prs === "number" ? prs : null;
+
+    // Open-PR breakdown for the repo-list row. We fetch only the first 100 open
+    // PRs (one page — no extra request); each node is classified once. `regular`
+    // is derived from the authoritative `totalCount` minus the bot kinds (clamped
+    // at 0), NOT by counting "regular" nodes — so a repo with >100 open PRs
+    // classifies the first page and its unfetched tail safely falls into
+    // `regular` rather than silently vanishing.
+    let prKinds: RepoCounts["prKinds"] = null;
+    if (openPRs !== null) {
+      const kinds = (repo?.pullRequests?.nodes ?? [])
+        .filter((n): n is NonNullable<typeof n> => !!n)
+        .map((n) =>
+          classifyPr({
+            author: n.author?.login ?? "",
+            title: n.title ?? "",
+            headRefName: n.headRefName ?? undefined,
+            labels: (n.labels?.nodes ?? [])
+              .map((l) => l?.name)
+              .filter((name): name is string => !!name),
+          }),
+        );
+      const release = kinds.filter((k) => k === "release").length;
+      const dependabot = kinds.filter((k) => k === "dependabot").length;
+      prKinds = { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) };
+    }
+
+    return {
+      openIssues: typeof issues === "number" ? issues : null,
+      openPRs,
+      ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
+      prKinds,
+    };
   }
 
   async listIssues(): Promise<Issue[]> {

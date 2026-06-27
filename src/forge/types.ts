@@ -32,6 +32,31 @@ export interface Issue {
 export type ForgeKind = "github" | "gitea" | "local";
 export type MergeMethod = "merge" | "squash" | "rebase";
 
+/** Default-branch CI rollup state, or null when unknown / no CI / non-GitHub. */
+export type CiStatus = "success" | "failure" | "pending" | null;
+
+/** Lightweight per-repo counts for the overview/backlog row. Each forge answers in
+ *  its own way via {@link GitForge.listBacklogCounts}; null fields mean "unknown /
+ *  not supported by this host" (e.g. Gitea has no Actions rollup or PR-kind split). */
+export interface RepoCounts {
+  openIssues: number | null;
+  openPRs: number | null;
+  /** Default-branch CI health for the Actions tab marker. GitHub-only; null otherwise. */
+  ciStatus: CiStatus;
+  /** Open-PR breakdown by kind for the repo-list row. GitHub-only; null for Gitea/unknown. */
+  prKinds: { release: number; dependabot: number; regular: number } | null;
+}
+
+/** All-null counts — a forge with no remote backlog surface (LocalForge), a fetch
+ *  failure, or a not-yet-resolved repo. Shared so the seam, the caller's fallbacks,
+ *  and test doubles agree on one shape. */
+export const EMPTY_BACKLOG_COUNTS: RepoCounts = {
+  openIssues: null,
+  openPRs: null,
+  ciStatus: null,
+  prKinds: null,
+};
+
 /** Invisible marker appended to every critic-posted review body so the review
  *  fetch can tell the critic's own reviews apart from human ones (they share one
  *  gh identity). HTML comments don't render in GitHub's UI. */
@@ -279,9 +304,18 @@ export interface GitForge {
    *  upstream it was forked from (the `gh repo fork --clone` topology). Drives the
    *  repo picker's per-fork "Sync fork" affordance. Absent/false ⇒ not a fork. */
   readonly isFork?: boolean;
+  /** True only for the lightweight LocalForge (no remote/PR surface). Optional and
+   *  defined only where true — mirrors {@link isFork}; absent ⇒ falsy ⇒ not lightweight.
+   *  Lets callers gate the no-PR-surface paths (nightly docs, worktree reaping) without
+   *  branching on `kind`. NB: the issue (#1096) proposed a `isLightweight()` method; a
+   *  readonly property is used here for consistency with the other capability flags. */
+  readonly isLightweight?: boolean;
   listIssues(): Promise<Issue[]>;
   /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
   listPullRequests(): Promise<PullRequest[]>;
+  /** Lightweight issue/PR counts (+ GitHub CI rollup / PR-kind split) for the overview
+   *  row. Each adapter answers in its own way; the caller never branches on `kind`. */
+  listBacklogCounts(): Promise<RepoCounts>;
   /** Latest run per workflow on the default branch, with per-job breakdown, for
    *  the backlog Actions tab. Optional: only hosts with an Actions API implement
    *  it (GitHub); others omit it and the tab shows a "GitHub only" state. */

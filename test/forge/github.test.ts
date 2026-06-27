@@ -36,6 +36,37 @@ const ISSUES_JSON = JSON.stringify([
   },
 ]);
 
+test("GithubForge.listBacklogCounts: parses counts, CI rollup and PR-kind split", async () => {
+  const graphql = JSON.stringify({
+    data: {
+      repository: {
+        issues: { totalCount: 7 },
+        pullRequests: {
+          totalCount: 4,
+          nodes: [
+            { author: { login: "dependabot[bot]" }, title: "bump foo", labels: { nodes: [] } },
+            { author: { login: "me" }, title: "chore(main): release 1.0.0", labels: { nodes: [] } },
+            { author: { login: "me" }, title: "fix: a bug", labels: { nodes: [] } },
+            { author: { login: "me" }, title: "feat: a thing", labels: { nodes: [] } },
+          ],
+        },
+        defaultBranchRef: { target: { statusCheckRollup: { state: "FAILURE" } } },
+      },
+    },
+  });
+  const { run, calls } = fakeRunner({ "api graphql": graphql });
+  const forge = new GithubForge("o/r", {}, run);
+  const counts = await forge.listBacklogCounts();
+  expect(counts).toEqual({
+    openIssues: 7,
+    openPRs: 4,
+    ciStatus: "failure",
+    prKinds: { release: 1, dependabot: 1, regular: 2 },
+  });
+  expect(calls[0]).toContain("owner=o");
+  expect(calls[0]).toContain("name=r");
+});
+
 test("GithubForge.listIssues: parses gh issue list output (incl. assignee logins, #824)", async () => {
   const { run } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);

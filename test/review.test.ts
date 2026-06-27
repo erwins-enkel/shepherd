@@ -10,7 +10,11 @@ const adaptLegacyVerdict = (fn: () => RawVerdict | null) => (): VerdictRead<RawV
   const v = fn();
   return v == null ? { status: "absent" } : { status: "parsed", value: v, repaired: false };
 };
-import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "../src/forge/types";
+import {
+  CRITIC_REVIEW_MARKER,
+  AUTHOR_RESPONSE_MARKER,
+  EMPTY_BACKLOG_COUNTS,
+} from "../src/forge/types";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
@@ -114,6 +118,7 @@ function fakeForge(
     deployWorkflow: null,
     listIssues: async () => [],
     listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
     prStatus,
     openPr: async () => OPEN_GREEN as PrStatus,
     merge: async () => {},

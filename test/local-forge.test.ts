@@ -82,6 +82,22 @@ test("gitVersionAtLeast: 2.37 rejected, 2.38 and 2.54 accepted", () => {
 
 // ── prStatus / openPr ───────────────────────────────────────────────────────
 
+test("LocalForge is lightweight and has no remote backlog counts", async () => {
+  const repo = mkRepo();
+  try {
+    const forge = new LocalForge(repo, new SessionStore(":memory:"));
+    expect(forge.isLightweight).toBe(true);
+    expect(await forge.listBacklogCounts()).toEqual({
+      openIssues: null,
+      openPRs: null,
+      ciStatus: null,
+      prKinds: null,
+    });
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("prStatus for an unknown branch → state:none", async () => {
   const repo = mkRepo();
   try {

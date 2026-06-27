@@ -374,7 +374,7 @@ export class DocAgentService {
   /** Per-repo nightly decision: freshen origin/<base>, sha-gate, spawn on change. */
   private async considerNightly(repo: string): Promise<void> {
     const forge = this.deps.resolveForge(repo);
-    if (!forge || forge.kind === "local") return; // no PR surface; guardRepo would skip anyway
+    if (!forge || forge.isLightweight) return; // no PR surface; guardRepo would skip anyway
     let base: string;
     try {
       base = await forge.defaultBranch();
@@ -672,7 +672,7 @@ export class DocAgentService {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge)
       return { ok: false, result: { status: "error", reason: "no forge configured for repo" } };
-    if (forge.kind === "local") {
+    if (forge.isLightweight) {
       return {
         ok: false,
         result: { status: "skipped", reason: "lightweight repo mode has no PR surface" },
@@ -1123,7 +1123,7 @@ export class DocAgentService {
       readopted = await this.reapOneWorktree(repo, path, branch, forge);
     }
     const protectedBranches = new Set<string>(readopted ? [this.inflight.get(repo)!.branch] : []);
-    if (forge && forge.kind !== "local") {
+    if (forge && !forge.isLightweight) {
       await this.reapOrphanRemoteBranches(repo, forge, protectedBranches);
     }
     return readopted;
@@ -1137,7 +1137,7 @@ export class DocAgentService {
     forge: GitForge | null,
   ): Promise<boolean> {
     // No PR surface (no forge / lightweight repo) → nothing to finalize against → prune.
-    if (!forge || forge.kind === "local") {
+    if (!forge || forge.isLightweight) {
       await this.pruneWorktree(repo, path, branch);
       return false;
     }

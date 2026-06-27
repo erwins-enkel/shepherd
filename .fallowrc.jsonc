@@ -62,7 +62,14 @@
 
   // sw.js is the service worker: never imported statically — the browser fetches
   // it via navigator.serviceWorker.register("/sw.js") in ui/src/lib/push.ts.
-  "dynamicallyLoaded": ["ui/static/sw.js"],
+  //
+  // examples/plugins/*/index.ts are example-plugin entry modules: the plugin loader
+  // (src/plugins/loader.ts) `import()`s a plugin's entry at runtime — there is no
+  // static import — so fallow reports each as an unused file. They are reference
+  // teaching material loaded dynamically (the same string/runtime-loaded class as
+  // sw.js above), not dead code. Narrow to the entry index; the rest of each folder
+  // (plugin.json/config.json) is non-TS and not analyzed.
+  "dynamicallyLoaded": ["ui/static/sw.js", "examples/plugins/*/index.ts"],
 
   // tailwindcss is pulled in through `@import "tailwindcss"` in app.css + the
   // @tailwindcss/vite plugin, not an ESM import — so fallow sees it as unlisted.

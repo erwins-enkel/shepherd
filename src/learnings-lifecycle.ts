@@ -356,56 +356,76 @@ export function shouldRetire(
  * Returns flat array of RetiredRecord across all repos.
  */
 export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
-  const {
-    store,
-    optimizer,
-    nMin = RETIRE_N_MIN,
-    maxRetirePerSweep = MAX_RETIRE_PER_SWEEP,
-    baseRateOpts,
-  } = deps;
+  const { store, baseRateOpts } = deps;
+  const nMin = deps.nMin ?? RETIRE_N_MIN;
+  const maxRetirePerSweep = deps.maxRetirePerSweep ?? MAX_RETIRE_PER_SWEEP;
 
   const results: RetiredRecord[] = [];
 
   for (const repoPath of store.listRepoPathsWithInjectableLearnings()) {
-    const injected = store.listActiveLearnings(repoPath); // active + promoted
-    const retiredList = store.listRetiredLearnings(repoPath);
+    // Skip repos with learnings injection disabled entirely — consistent with the sibling
+    // sweeps (runAutoTrial / reapStaleTrial / expireProposed), which all `continue` past
+    // learnings-disabled repos. When the operator turns Learnings off, the whole rule
+    // lifecycle (trial, optimize, retire) goes dormant for that repo, and no
+    // `learnings_retired` notification fires. This also makes the UI's Auto-optimize gate
+    // honest: with Learnings off the optimize pass never runs.
+    if (!store.getRepoConfig(repoPath).learningsEnabled) continue;
+    results.push(
+      ...retireRepoCandidates(repoPath, deps, { nMin, maxRetirePerSweep, baseRateOpts }),
+    );
+  }
 
-    const base = repoBaseRate([...injected, ...retiredList], baseRateOpts);
+  return results;
+}
 
-    // Candidates: active only (not promoted)
-    const candidates = injected
-      .filter((r) => r.status === "active")
-      .sort(
-        (a, b) =>
-          wilsonLowerBound(a.helpfulCount, a.injectedCount) -
-          wilsonLowerBound(b.helpfulCount, b.injectedCount),
-      );
+/** Per-repo body of runAutoRetire: score active candidates worst-first, then optimize-or-retire
+ *  each under the budget cap. Extracted so the cross-repo loop stays flat. */
+function retireRepoCandidates(
+  repoPath: string,
+  deps: AutoRetireDeps,
+  opts: { nMin: number; maxRetirePerSweep: number; baseRateOpts?: AutoRetireDeps["baseRateOpts"] },
+): RetiredRecord[] {
+  const { store, optimizer } = deps;
+  const { nMin, maxRetirePerSweep, baseRateOpts } = opts;
 
-    const cfg = store.getRepoConfig(repoPath);
-    let retiredThisSweep = 0;
+  const injected = store.listActiveLearnings(repoPath); // active + promoted
+  const retiredList = store.listRetiredLearnings(repoPath);
+  const base = repoBaseRate([...injected, ...retiredList], baseRateOpts);
+  const autoOptimizeFlagged = store.getRepoConfig(repoPath).autoOptimizeFlagged;
 
-    for (const rule of candidates) {
-      if (!shouldRetire(rule, base, { nMin })) continue;
+  // Candidates: active only (not promoted), worst-first so the budget cap retires the worst.
+  const candidates = injected
+    .filter((r) => r.status === "active")
+    .sort(
+      (a, b) =>
+        wilsonLowerBound(a.helpfulCount, a.injectedCount) -
+        wilsonLowerBound(b.helpfulCount, b.injectedCount),
+    );
 
-      if (cfg.autoOptimizeFlagged && store.autoOptimizedAt(rule.id) === null) {
-        // Enqueue rewrite; do not retire yet, do not consume budget
-        optimizer.optimizeOne(rule.id);
-      } else if (retiredThisSweep < maxRetirePerSweep) {
-        const retiredRow = store.retireLearning(rule.id, AUTO_RETIRE_REASON);
-        if (retiredRow !== null) {
-          results.push({
-            repoPath,
-            id: rule.id,
-            rule: rule.rule,
-            helpfulCount: rule.helpfulCount,
-            injectedCount: rule.injectedCount,
-            ineffectiveCount: rule.ineffectiveCount,
-          });
-          retiredThisSweep++;
-        }
+  const out: RetiredRecord[] = [];
+  let retiredThisSweep = 0;
+
+  for (const rule of candidates) {
+    if (!shouldRetire(rule, base, { nMin })) continue;
+
+    if (autoOptimizeFlagged && store.autoOptimizedAt(rule.id) === null) {
+      // Enqueue rewrite; do not retire yet, do not consume budget
+      optimizer.optimizeOne(rule.id);
+    } else if (retiredThisSweep < maxRetirePerSweep) {
+      const retiredRow = store.retireLearning(rule.id, AUTO_RETIRE_REASON);
+      if (retiredRow !== null) {
+        out.push({
+          repoPath,
+          id: rule.id,
+          rule: rule.rule,
+          helpfulCount: rule.helpfulCount,
+          injectedCount: rule.injectedCount,
+          ineffectiveCount: rule.ineffectiveCount,
+        });
+        retiredThisSweep++;
       }
     }
   }
 
-  return results;
+  return out;
 }

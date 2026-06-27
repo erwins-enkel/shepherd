@@ -53,6 +53,19 @@
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
 
+  // Derived row state for the dependency-gated switches, hoisted out of the template so the
+  // markup stays flat (keeps the <template> under the Tier-1 complexity bar). Manual-steps
+  // opens a GitHub issue on merge → needs a forge, so it's unavailable in lightweight mode.
+  // Auto-optimize rewrites injected house-rules → moot when Learnings injection is off.
+  const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
+  const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
+  const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
+  const autoOptimizeDesc = $derived(
+    flags.learnings
+      ? m.settings_auto_optimize_flagged_help()
+      : m.automation_autooptimize_needs_learnings(),
+  );
+
   // Which row's long-form "ⓘ" explanation is currently expanded. One at a time —
   // this panel is a narrow popover, so a single open detail keeps it readable.
   let openDetail = $state<string | null>(null);
@@ -214,34 +227,37 @@
     <span class="knob"></span>
   </button>
 </div>
-<div class="auto-row">
+<div class={["auto-row", { disabled: !flags.learnings }]}>
   <div class="auto-meta">
     <div class="auto-name">
       ⟳ {m.settings_auto_optimize_flagged_label()}
     </div>
-    <div class="auto-desc">{m.settings_auto_optimize_flagged_help()}</div>
+    <div class="auto-desc">{autoOptimizeDesc}</div>
   </div>
   <button
-    class={["sw", { on: repoConfig.autoOptimizeOn(repoPath) }]}
+    class={["sw", { on: autoOptimizeActive }]}
     type="button"
     role="switch"
-    aria-checked={repoConfig.autoOptimizeOn(repoPath)}
+    aria-checked={autoOptimizeActive}
+    disabled={!flags.learnings}
     aria-label={m.settings_auto_optimize_flagged_label()}
     onclick={() => repoConfig.toggleAutoOptimize(repoPath)}
   >
     <span class="knob"></span>
   </button>
 </div>
-<div class="auto-row">
+<div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">☑ {m.automation_manual_steps_issue_name()}</div>
     <div class="auto-desc">{m.automation_manual_steps_issue_desc()}</div>
   </div>
   <button
-    class={["sw", { on: repoConfig.manualStepsIssueOn(repoPath) }]}
+    class={["sw", { on: manualStepsActive }]}
     type="button"
     role="switch"
-    aria-checked={repoConfig.manualStepsIssueOn(repoPath)}
+    aria-checked={manualStepsActive}
+    disabled={lightweight}
+    title={lightweightTip}
     aria-label={m.automation_manual_steps_issue_name()}
     onclick={() => repoConfig.toggleManualStepsIssue(repoPath)}
   >

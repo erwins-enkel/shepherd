@@ -127,6 +127,21 @@
     return () => mq.removeEventListener("change", onChange);
   });
 
+  // Keep each panel's role honest across the tablist↔dropdown swap: a focusable
+  // tabpanel on desktop (a real tab in the strip owns it), a plain labelled region
+  // on mobile where no tablist exists to own it (an orphaned tabpanel otherwise).
+  // Applied imperatively so the role and the tabindex — only valid on the
+  // interactive tabpanel — always agree without tripping the a11y linter.
+  function panelShape(node: HTMLElement, narrow: boolean) {
+    const apply = (n: boolean) => {
+      node.setAttribute("role", n ? "region" : "tabpanel");
+      if (n) node.removeAttribute("tabindex");
+      else node.setAttribute("tabindex", "0");
+    };
+    apply(narrow);
+    return { update: apply };
+  }
+
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
 
@@ -666,10 +681,9 @@
          instead of remounting and resyncing from the store. -->
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-workspace"
       aria-label={m.settings_tab_workspace()}
-      tabindex="0"
       hidden={tab !== "workspace"}
     >
       <SettingsWorkspacePanel
@@ -685,10 +699,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-codingAgents"
       aria-label={m.settings_tab_coding_agents()}
-      tabindex="0"
       hidden={tab !== "codingAgents"}
     >
       <div class="rc cli-default">
@@ -825,10 +838,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-session"
       aria-label={m.settings_tab_session()}
-      tabindex="0"
       hidden={tab !== "session"}
     >
       <div class="rc">
@@ -1027,10 +1039,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-device"
       aria-label={m.settings_tab_device()}
-      tabindex="0"
       hidden={tab !== "device"}
     >
       <SettingsDevicePanel
@@ -1047,10 +1058,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-diagnose"
       aria-label={m.settings_tab_diagnose()}
-      tabindex="0"
       hidden={tab !== "diagnose"}
     >
       <SettingsDiagnosePanel {initialDiagnostics} />
@@ -1059,10 +1069,9 @@
     {#if plugins.length > 0}
       <div
         class="panel"
-        role="tabpanel"
+        use:panelShape={isNarrow}
         id="settings-panel-plugins"
         aria-label={m.settings_tab_plugins()}
-        tabindex="0"
         hidden={tab !== "plugins"}
       >
         <SettingsPluginsPanel {plugins} />

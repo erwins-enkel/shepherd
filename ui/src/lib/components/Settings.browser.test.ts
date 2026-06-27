@@ -228,14 +228,22 @@ describe("Settings responsive tab navigation", () => {
     await expect
       .element(page.getByRole("tab", { name: m.settings_tab_plugins() }))
       .not.toBeInTheDocument();
+    // The active panel is a plain labelled region here (no tablist to own a tabpanel).
+    await expect
+      .element(page.getByRole("region", { name: m.settings_tab_workspace() }))
+      .toBeInTheDocument();
   });
 
-  it("desktop viewport → Plugins renders as a tab in the strip", async () => {
+  it("desktop viewport → Plugins renders as a tab and the panel is a tabpanel", async () => {
     await page.viewport(1280, 900); // >768px → tablist strip
     render(Settings, { plugins: onePlugin, onclose: noop, onsaved: noop });
 
     await expect
       .element(page.getByRole("tab", { name: m.settings_tab_plugins() }))
+      .toBeInTheDocument();
+    // The active panel carries the tab pattern's tabpanel role on desktop.
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_workspace() }))
       .toBeInTheDocument();
   });
 });

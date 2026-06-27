@@ -2082,6 +2082,7 @@
   "upnext_refresh": "Refresh",
   "upnext_empty": "You're all caught up — nothing queued to start.",
   "upnext_open_backlog": "Open the Backlog",
+  "upnext_main_hint": "Up Next is shown in the herd panel on the left.",
   "upnext_priority_section": "Priority",
   "upnext_start": "Start",
   "upnext_start_selected": "Start {count} selected",

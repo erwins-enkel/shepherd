@@ -946,9 +946,15 @@
   let herdFilter = $state<HerdFilter>("all");
   // Panel-only lenses (rundown + owed, #1061): the rail swaps in a dedicated panel and the main
   // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
-  const panelOnlyLens = $derived(herdFilter === "rundown" || herdFilter === "owed");
+  const panelOnlyLens = $derived(
+    herdFilter === "rundown" || herdFilter === "owed" || herdFilter === "next",
+  );
   const panelMainHint = $derived(
-    herdFilter === "owed" ? m.owed_main_hint() : m.rundown_main_hint(),
+    herdFilter === "next"
+      ? m.upnext_main_hint()
+      : herdFilter === "owed"
+        ? m.owed_main_hint()
+        : m.rundown_main_hint(),
   );
 
   // Done lens: separate selection state. selectedId resolves against store.sessions

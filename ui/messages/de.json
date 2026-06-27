@@ -2082,6 +2082,7 @@
   "upnext_refresh": "Aktualisieren",
   "upnext_empty": "Alles erledigt — nichts zum Starten in der Warteschlange.",
   "upnext_open_backlog": "Backlog öffnen",
+  "upnext_main_hint": "Als Nächstes wird im Herd-Panel links angezeigt.",
   "upnext_priority_section": "Priorität",
   "upnext_start": "Starten",
   "upnext_start_selected": "{count} ausgewählte starten",

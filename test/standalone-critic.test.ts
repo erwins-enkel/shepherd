@@ -747,3 +747,44 @@ test("stopAll: reaps in-flight run without throwing (regression: unbound this)",
   expect(spies.removed).toEqual(["/review-wt"]);
   expect(svc.inflightWorktrees()).toEqual([]);
 });
+
+// ── boot reapOrphans (issue #1136) ──────────────────────────────────────────
+
+test("reapOrphans closes orphaned pr-critic tabs, sparing unrelated names", () => {
+  const closed: string[] = [];
+  const listed = [
+    { name: "pr-critic /r#42", terminalId: "orphan1", tabId: "tabO", agentStatus: "done" },
+    { name: "my-feature-branch", terminalId: "u1", tabId: "tabU", agentStatus: "running" },
+    { name: "review TASK-09", terminalId: "rv1", tabId: "tabR", agentStatus: "done" },
+  ];
+  const { deps } = makeDeps({
+    herdr: {
+      start: () => ({ terminalId: "rt" }),
+      stop: () => {},
+      list: () => listed,
+      closeTab: (id: string) => closed.push(id),
+    },
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  svc.reapOrphans(); // no in-flight runs at boot → empty owned set
+  expect(closed).toEqual(["tabO"]); // only the pr-critic orphan; unrelated + sibling reviewer spared
+});
+
+test("reapOrphans is a no-op when herdr is unavailable", () => {
+  let closes = 0;
+  const { deps } = makeDeps({
+    herdr: {
+      start: () => ({ terminalId: "rt" }),
+      stop: () => {},
+      list: () => {
+        throw new Error("herdr unavailable");
+      },
+      closeTab: () => {
+        closes++;
+      },
+    },
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  expect(() => svc.reapOrphans()).not.toThrow();
+  expect(closes).toBe(0);
+});

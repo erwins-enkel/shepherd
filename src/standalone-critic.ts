@@ -39,6 +39,7 @@ import {
   type RawVerdict,
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
+import { reapTransientByLabel } from "./transient-tab-reaper";
 import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
@@ -74,7 +75,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "completeReviewerSpawn"
     | "listEpicCompleted"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   /** Candidate repos to consider each sweep. The sweep itself filters to those with
@@ -602,6 +603,20 @@ export class StandalonePrCriticService {
    *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
   inflightWorktrees(): string[] {
     return [...this.inFlight.values()].map((f) => f.worktreePath);
+  }
+
+  /** Boot reconcile (#1136): close orphaned `pr-critic ` tabs left by a prior lifetime. The
+   *  standalone critic's `inFlight` is memory-only, so a restart loses tracking of a live run;
+   *  its interactive `claude` idles at the prompt forever (agent_status "done", pane alive) and
+   *  the husk-only {@link reapOrphanTabs} spares it as a non-shell `claude`. Mirrors the
+   *  distiller/optimizer/merge-suggest reap (#1135): scan herdr once at boot for `pr-critic `
+   *  agents NOT owned by a current-process inflight run and close their tabs. The disposable
+   *  `*-review-*` worktrees these orphans hold are reaped separately by `reapStaleReviewWorktrees`. */
+  reapOrphans(): void {
+    const ownedTerms = new Set(
+      [...this.inFlight.values()].map((f) => f.terminalId).filter(Boolean),
+    );
+    reapTransientByLabel(this.deps.herdr, "pr-critic ", ownedTerms, "[pr-critic]");
   }
 
   /** Tear down every in-flight run (reap its terminal + worktree). For process shutdown. */

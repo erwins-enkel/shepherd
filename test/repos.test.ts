@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import {
   listRepos,
   listReposPathForReal,
+  reconcileRealPathsToRaw,
   readTodo,
   writeTodo,
   cloneRepo,
@@ -81,6 +82,25 @@ test("listReposPathForReal maps a realpath back to listRepos' join(repoRoot, nam
 test("listReposPathForReal returns the dir unchanged when no enumerated repo matches", () => {
   const outside = join(tmpdir(), "definitely-not-under-repoRoot");
   expect(listReposPathForReal(outside, root)).toBe(outside);
+});
+
+test("reconcileRealPathsToRaw maps realpath keys to enumerated raw paths, passing others through", () => {
+  const linkRoot = join(tmpdir(), `shepherd-repos-link2-${process.pid}-${root.split("-").pop()}`);
+  symlinkSync(root, linkRoot, "dir");
+  try {
+    const repos = listRepos(linkRoot); // raw join(linkRoot, name) entries
+    const realAlpha = realpathSync(join(linkRoot, "alpha")); // what safeRepoDir yields
+    expect(realAlpha).not.toBe(join(linkRoot, "alpha")); // genuinely diverges
+    const outside = join(tmpdir(), "definitely-not-under-repoRoot");
+
+    const out = reconcileRealPathsToRaw([realAlpha, outside], repos);
+    // realpath of alpha → its enumerated raw key; the unmatched path passes through.
+    expect(out.has(join(linkRoot, "alpha"))).toBe(true);
+    expect(out.has(realAlpha)).toBe(false);
+    expect(out.has(outside)).toBe(true);
+  } finally {
+    rmSync(linkRoot, { force: true });
+  }
 });
 
 // ── readTodo ──────────────────────────────────────────────────────────────────

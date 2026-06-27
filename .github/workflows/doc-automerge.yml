@@ -31,6 +31,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # statusCheckRollup walks the head commit's check runs (CheckRun) AND legacy commit
+  # statuses (StatusContext); reading them needs these scopes. Without them the explicit
+  # permissions block defaults them to `none` and `gh pr view --json statusCheckRollup`
+  # dies with "Resource not accessible by integration" the moment a PR has any check.
+  checks: read
+  statuses: read
 
 # One merge pass at a time; never cancel a pass mid-merge.
 concurrency:

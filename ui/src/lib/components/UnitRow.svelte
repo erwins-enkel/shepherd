@@ -185,14 +185,15 @@
   const autopilotShown = $derived(autopilotBadgeShown(session));
   const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
-  // A status badge renders for merging / ready / a non-hidden status; only then
-  // does #u-status-{id} exist. Build the overlay's aria-describedby so it omits
-  // that id when no badge renders (reviewing && done/idle) — no dangling IDREF.
+  // The status slot renders for merging / ready / a running working-line; every
+  // other state shows nothing, so only then does #u-status-{id} exist. Build the
+  // overlay's aria-describedby so it omits that id when the slot is empty
+  // (idle/done/blocked, or reviewing) — no dangling IDREF.
   const describedBy = $derived(
     [
       `u-repo-${session.id}`,
       `u-sub-${session.id}`,
-      isMerging(session, nowMs) || session.readyToMerge || !hideStatus
+      isMerging(session, nowMs) || session.readyToMerge || (!hideStatus && dStatus === "running")
         ? `u-status-${session.id}`
         : null,
     ]

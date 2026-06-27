@@ -67,12 +67,15 @@
   const autopilotShown = $derived(autopilotBadgeShown(session));
   const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
-  // A status badge renders for ready / a non-hidden status; only then does
-  // #tile-status-{id} exist. Build the overlay's aria-describedby so it omits
-  // that id when no badge renders (reviewing && done/idle) — no dangling IDREF.
+  // The status slot renders for ready / a running working-line / a blocked alert
+  // chip; idle & done show nothing, so only then does #tile-status-{id} exist.
+  // Build the overlay's aria-describedby so it omits that id when the slot is
+  // empty (idle/done, or reviewing) — no dangling IDREF.
   const describedBy = $derived(
     [
-      session.readyToMerge || !hideStatus ? `tile-status-${session.id}` : null,
+      session.readyToMerge || (!hideStatus && (dStatus === "running" || dStatus === "blocked"))
+        ? `tile-status-${session.id}`
+        : null,
       `tile-desig-${session.id}`,
     ]
       .filter(Boolean)
@@ -303,10 +306,19 @@
     <AutoPip {session} />
     {#if session.readyToMerge}
       <span class="badge" id="tile-status-{session.id}">{m.status_ready_to_merge()}</span>
-    {:else if !hideStatus}
-      <span class="badge" class:alert={dStatus === "blocked"} id="tile-status-{session.id}"
-        >{statusLabel(dStatus)}</span
-      >
+    {:else if !hideStatus && dStatus === "blocked"}
+      <!-- Blocked stays loud: the tile has no StatusPip, so it keeps the red
+           alert chip as the grid's attention grab. -->
+      <span class="badge alert" id="tile-status-{session.id}">{statusLabel(dStatus)}</span>
+    {:else if !hideStatus && dStatus === "running"}
+      <!-- Running shows the thin working line (replaces the redundant BUSY text);
+           idle/done show nothing here — absence = parked. -->
+      <span
+        class="busy-line"
+        id="tile-status-{session.id}"
+        role="img"
+        aria-label={m.status_working()}
+      ></span>
     {/if}
     <TaskIdButton {session} id="tile-desig-{session.id}" />
   </div>

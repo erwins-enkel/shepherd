@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Session, GitState, SessionStatus } from "$lib/types";
-  import { elapsed, statusLabel } from "$lib/format";
+  import { elapsed } from "$lib/format";
   import { isMerging } from "../merge-train";
   import { m } from "$lib/paraglide/messages";
   import ResearchBadge from "../ResearchBadge.svelte";
@@ -154,8 +154,12 @@
     <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
   {:else if session.readyToMerge}
     <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
-  {:else if !hideStatus}
-    <span class="badge" id="u-status-{session.id}">{statusLabel(dStatus)}</span>
+  {:else if !hideStatus && dStatus === "running"}
+    <!-- BUSY/WAITING text was redundant with the StatusPip + heartbeat. Running
+         now shows a thin working line; every other state shows nothing here
+         (absence = parked/idle — blocked still reads via its red StatusPip). -->
+    <span class="busy-line" id="u-status-{session.id}" role="img" aria-label={m.status_working()}
+    ></span>
   {/if}
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
 </div>

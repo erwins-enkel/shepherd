@@ -208,10 +208,10 @@ describe("UnitRow inline repo emoji filter", () => {
 describe("UnitRow working-while-blocked (full working treatment)", () => {
   // What the FULL working treatment looks like on a row — asserted identically
   // for a raw-running session and a blocked+flagged one, so the two renders
-  // can't drift apart: BUSY badge (not BLOCKED), the working pip (not the red
-  // "!" alarm badge), the typing caret, and the live activity line.
+  // can't drift apart: the thin working line (not the BLOCKED text), the working
+  // pip (not the red "!" alarm badge), the typing caret, and the live activity line.
   async function expectWorkingAffordances(root: HTMLElement) {
-    await expect.element(page.getByText(m.status_working())).toBeInTheDocument();
+    expect(root.querySelector(".busy-line"), "working line present").not.toBeNull();
     await expect.element(page.getByText(m.status_blocked())).not.toBeInTheDocument();
     const pipLabel = m.statuspip_status_aria({ status: m.status_working() });
     await expect.element(page.getByRole("img", { name: pipLabel })).toBeInTheDocument();
@@ -252,7 +252,9 @@ describe("UnitRow working-while-blocked (full working treatment)", () => {
       onselect: () => {},
       workingBlocked: {},
     });
-    await expect.element(page.getByText(m.status_blocked())).toBeInTheDocument();
+    // The status slot is empty for a blocked row (no working line, no text) — the
+    // red "!" alarm StatusPip on the left carries the blocked state instead.
+    expect(document.body.querySelector(".busy-line"), "no working line when blocked").toBeNull();
     expect(document.body.querySelector(".pip.badge"), "red ! alarm pip").not.toBeNull();
     expect(document.body.querySelector(".car"), "no typing caret").toBeNull();
   });

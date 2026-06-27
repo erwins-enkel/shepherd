@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, GitState, SessionStatus } from "$lib/types";
+  import type { Session, GitState } from "$lib/types";
   import { elapsed } from "$lib/format";
   import { isMerging } from "../merge-train";
   import { m } from "$lib/paraglide/messages";
@@ -21,10 +21,8 @@
     onpreview,
     quotaKind = null,
     reviewing,
-    hideStatus,
     stepperTerminal,
     decom,
-    dStatus,
     coarsePointer,
     pressDecommission,
     elapsedEl = $bindable(),
@@ -38,10 +36,8 @@
     onpreview?: (id: string) => void;
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     reviewing: boolean;
-    hideStatus: boolean;
     stepperTerminal: boolean;
     decom: "idle" | "armed";
-    dStatus: SessionStatus;
     coarsePointer: boolean;
     pressDecommission: () => void;
     elapsedEl?: HTMLSpanElement;
@@ -158,12 +154,6 @@
     <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
   {:else if session.readyToMerge}
     <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
-  {:else if !hideStatus && dStatus === "running"}
-    <!-- BUSY/WAITING text was redundant with the StatusPip + heartbeat. Running
-         now shows a thin working line; every other state shows nothing here
-         (absence = parked/idle — blocked still reads via its red StatusPip). -->
-    <span class="busy-line" id="u-status-{session.id}" role="img" aria-label={m.status_working()}
-    ></span>
   {/if}
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
 </div>

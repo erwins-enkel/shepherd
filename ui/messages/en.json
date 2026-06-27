@@ -2057,8 +2057,6 @@
   "topbar_tokens_window": "{period} tokens",
   "feat_codex_usage_topbar_title": "Codex usage in the topbar",
   "feat_codex_usage_topbar_body": "The topbar usage popover now includes Codex token telemetry when a local Codex CLI is configured, so Claude and Codex capacity are visible from the same place.",
-  "feat_working_line_title": "A working line, not a BUSY label",
-  "feat_working_line_body": "A running session now shows a thin animated line where the BUSY label used to be. Idle and waiting sessions show nothing there — the status pip and heartbeat already carry the state, so the card stays calmer and the time has more room.",
   "session_autopilot_unavailable_label": "AP unavailable",
   "session_autopilot_unavailable_title": "Codex autopilot needs an isolated worktree session; this session shares its working directory, so autopilot stands down.",
   "feat_codex_autopilot_title": "Autopilot for Codex (Alpha)",

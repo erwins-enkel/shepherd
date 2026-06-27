@@ -69,10 +69,11 @@
   );
   const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
-  // The status slot renders for ready / a running working-line / a blocked alert
-  // chip; idle & done show nothing, so only then does #tile-status-{id} exist.
-  // Build the overlay's aria-describedby so it omits that id when the slot is
-  // empty (idle/done, or reviewing) — no dangling IDREF.
+  // The status slot renders for ready / an sr-only running label / a blocked alert
+  // chip; idle & done show nothing, so only then does #tile-status-{id} exist. The
+  // tile has no StatusPip, so running keeps a screen-reader-only status (the live
+  // terminal carries it visually). Build the overlay's aria-describedby so it omits
+  // that id when the slot is empty (idle/done, or reviewing) — no dangling IDREF.
   const describedBy = $derived(
     [
       session.readyToMerge || (!hideStatus && (dStatus === "running" || dStatus === "blocked"))
@@ -316,14 +317,10 @@
            alert chip as the grid's attention grab. -->
       <span class="badge alert" id="tile-status-{session.id}">{statusLabel(dStatus)}</span>
     {:else if !hideStatus && dStatus === "running"}
-      <!-- Running shows the thin working line (replaces the redundant BUSY text);
-           idle/done show nothing here — absence = parked. -->
-      <span
-        class="busy-line"
-        id="tile-status-{session.id}"
-        role="img"
-        aria-label={m.status_working()}
-      ></span>
+      <!-- Running shows nothing visible — the live terminal + elapsed clock carry
+           it (idle/done show nothing either). The tile has no StatusPip, so keep a
+           screen-reader-only running label so assistive tech still gets the state. -->
+      <span class="sr-only" id="tile-status-{session.id}">{m.status_working()}</span>
     {/if}
     <TaskIdButton {session} id="tile-desig-{session.id}" />
   </div>
@@ -350,6 +347,21 @@
 {/if}
 
 <style>
+  /* Visually-hidden running status: the tile has no StatusPip, so the running
+     state is announced to assistive tech here while the live terminal carries it
+     visually. (No global .sr-only util in app.css — matches the per-component
+     pattern in UnitRow/GitRail.) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .tile {
     position: relative;
     display: flex;

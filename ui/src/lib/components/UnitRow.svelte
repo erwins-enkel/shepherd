@@ -16,13 +16,7 @@
 
 <script lang="ts">
   import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
-  import {
-    STATUS_COLOR,
-    hideStatusBadge,
-    autopilotBadgeShown,
-    canResume,
-    canRelaunch,
-  } from "$lib/format";
+  import { STATUS_COLOR, canResume, canRelaunch } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { resumeSession } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
@@ -33,7 +27,7 @@
   import TimePopover from "./TimePopover.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
-  import { reviews, repoConfig } from "$lib/reviews.svelte";
+  import { reviews } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -182,22 +176,16 @@
   });
 
   const reviewing = $derived(reviews.isReviewing(session.id));
-  const autopilotShown = $derived(
-    autopilotBadgeShown(session, repoConfig.isAutopilotEnabled(session.repoPath)),
-  );
-  const hideStatus = $derived(hideStatusBadge(dStatus, reviewing, autopilotShown));
 
-  // The status slot renders for merging / ready / a running working-line; every
-  // other state shows nothing, so only then does #u-status-{id} exist. Build the
-  // overlay's aria-describedby so it omits that id when the slot is empty
-  // (idle/done/blocked, or reviewing) — no dangling IDREF.
+  // The status slot renders only for merging / ready; every other state (incl.
+  // running — the left StatusPip carries that) shows nothing, so only then does
+  // #u-status-{id} exist. Build the overlay's aria-describedby so it omits that id
+  // when the slot is empty — no dangling IDREF.
   const describedBy = $derived(
     [
       `u-repo-${session.id}`,
       `u-sub-${session.id}`,
-      isMerging(session, nowMs) || session.readyToMerge || (!hideStatus && dStatus === "running")
-        ? `u-status-${session.id}`
-        : null,
+      isMerging(session, nowMs) || session.readyToMerge ? `u-status-${session.id}` : null,
     ]
       .filter(Boolean)
       .join(" "),
@@ -429,10 +417,8 @@
       {onpreview}
       {quotaKind}
       {reviewing}
-      {hideStatus}
       {stepperTerminal}
       {decom}
-      {dStatus}
       coarsePointer={coarse.current}
       {pressDecommission}
       bind:elapsedEl

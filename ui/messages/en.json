@@ -2097,5 +2097,9 @@
   "upnext_started": "Started {count} session(s)",
   "upnext_start_failed": "Couldn't start {count} item(s)",
   "feat_upnext_title": "Up Next — what to start, across every repo",
-  "feat_upnext_body": "A new top-level lens ranks un-started GitHub issues across all your repos into one flat queue, priority-first. See the single most worthwhile thing to start next and spawn a session on it — or several — in one click."
+  "feat_upnext_body": "A new top-level lens ranks un-started GitHub issues across all your repos into one flat queue, priority-first. See the single most worthwhile thing to start next and spawn a session on it — or several — in one click.",
+  "feat_add_repo_title": "Add a repo from the Backlog",
+  "feat_add_repo_body": "The Backlog repos panel now has a \"+ Add repo\" button — create a new project, clone, or fork a repo without leaving the browse view or touching the command line. The new repo is selected automatically when it's ready.",
+  "backlog_add_repo": "+ Add repo",
+  "backlog_add_repo_menu": "Add a repository"
 }

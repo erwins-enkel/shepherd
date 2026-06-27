@@ -77,8 +77,6 @@
   let {
     onclose,
     onsaved,
-    onclone,
-    onfork,
     herdrUpdate = null,
     onherdrupdate,
     onwhatsnew,
@@ -88,8 +86,6 @@
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
-    onclone?: () => void;
-    onfork?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
     onwhatsnew?: () => void;
@@ -686,15 +682,7 @@
       aria-label={m.settings_tab_workspace()}
       hidden={tab !== "workspace"}
     >
-      <SettingsWorkspacePanel
-        {repoRoot}
-        {repoRootDisplay}
-        {settingsLoaded}
-        {onclone}
-        {onfork}
-        {onsaved}
-        {onclose}
-      />
+      <SettingsWorkspacePanel {repoRoot} {repoRootDisplay} {settingsLoaded} {onsaved} {onclose} />
     </div>
 
     <div

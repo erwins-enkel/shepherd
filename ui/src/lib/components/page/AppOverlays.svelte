@@ -131,8 +131,6 @@
     settingsTab,
     onsettingsclose,
     onsettingsherdrupdate,
-    onsettingsclone,
-    onsettingsfork,
     onsettingswhatsnew,
     showUsage,
     onusageclose,
@@ -163,6 +161,10 @@
     onpr,
     onadopt,
     onlaunchtrain,
+    onaddclone,
+    onaddfork,
+    onaddnewproject,
+    backlogSelectPath,
     onbacklogclose,
     pendingTrain,
     ontrainclose,
@@ -229,8 +231,6 @@
     settingsTab: "workspace" | "session" | "device" | "diagnose";
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
-    onsettingsclone: () => void;
-    onsettingsfork: () => void;
     onsettingswhatsnew: () => void;
     showUsage: boolean;
     onusageclose: () => void;
@@ -264,6 +264,10 @@
     onpr: (repoPath: string, pr: PullRequest) => void;
     onadopt: (repoPath: string, prompt: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
+    onaddclone: () => void;
+    onaddfork: () => void;
+    onaddnewproject: () => void;
+    backlogSelectPath: string | null;
     onbacklogclose: () => void;
     pendingTrain: PendingTrain;
     ontrainclose: () => void;
@@ -452,8 +456,6 @@
     onclose={onsettingsclose}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={onsettingsherdrupdate}
-    onclone={onsettingsclone}
-    onfork={onsettingsfork}
     onwhatsnew={onsettingswhatsnew}
   />
 {/if}
@@ -514,6 +516,10 @@
     {onpr}
     {onadopt}
     {onlaunchtrain}
+    {onaddclone}
+    {onaddfork}
+    {onaddnewproject}
+    selectPath={backlogSelectPath}
     onclose={onbacklogclose}
     epics={store.epics}
     {inTrainPrs}

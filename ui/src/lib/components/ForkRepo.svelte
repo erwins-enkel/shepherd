@@ -129,7 +129,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 20;
+    /* 30 (not the usual 20) so this modal sits ABOVE the Backlog overlay (z-index:20)
+       when launched from its "+ Add repo" menu — the overlay stays mounted underneath,
+       preserving the user's place. Matches the higher-modal tier (UpdateModal etc.). */
+    z-index: 30;
   }
   .card {
     position: relative;

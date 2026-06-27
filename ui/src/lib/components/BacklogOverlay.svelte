@@ -17,6 +17,10 @@
     inTrainPrs = new Set(),
     target = null,
     drain = undefined,
+    onaddclone,
+    onaddfork,
+    onaddnewproject,
+    selectPath = null,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -26,6 +30,12 @@
     onadopt: (repoPath: string, prompt: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onclose: () => void;
+    /** "+ Add repo" menu actions, forwarded to BacklogView's repos panel. */
+    onaddclone: () => void;
+    onaddfork: () => void;
+    onaddnewproject: () => void;
+    /** Repo to auto-select after a successful add (forwarded to BacklogView). */
+    selectPath?: string | null;
     /** Live epic record from the store, threaded to BacklogView → IssuesPanel. */
     epics?: Record<string, Epic>;
     /** PR identity keys (`${repoPath}#${number}`) owned by a running merge train,
@@ -70,6 +80,10 @@
         {onpr}
         {onadopt}
         {onlaunchtrain}
+        {onaddclone}
+        {onaddfork}
+        {onaddnewproject}
+        {selectPath}
         {epics}
         {inTrainPrs}
         {target}

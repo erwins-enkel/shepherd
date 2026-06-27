@@ -206,7 +206,7 @@ ctx.onSpawn((d): SpawnPatch => {
 operator auth:
 
 ```
-GET  /api/plugins/spawn-labeler/stats   → { envVar, totalSpawns, repos, lastSpawn }
+GET  /api/plugins/spawn-labeler/stats   → { envVar, labelTemplate, totalSpawns, repos, lastSpawn }
 POST /api/plugins/spawn-labeler/reset   → { ok: true, cleared: true }
 ```
 

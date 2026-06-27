@@ -19,19 +19,21 @@ into your plugins dir to actually run it.
 # 1. Copy the folder into your plugins dir (override the dir with SHEPHERD_PLUGINS_DIR).
 cp -r examples/plugins/spawn-labeler ~/.shepherd/plugins/
 
-# 2. Fix the type import for out-of-repo use (see below), then restart Shepherd.
+# 2. Restart Shepherd to load it. (Optional: fix the type import first — see below —
+#    for editor/type-check ergonomics; it is NOT required to run the plugin.)
 systemctl --user restart shepherd
 ```
 
 Plugins load **at boot only** — edit the folder, then restart.
 
-### Fix the type import when copying out-of-repo
+### Fix the type import for editor/type-check ergonomics (optional)
 
 Each example's `index.ts` imports the plugin contract with a **repo-relative** path
 (`../../../src/plugins/types`) so it type-checks against the real source in CI. That
-`import type` line is **erased at runtime**, so it never affects loading — but the path
-**won't resolve** once the folder lives under `~/.shepherd/plugins/` and you open or
-type-check it there. So after copying, do **one** of:
+`import type` line is **erased at runtime**, so the plugin **runs fine unfixed** — but
+the path **won't resolve** once the folder lives under `~/.shepherd/plugins/`, so your
+editor / `tsc` will flag it there. Only if you want clean type-checking out-of-repo,
+do **one** of:
 
 - **delete the `import type … from "…/src/plugins/types"` line** — the entry runs fine
   untyped; or

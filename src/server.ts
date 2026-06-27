@@ -67,6 +67,8 @@ import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
+import { scratchpadHasFiles } from "./tmp-sweep";
+import { listScratchpad, resolveScratchpadFile, attachmentDisposition } from "./scratchpad";
 import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
@@ -123,7 +125,7 @@ import {
 } from "./completed-epic";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
-import { join, normalize } from "node:path";
+import { join, normalize, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
@@ -1590,9 +1592,29 @@ async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   }
 }
 
-function sessionRead(id: string, deps: AppDeps): Response {
+async function sessionRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
-  return s ? json(s) : json({ error: "not found" }, 404);
+  if (!s) return json({ error: "not found" }, 404);
+  if (s.status === "archived") return json(s);
+  return json({
+    ...s,
+    hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId),
+  });
+}
+
+// Attach the transient, derived `hasScratchpadFiles` flag (#1164) to each ACTIVE session in
+// parallel — the cheap signal the UI's Files tab is gated on. Archived sessions keep their bare
+// row (the scratchpad is out of scope post-archive). Not persisted: computed at serialize time.
+async function withScratchpadFlags(
+  sessions: Session[],
+): Promise<Array<Session & { hasScratchpadFiles?: boolean }>> {
+  return Promise.all(
+    sessions.map(async (s) =>
+      s.status === "archived"
+        ? s
+        : { ...s, hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId) },
+    ),
+  );
 }
 
 // Recently-archived sessions for the Done lens, each enriched with the web URL of its
@@ -1615,7 +1637,7 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
 // GET reads on /api/sessions[/:id[/usage|/activity|/diff|/leftovers]].
 async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
-  if (!parts[2]) return json(deps.store.list({ activeOnly: true }));
+  if (!parts[2]) return json(await withScratchpadFlags(deps.store.list({ activeOnly: true })));
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
   // Must precede the bare sessionRead fall-through so "done" isn't read as a session id.
   if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
@@ -1625,6 +1647,35 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   // leftover subprocesses/proxies that would survive this session's close
   if (parts[3] === "leftovers") return json(deps.service.leftovers(parts[2]));
   if (!parts[3]) return sessionRead(parts[2], deps);
+  return null;
+}
+
+// ── scratchpad file browser: GET /api/sessions/:id/scratchpad[?path=] (list)
+//                            GET /api/sessions/:id/scratchpad/download?path= (file) ──
+// Read-only browse + single-file download, rooted at and realpath-contained to the session's
+// OWN scratchpad dir (#1164). Live sessions only: 404 on a missing/archived session. `path` is
+// relative to the scratchpad root; containment is enforced in src/scratchpad.ts.
+async function handleSessionScratchpad({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[3] !== "scratchpad") return null;
+  const s = deps.store.get(parts[2] ?? "");
+  if (!s || s.status === "archived") return json({ error: "not found" }, 404);
+  const rel = url.searchParams.get("path") ?? "";
+
+  if (parts[4] === "download") {
+    const file = await resolveScratchpadFile(s.worktreePath, s.claudeSessionId, rel);
+    if (!file) return json({ error: "not found" }, 404);
+    const f = Bun.file(file);
+    return new Response(f, {
+      headers: {
+        "content-type": f.type || "application/octet-stream",
+        "content-disposition": attachmentDisposition(basename(file)),
+      },
+    });
+  }
+  if (!parts[4]) {
+    const listing = await listScratchpad(s.worktreePath, s.claudeSessionId, rel);
+    return listing ? json(listing) : json({ error: "not found" }, 404);
+  }
   return null;
 }
 
@@ -2402,6 +2453,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionsClearMerged,
     handleSessionCreate,
     handleSessionReads,
+    handleSessionScratchpad,
     handleSessionDelete,
     handleSessionReply,
     handleSessionRecommend,

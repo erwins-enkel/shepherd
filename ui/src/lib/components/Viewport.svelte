@@ -44,6 +44,7 @@
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
   import SubagentFanout from "$lib/components/SubagentFanout.svelte";
   import DiffPanel from "$lib/components/DiffPanel.svelte";
+  import FilesPanel from "./viewport/FilesPanel.svelte";
   import { enterKey } from "$lib/controlKeys";
   import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
   import GitRail from "$lib/components/GitRail.svelte";
@@ -193,7 +194,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "activity" | "diff" | "preview">("term");
+  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -507,6 +508,14 @@
   // Don't strand the operator on a To-Do tab that just vanished (TODO.md removed).
   $effect(() => {
     if (todoExists === false && tab === "todo") tab = "term";
+  });
+
+  // The Files tab is gated on the server-derived hasScratchpadFiles flag (#1164) — folded into
+  // the session payload + refreshed by the session:status (idle/done) push, so no extra poll.
+  const hasFiles = $derived(session.hasScratchpadFiles === true);
+  // Don't strand the operator on a Files tab whose scratchpad just emptied.
+  $effect(() => {
+    if (!hasFiles && tab === "files") tab = "term";
   });
 
   // once a PR exists (open or merged) the session has delivered its work — surface
@@ -1843,6 +1852,7 @@
       {session}
       {previewPort}
       todoExists={!!todoExists}
+      {hasFiles}
       {hasPreview}
       {compact}
       {headerFolded}
@@ -2109,6 +2119,11 @@
     {#if tab === "diff"}
       <div class="panel-wrap">
         <DiffPanel sessionId={session.id} />
+      </div>
+    {/if}
+    {#if tab === "files"}
+      <div class="panel-wrap">
+        <FilesPanel sessionId={session.id} />
       </div>
     {/if}
     {#if tab === "preview" && previewUrl}

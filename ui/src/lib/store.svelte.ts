@@ -1,6 +1,7 @@
 import { SvelteMap } from "svelte/reactivity";
 import type {
   Session,
+  SessionStatus,
   WsEvent,
   PluginInfo,
   UsageLimits,
@@ -283,13 +284,22 @@ export class HerdStore {
     if (s) Object.assign(s, patch);
   }
 
+  /** Apply a session:status push. Merges the turn-end scratchpad flag (#1164) only when this
+   *  push carries it (idle/done transitions); the undefined guard stops a status-only push
+   *  (e.g. → running) from clobbering the live flag back to falsy. */
+  private applyStatus(d: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean }) {
+    const patch: Partial<Session> = { status: d.status };
+    if (d.hasScratchpadFiles !== undefined) patch.hasScratchpadFiles = d.hasScratchpadFiles;
+    this.patchSession(d.id, patch);
+  }
+
   apply(ev: WsEvent) {
     switch (ev.event) {
       case "session:new":
         if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
         break;
       case "session:status":
-        this.patchSession(ev.data.id, { status: ev.data.status });
+        this.applyStatus(ev.data);
         break;
       case "session:renamed":
         this.applyRenamed(ev.data.id, ev.data.name, ev.data.branch);

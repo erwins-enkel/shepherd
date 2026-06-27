@@ -17,6 +17,7 @@ import type {
   MergeMethod,
   Settings,
   DirListing,
+  ScratchListing,
   UpdateStatus,
   DeployState,
   HerdrUpdateStatus,
@@ -503,6 +504,21 @@ export async function listDirs(path?: string): Promise<DirListing> {
   const r = await fetch(`/api/fs/dirs${q}`);
   if (!r.ok) throw await failed(r, "dirs");
   return r.json();
+}
+
+/** List one directory of a session's read-only scratchpad subtree (#1164). `path` is relative
+ *  to the scratchpad root ("" / undefined = root). */
+export async function getScratchpadListing(id: string, path?: string): Promise<ScratchListing> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : "";
+  const r = await fetch(`/api/sessions/${id}/scratchpad${q}`);
+  if (!r.ok) throw await failed(r, "scratchpad");
+  return r.json();
+}
+
+/** Same-origin download URL for one scratchpad file (#1164). Used as a plain `<a href download>`
+ *  target — the operator's HttpOnly auth cookie rides the GET automatically. */
+export function scratchpadDownloadUrl(id: string, path: string): string {
+  return `/api/sessions/${id}/scratchpad/download?path=${encodeURIComponent(path)}`;
 }
 
 export interface BranchList {

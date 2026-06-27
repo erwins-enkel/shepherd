@@ -2044,5 +2044,13 @@
   "backlog_hide_repo": "Hide repo",
   "backlog_unhide_repo": "Unhide repo",
   "feat_hide_repos_title": "Hide repos from the panel",
-  "feat_hide_repos_body": "Declutter the Backlog repos panel: hover a repo row and click the eye to hide it. A \"Hidden\" chip reveals hidden repos so you can bring them back. It's list-only — the repo's sessions, drain and totals are untouched."
+  "feat_hide_repos_body": "Declutter the Backlog repos panel: hover a repo row and click the eye to hide it. A \"Hidden\" chip reveals hidden repos so you can bring them back. It's list-only — the repo's sessions, drain and totals are untouched.",
+  "viewport_files_tab": "Files",
+  "files_root_crumb": "scratchpad",
+  "files_breadcrumb_aria": "Scratchpad path",
+  "files_empty": "No files in the scratchpad yet.",
+  "files_load_error": "Couldn't load scratchpad files.",
+  "files_download_aria": "Download {name}",
+  "feat_scratchpad_files_title": "Browse & download a session's scratchpad",
+  "feat_scratchpad_files_body": "A live session's viewport now has a Files tab whenever its scratchpad holds artifacts. Browse the folders the agent wrote and download any file straight to your machine."
 }

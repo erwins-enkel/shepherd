@@ -6,6 +6,8 @@ import PuiMeter from "./PuiMeter.svelte";
 import PuiTable from "./PuiTable.svelte";
 import PuiKeyValue from "./PuiKeyValue.svelte";
 import PuiCallout from "./PuiCallout.svelte";
+import PuiGauge from "./PuiGauge.svelte";
+import PuiSparkline from "./PuiSparkline.svelte";
 
 /** Whitelist of plugin UI node types. Unknown types fall through to UnknownNodeTile. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,4 +19,6 @@ export const PLUGIN_UI_REGISTRY: Record<string, Component<any>> = {
   table: PuiTable,
   "key-value": PuiKeyValue,
   callout: PuiCallout,
+  gauge: PuiGauge,
+  sparkline: PuiSparkline,
 };

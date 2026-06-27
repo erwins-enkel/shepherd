@@ -192,6 +192,62 @@ describe("Settings api-key verify", () => {
   });
 });
 
+// Regression: on a narrow viewport the tab strip can't fit one row in the card and,
+// when full-screen, the overflow is clipped — the Plugins tab (last in the visible
+// set when present) used to land off-screen. It now collapses into a dropdown so
+// every tab stays reachable. On desktop the strip wraps and keeps tab semantics.
+describe("Settings responsive tab navigation", () => {
+  const onePlugin = [
+    {
+      id: "p1",
+      name: "Demo",
+      version: "1.0.0",
+      health: "ok" as const,
+      lastError: null,
+      status: {},
+    },
+  ];
+
+  afterEach(async () => {
+    await page.viewport(1280, 900); // restore a sane width for other suites
+  });
+
+  it("narrow viewport → tabs collapse into a dropdown that lists the Plugins tab", async () => {
+    await page.viewport(360, 900); // ≤768px → mobile dropdown
+    render(Settings, { plugins: onePlugin, onclose: noop, onsaved: noop });
+
+    // The strip is replaced by a single labelled combobox…
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_tabs_aria() }))
+      .toBeInTheDocument();
+    // …and Plugins is reachable as an option (it was clipped off-screen before).
+    await expect
+      .element(page.getByRole("option", { name: m.settings_tab_plugins() }))
+      .toBeInTheDocument();
+    // No tablist tab in this mode.
+    await expect
+      .element(page.getByRole("tab", { name: m.settings_tab_plugins() }))
+      .not.toBeInTheDocument();
+    // The active panel is a plain labelled region here (no tablist to own a tabpanel).
+    await expect
+      .element(page.getByRole("region", { name: m.settings_tab_workspace() }))
+      .toBeInTheDocument();
+  });
+
+  it("desktop viewport → Plugins renders as a tab and the panel is a tabpanel", async () => {
+    await page.viewport(1280, 900); // >768px → tablist strip
+    render(Settings, { plugins: onePlugin, onclose: noop, onsaved: noop });
+
+    await expect
+      .element(page.getByRole("tab", { name: m.settings_tab_plugins() }))
+      .toBeInTheDocument();
+    // The active panel carries the tab pattern's tabpanel role on desktop.
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_workspace() }))
+      .toBeInTheDocument();
+  });
+});
+
 // Regression guard for the issue's "no false success" criterion (PR #703): the green
 // "Fixed" toast must only fire when the RE-PROBED snapshot shows the targeted check ok.
 // A command that exits 0 but leaves the check non-ok (e.g. installer succeeds but its

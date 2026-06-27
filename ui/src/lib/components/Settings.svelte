@@ -43,19 +43,19 @@
   import { m } from "$lib/paraglide/messages";
 
   // Settings group into focused jobs so the modal never outgrows the viewport:
-  // WORKSPACE (which repo root), CODING CLIS (provider/auth/model), SESSION
-  // (runtime defaults + review gates), DEVICE (this browser's notifications + theme).
-  // The HERDR-update CTA is an alert,
-  // not a section, so it stays pinned above the tab strip.
-  // The Plugins tab (issue #1124) is appended but only RENDERED when ≥1 plugin is loaded
-  // (see `visibleTabs` below) — a fresh clone with no plugins never shows it.
+  // WORKSPACE (which repo root), CODING CLIS (provider/auth/model), PLUGINS
+  // (installed plugins), SESSION (runtime defaults + review gates), DEVICE (this
+  // browser's notifications + theme), DIAGNOSTICS (troubleshooting, last). The
+  // HERDR-update CTA is an alert, not a section, so it stays pinned above the tabs.
+  // Plugins (issue #1124) sits high in the order but is only RENDERED when ≥1 plugin
+  // is loaded (see `visibleTabs` below) — a fresh clone with no plugins never shows it.
   const ALL_TABS = [
     { id: "workspace", label: m.settings_tab_workspace },
     { id: "codingAgents", label: m.settings_tab_coding_agents },
+    { id: "plugins", label: m.settings_tab_plugins },
     { id: "session", label: m.settings_tab_session },
     { id: "device", label: m.settings_tab_device },
     { id: "diagnose", label: m.settings_tab_diagnose },
-    { id: "plugins", label: m.settings_tab_plugins },
   ] as const;
   type TabId = (typeof ALL_TABS)[number]["id"];
   let tabEls: HTMLButtonElement[] = [];
@@ -108,11 +108,39 @@
   // Hide the Plugins tab entirely when no plugins are loaded (the zero-plugin invariant).
   const visibleTabs = $derived(ALL_TABS.filter((t) => t.id !== "plugins" || plugins.length > 0));
 
+  // Below the card's full-screen breakpoint the tab strip is swapped for a dropdown:
+  // the fixed tab set can't fit one row in the 520px card, and the full-screen mobile
+  // card clips the overflow (the last tab would land off-screen). Mirrors theme.svelte.ts.
+  const NARROW_QUERY = "(max-width: 768px)";
+  let isNarrow = $state(
+    typeof matchMedia !== "undefined" ? matchMedia(NARROW_QUERY).matches : false,
+  );
+
   onMount(() => {
     if (initialTab === "session") {
       requestAnimationFrame(() => steersEl?.scrollIntoView({ behavior: "auto", block: "start" }));
     }
+    if (typeof matchMedia === "undefined") return;
+    const mq = matchMedia(NARROW_QUERY);
+    const onChange = () => (isNarrow = mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   });
+
+  // Keep each panel's role honest across the tablist↔dropdown swap: a focusable
+  // tabpanel on desktop (a real tab in the strip owns it), a plain labelled region
+  // on mobile where no tablist exists to own it (an orphaned tabpanel otherwise).
+  // Applied imperatively so the role and the tabindex — only valid on the
+  // interactive tabpanel — always agree without tripping the a11y linter.
+  function panelShape(node: HTMLElement, narrow: boolean) {
+    const apply = (n: boolean) => {
+      node.setAttribute("role", n ? "region" : "tabpanel");
+      if (n) node.removeAttribute("tabindex");
+      else node.setAttribute("tabindex", "0");
+    };
+    apply(narrow);
+    return { update: apply };
+  }
 
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
@@ -617,23 +645,35 @@
       </button>
     {/if}
 
-    <div class="tabs" role="tablist" aria-label={m.settings_tabs_aria()}>
-      {#each visibleTabs as t, i (t.id)}
-        <button
-          type="button"
-          role="tab"
-          id="settings-tab-{t.id}"
-          class="tab"
-          class:on={tab === t.id}
-          aria-selected={tab === t.id}
-          aria-controls="settings-panel-{t.id}"
-          tabindex={tab === t.id ? 0 : -1}
-          bind:this={tabEls[i]}
-          onclick={() => (tab = t.id)}
-          onkeydown={(e) => onTabKey(e, i)}>{t.label()}</button
-        >
-      {/each}
-    </div>
+    {#if isNarrow}
+      <!-- Narrow viewport: the strip can't fit one row in the card (and the
+           full-screen card would clip the overflow), so the tabs collapse into a
+           dropdown. The tablist isn't rendered here, so no tab carries a dangling
+           aria-controls; the panels below stay labelled tabpanels. -->
+      <select class="tab-select" aria-label={m.settings_tabs_aria()} bind:value={tab}>
+        {#each visibleTabs as t (t.id)}
+          <option value={t.id}>{t.label()}</option>
+        {/each}
+      </select>
+    {:else}
+      <div class="tabs" role="tablist" aria-label={m.settings_tabs_aria()}>
+        {#each visibleTabs as t, i (t.id)}
+          <button
+            type="button"
+            role="tab"
+            id="settings-tab-{t.id}"
+            class="tab"
+            class:on={tab === t.id}
+            aria-selected={tab === t.id}
+            aria-controls="settings-panel-{t.id}"
+            tabindex={tab === t.id ? 0 : -1}
+            bind:this={tabEls[i]}
+            onclick={() => (tab = t.id)}
+            onkeydown={(e) => onTabKey(e, i)}>{t.label()}</button
+          >
+        {/each}
+      </div>
+    {/if}
 
     <!-- All three panels stay mounted and toggle via `hidden`: every
          settings-panel-* id resolves for the tabs' aria-controls, and the
@@ -641,10 +681,9 @@
          instead of remounting and resyncing from the store. -->
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-workspace"
-      aria-labelledby="settings-tab-workspace"
-      tabindex="0"
+      aria-label={m.settings_tab_workspace()}
       hidden={tab !== "workspace"}
     >
       <SettingsWorkspacePanel
@@ -660,10 +699,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-codingAgents"
-      aria-labelledby="settings-tab-codingAgents"
-      tabindex="0"
+      aria-label={m.settings_tab_coding_agents()}
       hidden={tab !== "codingAgents"}
     >
       <div class="rc cli-default">
@@ -800,10 +838,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-session"
-      aria-labelledby="settings-tab-session"
-      tabindex="0"
+      aria-label={m.settings_tab_session()}
       hidden={tab !== "session"}
     >
       <div class="rc">
@@ -1002,10 +1039,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-device"
-      aria-labelledby="settings-tab-device"
-      tabindex="0"
+      aria-label={m.settings_tab_device()}
       hidden={tab !== "device"}
     >
       <SettingsDevicePanel
@@ -1022,10 +1058,9 @@
 
     <div
       class="panel"
-      role="tabpanel"
+      use:panelShape={isNarrow}
       id="settings-panel-diagnose"
-      aria-labelledby="settings-tab-diagnose"
-      tabindex="0"
+      aria-label={m.settings_tab_diagnose()}
       hidden={tab !== "diagnose"}
     >
       <SettingsDiagnosePanel {initialDiagnostics} />
@@ -1034,10 +1069,9 @@
     {#if plugins.length > 0}
       <div
         class="panel"
-        role="tabpanel"
+        use:panelShape={isNarrow}
         id="settings-panel-plugins"
-        aria-labelledby="settings-tab-plugins"
-        tabindex="0"
+        aria-label={m.settings_tab_plugins()}
         hidden={tab !== "plugins"}
       >
         <SettingsPluginsPanel {plugins} />
@@ -1093,11 +1127,32 @@
   }
   /* Tab strip: muted labels, active marked by amber text + underline (never a
      filled tab). The strip's hairline is the divider; the active tab overlaps
-     it with a 2px amber border. */
+     it with a 2px amber border. Wraps to a second row when the fixed tab set
+     can't fit one line in the card (e.g. longer German labels / larger
+     --ui-scale) — keeps every tab visible without a scroller. */
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
     border-bottom: 1px solid var(--color-line);
+  }
+  /* Narrow viewport: the strip becomes a dropdown (full-width, on the shared
+     select recipe) so all tabs stay reachable inside the full-screen card. */
+  .tab-select {
+    width: 100%;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-base);
+    padding: 8px 10px;
+    border-radius: 2px;
+    appearance: none;
+    cursor: pointer;
+  }
+  .tab-select:focus {
+    outline: none;
+    border-color: var(--color-amber);
   }
   .tab {
     background: transparent;

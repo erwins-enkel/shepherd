@@ -1037,13 +1037,24 @@ export async function getPlugins(): Promise<PluginInfo[]> {
 
 /** Invoke a plugin-registered route at `/api/plugins/<id>/<path>` with the given method.
  *  On success, returns the trimmed response text (capped to 200 chars; longer responses are
- *  sliced to 199 chars with a trailing "…"). Strings are verbatim plugin-authored DATA. */
+ *  sliced to 199 chars with a trailing "…"). Strings are verbatim plugin-authored DATA.
+ *
+ *  `body` (issue #1209, the `action-button` node) is plugin-authored opaque JSON sent
+ *  verbatim. It is attached ONLY for a POST — a GET fetch with a body throws TypeError, so
+ *  even a mis-paired caller never reaches that footgun. No-body callers (gear routes) are
+ *  unchanged: no Content-Type header, no request body. */
 export async function invokePluginRoute(
   id: string,
   method: "GET" | "POST",
   path: string,
+  body?: unknown,
 ): Promise<string> {
-  const r = await fetch(`/api/plugins/${id}/${path}`, { method });
+  const init: RequestInit = { method };
+  if (method === "POST" && body !== undefined) {
+    init.headers = { "content-type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const r = await fetch(`/api/plugins/${id}/${path}`, init);
   if (!r.ok) throw await failed(r, "plugin route");
   const text = (await r.text()).trim();
   return text.length > 200 ? text.slice(0, 199) + "…" : text;

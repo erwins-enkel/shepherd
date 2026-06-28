@@ -11,6 +11,7 @@ import PuiSparkline from "./PuiSparkline.svelte";
 import PuiTimeSeries from "./PuiTimeSeries.svelte";
 import PuiBarChart from "./PuiBarChart.svelte";
 import PuiTimeline from "./PuiTimeline.svelte";
+import PuiActionButton from "./PuiActionButton.svelte";
 
 /** Whitelist of plugin UI node types. Unknown types fall through to UnknownNodeTile. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,4 +28,5 @@ export const PLUGIN_UI_REGISTRY: Record<string, Component<any>> = {
   "time-series": PuiTimeSeries,
   "bar-chart": PuiBarChart,
   timeline: PuiTimeline,
+  "action-button": PuiActionButton,
 };

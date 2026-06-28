@@ -9,16 +9,20 @@ export interface SessionConsumer {
 }
 
 export interface SessionRouterHooks {
-  /** Fired on a `status` change AFTER the consumer chain — an independent side-effect
-   *  (plan-gate). Reached regardless of any consumer throwing. */
-  onStatusSettled?: (change: Extract<SessionStateChange, { kind: "status" }>) => void;
+  /** Fired on a `status` change as an INDEPENDENT side-effect (plan-gate) — kicked off
+   *  BEFORE the awaited consumer chain so a slow or hanging consumer can never starve it
+   *  (#1193). It is synchronous (only kicks `void planGate.consider`), so firing it first
+   *  costs nothing and leaves the drain→autopilot ordering below intact. */
+  onStatusIndependent?: (change: Extract<SessionStateChange, { kind: "status" }>) => void;
 }
 
 /** The single "what happens next" seam. Builds the shared snapshot ONCE per change and
  *  dispatches `consumers` strictly in order, AWAITING each fully before the next — this
- *  is what kills the retire-vs-steer race (fire-and-forget could not). Each consumer (and
- *  each hook) is isolated in try/catch so one failure is logged and does NOT prevent the
- *  next consumer or the settled hook from running; ordering still holds on the success path. */
+ *  is what kills the retire-vs-steer race (fire-and-forget could not). The independent
+ *  status hook (plan-gate) fires BEFORE this chain, so it never waits on it (#1193). Each
+ *  consumer and the hook are isolated in try/catch so one failure is logged and does NOT
+ *  prevent the next consumer from running; the drain→autopilot ordering still holds on the
+ *  success path. */
 export class SessionRouter {
   constructor(
     private acc: SnapshotAccessors,
@@ -31,14 +35,19 @@ export class SessionRouter {
   async onStatus(id: string, status: string): Promise<void> {
     const change = buildSnapshot(this.acc, id, { kind: "status", status });
     if (!change) return;
+    // Plan-gate is an INDEPENDENT per-session side-effect — kick it BEFORE awaiting the
+    // drain→autopilot chain so a slow or hanging consumer (e.g. an unbounded drain pump)
+    // can never starve it (#1193). It only fires `void planGate.consider`, so running it
+    // first is free and does not perturb the ordered dispatch below.
+    this.safeSync(
+      () =>
+        this.hooks.onStatusIndependent?.(change as Extract<SessionStateChange, { kind: "status" }>),
+      "independent",
+    );
     // No up-front PR-prewarm hook: drain runs before autopilot, and autopilot.onDone
     // kicks refreshPr right before its classify, so the PR-poll↔classify overlap is
     // preserved without a separate kick (see autopilot.handle).
     await this.dispatch(change);
-    this.safeSync(
-      () => this.hooks.onStatusSettled?.(change as Extract<SessionStateChange, { kind: "status" }>),
-      "settled",
-    );
   }
 
   async onGit(id: string, git: GitState): Promise<void> {

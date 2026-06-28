@@ -379,6 +379,13 @@ test("claude-alive: every supplied worktree appears as a key; empty input is fin
 
 const WT = "/home/u/Work/.shepherd-worktrees/repo-x"; // a real worktree path (has the marker)
 
+// A synthetic orphan PID guaranteed to differ from the test runner's own process.pid.
+// The reapers spare `p.pid === process.pid` (don't SIGKILL self); a hardcoded literal can
+// collide with the runner's PID in CI containers (which hand out small PIDs — a literal like
+// 808 once matched), sparing the orphan and flipping a "reaps 1" assertion to 0. Deriving it
+// from process.pid can never collide.
+const ORPHAN_PID = process.pid + 1;
+
 // killPid spy: record (pid, signal) so tests can assert SIGKILL + exactly-who.
 function killSpy() {
   const killed: { pid: number; signal?: NodeJS.Signals }[] = [];
@@ -392,13 +399,13 @@ test("reapOrphansUnder: SIGKILLs a PPID-1 non-agent orphan whose cwd is under th
   const k = killSpy();
   const reaper = new ProcessReaper(
     makeProbes({
-      scanProcs: () => [{ pid: 4242, cwd: WT, comm: "yes" }],
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: WT, comm: "yes" }],
       ppidForPid: () => 1,
       killPid: k.killPid,
     }),
   );
   expect(reaper.reapOrphansUnder(WT)).toBe(1);
-  expect(k.killed).toEqual([{ pid: 4242, signal: "SIGKILL" }]);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
 });
 
 test("reapOrphansUnder: spares self, agent comm, non-orphan (PPID!=1), and out-of-worktree procs", () => {
@@ -449,13 +456,13 @@ test("reapDeletedWorktreeOrphans: SIGKILLs a PPID-1 orphan whose cwd is a delete
   const k = killSpy();
   const { reaped } = reapDeletedWorktreeOrphans(
     makeProbes({
-      scanProcs: () => [{ pid: 808, cwd: `${WT} (deleted)`, comm: "yes" }],
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: `${WT} (deleted)`, comm: "yes" }],
       ppidForPid: () => 1,
       killPid: k.killPid,
     }),
   );
   expect(reaped).toBe(1);
-  expect(k.killed).toEqual([{ pid: 808, signal: "SIGKILL" }]);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
 });
 
 test("reapDeletedWorktreeOrphans: spares a live (non-deleted) cwd, even under the worktree marker", () => {

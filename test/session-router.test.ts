@@ -155,16 +155,16 @@ test("getSession is called exactly once per onGit even with two consumers", asyn
 
 test("unknown session (getSession null) calls no consumer and no hooks", async () => {
   const log: string[] = [];
-  let settled = 0;
+  let fired = 0;
   const router = new SessionRouter(
     { getSession: () => null },
     [recordingConsumer("drain", log), recordingConsumer("autopilot", log)],
-    { onStatusIndependent: () => settled++ },
+    { onStatusIndependent: () => fired++ },
   );
   await router.onStatus("missing", "idle");
   await router.onGit("missing", GIT_STATE);
   expect(log).toEqual([]);
-  expect(settled).toBe(0);
+  expect(fired).toBe(0);
 });
 
 // ── 4. Failure isolation ──────────────────────────────────────────────────────
@@ -172,7 +172,7 @@ test("unknown session (getSession null) calls no consumer and no hooks", async (
 test("a throwing first consumer is caught; second consumer still runs (independent hook already fired)", async () => {
   const log: string[] = [];
   const warnings: string[] = [];
-  let settled = 0;
+  let fired = 0;
 
   const failing: SessionConsumer = {
     name: "drain",
@@ -185,7 +185,7 @@ test("a throwing first consumer is caught; second consumer still runs (independe
   const router = new SessionRouter(
     { getSession: () => makeSession("s1", "/r") },
     [failing, recordingConsumer("autopilot", log)],
-    { onStatusIndependent: () => settled++ },
+    { onStatusIndependent: () => fired++ },
     (msg) => warnings.push(msg),
   );
 
@@ -193,7 +193,7 @@ test("a throwing first consumer is caught; second consumer still runs (independe
   await router.onStatus("s1", "idle");
 
   expect(log).toEqual(["drain:start", "autopilot:start", "autopilot:finish"]);
-  expect(settled).toBe(1);
+  expect(fired).toBe(1);
   expect(warnings.some((w) => w.includes("drain"))).toBe(true);
 });
 

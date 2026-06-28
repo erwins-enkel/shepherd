@@ -16,20 +16,25 @@ function queue(approved: boolean, statuses: BuildStepStatus[]): BuildQueue {
   return { sessionId: "S", approved, steps: statuses.map((st, i) => step(i, st)) };
 }
 
-function session(status: SessionStatus): Session {
-  // Only id + status are read by the service; the rest is filler to satisfy the type.
-  return { id: "S", status } as unknown as Session;
+function session(status: SessionStatus, planPhase: Session["planPhase"] = null): Session {
+  // Only id + status + planPhase are read by the service; the rest is filler.
+  return { id: "S", status, planPhase } as unknown as Session;
 }
 
 const THRESHOLD = 1000;
 
 /** Build a service over a single session whose status + queue are mutable between sweeps. */
 function harness(initialStatus: SessionStatus, initialQueue: BuildQueue) {
-  const state = { status: initialStatus, queue: initialQueue, t: 0 };
+  const state = {
+    status: initialStatus,
+    queue: initialQueue,
+    planPhase: null as Session["planPhase"],
+    t: 0,
+  };
   const steers: string[] = [];
   const svc = new BuildQueueReminderService({
     store: {
-      list: () => [session(state.status)],
+      list: () => [session(state.status, state.planPhase)],
       getBuildQueue: () => state.queue,
     } as never,
     steer: (_id, text) => {
@@ -132,6 +137,46 @@ test("negatives: has-active / all-done / unapproved / empty → no steer", () =>
     settleAndSweep(h);
     expect(h.steers).toHaveLength(0);
   }
+});
+
+// ── sweep: plan gate ────────────────────────────────────────────────────────
+
+test("plan gate: planning + drifted + settled idle → no steer", () => {
+  const h = harness("idle", queue(true, ["pending", "pending"]));
+  h.state.planPhase = "planning";
+  // Run during planning (must NOT set sawRunning), then settle idle and tick past threshold.
+  h.state.status = "running";
+  h.svc.sweep();
+  h.state.status = "idle";
+  h.svc.sweep(); // first idle tick (reset by the planning guard anyway)
+  h.state.t += THRESHOLD + 1;
+  h.svc.sweep(); // settled — but still planning → suppressed
+  expect(h.steers).toHaveLength(0);
+});
+
+test("plan gate: planning suppresses, then executing nudges once after a post-flip run", () => {
+  const h = harness("idle", queue(true, ["pending", "pending"]));
+  h.state.planPhase = "planning";
+
+  // Phase 1 — run + settle idle while still planning: no steer, and sawRunning stays false.
+  h.state.status = "running";
+  h.svc.sweep();
+  h.state.status = "idle";
+  h.svc.sweep();
+  h.state.t += THRESHOLD + 1;
+  h.svc.sweep();
+  expect(h.steers).toHaveLength(0);
+
+  // Phase 2 — gate opens. A fresh execution run is required to arm sawRunning (the planning
+  // run above never counted), so drive running AFTER the flip, then settle idle.
+  h.state.planPhase = "executing";
+  h.state.status = "running";
+  h.svc.sweep(); // sawRunning set now
+  h.state.status = "idle";
+  h.svc.sweep(); // first idle tick of a fresh episode
+  h.state.t += THRESHOLD + 1;
+  h.svc.sweep(); // settled, executing, drifted → nudge
+  expect(h.steers).toEqual([RECONCILE_STEER]);
 });
 
 // ── sweep: episode reset + lifetime cap + retry ─────────────────────────────

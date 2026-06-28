@@ -17,11 +17,14 @@
 //   - `sawRunning` evidence gate — an approved+all-pending queue is indistinguishable from
 //     "just approved, not yet started", so we only nudge after observing the agent actually
 //     run, which also avoids colliding with the APPROVE_STEER "Begin now" steer.
+//   - plan-gate gate — while planPhase is "planning", an auto-approved queue is legitimately
+//     all-pending (no execution step has begun), so we never nudge; the gate's flip to
+//     "executing" is the re-arm point. See the considerSession guard for the full rationale.
 //   - once per idle episode + a per-session lifetime cap (runaway guard).
 // Agent-facing text is fixed English (precedent: APPROVE_STEER, AUTOPILOT_DIRECTIVE).
 
 import type { SessionStore } from "./store";
-import type { BuildQueue, SessionStatus } from "./types";
+import type { BuildQueue, Session, SessionStatus } from "./types";
 
 const DEFAULT_IDLE_THRESHOLD_MS = 120_000;
 const DEFAULT_MAX_NUDGES = 3;
@@ -107,7 +110,7 @@ export class BuildQueueReminderService {
     const live = new Set<string>();
     for (const s of this.deps.store.list({ activeOnly: true })) {
       live.add(s.id);
-      this.considerSession(s.id, s.status, now);
+      this.considerSession(s.id, s.status, s.planPhase, now);
     }
     // Forget sessions that are no longer active/listed.
     for (const id of [...this.debounce.keys()]) {
@@ -116,7 +119,12 @@ export class BuildQueueReminderService {
   }
 
   /** Advance one session's debounce and nudge it if it's a drifted, settled-idle queue. */
-  private considerSession(id: string, status: SessionStatus, now: number): void {
+  private considerSession(
+    id: string,
+    status: SessionStatus,
+    planPhase: Session["planPhase"],
+    now: number,
+  ): void {
     const q = this.deps.store.getBuildQueue(id);
     // No approved queue yet (or none authored) → nothing to reconcile; drop any state.
     if (!q.approved || q.steps.length === 0) {
@@ -124,6 +132,19 @@ export class BuildQueueReminderService {
       return;
     }
     const e = this.entry(id);
+
+    // Plan gate: while the session is still "planning", an auto-approved queue is legitimately
+    // all-pending — no execution step has begun, so all-pending is correct, not drift. Return
+    // BEFORE the status switch so planning-phase running never sets sawRunning (readyToNudge
+    // ANDs on sawRunning, so this alone suppresses the nudge) and idle time can't accrue toward
+    // a post-gate nudge. NOTE: execution CAN occur while still "planning" (operator manually
+    // steers instead of clicking Go); we suppress there too by design — the PR-open flip to
+    // "executing" (service.advanceToExecutionOnPr) is the deliberate re-arm point, after which
+    // a fresh execution-running tick sets sawRunning and genuine drift nudges normally.
+    if (planPhase === "planning") {
+      this.resetEpisode(e);
+      return;
+    }
 
     // Only `idle` is eligible. `running` records work-seen; everything else (done/blocked/
     // archived) is skipped without steering. All non-idle states reset the idle episode.

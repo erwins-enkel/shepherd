@@ -1,5 +1,95 @@
 # Changelog
 
+## [1.38.0](https://github.com/erwins-enkel/shepherd/compare/v1.37.0...v1.38.0) (2026-06-28)
+
+
+### Features
+
+* Autopilot bis zum PR für Codex-Sessions (Alpha) ([#1140](https://github.com/erwins-enkel/shepherd/issues/1140)) ([e2d6a5b](https://github.com/erwins-enkel/shepherd/commit/e2d6a5b19f2e2c993470b58b94de45e3ef3b0387))
+* **codex:** support model selection ([#1091](https://github.com/erwins-enkel/shepherd/issues/1091)) ([56ef947](https://github.com/erwins-enkel/shepherd/commit/56ef947b0ac5596281b3fb827096c65cd1fea8e3))
+* **held:** edit held tasks via the original New Task dialog ([#1146](https://github.com/erwins-enkel/shepherd/issues/1146)) ([6d0755a](https://github.com/erwins-enkel/shepherd/commit/6d0755a7b5aa414bf48055d1bef21ee73fbe8e03))
+* hide repos from the Backlog repos panel ([#1165](https://github.com/erwins-enkel/shepherd/issues/1165)) ([16e9be1](https://github.com/erwins-enkel/shepherd/commit/16e9be1485cf88f53b0af69e9c376bff6c9fa1cf))
+* **hold:** park plugin-refused New Tasks in the hold queue instead of losing them ([#1187](https://github.com/erwins-enkel/shepherd/issues/1187)) ([b6e0d03](https://github.com/erwins-enkel/shepherd/commit/b6e0d03233e4cb88f69566f738be95e19d72c0b7))
+* **orchestration:** one ordered 'what happens next' seam for the autonomous engine ([#1094](https://github.com/erwins-enkel/shepherd/issues/1094)) ([#1170](https://github.com/erwins-enkel/shepherd/issues/1170)) ([9124026](https://github.com/erwins-enkel/shepherd/commit/9124026a13479ca1d30173bf1f523e8950587051))
+* plugin UI widgets — Phase 0 declarative descriptor (publishUI) → whitelisted Svelte registry ([#1185](https://github.com/erwins-enkel/shepherd/issues/1185)) ([#1188](https://github.com/erwins-enkel/shepherd/issues/1188)) ([0fecb71](https://github.com/erwins-enkel/shepherd/commit/0fecb71726a4f6bd108f9334758b55f1457f79bb))
+* **plugin-ui:** host renderers for graphical node types (gauge, sparkline, time-series, bar-chart, timeline) ([#1189](https://github.com/erwins-enkel/shepherd/issues/1189)) ([#1190](https://github.com/erwins-enkel/shepherd/issues/1190)) ([095d431](https://github.com/erwins-enkel/shepherd/commit/095d4310eb3768502630760804b346d90e37c3d4))
+* server-side plugin architecture for private/out-of-repo extensions ([#1124](https://github.com/erwins-enkel/shepherd/issues/1124)) ([#1152](https://github.com/erwins-enkel/shepherd/issues/1152)) ([4a33da0](https://github.com/erwins-enkel/shepherd/commit/4a33da02f273c4b2767ebe60432c2f3a24edf683))
+* **sessions:** bring back a marked-as-done session from the Done lens ([#1174](https://github.com/erwins-enkel/shepherd/issues/1174)) ([b2405ab](https://github.com/erwins-enkel/shepherd/commit/b2405ab27cb1194f0ded64c1e06699f3d44faa9e))
+* show codex usage in topbar ([#1101](https://github.com/erwins-enkel/shepherd/issues/1101)) ([b38be44](https://github.com/erwins-enkel/shepherd/commit/b38be44962295f7606e2930119a77ebe7013802d))
+* **ui:** "+ Add repo" entry point in the Backlog repos panel ([#1171](https://github.com/erwins-enkel/shepherd/issues/1171)) ([#1183](https://github.com/erwins-enkel/shepherd/issues/1183)) ([7a5da72](https://github.com/erwins-enkel/shepherd/commit/7a5da722593a872e606dbe87ab9c7b6be1dc4695))
+* **ui:** add auto-start toggle to held-tasks popover ([#1117](https://github.com/erwins-enkel/shepherd/issues/1117)) ([f6023b6](https://github.com/erwins-enkel/shepherd/commit/f6023b6b583fbe70221df9e5c7a18c601f2063b4))
+* **ui:** click plan diagrams to inspect them near-fullscreen + wider plan on desktop ([#1139](https://github.com/erwins-enkel/shepherd/issues/1139)) ([2a2e13f](https://github.com/erwins-enkel/shepherd/commit/2a2e13f7e188d7b2572b936a93ceaa6b92686b2d))
+* **ui:** clickable task-id menu with copy + AI prompt recommendation ([#1106](https://github.com/erwins-enkel/shepherd/issues/1106)) ([5c2ed85](https://github.com/erwins-enkel/shepherd/commit/5c2ed85c768cdb23a17b9919aa0e8785362337e8))
+* **ui:** hand off held tasks across CLIs ([#1089](https://github.com/erwins-enkel/shepherd/issues/1089)) ([c954651](https://github.com/erwins-enkel/shepherd/commit/c954651940cfc3fe7b811e35f157cd1c4ff17f57))
+* **ui:** list running sessions in herdr-update dialog with jump-to ([#1130](https://github.com/erwins-enkel/shepherd/issues/1130)) ([66baa03](https://github.com/erwins-enkel/shepherd/commit/66baa0307207ed91a15fc2ce8f83a1d2718aca32))
+* **ui:** replace redundant BUSY label with a thin working line ([#1168](https://github.com/erwins-enkel/shepherd/issues/1168)) ([e40f5d3](https://github.com/erwins-enkel/shepherd/commit/e40f5d3c7f98a2dab0cffe76c40607961d765b7c))
+* **up-next:** cross-repo ranked queue of un-started work ([#1169](https://github.com/erwins-enkel/shepherd/issues/1169)) ([#1172](https://github.com/erwins-enkel/shepherd/issues/1172)) ([48e1cff](https://github.com/erwins-enkel/shepherd/commit/48e1cff260fce825fb6ce31cd6ad24377d3e8a3f))
+* **viewport:** read-only scratchpad file browser ([#1164](https://github.com/erwins-enkel/shepherd/issues/1164)) ([#1166](https://github.com/erwins-enkel/shepherd/issues/1166)) ([41219b4](https://github.com/erwins-enkel/shepherd/commit/41219b457a85d128246ae035ff772e35bf710e93))
+
+
+### Bug Fixes
+
+* **automation:** Auto-Abarbeitung-Regler inline unter den Schalter + Felddoku ([#1123](https://github.com/erwins-enkel/shepherd/issues/1123)) ([b5a9cae](https://github.com/erwins-enkel/shepherd/commit/b5a9cae4c15581df540a2836045d9eebbbf29aa4))
+* **build-queue:** suppress reconcile nudge during plan gate ([#1197](https://github.com/erwins-enkel/shepherd/issues/1197)) ([aa24022](https://github.com/erwins-enkel/shepherd/commit/aa24022b84deb73182422e1699f8d248a974e407))
+* **ci:** grant actions:read so doc-automerge can read statusCheckRollup ([#1195](https://github.com/erwins-enkel/shepherd/issues/1195)) ([928f5bd](https://github.com/erwins-enkel/shepherd/commit/928f5bdc831ec3b1bb5c3598da1bc68c656e8b25))
+* **ci:** grant doc-automerge checks/statuses read scope ([#1163](https://github.com/erwins-enkel/shepherd/issues/1163)) ([f13a69b](https://github.com/erwins-enkel/shepherd/commit/f13a69b7cdb0e459f6d0f72e1d01cf12a80cb0e1))
+* **codex:** resume sessions with codex CLI ([#1104](https://github.com/erwins-enkel/shepherd/issues/1104)) ([c800641](https://github.com/erwins-enkel/shepherd/commit/c8006412130a796194943225178315492397a625))
+* **diagnostics:** detect codex cli alternative ([#1100](https://github.com/erwins-enkel/shepherd/issues/1100)) ([14563c4](https://github.com/erwins-enkel/shepherd/commit/14563c41f547b3b46571b8eb285212eed6e545de))
+* **issues:** distinguish failed issue fetch from 'no open issues' ([#1161](https://github.com/erwins-enkel/shepherd/issues/1161)) ([ac9ca58](https://github.com/erwins-enkel/shepherd/commit/ac9ca583b8a79b2594b06fab3262fcc944b93f22))
+* **learnings:** boot reapOrphans for __distill__/__optimize__/__merge__ helpers ([#1135](https://github.com/erwins-enkel/shepherd/issues/1135)) ([#1148](https://github.com/erwins-enkel/shepherd/issues/1148)) ([da50ab9](https://github.com/erwins-enkel/shepherd/commit/da50ab9796e6a284af863c5e587ac856b8daf43d))
+* **onboarding:** unbreak harness + update.sh past the operator-auth gate ([#1112](https://github.com/erwins-enkel/shepherd/issues/1112)) ([#1149](https://github.com/erwins-enkel/shepherd/issues/1149)) ([d825fdb](https://github.com/erwins-enkel/shepherd/commit/d825fdb070a1309ba6418958b6f9c557bf30dfca))
+* **orchestration:** fire auto plan-gate before the awaited drain chain ([#1193](https://github.com/erwins-enkel/shepherd/issues/1193)) ([#1196](https://github.com/erwins-enkel/shepherd/issues/1196)) ([27ab592](https://github.com/erwins-enkel/shepherd/commit/27ab59213eff7fb7139e2281966fa70d6918b6da))
+* **plugins:** follow symlinked plugin dirs in the loader ([#1176](https://github.com/erwins-enkel/shepherd/issues/1176)) ([#1177](https://github.com/erwins-enkel/shepherd/issues/1177)) ([c2ccdc5](https://github.com/erwins-enkel/shepherd/commit/c2ccdc52266ca80e26ff1df3e543a15dcadc1bb7))
+* **preview:** steer codex dev server starts ([#1099](https://github.com/erwins-enkel/shepherd/issues/1099)) ([82144a0](https://github.com/erwins-enkel/shepherd/commit/82144a0a043d6fad579b4f912573dff6ba5aeaa8))
+* **reaper:** reap orphaned PPID-1 background jobs on worktree teardown ([#1133](https://github.com/erwins-enkel/shepherd/issues/1133)) ([#1143](https://github.com/erwins-enkel/shepherd/issues/1143)) ([895f9fa](https://github.com/erwins-enkel/shepherd/commit/895f9fa50631008358fae636ebb38bd8c45537e2))
+* **tab-reaper:** boot-reap pr-critic + unclean-exit synchronous helper tabs ([#1136](https://github.com/erwins-enkel/shepherd/issues/1136)) ([#1157](https://github.com/erwins-enkel/shepherd/issues/1157)) ([adb08b0](https://github.com/erwins-enkel/shepherd/commit/adb08b08d3d1e0ccaed70f16b426883f05b8a609))
+* **top-bar:** collapse tallies under overflow on unfolded foldables ([#1119](https://github.com/erwins-enkel/shepherd/issues/1119)) ([858dacf](https://github.com/erwins-enkel/shepherd/commit/858dacf627978a064cc2965ab01638024b871445))
+* **top-bar:** equalize right-cluster box heights via shared token ([#1132](https://github.com/erwins-enkel/shepherd/issues/1132)) ([335405d](https://github.com/erwins-enkel/shepherd/commit/335405d953fd0a870e0eb9500e21b3112bc4f47f))
+* **top-bar:** homogenize text size in mobile held popover ([#1116](https://github.com/erwins-enkel/shepherd/issues/1116)) ([3061dbc](https://github.com/erwins-enkel/shepherd/commit/3061dbc95df9413f4809952b082a7281e8040cbd))
+* **ui:** clarify terminal selection hint ([#1098](https://github.com/erwins-enkel/shepherd/issues/1098)) ([4d47f71](https://github.com/erwins-enkel/shepherd/commit/4d47f71e6cf21ea7efc159f70be71f6beed6bb6d))
+* **ui:** distinguish held vs update badges with hourglass/bolt icons ([#1122](https://github.com/erwins-enkel/shepherd/issues/1122)) ([0384733](https://github.com/erwins-enkel/shepherd/commit/03847334ffcb606e2a627a6f762f917ef6f00e39))
+* **ui:** enlarge held-task popover buttons and dim+blur the app behind it ([#1145](https://github.com/erwins-enkel/shepherd/issues/1145)) ([862f58b](https://github.com/erwins-enkel/shepherd/commit/862f58b089cabb847cdcae7b2ea2969682a43f3f))
+* **ui:** equalize compact NEEDS YOU + held-badge height ([#1115](https://github.com/erwins-enkel/shepherd/issues/1115)) ([0e16222](https://github.com/erwins-enkel/shepherd/commit/0e16222dda373ea1d80f0ea0905aa1e072416dcd))
+* **ui:** follow herd repo filter onto a newly started task's repo ([#1118](https://github.com/erwins-enkel/shepherd/issues/1118)) ([c7d0dd4](https://github.com/erwins-enkel/shepherd/commit/c7d0dd4a1c271fc07185e00869e7c3cba1b79cdf))
+* **ui:** gate automation toggles on their real dependencies ([#1162](https://github.com/erwins-enkel/shepherd/issues/1162)) ([3ddc70e](https://github.com/erwins-enkel/shepherd/commit/3ddc70e6e040c6571d984125aa7b3e5b8091c943))
+* **ui:** heartbeat full width in compact herd sidebar ([#1114](https://github.com/erwins-enkel/shepherd/issues/1114)) ([fa9b9ef](https://github.com/erwins-enkel/shepherd/commit/fa9b9ef6c93255b9c57e4abf8b684706519b70b9))
+* **ui:** height-lock top-bar left tallies to --topbar-ctl-h ([#1131](https://github.com/erwins-enkel/shepherd/issues/1131)) ([#1142](https://github.com/erwins-enkel/shepherd/issues/1142)) ([b8f82d0](https://github.com/erwins-enkel/shepherd/commit/b8f82d0091828b822298b619c08958942e13bd3e))
+* **ui:** herd lens strip — icon-over-label tabs, fits the sidebar ([#1199](https://github.com/erwins-enkel/shepherd/issues/1199)) ([e095187](https://github.com/erwins-enkel/shepherd/commit/e09518705138a2eea60b4be080d2a4c0965af1c8))
+* **ui:** honor default-CLI setting in New Task; restore gate/autopilot on switch-back ([#1097](https://github.com/erwins-enkel/shepherd/issues/1097)) ([4a5cf68](https://github.com/erwins-enkel/shepherd/commit/4a5cf687b2324097d173db0436c2eccf48857b3d))
+* **ui:** keep running-sessions list visible in herdr-update dialog ([#1137](https://github.com/erwins-enkel/shepherd/issues/1137)) ([cdd9067](https://github.com/erwins-enkel/shepherd/commit/cdd9067a82e66b33890c1be92a51ee343bb484a8))
+* **ui:** make held tasks mobile dialog fullscreen ([#1103](https://github.com/erwins-enkel/shepherd/issues/1103)) ([253b467](https://github.com/erwins-enkel/shepherd/commit/253b4673afc4837fe7c655050516249b1feab907))
+* **ui:** order Settings above feedback links in mobile gear sheet ([#1113](https://github.com/erwins-enkel/shepherd/issues/1113)) ([a48d1b3](https://github.com/erwins-enkel/shepherd/commit/a48d1b36ac8cf45eea6c0c8fc0dbb95ce33abe02))
+* **ui:** remove redundant working-line spinner from session cards ([#1179](https://github.com/erwins-enkel/shepherd/issues/1179)) ([f93b5a1](https://github.com/erwins-enkel/shepherd/commit/f93b5a11acc47155bb8bd6bde07e7d9f1ffcd778))
+* **ui:** responsive settings tabs + reorder, surface Plugins on mobile ([#1178](https://github.com/erwins-enkel/shepherd/issues/1178)) ([c0a612d](https://github.com/erwins-enkel/shepherd/commit/c0a612d6046db1f5950214ea1142b3e4b49c1a25))
+* **ui:** show in-flight state on held-task spawn/discard buttons ([#1128](https://github.com/erwins-enkel/shepherd/issues/1128)) ([781429a](https://github.com/erwins-enkel/shepherd/commit/781429a89c1f3eb11e420678d71e3358cc4f3cd0))
+* **ui:** single post-merge toast, drop auto local-checkout offer ([#1121](https://github.com/erwins-enkel/shepherd/issues/1121)) ([2d2e321](https://github.com/erwins-enkel/shepherd/commit/2d2e3211fd60f0bde6a2f9251ebf1044f2b3b078))
+* **ui:** surface held-task spawn/discard failures inline ([#1105](https://github.com/erwins-enkel/shepherd/issues/1105)) ([3189a2f](https://github.com/erwins-enkel/shepherd/commit/3189a2f5d3a949556cb0209824acbef4ba3448c2))
+* **ui:** surface the real cause when a held task fails to start ([#1129](https://github.com/erwins-enkel/shepherd/issues/1129)) ([3391788](https://github.com/erwins-enkel/shepherd/commit/3391788af73258ff191754f29fc5c5c9b2cd83ad))
+* **ui:** tidy stale Codex autopilot copy + exclude research from unavailable badge ([#1181](https://github.com/erwins-enkel/shepherd/issues/1181)) ([8568f9a](https://github.com/erwins-enkel/shepherd/commit/8568f9a0bee1a5ab55723aa56a40c65dc402d3b2)), closes [#1173](https://github.com/erwins-enkel/shepherd/issues/1173)
+* **up-next:** exclude hidden repos from the ranked queue ([#1186](https://github.com/erwins-enkel/shepherd/issues/1186)) ([1a6bf60](https://github.com/erwins-enkel/shepherd/commit/1a6bf601b21822c89b45984db50bdb0cb652dd48))
+* **uploads:** copy staged images into worktree so held-task spawns survive retries ([#1138](https://github.com/erwins-enkel/shepherd/issues/1138)) ([c0cc9ad](https://github.com/erwins-enkel/shepherd/commit/c0cc9ad59bd949aa3fc56db244552f6262223b7d))
+
+
+### Performance Improvements
+
+* **ci:** cache prettier + eslint across runs to speed up lint ([#1192](https://github.com/erwins-enkel/shepherd/issues/1192)) ([#1194](https://github.com/erwins-enkel/shepherd/issues/1194)) ([88b25f2](https://github.com/erwins-enkel/shepherd/commit/88b25f2fd8810ed09a86e8c323203fe521ec8824))
+
+
+### Code Refactoring
+
+* **forge:** push backlog-counts + lightweight checks behind GitForge seam ([#1184](https://github.com/erwins-enkel/shepherd/issues/1184)) ([da14b5b](https://github.com/erwins-enkel/shepherd/commit/da14b5bcb8d116667f5aac6d0beb4f4d584034c5))
+* **learnings:** collapse route→store orchestration behind service seam ([#1092](https://github.com/erwins-enkel/shepherd/issues/1092)) ([#1150](https://github.com/erwins-enkel/shepherd/issues/1150)) ([56dc97a](https://github.com/erwins-enkel/shepherd/commit/56dc97a365e7bd4ba45e01f11af1cc4adae929e8))
+* **spawn:** one transient-agent argv builder behind the 10 spawn sites ([#1093](https://github.com/erwins-enkel/shepherd/issues/1093)) ([#1151](https://github.com/erwins-enkel/shepherd/issues/1151)) ([85e127f](https://github.com/erwins-enkel/shepherd/commit/85e127f969b365fceb4236c7dd2f17d11b25ffa5))
+* **ui:** rename Backlog pane to Repos ([#1127](https://github.com/erwins-enkel/shepherd/issues/1127)) ([d5d4972](https://github.com/erwins-enkel/shepherd/commit/d5d497201676a77bef7d6fffc5da06e6f162cc25))
+
+
+### Documentation
+
+* **research:** plugin-driven UI widgets — capability design ([#1182](https://github.com/erwins-enkel/shepherd/issues/1182)) ([c42e48a](https://github.com/erwins-enkel/shepherd/commit/c42e48a0a9772fdcc653a34c1ed048e1c259400d))
+* sync docs to recent source changes ([#1111](https://github.com/erwins-enkel/shepherd/issues/1111)) ([77fcada](https://github.com/erwins-enkel/shepherd/commit/77fcada6d1c4180aa04ccdb5c9968f0791f2a688))
+* sync docs to recent source changes ([#1158](https://github.com/erwins-enkel/shepherd/issues/1158)) ([3d205f1](https://github.com/erwins-enkel/shepherd/commit/3d205f18e71d9070521fa8af7aab0837f72b84e8))
+* sync docs to recent source changes ([#1191](https://github.com/erwins-enkel/shepherd/issues/1191)) ([9d79cd1](https://github.com/erwins-enkel/shepherd/commit/9d79cd159b03fcbe1e52b114871bb6a3c961a3d5))
+
 ## [1.37.0](https://github.com/erwins-enkel/shepherd/compare/v1.36.0...v1.37.0) (2026-06-25)
 
 

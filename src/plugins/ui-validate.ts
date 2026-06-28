@@ -1,7 +1,7 @@
 // Seam validator for plugin-authored declarative UI descriptors (issue #1185).
 // Never throws; returns a normalized PluginUIView (re-parsed JSON) or null (invalid).
 
-import type { PluginUIView } from "./types";
+import type { PluginGearAction, PluginGearItem, PluginUIView } from "./types";
 
 /** Guards against a *buggy* (not malicious) trusted plugin — sizes are generous
  *  enough for a rich panel, small enough to catch runaway generators. */
@@ -39,6 +39,83 @@ function validateNode(node: unknown, depth: number, counter: { n: number }): boo
   if (children === undefined) return true;
   if (!Array.isArray(children) || children.length > MAX_ARRAY) return false;
   return children.every((child) => validateNode(child, depth + 1, counter));
+}
+
+/** Guards against a large gear item payload — a gear item is tiny in practice. */
+const MAX_GEAR_BYTES = 8 * 1024; // 8 KB
+
+/** Validate a `kind:"route"` action path: non-empty, safe charset, no leading `/`, no `..`. */
+function validRoutePath(path: string): boolean {
+  if (path.length === 0 || path.length > 256) return false;
+  if (!/^[A-Za-z0-9._/-]+$/.test(path)) return false;
+  if (path.startsWith("/")) return false;
+  return !path.split("/").some((seg) => seg === "..");
+}
+
+/** Validate and normalize the action sub-object of a gear item. */
+function validateGearAction(raw: unknown): PluginGearAction | null {
+  if (!isPlainObject(raw)) return null;
+  const kind = raw["kind"];
+  if (kind === "panel") return { kind: "panel" };
+  if (kind === "url") {
+    const href = raw["href"];
+    if (typeof href !== "string") return null;
+    try {
+      const u = new URL(href);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    } catch {
+      return null;
+    }
+    return { kind: "url", href };
+  }
+  if (kind === "route") {
+    const method = raw["method"];
+    const path = raw["path"];
+    if (method !== "GET" && method !== "POST") return null;
+    if (typeof path !== "string" || !validRoutePath(path)) return null;
+    return { kind: "route", method, path };
+  }
+  return null; // unknown kind
+}
+
+/** Validate and normalize a plugin-authored gear-menu item.
+ *  Returns the re-parsed (normalized) PluginGearItem on success, or null if invalid.
+ *  NEVER throws — invalid publishGearItem calls are dropped fail-open. */
+export function validatePluginGearItem(item: unknown): PluginGearItem | null {
+  // 1. Serializability: catches cycles / BigInt.
+  let s: string;
+  try {
+    const raw = JSON.stringify(item);
+    if (raw === undefined) return null;
+    s = raw;
+  } catch {
+    return null;
+  }
+
+  // 2. Byte-size cap.
+  if (Buffer.byteLength(s, "utf8") > MAX_GEAR_BYTES) return null;
+
+  // 3. Re-parse then validate shape.
+  const parsed = JSON.parse(s) as unknown;
+  if (!isPlainObject(parsed)) return null;
+
+  // label: non-empty after trim, length ≤ 80 (store original, reject if trimmed empty).
+  const label = parsed["label"];
+  if (typeof label !== "string" || label.trim().length === 0 || label.length > 80) return null;
+
+  // icon: optional; if present must be string ≤ 8 chars.
+  const icon = parsed["icon"];
+  if (icon !== undefined) {
+    if (typeof icon !== "string" || icon.length > 8) return null;
+  }
+
+  // action: required.
+  const action = validateGearAction(parsed["action"]);
+  if (action === null) return null;
+
+  const result: PluginGearItem = { label, action };
+  if (icon !== undefined) result.icon = icon as string;
+  return result;
 }
 
 /** Validate and normalize a plugin-authored UI view descriptor.

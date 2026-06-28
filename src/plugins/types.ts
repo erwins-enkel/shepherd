@@ -91,6 +91,9 @@ export interface PluginContext {
   /** Push a declarative UI view to the status panel (issue #1185); `null` clears it.
    *  Additive — plugins guard with `typeof ctx.publishUI === "function"`. */
   publishUI(view: PluginUIView | null): void;
+  /** Push (or replace) this plugin's single gear-menu item; `null` clears it.
+   *  Additive — plugins guard with `typeof ctx.publishGearItem === "function"`. */
+  publishGearItem(item: PluginGearItem | null): void;
   /** Durable, scoped per-plugin key/value (backed by the `plugin_state` table). */
   state: PluginState;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
@@ -121,6 +124,23 @@ export class PluginSpawnAborted extends Error {
     super(reason);
     this.name = "PluginSpawnAborted";
   }
+}
+
+/** A declarative action a plugin's gear-menu item performs on click. Discriminated by `kind`.
+ *  All fields JSON-serializable; strings are verbatim plugin-authored DATA, never i18n keys. */
+export type PluginGearAction =
+  | { kind: "route"; method: "GET" | "POST"; path: string }
+  | { kind: "url"; href: string }
+  | { kind: "panel" };
+
+/** One gear-menu item a plugin contributes via `ctx.publishGearItem` (issue: gear-item).
+ *  At most ONE per plugin; latest publish wins; `null` clears it. */
+export interface PluginGearItem {
+  /** Verbatim plugin-authored label (NOT an i18n key). */
+  label: string;
+  /** Optional single glyph/emoji icon (verbatim). */
+  icon?: string;
+  action: PluginGearAction;
 }
 
 /** One node in a plugin-authored declarative UI descriptor (issue #1185). `type` must
@@ -173,4 +193,6 @@ export interface PluginInfo {
   status: unknown;
   /** Last `publishUI` view (validated/normalized), or null. */
   ui: PluginUIView | null;
+  /** Last `publishGearItem` (validated/normalized), or null. */
+  gearItem: PluginGearItem | null;
 }

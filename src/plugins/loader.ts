@@ -20,12 +20,13 @@ import {
   type PluginRegister,
   type PluginRouteHandler,
   type PluginState,
+  type PluginGearItem,
   type PluginUIView,
   type SpawnDescriptor,
   type SpawnHook,
   type SpawnPatch,
 } from "./types";
-import { validatePluginUIView } from "./ui-validate";
+import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
 
@@ -51,13 +52,14 @@ export interface PluginRegistryDeps {
   hookTimeoutMs?: number;
 }
 
-/** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel. */
+/** Internal per-plugin record. `health`/`lastError`/`status`/`ui`/`gearItem` back the status panel. */
 interface LoadedPlugin {
   manifest: PluginManifest;
   health: PluginInfo["health"];
   lastError: string | null;
   status: unknown;
   ui: PluginUIView | null;
+  gearItem: PluginGearItem | null;
   hooks: SpawnHook[];
   routes: Map<string, PluginRouteHandler>;
   unsubs: Array<() => void>;
@@ -163,6 +165,7 @@ export class PluginRegistry {
         lastError: `apiVersion ${manifest.apiVersion} != supported ${PLUGIN_API_VERSION}`,
         status: null,
         ui: null,
+        gearItem: null,
         hooks: [],
         routes: new Map(),
         unsubs: [],
@@ -181,6 +184,7 @@ export class PluginRegistry {
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
       hooks: [],
       routes: new Map(),
       unsubs: [],
@@ -296,6 +300,23 @@ export class PluginRegistry {
         rec.ui = v;
         this.emitUI(rec);
       },
+      publishGearItem: (item) => {
+        // Treat both null and undefined as "clear the gear item".
+        if (item == null) {
+          rec.gearItem = null;
+          this.emitGear(rec);
+          return;
+        }
+        const v = validatePluginGearItem(item);
+        if (v === null) {
+          console.warn(
+            `[plugins] ${id} publishGearItem rejected an invalid item (dropped; prior item kept)`,
+          );
+          return; // leave rec.gearItem unchanged — fail-open, never crash the panel
+        }
+        rec.gearItem = v;
+        this.emitGear(rec);
+      },
       state,
       route: (method, path, handler) => {
         rec.routes.set(routeKey(method, path), handler);
@@ -336,6 +357,11 @@ export class PluginRegistry {
   /** Emit a `plugin:ui` event carrying this plugin's last validated UI view (or null). */
   private emitUI(rec: LoadedPlugin): void {
     this.deps.events.emit("plugin:ui", { id: rec.manifest.id, ui: rec.ui });
+  }
+
+  /** Emit a `plugin:gear` event carrying this plugin's last validated gear item (or null). */
+  private emitGear(rec: LoadedPlugin): void {
+    this.deps.events.emit("plugin:gear", { id: rec.manifest.id, gearItem: rec.gearItem });
   }
 
   /** Invoke one hook, timeout-bounded. Returns its patch, or null on a fail-open
@@ -399,6 +425,7 @@ export class PluginRegistry {
       lastError: r.lastError,
       status: r.status,
       ui: r.ui,
+      gearItem: r.gearItem,
     }));
   }
 

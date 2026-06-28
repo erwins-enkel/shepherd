@@ -26,7 +26,7 @@ import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   prReviewPrompt,
@@ -41,7 +41,7 @@ import {
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
-import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
  *  finalize needs without re-querying — mirrors ReviewService's InFlight, minus the streak/note
@@ -418,23 +418,33 @@ export class StandalonePrCriticService {
       // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
       thinkingTokens: CRITIC_THINKING_TOKENS,
     });
-    const { wrapped, backend } = resolveSpawnMembrane({
+    // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
+    // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).
+    const aux = await resolveAuxSpawn({
       argv,
       worktreePath,
       repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+      descriptor: {
+        sessionId: criticSessionId,
+        kind: "review",
+        model: this.deps.model ?? null,
+      },
     });
+    if ("aborted" in aux) {
+      this.log(`[pr-critic] onSpawn aborted for ${repoPath}#${pr.number}: ${aux.aborted.reason}`);
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
 
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
         `pr-critic ${repoPath}#${pr.number}`,
         worktreePath,
-        wrapped,
-        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a credential-less
-        // mirror; with a backend the membrane masks creds in place.
-        apiKeyPassthroughEnv(backend !== null),
+        aux.wrapped,
+        aux.spawnEnv,
       ).terminalId;
     } catch (err) {
       this.log(`[pr-critic] spawn failed for ${repoPath}#${pr.number}: ${String(err)}`);

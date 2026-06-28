@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
+import { PluginSpawnAborted } from "../src/plugins/types";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { RawVerdict } from "../src/critic-core";
 
@@ -2582,4 +2583,37 @@ test("findSquatter: empty label does NOT match an unnamed agent whose cwd differ
 
   // The unrelated unnamed agent must not have been killed
   expect(closedTabs).toEqual([]);
+});
+
+test("critic: onSpawn fires (kind=review, parentSessionId) and binds credentialDir through to the spawn env", async () => {
+  let seen: any;
+  const { deps: d, started } = makeDeps({
+    runSpawnHooks: async (desc: any) => {
+      seen = desc;
+      return { credentialDir: "/pool/acct-2" };
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(seen.kind).toBe("review");
+  expect(seen.parentSessionId).toBe("s1"); // the reviewed session's id
+  expect(seen.sessionId).not.toBe("s1"); // the critic mints its own one-shot id
+  expect(started).toHaveLength(1);
+  // detectBackend()→null on the test host → passthrough → the patched dir rides the herdr env,
+  // winning over apiKeyPassthroughEnv. (The membrane --setenv path is covered in spawn-membrane.test.ts.)
+  expect(started[0]!.env!.CLAUDE_CONFIG_DIR).toBe("/pool/acct-2");
+});
+
+test("critic: onSpawn abortSpawn → review skipped, worktree reaped, no spawn", async () => {
+  const {
+    deps: d,
+    started,
+    removed,
+  } = makeDeps({
+    runSpawnHooks: async () => {
+      throw new PluginSpawnAborted("pool exhausted", "cswap");
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(0);
+  expect(removed).toEqual(["/review-wt"]);
 });

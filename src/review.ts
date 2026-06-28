@@ -6,7 +6,7 @@ import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { checksCleared } from "./checks-gate";
@@ -24,7 +24,7 @@ import {
   CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
-import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
@@ -350,22 +350,34 @@ export class ReviewService {
       authorNotes,
       issueBody,
     );
-    const { wrapped, backend } = resolveSpawnMembrane({
+    // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
+    // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
+    // cleanly skips the review (worktree reaped), mirroring the spawn-failure path below.
+    const aux = await resolveAuxSpawn({
       argv,
       worktreePath: wt.worktreePath,
       repoPath: session.repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+      descriptor: {
+        sessionId: criticSessionId,
+        kind: "review",
+        parentSessionId: session.id,
+        model: this.deps.model ?? null,
+      },
     });
+    if ("aborted" in aux) {
+      console.warn(`[review] onSpawn aborted for ${session.id}: ${aux.aborted.reason}`);
+      this.deps.worktree.remove(wt.worktreePath);
+      return;
+    }
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
         `review ${session.desig}`,
         wt.worktreePath,
-        wrapped,
-        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a
-        // credential-less mirror; with a backend the membrane masks creds in place.
-        apiKeyPassthroughEnv(backend !== null),
+        aux.wrapped,
+        aux.spawnEnv,
       ).terminalId;
     } catch (err) {
       console.warn(`[review] spawn failed for ${session.id}:`, err);

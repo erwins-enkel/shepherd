@@ -170,6 +170,18 @@ export interface PluginGearItem {
  *                     props: { bars: { label: string; value: number; tone?: Tone }[]; max?: number; orientation?: "horizontal" | "vertical" }
  *  - `timeline`     — recent discrete events.
  *                     props: { events: { at: string; label: string; caption?: string; tone?: Tone }[] }
+ *
+ *  Interactive node (issue #1209) — the first non-display node:
+ *
+ *  - `action-button` — a clickable control that POSTs a plugin-authored body to one of THIS
+ *                      plugin's own routes (`/api/plugins/<thisPluginId>/<route.path>`). The
+ *                      host resolves the path under the plugin's own namespace (never an
+ *                      arbitrary URL) and validates it (no leading `/`, no `..`); `route.method`
+ *                      MUST be `"POST"` (a GET fetch with a body throws). `body` is opaque
+ *                      plugin-authored JSON sent VERBATIM. An optional `confirm` string gates
+ *                      the POST behind a confirmation dialog. `label`/`confirm` are verbatim DATA.
+ *                      props: { label: string; tone?: Tone; route: { method: "POST"; path: string };
+ *                               body?: unknown; confirm?: string }
  */
 export interface PluginUINode {
   type: string;
@@ -178,7 +190,9 @@ export interface PluginUINode {
 }
 
 /** A declarative UI view a plugin pushes via `ctx.publishUI` (issue #1185). Rendered by the
- *  host from a whitelisted Svelte registry (Server-Driven-UI). Display-only in v1. */
+ *  host from a whitelisted Svelte registry (Server-Driven-UI). Originally display-only;
+ *  interactivity landed via #1209 — the `action-button` node POSTs a plugin-authored body to
+ *  the plugin's own route namespace, so the "display-only" framing is superseded. */
 export interface PluginUIView {
   schemaVersion: 1;
   /** Contribution point. Only `settings-panel` is host-wired in v1; the others are

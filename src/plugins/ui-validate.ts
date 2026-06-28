@@ -24,6 +24,24 @@ function propsWithinBounds(props: Record<string, unknown>): boolean {
   return true;
 }
 
+/** Per-type validation for the interactive `action-button` node (issue #1209). The host POSTs
+ *  the plugin-authored `body` verbatim to `/api/plugins/<thisPluginId>/<route.path>`, so the
+ *  route is hard-validated: method MUST be POST (a GET fetch with a body throws), and the path
+ *  is namespace-relative (no leading `/`, no `..`) via the same `validRoutePath` the gear route
+ *  action uses. Invalid → the whole view is dropped fail-open, consistent with the tree's
+ *  all-or-nothing semantics. `body`/`confirm`/`tone`/`label` carry no extra structural checks
+ *  here (the renderer coerces them defensively); `body` is bounded by the overall byte cap. */
+function validActionButtonProps(props: Record<string, unknown>): boolean {
+  const label = props["label"];
+  if (typeof label !== "string" || label.trim().length === 0) return false;
+  const route = props["route"];
+  if (!isPlainObject(route)) return false;
+  if (route["method"] !== "POST") return false;
+  const path = route["path"];
+  if (typeof path !== "string" || !validRoutePath(path)) return false;
+  return true;
+}
+
 /** Recursively validate one node (re-parsed JSON) against the structural caps.
  *  `counter` accumulates the total node count across the whole tree. */
 function validateNode(node: unknown, depth: number, counter: { n: number }): boolean {
@@ -34,6 +52,13 @@ function validateNode(node: unknown, depth: number, counter: { n: number }): boo
 
   const props = node["props"];
   if (props !== undefined && (!isPlainObject(props) || !propsWithinBounds(props))) return false;
+
+  // Interactive node: validate its route up front (security-relevant — see helper).
+  if (
+    node["type"] === "action-button" &&
+    !validActionButtonProps(isPlainObject(props) ? props : {})
+  )
+    return false;
 
   const children = node["children"];
   if (children === undefined) return true;

@@ -49,4 +49,36 @@ describe("invokePluginRoute", () => {
     await invokePluginRoute("cap-plugin", "POST", "trigger");
     expect(calls[0]).toEqual({ url: "/api/plugins/cap-plugin/trigger", method: "POST" });
   });
+
+  // ── body encoding (issue #1209) ────────────────────────────────────────────
+  function captureInit(): { init?: RequestInit } {
+    const cap: { init?: RequestInit } = {};
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      cap.init = init;
+      return new Response("ok", { status: 200 });
+    }) as unknown as typeof fetch;
+    return cap;
+  }
+
+  it("POST with a body sends JSON-stringified body + content-type header", async () => {
+    const cap = captureInit();
+    const body = { mode: "specific", account: 2 };
+    await invokePluginRoute("cap-plugin", "POST", "switch-primary", body);
+    expect(cap.init?.body).toBe(JSON.stringify(body));
+    expect(cap.init?.headers).toEqual({ "content-type": "application/json" });
+  });
+
+  it("call without a body sends neither header nor request body (no-body callers unchanged)", async () => {
+    const cap = captureInit();
+    await invokePluginRoute("cap-plugin", "POST", "trigger");
+    expect(cap.init?.body).toBeUndefined();
+    expect(cap.init?.headers).toBeUndefined();
+  });
+
+  it("GET never attaches a body, even if one is mistakenly passed", async () => {
+    const cap = captureInit();
+    await invokePluginRoute("cap-plugin", "GET", "status", { should: "not-send" });
+    expect(cap.init?.body).toBeUndefined();
+    expect(cap.init?.headers).toBeUndefined();
+  });
 });

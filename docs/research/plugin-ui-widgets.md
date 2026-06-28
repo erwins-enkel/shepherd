@@ -155,24 +155,26 @@ Start with **one slot** (`settings-panel`) — claude-swap's panel renders insid
 
 1. **Phase 0 (spike / go-no-go):** `publishUI` + renderer + the seeded registry (`stack`/`text`/`badge`/`meter`/`table`/`key-value`/`callout`), wired only into the Plugins panel; port claude-swap's status blob to a `PluginUIView`. Validates the contract end-to-end against a real plugin before any further investment.
 2. **Phase 1:** harden validation (depth/size caps, prop sanitization, malformed-view handling), i18n the `title`/`text` plumbing, feature-announcement entry, `/design-system` recipes for the new `Pui*` primitives.
-3. **Phase 2 (only if demanded):** additional slots; interactivity (a constrained `action` node → `POST /api/plugins/<id>/<action>`, reusing `ctx.route`) — note the jump from _display_ to _interaction_ is the real complexity cliff; keep v1 display-only.
+3. **Phase 2:** additional slots; interactivity — **landed via #1209** as the `action-button` node (`POST /api/plugins/<thisPluginId>/<path>` with a plugin-authored body, reusing `ctx.route`), scoped to the plugin's own namespace. The jump from _display_ to _interaction_ was the anticipated complexity cliff; #1209 took it on with a constrained, POST-only, namespace-scoped primitive rather than general forms. (The "display-only" framing in §5 below is historical — superseded.)
 
 ### 4.5 Cost / surface
 
 Net-new: ~1 server type + 1 `ctx` method + transport reuse; ~1 renderer + ~6 small Svelte components + 1 registry; ~1 panel edit. No new runtime dependency (DOMPurify already present and **not even needed** for the descriptor path). Gates touched: feature-announcements, i18n (EN+DE for any chrome the primitives author), `/design-system` recipes.
 
+**Component vocabulary (current):** display nodes `stack`, `text`, `badge`, `meter`, `table`, `key-value`, `callout` (Phase 0) + `gauge`, `sparkline`, `time-series`, `bar-chart`, `timeline` (#1189); and the first **interactive** node, `action-button` (#1209) — POSTs a plugin-authored body to the plugin's own route, with an optional `confirm` gate.
+
 ---
 
 ## 5. Risks & settled decisions
 
-- **Display vs interaction.** v1 is **display-only**. Buttons/forms mean wiring `action` nodes back to plugin routes + CSRF/auth + optimistic state — a distinct, larger effort. Hold the line at display for the spike.
+- **Display vs interaction.** _v1 was display-only_ (this was the spike's deliberate scope). **Superseded by #1209:** interactivity now exists as the single, constrained `action-button` node — POST-only, scoped to the plugin's own route namespace, behind operator auth, with an optional confirm gate. General forms/optimistic-state remain out of scope; the cliff was crossed narrowly, not wholesale.
 - **Trust boundary is real but narrow.** Plugins are trusted, so the descriptor guards against _bugs_ (runaway trees, bad props), not _attackers_. Keep the caps anyway — fail-open, never crash the panel.
 - **Don't reach for `{@html}`/iframe/web-components.** They solve problems Shepherd doesn't have and route around the design-system/i18n gates. Iframe is the _only_ future-justified escape hatch, and only for arbitrary external web content.
 - **Schema evolution.** `schemaVersion` + unknown-node fallback tile = forward-compatible; one author owning both ends keeps the SDUI versioning tax negligible.
 
 **Decisions (settled with operator):**
 
-1. **Display-only v1.** No `action` node / interactivity in v1 — it's the complexity cliff (auth/CSRF, optimistic state) and claude-swap needs none of it. `POST /reset` stays an operator-only route. Interactivity is a deferred later phase.
+1. **Display-only v1 — superseded by #1209.** v1 deliberately shipped no interactivity (the auth/CSRF + optimistic-state complexity cliff, and claude-swap needed none then). #1209 reopened this once a concrete consumer (a per-account "Make primary" picker) needed it, adding the constrained `action-button` node: POST-only, scoped to the plugin's own namespace, behind the existing operator auth. The original "deferred later phase" decision is now realized.
 2. **Settings → Plugins panel is the only wired slot for v1.** The descriptor still carries a `slot` field, but the host mounts only `settings-panel`; `session-sidebar` / `dashboard-card` are added later as pure host-wiring with no schema change.
 3. **Registry grows on demand.** Seed with what claude-swap needs (`stack`, `text`, `badge`, `meter`, `table`, `key-value`, `callout`); add new node types when a real plugin requires one (component + first use ship together). `schemaVersion` + unknown-node fallback tile keep it forward-compatible — no fixed/frozen vocabulary.
 4. **claude-swap is the Phase-0 consumer.** The go/no-go spike ports claude-swap's existing status blob to a `PluginUIView` — real, rich, typed data that exercises every seeded component — rather than a synthetic in-repo demo.

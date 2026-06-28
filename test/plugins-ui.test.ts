@@ -167,6 +167,80 @@ test("validatePluginUIView: function prop is accepted but stripped from result",
   expect(result!.root.props?.["label"]).toBe("click");
 });
 
+// ── action-button node validation (issue #1209) ──────────────────────────────
+
+/** A view whose root is an `action-button` with the given props. */
+function abView(props: unknown) {
+  return { schemaVersion: 1, slot: "settings-panel", root: { type: "action-button", props } };
+}
+
+test("action-button: valid node round-trips, preserving body and confirm", () => {
+  const props = {
+    label: "Make primary",
+    tone: "neutral",
+    route: { method: "POST", path: "switch-primary" },
+    body: { mode: "specific", account: 2 },
+    confirm: "Switch the primary account?",
+  };
+  const result = validatePluginUIView(abView(props));
+  expect(result).not.toBeNull();
+  expect(result!.root.props).toEqual(props);
+});
+
+test("action-button: valid node nested inside a stack is accepted", () => {
+  const view = {
+    schemaVersion: 1,
+    slot: "settings-panel",
+    root: {
+      type: "stack",
+      children: [
+        { type: "action-button", props: { label: "Go", route: { method: "POST", path: "go" } } },
+      ],
+    },
+  };
+  expect(validatePluginUIView(view)).not.toBeNull();
+});
+
+test("action-button: missing/empty label drops the whole view", () => {
+  expect(validatePluginUIView(abView({ route: { method: "POST", path: "go" } }))).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "   ", route: { method: "POST", path: "go" } })),
+  ).toBeNull();
+});
+
+test("action-button: non-POST method (incl. GET) drops the whole view", () => {
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "GET", path: "go" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "DELETE", path: "go" } })),
+  ).toBeNull();
+});
+
+test("action-button: missing or malformed route drops the whole view", () => {
+  expect(validatePluginUIView(abView({ label: "x" }))).toBeNull();
+  expect(validatePluginUIView(abView({ label: "x", route: "go" }))).toBeNull();
+  expect(validatePluginUIView(abView({ label: "x", route: { method: "POST" } }))).toBeNull();
+});
+
+test("action-button: namespace-escaping path is rejected (leading slash, .., bad charset)", () => {
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "/abs" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "../escape" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "a/../b" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "has space" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "" } })),
+  ).toBeNull();
+});
+
 // ── loader integration tests ─────────────────────────────────────────────────
 
 test("publishUI: valid view sets list().ui and emits plugin:ui event", async () => {

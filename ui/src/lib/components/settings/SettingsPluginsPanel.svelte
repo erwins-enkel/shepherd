@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import type { PluginInfo, PluginUIView } from "$lib/types";
-  import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
+  import PluginUIRoot from "$lib/plugin-ui/PluginUIRoot.svelte";
 
   let { plugins = [], focusId = null }: { plugins?: PluginInfo[]; focusId?: string | null } =
     $props();
@@ -68,7 +68,7 @@
           <p class="view-title">{view.title}</p>
         {/if}
         <div class="view-body">
-          <PluginUIRenderer node={view.root} />
+          <PluginUIRoot pluginId={p.id} node={view.root} />
         </div>
         {#if expanded[p.id]}
           <p class="raw-label micro">{m.plugins_raw_json()}</p>

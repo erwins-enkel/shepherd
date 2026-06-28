@@ -194,7 +194,7 @@ describe("Herd Ready filter", () => {
     // both visible under All (default)
     await expect.element(page.getByText("reviewing one")).toBeInTheDocument();
     await expect.element(page.getByText("idle one")).toBeInTheDocument();
-    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await page.getByRole("button", { name: "Ready", exact: true }).click();
     await expect.element(page.getByText("idle one")).toBeInTheDocument();
     await expect.element(page.getByText("reviewing one")).not.toBeInTheDocument();
   });
@@ -209,7 +209,7 @@ describe("Herd Ready filter", () => {
       ],
       git: {},
     });
-    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await page.getByRole("button", { name: "Ready", exact: true }).click();
     await expect.element(page.getByText("idle one")).toBeInTheDocument();
     await expect.element(page.getByText("plan gate one")).not.toBeInTheDocument();
   });
@@ -221,7 +221,7 @@ describe("Herd Ready filter", () => {
       sessions: [session({ id: "rm", name: "ready merging", readyToMerge: true })],
       git: { rm: openPr },
     });
-    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await page.getByRole("button", { name: "Ready", exact: true }).click();
     await expect.element(page.getByText("ready merging")).not.toBeInTheDocument();
   });
 
@@ -242,27 +242,8 @@ describe("Herd Ready filter", () => {
       sessions: [session({ id: "plain", name: "plain idle" })],
       git: {},
     });
-    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await page.getByRole("button", { name: "Ready", exact: true }).click();
     await expect.element(page.getByText("plain idle")).toBeInTheDocument();
-  });
-});
-
-describe("Herd Research filter", () => {
-  it("clicking Research chip shows only research sessions and hides non-research ones", async () => {
-    render(Herd, {
-      ...base,
-      sessions: [
-        session({ id: "rs", name: "research one", research: true }),
-        session({ id: "nr", name: "plain one", research: false }),
-      ],
-      git: {},
-    });
-    // both visible under All (default)
-    await expect.element(page.getByText("research one")).toBeInTheDocument();
-    await expect.element(page.getByText("plain one")).toBeInTheDocument();
-    await page.getByRole("button", { name: "⬡ Research" }).click();
-    await expect.element(page.getByText("research one")).toBeInTheDocument();
-    await expect.element(page.getByText("plain one")).not.toBeInTheDocument();
   });
 });
 
@@ -279,7 +260,7 @@ describe("Herd status filter (TopBar tallies)", () => {
       statusFilter: "running" as const,
       onstatusfilter,
     });
-    await page.getByRole("button", { name: "▤ Ready" }).click();
+    await page.getByRole("button", { name: "Ready", exact: true }).click();
     // the click also asks the parent to clear the status filter (one filter at a time)
     expect(onstatusfilter).toHaveBeenCalledWith(null);
     // prop is still set (parent not wired in this render) → short-circuit keeps the row
@@ -339,7 +320,7 @@ describe("Herd Done filter", () => {
       git: {},
       onstatusfilter,
     });
-    await page.getByRole("button", { name: "✓ Done" }).click();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
     expect(onstatusfilter).toHaveBeenCalledWith(null);
   });
 

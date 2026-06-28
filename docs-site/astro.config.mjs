@@ -117,6 +117,7 @@ export default defineConfig({
           items: [
             { label: "Configuration", slug: "reference/configuration" },
             { label: "Concepts & glossary", slug: "reference/glossary" },
+            { label: "Plugins", slug: "reference/plugins" },
             { label: "External Task API", slug: "reference/external-task-api" },
             { label: "Security", slug: "reference/security" },
             // Repo-root CLAUDE.md, imported verbatim by scripts/sync-docs.mjs.

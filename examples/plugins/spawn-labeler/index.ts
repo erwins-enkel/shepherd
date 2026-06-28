@@ -133,6 +133,21 @@ export function register(ctx: PluginContext): () => void {
   // Publish an initial snapshot so the panel has data before the first spawn.
   publish();
 
+  // ── gear-menu item (ctx.publishGearItem) ────────────────────────────────────────────
+  // Contribute one item to the top-bar gear menu. Three action kinds are available:
+  //
+  //   panel  → opens Settings → Plugins, scrolled to this plugin's card (used below).
+  //   route  → calls one of this plugin's own routes and toasts the response text:
+  //     { kind: "route", method: "GET", path: "stats" }
+  //   url    → opens an absolute http/https URL in a new tab:
+  //     { kind: "url", href: "https://your-dashboard.example.com" }
+  //
+  // Additive guard: publishGearItem is absent on older cores — the guard makes the
+  // plugin safe across Shepherd versions without a manifest version check.
+  if (typeof ctx.publishGearItem === "function") {
+    ctx.publishGearItem({ label: "Spawn labeler", icon: "🏷️", action: { kind: "panel" } });
+  }
+
   // Teardown: nothing to unwind (no subscriptions, state already persisted on each spawn).
   return () => ctx.log.log("torn down");
 }

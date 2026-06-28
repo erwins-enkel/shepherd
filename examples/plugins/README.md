@@ -5,9 +5,9 @@ These are **teaching material** — they are **never auto-loaded** from the repo
 only ever scans `~/.shepherd/plugins/`, so the zero-plugin no-op invariant holds). Copy one
 into your plugins dir to actually run it.
 
-| Plugin                             | What it shows                                                                                                                                                                                  |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`spawn-labeler/`](spawn-labeler/) | The recommended copy-me reference: a real `SpawnPatch` from `onSpawn` (injects a per-repo label env var), routes that read/write `state`, a non-trivial `publishStatus` payload, and `config`. |
+| Plugin                             | What it shows                                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`spawn-labeler/`](spawn-labeler/) | The recommended copy-me reference: a real `SpawnPatch` from `onSpawn` (injects a per-repo label env var), routes that read/write `state`, a non-trivial `publishStatus` payload, `config`, and a gear-menu item (`publishGearItem`) with a `panel` action. |
 
 > For the bare-minimum wiring (manifest + `register` + one route, a pure observer), see
 > the skeleton at [`test/fixtures/example-plugin/`](../../test/fixtures/example-plugin/) —
@@ -43,5 +43,18 @@ do **one** of:
 - **vendor the types**: copy `src/plugins/types.ts` into the folder and import from
   `"./types"`.
 
-See [`docs/plugins.md`](../../docs/plugins.md) for the full plugin API, the `onSpawn`
-contract, and a walkthrough of `spawn-labeler`.
+### Gear-menu item
+
+`spawn-labeler` publishes one item to the top-bar gear menu via `ctx.publishGearItem`:
+
+```ts
+ctx.publishGearItem({ label: "Spawn labeler", icon: "🏷️", action: { kind: "panel" } });
+```
+
+The three available action kinds are:
+
+- `{ kind: "panel" }` — opens Settings → Plugins, scrolled to this plugin's card.
+- `{ kind: "route", method: "GET"|"POST", path: "<route-path>" }` — calls one of the plugin's own routes and toasts the response text.
+- `{ kind: "url", href: "https://…" }` — opens an absolute http/https URL in a new tab.
+
+See [`docs/plugins.md`](../../docs/plugins.md) for the full spec (validation rules, all action kinds) and a walkthrough of `spawn-labeler`.

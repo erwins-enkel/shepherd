@@ -52,11 +52,11 @@ type Stage =
   | "active";
 
 /** The herd rail's list filter: everything, only sessions awaiting the operator, only
- *  research tasks, the Done lens (archived/finished sessions), or the Rundown lens (the
- *  daily Herd Rundown digest). "done" and "rundown" are NOT live-list filters — the page
- *  swaps in a dedicated panel for each; shownSessions returns [] for "rundown" (panel-only,
- *  no session list) and falls through to the live set for "done" (handled by the page). */
-export type HerdFilter = "all" | "ready" | "research" | "done" | "rundown" | "owed" | "next";
+ *  the Done lens (archived/finished sessions), or the Rundown lens (the daily Herd Rundown
+ *  digest). "done" and "rundown" are NOT live-list filters — the page swaps in a dedicated
+ *  panel for each; shownSessions returns [] for "rundown" (panel-only, no session list) and
+ *  falls through to the live set for "done" (handled by the page). */
+export type HerdFilter = "all" | "ready" | "done" | "rundown" | "owed" | "next";
 
 /** Lifecycle stages the "ready" lens hides: the session is NOT awaiting the operator.
  *  A PR with CI still in flight (`ciRunning`) is awaiting CI, a green PR handed off to a
@@ -74,8 +74,8 @@ const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
  *  awaiting the operator (not running, not under review, and not handed off to another
- *  party or mid-merge-train — see NOT_YOUR_TURN); "research" keeps only sessions with
- *  `s.research` set. Single source of truth shared by Herd.svelte's list and herd-keynav's
+ *  party or mid-merge-train — see NOT_YOUR_TURN). Single source of truth shared by
+ *  Herd.svelte's list and herd-keynav's
  *  rail order, so keyboard navigation can never land on a row the rail isn't showing. Goes
  *  through `displayStatus` (a working-while-blocked session is actually mid-turn, so it is
  *  NOT awaiting the operator). `git`/`now` drive the stage check for the not-your-turn
@@ -97,7 +97,6 @@ export function shownSessions(
         !inReview(s.id) &&
         !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, now)),
     );
-  if (filter === "research") return sessions.filter((s) => s.research);
   // Rundown + Owed + Up Next are panel-only lenses (a dedicated panel, no session list).
   if (filter === "rundown" || filter === "owed" || filter === "next") return [];
   return sessions;

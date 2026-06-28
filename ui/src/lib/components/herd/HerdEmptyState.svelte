@@ -7,7 +7,6 @@
     statusFilter,
     statusLabel,
     filteredRepo,
-    filter,
     issueActionsUnset,
     onnew,
     onsettings,
@@ -16,7 +15,6 @@
     statusFilter: "running" | "idle" | "blocked" | null;
     statusLabel: string;
     filteredRepo: string | null;
-    filter: string;
     issueActionsUnset: boolean;
     onnew: () => void;
     onsettings?: () => void;
@@ -38,11 +36,7 @@
     <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
   {/if}
 {:else}
-  {#if filter === "research"}
-    <div class="empty micro static">{m.herd_research_empty()}</div>
-  {:else}
-    <div class="empty micro static">{m.herd_ready_empty()}</div>
-  {/if}
+  <div class="empty micro static">{m.herd_ready_empty()}</div>
 {/if}
 
 <style>

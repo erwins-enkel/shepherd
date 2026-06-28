@@ -10,7 +10,7 @@
   import type { BlockState } from "$lib/triage";
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
-  import HerdFilterBar from "./herd/HerdFilterBar.svelte";
+  import HerdLensStrip from "./herd/HerdLensStrip.svelte";
   import HerdSegRow from "./herd/HerdSegRow.svelte";
   import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
   import HerdDoneList from "./herd/HerdDoneList.svelte";
@@ -427,20 +427,22 @@
 </script>
 
 <div class="panel bracket" class:flow>
-  <div class="phead">
-    <span class="micro">{m.herd_title()}</span>
-    {#if !flow}
-      <HerdFilterBar
-        bind:filter
-        {statusFilter}
-        {statusLabel}
-        {collapsible}
-        {onstatusfilter}
-        {oncollapse}
-      />
-    {/if}
-  </div>
-  {#if flow}<HerdSegRow bind:filter {statusFilter} {onstatusfilter} />{/if}
+  {#if flow}
+    <!-- mobile flow: the .phead title is hidden by CSS; the seg row is the control -->
+    <div class="phead"><span class="micro">{m.herd_title()}</span></div>
+    <HerdSegRow bind:filter {statusFilter} {onstatusfilter} />
+  {:else}
+    <!-- desktop / touch-wide: the icon-over-label lens strip IS the panel header
+         (no separate "The Herd" title row) -->
+    <HerdLensStrip
+      bind:filter
+      {statusFilter}
+      {statusLabel}
+      {collapsible}
+      {onstatusfilter}
+      {oncollapse}
+    />
+  {/if}
   <div class="units" class:flow>
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
@@ -466,7 +468,6 @@
         {statusFilter}
         {statusLabel}
         {filteredRepo}
-        {filter}
         {issueActionsUnset}
         {onnew}
         {onsettings}
@@ -477,7 +478,6 @@
         {statusFilter}
         {statusLabel}
         {filteredRepo}
-        {filter}
         {issueActionsUnset}
         {onnew}
         {onsettings}
@@ -554,19 +554,10 @@
   .panel.flow.bracket::after {
     display: none;
   }
-  /* On mobile (flow mode) the desktop filter bar isn't rendered ({#if !flow} — the
-     seg-row below replaces it); hide the "THE HERD" title span too so the .phead
-     collapses away and the seg-row leads. The herd_title key is still used on
-     desktop (non-flow). */
+  /* The .phead title row only renders in flow (mobile); desktop/touch-wide use the lens
+     strip as the header with no title. Hide the "THE HERD" span so the .phead collapses to
+     a hairline above the seg-row. (herd_title is still referenced here, so the key stays.) */
   .panel.flow .phead > .micro {
-    display: none;
-  }
-  /* Compact (touch / unfolded-foldable) layout pins the sidebar to ~288px, where the
-     filter bar wraps onto its own row and the "THE HERD" title sits alone above it —
-     pure vertical-space cost. Drop the title here too so the filter bar leads. The
-     .grid.compact ancestor lives in +page.svelte (outside this component), hence the
-     :global wrapper. herd_title still serves the standard desktop layout. */
-  :global(.grid.compact) .phead > .micro {
     display: none;
   }
   .phead {

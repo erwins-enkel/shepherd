@@ -191,11 +191,13 @@ if (typeof ctx.publishUI === "function") {
 ```
 
 - `null` clears the last-published view.
-- `slot` must be `"settings-panel"` (v1 wires only this slot; other names are accepted by the
-  validator but not rendered).
+- `slot` must be `"settings-panel"` (v1 renders only this slot; the other two reserved values —
+  `"session-sidebar"` and `"dashboard-card"` — pass validation but are not yet rendered; any
+  other string fails validation and the view is dropped).
 - String props render **verbatim** — plugin data, not i18n keys.
 - Validation is **fail-open**: size-capped (64 KB), max depth 16, max 256 nodes, max 500
-  children per node. Invalid views are silently dropped; the prior view is kept.
+  children per node; array values in `props` are also capped at 500 entries. Invalid views
+  are silently dropped; the prior view is kept.
 
 ## Gear-menu item (`publishGearItem`)
 

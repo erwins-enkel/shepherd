@@ -2,8 +2,46 @@ import { describe, expect, it } from "bun:test";
 import { buildLandingPrBody, buildLandingPrTitle } from "../src/epic-landing";
 
 describe("buildLandingPrTitle", () => {
-  it("renders `Land epic #<n>: <title>`", () => {
-    expect(buildLandingPrTitle(327, "EFI value map")).toBe("Land epic #327: EFI value map");
+  it("keeps a recognized conventional prefix at column 0 and appends the epic tag", () => {
+    expect(buildLandingPrTitle(535, "feat(comments): communication feed on Objectives")).toBe(
+      "feat(comments): communication feed on Objectives (epic #535)",
+    );
+  });
+
+  it("preserves a breaking-change `!` (with and without scope)", () => {
+    expect(buildLandingPrTitle(88, "fix(api)!: drop legacy route")).toBe(
+      "fix(api)!: drop legacy route (epic #88)",
+    );
+    expect(buildLandingPrTitle(89, "feat!: rework pipeline")).toBe(
+      "feat!: rework pipeline (epic #89)",
+    );
+  });
+
+  it("prepends the `feat:` fallback for a bare (non-conventional) title", () => {
+    expect(buildLandingPrTitle(327, "EFI value map")).toBe("feat: EFI value map (epic #327)");
+  });
+
+  it("falls back to `feat:` for a non-type `Word:` prefix (not a real conventional type)", () => {
+    expect(buildLandingPrTitle(90, "Comments: communication feed")).toBe(
+      "feat: Comments: communication feed (epic #90)",
+    );
+  });
+
+  it("lowercases a recognized but mixed-case type", () => {
+    expect(buildLandingPrTitle(91, "Feat(x): add y")).toBe("feat(x): add y (epic #91)");
+  });
+
+  it("strips a trailing `[EPIC]` tag (case-insensitive)", () => {
+    expect(buildLandingPrTitle(535, "feat(comments): comms feed [EPIC]")).toBe(
+      "feat(comments): comms feed (epic #535)",
+    );
+    expect(buildLandingPrTitle(328, "EFI value map [epic]")).toBe(
+      "feat: EFI value map (epic #328)",
+    );
+  });
+
+  it("guards an empty description after a recognized prefix", () => {
+    expect(buildLandingPrTitle(42, "chore:")).toBe("chore: epic #42");
   });
 });
 

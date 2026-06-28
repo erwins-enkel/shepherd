@@ -2,11 +2,12 @@
   import type { PluginUINode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
+  import { coerceText } from "./coerce";
 
   let { node }: { node: PluginUINode } = $props();
 
   const p = $derived(node.props ?? {});
-  const caption = $derived(p.caption != null ? String(p.caption) : null);
+  const caption = $derived(coerceText(p.caption));
   const kind = $derived(p.kind === "area" ? "area" : "line");
 
   interface SeriesEntry {

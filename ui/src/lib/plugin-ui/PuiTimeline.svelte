@@ -2,6 +2,7 @@
   import type { PluginUINode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
+  import { coerceText } from "./coerce";
 
   let { node }: { node: PluginUINode } = $props();
 
@@ -22,7 +23,7 @@
       return {
         at: String(ev.at ?? ""),
         label: String(ev.label ?? ""),
-        caption: ev.caption != null ? String(ev.caption) : null,
+        caption: coerceText(ev.caption),
         tone: ev.tone,
         color: toneColor(ev.tone),
       };

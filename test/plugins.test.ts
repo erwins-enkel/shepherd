@@ -9,6 +9,7 @@ import { PluginSpawnAborted, type SpawnDescriptor } from "../src/plugins/types";
 
 const DESC: SpawnDescriptor = {
   sessionId: "sess-1",
+  kind: "session",
   repoRoot: "/repo",
   model: null,
   agentProvider: "claude",

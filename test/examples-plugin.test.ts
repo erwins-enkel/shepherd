@@ -14,6 +14,7 @@ const EXAMPLES_DIR = resolve(import.meta.dir, "../examples/plugins");
 
 const DESC: SpawnDescriptor = {
   sessionId: "sess-1",
+  kind: "session",
   repoRoot: "/home/me/myrepo",
   model: null,
   agentProvider: "claude",

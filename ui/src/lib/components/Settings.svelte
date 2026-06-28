@@ -649,11 +649,13 @@
            full-screen card would clip the overflow), so the tabs collapse into a
            dropdown. The tablist isn't rendered here, so no tab carries a dangling
            aria-controls; the panels below stay labelled tabpanels. -->
-      <select class="tab-select" aria-label={m.settings_tabs_aria()} bind:value={tab}>
-        {#each visibleTabs as t (t.id)}
-          <option value={t.id}>{t.label()}</option>
-        {/each}
-      </select>
+      <div class="tab-select-wrap">
+        <select class="tab-select" aria-label={m.settings_tabs_aria()} bind:value={tab}>
+          {#each visibleTabs as t (t.id)}
+            <option value={t.id}>{t.label()}</option>
+          {/each}
+        </select>
+      </div>
     {:else}
       <div class="tabs" role="tablist" aria-label={m.settings_tabs_aria()}>
         {#each visibleTabs as t, i (t.id)}
@@ -1128,17 +1130,38 @@
     border-bottom: 1px solid var(--color-line);
   }
   /* Narrow viewport: the strip becomes a dropdown (full-width, on the shared
-     select recipe) so all tabs stay reachable inside the full-screen card. */
+     select recipe) so all tabs stay reachable inside the full-screen card.
+     The wrapper carries the chevron so the box reads as a dropdown, not a
+     heading — a pseudo-element on the <select> itself wouldn't render. */
+  .tab-select-wrap {
+    position: relative;
+  }
+  /* Custom chevron (the app's standard fold glyph) instead of the native
+     browser arrow, kept on-token for cross-theme consistency. Decorative —
+     pointer-events:none so taps pass through to the select. */
+  .tab-select-wrap::after {
+    content: "▾";
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+    pointer-events: none;
+  }
   .tab-select {
+    box-sizing: border-box;
     width: 100%;
+    min-height: 44px;
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
     color: var(--color-ink-bright);
     font: inherit;
     font-size: var(--fs-base);
-    padding: 8px 10px;
+    padding: 8px 32px 8px 10px;
     border-radius: 2px;
     appearance: none;
+    -webkit-appearance: none;
     cursor: pointer;
   }
   .tab-select:focus {

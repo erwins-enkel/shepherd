@@ -1162,6 +1162,23 @@ export interface PluginUIView {
   root: PluginUINode;
 }
 
+/** A declarative action a plugin's gear-menu item performs on click. Discriminated by `kind`.
+ *  All fields JSON-serializable; strings are verbatim plugin-authored DATA, never i18n keys. */
+export type PluginGearAction =
+  | { kind: "route"; method: "GET" | "POST"; path: string }
+  | { kind: "url"; href: string }
+  | { kind: "panel" };
+
+/** One gear-menu item a plugin contributes via `ctx.publishGearItem`. At most ONE per plugin;
+ *  latest publish wins; `null` clears it. Strings are verbatim plugin-authored DATA, not i18n. */
+export interface PluginGearItem {
+  /** Verbatim plugin-authored label (NOT an i18n key). */
+  label: string;
+  /** Optional single glyph/emoji icon (verbatim). */
+  icon?: string;
+  action: PluginGearAction;
+}
+
 /** A loaded server-side plugin as shown in Settings → Plugins (issue #1124). `health` is
  *  core-derived (unspoofable); `status` is the plugin's last publishStatus blob (verbatim). */
 export interface PluginInfo {
@@ -1172,6 +1189,8 @@ export interface PluginInfo {
   lastError: string | null;
   status: unknown;
   ui: PluginUIView | null;
+  /** Last `publishGearItem` (validated/normalized), or null. */
+  gearItem: PluginGearItem | null;
 }
 
 // Up Next (#1169) — cross-repo ranked queue of un-started work. Mirrors src/up-next-core.ts.
@@ -1273,6 +1292,7 @@ export type WsEvent =
       data: { id: string; health: PluginInfo["health"]; status: unknown };
     }
   | { event: "plugin:ui"; data: { id: string; ui: PluginUIView | null } }
+  | { event: "plugin:gear"; data: { id: string; gearItem: PluginGearItem | null } }
   | { event: "backlog:update"; data: BacklogPayload }
   | { event: "drain:status"; data: DrainStatus }
   | { event: "automerge:status"; data: AutoMergeStatus }

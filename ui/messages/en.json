@@ -2110,5 +2110,9 @@
   "feat_plugin_ui_title": "Plugins show real panels",
   "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump.",
   "feat_plugin_ui_charts_title": "Plugins can show charts",
-  "feat_plugin_ui_charts_body": "Plugins can now publish gauges, sparklines, time-series, bar charts and timelines in Settings → Plugins — not just meters, badges and tables."
+  "feat_plugin_ui_charts_body": "Plugins can now publish gauges, sparklines, time-series, bar charts and timelines in Settings → Plugins — not just meters, badges and tables.",
+  "plugin_gear_action_done": "Done",
+  "plugin_gear_action_failed": "Plugin action failed",
+  "feat_plugin_gear_item_title": "Plugin gear-menu items",
+  "feat_plugin_gear_item_body": "Plugins can now add a single item to the gear menu — opening a link, running a plugin action, or jumping to the plugin's panel."
 }

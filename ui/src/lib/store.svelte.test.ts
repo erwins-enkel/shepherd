@@ -114,6 +114,7 @@ test("plugin:status updates the matching plugin's health + published status in p
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
     },
     {
       id: "p2",
@@ -123,6 +124,7 @@ test("plugin:status updates the matching plugin's health + published status in p
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
     },
   ]);
   s.apply({ event: "plugin:status", data: { id: "p1", health: "errored", status: { n: 7 } } });
@@ -147,6 +149,7 @@ test("plugin:ui updates the matching plugin's ui descriptor in place", () => {
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
     },
     {
       id: "p2",
@@ -156,6 +159,7 @@ test("plugin:ui updates the matching plugin's ui descriptor in place", () => {
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
     },
   ]);
   const view = {
@@ -183,6 +187,7 @@ test("plugin:ui for an unknown id is a no-op (pre-bootstrap guard)", () => {
       lastError: null,
       status: null,
       ui: null,
+      gearItem: null,
     },
   ]);
   s.apply({
@@ -199,6 +204,66 @@ test("plugin:ui for an unknown id is a no-op (pre-bootstrap guard)", () => {
   // no new plugin row added; existing plugin untouched
   expect(s.plugins).toHaveLength(1);
   expect(s.plugins[0].ui).toBeNull();
+});
+
+test("plugin:gear updates the matching plugin's gear item in place", () => {
+  const s = new HerdStore();
+  s.setPlugins([
+    {
+      id: "p1",
+      name: "P1",
+      version: "1.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+      gearItem: null,
+    },
+    {
+      id: "p2",
+      name: "P2",
+      version: "2.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+      gearItem: null,
+    },
+  ]);
+  const item = { label: "Open settings", icon: "⚙️", action: { kind: "panel" as const } };
+  s.apply({ event: "plugin:gear", data: { id: "p1", gearItem: item } });
+  expect(s.plugins.find((p) => p.id === "p1")?.gearItem).toEqual(item);
+  // unrelated plugin untouched
+  expect(s.plugins.find((p) => p.id === "p2")?.gearItem).toBeNull();
+  // setting back to null is supported
+  s.apply({ event: "plugin:gear", data: { id: "p1", gearItem: null } });
+  expect(s.plugins.find((p) => p.id === "p1")?.gearItem).toBeNull();
+});
+
+test("plugin:gear for an unknown id is a no-op (pre-bootstrap guard)", () => {
+  const s = new HerdStore();
+  s.setPlugins([
+    {
+      id: "p1",
+      name: "P1",
+      version: "1.0.0",
+      health: "ok",
+      lastError: null,
+      status: null,
+      ui: null,
+      gearItem: null,
+    },
+  ]);
+  s.apply({
+    event: "plugin:gear",
+    data: {
+      id: "ghost",
+      gearItem: { label: "Ghost action", action: { kind: "panel" } },
+    },
+  });
+  // no new plugin row added; existing plugin untouched
+  expect(s.plugins).toHaveLength(1);
+  expect(s.plugins[0].gearItem).toBeNull();
 });
 
 test("backlog:update replaces the backlog snapshot so the overview stays live", () => {

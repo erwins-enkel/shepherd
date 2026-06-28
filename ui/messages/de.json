@@ -2110,5 +2110,9 @@
   "feat_plugin_ui_title": "Plugins zeigen echte Panels",
   "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps.",
   "feat_plugin_ui_charts_title": "Plugins können Diagramme anzeigen",
-  "feat_plugin_ui_charts_body": "Plugins können jetzt Tacho-Anzeigen, Sparklines, Zeitreihen, Balkendiagramme und Zeitachsen unter Einstellungen → Plugins veröffentlichen — nicht nur Messanzeigen, Badges und Tabellen."
+  "feat_plugin_ui_charts_body": "Plugins können jetzt Tacho-Anzeigen, Sparklines, Zeitreihen, Balkendiagramme und Zeitachsen unter Einstellungen → Plugins veröffentlichen — nicht nur Messanzeigen, Badges und Tabellen.",
+  "plugin_gear_action_done": "Fertig",
+  "plugin_gear_action_failed": "Plugin-Aktion fehlgeschlagen",
+  "feat_plugin_gear_item_title": "Plugin-Einträge im Zahnradmenü",
+  "feat_plugin_gear_item_body": "Plugins können dem Zahnradmenü jetzt einen einzelnen Eintrag hinzufügen — der einen Link öffnet, eine Plugin-Aktion ausführt oder zum Plugin-Panel springt."
 }

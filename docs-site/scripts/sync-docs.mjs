@@ -40,6 +40,14 @@ const GITHUB_DOCS_BASE = `${GITHUB_BLOB_BASE}docs/`;
 const PAGES = [
   {
     srcDir: "docs",
+    src: "plugins.md",
+    dest: "reference/plugins.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "Plugins",
+    description: "Write server-side plugins: spawn hooks, routes, status/UI panels, and gear-menu items.",
+  },
+  {
+    srcDir: "docs",
     src: "external-task-api.md",
     dest: "reference/external-task-api.md",
     linkBase: GITHUB_DOCS_BASE,

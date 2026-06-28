@@ -93,6 +93,8 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.onSpawn(fn)`                  | Mutate how an agent launches (see below). The load-bearing capability.                                                                                         |
 | `ctx.events.subscribe(fn)`         | Observe the **read-only** core event stream (`session:hold`, `session:status`, …). Returns an unsubscribe fn. Plugins cannot _emit_ core events.               |
 | `ctx.publishStatus(json)`          | Push a small free-form JSON blob to the status panel (rendered verbatim).                                                                                      |
+| `ctx.publishUI(view)`              | Push a declarative UI view to the Settings → Plugins panel (`null` clears). Additive.                                                                          |
+| `ctx.publishGearItem(item)`        | Add a single item to the top-bar gear menu (`null` clears). Additive.                                                                                          |
 | `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema. |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                            |
 | `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                        |
@@ -170,6 +172,97 @@ last error, and the expandable JSON from your last `ctx.publishStatus(...)`.
 
 `publishStatus` emits a `plugin:status` event over the existing `/events` WebSocket, so the
 panel updates live.
+
+## Declarative UI panel (`publishUI`)
+
+`ctx.publishUI(view)` pushes a **declarative UI descriptor** to the plugin's card in
+Settings → Plugins. The view must conform to `PluginUIView`:
+
+```ts
+// Guard — additive API, absent on older cores.
+if (typeof ctx.publishUI === "function") {
+  ctx.publishUI({
+    schemaVersion: 1,
+    slot: "settings-panel",
+    title: "My plugin stats",
+    root: { type: "text", props: { text: "Hello from plugin." } },
+  });
+}
+```
+
+- `null` clears the last-published view.
+- `slot` must be `"settings-panel"` (v1 renders only this slot; the other two reserved values —
+  `"session-sidebar"` and `"dashboard-card"` — pass validation but are not yet rendered; any
+  other string fails validation and the view is dropped).
+- String props render **verbatim** — plugin data, not i18n keys.
+- Validation is **fail-open**: size-capped (64 KB), max depth 16, max 256 nodes, max 500
+  children per node; array values in `props` are also capped at 500 entries. Invalid views
+  are silently dropped; the prior view is kept.
+
+## Gear-menu item (`publishGearItem`)
+
+`ctx.publishGearItem(item)` contributes **one item to the top-bar gear menu**. Each plugin
+may publish at most one item; the latest publish wins; `null` clears it.
+
+```ts
+// Guard every publishGearItem call — additive API, absent on older cores.
+if (typeof ctx.publishGearItem === "function") {
+  ctx.publishGearItem({
+    label: "My plugin", // required; ≤ 80 chars, non-empty
+    icon: "🔧", // optional; ≤ 8 chars
+    action: { kind: "panel" },
+  });
+}
+```
+
+### Three action kinds
+
+**`panel`** — opens Settings → Plugins, scrolled to this plugin's card. Works even if the
+plugin publishes no `publishUI` view, since the card always renders.
+
+```ts
+action: {
+  kind: "panel";
+}
+```
+
+**`route`** — calls the plugin's own `/api/plugins/<id>/<path>` route (must be registered
+via `ctx.route`) and shows the response text (≤ 200 chars) as a toast. `method` is `"GET"`
+or `"POST"`.
+
+```ts
+action: { kind: "route", method: "GET", path: "stats" }
+// fires GET /api/plugins/<your-plugin-id>/stats
+```
+
+**`url`** — opens an absolute URL in a new browser tab.
+
+```ts
+action: { kind: "url", href: "https://your-dashboard.example.com" }
+```
+
+### Validation & security
+
+Validation is **fail-open** — an invalid item is silently dropped and the prior item kept.
+Validation rules (enforced by the server; plugins are trusted authors but bad items are
+ignored):
+
+- **label** — required; non-empty after trim; ≤ 80 chars.
+- **icon** — optional; if present, must be a string ≤ 8 chars.
+- **route `path`** — non-empty, ≤ 256 chars; only `[A-Za-z0-9._/-]`; no leading `/`; no
+  `..` segments.
+- **url `href`** — must parse as a valid URL with `http:` or `https:` protocol.
+  `javascript:`, `data:`, and relative paths are rejected.
+- Total payload: ≤ 8 KB.
+
+**Label, icon, and route response text are verbatim plugin DATA** — they render as-is, are
+never i18n keys, and receive the same treatment as PR titles and tool-use summaries.
+
+### Additive guard
+
+Always guard with `typeof ctx.publishGearItem === "function"` — older Shepherd builds that
+predate this capability simply don't expose the method; the guard makes the plugin forward-
+and backward-compatible without a version check.
 
 ## HTTP routes
 

@@ -206,6 +206,7 @@ describe("Settings responsive tab navigation", () => {
       lastError: null,
       status: {},
       ui: null,
+      gearItem: null,
     },
   ];
 

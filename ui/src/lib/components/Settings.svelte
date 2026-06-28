@@ -83,6 +83,7 @@
     initialTab = "workspace",
     initialDiagnostics = null,
     plugins = [],
+    focusPluginId = null,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -94,6 +95,8 @@
     initialDiagnostics?: DiagnosticCheck[] | null;
     /** Loaded server-side plugins (issue #1124); empty → the Plugins tab is hidden. */
     plugins?: PluginInfo[];
+    /** Plugin id to scroll into view + highlight on open (from gear-item panel action). */
+    focusPluginId?: string | null;
   } = $props();
 
   // initialTab seeds the starting tab; the user then freely switches it, so we
@@ -1062,7 +1065,7 @@
         aria-label={m.settings_tab_plugins()}
         hidden={tab !== "plugins"}
       >
-        <SettingsPluginsPanel {plugins} />
+        <SettingsPluginsPanel {plugins} focusId={focusPluginId} />
       </div>
     {/if}
   </div>

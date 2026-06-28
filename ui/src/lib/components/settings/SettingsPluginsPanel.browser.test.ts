@@ -14,6 +14,7 @@ function plugin(overrides: Partial<PluginInfo> = {}): PluginInfo {
     lastError: null,
     status: { key: "value" },
     ui: null,
+    gearItem: null,
     ...overrides,
   };
 }

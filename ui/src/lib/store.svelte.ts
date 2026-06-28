@@ -5,6 +5,7 @@ import type {
   WsEvent,
   PluginInfo,
   PluginUIView,
+  PluginGearItem,
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -172,6 +173,15 @@ export class HerdStore {
     const i = this.plugins.findIndex((p) => p.id === data.id);
     if (i === -1) return; // unknown id (pre-bootstrap race) — the GET seed will catch up
     this.plugins = this.plugins.map((p) => (p.id === data.id ? { ...p, ui: data.ui } : p));
+  }
+  /** Live `plugin:gear` push: update the matching plugin's gear-menu item in place.
+   *  Mirrors applyPluginUi, including the pre-bootstrap unknown-id no-op. */
+  private applyPluginGear(data: { id: string; gearItem: PluginGearItem | null }) {
+    const i = this.plugins.findIndex((p) => p.id === data.id);
+    if (i === -1) return; // unknown id (pre-bootstrap race) — the GET seed will catch up
+    this.plugins = this.plugins.map((p) =>
+      p.id === data.id ? { ...p, gearItem: data.gearItem } : p,
+    );
   }
   /** Seed (or replace) the preview-port map after a bootstrap GET. */
   setPreview(map: Record<string, number | null>) {
@@ -578,6 +588,9 @@ export class HerdStore {
         return true;
       case "plugin:ui":
         this.applyPluginUi(ev.data);
+        return true;
+      case "plugin:gear":
+        this.applyPluginGear(ev.data);
         return true;
       case "star-prompt:status":
         this.starPrompt = ev.data;

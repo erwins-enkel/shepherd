@@ -1035,6 +1035,20 @@ export async function getPlugins(): Promise<PluginInfo[]> {
   return body.plugins ?? [];
 }
 
+/** Invoke a plugin-registered route at `/api/plugins/<id>/<path>` with the given method.
+ *  On success, returns the trimmed response text (capped to 200 chars; longer responses are
+ *  sliced to 199 chars with a trailing "…"). Strings are verbatim plugin-authored DATA. */
+export async function invokePluginRoute(
+  id: string,
+  method: "GET" | "POST",
+  path: string,
+): Promise<string> {
+  const r = await fetch(`/api/plugins/${id}/${path}`, { method });
+  if (!r.ok) throw await failed(r, "plugin route");
+  const text = (await r.text()).trim();
+  return text.length > 200 ? text.slice(0, 199) + "…" : text;
+}
+
 /** Run the verbatim remediation for a diagnostics check, then return the re-probed
  *  snapshot. Throws (via failed/apiError) on a non-2xx — the caller surfaces it as an
  *  explicit failure, never a silent pass. */

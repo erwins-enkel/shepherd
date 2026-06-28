@@ -748,6 +748,8 @@ const docAgent = new DocAgentService({
   herdr,
   worktree,
   resolveForge,
+  // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
   gitState: (id) => prPoller.get(id),

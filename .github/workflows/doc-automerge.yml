@@ -37,6 +37,12 @@ permissions:
   # dies with "Resource not accessible by integration" the moment a PR has any check.
   checks: read
   statuses: read
+  # The same statusCheckRollup query ALSO traverses CheckRun → checkSuite → workflowRun
+  # (gh's fixed GraphQL fragment fetches the run's workflow name). Reading the workflowRun
+  # node needs `actions: read` — `checks`/`statuses` above cover only the leaf verdicts, not
+  # this node. Without it the query still dies "Resource not accessible by integration
+  # (...checkSuite.workflowRun)" on any Actions-checked PR (the #1163 scope fix missed it).
+  actions: read
 
 # One merge pass at a time; never cancel a pass mid-merge.
 concurrency:

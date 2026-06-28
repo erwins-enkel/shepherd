@@ -811,7 +811,7 @@ input, select, textarea {
       <code>ctx.publishUI</code>
       to show a categorical distribution — e.g. per-account quota usage. Each bar carries an independent
       tone color. Default orientation is <code>"horizontal"</code>; pass
-      <code>"vertical"</code> for a column chart. Theme-aware SVG.
+      <code>"vertical"</code> for a column chart. Theme-aware, token-driven layout.
     </p>
     <div class="demo" style="max-width: 280px">
       <PluginUIRenderer node={barChartNode} />

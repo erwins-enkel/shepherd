@@ -2,6 +2,7 @@ import type { ChecksState, PrStatus } from "./forge/types";
 import type { ReviewDecision } from "./types";
 import type { ManualStep } from "./manual-steps";
 import { signedOff, type SignoffAuthority } from "./signoff";
+import { checksCleared } from "./checks-gate";
 
 /** Why the merge train is holding — surfaced on automerge:status. */
 export interface MergeHoldReason {
@@ -23,6 +24,9 @@ export interface MergeSessionView {
   desig: string;
   state: PrStatus["state"];
   checks: ChecksState;
+  /** True when the repo has no CI to wait on (GitHub + zero workflows): a terminal checks:"none"
+   *  counts as cleared for merge. Projected from the cached GitState's noCi. */
+  noCi: boolean;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   number: number | null;
@@ -101,7 +105,7 @@ function readyExceptManualSteps(
   authority: SignoffAuthority,
 ): boolean {
   if (s.mergeBlocked) return false; // backed off after repeated merge failures → skip, try siblings
-  if (s.state !== "open" || s.checks !== "success" || s.mergeable !== true || !s.number)
+  if (s.state !== "open" || !checksCleared(s.checks, s.noCi) || s.mergeable !== true || !s.number)
     return false;
   if (s.behind !== false) return false; // true=stale, null=unknown → not now
   if (draftMode && !signedOff(authority, signoffView(s))) return false; // backstop: never merge an unsigned draft
@@ -136,7 +140,7 @@ function needsRebase(
   draftMode: boolean,
   authority: SignoffAuthority,
 ): boolean {
-  if (s.state !== "open" || s.checks !== "success" || !s.number) return false;
+  if (s.state !== "open" || !checksCleared(s.checks, s.noCi) || !s.number) return false;
   // A rebase for this exact head is already outstanding/in-progress → not actionable
   // (computeMerge falls through to an idle hold rather than re-steer + re-bump).
   if (s.headSha !== null && s.rebaseSteeredHead === s.headSha) return false;

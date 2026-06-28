@@ -197,6 +197,11 @@ export interface PrStatus {
  *  payload and the value cached/pushed for the list overview. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
+  /** True when the repo has no CI to wait on (GitHub + zero defined workflows), so a terminal
+   *  `checks:"none"` should be treated as cleared for review/merge/surface rather than as a
+   *  not-yet-green CI race. Stamped once in `annotateHandoff` (the poller + on-demand `/git`
+   *  chokepoint); consumed via `checksCleared`. Absent ⇒ false. */
+  noCi?: boolean;
   /** Who is up once the PR is open + green, when it isn't the operator — computed
    *  server-side from `.shepherd/roles.json` + the operator's login. Absent = the
    *  operator's turn (today's "awaiting merge"). Drives the herd's

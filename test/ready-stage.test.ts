@@ -120,6 +120,26 @@ describe("isReadyForNotify", () => {
     expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
   });
 
+  test("no-CI repo (noCi + checks:none) + idle, no handoff (awaitingMerge) → READY", () => {
+    const s = makeSession({ status: "idle" });
+    const git = makeGit({ state: "open", checks: "none", noCi: true });
+    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+  });
+
+  test("no-CI repo (noCi + checks:none) + idle + handoff=merger (waitingOnMerger) → NOT ready", () => {
+    // Proves noCi engages greenIdle → the handoff routing (not 'active').
+    const s = makeSession({ status: "idle" });
+    const git = makeGit({ state: "open", checks: "none", noCi: true, handoff: "merger" });
+    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+  });
+
+  test("checks:none WITHOUT noCi + idle + handoff=merger → stays active (handoff ignored)", () => {
+    // A CI repo's pre-green 'none' is NOT greenIdle, so handoffStage never runs → 'active'.
+    const s = makeSession({ status: "idle" });
+    const git = makeGit({ state: "open", checks: "none", handoff: "merger" });
+    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+  });
+
   test("open PR + checks success + idle + isDraft (draftAwaitingSignoff) → READY", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "success", isDraft: true });

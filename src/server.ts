@@ -125,6 +125,7 @@ import {
   enrichLandingEpics,
   type CompletedEpic,
 } from "./completed-epic";
+import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { join, normalize, basename } from "node:path";
@@ -5166,7 +5167,8 @@ async function resolveLandTarget(
     return { error: json({ error: msg }, 502) };
   }
 
-  if (!computeLandingReady(pr)) return { error: json({ error: "landing PR not ready" }, 409) };
+  if (!computeLandingReady(pr, repoHasNoCiCached(forge.kind, dir)))
+    return { error: json({ error: "landing PR not ready" }, 409) };
 
   return { dir, parent, row, forge, branch, pr };
 }

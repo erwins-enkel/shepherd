@@ -1,6 +1,7 @@
 import type { Issue, GitState } from "./forge/types";
 import type { SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
+import { checksCleared } from "./checks-gate";
 
 /** Issues carrying this label jump to the head of the drain queue. Fixed (the
  *  per-repo `autoLabel` is configurable, but the priority marker is a constant
@@ -134,7 +135,13 @@ function readyToRetire(
   authority: SignoffAuthority,
 ): boolean {
   const g = s.git;
-  if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
+  if (
+    !g ||
+    g.state !== "open" ||
+    !checksCleared(g.checks, g.noCi ?? false) ||
+    g.mergeable !== true ||
+    !g.number
+  ) {
     return false;
   }
   if (draftMode) {
@@ -158,7 +165,13 @@ function awaitingSignoff(
 ): boolean {
   if (!draftMode) return false;
   const g = s.git;
-  if (!g || g.state !== "open" || g.checks !== "success" || g.mergeable !== true || !g.number) {
+  if (
+    !g ||
+    g.state !== "open" ||
+    !checksCleared(g.checks, g.noCi ?? false) ||
+    g.mergeable !== true ||
+    !g.number
+  ) {
     return false;
   }
   return !signedOff(authority, signoffView(s));

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity } from "$lib/types";
   import { elapsed, formatAgo, waitTier } from "$lib/format";
+  import { checksCleared } from "$lib/checks-cleared";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -73,13 +74,14 @@
   );
   // The "who's up next" lines (waiting-on-reviewer/merger and the neutral
   // ready-to-merge fallback) only apply once the PR is actually handed off. Mirror
-  // herd-partition.ts's `greenIdle` gate exactly: open + green + non-draft AND the
-  // session no longer in the agent's court (raw "running" OR "blocked" both keep it
-  // in the herd's `active` group). So an ACTIVE/blocked session never claims a
+  // herd-partition.ts's `greenIdle` gate exactly via the shared `checksCleared`
+  // helper (green, OR a no-CI repo's terminal "none") + non-draft AND the session no
+  // longer in the agent's court (raw "running" OR "blocked" both keep it in the
+  // herd's `active` group). So an ACTIVE/blocked session never claims a
   // reviewer/merger/operator is up — matching the card badge and the herd grouping.
   const handedOff = $derived(
     git?.state === "open" &&
-      git.checks === "success" &&
+      checksCleared(git.checks, git.noCi) &&
       !git.isDraft &&
       session.status !== "running" &&
       session.status !== "blocked",

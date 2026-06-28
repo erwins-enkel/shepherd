@@ -12,6 +12,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
+  import { checksCleared } from "$lib/checks-cleared";
   import { criticChip, criticBadgeLabel } from "./critic-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
@@ -342,11 +343,14 @@
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
   const chip = $derived(criticChip(verdict, reviewing));
-  // Manual critic trigger: only when the auto path's own precondition holds (open PR, green
-  // CI) AND the repo has the critic enabled. Mirrors the server's forceReview guard so a
-  // shown button is never server-rejected. Reviewing is allowed (label becomes "Restart").
+  // Manual critic trigger: only when the auto path's own precondition holds (open PR, CI
+  // cleared — green OR a no-CI repo's terminal "none") AND the repo has the critic enabled.
+  // Mirrors the server's forceReview guard (checksCleared) so a shown button is never
+  // server-rejected. Reviewing is allowed (label becomes "Restart").
   const canReview = $derived(
-    git?.state === "open" && git?.checks === "success" && repoConfig.flags(repoPath).critic,
+    git?.state === "open" &&
+      checksCleared(git.checks, git.noCi) &&
+      repoConfig.flags(repoPath).critic,
   );
   const reviewLabel = $derived(
     armed === "review"

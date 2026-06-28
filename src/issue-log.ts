@@ -1,6 +1,7 @@
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
 import type { Session } from "./types";
+import { checksCleared } from "./checks-gate";
 
 /**
  * Issue-log: the workflow protocol on a session's backlog issue. For a session
@@ -43,7 +44,12 @@ export function issueLogEntries(
   // the full condition so a stale/hand-rolled GitState can't comment early. An
   // auto-inferred handoff (no roles.json) is excluded — the outward comment is
   // opt-in to explicitly-configured roles (see module doc).
-  if (git.state === "open" && git.checks === "success" && git.handoff && !git.handoffInferred) {
+  if (
+    git.state === "open" &&
+    checksCleared(git.checks, git.noCi ?? false) &&
+    git.handoff &&
+    !git.handoffInferred
+  ) {
     const key = `waiting:${git.number}`;
     if (!alreadyLogged(key)) out.push({ key, body: stamp(waitingBody(git, git.number)) });
   }

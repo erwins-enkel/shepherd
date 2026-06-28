@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
 import type { GitState, PrStatus } from "./forge/types";
+import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 
 /** Per-repo responsibility config, committed to `.shepherd/roles.json` at the repo
  *  root. Values are GitHub logins (the merger/reviewer for this repo) or null when
@@ -147,11 +148,15 @@ function readRolesFromRef(repoPath: string): RepoRoles {
  *  an open + green PR carries a handoff (the only point the herd consults it);
  *  everything else is returned without one. */
 export function annotateHandoff(state: GitState, repoPath: string, me: string | null): GitState {
-  const base: GitState = { ...state };
+  // Stamp noCi on EVERY state (the poller + on-demand /git chokepoint) so all downstream gates can
+  // read git.noCi without re-deriving it. A no-CI repo (GitHub + zero workflows) treats a terminal
+  // checks:"none" as cleared — see checks-gate.ts.
+  const noCi = repoHasNoCiCached(state.kind, repoPath);
+  const base: GitState = { ...state, noCi };
   delete base.handoff; // drop any stale handoff so a role change clears it
   delete base.handoffWho;
   delete base.handoffInferred;
-  if (base.state !== "open" || base.checks !== "success") return base;
+  if (base.state !== "open" || !checksCleared(base.checks, noCi)) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(
     readRepoRoles(repoPath),
     me,

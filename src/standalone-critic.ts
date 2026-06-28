@@ -25,6 +25,7 @@ import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isEpicIntegrationBranch } from "./epic-branch";
+import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
@@ -216,6 +217,9 @@ export class StandalonePrCriticService {
     // repo lands in the swept set apart: flag ON → review every eligible PR (old behavior); flag OFF
     // → this repo is here ONLY for its epic landing PR, so eligible() restricts to that one PR.
     const criticAllPrs = cfg.criticAllPrs;
+    // Resolve no-CI status ONCE per repo per sweep (not per candidate PR): a GitHub repo with zero
+    // workflows has no CI to wait on, so its PRs' terminal checks:"none" is reviewable.
+    const noCi = repoHasNoCiCached(forge.kind, repoPath);
 
     let prs: PullRequest[];
     try {
@@ -226,7 +230,7 @@ export class StandalonePrCriticService {
     }
 
     const candidates = prs.filter((pr) =>
-      this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs),
+      this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs, noCi),
     );
     let deferred = 0;
     for (const pr of candidates) {
@@ -253,11 +257,13 @@ export class StandalonePrCriticService {
     managed: Set<string>,
     criticEnabled: boolean,
     criticAllPrs: boolean,
+    noCi: boolean,
   ): boolean {
     if (pr.isDraft) return false;
     // Best-effort TOCTOU gate: the rollup can change between enumeration and spawn, but a green
-    // read here is the right cheap filter (a finalize-time live-state recheck backstops the rest).
-    if (pr.checks !== "success") return false;
+    // (or no-CI terminal) read here is the right cheap filter (a finalize-time live-state recheck
+    // backstops the rest).
+    if (!checksCleared(pr.checks, noCi)) return false;
     if (pr.kind !== "regular") return false; // Dependabot / release-please bots — not for the critic
     if (!pr.headSha || !pr.headRefName) {
       this.log(`[pr-critic] ${repoPath}#${pr.number} missing headSha/headRefName — skipping`);

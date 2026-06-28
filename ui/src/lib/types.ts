@@ -677,6 +677,10 @@ export interface QueuedItem {
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
+  /** True when the repo has no CI to wait on (GitHub + zero workflows): a terminal `checks:"none"`
+   *  is treated as cleared (reviewed/merge-ready/awaiting-merge) rather than as a pre-CI race.
+   *  Stamped server-side; mirror of the server GitState field. Absent ⇒ false. */
+  noCi?: boolean;
   /** Who is up once the PR is open + green, when it isn't the operator (computed
    *  server-side from `.shepherd/roles.json`). Absent = the operator's turn. */
   handoff?: "reviewer" | "merger";

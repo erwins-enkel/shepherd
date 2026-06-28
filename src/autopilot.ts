@@ -5,6 +5,7 @@ import type { GitState } from "./forge/types";
 import type { SessionStateChange } from "./session-snapshot";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { signedOff } from "./signoff";
+import { checksCleared } from "./checks-gate";
 import { DRAFT_PR_NOTE } from "./service";
 
 /**
@@ -614,7 +615,13 @@ export class AutopilotService {
     if (this.pending.has(s.id)) return null; // a classify (onDone/onBlock) is mid-flight — don't race it
     if (this.deps.fullAuto(s.id)) return null; // full-auto is the merge train's job, not autopilot's
     const git = this.deps.prGit(s.id);
-    if (!git || git.state !== "open" || git.isDraft || git.checks !== "success") return null;
+    if (
+      !git ||
+      git.state !== "open" ||
+      git.isDraft ||
+      !checksCleared(git.checks, git.noCi ?? false)
+    )
+      return null;
     return this.rebaseReviewPassed(s, git) ? git : null;
   }
 

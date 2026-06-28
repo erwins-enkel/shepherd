@@ -4,6 +4,7 @@
 import type { Session, SessionStatus } from "./types";
 import type { GitState } from "./forge/types";
 import { isMerging } from "./rundown-core";
+import { checksCleared } from "./checks-gate";
 
 /** Display-side session status — port of ui/src/lib/display-status.ts.
  *  A session herdr reports "blocked" but the server flagged as working-while-blocked
@@ -72,7 +73,7 @@ function stageOf(
   // the partition and doesn't need threading through here.
   const greenIdle =
     g?.state === "open" &&
-    g.checks === "success" &&
+    checksCleared(g.checks, g.noCi ?? false) &&
     s.status !== "running" &&
     s.status !== "blocked";
   return greenIdle ? handoffStage(g) : "active";

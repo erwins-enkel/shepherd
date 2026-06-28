@@ -40,7 +40,10 @@ const OPEN: PrStatus = { state: "open", number: 7, checks: "pending", deployConf
 test("emits session git state on first poll and only again on change", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
-  const emitted: { id: string; git: { state: string; number?: number; kind: string } }[] = [];
+  const emitted: {
+    id: string;
+    git: { state: string; number?: number; kind: string; noCi?: boolean };
+  }[] = [];
   let cur = OPEN;
   const poller = new PrPoller(
     store,
@@ -49,7 +52,8 @@ test("emits session git state on first poll and only again on change", async () 
   );
 
   await poller.tick();
-  expect(emitted).toEqual([{ id: s.id, git: { ...OPEN, kind: "github" } }]);
+  // annotateHandoff stamps noCi (repoPath "/r" has no .github/workflows ⇒ GitHub no-CI repo).
+  expect(emitted).toEqual([{ id: s.id, git: { ...OPEN, kind: "github", noCi: true } }]);
 
   await poller.tick(); // unchanged → no new emit
   expect(emitted.length).toBe(1);

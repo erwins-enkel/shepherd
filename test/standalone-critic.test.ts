@@ -270,6 +270,27 @@ test("skips draft / non-green / bot PRs", async () => {
   }
 });
 
+test("no-CI GitHub repo (zero workflows) reviews a checks:none PR", async () => {
+  // repos() defaults to "/r" (no .github/workflows) ⇒ repoHasNoCiCached(github) → true.
+  const local = makeDeps({}, { forge: undefined });
+  local.deps.resolveForge = () =>
+    makeForge(local.spies, { prs: [pr({ number: 1, checks: "none" })] });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(local.spies.started).toHaveLength(1);
+});
+
+test("non-GitHub forge never treats checks:none as no-CI → skips", async () => {
+  const local = makeDeps({}, { forge: undefined });
+  local.deps.resolveForge = () => ({
+    ...makeForge(local.spies, { prs: [pr({ number: 1, checks: "none" })] }),
+    kind: "gitea",
+  });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  expect(local.spies.started).toHaveLength(0);
+});
+
 // tiny helper for tests that re-wire the forge with throwaway spies
 function spies0(): Spies {
   return {

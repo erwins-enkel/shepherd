@@ -252,6 +252,7 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     desig: "TASK-01",
     state: "open",
     checks: "success",
+    noCi: false,
     mergeable: true,
     number: 1,
     headSha: "h1",

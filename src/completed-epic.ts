@@ -1,5 +1,6 @@
 import type { EpicChild } from "./epic-core";
-import type { ChecksState, PrStatus } from "./forge/types";
+import type { ChecksState, ForgeKind, PrStatus } from "./forge/types";
+import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 
 export interface CompletedEpicChild {
   number: number;
@@ -60,12 +61,15 @@ export const EPIC_LANDING_STRANDED_MS = 6 * 60 * 60_000;
  *  - "blocked": branch-protection rules are blocking the merge; the app-triggered merge would fail,
  *    so we must NOT show an enabled CTA that fires a doomed merge call.
  *  - "behind", "dirty", "unstable", "draft", "unknown": also not mergeable.
- *  When mergeStateStatus is undefined (Gitea), we fall back to state+checks+mergeable alone. */
+ *  When mergeStateStatus is undefined (Gitea), we fall back to state+checks+mergeable alone.
+ *  `noCi` (GitHub repo with zero workflows) lets a terminal checks:"none" count as cleared — a
+ *  no-CI repo's landing PR is still mergeable (mergeStateStatus stays the authoritative gate). */
 export function computeLandingReady(
   pr: Pick<PrStatus, "state" | "checks" | "mergeable" | "mergeStateStatus">,
+  noCi = false,
 ): boolean {
   if (pr.state !== "open") return false;
-  if (pr.checks !== "success") return false;
+  if (!checksCleared(pr.checks, noCi)) return false;
   if (pr.mergeable !== true) return false;
   if (pr.mergeStateStatus === undefined) return true; // Gitea fallback
   return pr.mergeStateStatus === "clean" || pr.mergeStateStatus === "has_hooks";
@@ -92,7 +96,7 @@ export interface EnrichLandingDeps {
   getEpicIntegrationBranch: (repoPath: string, parentIssueNumber: number) => string | null;
   resolveForge: (
     repoPath: string,
-  ) => { prStatus: (headBranch: string) => Promise<PrStatus> } | null | undefined;
+  ) => { kind: ForgeKind; prStatus: (headBranch: string) => Promise<PrStatus> } | null | undefined;
   now: number;
 }
 
@@ -116,7 +120,7 @@ export async function enrichLandingEpics(
         const pr = await forge.prStatus(branch);
         row.landingChecks = pr.checks;
         row.landingMergeable = pr.mergeable ?? null;
-        const landingReady = computeLandingReady(pr);
+        const landingReady = computeLandingReady(pr, repoHasNoCiCached(forge.kind, row.repoPath));
         row.landingReady = landingReady;
         row.landingStranded = computeLandingStranded({
           landingState: "open",

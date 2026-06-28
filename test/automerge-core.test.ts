@@ -7,6 +7,7 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     desig: "TASK-01",
     state: "open",
     checks: "success",
+    noCi: false,
     mergeable: true,
     number: 7,
     headSha: "h1",
@@ -43,6 +44,24 @@ test("disabled → hold", () => {
 test("open+green+mergeable+current → merge (critic off)", () => {
   const d = computeMerge(state([sess()]));
   expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("no-CI repo (noCi + checks:none) → merge", () => {
+  // A GitHub repo with zero workflows reports checks:"none" forever; with noCi it's mergeable.
+  const d = computeMerge(state([sess({ checks: "none", noCi: true })]));
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("checks:none WITHOUT noCi → hold (CI repo pre-green, not merged)", () => {
+  expect(computeMerge(state([sess({ checks: "none", noCi: false })])).kind).toBe("hold");
+});
+
+test("no-CI repo but not mergeable → rebase (mergeable gate still bites)", () => {
+  expect(computeMerge(state([sess({ checks: "none", noCi: true, mergeable: false })]))).toEqual({
+    kind: "rebase",
+    sessionId: "s1",
+    headSha: "h1",
+  });
 });
 
 test("behind → rebase", () => {

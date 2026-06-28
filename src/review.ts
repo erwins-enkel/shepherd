@@ -9,6 +9,7 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
+import { checksCleared } from "./checks-gate";
 import { isSpawnWorking, decideVerdictAction } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
 import {
@@ -221,7 +222,12 @@ export class ReviewService {
     opts?: { force?: boolean },
   ): Promise<ReviewOutcome> {
     const force = opts?.force === true;
-    if (git.state !== "open" || git.checks !== "success" || !git.headSha || !git.number)
+    if (
+      git.state !== "open" ||
+      !checksCleared(git.checks, git.noCi ?? false) ||
+      !git.headSha ||
+      !git.number
+    )
       return "skipped";
     if (!session.branch) return "skipped";
     if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return "skipped";

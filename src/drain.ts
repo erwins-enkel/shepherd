@@ -29,6 +29,7 @@ import {
   type EpicLandingState,
 } from "./completed-epic";
 import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
+import { repoHasNoCiCached } from "./checks-gate";
 import { EmptyDiffError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
@@ -1278,7 +1279,8 @@ export class DrainService {
       return;
     }
     if (pr.isDraft) return; // never merge a draft (computeLandingReady's Gitea fallback can't tell)
-    if (!computeLandingReady(pr)) return; // not green / mergeable yet
+    // not green / mergeable yet (no-CI repos: a terminal checks:"none" + clean mergeStateStatus is ready)
+    if (!computeLandingReady(pr, repoHasNoCiCached(forge.kind, repoPath))) return;
     const key = `${repoPath}#${parentIssueNumber}`;
     if (this.landMergeBlocked(key, pr.headSha ?? "")) return; // backed off on this head
     try {

@@ -1,8 +1,21 @@
 import { test, expect } from "bun:test";
-import { computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
-import type { PrStatus } from "../src/forge/types";
+import { annotateHandoff, computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
+import type { GitState, PrStatus } from "../src/forge/types";
 
 const approved: PrStatus["latestReview"] = { state: "approved", author: "scoop", submittedAt: 1 };
+
+const gitState = (over: Partial<GitState> = {}): GitState =>
+  ({ kind: "github", state: "open", checks: "none", deployConfigured: false, ...over }) as GitState;
+
+test("annotateHandoff stamps noCi=true for a GitHub repo with no workflows", () => {
+  const g = annotateHandoff(gitState(), "/no/such/repo", "kai");
+  expect(g.noCi).toBe(true);
+});
+
+test("annotateHandoff stamps noCi=false for a non-GitHub forge", () => {
+  const g = annotateHandoff(gitState({ kind: "gitea" }), "/no/such/repo", "kai");
+  expect(g.noCi).toBe(false);
+});
 
 test("merger = self → self (today's 'your turn')", () => {
   const r = computeHandoff({ reviewer: null, merger: "kai" }, "kai", undefined);

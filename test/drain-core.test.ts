@@ -194,6 +194,27 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
   });
 
+  test("retire: no-CI repo (noCi + checks:none + mergeable) → retire", () => {
+    const noCiGit: GitState = { ...MERGEABLE, checks: "none", noCi: true };
+    const d = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "sX", git: noCiGit, reviewDecision: null })],
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+  });
+
+  test("retire: checks:none WITHOUT noCi → does NOT retire (CI repo pre-green)", () => {
+    const preGreen: GitState = { ...MERGEABLE, checks: "none" };
+    const d = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "sX", git: preGreen, reviewDecision: null })],
+        candidates: [],
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
   test("retire: commented review still retires", () => {
     const d = computeNext(
       state({

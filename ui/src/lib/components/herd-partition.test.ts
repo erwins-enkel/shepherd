@@ -61,6 +61,20 @@ test("ready sessions land in the ready group, active stay on top", () => {
   expect(merged).toHaveLength(0);
 });
 
+test("no-CI repo (noCi + checks:none) idle PR → awaitingMerge, not active", () => {
+  const list = [session("x", false, "idle")];
+  const p = partitionSessions(list, { x: { ...git("open", "none"), noCi: true } });
+  expect(p.awaitingMerge.map((s) => s.id)).toEqual(["x"]);
+  expect(p.active).toHaveLength(0);
+});
+
+test("checks:none WITHOUT noCi idle PR → stays active (pre-CI race)", () => {
+  const list = [session("x", false, "idle")];
+  const p = partitionSessions(list, { x: git("open", "none") });
+  expect(p.active.map((s) => s.id)).toEqual(["x"]);
+  expect(p.awaitingMerge).toHaveLength(0);
+});
+
 test("merged-PR sessions land in the merged group", () => {
   const list = [session("a"), session("m1"), session("b")];
   const { active, ready, merged } = partitionSessions(list, { m1: git("merged") });

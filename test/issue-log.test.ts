@@ -40,6 +40,22 @@ test("handoff without a login → generic waiting wording", () => {
   expect(e).toEqual([{ key: "waiting:7", body: stamped("⏸️ Waiting on PR #7 to merge.") }]);
 });
 
+test("no-CI repo (noCi + checks:none) + merger handoff → waiting entry", () => {
+  const e = issueLogEntries(
+    open({ checks: "none", noCi: true, handoff: "merger", handoffWho: "scoop" }),
+    never,
+  );
+  expect(e).toEqual([{ key: "waiting:7", body: stamped("⏸️ Waiting on @scoop to merge PR #7.") }]);
+});
+
+test("checks:none WITHOUT noCi + handoff → NO waiting entry (CI repo pre-green)", () => {
+  const e = issueLogEntries(
+    open({ checks: "none", handoff: "merger", handoffWho: "scoop" }),
+    never,
+  );
+  expect(e).toEqual([]);
+});
+
 test("merged → one merged entry, phrased issue-state-agnostic", () => {
   const e = issueLogEntries(open({ state: "merged" }), never);
   expect(e).toEqual([{ key: "merged:7", body: stamped("✅ PR #7 merged.") }]);

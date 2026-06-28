@@ -33,7 +33,9 @@ import { isMerging } from "./merge-train";
  *  A draft outranks the handed-off groups: a green idle DRAFT is awaiting sign-off
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
  *  yet) stays in `active` to avoid flicker into the "Your turn" group before CI registers
- *  as pending. The groups render top→bottom as active → ciRunning → ciFailed →
+ *  as pending — UNLESS the repo has no CI at all (`g.noCi`, GitHub + zero workflows), where
+ *  `none` is terminal and the PR is handed off like a green one. The groups render top→bottom as
+ *  active → ciRunning → ciFailed →
  *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
  *  awaitingMerge → ready → merging → merged (Herd.svelte's template order, mirrored
  *  by herd-keynav's railOrder via flattenByStage), tracking the session lifecycle. `isReviewing`
@@ -145,7 +147,7 @@ function stageOf(
   // the partition and doesn't need threading through here.
   const greenIdle =
     g?.state === "open" &&
-    g.checks === "success" &&
+    (g.checks === "success" || (g.noCi === true && g.checks === "none")) &&
     s.status !== "running" &&
     s.status !== "blocked";
   return greenIdle ? handoffStage(g) : "active";

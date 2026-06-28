@@ -509,6 +509,21 @@ test("skips when CI not green / PR not open", () => {
   expect(started).toHaveLength(0);
 });
 
+test("no-CI repo (noCi + checks:none) → reviews", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, checks: "none", noCi: true });
+  expect(started).toHaveLength(1);
+});
+
+test("checks:none WITHOUT noCi → skipped (CI repo pre-green)", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, checks: "none", noCi: false });
+  await svc.consider(session(), { ...OPEN_GREEN, checks: "none" }); // noCi absent ⇒ false
+  expect(started).toHaveLength(0);
+});
+
 test("timeout with no verdict → error verdict, still reaps", async () => {
   let t = 1000;
   const {

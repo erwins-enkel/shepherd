@@ -191,6 +191,35 @@ describe("computeLandingReady", () => {
     expect(computeLandingReady({ state: "open", checks: "success", mergeable: true })).toBe(true);
   });
 
+  it("no-CI repo (noCi + checks:none + clean) → ready", () => {
+    expect(
+      computeLandingReady(
+        { state: "open", checks: "none", mergeable: true, mergeStateStatus: "clean" },
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  it("checks:none WITHOUT noCi → NOT ready (CI repo pre-green)", () => {
+    expect(
+      computeLandingReady({
+        state: "open",
+        checks: "none",
+        mergeable: true,
+        mergeStateStatus: "clean",
+      }),
+    ).toBe(false);
+  });
+
+  it("no-CI but blocked mergeStateStatus → NOT ready (mergeStateStatus still authoritative)", () => {
+    expect(
+      computeLandingReady(
+        { state: "open", checks: "none", mergeable: true, mergeStateStatus: "blocked" },
+        true,
+      ),
+    ).toBe(false);
+  });
+
   it("not-open → NOT ready", () => {
     expect(
       computeLandingReady({
@@ -310,7 +339,7 @@ describe("enrichLandingEpics", () => {
     const rows = [baseEpic({ completedAt: 0 })];
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
-      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
       now: EPIC_LANDING_STRANDED_MS + 1, // completed long ago → stranded
     });
     expect(rows[0]?.landingReady).toBe(true);
@@ -323,7 +352,10 @@ describe("enrichLandingEpics", () => {
     const rows = [baseEpic({ completedAt: 0 })];
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
-      resolveForge: () => ({ prStatus: async () => prStatus({ checks: "failure" }) }),
+      resolveForge: () => ({
+        kind: "local",
+        prStatus: async () => prStatus({ checks: "failure" }),
+      }),
       now: EPIC_LANDING_STRANDED_MS + 1,
     });
     expect(rows[0]?.landingReady).toBe(false);
@@ -334,7 +366,7 @@ describe("enrichLandingEpics", () => {
     const rows = [baseEpic({ landingState: "merged" })];
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
-      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();
@@ -344,7 +376,7 @@ describe("enrichLandingEpics", () => {
     const rows = [baseEpic()];
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => null,
-      resolveForge: () => ({ prStatus: async () => prStatus() }),
+      resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();
@@ -365,6 +397,7 @@ describe("enrichLandingEpics", () => {
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
       resolveForge: () => ({
+        kind: "local",
         prStatus: async () => {
           throw new Error("network");
         },

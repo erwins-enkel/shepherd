@@ -17,6 +17,11 @@
   import { theme } from "$lib/theme.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
+  // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
+  // widgets compute SVG geometry from props — a static copy would drift. Import the
+  // real components via PluginUIRenderer so the showcase exercises the actual dispatch path.
+  import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
+  import type { PluginUINode } from "$lib/types";
 
   type Token = { name: string; note: string };
 
@@ -149,6 +154,126 @@ input, select, textarea {
 .pui-meter-label  { font-size:var(--fs-meta); color:var(--color-ink); font-weight:600; }
 .pui-meter-value  { font-size:var(--fs-micro); font-variant-numeric:tabular-nums; }
 .pui-meter-caption{ font-size:var(--fs-micro); color:var(--color-muted); }`;
+
+  // Sample nodes for the graphical plugin-UI widget demos below.
+  const gaugeNode = {
+    type: "gauge",
+    props: { label: "5h quota", value: 72, max: 100, tone: "warn", caption: "resets 14:30" },
+  } satisfies PluginUINode;
+
+  const sparklineNode = {
+    type: "sparkline",
+    props: { label: "tokens/min", points: [4, 9, 7, 12, 10, 15, 11, 18, 14, 20], tone: "info" },
+  } satisfies PluginUINode;
+
+  const timeSeriesNode = {
+    type: "time-series",
+    props: {
+      kind: "area",
+      caption: "5h vs 7d usage",
+      series: [
+        { label: "5h", tone: "info", points: [10, 18, 14, 22, 19, 26, 30] },
+        { label: "7d", tone: "warn", points: [40, 42, 38, 45, 50, 48, 55] },
+      ],
+    },
+  } satisfies PluginUINode;
+
+  const barChartNode = {
+    type: "bar-chart",
+    props: {
+      bars: [
+        { label: "acct-a", value: 82, tone: "error" },
+        { label: "acct-b", value: 47, tone: "ok" },
+        { label: "acct-c", value: 63, tone: "warn" },
+      ],
+    },
+  } satisfies PluginUINode;
+
+  const timelineNode = {
+    type: "timeline",
+    props: {
+      events: [
+        { at: "14:02", label: "spawned session", tone: "ok" },
+        { at: "14:05", label: "quota check", caption: "5h at 72%", tone: "warn" },
+        { at: "14:11", label: "refused spawn", caption: "capacity", tone: "error" },
+      ],
+    },
+  } satisfies PluginUINode;
+
+  // Descriptor strings — the node JSON a plugin would pass to ctx.publishUI().
+  const gaugeDescriptor = `// Plugin publishUI() descriptor — gauge
+{
+  "schemaVersion": 1,
+  "slot": "settings-panel",
+  "title": "Quota",
+  "root": {
+    "type": "gauge",
+    "props": { "label": "5h quota", "value": 72, "max": 100, "tone": "warn", "caption": "resets 14:30" }
+  }
+}`;
+
+  const sparklineDescriptor = `// Plugin publishUI() descriptor — sparkline
+{
+  "schemaVersion": 1,
+  "slot": "settings-panel",
+  "title": "Throughput",
+  "root": {
+    "type": "sparkline",
+    "props": { "label": "tokens/min", "points": [4, 9, 7, 12, 10, 15, 11, 18, 14, 20], "tone": "info" }
+  }
+}`;
+
+  const timeSeriesDescriptor = `// Plugin publishUI() descriptor — time-series
+{
+  "schemaVersion": 1,
+  "slot": "settings-panel",
+  "title": "Usage",
+  "root": {
+    "type": "time-series",
+    "props": {
+      "kind": "area",
+      "caption": "5h vs 7d usage",
+      "series": [
+        { "label": "5h", "tone": "info", "points": [10, 18, 14, 22, 19, 26, 30] },
+        { "label": "7d", "tone": "warn", "points": [40, 42, 38, 45, 50, 48, 55] }
+      ]
+    }
+  }
+}`;
+
+  const barChartDescriptor = `// Plugin publishUI() descriptor — bar-chart
+{
+  "schemaVersion": 1,
+  "slot": "settings-panel",
+  "title": "Per-account usage",
+  "root": {
+    "type": "bar-chart",
+    "props": {
+      "bars": [
+        { "label": "acct-a", "value": 82, "tone": "error" },
+        { "label": "acct-b", "value": 47, "tone": "ok" },
+        { "label": "acct-c", "value": 63, "tone": "warn" }
+      ]
+    }
+  }
+}`;
+
+  const timelineDescriptor = `// Plugin publishUI() descriptor — timeline
+{
+  "schemaVersion": 1,
+  "slot": "settings-panel",
+  "title": "Activity",
+  "root": {
+    "type": "timeline",
+    "props": {
+      "events": [
+        { "at": "14:02", "label": "spawned session", "tone": "ok" },
+        { "at": "14:05", "label": "quota check", "caption": "5h at 72%", "tone": "warn" },
+        { "at": "14:11", "label": "refused spawn", "caption": "capacity", "tone": "error" }
+      ]
+    }
+  }
+}`;
 
   const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
 <!-- "Shepherd groups sessions under an [[epic|epic]]." -->
@@ -630,6 +755,83 @@ input, select, textarea {
       </div>
     </div>
     <pre><code>{meterMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · gauge</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>gauge</code> node via
+      <code>ctx.publishUI</code>
+      to display a single numeric value as a radial arc — e.g. quota consumption, capacity, or rate. The
+      arc and percentage text share the tone color; the ratio is clamped to [0, 1]. Rendered from the
+      whitelisted SVG registry; theme-aware.
+      <strong>When not:</strong> use <code>meter</code> for a linear bar;
+      <code>gauge</code> is for circular, at-a-glance readouts.
+    </p>
+    <div class="demo" style="max-width: 280px">
+      <PluginUIRenderer node={gaugeNode} />
+    </div>
+    <pre><code>{gaugeDescriptor}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · sparkline</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>sparkline</code> node via
+      <code>ctx.publishUI</code>
+      to surface a compact inline trend from a short numeric history — e.g. tokens/min, error rate, or
+      latency over the last N samples. Single-series only; no axis labels (for those, use
+      <code>time-series</code>). Theme-aware SVG polyline.
+    </p>
+    <div class="demo" style="max-width: 280px">
+      <PluginUIRenderer node={sparklineNode} />
+    </div>
+    <pre><code>{sparklineDescriptor}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · time-series</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>time-series</code> node via
+      <code>ctx.publishUI</code>
+      to compare one or more numeric series over time — e.g. 5 h vs. 7-day usage. Supports
+      <code>kind: "line"</code> (default) or <code>"area"</code> fills. Each series carries an independent
+      tone color from the design-token vocabulary. Theme-aware SVG.
+    </p>
+    <div class="demo" style="max-width: 320px">
+      <PluginUIRenderer node={timeSeriesNode} />
+    </div>
+    <pre><code>{timeSeriesDescriptor}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · bar-chart</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>bar-chart</code> node via
+      <code>ctx.publishUI</code>
+      to show a categorical distribution — e.g. per-account quota usage. Each bar carries an independent
+      tone color. Default orientation is <code>"horizontal"</code>; pass
+      <code>"vertical"</code> for a column chart. Theme-aware, token-driven layout.
+    </p>
+    <div class="demo" style="max-width: 280px">
+      <PluginUIRenderer node={barChartNode} />
+    </div>
+    <pre><code>{barChartDescriptor}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · timeline</h2>
+    <p class="when">
+      <strong>When:</strong> a plugin publishes a <code>timeline</code> node via
+      <code>ctx.publishUI</code>
+      to surface a chronological list of discrete events — e.g. session lifecycle, quota checks, or spawn
+      refusals. Each event carries a timestamp (<code>at</code>), a label, an optional
+      <code>caption</code>, and a tone dot. Theme-aware; no SVG — pure token-driven layout.
+    </p>
+    <div class="demo">
+      <PluginUIRenderer node={timelineNode} />
+    </div>
+    <pre><code>{timelineDescriptor}</code></pre>
   </section>
 
   <section class="panel">

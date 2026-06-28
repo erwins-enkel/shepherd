@@ -2105,7 +2105,18 @@
   "plugin_ui_unknown_node": "Nicht unterstützte Komponente",
   "plugin_ui_table_empty": "Keine Daten.",
   "plugin_ui_kv_empty": "Keine Einträge.",
+  "plugin_ui_gauge_label": "Messanzeige",
+  "plugin_ui_sparkline_label": "Trend",
+  "plugin_ui_sparkline_empty": "Keine Daten.",
+  "plugin_ui_timeseries_label": "Zeitreihendiagramm",
+  "plugin_ui_timeseries_empty": "Keine Daten.",
+  "plugin_ui_barchart_label": "Balkendiagramm",
+  "plugin_ui_barchart_empty": "Keine Daten.",
+  "plugin_ui_timeline_label": "Zeitachse",
+  "plugin_ui_timeline_empty": "Keine Ereignisse.",
   "plugins_raw_json": "Rohdaten",
   "feat_plugin_ui_title": "Plugins zeigen echte Panels",
-  "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps."
+  "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps.",
+  "feat_plugin_ui_charts_title": "Plugins können Diagramme anzeigen",
+  "feat_plugin_ui_charts_body": "Plugins können jetzt Tacho-Anzeigen, Sparklines, Zeitreihen, Balkendiagramme und Zeitachsen unter Einstellungen → Plugins veröffentlichen — nicht nur Messanzeigen, Badges und Tabellen."
 }

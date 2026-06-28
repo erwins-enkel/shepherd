@@ -139,7 +139,6 @@
             class="menu-item"
             type="button"
             role="menuitem"
-            aria-label={item.label}
             onclick={() => onPluginItem?.(item.id)}
           >
             {#if item.icon}<span class="menu-glyph" aria-hidden="true">{item.icon}</span>{/if}

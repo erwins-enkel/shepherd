@@ -71,6 +71,7 @@ import {
   type EgressBackend,
 } from "./egress";
 import type { EgressWatcher } from "./egress-watch";
+import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
@@ -1304,6 +1305,9 @@ export class SessionService {
     try {
       patch = await this.deps.runSpawnHooks({
         sessionId: ctx.sessionId,
+        // A normal task session (create/drain/resume). The reviewer-style aux spawns pass
+        // their own kind (issue #1205). No parentSessionId — a session IS its own parent.
+        kind: "session",
         repoRoot: ctx.repoPath,
         model: ctx.model ?? null,
         agentProvider: ctx.agentProvider ?? config.defaultAgentProvider,
@@ -1317,13 +1321,10 @@ export class SessionService {
       }
       throw e;
     }
-    // credentialDir is sugar for env.CLAUDE_CONFIG_DIR and wins over it when both are set.
-    const patchEnv: Record<string, string> = {
-      ...(patch.env ?? {}),
-      ...(patch.credentialDir ? { CLAUDE_CONFIG_DIR: patch.credentialDir } : {}),
-    };
-    const finalInnerArgv = patch.extraArgs?.length ? [...innerArgv, ...patch.extraArgs] : innerArgv;
-    return { patchEnv, finalInnerArgv };
+    // credentialDir is sugar for env.CLAUDE_CONFIG_DIR and wins over it when both are set;
+    // extraArgs are appended. Shared with the reviewer-style aux spawns (issue #1205).
+    const { patchEnv, finalArgv } = foldSpawnPatch(innerArgv, patch);
+    return { patchEnv, finalInnerArgv: finalArgv };
   }
 
   private async prepareSpawn(

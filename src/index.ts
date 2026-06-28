@@ -748,6 +748,8 @@ const docAgent = new DocAgentService({
   herdr,
   worktree,
   resolveForge,
+  // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
   gitState: (id) => prPoller.get(id),
@@ -770,6 +772,8 @@ const reviewService = new ReviewService({
   herdr,
   worktree,
   resolveForge,
+  // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
@@ -792,6 +796,8 @@ const standaloneCritic = new StandalonePrCriticService({
   herdr,
   worktree,
   resolveForge,
+  // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.
@@ -816,6 +822,8 @@ const planGate = new PlanGateService({
   herdr,
   worktree,
   resolveForge,
+  // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   reply: (id, text) => service.reply(id, text),
   release: (id) => service.releasePlanGate(id),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),

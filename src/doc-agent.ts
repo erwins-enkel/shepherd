@@ -13,8 +13,8 @@ import type { SessionStore } from "./store";
 import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
-import { apiKeyPassthroughEnv, isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
-import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
+import { isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
+import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
 
 const execFileP = promisify(execFile);
@@ -517,7 +517,7 @@ export class DocAgentService {
       this.deps.store.setSetting(prSyncedKey(repoPath, prNumber), "1");
 
       const promptCtx: RetargetPromptCtx = { prNumber, prTitle: git.title ?? "" };
-      const launched = this.launchRun(
+      const launched = await this.launchRun(
         repoPath,
         headSha,
         base,
@@ -563,14 +563,14 @@ export class DocAgentService {
    * (retarget only) grounds the agent on the open PR's diff. Callers keep their own pre/post steps
    * (begin's stampLastSha, beginRetarget's prSyncedKey claim) outside this helper.
    */
-  private launchRun(
+  private async launchRun(
     repoPath: string,
     baseRef: string,
     base: string,
     extra: Partial<InFlight>,
     promptCtx?: RetargetPromptCtx,
     afterCreate?: (worktreePath: string) => void,
-  ): { ok: true } | { ok: false; result: DocAgentResult } {
+  ): Promise<{ ok: true } | { ok: false; result: DocAgentResult }> {
     const id8 = randomUUID().slice(0, 8);
     const wtName = DOC_BRANCH_PREFIX + id8;
     let wt;
@@ -587,13 +587,17 @@ export class DocAgentService {
 
     afterCreate?.(wt.worktreePath);
 
-    const spawned = this.spawnAgent(
+    const spawned = await this.spawnAgent(
       repoPath,
       wt.worktreePath,
       DOC_AGENT_LABEL + id8,
       base,
       promptCtx,
     );
+    if (spawned === "aborted") {
+      this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "skipped", reason: "plugin aborted spawn" } };
+    }
     if (!spawned) {
       this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, result: { status: "error", reason: "spawn failed" } };
@@ -644,7 +648,7 @@ export class DocAgentService {
 
     // forget() can't race a manual trigger here, but a second trigger could have landed during the
     // awaits above — the `starting` claim (held until this returns) prevents that double-spawn.
-    const launched = this.launchRun(repoPath, resolved.baseRef, base, { mode: "fresh" });
+    const launched = await this.launchRun(repoPath, resolved.baseRef, base, { mode: "fresh" });
     if (!launched.ok) return launched.result;
     // Stamp the cadence marker from the SAME ref the nightly gate reads (`refs/remotes/origin/<base>`,
     // freshened by ensureBaseRef above) — NOT resolved.baseRef, which falls back to the branch
@@ -685,33 +689,44 @@ export class DocAgentService {
   }
 
   /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId +
-   *  the agent's forced --session-id (the reviewer_spawns PK), or null on a spawn failure (logged).
-   *  profile "standard": the agent needs Anthropic egress (to run claude) but not GitHub — the
-   *  server pushes/opens the PR — mirroring ReviewService's spawn. */
-  private spawnAgent(
+   *  the agent's forced --session-id (the reviewer_spawns PK), or null on a spawn failure (logged),
+   *  or "aborted" when a plugin onSpawn hook aborts (distinct from a spawn failure). */
+  private async spawnAgent(
     repoPath: string,
     worktreePath: string,
     agentName: string,
     base: string,
     promptCtx?: RetargetPromptCtx,
-  ): { terminalId: string; spawnSessionId: string } | null {
+  ): Promise<{ terminalId: string; spawnSessionId: string } | null | "aborted"> {
     const { argv, sessionId } = buildTransientAgentArgv("doc", {
       model: this.deps.model ?? null,
       prompt: this.buildPrompt(base, promptCtx),
     });
-    const { wrapped, backend } = resolveSpawnMembrane({
+    // Fire plugin onSpawn hooks (issue #1205) + bind any patched env THROUGH the membrane.
+    // Session-less doc agent → no parentSessionId. abortSpawn → "aborted" so launchRun can reap
+    // the worktree and skip cleanly (distinct from a spawn failure).
+    const aux = await resolveAuxSpawn({
       argv,
       worktreePath,
       repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+      descriptor: {
+        sessionId,
+        kind: "doc",
+        model: this.deps.model ?? null,
+      },
     });
+    if ("aborted" in aux) {
+      console.warn(`[doc-agent] onSpawn aborted for ${repoPath}: ${aux.aborted.reason}`);
+      return "aborted";
+    }
     try {
       const terminalId = this.deps.herdr.start(
         agentName,
         worktreePath,
-        wrapped,
-        apiKeyPassthroughEnv(backend !== null),
+        aux.wrapped,
+        aux.spawnEnv,
       ).terminalId;
       return { terminalId, spawnSessionId: sessionId };
     } catch (err) {

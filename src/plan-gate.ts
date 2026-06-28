@@ -14,10 +14,10 @@ import {
   groundPlanBlocks,
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
-import { resolveSpawnMembrane, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
  *  (plan unchanged / already approved / nothing to review), or a spawn attempt failed. The
@@ -298,22 +298,34 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "error";
     }
-    const { wrapped, backend } = resolveSpawnMembrane({
+    // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. An
+    // abortSpawn cleanly skips this plan review (worktree reaped); "skipped" — a deliberate
+    // plugin refusal is not an error, and the next sweep re-attempts like the tombstone skip.
+    const aux = await resolveAuxSpawn({
       argv,
       worktreePath: wt.worktreePath,
       repoPath: session.repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+      descriptor: {
+        sessionId: reviewerSessionId,
+        kind: "plan-gate",
+        parentSessionId: session.id,
+        model: this.deps.model ?? null,
+      },
     });
+    if ("aborted" in aux) {
+      console.warn(`[plan-gate] onSpawn aborted for ${session.id}: ${aux.aborted.reason}`);
+      this.deps.worktree.remove(wt.worktreePath);
+      return "skipped";
+    }
     let terminalId: string;
     try {
       terminalId = this.deps.herdr.start(
         `plan-review ${session.desig}`,
         wt.worktreePath,
-        wrapped,
-        // No backend → passthrough (no membrane) → set CLAUDE_CONFIG_DIR to a
-        // credential-less mirror; with a backend the membrane masks creds in place.
-        apiKeyPassthroughEnv(backend !== null),
+        aux.wrapped,
+        aux.spawnEnv,
       ).terminalId;
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);

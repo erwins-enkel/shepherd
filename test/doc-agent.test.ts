@@ -5,10 +5,12 @@ import {
   SERVER_INSTALL_ROOT,
   isDocRelevantMerge,
   type DocAgentFinalize,
+  type DocAgentDeps,
 } from "../src/doc-agent";
 import { config, parseHour } from "../src/config";
 import type { GitState } from "../src/forge/types";
 import type { Session } from "../src/types";
+import { PluginSpawnAborted } from "../src/plugins/types";
 
 function withAuth(
   mode: typeof config.authMode,
@@ -193,6 +195,8 @@ function mkHarness(opts?: {
   editPrThrows?: boolean;
   /** When true, forge has no editPr method (stale-body fallback test). */
   noEditPr?: boolean;
+  /** Inject a plugin onSpawn hook runner (issue #1205 abort-path test). */
+  runSpawnHooks?: (d: unknown) => Promise<unknown>;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -445,6 +449,7 @@ function mkHarness(opts?: {
     },
     detectBackend: () => null,
     membraneEnv: () => ({ claudeDir: "/c", home: "/h", nodeBinReal: "/n", extraEnv: {} }),
+    runSpawnHooks: o.runSpawnHooks as DocAgentDeps["runSpawnHooks"],
     fileExists: (p: string) => {
       if (p.endsWith("docs-site/src/content/docs")) return o.docTreePresent;
       return o.inScopeFilesPresent;
@@ -1651,4 +1656,20 @@ test("roll-up: re-target merged-mid-run fallback with existing docs PR → rolls
   ).toBe(true);
   expect(h.editPrCalls[0]!.prNumber).toBe(5);
   expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: "https://forge/pr/5", outcome: "pr" });
+});
+
+// ── plugin onSpawn hook: abort → skipped (issue #1205) ───────────────────────
+
+test("onSpawn abortSpawn → doc run skipped, worktree reaped, no spawn", async () => {
+  const h = mkHarness({
+    act: true,
+    runSpawnHooks: async () => {
+      throw new PluginSpawnAborted("pool exhausted", "cswap");
+    },
+  });
+  const res = await h.svc.consider("/repo");
+  expect(res.status).toBe("skipped");
+  expect(res.reason).toBe("plugin aborted spawn");
+  expect(h.starts).toHaveLength(0); // herdr.start never reached
+  expect(h.removedWorktrees.length).toBeGreaterThan(0); // the doc worktree was reaped
 });

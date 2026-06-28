@@ -32,7 +32,7 @@ describe("validatePluginGearItem — valid", () => {
   it("accepts http:// url action", () => {
     const result = validatePluginGearItem(urlItem("http://example.com"));
     expect(result).not.toBeNull();
-    expect((result?.action as { kind: "url"; href: string }).href).toBe("http://example.com");
+    expect((result?.action as { kind: "url"; href: string }).href).toBe("http://example.com/");
   });
 
   it("accepts a valid GET route action", () => {
@@ -130,6 +130,10 @@ describe("validatePluginGearItem — route rejections", () => {
 
   it("rejects path > 256 chars", () => {
     expect(validatePluginGearItem(routeItem("GET", "a".repeat(257)))).toBeNull();
+  });
+
+  it("accepts path of exactly 256 chars", () => {
+    expect(validatePluginGearItem(routeItem("GET", "a".repeat(256)))).not.toBeNull();
   });
 
   it("rejects path with invalid chars (space)", () => {

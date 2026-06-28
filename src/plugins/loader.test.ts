@@ -76,7 +76,7 @@ const VALID_GEAR_ITEM: PluginGearItem = {
 
 const VALID_GEAR_ITEM_URL: PluginGearItem = {
   label: "Visit docs",
-  action: { kind: "url", href: "https://example.com" },
+  action: { kind: "url", href: "https://example.com/" },
 };
 
 // ── tests ──────────────────────────────────────────────────────────────────────
@@ -240,6 +240,9 @@ describe("publishGearItem", () => {
       hookTimeoutMs: 500,
     });
     await registry.loadAll();
+
+    const gearEvents = bus.emitted.filter((e) => e.event === "plugin:gear");
+    expect(gearEvents).toHaveLength(2);
 
     const info = registry.list().find((p) => p.id === "p-gear-replace");
     expect(info!.gearItem).toEqual(second);

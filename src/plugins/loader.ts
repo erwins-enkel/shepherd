@@ -52,7 +52,7 @@ export interface PluginRegistryDeps {
   hookTimeoutMs?: number;
 }
 
-/** Internal per-plugin record. `health`/`lastError`/`status`/`ui`/`gearItem` back the status panel. */
+/** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel; `gearItem` backs the gear menu. */
 interface LoadedPlugin {
   manifest: PluginManifest;
   health: PluginInfo["health"];

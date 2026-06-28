@@ -63,10 +63,10 @@ function validateGearAction(raw: unknown): PluginGearAction | null {
     try {
       const u = new URL(href);
       if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      return { kind: "url", href: u.href };
     } catch {
       return null;
     }
-    return { kind: "url", href };
   }
   if (kind === "route") {
     const method = raw["method"];
@@ -114,7 +114,7 @@ export function validatePluginGearItem(item: unknown): PluginGearItem | null {
   if (action === null) return null;
 
   const result: PluginGearItem = { label, action };
-  if (icon !== undefined) result.icon = icon as string;
+  if (icon !== undefined) result.icon = icon;
   return result;
 }
 

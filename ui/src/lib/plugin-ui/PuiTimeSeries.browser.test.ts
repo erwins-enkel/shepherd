@@ -58,6 +58,33 @@ describe("PuiTimeSeries", () => {
     expect(legendLabel?.textContent).toBe("CPU");
   });
 
+  it("clamps points outside [0, yMax] inside the viewBox", async () => {
+    const { container } = render(PuiTimeSeries, {
+      node: {
+        type: "time-series",
+        props: {
+          // yMax=10 but points exceed it / go negative — must stay in [PAD, H-PAD] (PAD=2, H=40)
+          yMax: 10,
+          series: [{ label: "Spiky", points: [-5, 50, 5] }],
+        },
+      },
+    });
+    const polyline = container.querySelector("polyline");
+    expect(polyline).not.toBeNull();
+    const ys = polyline!
+      .getAttribute("points")!
+      .split(" ")
+      .map((pt) => Number(pt.split(",")[1]));
+    // Every y stays within the drawable band [PAD, H-PAD] = [2, 38]
+    for (const y of ys) {
+      expect(y).toBeGreaterThanOrEqual(2);
+      expect(y).toBeLessThanOrEqual(38);
+    }
+    // The over-max point clamps to the top edge (y === PAD), the negative to the bottom (y === H-PAD)
+    expect(Math.min(...ys)).toBe(2);
+    expect(Math.max(...ys)).toBe(38);
+  });
+
   it("series with empty label is omitted from the legend", async () => {
     const { container } = render(PuiTimeSeries, {
       node: {

@@ -49,7 +49,10 @@
     return points
       .map((v, i) => {
         const x = (i / (n - 1)) * W;
-        const y = PAD + (1 - v / yMaxVal) * (H - PAD * 2);
+        // Clamp to [0, yMax] so out-of-range / negative points stay inside the
+        // viewBox instead of being silently clipped (parity with gauge/bar-chart).
+        const clamped = Math.min(yMaxVal, Math.max(0, v));
+        const y = PAD + (1 - clamped / yMaxVal) * (H - PAD * 2);
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(" ");

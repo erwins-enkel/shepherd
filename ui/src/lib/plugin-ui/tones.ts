@@ -1,6 +1,6 @@
-export type PuiTone = "neutral" | "ok" | "warn" | "error" | "info";
+type PuiTone = "neutral" | "ok" | "warn" | "error" | "info";
 
-export const TONE_COLOR: Record<PuiTone, string> = {
+const TONE_COLOR: Record<PuiTone, string> = {
   neutral: "var(--color-muted)",
   ok: "var(--color-green)",
   warn: "var(--status-warn)", // status token, NOT a --color-* token — matches PuiMeter verbatim

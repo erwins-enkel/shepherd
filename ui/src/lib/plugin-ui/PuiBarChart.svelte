@@ -2,6 +2,7 @@
   import type { PluginUINode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
+  import { coerceNumber } from "./coerce";
 
   let { node }: { node: PluginUINode } = $props();
 
@@ -20,10 +21,9 @@
     if (!Array.isArray(p.bars)) return [];
     return (p.bars as unknown[]).map((b) => {
       const bar = b != null && typeof b === "object" ? (b as Record<string, unknown>) : {};
-      const v = Number(bar.value);
       return {
         label: String(bar.label ?? ""),
-        value: Number.isFinite(v) ? v : 0,
+        value: coerceNumber(bar.value, 0),
         tone: bar.tone,
       };
     });

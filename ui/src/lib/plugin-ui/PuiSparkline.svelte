@@ -2,15 +2,14 @@
   import type { PluginUINode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
+  import { coerceText } from "./coerce";
 
   let { node }: { node: PluginUINode } = $props();
 
   const p = $derived(node.props ?? {});
 
-  const label = $derived(p.label != null && String(p.label).trim() !== "" ? String(p.label) : null);
-  const caption = $derived(
-    p.caption != null && String(p.caption).trim() !== "" ? String(p.caption) : null,
-  );
+  const label = $derived(coerceText(p.label));
+  const caption = $derived(coerceText(p.caption));
   const lineColor = $derived(toneColor(p.tone));
 
   const points = $derived(

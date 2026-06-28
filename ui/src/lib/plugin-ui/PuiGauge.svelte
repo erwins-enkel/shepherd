@@ -2,23 +2,16 @@
   import type { PluginUINode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toneColor } from "./tones";
+  import { coerceNumber, coerceMax, coerceText } from "./coerce";
 
   let { node }: { node: PluginUINode } = $props();
 
   const p = $derived(node.props ?? {});
 
-  const rawValue = $derived.by(() => {
-    const v = Number(p.value ?? 0);
-    return Number.isFinite(v) ? v : 0;
-  });
-  const max = $derived.by(() => {
-    const m = Number(p.max ?? 100);
-    return Math.max(1, Number.isFinite(m) ? m : 100);
-  });
-  const label = $derived(p.label != null && String(p.label).trim() !== "" ? String(p.label) : null);
-  const caption = $derived(
-    p.caption != null && String(p.caption).trim() !== "" ? String(p.caption) : null,
-  );
+  const rawValue = $derived(coerceNumber(p.value, 0));
+  const max = $derived(coerceMax(p.max, 100));
+  const label = $derived(coerceText(p.label));
+  const caption = $derived(coerceText(p.caption));
 
   const ratio = $derived(Math.min(1, Math.max(0, rawValue / max)));
   const pct = $derived(Math.round(ratio * 100));

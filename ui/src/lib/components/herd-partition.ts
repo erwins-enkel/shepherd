@@ -1,5 +1,6 @@
 import type { Session, GitState } from "$lib/types";
 import { displayStatus } from "$lib/display-status";
+import { checksCleared } from "$lib/checks-cleared";
 import { isMerging } from "./merge-train";
 
 /** Split sessions into stage groups, preserving input order within each:
@@ -147,7 +148,7 @@ function stageOf(
   // the partition and doesn't need threading through here.
   const greenIdle =
     g?.state === "open" &&
-    (g.checks === "success" || (g.noCi === true && g.checks === "none")) &&
+    checksCleared(g.checks, g.noCi) &&
     s.status !== "running" &&
     s.status !== "blocked";
   return greenIdle ? handoffStage(g) : "active";

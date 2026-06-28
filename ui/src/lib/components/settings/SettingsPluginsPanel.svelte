@@ -3,7 +3,8 @@
   import type { PluginInfo, PluginUIView } from "$lib/types";
   import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
 
-  let { plugins = [] }: { plugins?: PluginInfo[] } = $props();
+  let { plugins = [], focusId = null }: { plugins?: PluginInfo[]; focusId?: string | null } =
+    $props();
 
   // Core-derived health → token + label. Design rule (mirrors DiagnoseRows): never
   // --color-green for healthy — ok is steady-state slate, not actionable-complete.
@@ -28,6 +29,18 @@
   function panelView(p: PluginInfo): PluginUIView | null {
     return p.ui && p.ui.slot === "settings-panel" ? p.ui : null;
   }
+
+  // When focusId changes (from a gear-item panel action), scroll the matching
+  // card into view and briefly apply a highlight flash.
+  $effect(() => {
+    if (!focusId) return;
+    const el = document.getElementById(`plugin-card-${focusId}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    el.classList.add("focus-flash");
+    const t = setTimeout(() => el.classList.remove("focus-flash"), 1200);
+    return () => clearTimeout(t);
+  });
 </script>
 
 <div class="plugins">
@@ -35,7 +48,7 @@
   {#each plugins as p (p.id)}
     {@const h = HEALTH[p.health]}
     {@const view = panelView(p)}
-    <div class="row">
+    <div class="row" id={`plugin-card-${p.id}`}>
       <button
         type="button"
         class="head"
@@ -92,6 +105,14 @@
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     padding: 8px 10px;
+    transition: outline 0.1s ease;
+  }
+  /* Brief highlight when a plugin card is scrolled into focus via gear-item action.
+     Uses an outline (not background change) so layout and border are undisturbed.
+     :global() because the class is added imperatively via classList.add. */
+  .row:global(.focus-flash) {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 1px;
   }
   .head {
     display: flex;

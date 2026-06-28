@@ -44,6 +44,7 @@
     getBuildQueues,
     listHeld,
     updateHeld,
+    invokePluginRoute,
   } from "$lib/api";
   import type {
     AgentProvider,
@@ -169,7 +170,10 @@
   let showNew = $state(false);
   let showSettings = $state(false);
   let showUsage = $state(false);
-  let settingsTab = $state<"workspace" | "session" | "device" | "diagnose">("workspace");
+  let settingsTab = $state<"workspace" | "session" | "device" | "diagnose" | "plugins">(
+    "workspace",
+  );
+  let focusPluginId = $state<string | null>(null);
   let showClone = $state(false);
   let showFork = $state(false);
   let showNewProject = $state(false);
@@ -1760,6 +1764,39 @@
     });
   }
 
+  // Plugin gear items: one entry per plugin that published a gearItem.
+  // Verbatim plugin-authored data — never run through i18n.
+  const pluginGearItems = $derived(
+    store.plugins
+      .filter((p) => p.gearItem)
+      .map((p) => ({ id: p.id, label: p.gearItem!.label, icon: p.gearItem!.icon })),
+  );
+
+  async function handlePluginGearItem(id: string) {
+    const item = store.plugins.find((p) => p.id === id)?.gearItem;
+    if (!item) return;
+    const a = item.action;
+    if (a.kind === "url") {
+      window.open(a.href, "_blank", "noopener,noreferrer");
+    } else if (a.kind === "panel") {
+      focusPluginId = id;
+      settingsTab = "plugins";
+      showSettings = true;
+    } else {
+      // route
+      try {
+        const text = await invokePluginRoute(id, a.method, a.path);
+        toasts.info(text.length > 0 ? text : m.plugin_gear_action_done());
+      } catch {
+        toasts.info(m.plugin_gear_action_failed(), {
+          duration: null,
+          alert: true,
+          key: `plugin-gear:${id}`,
+        });
+      }
+    }
+  }
+
   // Open the "clear all merged" confirm modal. The server is the source of truth
   // for which sessions are merged (same prCache the list partitions on) and for the
   // leftover count, so we ask it rather than trust the local snapshot.
@@ -2004,6 +2041,8 @@
         }}
         heldCount={store.heldCount}
         onedithheld={onEditHeld}
+        pluginItems={pluginGearItems}
+        onpluginitem={handlePluginGearItem}
       />
       <RepoSwitcher
         chips={repoChips}
@@ -2429,8 +2468,10 @@
   }}
   {showSettings}
   {settingsTab}
+  {focusPluginId}
   onsettingsclose={() => {
     showSettings = false;
+    focusPluginId = null;
     loadSettings();
   }}
   onsettingsherdrupdate={() => {

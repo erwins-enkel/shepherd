@@ -71,6 +71,8 @@
     onwhatsnew,
     onlearnings,
     onFeedback,
+    pluginItems = [],
+    onPluginItem,
   }: {
     gauges: Gauge[];
     credits: CreditWindow | null;
@@ -107,6 +109,8 @@
     onwhatsnew: (() => void) | undefined;
     onlearnings: (() => void) | undefined;
     onFeedback: (kind: FeedbackKind) => void;
+    pluginItems?: { id: string; label: string; icon?: string }[];
+    onPluginItem?: (id: string) => void;
   } = $props();
 </script>
 
@@ -377,6 +381,24 @@
       <span class="sheet-label">{m.settings_title()}</span>
     </button>
     <div class="sheet-sep"></div>
+
+    <!-- Plugin items: verbatim plugin-authored label/icon (not i18n) -->
+    {#if pluginItems.length > 0}
+      {#each pluginItems as item (item.id)}
+        <button
+          type="button"
+          class="sheet-item"
+          onclick={() => {
+            closeMenu();
+            onPluginItem?.(item.id);
+          }}
+        >
+          {#if item.icon}<span class="sheet-glyph" aria-hidden="true">{item.icon}</span>{/if}
+          <span class="sheet-label">{item.label}</span>
+        </button>
+      {/each}
+      <div class="sheet-sep"></div>
+    {/if}
 
     <!-- Feedback -->
     <button type="button" class="sheet-item" onclick={() => onFeedback("bug")}>

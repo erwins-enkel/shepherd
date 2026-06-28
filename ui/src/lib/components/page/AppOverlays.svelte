@@ -129,6 +129,7 @@
     onnewnewproject,
     showSettings,
     settingsTab,
+    focusPluginId = null,
     onsettingsclose,
     onsettingsherdrupdate,
     onsettingswhatsnew,
@@ -228,7 +229,8 @@
     onnewfork: () => void;
     onnewnewproject: () => void;
     showSettings: boolean;
-    settingsTab: "workspace" | "session" | "device" | "diagnose";
+    settingsTab: "workspace" | "session" | "device" | "diagnose" | "plugins";
+    focusPluginId?: string | null;
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
     onsettingswhatsnew: () => void;
@@ -453,6 +455,7 @@
     initialTab={settingsTab}
     initialDiagnostics={store.diagnostics?.checks ?? null}
     plugins={store.plugins}
+    {focusPluginId}
     onclose={onsettingsclose}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={onsettingsherdrupdate}

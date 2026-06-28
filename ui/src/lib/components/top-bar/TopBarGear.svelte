@@ -23,6 +23,8 @@
     chooseUsage,
     onMenuKey,
     onFeedback,
+    pluginItems = [],
+    onPluginItem,
   }: {
     mobile: boolean;
     haltable: number;
@@ -40,6 +42,8 @@
     chooseUsage: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
     onFeedback: (kind: FeedbackKind) => void;
+    pluginItems?: { id: string; label: string; icon?: string }[];
+    onPluginItem?: (id: string) => void;
   } = $props();
 </script>
 
@@ -128,6 +132,21 @@
         <span class="menu-glyph" aria-hidden="true">↗</span>
         <span class="menu-label">{m.topbar_docs()}</span>
       </a>
+      {#if pluginItems.length > 0}
+        <div class="menu-sep" role="separator"></div>
+        {#each pluginItems as item (item.id)}
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            aria-label={item.label}
+            onclick={() => onPluginItem?.(item.id)}
+          >
+            {#if item.icon}<span class="menu-glyph" aria-hidden="true">{item.icon}</span>{/if}
+            <span class="menu-label">{item.label}</span>
+          </button>
+        {/each}
+      {/if}
       <button class="menu-item" type="button" role="menuitem" onclick={() => onFeedback("bug")}>
         <span class="menu-glyph" aria-hidden="true">🐛</span>
         <span class="menu-label">{m.feedback_dialog_title_bug()}</span>

@@ -66,6 +66,8 @@
     onlearnings,
     heldCount = 0,
     onedithheld,
+    pluginItems = [],
+    onpluginitem,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -104,6 +106,10 @@
     heldCount?: number;
     /** Edit a held task: page opens the New Task composer pre-filled from its input. */
     onedithheld?: (task: HeldTask) => void;
+    /** Plugin-contributed gear-menu items (verbatim plugin data). */
+    pluginItems?: { id: string; label: string; icon?: string }[];
+    /** Called when a plugin item is selected from the gear menu. */
+    onpluginitem?: (id: string) => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -532,7 +538,8 @@
   // under measured overflow (compactBadges), where the standalone docs link folds away,
   // so the gear must open the menu (which carries Documentation + Settings) to keep the
   // docs reachable even with an idle herd in that compact state.
-  const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges);
+  // Plugin items also force menu mode: their actions live in the menu, not the gear click.
+  const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges || pluginItems.length > 0);
   // Mobile only: every gear-area signal collapses into ONE dot, colored by the
   // most serious active tier (red > orange > yellow > blue). Desktop keeps its
   // halt-pip + dedicated badges, so this stays null off-mobile.
@@ -578,6 +585,11 @@
     disarmHalt();
     onusage?.();
   }
+  function choosePlugin(id: string) {
+    menuOpen = false;
+    disarmHalt();
+    onpluginitem?.(id);
+  }
   // On open, move focus to the first menu item (proper menu-button keyboard flow).
   $effect(() => {
     if (menuOpen) menuEl?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
@@ -614,6 +626,12 @@
     // Under measured overflow the gear is a menu button even with an idle herd (it hosts
     // the folded-away docs link), so keep the menu open here too — just drop armed state.
     if (compactBadges) {
+      disarmHalt();
+      return;
+    }
+    // Plugin items keep the menu valid with an idle herd — a menu opened to reach a plugin
+    // action must not be dismissed just because the last agent finished while it was open.
+    if (pluginItems.length > 0) {
       disarmHalt();
       return;
     }
@@ -812,6 +830,8 @@
       {chooseUsage}
       {onMenuKey}
       {onFeedback}
+      {pluginItems}
+      onPluginItem={choosePlugin}
     />
   </div>
 </div>
@@ -853,6 +873,8 @@
     {onwhatsnew}
     {onlearnings}
     {onFeedback}
+    {pluginItems}
+    onPluginItem={choosePlugin}
   />
 {/if}
 

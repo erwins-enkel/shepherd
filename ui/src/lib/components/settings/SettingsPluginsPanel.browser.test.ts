@@ -95,4 +95,24 @@ describe("SettingsPluginsPanel", () => {
     await page.getByRole("button").click();
     await expect.element(page.getByText(/"side": true/)).toBeInTheDocument();
   });
+
+  it("each plugin card has a plugin-card-<id> DOM id", async () => {
+    render(SettingsPluginsPanel, {
+      plugins: [plugin({ id: "alpha" }), plugin({ id: "beta", name: "Beta Plugin" })],
+    });
+    expect(document.getElementById("plugin-card-alpha")).not.toBeNull();
+    expect(document.getElementById("plugin-card-beta")).not.toBeNull();
+  });
+
+  it("focusId applies focus-flash class to the matching card", async () => {
+    render(SettingsPluginsPanel, {
+      plugins: [plugin({ id: "target-plugin", name: "Target Plugin" })],
+      focusId: "target-plugin",
+    });
+    // The $effect runs after mount; wait a microtask for it to fire.
+    await new Promise((r) => setTimeout(r, 0));
+    const card = document.getElementById("plugin-card-target-plugin");
+    expect(card, "card exists").not.toBeNull();
+    expect(card!.classList.contains("focus-flash"), "focus-flash applied").toBe(true);
+  });
 });

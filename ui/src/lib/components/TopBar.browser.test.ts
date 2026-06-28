@@ -1928,3 +1928,60 @@ describe("TopBar — mobile gear sheet portals out of transformed ancestor", () 
     ).toBeGreaterThanOrEqual(window.innerHeight - 2);
   });
 });
+
+describe("TopBar — plugin gear items", () => {
+  const pluginBase = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    sessions: [] as Session[],
+  };
+
+  it("desktop: plugin items render in the gear menu with verbatim label and icon", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      ...pluginBase,
+      ...FLAGS.desktop,
+      pluginItems: [{ id: "my-plugin", label: "My Action", icon: "🔌" }],
+    });
+    // Click the gear to open the menu (pluginItems forces gearOpensMenu=true)
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // Plugin item button is visible with verbatim label
+    await expect.element(page.getByRole("menuitem", { name: "My Action" })).toBeVisible();
+    await expect.element(page.getByText("🔌")).toBeVisible();
+  });
+
+  it("desktop: clicking a plugin item calls onpluginitem with its id", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onpluginitem = vi.fn();
+    render(TopBar, {
+      ...pluginBase,
+      ...FLAGS.desktop,
+      pluginItems: [{ id: "act-plugin", label: "Do Something" }],
+      onpluginitem,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await page.getByRole("menuitem", { name: "Do Something" }).click();
+    expect(onpluginitem).toHaveBeenCalledWith("act-plugin");
+  });
+
+  it("desktop: idle herd + pluginItems — gear opens a menu instead of going directly to settings", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onsettings = vi.fn();
+    render(TopBar, {
+      ...pluginBase,
+      ...FLAGS.desktop,
+      pluginItems: [{ id: "p1", label: "Plugin Action" }],
+      onsettings,
+    });
+    // With pluginItems, gear is a menu button (not a direct-settings button)
+    const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
+    await expect.element(gear).toBeVisible();
+    await gear.click();
+    // Menu is open — the plugin item is visible, settings was NOT called directly
+    await expect.element(page.getByRole("menuitem", { name: "Plugin Action" })).toBeVisible();
+    expect(onsettings).not.toHaveBeenCalled();
+  });
+});

@@ -26,6 +26,14 @@ export interface PluginManifest {
  *  A COPY — mutating it does nothing; return a `SpawnPatch` to influence the spawn. */
 export interface SpawnDescriptor {
   sessionId: string;
+  /** What kind of spawn this is (issue #1205). `"session"` is a normal task session
+   *  (create/drain/resume); the others are the reviewer-style auto-process spawns that also
+   *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account). */
+  kind: "session" | "review" | "plan-gate" | "doc";
+  /** For an aux spawn tied to a managed session (review, plan-gate): that session's id, so a
+   *  plugin can keep the aux spawn on the parent session's account. Undefined for a normal
+   *  session (it IS the parent) and for session-less aux spawns (doc-agent, standalone critic). */
+  parentSessionId?: string;
   repoRoot: string;
   model: string | null;
   agentProvider: string;

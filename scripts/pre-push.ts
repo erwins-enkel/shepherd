@@ -406,7 +406,20 @@ function buildLanes(
             cmd: "bunx",
             // `--` terminator: dash-leading paths are already dropped upstream by
             // `isSafePath` in `changedFiles`; this is the second layer guarding the spread.
-            args: withFileArgs(["prettier", "--check", "--ignore-unknown"], opts.changed),
+            // --cache flags mirror ci.yml (#1192); content strategy + .cache/ location.
+            args: withFileArgs(
+              [
+                "prettier",
+                "--check",
+                "--ignore-unknown",
+                "--cache",
+                "--cache-strategy",
+                "content",
+                "--cache-location",
+                ".cache/prettier",
+              ],
+              opts.changed,
+            ),
             cwd: repoRoot,
           },
         ],
@@ -420,7 +433,17 @@ function buildLanes(
         {
           label: "prettier --check (whole repo)",
           cmd: "bunx",
-          args: ["prettier", "--check", "."],
+          // --cache flags mirror ci.yml (#1192); content strategy + .cache/ location.
+          args: [
+            "prettier",
+            "--check",
+            "--cache",
+            "--cache-strategy",
+            "content",
+            "--cache-location",
+            ".cache/prettier",
+            ".",
+          ],
           cwd: repoRoot,
         },
       ],
@@ -437,7 +460,19 @@ function buildLanes(
         cmd: "bunx",
         // `--` terminator: defense-in-depth — `routeEslintFiles` only admits
         // `src/`/`test/`/`ui/src/`-prefixed paths, so these can't be dash-leading.
-        args: withFileArgs(["eslint", "--no-error-on-unmatched-pattern"], routed.root),
+        // --cache flags mirror the root `lint` npm script + ci.yml (#1192).
+        args: withFileArgs(
+          [
+            "eslint",
+            "--cache",
+            "--cache-strategy",
+            "content",
+            "--cache-location",
+            ".cache/eslint",
+            "--no-error-on-unmatched-pattern",
+          ],
+          routed.root,
+        ),
         cwd: repoRoot,
       });
     if (routed.ext.length)
@@ -445,7 +480,20 @@ function buildLanes(
         label: "eslint extension (delta)",
         cmd: "bunx",
         // `--` terminator: defense-in-depth — routed paths are `extension/src/`-prefixed.
-        args: withFileArgs(["eslint", "--no-error-on-unmatched-pattern"], routed.ext),
+        // --cache flags mirror the extension `lint` npm script + ci.yml (#1192);
+        // cwd=extension → .cache/eslint resolves to extension/.cache/eslint.
+        args: withFileArgs(
+          [
+            "eslint",
+            "--cache",
+            "--cache-strategy",
+            "content",
+            "--cache-location",
+            ".cache/eslint",
+            "--no-error-on-unmatched-pattern",
+          ],
+          routed.ext,
+        ),
         cwd: ext,
       });
     if (steps.length) lanes.push({ name: "eslint", timeoutMs: t(120_000), steps });

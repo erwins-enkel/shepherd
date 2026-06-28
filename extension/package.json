@@ -14,7 +14,7 @@
     "prepare": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
     "check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && svelte-check --tsconfig ./tsconfig.json",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "lint": "eslint --no-error-on-unmatched-pattern src",
+    "lint": "eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src",
     "test": "vitest run"
   },
   "devDependencies": {

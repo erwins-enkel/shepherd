@@ -64,11 +64,32 @@ jobs:
         with:
           working-directory: extension
 
+      # Persist prettier + eslint caches across runs so the Lint step is a few
+      # seconds on a WARM cache instead of >1 min cold (#1192). Both linters write
+      # to repo-root .cache/ (--cache-location) with --cache-strategy content — the
+      # default `metadata` strategy keys on mtime, which a fresh CI checkout always
+      # busts, so it would silently no-op. Stable hash-only key + prefix restore-keys
+      # mirrors the docs-site bun-store cache below: one entry per config/lockfile
+      # lineage (no per-commit churn against GitHub's 10 GB LRU budget). Cold/miss
+      # runs (config/dep bump, eviction, fresh lineage) fall back to today's cost.
+      - name: Restore lint cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache
+            extension/.cache
+          key: ${{ runner.os }}-lint-${{ hashFiles('eslint.config.js', 'extension/eslint.config.js', '.prettierrc', '.prettierignore', 'bun.lock', 'extension/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lint-
+
       - name: Lint (prettier + eslint)
+        # Per-command timing (#1192): attributes the Lint minute on real CI hardware
+        # (local cold total is only ~22s) and gives a cold→warm before/after across
+        # the PR's own runs. eslint cache flags live in the `lint` npm scripts.
         run: |
-          bunx prettier --check .
-          bun run lint
-          (cd extension && bun run lint)
+          s=$SECONDS; bunx prettier --check --cache --cache-strategy content --cache-location .cache/prettier .; echo "⏱ prettier --check: $((SECONDS - s))s"
+          s=$SECONDS; bun run lint; echo "⏱ eslint (root): $((SECONDS - s))s"
+          s=$SECONDS; (cd extension && bun run lint); echo "⏱ eslint (extension): $((SECONDS - s))s"
 
       - name: Typecheck (root tsc)
         run: bun run typecheck

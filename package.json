@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "bun test ./test",
-    "lint": "eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy",
+    "lint": "eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "start": "bun run src/index.ts",
@@ -17,8 +17,8 @@
     "check:glossary": "node scripts/check-glossary.mjs"
   },
   "lint-staged": {
-    "*.{ts,js,json,css,html,md,svelte}": "prettier --write",
-    "*.{ts,svelte}": "eslint --fix"
+    "*.{ts,js,json,css,html,md,svelte}": "prettier --write --cache --cache-strategy content --cache-location .cache/prettier",
+    "*.{ts,svelte}": "eslint --cache --cache-strategy content --cache-location .cache/eslint --fix"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.1.0",

@@ -159,7 +159,7 @@ test("unknown session (getSession null) calls no consumer and no hooks", async (
   const router = new SessionRouter(
     { getSession: () => null },
     [recordingConsumer("drain", log), recordingConsumer("autopilot", log)],
-    { onStatusSettled: () => settled++ },
+    { onStatusIndependent: () => settled++ },
   );
   await router.onStatus("missing", "idle");
   await router.onGit("missing", GIT_STATE);
@@ -169,7 +169,7 @@ test("unknown session (getSession null) calls no consumer and no hooks", async (
 
 // ── 4. Failure isolation ──────────────────────────────────────────────────────
 
-test("a throwing first consumer is caught; second consumer and settled hook still run", async () => {
+test("a throwing first consumer is caught; second consumer still runs (independent hook already fired)", async () => {
   const log: string[] = [];
   const warnings: string[] = [];
   let settled = 0;
@@ -185,7 +185,7 @@ test("a throwing first consumer is caught; second consumer and settled hook stil
   const router = new SessionRouter(
     { getSession: () => makeSession("s1", "/r") },
     [failing, recordingConsumer("autopilot", log)],
-    { onStatusSettled: () => settled++ },
+    { onStatusIndependent: () => settled++ },
     (msg) => warnings.push(msg),
   );
 
@@ -197,9 +197,9 @@ test("a throwing first consumer is caught; second consumer and settled hook stil
   expect(warnings.some((w) => w.includes("drain"))).toBe(true);
 });
 
-// ── 5. Settled hook ordering ───────────────────────────────────────────────────
+// ── 5. Independent hook ordering (#1193) ───────────────────────────────────────
 
-test("onStatus fires the settled hook after the consumer chain", async () => {
+test("onStatus fires the independent hook BEFORE the consumer chain", async () => {
   const log: string[] = [];
   const gate = deferred();
 
@@ -213,27 +213,54 @@ test("onStatus fires the settled hook after the consumer chain", async () => {
   };
 
   const router = new SessionRouter({ getSession: () => makeSession("s1", "/r") }, [slow], {
-    onStatusSettled: () => log.push("settled"),
+    onStatusIndependent: () => log.push("independent"),
   });
 
   const done = router.onStatus("s1", "idle");
   await Promise.resolve();
   await Promise.resolve();
-  // Settled has NOT fired yet — the chain is still parked on the deferred.
-  expect(log).toEqual(["consumer:start"]);
+  // The independent hook fired first; the consumer chain is now parked on the deferred.
+  expect(log).toEqual(["independent", "consumer:start"]);
 
   gate.resolve();
   await done;
-  expect(log).toEqual(["consumer:start", "consumer:finish", "settled"]);
+  expect(log).toEqual(["independent", "consumer:start", "consumer:finish"]);
 });
 
-test("onGit invokes the settled hook never", async () => {
+// The regression that caused #1193: a consumer that hangs (slow/never-resolving drain pump)
+// must NOT starve the independent hook (plan-gate). Before the fix the hook ran only after
+// `await dispatch()`, so a non-resolving consumer blocked it forever.
+test("a never-resolving consumer does not starve the independent hook", async () => {
+  const log: string[] = [];
+
+  const hanging: SessionConsumer = {
+    name: "drain",
+    handle(): Promise<void> {
+      log.push("consumer:start");
+      return new Promise<void>(() => {}); // never resolves
+    },
+  };
+
+  const router = new SessionRouter({ getSession: () => makeSession("s1", "/r") }, [hanging], {
+    onStatusIndependent: () => log.push("independent"),
+  });
+
+  // Intentionally NOT awaited — onStatus never settles while the consumer hangs.
+  void router.onStatus("s1", "idle");
+  await Promise.resolve();
+  await Promise.resolve();
+
+  // The hook fired despite the consumer hanging forever.
+  expect(log).toEqual(["independent", "consumer:start"]);
+});
+
+test("onGit invokes the independent hook never", async () => {
   const log: string[] = [];
   const router = new SessionRouter(
     { getSession: () => makeSession("s1", "/r") },
     [recordingConsumer("drain", log)],
     {
-      onStatusSettled: () => log.push("settled"),
+      onStatusIndependent: () => log.push("independent"),
     },
   );
   await router.onGit("s1", GIT_STATE);

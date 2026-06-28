@@ -1241,8 +1241,9 @@ const sessionRouter = new SessionRouter(
   {
     // Plan-gate is an independent status side-effect (not a [drain,autopilot] consumer): a
     // planning-phase session that just settled likely finished writing .shepherd-plan.md → kick the
-    // adversarial review. Runs after the consumer chain, reached regardless of a consumer throwing.
-    onStatusSettled: (change) => {
+    // adversarial review. Fires BEFORE the awaited consumer chain so a slow/hanging drain pump can
+    // never starve it (#1193); consider() is self-contained and claims its slot synchronously.
+    onStatusIndependent: (change) => {
       const sess = change.snapshot.session;
       if (change.status === "done" && sess.planPhase === "planning")
         void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));

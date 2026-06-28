@@ -52,30 +52,41 @@ function validRoutePath(path: string): boolean {
   return !path.split("/").some((seg) => seg === "..");
 }
 
+/** Validate a `kind:"url"` action: absolute http/https only; returns the normalized href. */
+function validateUrlAction(raw: Record<string, unknown>): PluginGearAction | null {
+  const href = raw["href"];
+  if (typeof href !== "string") return null;
+  try {
+    const u = new URL(href);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return { kind: "url", href: u.href };
+  } catch {
+    return null;
+  }
+}
+
+/** Validate a `kind:"route"` action: method GET/POST + a safe relative path. */
+function validateRouteAction(raw: Record<string, unknown>): PluginGearAction | null {
+  const method = raw["method"];
+  const path = raw["path"];
+  if (method !== "GET" && method !== "POST") return null;
+  if (typeof path !== "string" || !validRoutePath(path)) return null;
+  return { kind: "route", method, path };
+}
+
 /** Validate and normalize the action sub-object of a gear item. */
 function validateGearAction(raw: unknown): PluginGearAction | null {
   if (!isPlainObject(raw)) return null;
-  const kind = raw["kind"];
-  if (kind === "panel") return { kind: "panel" };
-  if (kind === "url") {
-    const href = raw["href"];
-    if (typeof href !== "string") return null;
-    try {
-      const u = new URL(href);
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-      return { kind: "url", href: u.href };
-    } catch {
+  switch (raw["kind"]) {
+    case "panel":
+      return { kind: "panel" };
+    case "url":
+      return validateUrlAction(raw);
+    case "route":
+      return validateRouteAction(raw);
+    default:
       return null;
-    }
   }
-  if (kind === "route") {
-    const method = raw["method"];
-    const path = raw["path"];
-    if (method !== "GET" && method !== "POST") return null;
-    if (typeof path !== "string" || !validRoutePath(path)) return null;
-    return { kind: "route", method, path };
-  }
-  return null; // unknown kind
 }
 
 /** Validate and normalize a plugin-authored gear-menu item.

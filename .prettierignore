@@ -16,6 +16,11 @@ node_modules
 build
 dist
 
+# Prettier + eslint cache dirs (--cache-location .cache/...). prettier honors this
+# file, not .gitignore, so without this `prettier --check .` traverses & fails on the
+# restored cache JSON in CI (#1192). Bare `.cache` matches root + extension/.cache.
+.cache
+
 # Extension build artifacts copied into public/ (axe-core bundle + esbuild-built recorder/picker)
 extension/public/axe.min.js
 extension/public/recorder.js

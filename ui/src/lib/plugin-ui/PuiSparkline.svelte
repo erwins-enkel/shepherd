@@ -7,8 +7,10 @@
 
   const p = $derived(node.props ?? {});
 
-  const label = $derived(p.label != null ? String(p.label) : null);
-  const caption = $derived(p.caption != null ? String(p.caption) : null);
+  const label = $derived(p.label != null && String(p.label).trim() !== "" ? String(p.label) : null);
+  const caption = $derived(
+    p.caption != null && String(p.caption).trim() !== "" ? String(p.caption) : null,
+  );
   const lineColor = $derived(toneColor(p.tone));
 
   const points = $derived(

@@ -52,4 +52,15 @@ describe("PuiSparkline", () => {
     const labelEl = container.querySelector(".pui-spark-label");
     expect(labelEl?.textContent).toBe("Requests");
   });
+
+  it("empty-string label falls back to localized aria-label", async () => {
+    const { container } = render(PuiSparkline, {
+      node: { type: "sparkline", props: { points: [1, 2], label: "" } },
+    });
+    const svg = container.querySelector("[role=img]") as SVGElement | null;
+    expect(svg?.getAttribute("aria-label")).toBeTruthy();
+    expect(svg?.getAttribute("aria-label")).toBe("Trend");
+    // empty label string must not render a visible label span
+    expect(container.querySelector(".pui-spark-label")).toBeNull();
+  });
 });

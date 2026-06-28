@@ -15,8 +15,10 @@
     const m = Number(p.max ?? 100);
     return Math.max(1, Number.isFinite(m) ? m : 100);
   });
-  const label = $derived(p.label != null ? String(p.label) : null);
-  const caption = $derived(p.caption != null ? String(p.caption) : null);
+  const label = $derived(p.label != null && String(p.label).trim() !== "" ? String(p.label) : null);
+  const caption = $derived(
+    p.caption != null && String(p.caption).trim() !== "" ? String(p.caption) : null,
+  );
 
   const ratio = $derived(Math.min(1, Math.max(0, rawValue / max)));
   const pct = $derived(Math.round(ratio * 100));
@@ -37,7 +39,7 @@
       class="pui-gauge-svg"
       viewBox="0 0 100 100"
       role="meter"
-      aria-valuenow={rawValue}
+      aria-valuenow={Math.min(max, Math.max(0, rawValue))}
       aria-valuemin={0}
       aria-valuemax={max}
       aria-label={ariaLabel}

@@ -33,23 +33,38 @@ describe("PuiGauge", () => {
     expect(meter?.getAttribute("aria-valuemax")).toBe("200");
   });
 
-  it("clamps value above max — meter present, no throw", async () => {
+  it("clamps value above max — arc fully filled (dashOffset=0)", async () => {
     const { container } = render(PuiGauge, {
       node: { type: "gauge", props: { value: 999, max: 100 } },
     });
     const meter = container.querySelector("[role=meter]");
     expect(meter).not.toBeNull();
-    // dashOffset for a clamped-to-1 ratio should be 0 (full arc)
-    const circles = container.querySelectorAll("circle");
-    expect(circles.length).toBeGreaterThanOrEqual(2);
+    // ratio clamped to 1 → dashOffset = CIRCUMFERENCE*(1-1) = 0
+    const foreground = container.querySelectorAll("circle")[1] as SVGCircleElement | null;
+    expect(foreground?.getAttribute("stroke-dashoffset")).toBe("0");
   });
 
-  it("clamps negative value — meter present, no throw", async () => {
+  it("clamps negative value — arc fully empty (dashOffset=dashArray)", async () => {
     const { container } = render(PuiGauge, {
       node: { type: "gauge", props: { value: -50, max: 100 } },
     });
     const meter = container.querySelector("[role=meter]");
     expect(meter).not.toBeNull();
+    // ratio clamped to 0 → dashOffset = CIRCUMFERENCE*(1-0) = CIRCUMFERENCE = dashArray
+    const foreground = container.querySelectorAll("circle")[1] as SVGCircleElement | null;
+    const dashArray = foreground?.getAttribute("stroke-dasharray");
+    expect(foreground?.getAttribute("stroke-dashoffset")).toBe(dashArray);
+  });
+
+  it("empty-string label falls back to localized aria-label", async () => {
+    const { container } = render(PuiGauge, {
+      node: { type: "gauge", props: { value: 1, max: 2, label: "" } },
+    });
+    const meter = container.querySelector("[role=meter]") as SVGElement | null;
+    expect(meter?.getAttribute("aria-label")).toBeTruthy();
+    expect(meter?.getAttribute("aria-label")).toBe("Gauge");
+    // empty label string must not render a visible label span
+    expect(container.querySelector(".pui-gauge-label")).toBeNull();
   });
 
   it("renders without throwing when props are missing", () => {

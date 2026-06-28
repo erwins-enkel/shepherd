@@ -108,3 +108,4 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Operating Shepherd](/operating/) — run it as a service and deploy changes.
 - [Configuration](/reference/configuration/) — every environment variable.
 - [Concepts & glossary](/reference/glossary/) — the terms Shepherd uses.
+- [Plugins](/reference/plugins/) — extend Shepherd with server-side spawn hooks, routes, and UI.

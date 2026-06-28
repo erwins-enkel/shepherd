@@ -25,5 +25,7 @@ agents.
   Tailscale, and deploy code changes.
 - **[Configuration](/reference/configuration/)** — every environment variable.
 - **[Concepts & glossary](/reference/glossary/)** — the terms Shepherd uses.
+- **[Plugins](/reference/plugins/)** — extend Shepherd with server-side spawn
+  hooks, routes, and UI.
 - **[External Task API](/reference/external-task-api/)** — queue work over HTTP.
 - **[Security](/reference/security/)** — the sandbox membrane and egress firewall.

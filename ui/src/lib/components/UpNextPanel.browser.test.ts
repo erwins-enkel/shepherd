@@ -153,4 +153,13 @@ describe("UpNextPanel load failure", () => {
     await expect.element(page.getByText("#2")).toBeInTheDocument();
     await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
   });
+
+  it("keeps painting cached work when a lens-open fetch throws (does not blank to error)", async () => {
+    // A successful app-load peek left a usable snapshot; the lens-open GET then fails.
+    upNext.snapshot = SNAPSHOT;
+    vi.mocked(getUpNext).mockRejectedValueOnce(new Error("network down"));
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
+  });
 });

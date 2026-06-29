@@ -48,13 +48,16 @@
   // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
   // never-computed snapshot shows loading, not the all-clear.
   const computed = $derived(snap?.generatedAt != null);
-  // A fetch failure must not masquerade as "all caught up" (#1221): either the GET itself threw
-  // (upNext.loadError), or the server dropped repos whose issue fetch errored AND the whole
-  // (unfiltered) queue came back empty. Keyed off snap.sections — not the filtered `sections` —
-  // so a repo filter that is legitimately empty still reads as empty, not failed.
+  // A fetch failure must not masquerade as "all caught up" (#1221), but it also must not blank
+  // out work we can still show. Surface the error only when there is nothing to display:
+  //   - server-side: repos whose fetch errored AND the (unfiltered) snapshot is empty. Keyed off
+  //     snap.sections — not the filtered `sections` — so a legitimately-empty repo filter over a
+  //     non-empty queue still reads as "empty", not "failed".
+  //   - client-side: the GET itself threw AND there is no usable cached work to render — a failed
+  //     lens-open after a successful app-load peek keeps painting the cached queue, not the error.
   const loadFailed = $derived(
-    upNext.loadError ||
-      (computed && (snap?.failedRepoCount ?? 0) > 0 && (snap?.sections.length ?? 0) === 0),
+    (computed && (snap?.failedRepoCount ?? 0) > 0 && (snap?.sections.length ?? 0) === 0) ||
+      (upNext.loadError && sections.length === 0),
   );
   const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
   const updatedAgo = $derived(

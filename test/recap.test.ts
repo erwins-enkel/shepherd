@@ -611,7 +611,7 @@ test("tick unparseable: garbage verdict → state 'failed'", async () => {
 test("#822 tick fail-fast: unparseable + finished spawn → 'failed' before timeout", async () => {
   const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-ff", spawnedAt: 1_000 });
   const store = makeStore([], [rec]);
-  // agent present but idle (finished its turn) at this cwd → spawnFinished = true.
+  // default ['zsh'] husk → isSpawnAlive=false → finished=true → fail-fast on unparseable.
   const herdr = makeHerdr([{ cwd: "/tmp/recap-ff", terminalId: "t-ff", agentStatus: "idle" }]);
   const cleaned: string[] = [];
 
@@ -945,11 +945,15 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
     started: [],
     stopped: [],
     livePanes: [],
+    procsOverride: new Map(),
+    defaultProcs: ["zsh"],
     start: () => {
       throw new Error("herdr start failed");
     },
     stop: (id) => herdr.stopped.push(id),
     list: () => herdr.livePanes,
+    paneForegroundProcs: async (paneId: string) =>
+      herdr.procsOverride.get(paneId) ?? herdr.defaultProcs,
   };
 
   const svc = buildSvc({

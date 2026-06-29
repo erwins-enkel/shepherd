@@ -38,7 +38,6 @@ import { groundBlocks, type VisualBlock } from "./visual-blocks";
 import {
   tolerantParseJson,
   isSpawnAlive,
-  isSpawnWorking,
   decideVerdictAction,
   STARTUP_GRACE_MS,
 } from "./json-tolerant";
@@ -230,16 +229,6 @@ export class RecapService {
   /** Find a recap spawn's live terminal by its tmpdir cwd. "" when gone; herdr.stop("") is a no-op. */
   private resolveTerminal(cwd: string): string {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
-  }
-
-  /**
-   * Has the recap spawn at `cwd` finished producing output? True when its herdr agent is gone or no
-   * longer "working" — used to gate acting on a repaired/unparseable verdict (don't trust/fail on a
-   * file that may still be mid-write). See isSpawnWorking for the residual-flicker race; the hard
-   * timeout in tick() is the true backstop.
-   */
-  private spawnFinished(cwd: string): boolean {
-    return !isSpawnWorking(this.deps.herdr.list(), cwd);
   }
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
@@ -529,8 +518,9 @@ export class RecapService {
       this.finalizing.add(r.sessionId); // claim BEFORE the first await — race-safe (mirrors review.ts)
       let action: VerdictAction;
       let read: VerdictRead<unknown>;
-      const elapsed = this.now() - r.spawnedAt; // hoisted: also used in the finalize-null log below
+      let elapsed: number;
       try {
+        elapsed = this.now() - r.spawnedAt;
         read = this._readVerdict(r.cwd);
         const timedOut = elapsed > this.timeoutMs;
         // Ground-truth liveness via paneForegroundProcs (same signal as tab-reaper): a live-but-idle

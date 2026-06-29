@@ -45,17 +45,21 @@
       {/each}
     </span>
     {#if g.comparison}
+      <!-- One comparison per experiment (the grouping renders a single comparison session, and a
+           second would run orphaned). Once it exists, the badge replaces the button; the button
+           returns only if that comparison is later archived (so it leaves `shown`). -->
       <span class="exp-done">{m.experiment_comparison_done()}</span>
+    {:else}
+      <button
+        class="gbtn primary exp-compare"
+        type="button"
+        disabled={!canCompare(g)}
+        title={canCompare(g) ? m.experiment_compare_hint() : m.experiment_compare_running_hint()}
+        onclick={(e) => oncompare?.(g.experimentId, { x: e.clientX, y: e.clientY })}
+      >
+        {m.experiment_compare()}
+      </button>
     {/if}
-    <button
-      class="gbtn primary exp-compare"
-      type="button"
-      disabled={!canCompare(g)}
-      title={canCompare(g) ? m.experiment_compare_hint() : m.experiment_compare_running_hint()}
-      onclick={(e) => oncompare?.(g.experimentId, { x: e.clientX, y: e.clientY })}
-    >
-      {m.experiment_compare()}
-    </button>
   </div>
   <div class="exp-children">
     <HerdGroup sessions={members(g)} withPreview={true} {ctx} />
@@ -90,6 +94,7 @@
     white-space: nowrap;
   }
   .exp-done {
+    margin-left: auto;
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     color: var(--color-blue);

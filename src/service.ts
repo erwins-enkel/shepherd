@@ -2164,9 +2164,13 @@ export class SessionService {
     experimentId: string,
     opts: { agentProvider?: AgentProvider; model: string | null },
   ): Promise<Session> {
-    const variants = this.deps.store
-      .variantsForExperiment(experimentId)
-      .filter((m) => m.experimentRole === "variant");
+    const members = this.deps.store.variantsForExperiment(experimentId);
+    // One comparison per experiment: the grouping renders a single comparison session, so a second
+    // would run orphaned (never shown, never reapable). A new comparison is allowed only once the
+    // prior one is archived. (The UI hides the button too — this is the authoritative guard.)
+    if (members.some((m) => m.experimentRole === "comparison" && m.status !== "archived"))
+      throw new Error(`experiment ${experimentId} already has a comparison run`);
+    const variants = members.filter((m) => m.experimentRole === "variant");
     if (variants.length < 2)
       throw new Error(`experiment ${experimentId} needs at least 2 variants to compare`);
 

@@ -5,7 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
-import type { GitForge, MergeInput, PullRequest } from "../src/forge/types";
+import type { GitForge, MergeInput, OpenPrSnapshot, PullRequest } from "../src/forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
 
@@ -251,4 +251,94 @@ test("POST /api/prs/dependabot-rebase surfaces forge failure → 502", async () 
   const res = await app.fetch(rebaseReq({ repo: repoDir, number: 12 }));
   expect(res.status).toBe(502);
   expect((await res.json()).error).toContain("gh exploded");
+});
+
+// --- openPrSnapshot integration ---
+
+const CACHED_PR: PullRequest = {
+  number: 99,
+  title: "feat: cached",
+  url: "https://github.com/team/proj/pull/99",
+  author: "carol",
+  kind: "regular",
+  createdAt: 1_700_001_000_000,
+  isDraft: false,
+  mergeable: true,
+  checks: "success",
+  jobs: [],
+  latestReview: null,
+};
+
+function fakeSnapshot(prs: PullRequest[]): OpenPrSnapshot {
+  return { prs, statuses: new Map(), capped: false };
+}
+
+test("GET /api/prs uses snapshot prs when service returns a snapshot", async () => {
+  let listCalled = false;
+  const forge = fakeForge({
+    listPullRequests: async () => {
+      listCalled = true;
+      return [PR];
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.openPrSnapshot = {
+    get: async () => fakeSnapshot([CACHED_PR]),
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.prs).toEqual([CACHED_PR]);
+  expect(listCalled).toBe(false);
+});
+
+test("GET /api/prs falls back to listPullRequests when snapshot service returns null", async () => {
+  let listCalled = false;
+  const forge = fakeForge({
+    listPullRequests: async () => {
+      listCalled = true;
+      return [PR];
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.openPrSnapshot = {
+    get: async () => null,
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.prs).toEqual([PR]);
+  expect(listCalled).toBe(true);
+});
+
+test("GET /api/prs uses direct listPullRequests when no snapshot service wired", async () => {
+  let listCalled = false;
+  const forge = fakeForge({
+    listPullRequests: async () => {
+      listCalled = true;
+      return [PR];
+    },
+  });
+  const app = makeApp(makeDeps(() => forge));
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.prs).toEqual([PR]);
+  expect(listCalled).toBe(true);
+});
+
+test("GET /api/prs swallows snapshot service error → {slug, prs:[]}", async () => {
+  const forge = fakeForge();
+  const deps = makeDeps(() => forge);
+  deps.openPrSnapshot = {
+    get: async () => {
+      throw new Error("snapshot fetch failed");
+    },
+  };
+  const app = makeApp(deps);
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, prs: [] });
 });

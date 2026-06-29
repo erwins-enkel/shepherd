@@ -130,6 +130,7 @@ import {
 import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
@@ -330,6 +331,9 @@ export interface AppDeps {
   verifyKey?: () => Promise<VerifyKeyResult>;
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
+  /** Shared per-repo open-PR snapshot cache (read by the PRs tab; warmed by the pr-poller).
+   *  Absent in tests that don't exercise it — the PRs route then fetches fresh. */
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "get">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -4093,11 +4097,9 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return json({ slug: null, webUrl: null, prs: [] });
   try {
-    return json({
-      slug: forge.slug,
-      webUrl: forge.webUrl ?? null,
-      prs: await forge.listPullRequests(),
-    });
+    const snap = deps.openPrSnapshot ? await deps.openPrSnapshot.get(forge) : null;
+    const prs = snap ? snap.prs : await forge.listPullRequests();
+    return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs });
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches issues path)
     return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs: [] });

@@ -80,6 +80,36 @@ test("each call mints a fresh session id, echoed into --session-id", () => {
   expect(a.argv[a.argv.indexOf("--session-id") + 1]).toBe(a.sessionId);
 });
 
+// ── NUL sanitization: spawn() rejects a NUL in any argv arg (issue #1235) ────────────────────────
+
+test("every kind: a NUL in the prompt is escaped to `\\0`, leaving NO raw NUL anywhere in argv", () => {
+  for (const kind of ALL_KINDS) {
+    for (const model of [null, "claude-opus-4-8"]) {
+      // A composite-key idiom is the canonical way a stray NUL lands in agent-written text.
+      const { argv } = buildTransientAgentArgv(kind, {
+        model,
+        prompt: "keys by `${slug}\0${forkOwner}` when slug is non-null",
+      });
+      // No argv arg may contain a raw NUL — child_process.spawn would throw on it.
+      for (const arg of argv) expect(arg.includes("\0")).toBe(false);
+      // The trailing positional carries the visible 2-char escape where the NUL was.
+      expect(argv[argv.length - 1]).toBe("keys by `${slug}\\0${forkOwner}` when slug is non-null");
+    }
+  }
+});
+
+test("multiple NULs are each escaped", () => {
+  const { argv } = buildTransientAgentArgv("reviewer", { model: null, prompt: "a\0b\0c" });
+  expect(argv[argv.length - 1]).toBe("a\\0b\\0c");
+  for (const arg of argv) expect(arg.includes("\0")).toBe(false);
+});
+
+test("NUL-free prompts pass through byte-for-byte unchanged (no spurious escaping)", () => {
+  const prompt = "review the plan; key is `${slug}\\0${fork}` (already a literal escape)";
+  const { argv } = buildTransientAgentArgv("reviewer", { model: null, prompt });
+  expect(argv[argv.length - 1]).toBe(prompt);
+});
+
 // ── MCP-isolation coupling: ONE field drives BOTH flags, for every kind ─────────────────────────
 
 test("coupling: --safe-mode ⇔ enableAllProjectMcpServers, for every kind", () => {

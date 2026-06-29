@@ -1704,3 +1704,195 @@ test("cap-hit: countOpenPrs≥200 forces per-session regardless of ratio", async
   expect(stats.list).toBe(0); // cap-hit (p=200 ≥ 200) → no list
   expect(stats.prStatus).toBe(3); // per-session for all 3 sessions
 });
+
+// ── Task C: snapshot-backed batch ─────────────────────────────────────────────
+
+/** Minimal fake OpenPrSnapshotService for snapshot-path tests. */
+function fakeSnapshotSvc(statuses: Map<string, PrStatus>): {
+  svc: {
+    refresh: (forge: GitForge) => Promise<any>;
+    get: (forge: GitForge) => Promise<any>;
+    peek: (forge: GitForge) => any;
+  };
+  calls: { refresh: number; get: number };
+} {
+  const calls = { refresh: 0, get: 0 };
+  const svc = {
+    refresh: async () => {
+      calls.refresh++;
+      return { prs: [], statuses, capped: false };
+    },
+    get: async () => {
+      calls.get++;
+      return null;
+    },
+    peek: () => null,
+  };
+  return { svc, calls };
+}
+
+/** Forge with listOpenPrSnapshot (not listOpenPrStatuses) + countOpenPrs. */
+function forgeWithSnapshot(
+  openByBranch: Record<string, PrStatus>,
+  opts: { isFork?: boolean; count?: number; slug?: string } = {},
+): { forge: GitForge; stats: { count: number; prStatus: number } } {
+  const stats = { count: 0, prStatus: 0 };
+  const statusMap = new Map(Object.entries(openByBranch));
+  const forge: GitForge = {
+    kind: "github",
+    slug: opts.slug ?? "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    isFork: opts.isFork,
+    listIssues: async () => [],
+    listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
+    prStatus: async (head: string) => {
+      stats.prStatus++;
+      return openByBranch[head] ?? NONE;
+    },
+    listOpenPrSnapshot: async () => ({ prs: [], statuses: statusMap, capped: false }),
+    countOpenPrs: async () => {
+      stats.count++;
+      return opts.count ?? Object.keys(openByBranch).length;
+    },
+    openPr: async () => NONE,
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async () => ({}),
+    defaultBranch: async () => "main",
+  };
+  return { forge, stats };
+}
+
+test("snapshot: poller calls refresh (not get) and results drive session git state", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession); // branch shepherd/x
+  store.create({ ...baseSession, branch: "shepherd/dummy" }); // count≥2 floor
+  const emitted: { id: string; state: string }[] = [];
+  const statusMap = new Map<string, PrStatus>([
+    ["shepherd/x", OPEN],
+    ["shepherd/dummy", NONE],
+  ]);
+  const { svc, calls } = fakeSnapshotSvc(statusMap);
+  const { forge } = forgeWithSnapshot({ "shepherd/x": OPEN, "shepherd/dummy": NONE });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (id, git) => emitted.push({ id, state: git.state }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2,
+    600_000,
+    svc as any,
+  );
+
+  await poller.tick();
+  expect(calls.refresh).toBe(1); // refresh called once (per slug, not per session)
+  expect(calls.get).toBe(0); // get never called
+  expect(emitted).toContainEqual({ id: s.id, state: "open" }); // state came from refresh's statuses
+});
+
+test("snapshot: count-gate trip prevents snapshot.refresh from being called", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" }); // count=2, batchOpenRatio=2 (default)
+  const { svc, calls } = fakeSnapshotSvc(new Map());
+  // count=100 > 2 * 2 = 4 → ratio gate trips → per-session
+  const { forge, stats } = forgeWithSnapshot(
+    { "shepherd/a": OPEN, "shepherd/b": OPEN },
+    { count: 100 },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2,
+    600_000,
+    svc as any,
+  );
+
+  await poller.tick();
+  expect(calls.refresh).toBe(0); // count-gate → snapshot never touched
+  expect(stats.prStatus).toBe(2); // per-session fallback for both sessions
+});
+
+test("snapshot: fork mode never calls snapshot.refresh", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" }); // count=2 so fork gate (not count gate) fires
+  const { svc, calls } = fakeSnapshotSvc(new Map());
+  const { forge, stats } = forgeWithSnapshot(
+    { "shepherd/a": OPEN, "shepherd/b": OPEN },
+    { isFork: true },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2,
+    600_000,
+    svc as any,
+  );
+
+  await poller.tick();
+  expect(calls.refresh).toBe(0); // isFork → always per-session
+  expect(stats.prStatus).toBe(2); // per-session for both sessions
+});
+
+test("snapshot: single-session repo (count<2) never calls snapshot.refresh", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession); // only one session → count=1 < 2 floor
+  const { svc, calls } = fakeSnapshotSvc(new Map());
+  const { forge, stats } = forgeWithSnapshot({ "shepherd/x": OPEN });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2,
+    600_000,
+    svc as any,
+  );
+
+  await poller.tick();
+  expect(calls.refresh).toBe(0); // count<2 → per-session, no snapshot call
+  expect(stats.prStatus).toBe(1); // per-session fallback
+});

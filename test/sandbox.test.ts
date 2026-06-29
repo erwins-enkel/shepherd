@@ -563,6 +563,65 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
   });
 
+  test("projectsBindSource overrides the projects bind SOURCE; dest stays <claudeDir>/projects (#1213)", () => {
+    // source = active projects dir, dest = pool projects → transcript lands where readback looks.
+    const f = buildMembraneFlags(
+      fakeMembrane({ claudeDir: "/pool/x", projectsBindSource: "/active/projects" }),
+      detDeps,
+    );
+    expect(hasTriple(f, "--bind", "/active/projects", "/pool/x/projects")).toBe(true);
+    // absent → source == dest → byte-identical default.
+    const g = buildMembraneFlags(fakeMembrane({ claudeDir: "/pool/x" }), detDeps);
+    expect(hasTriple(g, "--bind", "/pool/x/projects", "/pool/x/projects")).toBe(true);
+  });
+
+  test("config-dir .claude.json rw bind only when CLAUDE_CONFIG_DIR is non-default (#1213)", () => {
+    // Non-default config dir (pool redirect / custom operator) → rw-bind <claudeDir>/.claude.json
+    // so Claude can persist onboarding/project state (it reads .claude.json from the config dir).
+    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me", claudeDir: "/pool/x" }), detDeps);
+    expect(hasTriple(f, "--bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(true);
+    // Default ~/.claude → NOT added (default path stays byte-identical; Claude reads $HOME/.claude.json).
+    const g = buildMembraneFlags(
+      fakeMembrane({ home: "/home/me", claudeDir: "/home/me/.claude" }),
+      detDeps,
+    );
+    expect(
+      hasTriple(g, "--bind-try", "/home/me/.claude/.claude.json", "/home/me/.claude/.claude.json"),
+    ).toBe(false);
+  });
+
+  test("api-key redirect: masks the POOL dir per-child minus creds, projects source=active, .claude.json rw (#1213)", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({
+        home: "/home/me",
+        claudeDir: "/pool/x",
+        maskCredentials: true,
+        apiKeyHelperPath: "/helper.sh",
+        projectsBindSource: "/active/projects",
+      }),
+      {
+        ...detDeps,
+        readdir: () => [".credentials.json", "projects", "settings.json", ".claude.json"],
+      },
+    );
+    // The POOL dir is masked per-child (no whole-dir RO bind); its mount point exists via --dir.
+    expect(hasTriple(f, "--ro-bind", "/pool/x", "/pool/x")).toBe(false);
+    const di = f.indexOf("--dir");
+    expect(f[di + 1]).toBe("/pool/x");
+    // Per-child RO bind for a non-credential child of the POOL dir.
+    expect(hasTriple(f, "--ro-bind-try", "/pool/x/settings.json", "/pool/x/settings.json")).toBe(
+      true,
+    );
+    // The POOL dir's .credentials.json is NEVER bound (genuinely absent) — no rw cred bind either.
+    expect(f.includes("/pool/x/.credentials.json")).toBe(false);
+    // api-key helper bound RO.
+    expect(hasTriple(f, "--ro-bind-try", "/helper.sh", "/helper.sh")).toBe(true);
+    // projects bind SOURCE = active projects dir (readback preserved).
+    expect(hasTriple(f, "--bind", "/active/projects", "/pool/x/projects")).toBe(true);
+    // config-dir .claude.json rw override (beats the masked per-child RO).
+    expect(hasTriple(f, "--bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(true);
+  });
+
   test("session-env tmpfs carve-out present in subscription mode", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     const claudeDir = "/home/me/.claude";

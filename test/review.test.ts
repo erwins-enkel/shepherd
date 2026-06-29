@@ -2588,6 +2588,9 @@ test("findSquatter: empty label does NOT match an unnamed agent whose cwd differ
 test("critic: onSpawn fires (kind=review, parentSessionId) and binds credentialDir through to the spawn env", async () => {
   let seen: any;
   const { deps: d, started } = makeDeps({
+    // The plugin's pool dir exists on host (#1213 validate-and-skip would otherwise drop a
+    // non-existent dir and fall open to the active account).
+    pathExists: () => true,
     runSpawnHooks: async (desc: any) => {
       seen = desc;
       return { credentialDir: "/pool/acct-2" };

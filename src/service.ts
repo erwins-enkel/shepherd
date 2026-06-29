@@ -2006,7 +2006,7 @@ export class SessionService {
         model: spawnInput.model,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
-        planGateEnabled: agentProvider === "claude" ? (input.planGateEnabled ?? null) : false,
+        planGateEnabled: agentProvider === "claude" ? (spawnInput.planGateEnabled ?? null) : false,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,

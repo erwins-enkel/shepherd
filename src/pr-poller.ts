@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
-import type { GitForge, GitState } from "./forge/types";
+import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 
 /** Read/write handle the HTTP layer uses to serve snapshots and apply instant
@@ -184,11 +184,24 @@ export class PrPoller implements PrCache {
      *  state unstable) before `fastTick` parks it and stops fast-polling it. A new
      *  headSha resets the clock. Default: 5 minutes. */
     private transientMaxMs = 300_000,
+    /** Batch the full sweep for a non-fork repo only while its open-PR count
+     *  `P ≤ batchOpenRatio × (sessions with a branch in that repo)`. Above it,
+     *  the per-repo full-rollup batch costs more GraphQL points than per-session,
+     *  so fall back. Measured cost ≈ 0.4 pt/open-PR vs ~1 pt/session ⇒ default 2. */
+    private batchOpenRatio = 2,
+    /** Coarse cadence at which cached-`none` sessions are re-confirmed via
+     *  per-session `prStatus` (a `--state open` batch can't surface a PR that was
+     *  created and reached terminal between sweeps). Bounds stuck-`none` self-heal
+     *  latency without per-sweep O(none-sessions) fan-out. */
+    private noneRecheckMs = 600_000,
   ) {}
 
   /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
    *  throttle in `tick`. */
   private lastFullSweepAt = 0;
+
+  /** Epoch-ms of the last sweep that re-confirmed cached-`none` sessions. */
+  private lastNoneRecheckAt = 0;
 
   async tick(): Promise<void> {
     if (this.rateLimited()) return; // GraphQL bucket exhausted — don't add to the backlog
@@ -199,10 +212,14 @@ export class PrPoller implements PrCache {
     this.lastFullSweepAt = Date.now();
     this.sweeping = true;
     try {
+      const sessions = [...this.store.list({ activeOnly: true })];
+      const recheckNone = Date.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
+      if (recheckNone) this.lastNoneRecheckAt = Date.now();
+      const batches = await this.buildBatches(sessions);
       const active = new Set<string>();
-      for (const s of this.store.list({ activeOnly: true })) {
+      for (const s of sessions) {
         active.add(s.id);
-        await this.withGh(() => this.refresh(s));
+        await this.withGh(() => this.refresh(s, this.batchFor(s, batches), recheckNone));
       }
       for (const id of [...this.cache.keys()]) {
         if (!active.has(id)) {
@@ -213,6 +230,64 @@ export class PrPoller implements PrCache {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** Fetch the batch status for one repo. Returns the open-PR map, or null when
+   *  the repo should fall back to per-session polling (no batch methods, fork,
+   *  count-gate trip, or a transient fetch failure). All `gh` calls under `withGh`.
+   *  count < 2: batching costs 2 gh calls (countOpenPrs + listOpenPrStatuses) vs
+   *  S = count per-session calls; break-even is S ≥ 2, so a single-session repo
+   *  is a strict regression — skip both probe and list call. */
+  private async batchForRepo(
+    forge: GitForge,
+    count: number,
+  ): Promise<Map<string, PrStatus> | null> {
+    if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork || count < 2) {
+      return null;
+    }
+    try {
+      const p = await this.withGh(() => forge.countOpenPrs!());
+      if (p >= 200 || p > this.batchOpenRatio * count) {
+        return null; // cap-hit (truncated batch) or count-gate → per-session
+      }
+      return await this.withGh(() => forge.listOpenPrStatuses!());
+    } catch {
+      return null; // transient failure → per-session this sweep
+    }
+  }
+
+  /** One open-PR batch per distinct non-fork repo, subject to the count-gate.
+   *  Maps `forge.slug` → its `Map<headRefName, PrStatus>`, or `null` when that
+   *  repo must use the per-session path (no batch methods, fork mode, count-gate
+   *  over ratio, or a transient fetch failure). All `gh` under `withGh`. */
+  private async buildBatches(
+    sessions: Session[],
+  ): Promise<Map<string, Map<string, PrStatus> | null>> {
+    const out = new Map<string, Map<string, PrStatus> | null>();
+    const byKey = new Map<string, { forge: GitForge; count: number }>();
+    for (const s of sessions) {
+      if (!s.branch) continue;
+      const forge = this.resolveForge(s.repoPath);
+      if (!forge || forge.slug == null) continue;
+      const e = byKey.get(forge.slug);
+      if (e) e.count++;
+      else byKey.set(forge.slug, { forge, count: 1 });
+    }
+    for (const [key, { forge, count }] of byKey) {
+      out.set(key, await this.batchForRepo(forge, count));
+    }
+    return out;
+  }
+
+  /** The prefetched batch for `s`'s repo, or null (→ per-session path). */
+  private batchFor(
+    s: Session,
+    batches: Map<string, Map<string, PrStatus> | null>,
+  ): Map<string, PrStatus> | null {
+    if (!s.branch) return null;
+    const forge = this.resolveForge(s.repoPath);
+    if (!forge || forge.slug == null) return null;
+    return batches.get(forge.slug) ?? null;
   }
 
   /** Accelerated re-poll of in-flight PRs (cached `state === "open"`) so the list
@@ -273,8 +348,15 @@ export class PrPoller implements PrCache {
   }
 
   /** Poll one session and emit `session:git` if its PR state moved. Shared by
-   *  the full sweep and the targeted `pollSession` path. */
-  private async refresh(s: Session): Promise<void> {
+   *  the full sweep (which passes the prefetched per-repo `batch`) and the
+   *  targeted `pollSession`/`fastTick` paths (no batch → per-session). The
+   *  post-processing (handoff / transient stamp / change-emit) is shared; only
+   *  raw-status resolution differs (`statusFromBatch` vs `statusPerSession`). */
+  private async refresh(
+    s: Session,
+    batch?: Map<string, PrStatus> | null,
+    recheckNone = false,
+  ): Promise<void> {
     const forge = s.branch ? this.resolveForge(s.repoPath) : null;
     if (!forge || !s.branch) return; // no PR possible — leave uncached
     const me = (await forge.currentUser?.()) ?? null;
@@ -283,11 +365,34 @@ export class PrPoller implements PrCache {
     const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
       trustsTerminal(prev, raw, marked, markedNumber) ? raw : this.rejectStaleTerminal(s, raw);
+
+    const raw = batch
+      ? await this.statusFromBatch(s, forge, batch, prev, marked, recheckNone, guard)
+      : await this.statusPerSession(s, forge, guard);
+    if (raw === null) return; // transient gh failure → keep last cached value
+
+    // Who's up (open+green): computed from .shepherd/roles.json + the operator's
+    // login, so the herd can show "waiting on scoop" instead of "your turn".
+    const git = annotateHandoff(raw, s.repoPath, me);
+    this.trackTransient(s.id, git);
+    if (gitStateChanged(prev, git)) {
+      this.cache.set(s.id, git);
+      this.onChange(s.id, git);
+    }
+  }
+
+  /** Per-session raw status — TODAY'S logic verbatim (the no-batch fallback).
+   *  Returns null on a transient `gh` throw ("keep last cached value"). */
+  private async statusPerSession(
+    s: Session,
+    forge: GitForge,
+    guard: (raw: GitState) => GitState,
+  ): Promise<GitState | null> {
     let git: GitState;
     try {
-      git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch)) });
+      git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch!)) });
     } catch {
-      return; // transient gh failure → keep last cached value
+      return null;
     }
     // No PR for the stored branch — the agent may have renamed the worktree's
     // branch out from under us. Adopt the live branch and retry against it. The
@@ -299,17 +404,62 @@ export class PrPoller implements PrCache {
         try {
           git = guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
         } catch {
-          return;
+          return null;
         }
       }
     }
-    // Who's up (open+green): computed from .shepherd/roles.json + the operator's
-    // login, so the herd can show "waiting on scoop" instead of "your turn".
-    git = annotateHandoff(git, s.repoPath, me);
-    this.trackTransient(s.id, git);
-    if (gitStateChanged(prev, git)) {
-      this.cache.set(s.id, git);
-      this.onChange(s.id, git);
+    return git;
+  }
+
+  /** Raw status from the per-repo open-PR batch. A batch hit is the live open PR.
+   *  On a miss: confirm a terminal/none via per-session `prStatus` only when
+   *  bounded (`marked || prev == null || prev.state !== "none" || recheckNone`);
+   *  then `reconcileBranch` every sweep (local git) and look the renamed branch up
+   *  in the batch first (no GraphQL) so an open-rename is adopted at the normal
+   *  sweep cadence; finally synthesize a definitive `none`. */
+  private async statusFromBatch(
+    s: Session,
+    forge: GitForge,
+    batch: Map<string, PrStatus>,
+    prev: GitState | undefined,
+    marked: boolean,
+    recheckNone: boolean,
+    guard: (raw: GitState) => GitState,
+  ): Promise<GitState | null> {
+    const hit = batch.get(s.branch!);
+    if (hit) return guard({ kind: forge.kind, ...hit });
+
+    const needsConfirm = marked || prev == null || prev.state !== "none" || recheckNone;
+    const noneGit = (): GitState => ({
+      kind: forge.kind,
+      state: "none",
+      checks: "none",
+      deployConfigured: !!forge.deployWorkflow,
+    });
+
+    let git: GitState | null = null;
+    if (needsConfirm) {
+      try {
+        git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch!)) });
+      } catch {
+        return null;
+      }
+    }
+
+    if (git != null && git.state !== "none") return git;
+
+    const live = this.reconcileBranch(s);
+    if (!live || live === s.branch) return git ?? noneGit();
+
+    const liveHit = batch.get(live);
+    if (liveHit) return guard({ kind: forge.kind, ...liveHit });
+
+    if (!needsConfirm) return git ?? noneGit();
+
+    try {
+      return guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
+    } catch {
+      return null;
     }
   }
 

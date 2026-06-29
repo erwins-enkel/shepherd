@@ -475,6 +475,20 @@ export interface GitForge {
    *  without it, or a transient failure, yields an empty set and the exclusion degrades to
    *  `shepherd:active`-only. Optional: only hosts with the GraphQL field implement it. */
   listOpenPrClosingIssues?(): Promise<number[]>;
+  /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
+   *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
+   *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
+   *  prStatus to O(repos)). On a headRefName collision the implementation may
+   *  deterministically prefer the repo-owned PR, but it does NOT filter by owner —
+   *  every open PR is returned. Optional: forges without it (Gitea/Local), and
+   *  fork-mode repos (which the poller routes around → per-session), fall back to
+   *  per-session prStatus. */
+  listOpenPrStatuses?(): Promise<Map<string, PrStatus>>;
+  /** Cheap open-PR count (`gh pr list --state open --json number --limit 200`,
+   *  ~1 GraphQL point regardless of count) — the poller's count-gate uses it to
+   *  decide whether the full listOpenPrStatuses batch is cheaper than per-session
+   *  for this repo. Capped at 200 (a ≥200 result means "at least 200"). Optional. */
+  countOpenPrs?(): Promise<number>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

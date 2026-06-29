@@ -1265,3 +1265,196 @@ test("GithubForge.prReviewMeta: missing fields default to empty/false", async ()
   const meta = await new GithubForge("o/r", {}, run).prReviewMeta!(7);
   expect(meta).toEqual({ body: "", baseRefName: "", isCrossRepository: false, state: "open" });
 });
+
+// ── listOpenPrStatuses + countOpenPrs ────────────────────────────────────────
+
+/** A complete GhPr-shaped node exercising every field that mapGhPr touches. */
+const FULL_PR_NODE = {
+  number: 42,
+  url: "https://github.com/o/r/pull/42",
+  title: "feat: full parity",
+  state: "OPEN",
+  createdAt: "2025-01-15T12:00:00Z",
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  isDraft: false,
+  statusCheckRollup: [
+    {
+      __typename: "CheckRun",
+      name: "ci",
+      workflowName: "CI",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      detailsUrl: "https://gh/job/ci",
+    },
+  ],
+  headRefOid: "deadbeef1234",
+  headRefName: "feat/full",
+  baseRefName: "main",
+  reviews: [
+    {
+      author: { login: "alice" },
+      state: "APPROVED",
+      body: "",
+      submittedAt: "2025-01-14T00:00:00Z",
+    },
+  ],
+  reviewRequests: [{ login: "bob" }],
+  headRepositoryOwner: { login: "o" },
+};
+
+test("mapGhPr parity: prStatus and listOpenPrStatuses produce identical PrStatus fields", async () => {
+  const prListJson = JSON.stringify([FULL_PR_NODE]);
+  const { run } = fakeRunner({ "pr list": prListJson });
+  const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);
+
+  const fromPrStatus = await forge.prStatus("feat/full");
+
+  const map = await forge.listOpenPrStatuses!();
+  const fromBatch = map.get("feat/full");
+
+  expect(fromBatch).toBeDefined();
+  const fields = [
+    "state",
+    "number",
+    "url",
+    "title",
+    "createdAt",
+    "mergeable",
+    "mergeStateStatus",
+    "isDraft",
+    "checks",
+    "headSha",
+    "baseRefName",
+    "latestReview",
+    "requestedReviewers",
+    "deployConfigured",
+  ] as const;
+  for (const f of fields) {
+    expect(fromBatch![f]).toEqual(fromPrStatus[f]);
+  }
+});
+
+test("listOpenPrStatuses: non-fork selects expected-owner PR regardless of array order", async () => {
+  const internalPr = {
+    number: 10,
+    url: "u10",
+    title: "internal",
+    state: "OPEN",
+    headRefName: "feat/shared",
+    headRepositoryOwner: { login: "o" },
+  };
+  const forkPr = {
+    number: 20,
+    url: "u20",
+    title: "forker",
+    state: "OPEN",
+    headRefName: "feat/shared",
+    headRepositoryOwner: { login: "someforker" },
+  };
+
+  // Sub-case A: internal PR first in array
+  {
+    const { run } = fakeRunner({ "pr list": JSON.stringify([internalPr, forkPr]) });
+    const map = await new GithubForge("o/r", {}, run).listOpenPrStatuses!();
+    expect(map.get("feat/shared")!.number).toBe(10);
+  }
+
+  // Sub-case B: forker PR first in array — must still resolve to internal
+  {
+    const { run } = fakeRunner({ "pr list": JSON.stringify([forkPr, internalPr]) });
+    const map = await new GithubForge("o/r", {}, run).listOpenPrStatuses!();
+    expect(map.get("feat/shared")!.number).toBe(10);
+  }
+});
+
+test("listOpenPrStatuses: fork forge selects fork-owner PR over upstream-owner", async () => {
+  const upstreamPr = {
+    number: 5,
+    url: "u5",
+    title: "upstream",
+    state: "OPEN",
+    headRefName: "feat/thing",
+    headRepositoryOwner: { login: "up" },
+  };
+  const forkPr = {
+    number: 9,
+    url: "u9",
+    title: "fork",
+    state: "OPEN",
+    headRefName: "feat/thing",
+    headRepositoryOwner: { login: "me" },
+  };
+
+  // forkSlug "me/r", slug "up/r" → forkOwner = "me"
+  const { run } = fakeRunner({ "pr list": JSON.stringify([upstreamPr, forkPr]) });
+  const forge = new GithubForge("up/r", {}, run, "me/r");
+  const map = await forge.listOpenPrStatuses!();
+  expect(map.get("feat/thing")!.number).toBe(9);
+});
+
+test("listOpenPrStatuses: distinct headRefNames → distinct keys; missing headRefName skipped", async () => {
+  const prs = [
+    {
+      number: 1,
+      url: "u1",
+      title: "a",
+      state: "OPEN",
+      headRefName: "branch-a",
+      headRepositoryOwner: { login: "o" },
+    },
+    {
+      number: 2,
+      url: "u2",
+      title: "b",
+      state: "OPEN",
+      headRefName: "branch-b",
+      headRepositoryOwner: { login: "o" },
+    },
+    { number: 3, url: "u3", title: "c", state: "OPEN" /* no headRefName */ },
+  ];
+  const { run } = fakeRunner({ "pr list": JSON.stringify(prs) });
+  const forge = new GithubForge("o/r", {}, run);
+  const map = await forge.listOpenPrStatuses!();
+  expect(map.size).toBe(2);
+  expect(map.has("branch-a")).toBe(true);
+  expect(map.has("branch-b")).toBe(true);
+  expect(map.get("branch-a")!.number).toBe(1);
+  expect(map.get("branch-b")!.number).toBe(2);
+});
+
+test("listOpenPrStatuses: cap log fires once at ≥200, latches on second call", async () => {
+  const prs200 = Array.from({ length: 200 }, (_, i) => ({
+    number: i + 1,
+    url: `u${i + 1}`,
+    title: `pr${i + 1}`,
+    state: "OPEN",
+    headRefName: `branch-${i + 1}`,
+  }));
+  const { run } = fakeRunner({ "pr list": JSON.stringify(prs200) });
+  const forge = new GithubForge("o/r", {}, run);
+
+  const warnCalls: unknown[][] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnCalls.push(args);
+  try {
+    await forge.listOpenPrStatuses!();
+    await forge.listOpenPrStatuses!(); // second call: latch must suppress
+  } finally {
+    console.warn = origWarn;
+  }
+
+  expect(warnCalls.length).toBe(1);
+  expect(String(warnCalls[0]![0])).toContain("≥200");
+});
+
+test("countOpenPrs: returns array length from --json number response", async () => {
+  const prs = Array.from({ length: 7 }, (_, i) => ({ number: i + 1 }));
+  const { run, calls } = fakeRunner({ "pr list": JSON.stringify(prs) });
+  const forge = new GithubForge("o/r", {}, run);
+  const count = await forge.countOpenPrs!();
+  expect(count).toBe(7);
+  const listCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
+  expect(listCall).toContain("number");
+  expect(listCall).toContain("open");
+});

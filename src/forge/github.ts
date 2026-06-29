@@ -175,6 +175,7 @@ interface GhPr {
   isDraft?: boolean;
   statusCheckRollup?: RollupEntry[];
   headRefOid?: string;
+  headRefName?: string;
   baseRefName?: string;
   reviews?: GhReview[];
   reviewRequests?: { login?: string }[];
@@ -229,6 +230,9 @@ export class GithubForge implements GitForge {
    *  {@link forkSlug}. Used to qualify `pr create --head <forkOwner>:<branch>` and
    *  to disambiguate `prStatus`'s cross-repo match. Undefined for non-fork repos. */
   private readonly forkOwner?: string;
+  /** Latch: true once we've emitted the ≥200 open-PR cap warning so it fires at
+   *  most once per forge instance (on transition into the capped regime). */
+  private openPrCapLogged = false;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -641,6 +645,31 @@ export class GithubForge implements GitForge {
     await this.run(["run", "cancel", String(runId), "--repo", this.slug]);
   }
 
+  /** Map a raw GhPr node to a PrStatus. Shared by prStatus (single-PR path) and
+   *  listOpenPrStatuses (batch path) so both produce identical field values. */
+  private mapGhPr(pr: GhPr, deployConfigured: boolean): PrStatus {
+    const state = pr.state.toLowerCase() as PrStatus["state"];
+    const createdAt = Date.parse(pr.createdAt ?? "");
+    return {
+      state: state === "open" || state === "merged" || state === "closed" ? state : "none",
+      number: pr.number,
+      url: pr.url,
+      title: pr.title,
+      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
+      mergeable: mapMergeable(pr.mergeable),
+      mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
+      isDraft: pr.isDraft ?? false,
+      checks: rollupChecks(pr.statusCheckRollup ?? []),
+      headSha: pr.headRefOid,
+      baseRefName: pr.baseRefName,
+      latestReview: latestHumanReview(pr.reviews),
+      requestedReviewers: (pr.reviewRequests ?? [])
+        .map((r) => r.login)
+        .filter((l): l is string => !!l),
+      deployConfigured,
+    };
+  }
+
   async prStatus(headBranch: string): Promise<PrStatus> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
     // `gh pr list --head` matches by bare branch ref name — it does NOT accept the
@@ -675,26 +704,82 @@ export class GithubForge implements GitForge {
       ? prs.find((p) => p.headRepositoryOwner?.login === this.forkOwner)
       : prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
-    const state = pr.state.toLowerCase() as PrStatus["state"];
-    const createdAt = Date.parse(pr.createdAt ?? "");
-    return {
-      state: state === "open" || state === "merged" || state === "closed" ? state : "none",
-      number: pr.number,
-      url: pr.url,
-      title: pr.title,
-      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
-      mergeable: mapMergeable(pr.mergeable),
-      mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
-      isDraft: pr.isDraft ?? false,
-      checks: rollupChecks(pr.statusCheckRollup ?? []),
-      headSha: pr.headRefOid,
-      baseRefName: pr.baseRefName,
-      latestReview: latestHumanReview(pr.reviews),
-      requestedReviewers: (pr.reviewRequests ?? [])
-        .map((r) => r.login)
-        .filter((l): l is string => !!l),
-      deployConfigured,
-    };
+    return this.mapGhPr(pr, deployConfigured);
+  }
+
+  /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
+   *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
+   *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
+   *  prStatus to O(repos)). When two open PRs share a headRefName (e.g. an
+   *  internal-branch PR and a fork PR for the same name) the entry owned by
+   *  `forkOwner ?? owner(slug)` wins regardless of array order — a deterministic
+   *  collision dedup, NOT a fork filter (all open PRs are returned). The poller
+   *  does not call this in fork mode (`batchForRepo` skips `isFork` repos →
+   *  per-session `prStatus`); the `forkOwner` arm of the dedup key is just
+   *  defensive. */
+  async listOpenPrStatuses(): Promise<Map<string, PrStatus>> {
+    const deployConfigured = Boolean(this.cfg.deployWorkflow);
+    const out = await this.run([
+      "pr",
+      "list",
+      "--repo",
+      this.slug,
+      "--state",
+      "open",
+      "--json",
+      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,headRefName,baseRefName,reviews,reviewRequests,headRepositoryOwner",
+      "--limit",
+      "200",
+    ]);
+    const prs = JSON.parse(out || "[]") as GhPr[];
+
+    if (prs.length >= 200 && !this.openPrCapLogged) {
+      this.openPrCapLogged = true;
+      console.warn(
+        `[github] ${this.slug} has ≥200 open PRs; batch truncated — tail branches fall back to per-session`,
+      );
+    }
+
+    // Deterministic dedup when two open PRs share a headRefName (e.g. an internal
+    // branch PR and a fork PR for the same name). The expectedOwner-owned entry
+    // always wins regardless of array order; if no entry matches, first-seen wins
+    // (mirrors prStatus's prs[0] no-match fallback).
+    const expectedOwner = this.forkOwner ?? this.slug.split("/")[0];
+    const result = new Map<string, PrStatus>();
+
+    for (const pr of prs) {
+      if (!pr.headRefName) continue;
+      const key = pr.headRefName;
+      const existing = result.get(key);
+      if (!existing) {
+        result.set(key, this.mapGhPr(pr, deployConfigured));
+      } else if (pr.headRepositoryOwner?.login === expectedOwner) {
+        // Current entry's owner matches: overwrite whatever was first-seen
+        result.set(key, this.mapGhPr(pr, deployConfigured));
+      }
+      // else: existing is already the right entry — keep it
+    }
+
+    return result;
+  }
+
+  /** Cheap open-PR count (`gh pr list --state open --json number --limit 200`).
+   *  Returns the array length; capped at 200 (≥200 means "at least 200"). */
+  async countOpenPrs(): Promise<number> {
+    const out = await this.run([
+      "pr",
+      "list",
+      "--repo",
+      this.slug,
+      "--state",
+      "open",
+      "--json",
+      "number",
+      "--limit",
+      "200",
+    ]);
+    const prs = JSON.parse(out || "[]") as { number: number }[];
+    return prs.length;
   }
 
   private cachedDefaultBranch?: string;

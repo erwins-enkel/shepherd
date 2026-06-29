@@ -1193,3 +1193,470 @@ test("transientSince entry is deleted on drop()", async () => {
   expect(ts.has(s.id)).toBe(false);
   expect(poller.snapshot()[s.id]).toBeUndefined();
 });
+
+// ── Task 2: per-repo batch full sweep (count-gate + bounds) ────────────────────
+
+/** A forge double implementing the batch methods (`listOpenPrStatuses` /
+ *  `countOpenPrs`). `openByBranch` / `prStatusByBranch` are read live on each call,
+ *  so tests can mutate them between ticks. `stats` counts each path's calls. */
+function forgeWithBatch(
+  openByBranch: Record<string, PrStatus>,
+  opts: {
+    isFork?: boolean;
+    count?: number;
+    slug?: string;
+    prStatusByBranch?: Record<string, PrStatus>;
+  } = {},
+): { forge: GitForge; stats: { list: number; count: number; prStatus: number } } {
+  const stats = { list: 0, count: 0, prStatus: 0 };
+  const forge: GitForge = {
+    kind: "github",
+    slug: opts.slug ?? "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    isFork: opts.isFork,
+    listIssues: async () => [],
+    listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
+    prStatus: async (head: string) => {
+      stats.prStatus++;
+      return opts.prStatusByBranch?.[head] ?? NONE;
+    },
+    listOpenPrStatuses: async () => {
+      stats.list++;
+      return new Map(Object.entries(openByBranch));
+    },
+    countOpenPrs: async () => {
+      stats.count++;
+      return opts.count ?? Object.keys(openByBranch).length;
+    },
+    openPr: async () => NONE,
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async () => ({}),
+    defaultBranch: async () => "main",
+  };
+  return { forge, stats };
+}
+
+test("batch hit: open PR served from batch, no per-session prStatus", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession); // branch shepherd/x
+  store.create({ ...baseSession, branch: "shepherd/dummy" }); // second session — satisfies count≥2 floor
+  const emitted: { id: string; state: string }[] = [];
+  const { forge, stats } = forgeWithBatch({ "shepherd/x": OPEN, "shepherd/dummy": NONE });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (id, git) => emitted.push({ id, state: git.state }),
+  );
+
+  await poller.tick();
+  expect(emitted).toContainEqual({ id: s.id, state: "open" });
+  expect(stats.prStatus).toBe(0);
+  expect(stats.list).toBe(1);
+});
+
+test("O(repos): five sessions on one forge resolve via a single batch call", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 5; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  const open: Record<string, PrStatus> = {};
+  for (let i = 0; i < 5; i++) open[`shepherd/${i}`] = { ...OPEN, number: i + 1 };
+  const emitted: string[] = [];
+  const { forge, stats } = forgeWithBatch(open);
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push(g.state),
+  );
+
+  await poller.tick();
+  expect(stats.list).toBe(1);
+  expect(stats.prStatus).toBe(0);
+  expect(emitted.filter((s) => s === "open").length).toBe(5);
+});
+
+test("fork mode never batches — falls back to per-session prStatus", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/x": OPEN },
+    { isFork: true, prStatusByBranch: { "shepherd/x": OPEN } },
+  );
+  const emitted: string[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push(g.state),
+  );
+
+  await poller.tick();
+  expect(stats.list).toBe(0); // fork → never batched
+  expect(stats.prStatus).toBe(1); // per-session fallback
+  expect(emitted).toEqual(["open"]);
+});
+
+test("count-gate: over-ratio falls back to per-session, under-ratio batches", async () => {
+  // over-ratio: 100 open PRs vs 2 sessions → 100 > 2×2=4 → per-session (ratio gate)
+  {
+    const store = new SessionStore(":memory:");
+    store.create({ ...baseSession, branch: "shepherd/a" });
+    store.create({ ...baseSession, branch: "shepherd/b" });
+    const { forge, stats } = forgeWithBatch(
+      {},
+      { count: 100, prStatusByBranch: { "shepherd/a": OPEN, "shepherd/b": OPEN } },
+    );
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+    );
+    await poller.tick();
+    expect(stats.count).toBe(1);
+    expect(stats.list).toBe(0); // gate fails → no batch list
+    expect(stats.prStatus).toBe(2); // per-session for both
+  }
+  // under-ratio: 1 open PR vs 2 sessions → 1 ≤ 2×2=4 → batch
+  {
+    const store = new SessionStore(":memory:");
+    store.create({ ...baseSession, branch: "shepherd/a" });
+    store.create({ ...baseSession, branch: "shepherd/b" });
+    const { forge, stats } = forgeWithBatch(
+      { "shepherd/a": OPEN, "shepherd/b": NONE },
+      { count: 1 },
+    );
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+    );
+    await poller.tick();
+    expect(stats.list).toBe(1);
+    expect(stats.prStatus).toBe(0);
+  }
+});
+
+test("merged transition: batch miss + prev-open → per-session confirm emits merged", async () => {
+  const store = new SessionStore(":memory:");
+  // dummy created FIRST so it is processed first in tick, shepherd/x last → emitted.at(-1) tracks shepherd/x
+  store.create({ ...baseSession, branch: "shepherd/dummy" }); // second session — satisfies count≥2 floor
+  store.create(baseSession); // shepherd/x
+  const open: Record<string, PrStatus> = { "shepherd/x": OPEN, "shepherd/dummy": NONE }; // #7
+  const prByBranch: Record<string, PrStatus> = {};
+  const { forge, stats } = forgeWithBatch(open, { prStatusByBranch: prByBranch });
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state, number: g.number }),
+  );
+
+  await poller.tick(); // batch hit open #7
+  expect(emitted.at(-1)).toEqual({ state: "open", number: 7 });
+  const before = stats.prStatus;
+
+  // tick 2: batch miss + per-session reports merged #7 (prev open #7 → trustsTerminal)
+  delete open["shepherd/x"];
+  prByBranch["shepherd/x"] = {
+    state: "merged",
+    number: 7,
+    checks: "success",
+    headSha: "h7",
+    deployConfigured: false,
+  };
+  await poller.tick();
+  expect(stats.prStatus).toBe(before + 1); // exactly one confirm call
+  expect(emitted.at(-1)?.state).toBe("merged");
+});
+
+test("stale-terminal guard under batch: reused-name merged dropped to none", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const open: Record<string, PrStatus> = { "shepherd/x": OPEN }; // #7
+  const prByBranch: Record<string, PrStatus> = {};
+  const { forge } = forgeWithBatch(open, { prStatusByBranch: prByBranch });
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state, number: g.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => false, // ownsPr false → reused-name terminal rejected
+  );
+
+  await poller.tick(); // open #7 cached
+  delete open["shepherd/x"];
+  prByBranch["shepherd/x"] = {
+    state: "merged",
+    number: 8,
+    checks: "success",
+    headSha: "x",
+    deployConfigured: false,
+  };
+  await poller.tick(); // miss → confirm merged #8 (different number) → guard → none
+  expect(emitted.at(-1)).toEqual({ state: "none", number: undefined });
+  expect(poller.snapshot()[s.id]?.state).toBe("none");
+});
+
+test("rename present in batch adopted next sweep with no extra prStatus", async () => {
+  const store = new SessionStore(":memory:");
+  // dummy created FIRST (always in batch) so it never calls prStatus; shepherd/x SECOND
+  store.create({ ...baseSession, branch: "shepherd/dummy" }); // satisfies count≥2 floor
+  store.create(baseSession); // shepherd/x
+  const open: Record<string, PrStatus> = { "shepherd/dummy": NONE }; // dummy always in batch; shepherd/x initially missing
+  let live: string | null = null;
+  const { forge, stats } = forgeWithBatch(open, { prStatusByBranch: {} });
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state, number: g.number }),
+    120_000,
+    1000,
+    () => live,
+  );
+
+  await poller.tick(); // tick1: dummy batch hit (none); shepherd/x miss → one confirm (none) → reconcile null → none
+  expect(stats.prStatus).toBe(1); // only shepherd/x called prStatus
+  expect(emitted.at(-1)?.state).toBe("none"); // shepherd/x processed last
+
+  // tick2 (within noneRecheckMs): rename visible + open PR present on renamed branch
+  live = "shepherd/renamed";
+  open["shepherd/renamed"] = OPEN;
+  await poller.tick();
+  expect(stats.prStatus).toBe(1); // adopted from batch — no extra GraphQL
+  expect(emitted.at(-1)).toEqual({ state: "open", number: 7 });
+});
+
+test("rename via pollSession (per-session path) adopts the renamed branch", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const { forge } = forgeWithBatch({}, { prStatusByBranch: { "shepherd/renamed": OPEN } });
+  const emitted: { state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state }),
+    120_000,
+    0, // no debounce
+    () => "shepherd/renamed",
+  );
+
+  poller.pollSession(s.id);
+  await tick();
+  expect(emitted.at(-1)).toEqual({ state: "open" });
+});
+
+test("cold-cache none: confirmed once then skipped within the recheck window", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession); // shepherd/x
+  store.create({ ...baseSession, branch: "shepherd/dummy" }); // satisfies count≥2 floor; always hits batch → no prStatus
+  const { forge, stats } = forgeWithBatch({ "shepherd/dummy": NONE }, { prStatusByBranch: {} });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+  );
+
+  await poller.tick(); // shepherd/x: prev null → confirm once → none cached; dummy: batch hit
+  expect(stats.prStatus).toBe(1);
+  await poller.tick(); // shepherd/x: within noneRecheckMs, prev none → no re-confirm; dummy: batch hit unchanged
+  expect(stats.prStatus).toBe(1);
+});
+
+test("stuck-none heals after noneRecheckMs via a per-session re-confirm", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const prByBranch: Record<string, PrStatus> = {};
+  const { forge } = forgeWithBatch({}, { prStatusByBranch: prByBranch });
+  const emitted: { state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true, // ownsPr true → keep the merge
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2, // batchOpenRatio
+    0, // noneRecheckMs → every sweep re-confirms a cached none
+  );
+
+  await poller.tick(); // none cached
+  expect(emitted.at(-1)?.state).toBe("none");
+
+  // PR merged between sweeps — a --state open batch can't surface it
+  prByBranch["shepherd/x"] = {
+    state: "merged",
+    number: 5,
+    checks: "success",
+    headSha: "h5",
+    deployConfigured: false,
+  };
+  await poller.tick(); // recheckNone → confirm → merged
+  expect(emitted.at(-1)?.state).toBe("merged");
+});
+
+test("multi-repo: one batch call per distinct slug", async () => {
+  const store = new SessionStore(":memory:");
+  // Two sessions per repo so each slug has count≥2 and passes the single-session floor
+  store.create({ ...baseSession, repoPath: "/a", branch: "shepherd/a1" });
+  store.create({ ...baseSession, repoPath: "/a", branch: "shepherd/a2" });
+  store.create({ ...baseSession, repoPath: "/b", branch: "shepherd/b1" });
+  store.create({ ...baseSession, repoPath: "/b", branch: "shepherd/b2" });
+  const a = forgeWithBatch({ "shepherd/a1": OPEN, "shepherd/a2": NONE }, { slug: "o/a" });
+  const b = forgeWithBatch({ "shepherd/b1": OPEN, "shepherd/b2": NONE }, { slug: "o/b" });
+  const poller = new PrPoller(
+    store,
+    (repo) => (repo === "/a" ? a.forge : b.forge),
+    () => {},
+  );
+
+  await poller.tick();
+  expect(a.stats.list).toBe(1);
+  expect(b.stats.list).toBe(1);
+  expect(a.stats.prStatus).toBe(0);
+  expect(b.stats.prStatus).toBe(0);
+});
+
+test("single-gh: batch (count/list) + per-session never overlap (maxActive 1)", async () => {
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  let active = 0;
+  let maxActive = 0;
+  const bump = async () => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+  };
+  const forge: GitForge = {
+    kind: "github",
+    slug: "o/r",
+    mergeMethod: "squash",
+    deployWorkflow: null,
+    listIssues: async () => [],
+    listPullRequests: async () => [],
+    listBacklogCounts: async () => EMPTY_BACKLOG_COUNTS,
+    prStatus: async () => {
+      await bump();
+      return NONE;
+    },
+    listOpenPrStatuses: async () => {
+      await bump();
+      return new Map();
+    },
+    countOpenPrs: async () => {
+      await bump();
+      return 0;
+    },
+    openPr: async () => NONE,
+    merge: async () => {},
+    redeploy: async () => {},
+    postReview: async () => ({}),
+    defaultBranch: async () => "main",
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    0, // fire the targeted poll immediately so it races the sweep
+  );
+
+  const sweep = poller.tick();
+  poller.pollSession(store.list({ activeOnly: true })[0]!.id);
+  await sweep;
+  await new Promise((r) => setTimeout(r, 60));
+  expect(maxActive).toBe(1);
+});
+
+// ── M1: single-session floor + M2: P≥200 cap-hit ─────────────────────────────
+
+test("single-session floor: count<2 skips count probe and batch, serves via prStatus", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession); // one session → count=1 in buildBatches
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/x": OPEN },
+    { prStatusByBranch: { "shepherd/x": OPEN } },
+  );
+  const emitted: { state: string }[] = [];
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, g) => emitted.push({ state: g.state }),
+  );
+
+  await poller.tick();
+  // count<2 floor fires before count probe — neither countOpenPrs nor listOpenPrStatuses called
+  expect(stats.count).toBe(0);
+  expect(stats.list).toBe(0);
+  expect(stats.prStatus).toBe(1); // per-session fallback
+  expect(emitted).toEqual([{ state: "open" }]);
+});
+
+test("single-session floor boundary: 2 sessions for same repo still batch", async () => {
+  // regression guard: count=2 is the break-even point — must not be floored
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  const { forge, stats } = forgeWithBatch({ "shepherd/a": OPEN, "shepherd/b": NONE }, { count: 1 });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick();
+  expect(stats.count).toBe(1); // count=2 passes floor → count probe runs
+  expect(stats.list).toBe(1); // batch list called
+  expect(stats.prStatus).toBe(0); // no per-session calls
+});
+
+test("cap-hit: countOpenPrs≥200 forces per-session regardless of ratio", async () => {
+  // 3 sessions + batchOpenRatio=1000 → ratio gate (200 > 1000×3=3000) cannot trip;
+  // only the explicit p≥200 cap-hit clause forces per-session here.
+  const store = new SessionStore(":memory:");
+  for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/0": OPEN, "shepherd/1": OPEN, "shepherd/2": OPEN },
+    {
+      count: 200,
+      prStatusByBranch: { "shepherd/0": OPEN, "shepherd/1": OPEN, "shepherd/2": OPEN },
+    },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    1000, // very high batchOpenRatio — only p≥200 can force per-session here
+  );
+
+  await poller.tick();
+  expect(stats.count).toBe(1); // count probe ran (count=3 passes floor)
+  expect(stats.list).toBe(0); // cap-hit (p=200 ≥ 200) → no list
+  expect(stats.prStatus).toBe(3); // per-session for all 3 sessions
+});

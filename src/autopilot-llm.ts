@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
 import type { AutopilotVerdict, AutopilotKind, AgentProvider } from "./types";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 
 /** The file the classifier agent writes its verdict JSON to, in its temp cwd. */
@@ -164,9 +164,10 @@ export async function classifyStop(
     pollMs = 1_000,
   } = deps;
 
-  // Fail closed: api-key mode without a configured key must NOT bill the subscription —
-  // surface to the operator rather than auto-classifying on the wrong footing.
-  if (isApiKeyMode() && !isApiKeyConfigured()) return SURFACE;
+  // Fail closed: in Anthropic api-key mode without a configured key, a Claude spawn must NOT bill
+  // the subscription — surface to the operator rather than auto-classifying on the wrong footing.
+  // Gated on the resolved provider: a Codex classifier uses Codex's own auth, so the gate skips it.
+  if (apiKeyFailClosed(provider)) return SURFACE;
 
   const pre = preClassify(tail);
   if (pre) return pre;

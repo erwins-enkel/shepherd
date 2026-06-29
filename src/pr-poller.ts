@@ -250,14 +250,17 @@ export class PrPoller implements PrCache {
       else byKey.set(forge.slug, { forge, count: 1 });
     }
     for (const [key, { forge, count }] of byKey) {
-      if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork) {
+      // count < 2: batching costs 2 gh calls (countOpenPrs + listOpenPrStatuses) vs
+      // S = count per-session calls; break-even is S ≥ 2, so a single-session repo
+      // is a strict regression — skip both probe and list call.
+      if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork || count < 2) {
         out.set(key, null);
         continue;
       }
       try {
         const p = await this.withGh(() => forge.countOpenPrs!());
-        if (p > this.batchOpenRatio * count) {
-          out.set(key, null); // count-gate: batch would cost more points than per-session
+        if (p >= 200 || p > this.batchOpenRatio * count) {
+          out.set(key, null); // cap-hit (truncated batch) or count-gate → per-session
           continue;
         }
         out.set(key, await this.withGh(() => forge.listOpenPrStatuses!()));

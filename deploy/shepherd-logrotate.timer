@@ -1,0 +1,13 @@
+[Unit]
+Description=Shepherd — hourly log-rotation timer
+Documentation=https://github.com/erwins-enkel/shepherd
+
+[Timer]
+OnCalendar=hourly
+# Catch up if the host was off when a window was due. A size-triggered rotation is only as tight
+# as how often it's checked: hourly bounds the live file's overshoot past 50M to ~1h of output
+# (the server's 1s poller + many setIntervals are continuously chatty), matching shepherd-backup.timer.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

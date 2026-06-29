@@ -10,6 +10,8 @@ import {
   decideServicePath,
   guidanceNextSteps,
   templateUnit,
+  templateLogrotateConfig,
+  resolveLogrotate,
   installPrereqs,
   ensureNodeGyp,
   installService,
@@ -131,6 +133,47 @@ describe("templateUnit", () => {
   it("replaces exactly one WorkingDirectory line", () => {
     const templated = templateUnit(unit, "/x");
     expect(templated.match(/^WorkingDirectory=/gm)?.length).toBe(1);
+  });
+});
+
+describe("templateLogrotateConfig", () => {
+  const cfg = readFileSync("deploy/shepherd.logrotate", "utf8");
+
+  it("expands every %h to the real home (logrotate won't)", () => {
+    const out = templateLogrotateConfig(cfg, "/home/op");
+    expect(out).toContain("/home/op/.shepherd/shepherd.log");
+    expect(out).not.toContain("%h");
+  });
+
+  it("keeps the copytruncate + size policy intact", () => {
+    const out = templateLogrotateConfig(cfg, "/home/op");
+    expect(out).toContain("copytruncate");
+    expect(out).toContain("size 50M");
+    expect(out).toContain("rotate 7");
+  });
+});
+
+describe("resolveLogrotate (absolute-path detection ≡ execution)", () => {
+  it("only probes absolute paths — never a bare `logrotate` (detection must match the unit PATH)", () => {
+    const probed: string[] = [];
+    resolveLogrotate((b) => {
+      probed.push(b);
+      return null;
+    });
+    expect(probed.length).toBeGreaterThan(0);
+    expect(probed).not.toContain("logrotate");
+    expect(probed.every((p) => p.startsWith("/"))).toBe(true);
+    // every candidate dir is one the shepherd-logrotate.service unit puts on PATH
+    expect(probed).toContain("/usr/sbin/logrotate");
+  });
+
+  it("returns the matching absolute candidate (e.g. the common /usr/sbin)", () => {
+    const probe = (b: string) => (b === "/usr/sbin/logrotate" ? "3.21.0" : null);
+    expect(resolveLogrotate(probe)).toBe("/usr/sbin/logrotate");
+  });
+
+  it("returns null when logrotate is nowhere (soft-skip signal)", () => {
+    expect(resolveLogrotate(() => null)).toBeNull();
   });
 });
 
@@ -305,7 +348,9 @@ describe("extracted helpers (direct)", () => {
 
   it("installService templates+writes the unit, enables, delegates build, throws without $USER", () => {
     const { calls, writes, run, fileIO } = recorder();
-    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" });
+    // logrotate present (explicit probe ⇒ deterministic regardless of the host's real binary).
+    const yesLogrotate = () => "3.21.0";
+    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" }, yesLogrotate);
     const flat = calls.map((c) => c.join(" "));
     expect([...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd.service"))).toBe(true);
     expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
@@ -335,10 +380,41 @@ describe("extracted helpers (direct)", () => {
     const updateIdx = calls.findIndex((c) => c.join(" ").includes("deploy/update.sh"));
     expect(shepherdMkdirIdx).toBeLessThan(updateIdx);
 
+    // logrotate units: written, config templated to ~/.shepherd with %h → real home, copytruncate
+    // present; the hourly timer enabled --now. #1212
+    const lrCfgWrite = [...writes.entries()].find(([p]) =>
+      p.endsWith(".shepherd/shepherd.logrotate"),
+    );
+    expect(lrCfgWrite).toBeDefined();
+    expect(lrCfgWrite![0]).toBe(join("/home/op", ".shepherd", "shepherd.logrotate"));
+    expect(lrCfgWrite![1]).toContain("/home/op/.shepherd/shepherd.log");
+    expect(lrCfgWrite![1]).not.toContain("%h");
+    expect(lrCfgWrite![1]).toContain("copytruncate");
+    expect(
+      [...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd-logrotate.service")),
+    ).toBe(true);
+    expect(
+      [...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd-logrotate.timer")),
+    ).toBe(true);
+    expect(flat.some((c) => c.includes("enable --now shepherd-logrotate.timer"))).toBe(true);
+
     const fresh = recorder();
     expect(() =>
-      installService("/repo", fresh.run, fresh.fileIO, {}, "/home/op", { PATH: "/x" }),
+      installService("/repo", fresh.run, fresh.fileIO, {}, "/home/op", { PATH: "/x" }, () => null),
     ).toThrow(/\$USER/);
+  });
+
+  it("installService soft-skips the log-rotation timer when logrotate is absent", () => {
+    const { calls, writes, run, fileIO } = recorder();
+    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" }, () => null);
+    const flat = calls.map((c) => c.join(" "));
+    // Backup units still installed (independent of logrotate); logrotate units NOT written.
+    expect([...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd-backup.timer"))).toBe(
+      true,
+    );
+    expect([...writes.keys()].some((p) => p.includes("shepherd-logrotate"))).toBe(false);
+    expect([...writes.keys()].some((p) => p.endsWith(".shepherd/shepherd.logrotate"))).toBe(false);
+    expect(flat.some((c) => c.includes("shepherd-logrotate.timer"))).toBe(false);
   });
 
   it("buildOnly installs deps + builds UI with the build env, no systemd", () => {

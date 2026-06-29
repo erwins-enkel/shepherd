@@ -123,6 +123,10 @@
         loading = false;
       })
       .catch(() => {
+        // Mirror the success path's staleness guard: a rejection from a
+        // previously-selected repo must not stamp a sticky load-failed banner
+        // onto the repo now showing.
+        if (rp !== repoPath) return;
         loadError = true;
         loading = false;
       });

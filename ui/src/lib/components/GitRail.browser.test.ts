@@ -1489,6 +1489,60 @@ describe("GitRail — post-merge decommission offer", () => {
     ).not.toHaveBeenCalledWith("/other", "release");
   });
 
+  it("combo action captures the isolated flag at merge time, not at click time", async () => {
+    // Regression: the `isolated` flag must be snapshotted before the merge await alongside
+    // the FF target. Merging an isolated session, then switching to a NON-isolated session
+    // within the 15s window, must still fast-forward (captured isolated=true wins) rather
+    // than reading the rebound live flag and silently skipping the pull.
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        sessionId: "sess-A",
+        mobile: false,
+        isolated: true,
+        baseBranch: "main",
+        ondecommission,
+      },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    const [, opts] = toastsInfo.mock.calls[0] as [
+      string,
+      { action?: { label: string; run: () => void } },
+    ];
+
+    // Switch to a NON-isolated session before clicking the toast action.
+    await screen.rerender({
+      ...baseProps,
+      sessionId: "sess-B",
+      mobile: false,
+      isolated: false,
+      ondecommission,
+    });
+
+    opts!.action!.run();
+    expect(
+      pullMainAndToast,
+      "pull still fires with captured isolated=true despite live isolated=false",
+    ).toHaveBeenCalledWith("/repo", "main");
+  });
+
   it("local-forge merge → no decommission offer action", async () => {
     const { mergePr: mergePrMock } = await import("$lib/api");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({

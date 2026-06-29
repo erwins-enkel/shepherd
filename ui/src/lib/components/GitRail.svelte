@@ -271,14 +271,22 @@
   // Queue the post-merge confirmation toast. Local-forge merges get a plain confirmation;
   // remote-forge merges add a one-click Decommission, upgraded to "Decommission & update
   // local" for isolated sessions (which also fast-forwards the local default branch). The
-  // FF target (ffPath/ffBranch) is captured by the caller at merge time — see doMerge.
-  function showMergedToast(kind: string, mergedId: string, ffPath: string, ffBranch: string) {
+  // FF target + isolation (isIsolated/ffPath/ffBranch) are captured by the caller at merge
+  // time — see doMerge. They MUST travel together: mixing a freshly-rebound isolated flag
+  // with the prior session's FF target would fast-forward the wrong checkout.
+  function showMergedToast(
+    kind: string,
+    mergedId: string,
+    isIsolated: boolean,
+    ffPath: string,
+    ffBranch: string,
+  ) {
     const text = m.toast_merged({ name: name || mergedId });
     if (kind === "local") {
       toasts.info(text);
       return;
     }
-    const update = isolated && !!ffPath;
+    const update = isIsolated && !!ffPath;
     toasts.info(text, {
       action: {
         label: update ? m.gitrail_decommission_update_action() : m.gitrail_decommission_action(),
@@ -300,10 +308,14 @@
     retry = null;
     try {
       const mergedId = sessionId;
-      const ffPath = repoPath; // capture FF target at merge time, like mergedId —
-      const ffBranch = baseBranch; // the toast lives 15s and the GitRail instance rebinds on session switch
+      // Capture the session identity AND its FF target/isolation before the await —
+      // the GitRail instance rebinds on a session switch, and the toast lives 15s, so
+      // a live read could pair a new session's isolated flag with the old FF target.
+      const isIsolated = isolated;
+      const ffPath = repoPath;
+      const ffBranch = baseBranch;
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
-      showMergedToast(git.kind, mergedId, ffPath, ffBranch);
+      showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

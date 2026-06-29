@@ -724,25 +724,8 @@ export async function stageRelaunchImages(id: string): Promise<{ path: string; n
   return body.images ?? [];
 }
 
-export async function dismissStall(id: string): Promise<void> {
-  const r = await fetch(`/api/sessions/${id}/dismiss-stall`, { method: "POST" });
-  if (!r.ok) throw await failed(r, "dismiss-stall");
-}
-
-export async function resumeQuota(id: string): Promise<{ ok: boolean; status: string }> {
-  const r = await fetch(`/api/sessions/${id}/quota/resume`, { method: "POST" });
-  if (!r.ok) throw await failed(r, "quota/resume");
-  return r.json() as Promise<{ ok: boolean; status: string }>;
-}
-
-export async function dismissQuota(id: string): Promise<{ ok: boolean; status: string }> {
-  const r = await fetch(`/api/sessions/${id}/quota/dismiss`, { method: "POST" });
-  if (!r.ok) throw await failed(r, "quota/dismiss");
-  return r.json() as Promise<{ ok: boolean; status: string }>;
-}
-
 /** Toggle the operator "ready to merge" flag. Live state returns via the
- *  session:ready WS event, so callers fire-and-forget like dismissStall. */
+ *  session:ready WS event, so callers fire-and-forget. */
 export async function setReadyToMerge(id: string, ready: boolean): Promise<void> {
   const r = await fetch(`/api/sessions/${id}/ready`, {
     method: "POST",

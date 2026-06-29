@@ -220,7 +220,7 @@
     min-height: var(--topbar-ctl-h);
     min-inline-size: 24px;
   }
-  /* Coarse-pointer touch floor: 44px height (matches .hud.mobile .gear/.needsyou).
+  /* Coarse-pointer touch floor: 44px height (matches .hud.mobile .gear).
      With box-sizing:border-box above this renders a true 44px box (was ~46px content-box)
      and still overrides the 30px shared height since 44 > 30. */
   @media (pointer: coarse) {

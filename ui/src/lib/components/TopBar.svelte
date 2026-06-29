@@ -48,8 +48,6 @@
     onsettings,
     onusage,
     onhalt,
-    needsYou = 0,
-    ontriage,
     update = null,
     onupdate,
     herdrUpdate = null,
@@ -78,8 +76,6 @@
     onsettings?: () => void;
     onusage?: () => void;
     onhalt?: () => void;
-    needsYou?: number;
-    ontriage?: () => void;
     update?: UpdateStatus | null;
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
@@ -141,7 +137,6 @@
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
-    needsYou,
     whatsNew,
     learnings: learnings + learningsCurate,
     // held arrives async via the held:changed WS event; counting it here makes the
@@ -694,20 +689,6 @@
     {clickStatus}
   />
   <div class="rightside">
-    {#if needsYou > 0}
-      <button
-        class="needsyou"
-        class:compact={mobile || compactBadges}
-        onclick={() => ontriage?.()}
-        aria-label={m.common_needs_you({ count: needsYou })}
-      >
-        {#if mobile || compactBadges}
-          <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{needsYou}</span>
-        {:else}
-          {m.common_needs_you({ count: needsYou })}
-        {/if}
-      </button>
-    {/if}
     <TopBarHeldBadge
       {heldCount}
       {mobile}
@@ -930,24 +911,6 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  .needsyou {
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    /* shared bar control height; glyph/text centers, padding no longer drives height */
-    min-height: var(--topbar-ctl-h);
-    line-height: 1;
-    background: color-mix(in srgb, var(--color-red) 18%, transparent);
-    border: 1px solid var(--color-red);
-    color: var(--color-red);
-    letter-spacing: 0.14em;
-    font-size: var(--fs-meta);
-    padding: 0 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
   /* learnings-btn, learn-glyph, learn-n, gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
   /* quick, theme-seg, t-opt, contrast-toggle, gear-sheet-portal, menu-scrim, gear-sheet, sheet-* moved to top-bar/TopBarMobileSheet.svelte (#855) */
   /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, halt-pip, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
@@ -1057,36 +1020,6 @@
   /* .hud.mobile .gear moved to top-bar/TopBarGear.svelte as .gear.mobile (#855) */
   /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,
      so .hud.mobile .gauge-btn can never match — verified dead (#855). */
-  .hud.mobile .needsyou {
-    min-height: 44px;
-    padding: 0 12px;
-  }
-  /* Phone: collapse the badge to an icon+count chip so the NEEDS YOU call-out
-     fits on line 1 next to the gauge/gear instead of forcing the right-side
-     controls to wrap to a second row. Full label stays as the aria-label. */
-  .needsyou.compact {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    min-width: 44px;
-    padding: 0 10px;
-    letter-spacing: 0;
-    font-variant-numeric: tabular-nums;
-    /* pin the line box to 1×font-size so the compact badge height is
-       font-independent and matches .held-badge.compact: this badge renders in the
-       UA button font (no font-family set) while the held badge uses `font: inherit`
-       (mono), so their `normal` line-heights otherwise differ by ~2px. */
-    line-height: 1;
-  }
-  .needsyou.compact .ny-icon {
-    font-weight: 700;
-    line-height: 1;
-  }
-  .needsyou.compact .ny-n {
-    font-weight: 600;
-  }
-
   /* Coarse pointers (touch, any layout width): the secondary icon buttons are
      tuned tight for a cursor on desktop. Give them a ≥44px hit area on touch
      without enlarging glyphs — padding/min-size only. Applies regardless of the
@@ -1094,11 +1027,6 @@
      also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
   @media (pointer: coarse) {
     /* .gear/.menu-item moved to TopBarGear; .update-badge/.learnings-btn moved to TopBarBadges */
-    .needsyou,
-    .needsyou.compact {
-      min-height: 44px;
-      min-width: 44px;
-    }
     .docs-link {
       min-height: 44px;
       min-width: 44px;

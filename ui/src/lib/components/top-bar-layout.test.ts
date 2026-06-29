@@ -7,18 +7,17 @@ import { badgeCount, type ChromeState } from "./top-bar-layout";
 // layer no longer has a render-plan to test — only `badgeCount`, the content-change
 // signal the measure effect tracks.
 
-// Build every ChromeState from a 6-bit mask over the six badge-presence inputs.
+// Build every ChromeState from a 5-bit mask over the five badge-presence inputs.
 // The halt e-stop is NOT a bar badge (it lives in the gear menu), so it never
 // appears here.
-const ALL = 0b111111; // all six badges present
+const ALL = 0b11111; // all five badges present
 function stateFromMask(mask: number): ChromeState {
   return {
     updateAvailable: !!(mask & 1),
     herdrUpdateAvailable: !!(mask & 2),
-    needsYou: mask & 4 ? 1 : 0,
-    whatsNew: !!(mask & 8),
-    learnings: mask & 16 ? 1 : 0,
-    held: mask & 32 ? 1 : 0,
+    whatsNew: !!(mask & 4),
+    learnings: mask & 8 ? 1 : 0,
+    held: mask & 16 ? 1 : 0,
   };
 }
 
@@ -27,7 +26,6 @@ function expectedCount(s: ChromeState): number {
   return (
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
-    (s.needsYou > 0 ? 1 : 0) +
     (s.whatsNew ? 1 : 0) +
     (s.learnings > 0 ? 1 : 0) +
     (s.held > 0 ? 1 : 0)
@@ -35,7 +33,7 @@ function expectedCount(s: ChromeState): number {
 }
 
 describe("badgeCount", () => {
-  it("counts each present badge once across all 64 presence combos", () => {
+  it("counts each present badge once across all 32 presence combos", () => {
     for (let mask = 0; mask <= ALL; mask++) {
       const s = stateFromMask(mask);
       expect(badgeCount(s)).toBe(expectedCount(s));
@@ -46,7 +44,6 @@ describe("badgeCount", () => {
     const s: ChromeState = {
       updateAvailable: false,
       herdrUpdateAvailable: false,
-      needsYou: 0,
       whatsNew: false,
       learnings: 0,
       held: 0,
@@ -58,7 +55,6 @@ describe("badgeCount", () => {
     const withLearnings: ChromeState = {
       updateAvailable: false,
       herdrUpdateAvailable: false,
-      needsYou: 0,
       whatsNew: false,
       learnings: 3,
       held: 0,
@@ -68,7 +64,6 @@ describe("badgeCount", () => {
     const noLearnings: ChromeState = {
       updateAvailable: false,
       herdrUpdateAvailable: false,
-      needsYou: 0,
       whatsNew: false,
       learnings: 0,
       held: 0,
@@ -76,12 +71,11 @@ describe("badgeCount", () => {
     expect(badgeCount(noLearnings)).toBe(0);
   });
 
-  it("sums learnings with another badge: needsYou:1 + learnings:2 → 2", () => {
+  it("sums learnings with another badge: whatsNew + learnings:2 → 2", () => {
     const s: ChromeState = {
       updateAvailable: false,
       herdrUpdateAvailable: false,
-      needsYou: 1,
-      whatsNew: false,
+      whatsNew: true,
       learnings: 2,
       held: 0,
     };
@@ -92,7 +86,6 @@ describe("badgeCount", () => {
     const withHeld: ChromeState = {
       updateAvailable: false,
       herdrUpdateAvailable: false,
-      needsYou: 0,
       whatsNew: false,
       learnings: 0,
       held: 2,

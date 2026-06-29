@@ -1000,12 +1000,6 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_manual_plan_review_body",
   },
   {
-    id: "quota-needs-you",
-    sinceVersion: "1.33.0",
-    titleKey: "feat_quota_needs_you_title",
-    bodyKey: "feat_quota_needs_you_body",
-  },
-  {
     // targetId "mobile-seg-ctrl" anchors the coachmark on the segmented control
     // wrapper in the Herd header (flow/mobile mode). 1.33.0 is the latest released
     // tag, so this ships in 1.34.0.

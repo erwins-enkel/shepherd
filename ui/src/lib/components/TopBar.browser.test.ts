@@ -65,7 +65,7 @@ interface Scenario {
 }
 
 const allBadges = {
-  needsYou: 3,
+  learnings: 3,
   update: { behind: 4 } as UpdateStatus,
   herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
   whatsNew: true,
@@ -91,11 +91,11 @@ const SCENARIOS: Scenario[] = [
     props: { ...allBadges, ...sessionsProp(2) },
   },
   {
-    name: "touch-desktop 1000 — dual-update + needsYou + whatsNew",
+    name: "touch-desktop 1000 — dual-update + learnings + whatsNew",
     mode: "touch-desktop",
     width: 1000,
     props: {
-      needsYou: 2,
+      learnings: 2,
       update: { behind: 1 },
       herdrUpdate: { updateAvailable: true },
       whatsNew: true,
@@ -103,10 +103,10 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: "touch-desktop 1000 — lone needsYou (#322 regression)",
+    name: "touch-desktop 1000 — lone learnings (#322 regression)",
     mode: "touch-desktop",
     width: 1000,
-    props: { needsYou: 4, ...sessionsProp(0) },
+    props: { learnings: 4, ...sessionsProp(0) },
   },
   {
     name: "touch-desktop 960 — all badges (bracket)",
@@ -172,7 +172,7 @@ const SCENARIOS: Scenario[] = [
   // ── Width-awareness: narrow desktop windows the old count-3 threshold MISSED ──
   // A ~1366px laptop gives the bar ~1322px usable; a ~1280px window ~1236px. With
   // the production-worst chrome (both usage gauges present), the full-label bar
-  // measures ~1333px for 2 badges (needsYou + update) and ~1450px for 3 — so it
+  // measures ~1333px for 2 badges (learnings + update) and ~1450px for 3 — so it
   // overflows BOTH narrow widths even at just 2 badges, which the old count-3
   // threshold never compacted. Runtime measurement does. Each asserts the bar
   // compacts just enough to NOT overflow + keeps controls hittable. (Verified: with
@@ -182,14 +182,14 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1322 — 2 full-label badges + gauges (1366px laptop, measured compaction)",
     mode: "desktop",
     width: 1322,
-    props: { needsYou: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
+    props: { learnings: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1322 — 3 badges + gauges (1366px laptop, measured compaction)",
     mode: "desktop",
     width: 1322,
     props: {
-      needsYou: 2,
+      learnings: 2,
       update: { behind: 2 },
       herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
@@ -200,14 +200,14 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1236 — 2 full-label badges + gauges (1280px window, measured compaction)",
     mode: "desktop",
     width: 1236,
-    props: { needsYou: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
+    props: { learnings: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1236 — 3 badges + gauges (1280px window, measured compaction)",
     mode: "desktop",
     width: 1236,
     props: {
-      needsYou: 2,
+      learnings: 2,
       update: { behind: 2 },
       herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
@@ -252,7 +252,7 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()
 // stale measuring frame remains queued. Bounded so a genuinely oscillating bar can't
 // hang the test.
 async function drainFrames(bar: HTMLElement, maxFrames = 20) {
-  const read = () => bar.querySelector(".needsyou")?.classList.contains("compact");
+  const read = () => bar.querySelector(".learnings-btn")?.classList.contains("compact");
   let prev = read();
   let stable = 0;
   for (let i = 0; i < maxFrames && stable < 2; i++) {
@@ -363,13 +363,13 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
   });
 
   it("wide tablet (1366): two badges keep full labels (old count-floor over-compaction is gone)", async () => {
-    const hud = await renderTD(1366, { needsYou: 2, update: { behind: 3 } as UpdateStatus });
+    const hud = await renderTD(1366, { learnings: 2, update: { behind: 3 } as UpdateStatus });
     await nextFrame();
     await nextFrame();
     await drainFrames(hud);
     assertNoOverflow(hud);
-    const needsYou = hud.querySelector<HTMLElement>(".needsyou");
-    expect(needsYou!.classList.contains("compact"), "needsYou full at wide tablet").toBe(false);
+    const learnings = hud.querySelector<HTMLElement>(".learnings-btn");
+    expect(learnings!.classList.contains("compact"), "learnings full at wide tablet").toBe(false);
     expect(hud.querySelector(".update-badge .up-label"), "update full label kept").not.toBeNull();
     assertControlsHittable(hud);
   });
@@ -409,18 +409,18 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     ).toBe(true);
   });
 
-  it("tallies COLLAPSE under measured overflow and stay FULL when there's room (held + needsYou + gauges)", async () => {
+  it("tallies COLLAPSE under measured overflow and stay FULL when there's room (held + learnings + gauges)", async () => {
     // The reported bug: on an unfolded fold the right-side cluster compacts but the tallies
     // (HERD/BUSY/IDLE/BLOCKED) stay full-label off-`mobile`, so the bar still overflows and
     // clips the gear. The fix extends compaction to the tallies on touch. Asserted as the
     // same coupling invariant the test above uses — but for the TALLIES — over a width sweep,
     // so it's robust to the CI monospace fallback's font metrics (the exact transition width
-    // varies). Content mirrors the screenshot: held badge + needsYou + several sessions
-    // (non-zero tallies) + both usage gauges. `needsYou` is present so `drainFrames` (which
-    // keys off `.needsyou`) actually waits for the measurement to settle.
+    // varies). Content mirrors the screenshot: held badge + learnings + several sessions
+    // (non-zero tallies) + both usage gauges. `learnings` is present so `drainFrames` (which
+    // keys off `.learnings-btn`) actually waits for the measurement to settle.
     const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
     for (const width of [800, 920, 1040, 1200, 1400, 1600]) {
-      const hud = await renderTD(width, { ...sessionsProp(4), heldCount: 3, needsYou: 2 });
+      const hud = await renderTD(width, { ...sessionsProp(4), heldCount: 3, learnings: 2 });
       await waitNoOverflow(hud);
       await drainFrames(hud);
       const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
@@ -450,14 +450,14 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
 
 describe("TopBar — wide desktop keeps full labels (measurement does NOT over-compact)", () => {
   // Width-awareness must not over-fire: at the TRUE usable cap (1436px = .shell
-  // 1480 - 2x22 padding) a wide 2-badge selection (needsYou + update ~1354px
+  // 1480 - 2x22 padding) a wide 2-badge selection (learnings + update ~1354px
   // incl. both usage gauges) STILL FITS, so the measured path must leave it FULL —
   // proving compaction triggers on real overflow, not merely on badge presence.
   // Settle the rAF first (the measurement might briefly flip), then assert it stays
   // non-compact. Plus a no-gauge variant. Both keep full labels AND fit 1436.
   //
-  // Asserts: (a) the needsYou + update badges are present and showing their FULL
-  // labels (needsYou not in .compact form; the update badge still rendering its
+  // Asserts: (a) the learnings + update badges are present and showing their FULL
+  // labels (learnings not in .compact form; the update badge still rendering its
   // .up-label word), (b) no overflow, (c) all controls hittable - catching a future
   // left-cluster or gap change that silently overflows the non-compact desktop path.
   // (Sub-1436px desktop windows have less usable width and DO compact — covered by
@@ -476,8 +476,8 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
         connected: true,
         mobile: false,
         touch: false,
-        // Two full-label badges (needsYou + update).
-        needsYou: 2,
+        // Two full-label badges (learnings + update).
+        learnings: 2,
         update: { behind: 3 } as UpdateStatus,
         limits,
         ...sessionsProp(0),
@@ -492,10 +492,10 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
 
       // Full-label: both badges present and NOT in compact (icon/count) form.
       const update = hud!.querySelector<HTMLElement>(".update-badge");
-      const needsYou = hud!.querySelector<HTMLElement>(".needsyou");
+      const learnings = hud!.querySelector<HTMLElement>(".learnings-btn");
       expect(update, "update badge present").not.toBeNull();
-      expect(needsYou, "needsYou badge present").not.toBeNull();
-      expect(needsYou!.classList.contains("compact"), "needsYou NOT compact").toBe(false);
+      expect(learnings, "learnings badge present").not.toBeNull();
+      expect(learnings!.classList.contains("compact"), "learnings NOT compact").toBe(false);
       // The full word label renders inside the update badge (compact form omits it).
       const upLabel = update!.querySelector<HTMLElement>(".up-label");
       expect(upLabel, "update full label present").not.toBeNull();
@@ -503,7 +503,7 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
         m.topbar_update_badge(),
       );
       expect(update!.getBoundingClientRect().width, "update has width").toBeGreaterThan(0);
-      expect(needsYou!.getBoundingClientRect().width, "needsYou has width").toBeGreaterThan(0);
+      expect(learnings!.getBoundingClientRect().width, "learnings has width").toBeGreaterThan(0);
 
       // Must still not overflow despite showing full labels.
       assertNoOverflow(hud!);
@@ -537,7 +537,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
       mobile: false,
       touch: false,
       // Widest 2-badge full-label chrome + both gauges (~1354px): fits 1436, overflows 1236.
-      needsYou: 2,
+      learnings: 2,
       update: { behind: 3 } as UpdateStatus,
       limits: fullLimits,
       ...sessionsProp(0),
@@ -549,7 +549,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
     await waitNoOverflow(hud!);
     await drainFrames(hud!);
     expect(
-      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
       "full (not compact) at 1436",
     ).toBe(false);
 
@@ -559,7 +559,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
     document.body.style.width = "1236px";
     await drainFrames(hud!);
     expect(
-      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
       "compacts after wide→narrow resize (cached-width path)",
     ).toBe(true);
     assertNoOverflow(hud!);
@@ -617,7 +617,7 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
         connected: true,
         mobile: false,
         touch: false,
-        needsYou: 2,
+        learnings: 2,
         update: { behind: 3 } as UpdateStatus,
         ...sessionsProp(0),
       });
@@ -633,7 +633,7 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
       await drainFrames(hud!);
       expect(hud!.querySelector(".gauges"), "no gauges before limits arrive").toBeNull();
       expect(
-        hud!.querySelector(".needsyou")?.classList.contains("compact"),
+        hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
         "not compacted before gauges arrive",
       ).toBe(false);
 
@@ -682,7 +682,7 @@ describe("TopBar — fine-pointer desktop tallies ALSO collapse under measured o
   it("narrow desktop window collapses the tallies to fit; wide keeps full labels (no over-compaction)", async () => {
     const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
     for (const width of [960, 1150, 1350, 1500, 1650]) {
-      const hud = await renderDesktopBar(width, { heldCount: 3, needsYou: 2 });
+      const hud = await renderDesktopBar(width, { heldCount: 3, learnings: 2 });
       await waitNoOverflow(hud);
       await drainFrames(hud);
       const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
@@ -1290,7 +1290,7 @@ describe("TopBar — idle gear opens Settings directly", () => {
     await drainFrames(hud!);
     // measured overflow → the standalone bar docs link folds away with the labels/clock…
     expect(
-      hud!.querySelector(".needsyou")?.classList.contains("compact"),
+      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
       "bar is compacted at 1236 with full chrome",
     ).toBe(true);
     await expect

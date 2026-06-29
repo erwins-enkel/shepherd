@@ -29,6 +29,12 @@ extension/public/picker.js
 # Transient agent worktrees (nested checkouts; not project source)
 .claude/worktrees
 
+# Shepherd per-session scratch artifacts. Shepherd hides these via the LOCAL-ONLY
+# .git/info/exclude (the .shepherd-* glob, src/shepherd-exclude.ts) — which prettier
+# does NOT read — so without this line `prettier --check .` flags the ones not also
+# named in .gitignore (e.g. .shepherd-recap.json). Same rationale as .cache above.
+.shepherd-*
+
 # Agent-generated planning artifacts — leave their formatting alone
 docs/superpowers
 

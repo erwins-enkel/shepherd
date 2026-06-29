@@ -203,6 +203,23 @@ test("generated CLAUDE.md is non-empty, encodes the surgical posture, and names 
   expect(r.claudeMd.toLowerCase()).toContain("prettier");
 });
 
+test("CLAUDE.md always tells the repo to add .shepherd-* to .prettierignore, even when prettier is already present", () => {
+  // Prettier present → the formatter guardrail is satisfied and emits no adopt-step,
+  // but the artifact note must still render (this is the higher-impact case: an
+  // existing prettier would otherwise reformat Shepherd's scratch files).
+  pkg({
+    name: "has-prettier",
+    devDependencies: { prettier: "^3" },
+    scripts: { format: "prettier --write ." },
+  });
+  write(".prettierrc", "{}");
+  const r = analyzeReadiness(dir);
+  expect(present("formatter", r)).toBe(true);
+  expect(r.claudeMd).toContain(".shepherd-*");
+  expect(r.claudeMd).toContain(".prettierignore");
+  expect(r.claudeMd).toContain("echo '.shepherd-*' >> .prettierignore");
+});
+
 test("adopt-list (absent guardrails sorted by leverage) leads with pre-push CI mirror", () => {
   pkg({ name: "empty-ish" });
   const r = analyzeReadiness(dir);

@@ -17,16 +17,12 @@ dist/
 .shaping/
 .squad/
 
-# Runtime upload staging (New-Task attachments, screenshots)
-.shepherd-uploads/
-
-# Plan-gate working artifacts written into the live worktree (never committed)
-.shepherd-plan.md
-.shepherd-plan-blocks.json
-.shepherd-plan-review.json
-
-# Agent-declared live-preview port hint (transient, never committed)
-.shepherd-preview
+# Shepherd per-session scratch artifacts — plan-gate docs, preview-port hint, upload
+# staging (New-Task attachments/screenshots), recap/name/learnings/… . This catch-all
+# glob mirrors the LOCAL-ONLY .git/info/exclude block (SHEPHERD_IGNORE_GLOB in
+# src/shepherd-exclude.ts) so teammates & CI ignore every artifact too. Matches
+# .shepherd-uploads/ as well as all .shepherd-* files.
+.shepherd-*
 
 # Onboarding-harness gap report — generated into cwd by ci/onboarding-harness/run.ts
 onboarding-gap-report.md
@@ -45,6 +41,5 @@ ci/self-hosted-runner/.env
 # Pre-push test capture logs (flake diagnosis, #817)
 .test-logs/
 
-# SDD subagent scratch (briefs) + plan sidecar
+# SDD subagent scratch (briefs); the plan sidecar is covered by .shepherd-* above
 briefs/
-.shepherd-plan-blocks.json

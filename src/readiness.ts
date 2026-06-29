@@ -13,6 +13,7 @@
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
+import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
 
 export type GuardrailId =
   | "formatter"
@@ -401,6 +402,14 @@ re-explain a mechanical defect.
 ## Adopt these guardrails (highest leverage first)
 
 ${adoptLines}
+
+## Ignore Shepherd's session artifacts in your formatter
+
+Shepherd writes \`${SHEPHERD_IGNORE_GLOB}\` scratch files into your worktree, hidden
+locally via \`.git/info/exclude\` — which Prettier does NOT read. So if you run
+Prettier, add \`${SHEPHERD_IGNORE_GLOB}\` to your \`.prettierignore\` (run
+\`echo '${SHEPHERD_IGNORE_GLOB}' >> .prettierignore\`), or it will reformat Shepherd's
+artifacts. \`.gitignore\` alone is not reliable here.
 `;
 }
 

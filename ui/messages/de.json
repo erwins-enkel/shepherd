@@ -2167,5 +2167,8 @@
   "settings_usage_downgrade_pct_save_failed": "Schwellenwert für Nutzungsherabstufung konnte nicht geändert werden. Erneut versuchen.",
   "settings_usage_downgrade_model_label": "Herabstufungsmodell",
   "settings_usage_downgrade_model_hint": "Das Modell, das jeder Spawn nutzt, solange die Nutzung über dem Schwellenwert liegt. Wähle ein günstigeres Modell als deinen Standard (z. B. Haiku).",
-  "settings_usage_downgrade_model_save_failed": "Herabstufungsmodell konnte nicht geändert werden. Erneut versuchen."
+  "settings_usage_downgrade_model_save_failed": "Herabstufungsmodell konnte nicht geändert werden. Erneut versuchen.",
+  "taskid_copy_payload": "{label} — Shepherd-Task · Repo: {repoPath} · Branch: {branch} · Worktree: {worktreePath}",
+  "feat_taskid_copy_payload_title": "„ID kopieren“ trägt jetzt die Task-Details",
+  "feat_taskid_copy_payload_body": "Beim Kopieren einer Task-ID landen jetzt zusätzlich Repo, Branch und Worktree-Pfad in der Zwischenablage. Fügst du sie in einen Coding-Agenten ein, weiß er sofort, worum es bei der Task geht und wo ihre Arbeit liegt — ohne Nachschlagen, ohne verschwendete Tokens."
 }

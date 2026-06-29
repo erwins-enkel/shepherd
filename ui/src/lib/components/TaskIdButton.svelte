@@ -34,8 +34,19 @@
 
   async function copyId() {
     menu = null;
+    // Copy the task's own identifying facts (built straight from the session prop),
+    // not just the bare desig — so an agent it's pasted into knows what the task is
+    // and where its work lives without researching. Names/designations are data, so
+    // the label is assembled here; only the chrome words are translated.
+    const label = session.name ? `${session.desig} (${session.name})` : session.desig;
+    const text = m.taskid_copy_payload({
+      label,
+      repoPath: session.repoPath,
+      branch: session.branch ?? "—",
+      worktreePath: session.worktreePath,
+    });
     try {
-      await navigator.clipboard.writeText(session.desig);
+      await navigator.clipboard.writeText(text);
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {

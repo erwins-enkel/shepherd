@@ -2167,5 +2167,8 @@
   "settings_usage_downgrade_pct_save_failed": "Couldn't change the usage downgrade threshold. Retry.",
   "settings_usage_downgrade_model_label": "Downgrade model",
   "settings_usage_downgrade_model_hint": "The model every spawn uses while usage is above the threshold. Pick a cheaper model than your default (e.g. Haiku).",
-  "settings_usage_downgrade_model_save_failed": "Couldn't change the downgrade model. Retry."
+  "settings_usage_downgrade_model_save_failed": "Couldn't change the downgrade model. Retry.",
+  "taskid_copy_payload": "{label} — Shepherd task · repo: {repoPath} · branch: {branch} · worktree: {worktreePath}",
+  "feat_taskid_copy_payload_title": "Copy ID now carries the task's details",
+  "feat_taskid_copy_payload_body": "Copying a task ID now puts its repo, branch and worktree path on the clipboard alongside the id. Paste it into a coding agent and it knows exactly what the task is and where its work lives — no lookup, no wasted tokens researching."
 }

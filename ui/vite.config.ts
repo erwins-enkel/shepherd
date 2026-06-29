@@ -69,9 +69,11 @@ export default defineConfig({
     // so Vite doesn't reject the forwarded Host header (*.ts.net).
     allowedHosts: [".ts.net"],
     proxy: {
-      "/api": "http://localhost:7330",
-      "/events": { target: "ws://localhost:7330", ws: true },
-      "/pty": { target: "ws://localhost:7330", ws: true },
+      // Backend port defaults to 7330; override with HERDR_PORT to point the dev UI at
+      // a worktree backend (e.g. testing a branch without disturbing the main instance).
+      "/api": `http://localhost:${process.env.HERDR_PORT ?? 7330}`,
+      "/events": { target: `ws://localhost:${process.env.HERDR_PORT ?? 7330}`, ws: true },
+      "/pty": { target: `ws://localhost:${process.env.HERDR_PORT ?? 7330}`, ws: true },
     },
   },
   test: {

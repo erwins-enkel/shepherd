@@ -121,10 +121,22 @@ export function templateLogrotateConfig(cfg: string, home: string): string {
   return cfg.replaceAll("%h", home);
 }
 
-/** logrotate commonly lives in /usr/sbin (or /sbin), which a `curl | bash` non-login shell's
- *  inherited PATH frequently omits — so a bare `logrotate` probe can false-negative. Search the
- *  sbin candidates explicitly. */
-const LOGROTATE_CANDIDATES = ["logrotate", "/usr/sbin/logrotate", "/sbin/logrotate"] as const;
+/** The dirs the shepherd-logrotate.service unit puts on PATH — MUST stay in lockstep with that
+ *  unit's `Environment=PATH` (and install.sh/update.sh detection). logrotate commonly lives in
+ *  /usr/sbin, which a `curl | bash` non-login PATH often omits. */
+const LOGROTATE_DIRS = [
+  "/usr/local/sbin",
+  "/usr/local/bin",
+  "/usr/sbin",
+  "/usr/bin",
+  "/sbin",
+  "/bin",
+] as const;
+
+/** Absolute candidates only — NO bare `logrotate`: a bare probe resolves against the inherited
+ *  PATH, which can match a dir absent from the unit's PATH, so the timer would install yet fail to
+ *  exec logrotate at runtime. Absolute paths make detection ≡ execution. */
+const LOGROTATE_CANDIDATES = LOGROTATE_DIRS.map((dir) => `${dir}/logrotate`);
 
 /** First logrotate candidate that responds to `--version`, or null if none is found. Gates the
  *  (optional) log-rotation timer install; null ⇒ soft-skip. */

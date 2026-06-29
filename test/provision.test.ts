@@ -153,13 +153,21 @@ describe("templateLogrotateConfig", () => {
   });
 });
 
-describe("resolveLogrotate (sbin-aware detection)", () => {
-  it("returns the bare name when it is on PATH", () => {
-    expect(resolveLogrotate((b) => (b === "logrotate" ? "3.21.0" : null))).toBe("logrotate");
+describe("resolveLogrotate (absolute-path detection ≡ execution)", () => {
+  it("only probes absolute paths — never a bare `logrotate` (detection must match the unit PATH)", () => {
+    const probed: string[] = [];
+    resolveLogrotate((b) => {
+      probed.push(b);
+      return null;
+    });
+    expect(probed.length).toBeGreaterThan(0);
+    expect(probed).not.toContain("logrotate");
+    expect(probed.every((p) => p.startsWith("/"))).toBe(true);
+    // every candidate dir is one the shepherd-logrotate.service unit puts on PATH
+    expect(probed).toContain("/usr/sbin/logrotate");
   });
 
-  it("falls back to /usr/sbin when the bare name is not on PATH", () => {
-    // Mirrors a curl|bash non-login shell whose PATH omits sbin: bare lookup misses, sbin hits.
+  it("returns the matching absolute candidate (e.g. the common /usr/sbin)", () => {
     const probe = (b: string) => (b === "/usr/sbin/logrotate" ? "3.21.0" : null);
     expect(resolveLogrotate(probe)).toBe("/usr/sbin/logrotate");
   });

@@ -71,11 +71,12 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
 
   # ── sync log-rotation units (#1212) ──────────────────────────────────────────
   # Mirrors the backup-timer self-heal so an existing host picks up the optional log-rotation
-  # timer. Optional: only when logrotate is present (search /usr/sbin:/sbin where it usually
-  # lives). Template the config's %h log path to the real home (logrotate won't expand %h) →
-  # ~/.shepherd; copy units verbatim (systemd expands their %h); reload + enable --now the hourly
-  # timer. Soft-skip with a warning otherwise (log stays unbounded, as before).
-  if PATH="$PATH:/usr/sbin:/sbin" command -v logrotate >/dev/null 2>&1; then
+  # timer. Optional: only when logrotate is present. Detect against the SAME dir list the
+  # shepherd-logrotate.service unit puts on PATH (keep in lockstep), so we never "find" a logrotate
+  # the timer can't exec at runtime. Template the config's %h log path to the real home (logrotate
+  # won't expand %h) → ~/.shepherd; copy units verbatim (systemd expands their %h); reload +
+  # enable --now the hourly timer. Soft-skip with a warning otherwise (log stays unbounded).
+  if PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" command -v logrotate >/dev/null 2>&1; then
     note "syncing log-rotation timer units"
     mkdir -p "$HOME/.shepherd"
     sed "s|%h|${HOME}|g" "$REPO/deploy/shepherd.logrotate" >"$HOME/.shepherd/shepherd.logrotate"

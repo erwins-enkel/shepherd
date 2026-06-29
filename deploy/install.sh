@@ -144,10 +144,13 @@ ensure_toolchain() {
 # /usr/sbin:/sbin where logrotate usually lives (a curl|bash non-login PATH often omits sbin).
 ensure_logrotate() {
   local sp
-  PATH="$PATH:/usr/sbin:/sbin" command -v logrotate >/dev/null 2>&1 && return 0
-  # sudo_prefix dies if it can't elevate; run it in a subshell so that exit can't abort us — an
-  # empty prefix then makes the install attempt fail unprivileged and fall through to the warn.
-  sp="$(sudo_prefix logrotate 2>/dev/null || true)"
+  # Detect against the SAME dir list the shepherd-logrotate.service unit puts on PATH, so we never
+  # consider logrotate "present" in a dir the timer can't reach at runtime (keep these in lockstep).
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" command -v logrotate >/dev/null 2>&1 && return 0
+  # sudo_prefix dies if it can't elevate; the `|| true` is OUTSIDE the substitution — `exit 1`
+  # inside terminates the subshell before any in-substitution `|| true` could run, so the failed
+  # substitution would otherwise abort us under `set -e`. Empty prefix ⇒ unprivileged attempt ⇒ warn.
+  sp="$(sudo_prefix logrotate 2>/dev/null)" || true
   note "installing logrotate (optional — log-rotation timer)"
   $sp sh -c "(apt-get update && apt-get install -y logrotate) || apk add --no-cache logrotate || dnf install -y logrotate || pacman -Sy --noconfirm logrotate" \
     || warn "could not install logrotate — log-rotation timer will be skipped (log stays unbounded)"

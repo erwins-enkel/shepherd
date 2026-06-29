@@ -8,8 +8,10 @@ Type=oneshot
 # config's own log path is pre-templated to the real home by provision.ts/update.sh).
 ExecStart=logrotate --state %h/.shepherd/logrotate.state %h/.shepherd/shepherd.logrotate
 
-# logrotate commonly lives in /usr/sbin — include sbin so the timer-driven run resolves it even
-# under a minimal inherited PATH (the backup unit's PATH omits sbin).
-Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# logrotate commonly lives in /usr/sbin — include sbin (and /usr/local) so the timer-driven run
+# resolves it even under a minimal inherited PATH (the backup unit's PATH omits sbin). This list
+# MUST stay in lockstep with the detection PATH in install.sh/update.sh and resolveLogrotate's
+# candidates in provision.ts — else detection could match a logrotate this run can't exec.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Output goes to journald: `journalctl --user -u shepherd-logrotate`

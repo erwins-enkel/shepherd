@@ -21,6 +21,7 @@
   import ProposedRuleCard from "./ProposedRuleCard.svelte";
   import MergeSuggestCard from "./MergeSuggestCard.svelte";
   import RetiredRuleCard from "./RetiredRuleCard.svelte";
+  import InfoTip from "../InfoTip.svelte";
 
   let {
     group,
@@ -50,20 +51,26 @@
       <span class="repo-glyph" class:emoji={!!repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span
       >{basename(group.repoPath)}
     </span>
-    <button
-      class="distill"
-      onclick={() => ctx.onmergenow(group.repoPath)}
-      aria-label={m.learnings_merge_now_aria({ repo: basename(group.repoPath) })}
-    >
-      {m.learnings_merge_now()}
-    </button>
-    <button
-      class="distill"
-      onclick={() => ctx.ondistill(group.repoPath)}
-      aria-label={m.learnings_distill_aria({ repo: basename(group.repoPath) })}
-    >
-      {m.learnings_distill()}
-    </button>
+    <div class="actions">
+      <button
+        class="distill"
+        onclick={() => ctx.onmergenow(group.repoPath)}
+        aria-label={m.learnings_merge_now_aria({ repo: basename(group.repoPath) })}
+      >
+        {m.learnings_merge_now()}
+      </button>
+      <button
+        class="distill"
+        onclick={() => ctx.ondistill(group.repoPath)}
+        aria-label={m.learnings_distill_aria({ repo: basename(group.repoPath) })}
+      >
+        {m.learnings_distill()}
+      </button>
+      <!-- Explains both actions (distill / suggest-merges) in plain language —
+           the terms are Shepherd jargon, so a per-group info affordance sits
+           right where the actions are. -->
+      <InfoTip text={m.learnings_actions_help()} label={m.learnings_actions_help_aria()} />
+    </div>
   </div>
 
   {#if unseenRetiredCount(group.injectable) > 0}
@@ -208,6 +215,14 @@
   }
   .repo-glyph.emoji {
     font-size: var(--fs-base);
+  }
+  /* action buttons + their info affordance grouped to the header's right edge,
+     so the "i" hugs the buttons instead of being flung out by space-between */
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
   }
   .distill {
     font-size: var(--fs-meta);

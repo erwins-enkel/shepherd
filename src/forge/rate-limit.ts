@@ -128,15 +128,18 @@ export class GraphRateLimit {
   /**
    * Extend the backoff window to `until` (taking the max of any existing value
    * so a shorter new reading never shortens a longer existing cooldown). Logs
-   * once on the unblocked→blocked edge.
+   * once on the unblocked→blocked edge, using the observable `blocked()` state
+   * so a re-engagement after natural expiry also logs correctly.
    */
   private _engage(until: number): void {
+    const wasBlocked = this.blocked();
     const next = this._pausedUntil != null ? Math.max(this._pausedUntil, until) : until;
-    const wasUnblocked = this._pausedUntil == null;
     this._pausedUntil = next;
 
-    // Log only on the first engagement (transition from no backoff to backoff).
-    if (wasUnblocked && !this._notifiedBlocked) {
+    // Log on every unblocked→blocked transition (fresh engagement or
+    // re-engagement after natural expiry). `wasBlocked` is the authoritative
+    // edge trigger — no secondary `_notifiedBlocked` guard needed here.
+    if (!wasBlocked) {
       console.warn(`[rate-limit] GraphQL backoff engaged until ${new Date(next).toISOString()}`);
       this._notifiedBlocked = true;
     }
@@ -144,12 +147,15 @@ export class GraphRateLimit {
 
   /**
    * Clear the backoff window. Logs once on the blocked→unblocked edge (only
-   * when we previously emitted the "engaged" log).
+   * when the backoff was actively blocking at the time of the call, and we
+   * previously emitted the "engaged" log). A healthy reading that arrives after
+   * a cooldown has already elapsed naturally does NOT emit a spurious "cleared"
+   * log.
    */
   private _clear(): void {
-    const wasSet = this._pausedUntil != null;
+    const wasBlocked = this.blocked();
     this._pausedUntil = null;
-    if (wasSet && this._notifiedBlocked) {
+    if (wasBlocked && this._notifiedBlocked) {
       console.warn(`[rate-limit] GraphQL backoff cleared`);
       this._notifiedBlocked = false;
     }

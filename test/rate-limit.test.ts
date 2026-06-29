@@ -191,12 +191,36 @@ describe("GraphRateLimit — logging", () => {
     const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError(); // blocked
     warnSpy.mockClear();
-    t = 60_001; // past expiry
-    // Trigger a detection path that emits the clear log
-    rl.note({ remaining: 200, resetAt: 999_999 }); // healthy reading → clears
+    t = 30_000; // still WITHIN the cooldown window → blocked() is true
+    // Trigger a healthy reading while actively blocked → clears
+    rl.note({ remaining: 200, resetAt: 999_999 });
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
     expect(msg).toContain("[rate-limit]");
+  });
+
+  it("logs 'engaged' on re-engagement after natural expiry", () => {
+    let t = 0;
+    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    rl.noteLimitError(); // first engagement at t=0
+    warnSpy.mockClear();
+    t = 70_000; // advance past expiry — blocked() is now false
+    // Re-engage after natural expiry: must log "engaged" again
+    rl.noteLimitError();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
+    expect(msg).toContain("[rate-limit]");
+    expect(msg).toContain("engaged");
+  });
+
+  it("does NOT log 'cleared' when healthy note() arrives after natural expiry", () => {
+    let t = 0;
+    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    rl.noteLimitError(); // engaged
+    warnSpy.mockClear();
+    t = 70_000; // advance past expiry — natural cooldown elapsed
+    rl.note({ remaining: 200, resetAt: 999_999 }); // healthy, but block already elapsed
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 

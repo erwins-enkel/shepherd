@@ -4,6 +4,8 @@
   import { toasts } from "$lib/toasts.svelte";
   import { fitLabels } from "$lib/fit-labels";
   import { m } from "$lib/paraglide/messages";
+  import SteerMenu from "$lib/components/SteerMenu.svelte";
+  import type { Steer } from "$lib/types";
 
   let {
     focusedId,
@@ -18,7 +20,7 @@
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
-    onedit?: () => void;
+    onedit?: (steerId?: string) => void;
   } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
@@ -83,6 +85,9 @@
   let startY = 0;
 
   function down(e: PointerEvent) {
+    // Only a primary (left / touch / pen) press arms a tap. A secondary press is a
+    // right-click — the contextmenu handler owns it, so it must not also fire send().
+    if (e.button !== 0) return;
     armedId = e.pointerId;
     startX = e.clientX;
     startY = e.clientY;
@@ -119,6 +124,15 @@
         action: { label: m.common_retry(), run: () => send(text) },
       });
     });
+  }
+
+  // Right-click a chip → a small anchored menu offering the two things you might
+  // want with a steer: run it (same as a tap) or jump into the editor focused on it.
+  // A plain left tap keeps firing send() directly — the menu is the deliberate path.
+  let menu = $state<{ steer: Steer; x: number; y: number; opener: HTMLElement } | null>(null);
+  function openMenu(e: MouseEvent, s: Steer) {
+    e.preventDefault();
+    menu = { steer: s, x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement };
   }
 </script>
 
@@ -182,6 +196,7 @@
         class:has-emoji={!!s.emoji}
         title={s.text}
         aria-label={m.steerbar_send_aria({ label: s.label })}
+        oncontextmenu={(e) => openMenu(e, s)}
         onpointerdown={down}
         onpointermove={move}
         onpointercancel={cancel}
@@ -229,6 +244,26 @@
     onpointerup={(e) => tap(e, () => onedit?.())}>✎</button
   >
 </div>
+
+{#if menu}
+  <SteerMenu
+    x={menu.x}
+    y={menu.y}
+    label={menu.steer.label}
+    opener={menu.opener}
+    onrun={() => {
+      const text = menu?.steer.text;
+      menu = null;
+      if (text) send(text);
+    }}
+    onedit={() => {
+      const id = menu?.steer.id;
+      menu = null;
+      onedit?.(id);
+    }}
+    onclose={() => (menu = null)}
+  />
+{/if}
 
 <style>
   /* Row = scrolling chip bar (flex:1) + a right-hand slot holding exactly one of two

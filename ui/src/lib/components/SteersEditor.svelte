@@ -11,8 +11,13 @@
   import type { Steer, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
+  // Steer to expand + focus on open (from a steer chip's right-click → "Edit"). The
+  // editor lists every steer; this jumps straight to the one the operator picked.
+  let { focusSteerId = null }: { focusSteerId?: string | null } = $props();
+
   const flipDurationMs = 150;
 
+  let rootEl = $state<HTMLDivElement | null>(null);
   let draft = $state<Steer[]>([]);
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -53,6 +58,18 @@
     getCommands("")
       .then((r) => (allCommands = r.commands))
       .catch(() => (allCommands = []));
+    // Targeted edit: scroll the chosen steer's row into view and focus its prompt
+    // field. Focusing fires onTextFocus, which expands the row (editingId) and
+    // autogrows the field — so the operator lands directly in the steer they picked.
+    if (focusSteerId && draft.some((s) => s.id === focusSteerId)) {
+      requestAnimationFrame(() => {
+        const ta = rootEl?.querySelector<HTMLTextAreaElement>(
+          `.srow[data-steer-id="${CSS.escape(focusSteerId!)}"] textarea.text`,
+        );
+        ta?.scrollIntoView({ block: "center" });
+        ta?.focus();
+      });
+    }
   });
 
   // Grow the focused prompt field to fit its content; at rest it collapses back to
@@ -199,7 +216,7 @@
   }
 </script>
 
-<div class="editor">
+<div class="editor" bind:this={rootEl}>
   <span class="micro">{m.steerseditor_title()}</span>
   <p class="hint">{m.steerseditor_hint()}</p>
   <div
@@ -213,6 +230,7 @@
       <div
         class="srow"
         class:editing={editingId === s.id}
+        data-steer-id={s.id}
         animate:flip={{ duration: flipDurationMs }}
       >
         <span

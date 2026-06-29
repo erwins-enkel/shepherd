@@ -123,6 +123,7 @@
     showSettings,
     settingsTab,
     focusPluginId = null,
+    focusSteerId = null,
     onsettingsclose,
     onsettingsherdrupdate,
     onsettingscodexupdate,
@@ -221,6 +222,7 @@
     showSettings: boolean;
     settingsTab: "workspace" | "session" | "device" | "diagnose" | "plugins";
     focusPluginId?: string | null;
+    focusSteerId?: string | null;
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
     onsettingscodexupdate: () => void;
@@ -443,6 +445,7 @@
     initialDiagnostics={store.diagnostics?.checks ?? null}
     plugins={store.plugins}
     {focusPluginId}
+    {focusSteerId}
     onclose={onsettingsclose}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={onsettingsherdrupdate}

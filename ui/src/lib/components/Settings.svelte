@@ -87,6 +87,7 @@
     initialDiagnostics = null,
     plugins = [],
     focusPluginId = null,
+    focusSteerId = null,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -102,6 +103,8 @@
     plugins?: PluginInfo[];
     /** Plugin id to scroll into view + highlight on open (from gear-item panel action). */
     focusPluginId?: string | null;
+    /** Steer id to expand + focus in the steers editor on open (from a chip's right-click). */
+    focusSteerId?: string | null;
   } = $props();
 
   // initialTab seeds the starting tab; the user then freely switches it, so we
@@ -121,7 +124,9 @@
   );
 
   onMount(() => {
-    if (initialTab === "session") {
+    // Skip the scroll-to-top when a specific steer is targeted — SteersEditor scrolls
+    // that row into view itself, and a competing top-scroll would fight it.
+    if (initialTab === "session" && !focusSteerId) {
       requestAnimationFrame(() => steersEl?.scrollIntoView({ behavior: "auto", block: "start" }));
     }
     if (typeof matchMedia === "undefined") return;
@@ -1050,7 +1055,7 @@
           >
         </button>
       </div>
-      <div bind:this={steersEl}><SteersEditor /></div>
+      <div bind:this={steersEl}><SteersEditor {focusSteerId} /></div>
     </div>
 
     <div

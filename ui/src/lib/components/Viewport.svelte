@@ -113,7 +113,7 @@
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
-    onedit?: () => void;
+    onedit?: (steerId?: string) => void;
     mobile?: boolean;
     touch?: boolean;
     // ordered ids of sessions currently waiting on the operator ("needs you"),
@@ -2184,7 +2184,7 @@
       onretry={() => onretry?.()}
       {retryHaltedCount}
       {retryReady}
-      onedit={() => onedit?.()}
+      onedit={(id) => onedit?.(id)}
     />
   {/if}
 

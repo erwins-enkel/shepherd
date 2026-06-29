@@ -5,6 +5,7 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
   AGENT_PROVIDERS,
   CODEX_MODELS,
+  CODEX_MODEL_RE,
   MODELS,
   type AgentProvider,
   type CreateSessionInput,
@@ -89,8 +90,6 @@ function validateAgentProvider(value: unknown): Field<AgentProvider | undefined>
   }
   return field(value as AgentProvider);
 }
-
-const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 /** model — optional; absent/null/"default" → null (provider default, no --model flag). */
 function validateModel(value: unknown, agentProvider?: AgentProvider): Field<string | null> {

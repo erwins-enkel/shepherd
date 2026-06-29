@@ -220,6 +220,11 @@ export const CODEX_MODELS = [
   "o3",
 ] as const;
 
+/** A safe Codex `--model` alias: the installed Codex CLI may learn new names before the curated
+ *  CODEX_MODELS list does, so any conservative identifier is accepted. Single source of truth
+ *  shared by the spawn-side check (service.ts) and the request validator (validate.ts). */
+export const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
+
 export interface Steer {
   id: string;
   label: string;

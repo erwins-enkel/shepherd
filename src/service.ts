@@ -16,7 +16,7 @@ import type {
   RelaunchOverrides,
   Session,
 } from "./types";
-import { MODELS, CODEX_MODELS } from "./types";
+import { MODELS, CODEX_MODELS, CODEX_MODEL_RE } from "./types";
 import {
   copyStagedIntoWorktree,
   stagingDir,
@@ -890,9 +890,6 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
 function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
-
-/** Codex accepts any safe alias the installed CLI might know; mirrors validate.ts's CODEX_MODEL_RE. */
-const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 /** True when `model` can be passed to `provider`'s --model flag. `null` (provider default) is
  *  always compatible. Claude takes its curated alias list; Codex takes its curated list plus any

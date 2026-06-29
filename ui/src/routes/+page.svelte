@@ -380,6 +380,15 @@
   // set once the operator confirms the codex update; the install runs server-side
   // and the modal resolves itself via the codex-update:done event.
   let codexUpdating = $state(false);
+  // Open the codex modal fresh: drop any prior terminal result + log so a *failed*
+  // apply's "you can retry" state doesn't linger and hide the Update button (the
+  // done event can land after the modal was closed, re-arming the stale result).
+  function openCodexUpdate() {
+    store.codexUpdateDone = null;
+    store.codexUpdateLog = [];
+    codexUpdating = false;
+    showCodexUpdate = true;
+  }
   let showWhatsNew = $state(false);
   let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
   let whatsNewDotOn = $state(false);
@@ -1986,7 +1995,7 @@
         herdrUpdate={store.herdrUpdate}
         onherdrupdate={() => (showHerdrUpdate = true)}
         codexUpdate={store.codexUpdate}
-        oncodexupdate={() => (showCodexUpdate = true)}
+        oncodexupdate={openCodexUpdate}
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
         learnings={learningsCounts.proposed}
@@ -2446,7 +2455,7 @@
   }}
   onsettingscodexupdate={() => {
     showSettings = false;
-    showCodexUpdate = true;
+    openCodexUpdate();
   }}
   onsettingswhatsnew={() => {
     showSettings = false;

@@ -268,6 +268,30 @@
     }
   }
 
+  // Queue the post-merge confirmation toast. Local-forge merges get a plain confirmation;
+  // remote-forge merges add a one-click Decommission, upgraded to "Decommission & update
+  // local" for isolated sessions (which also fast-forwards the local default branch). The
+  // FF target (ffPath/ffBranch) is captured by the caller at merge time — see doMerge.
+  function showMergedToast(kind: string, mergedId: string, ffPath: string, ffBranch: string) {
+    const text = m.toast_merged({ name: name || mergedId });
+    if (kind === "local") {
+      toasts.info(text);
+      return;
+    }
+    const update = isolated && !!ffPath;
+    toasts.info(text, {
+      action: {
+        label: update ? m.gitrail_decommission_update_action() : m.gitrail_decommission_action(),
+        run: () => {
+          ondecommission?.(mergedId);
+          if (update) pullMainAndToast(ffPath, ffBranch);
+        },
+      },
+      duration: 15_000,
+      key: `decommission-offer:${mergedId}`,
+    });
+  }
+
   // skipArm lets the inline Retry re-run a confirmed action without a second arm tap
   async function doMerge(skipArm = false) {
     if (!skipArm && !arm("merge")) return;
@@ -279,24 +303,7 @@
       const ffPath = repoPath; // capture FF target at merge time, like mergedId —
       const ffBranch = baseBranch; // the toast lives 15s and the GitRail instance rebinds on session switch
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
-      if (git.kind === "local") {
-        toasts.info(m.toast_merged({ name: name || mergedId }));
-      } else {
-        const update = isolated && !!ffPath;
-        toasts.info(m.toast_merged({ name: name || mergedId }), {
-          action: {
-            label: update
-              ? m.gitrail_decommission_update_action()
-              : m.gitrail_decommission_action(),
-            run: () => {
-              ondecommission?.(mergedId);
-              if (update) pullMainAndToast(ffPath, ffBranch);
-            },
-          },
-          duration: 15_000,
-          key: `decommission-offer:${mergedId}`,
-        });
-      }
+      showMergedToast(git.kind, mergedId, ffPath, ffBranch);
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

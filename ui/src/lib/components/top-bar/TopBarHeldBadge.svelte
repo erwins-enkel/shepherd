@@ -298,28 +298,25 @@
   .held-badge:hover {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
-  /* Compact (mobile / measured-overflow) variant: a single-digit count in a
-     square box. Mirror .needsyou.compact (TopBar.svelte) so the digit centers —
-     base .held-badge only centers vertically, and its letter-spacing trails the
-     lone glyph leftward. */
+  /* Compact (mobile / measured-overflow) variant: a single-digit count centered in
+     a square box — base .held-badge only centers vertically, and its letter-spacing
+     trails the lone glyph leftward. */
   .held-badge.compact {
     justify-content: center;
     min-width: 44px;
     letter-spacing: 0;
     /* horizontal-only: box height comes from the shared --topbar-ctl-h min-height on
-       the base rule, so this matches .needsyou.compact without padding tuning */
+       the base rule, so no padding tuning is needed here */
     padding: 0 10px;
-    /* pin the line box to 1×font-size so height is font-independent: `.needsyou`
-       renders in the UA button font while this badge uses `font: inherit` (mono),
-       and their `normal` line-heights differ by ~2px. `.needsyou.compact` carries
-       the matching `line-height: 1`. */
+    /* pin the line box to 1×font-size so the box height is font-independent — this
+       badge uses `font: inherit` (mono), whose `normal` line-height would otherwise
+       drift the height by ~2px. */
     line-height: 1;
   }
-  /* Width-gated 44px floor mirroring `.hud.mobile .needsyou` (TopBar.svelte): `mobile`
-     is width-only (≤768px), so fine-pointer narrow viewports need this — the coarse-
-     pointer floor below does not cover them. Keyed off `mobile`, NOT `.compact`, so it
-     never fires in the desktop measured-overflow case where needsyou has no floor (~36px),
-     which would otherwise make held the taller box. */
+  /* Width-gated 44px floor: `mobile` is width-only (≤768px), so fine-pointer narrow
+     viewports need this — the coarse-pointer floor below does not cover them. Keyed off
+     `mobile`, NOT `.compact`, so it never fires in the desktop measured-overflow case
+     (where the compact badge keeps its natural ~36px height). */
   .held-badge.mobile {
     min-height: 44px;
   }

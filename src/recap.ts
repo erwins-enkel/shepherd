@@ -18,8 +18,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
-import type { Session, Recap } from "./types";
+import type { Session, Recap, AgentProvider } from "./types";
 import type { DiffResult } from "./types";
+import type { RoleEnvironment } from "./default-model";
 import type { ActivityEntry } from "./activity";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
@@ -128,8 +129,12 @@ function defaultCleanup(cwd: string): void {
 /** The recap spawn's argv — the shared `writer-only` transient-agent shape (model defaults to
  *  "sonnet" at the call site). The input is the session transcript (UNTRUSTED); bare `Write` is safe
  *  via the sandbox shape, not an input-trust claim. See buildTransientAgentArgv for the rationale. */
-function recapArgv(model: string | null, prompt: string): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("writer-only", { model, prompt });
+function recapArgv(
+  provider: AgentProvider,
+  model: string | null,
+  prompt: string,
+): { argv: string[]; sessionId: string } {
+  return buildTransientAgentArgv("writer-only", { provider, model, prompt });
 }
 
 // ── deps interface ────────────────────────────────────────────────────────────
@@ -151,7 +156,8 @@ export interface RecapServiceDeps {
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
   onChange: (id: string, recap: Recap | null) => void;
-  model?: string | null;
+  // optional environment thunk (CLI + model, read per spawn → live settings)
+  env?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number;
   idleThresholdMs?: number;
@@ -182,7 +188,7 @@ export class RecapService {
   private now: () => number;
   private timeoutMs: number;
   private idleThresholdMs: number;
-  private model: string | null;
+  private env: () => RoleEnvironment;
 
   private _resolveBase: (session: Session) => Promise<{ base: string; resolved: boolean }>;
   private _computeDiff: (
@@ -211,7 +217,9 @@ export class RecapService {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
-    this.model = deps.model ?? "sonnet";
+    // No service-internal model default — the sonnet default now lives in config.recapModel seeding
+    // (config.recapCli="claude"), resolved by roleEnv at the call site in index.ts.
+    this.env = deps.env ?? (() => ({ provider: "claude", model: null }));
     this._resolveBase =
       deps.resolveBase ?? ((s) => Promise.resolve({ base: s.baseBranch, resolved: false }));
     this._computeDiff = deps.computeDiff ?? computeDiff;
@@ -419,7 +427,7 @@ export class RecapService {
           changedFiles: [],
           spawnSessionId: "",
           cwd: "",
-          model: this.model,
+          model: this.env().model,
           spawnedAt: t,
           generatedAt: t,
           updatedAt: t,
@@ -457,7 +465,8 @@ export class RecapService {
         digest,
         context,
       });
-      const { argv, sessionId: spawnSessionId } = recapArgv(this.model, prompt);
+      const env = this.env();
+      const { argv, sessionId: spawnSessionId } = recapArgv(env.provider, env.model, prompt);
 
       // Spawn.
       const cwd = this._makeTmpDir();
@@ -475,7 +484,7 @@ export class RecapService {
         taskSessionId: id,
         kind: "recap",
         worktreePath: cwd,
-        model: this.model,
+        model: env.model,
         spawnedAt,
       });
 
@@ -491,7 +500,7 @@ export class RecapService {
         changedFiles,
         spawnSessionId,
         cwd,
-        model: this.model,
+        model: env.model,
         spawnedAt,
         generatedAt: null,
         updatedAt: spawnedAt,

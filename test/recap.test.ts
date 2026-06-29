@@ -245,6 +245,7 @@ function buildSvc(opts: {
   store: FakeStore;
   herdr: FakeHerdr;
   onChange?: (id: string, recap: Recap | null) => void;
+  env?: () => { provider: "claude" | "codex"; model: string | null };
   nowFn: () => number;
   headSha?: string;
   diff?: typeof NON_EMPTY_DIFF | typeof EMPTY_DIFF;
@@ -271,7 +272,7 @@ function buildSvc(opts: {
     store: opts.store as any,
     herdr: opts.herdr as any,
     onChange: opts.onChange ?? (() => {}),
-    model: "sonnet",
+    env: opts.env ?? (() => ({ provider: "claude", model: "sonnet" })),
     now: opts.nowFn,
     idleThresholdMs: opts.idleThresholdMs ?? 120_000,
     timeoutMs: opts.timeoutMs ?? 300_000,
@@ -424,7 +425,7 @@ test("sweep: existing READY recap at headA; session re-activates then re-settles
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => t,
     idleThresholdMs: 120_000,
     timeoutMs: 300_000,
@@ -846,6 +847,29 @@ test("generate: subscription mode — --settings unchanged + no env 4th arg", as
   });
 });
 
+test("generate: codex provider spawns headless `codex exec` (no claude flags)", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+    env: () => ({ provider: "codex", model: "gpt-5.5" }),
+  });
+  await svc.regenerate(s);
+  const argv = herdr.started[0]!.argv;
+  expect(argv.slice(0, 6)).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+  ]);
+  expect(argv).not.toContain("--settings");
+});
+
 test("generate: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {
   await withAuth("api-key", "/helper.sh", async () => {
     const s = makeSession({ status: "idle" });
@@ -897,7 +921,7 @@ test("regenerate: replaces an existing ready row", async () => {
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => 200_000,
     timeoutMs: 300_000,
     headSha: async () => "sha-new",
@@ -987,7 +1011,7 @@ test("in-flight guard: second generate call for same session mid-await does not 
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => 200_000,
     timeoutMs: 300_000,
     headSha: async () => "sha-head",
@@ -1125,7 +1149,7 @@ test("considerForArchive: headSha throws → 'error', no throw, no spawn", async
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => 200_000,
     timeoutMs: 300_000,
     headSha: async () => {
@@ -1207,7 +1231,7 @@ test("generate: computeDiff rejection → 'error', no throw, no row", async () =
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => 200_000,
     timeoutMs: 300_000,
     headSha: async () => "sha-head",
@@ -1237,7 +1261,7 @@ test("regenerate: headSha rejection → 'error', no throw", async () => {
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => 200_000,
     timeoutMs: 300_000,
     headSha: async () => {
@@ -1268,7 +1292,7 @@ test("considerSession: headSha failure leaves fired=false so next sweep retries"
     store: store as any,
     herdr: herdr as any,
     onChange: () => {},
-    model: "sonnet",
+    env: () => ({ provider: "claude", model: "sonnet" }),
     now: () => t,
     idleThresholdMs: 120_000,
     timeoutMs: 300_000,

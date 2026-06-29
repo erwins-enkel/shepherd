@@ -17,6 +17,8 @@ let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
+const ROLE_BASES = ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const;
+let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;
 let savedAuthMode: AuthMode;
@@ -24,6 +26,11 @@ let savedAuthApiKeyHelperPath: string | null;
 let savedHome: string | undefined;
 let savedTuiFullscreen: boolean;
 let savedTuiDisableMouse: boolean;
+let savedUsageDowngrade: {
+  enabled: boolean;
+  pct: number;
+  model: string;
+};
 
 beforeEach(() => {
   // realpath so comparisons hold where tmpdir() is a symlink (macOS)
@@ -37,12 +44,23 @@ beforeEach(() => {
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
+  savedRoleEnvs = {};
+  const cfg = config as unknown as Record<string, string>;
+  for (const role of ROLE_BASES) {
+    savedRoleEnvs[`${role}Cli`] = cfg[`${role}Cli`]!;
+    savedRoleEnvs[`${role}Model`] = cfg[`${role}Model`]!;
+  }
   savedDefaultAgentProvider = config.defaultAgentProvider;
   savedExtraCredits = config.extraCreditsDrainCeiling;
   savedAuthMode = config.authMode;
   savedAuthApiKeyHelperPath = config.authApiKeyHelperPath;
   savedTuiFullscreen = config.tuiFullscreen;
   savedTuiDisableMouse = config.tuiDisableMouse;
+  savedUsageDowngrade = {
+    enabled: config.usageDowngradeEnabled,
+    pct: config.usageDowngradePct,
+    model: config.usageDowngradeModel,
+  };
   savedHome = process.env.HOME;
   // the ceiling is the immutable boundary; point it at our temp dir for the test so
   // dirs inside tmp validate and the dir browser is confined to tmp.
@@ -60,12 +78,20 @@ afterEach(() => {
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
+  const cfg = config as unknown as Record<string, string>;
+  for (const role of ROLE_BASES) {
+    cfg[`${role}Cli`] = savedRoleEnvs[`${role}Cli`]!;
+    cfg[`${role}Model`] = savedRoleEnvs[`${role}Model`]!;
+  }
   config.defaultAgentProvider = savedDefaultAgentProvider;
   config.extraCreditsDrainCeiling = savedExtraCredits;
   config.authMode = savedAuthMode;
   config.authApiKeyHelperPath = savedAuthApiKeyHelperPath;
   config.tuiFullscreen = savedTuiFullscreen;
   config.tuiDisableMouse = savedTuiDisableMouse;
+  config.usageDowngradeEnabled = savedUsageDowngrade.enabled;
+  config.usageDowngradePct = savedUsageDowngrade.pct;
+  config.usageDowngradeModel = savedUsageDowngrade.model;
   if (savedHome !== undefined) process.env.HOME = savedHome;
   else delete process.env.HOME;
   rmSync(tmp, { recursive: true, force: true });
@@ -393,12 +419,132 @@ test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
 });
 
+// ── per-role environment settings (cli + model) for the six roles ──
+test("GET /api/settings includes every per-role cli + model setting (raw, unresolved)", async () => {
+  config.criticCli = "codex";
+  config.criticModel = "gpt-5.5";
+  config.plannerCli = "inherit";
+  config.plannerModel = "default";
+  config.recapCli = "claude";
+  config.recapModel = "sonnet";
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.criticCli).toBe("codex");
+  expect(body.criticModel).toBe("gpt-5.5");
+  expect(body.plannerCli).toBe("inherit");
+  expect(body.plannerModel).toBe("default");
+  expect(body.recapCli).toBe("claude");
+  expect(body.recapModel).toBe("sonnet");
+});
+
+for (const role of ROLE_BASES) {
+  const cliKey = `${role}Cli`;
+  const modelKey = `${role}Model`;
+
+  test(`PUT /api/settings sets ${cliKey} (codex), persists, leaves repoRoot intact`, async () => {
+    config.repoRoot = tmp;
+    const { app, store } = harness();
+    const res = await put(app, { [cliKey]: "codex" });
+    expect(res.status).toBe(200);
+    expect((await res.json())[cliKey]).toBe("codex");
+    expect((config as Record<string, unknown>)[cliKey]).toBe("codex"); // live
+    expect(store.getSetting(cliKey)).toBe("codex"); // persisted
+    expect(config.repoRoot).toBe(tmp); // a role patch must not touch the repo root
+  });
+
+  test(`PUT /api/settings accepts 'inherit' for ${cliKey}`, async () => {
+    const { app } = harness();
+    const res = await put(app, { [cliKey]: "inherit" });
+    expect(res.status).toBe(200);
+    expect((await res.json())[cliKey]).toBe("inherit");
+  });
+
+  test(`PUT /api/settings rejects an unknown ${cliKey} value`, async () => {
+    const { app } = harness();
+    (config as Record<string, unknown>)[cliKey] = "inherit";
+    const res = await put(app, { [cliKey]: "gpt9" });
+    expect(res.status).toBe(400);
+    expect((config as Record<string, unknown>)[cliKey]).toBe("inherit"); // unchanged on failure
+  });
+
+  test(`PUT /api/settings sets ${modelKey} (alias + 'default'), persists`, async () => {
+    const { app, store } = harness();
+    const r1 = await put(app, { [modelKey]: "opus" });
+    expect(r1.status).toBe(200);
+    expect((await r1.json())[modelKey]).toBe("opus");
+    expect(store.getSetting(modelKey)).toBe("opus"); // persisted
+    const r2 = await put(app, { [modelKey]: "default" });
+    expect(r2.status).toBe(200);
+    expect((await r2.json())[modelKey]).toBe("default");
+  });
+
+  test(`PUT /api/settings rejects unknown / 'inherit' for ${modelKey}`, async () => {
+    const { app } = harness();
+    (config as Record<string, unknown>)[modelKey] = "default";
+    expect((await put(app, { [modelKey]: "gpt9" })).status).toBe(400);
+    // "inherit" is a cli value, not a model token → rejected on the model key.
+    expect((await put(app, { [modelKey]: "inherit" })).status).toBe(400);
+    expect((config as Record<string, unknown>)[modelKey]).toBe("default"); // unchanged on failure
+  });
+}
+
 test("PUT /api/settings rejects a non-string defaultModel", async () => {
   const { app } = harness();
   config.defaultModel = "auto";
   const res = await put(app, { defaultModel: 42 });
   expect(res.status).toBe(400);
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
+});
+
+// ── usage-aware model downgrade (enabled / pct / model) ──
+test("GET /api/settings includes the usage downgrade settings", async () => {
+  config.usageDowngradeEnabled = true;
+  config.usageDowngradePct = 75;
+  config.usageDowngradeModel = "sonnet";
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.usageDowngradeEnabled).toBe(true);
+  expect(body.usageDowngradePct).toBe(75);
+  expect(body.usageDowngradeModel).toBe("sonnet");
+});
+
+test("PUT /api/settings toggles usageDowngradeEnabled and persists", async () => {
+  config.usageDowngradeEnabled = false;
+  const { app, store } = harness();
+  const res = await put(app, { usageDowngradeEnabled: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).usageDowngradeEnabled).toBe(true);
+  expect(config.usageDowngradeEnabled).toBe(true); // live
+  expect(store.getSetting("usageDowngradeEnabled")).toBe("1"); // persisted
+});
+
+test("PUT /api/settings clamps usageDowngradePct to 0–100 and persists", async () => {
+  const { app, store } = harness();
+  const res = await put(app, { usageDowngradePct: 150 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).usageDowngradePct).toBe(100);
+  expect(config.usageDowngradePct).toBe(100);
+  expect(store.getSetting("usageDowngradePct")).toBe("100");
+});
+
+test("PUT /api/settings sets usageDowngradeModel (accepts auto/default/alias), persists", async () => {
+  const { app, store } = harness();
+  const r1 = await put(app, { usageDowngradeModel: "haiku" });
+  expect(r1.status).toBe(200);
+  expect((await r1.json()).usageDowngradeModel).toBe("haiku");
+  expect(store.getSetting("usageDowngradeModel")).toBe("haiku");
+  const r2 = await put(app, { usageDowngradeModel: "auto" });
+  expect(r2.status).toBe(200);
+  expect((await r2.json()).usageDowngradeModel).toBe("auto");
+});
+
+test("PUT /api/settings rejects an unknown usageDowngradeModel (and 'inherit')", async () => {
+  const { app } = harness();
+  config.usageDowngradeModel = "haiku";
+  expect((await put(app, { usageDowngradeModel: "gpt9" })).status).toBe(400);
+  // "inherit" is invalid here — a downgrade target has nothing to inherit from.
+  expect((await put(app, { usageDowngradeModel: "inherit" })).status).toBe(400);
+  expect(config.usageDowngradeModel).toBe("haiku"); // unchanged on failure
 });
 
 test("PUT /api/settings sets defaultAgentProvider, persists, leaves repoRoot intact", async () => {

@@ -117,7 +117,17 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
-import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
+import {
+  drainSpawnModel,
+  normalizeDefaultModelSetting,
+  normalizeFableAvailable,
+  normalizeRoleCli,
+  normalizeRoleModelToken,
+  resolveRoleEnvironment,
+  spawnModelForAvailability,
+  type RoleEnvironment,
+} from "./default-model";
+import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
@@ -196,6 +206,22 @@ if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
 }
+// Per-role ENVIRONMENT settings (persisted) override the env/seed defaults; corrupt/unknown values
+// are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`
+// ("inherit"|<provider>) + a `<role>Model` ("default"|<alias>), resolved to a spawn environment via
+// resolveRoleEnvironment at wiring/spawn time.
+for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const) {
+  const savedCli = store.getSetting(`${role}Cli`);
+  if (savedCli !== null) {
+    const v = normalizeRoleCli(savedCli);
+    if (v !== null) config[`${role}Cli`] = v;
+  }
+  const savedModel = store.getSetting(`${role}Model`);
+  if (savedModel !== null) {
+    const v = normalizeRoleModelToken(savedModel);
+    if (v !== null) config[`${role}Model`] = v;
+  }
+}
 const savedProvider = store.getSetting("defaultAgentProvider");
 if (savedProvider !== null) {
   const v = normalizeAgentProvider(savedProvider);
@@ -246,6 +272,17 @@ if (savedUhp !== null) {
 }
 const savedUhar = store.getSetting("usageHoldAutoRelease");
 if (savedUhar !== null) config.usageHoldAutoRelease = savedUhar === "1";
+
+// Usage-aware model downgrade: restore persisted operator overrides on restart.
+const savedUde = store.getSetting("usageDowngradeEnabled");
+if (savedUde !== null) config.usageDowngradeEnabled = savedUde === "1";
+const savedUdp = store.getSetting("usageDowngradePct");
+if (savedUdp !== null) {
+  const n = Number(savedUdp);
+  if (Number.isFinite(n)) config.usageDowngradePct = Math.min(100, Math.max(0, Math.floor(n)));
+}
+const savedUdm = normalizeDefaultModelSetting(store.getSetting("usageDowngradeModel"));
+if (savedUdm !== null) config.usageDowngradeModel = savedUdm;
 
 // ── single-operator auth (issue #1079): fail-closed bootstrap ───────────────
 // Resolve the argon2id password hash + HMAC cookie-signing secret before serving, so the gate
@@ -329,6 +366,8 @@ const egressWatcher = new EgressWatcher({
 const recapService: RecapService = new RecapService({
   store,
   herdr,
+  // Per-role model thunk (read per spawn so a settings change applies without restart).
+  env: () => roleEnv(config.recapCli, config.recapModel),
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
@@ -354,6 +393,44 @@ const resolveForge = makeProductionForgeResolver(store, config.forges);
 // until then (no spawn can be requested over HTTP before the server boots).
 const pluginRegistry = new PluginRegistry({ pluginsDir: config.pluginsDir, store, events });
 
+// Usage-aware model downgrade: the cheap model to force on a spawn when live usage has crossed the
+// downgrade threshold, or null (leave the configured model). Hoisted so both the main-session path
+// (service.usageDowngrade) and the role path (roleEnv) share one definition; reads usageLimits
+// (declared below) + live config at call time, never at module load.
+function usageDowngradeModel(): string | null {
+  if (!config.usageDowngradeEnabled) return null;
+  const lim = usageLimits.limits(Date.now());
+  if (
+    !shouldDowngrade({
+      enabled: config.usageDowngradeEnabled,
+      downgradePct: config.usageDowngradePct,
+      session5hPct: lim.session5h?.pct ?? 0,
+      weekPct: lim.week?.pct ?? 0,
+    })
+  )
+    return null;
+  return spawnModelForAvailability(
+    drainSpawnModel(config.usageDowngradeModel),
+    config.fableAvailable,
+  );
+}
+
+// Resolve a per-role spawn ENVIRONMENT (CLI + model) from its persisted cli/model pair, then fold
+// in the usage-downgrade so role agents are covered too (they bypass service.create/pushModelFlag).
+// The downgrade target is a Claude model setting, so it only overrides a Claude-resolved role.
+function roleEnv(cli: string, model: string): RoleEnvironment {
+  const env = resolveRoleEnvironment(
+    cli,
+    model,
+    config.defaultAgentProvider,
+    config.defaultModel,
+    config.fableAvailable,
+  );
+  const dg = usageDowngradeModel();
+  if (dg !== null && env.provider === "claude") return { provider: "claude", model: dg };
+  return env;
+}
+
 const service = new SessionService({
   store,
   worktree,
@@ -362,10 +439,18 @@ const service = new SessionService({
   // Plugin onSpawn hooks fire from prepareSpawn (create + resume); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
+  // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
+  // threshold, EVERY spawn — main task agents (here) and role agents (via roleEnv) alike — runs on
+  // the cheap usageDowngradeModel instead of its configured model, so work keeps flowing before the
+  // higher hold threshold pauses it. See pushModelFlag in service.ts + roleEnv below.
+  usageDowngrade: () => usageDowngradeModel(),
   detectEgressHostLoopback,
   namer: generateName,
   refineName: config.llmNaming
-    ? ({ taskText, label }) => llmName(taskText, { herdr, model: config.namerModel }, label)
+    ? ({ taskText, label }) => {
+        const env = roleEnv(config.namerCli, config.namerModel);
+        return llmName(taskText, { herdr, provider: env.provider, model: env.model }, label);
+      }
     : undefined,
   events,
   reaper: new ProcessReaper(),
@@ -799,7 +884,8 @@ const docAgent = new DocAgentService({
   store,
   gitState: (id) => prPoller.get(id),
   nightlyHour: config.docAgentNightlyHour,
-  model: config.docAgentModel,
+  // Per-role model thunk (read per spawn so a settings change applies without restart).
+  env: () => roleEnv(config.docAgentCli, config.docAgentModel),
   act: config.docAgentAct,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
@@ -819,6 +905,8 @@ const reviewService = new ReviewService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
+  env: () => roleEnv(config.criticCli, config.criticModel),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
@@ -834,8 +922,8 @@ const reviewService = new ReviewService({
 // Standalone repo-level PR critic (#596): the session-LESS twin of reviewService.
 // Where reviewService reacts to a managed session's PR, this enumerates EVERY open,
 // CI-green PR in a `criticAllPrs` repo (human PRs, other agents', forks) on a timer and
-// posts comment-only reviews. Shares reviewService's primitives + model source (no
-// `model` → the critic's own default); concurrency/timeout stay at service defaults.
+// posts comment-only reviews. Shares reviewService's primitives + the same per-role
+// `criticModel` setting; concurrency/timeout stay at service defaults.
 const standaloneCritic = new StandalonePrCriticService({
   store,
   herdr,
@@ -843,6 +931,8 @@ const standaloneCritic = new StandalonePrCriticService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  // Same per-role critic environment as reviewService (read per spawn → live settings).
+  env: () => roleEnv(config.criticCli, config.criticModel),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.
@@ -871,6 +961,8 @@ const planGate = new PlanGateService({
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   reply: (id, text) => service.reply(id, text),
   release: (id) => service.releasePlanGate(id),
+  // Per-role plan-reviewer model thunk (read per spawn → live settings).
+  env: () => roleEnv(config.plannerCli, config.plannerModel),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   cap: () => config.planReviewCyclesCap,
@@ -1140,8 +1232,15 @@ events.subscribe((event, data) => {
 // (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
 const autopilot = new AutopilotService({
   store,
-  classify: (tail, taskPrompt, label) =>
-    classifyStop(tail, taskPrompt, { herdr, model: config.autopilotModel }, label),
+  classify: (tail, taskPrompt, label) => {
+    const env = roleEnv(config.autopilotCli, config.autopilotModel);
+    return classifyStop(
+      tail,
+      taskPrompt,
+      { herdr, provider: env.provider, model: env.model },
+      label,
+    );
+  },
   steer: (id, text) => service.reply(id, text),
   resume: (id) => service.resume(id),
   paneAlive: (id) => {

@@ -276,3 +276,51 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
     ]);
   });
 });
+
+// ── Codex CLI branch ────────────────────────────────────────────────────────────────────────────
+// provider "codex" routes every kind to a headless, workspace-write-sandboxed `codex exec`. The
+// file-based result contract is identical, so the caller's verdict reading is unchanged; only the
+// argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools/thinking) leak.
+
+test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] <prompt>`", () => {
+  for (const kind of ALL_KINDS) {
+    const withModel = buildTransientAgentArgv(kind, {
+      provider: "codex",
+      model: "gpt-5.5",
+      prompt: "DO_IT",
+      thinkingTokens: 8000, // Claude-only; must be ignored on the Codex path
+    }).argv;
+    expect(withModel).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "-m",
+      "gpt-5.5",
+      "DO_IT",
+    ]);
+    // No Claude flags leak in.
+    for (const flag of [
+      "--settings",
+      "--allowedTools",
+      "--safe-mode",
+      "--disable-slash-commands",
+    ]) {
+      expect(withModel).not.toContain(flag);
+    }
+    // No model → no -m flag, prompt still trailing.
+    const noModel = buildTransientAgentArgv(kind, {
+      provider: "codex",
+      model: null,
+      prompt: "DO_IT",
+    }).argv;
+    expect(noModel).toEqual(["codex", "exec", "--sandbox", "workspace-write", "DO_IT"]);
+  }
+});
+
+test("claude provider (default + explicit) still builds the claude argv", () => {
+  expect(buildTransientAgentArgv("reviewer", { model: null, prompt: "p" }).argv[0]).toBe("claude");
+  expect(
+    buildTransientAgentArgv("reviewer", { provider: "claude", model: null, prompt: "p" }).argv[0],
+  ).toBe("claude");
+});

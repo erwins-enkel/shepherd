@@ -46,6 +46,22 @@ export interface Settings {
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
+  /** Per-role ENVIRONMENT settings for the helper agents Shepherd spawns: a CLI pair per role.
+   *  `<role>Cli` ∈ "inherit" | "claude" | "codex" ("inherit" follows `defaultAgentProvider` +
+   *  `defaultModel`); `<role>Model` ∈ "default" | <alias for that CLI>. The Settings UI shows each
+   *  role's effective resolved CLI · model alongside its two pickers. */
+  criticCli: string;
+  criticModel: string;
+  plannerCli: string;
+  plannerModel: string;
+  recapCli: string;
+  recapModel: string;
+  docAgentCli: string;
+  docAgentModel: string;
+  namerCli: string;
+  namerModel: string;
+  autopilotCli: string;
+  autopilotModel: string;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
   /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */
@@ -83,6 +99,14 @@ export interface Settings {
   /** Whether held tasks auto-start once usage drops below the threshold. When false, held
    *  tasks stay queued until the operator starts (or discards) each one manually. */
   usageHoldAutoRelease: boolean;
+  /** Whether usage-aware model downgrade is enabled: at/above usageDowngradePct, every spawn
+   *  (main + role agents) runs on usageDowngradeModel instead of its configured model. */
+  usageDowngradeEnabled: boolean;
+  /** Usage percentage at or above which spawns downgrade to usageDowngradeModel (0–100).
+   *  Meant to sit BELOW usageHoldPct: downgrade first, then hold. */
+  usageDowngradePct: number;
+  /** Model spawns downgrade to when usage is high — a default-model setting ("auto"|"default"|<alias>). */
+  usageDowngradeModel: string;
   /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
   fableAvailable: boolean;
   /** Opt the main session into Claude Code's fullscreen renderer (research preview). */
@@ -1413,6 +1437,13 @@ export const CODEX_MODELS = [
   "gpt-5",
   "o3",
 ] as const;
+
+/** Model alias list per agent provider — the source of truth the per-role environment picker reads
+ *  to populate the model dropdown for the chosen CLI. Mirrors src/types.ts MODELS_BY_PROVIDER. */
+export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
+  claude: CLAUDE_MODELS,
+  codex: CODEX_MODELS,
+};
 
 /** The premium-priced tiers among MODELS. Selecting one as the default makes every
  *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.

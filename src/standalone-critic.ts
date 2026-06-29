@@ -24,6 +24,7 @@ import type { WorktreeMgr } from "./worktree";
 import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import type { RoleEnvironment } from "./default-model";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
@@ -90,7 +91,8 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
    * it off, the standalone critic is the ONLY reviewer and must cover those PRs too).
    */
   managedBranches: (repoPath: string) => Set<string>;
-  model?: string | null; // optional --model for the critic
+  // optional environment thunk for the critic (CLI + model, read per spawn → live settings)
+  env?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file (default 10m)
   /** Global in-flight cap across ALL repos (inFlight + starting). Default 2. */
@@ -411,8 +413,10 @@ export class StandalonePrCriticService {
       this.deps.worktree.remove(worktreePath);
       return;
     }
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     const { argv, sessionId: criticSessionId } = buildTransientAgentArgv("reviewer", {
-      model: this.deps.model ?? null,
+      provider: env.provider,
+      model: env.model,
       prompt: prReviewPrompt(diffBase, pr.title, prBody),
       // Same extended thinking budget as the session critic (#604): the standalone PR critic runs
       // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
@@ -429,7 +433,7 @@ export class StandalonePrCriticService {
       descriptor: {
         sessionId: criticSessionId,
         kind: "review",
-        model: this.deps.model ?? null,
+        model: this.deps.env?.().model ?? null,
       },
     });
     if ("aborted" in aux) {
@@ -475,7 +479,7 @@ export class StandalonePrCriticService {
       taskSessionId: `pr:${repoPath}#${pr.number}`,
       kind: "review",
       worktreePath,
-      model: this.deps.model ?? null,
+      model: this.deps.env?.().model ?? null,
       spawnedAt: this.now(),
     });
   }

@@ -92,6 +92,26 @@ test("classifyStop: parses a gate verdict; spawns haiku, dontAsk, Write-only", a
   expect(calls.cleaned).toBe(true);
 });
 
+test("classifyStop: codex provider spawns headless `codex exec` (no claude flags)", async () => {
+  const { deps, calls } = makeDeps({
+    provider: "codex",
+    model: "gpt-5.5",
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  await classifyStop(["Ready to start? (y/n)"], "task", deps, "l");
+  expect(calls.started.argv.slice(0, 6)).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+  ]);
+  expect(calls.started.argv).not.toContain("--settings");
+  expect(calls.started.argv).not.toContain("--allowedTools");
+  expect(calls.started.argv[calls.started.argv.length - 1]).toContain("task");
+});
+
 test("classifyStop: subscription mode — --settings unchanged + no env 4th arg", async () => {
   const { calls } = await withAuth("subscription", "/ignored.sh", async () => {
     const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });

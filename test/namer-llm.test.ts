@@ -78,6 +78,25 @@ test("llmName: returns sanitized slug, spawns haiku, stops + cleans up", async (
   expect(calls.cleaned).toBe(true);
 });
 
+test("llmName: codex provider spawns headless `codex exec` (no claude flags)", async () => {
+  const { deps, calls } = makeDeps({
+    provider: "codex",
+    model: "gpt-5.5",
+    readName: () => "mobile footer",
+  });
+  await llmName("the mobile footer needs settings", deps, "l");
+  expect(calls.started.argv).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+    namingPrompt("the mobile footer needs settings"),
+  ]);
+  expect(calls.started.argv).not.toContain("--settings");
+});
+
 test("llmName: subscription mode — --settings unchanged + no env 4th arg", async () => {
   const { calls } = await withAuth("subscription", "/ignored.sh", async () => {
     const d = makeDeps({ readName: () => "ok-slug" });

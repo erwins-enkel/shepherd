@@ -5,6 +5,7 @@ import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
+import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
@@ -144,7 +145,8 @@ export interface ReviewServiceDeps extends MembraneSeams {
    * settings change takes effect on the next critic run without a restart.
    */
   cap?: number | (() => number);
-  model?: string | null; // optional --model for the critic
+  // optional environment thunk for the critic (CLI + model, read per spawn → live settings)
+  env?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
   /** default: `existsSync` — whether a reviewer's disposable worktree is still on disk.
@@ -366,7 +368,7 @@ export class ReviewService {
         sessionId: criticSessionId,
         kind: "review",
         parentSessionId: session.id,
-        model: this.deps.model ?? null,
+        model: this.deps.env?.().model ?? null,
       },
     });
     if ("aborted" in aux) {
@@ -415,7 +417,7 @@ export class ReviewService {
       taskSessionId: session.id,
       kind: "review",
       worktreePath: wt.worktreePath,
-      model: this.deps.model ?? null,
+      model: this.deps.env?.().model ?? null,
       spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
@@ -568,8 +570,10 @@ export class ReviewService {
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context.
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     return buildTransientAgentArgv("reviewer", {
-      model: this.deps.model ?? null,
+      provider: env.provider,
+      model: env.model,
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
       // Extended thinking budget (#604) — reasoning headroom for the #597 cross-file VERIFY pass.
       thinkingTokens: CRITIC_THINKING_TOKENS,

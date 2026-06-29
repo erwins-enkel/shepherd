@@ -225,6 +225,13 @@ export const CODEX_MODELS = [
  *  shared by the spawn-side check (service.ts) and the request validator (validate.ts). */
 export const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
+/** The model alias list for each agent provider — the single source of truth the per-role
+ *  environment picker (UI) and the server-side validation both read, so adding a provider or a
+ *  model in one place flows everywhere. Keyed by AgentProvider. */
+export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
+  claude: CLAUDE_MODELS,
+  codex: CODEX_MODELS,
+};
 export interface Steer {
   id: string;
   label: string;

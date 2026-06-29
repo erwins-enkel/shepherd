@@ -437,7 +437,7 @@ function mkHarness(opts?: {
     repos: () => o.repos,
     store: store as any,
     nightlyHour: o.nightlyHour,
-    model: null,
+    env: () => ({ provider: "claude", model: null }),
     act: o.act,
     onChange: (f) => finalizes.push(f),
     now: o.now,

@@ -3,6 +3,9 @@ import {
   normalizeDefaultModelSetting,
   normalizeRepoDefaultModelSetting,
   resolveDefaultModelSetting,
+  resolveRoleEnvironment,
+  normalizeRoleCli,
+  normalizeRoleModelToken,
   drainSpawnModel,
   spawnModelForAvailability,
   normalizeFableAvailable,
@@ -126,6 +129,107 @@ describe("resolveDefaultModelSetting", () => {
     expect(drainSpawnModel(resolveDefaultModelSetting("haiku", "auto"))).toBe("haiku");
     expect(drainSpawnModel(resolveDefaultModelSetting("inherit", "opus"))).toBe("opus");
     expect(drainSpawnModel(resolveDefaultModelSetting("inherit", "auto"))).toBeNull();
+  });
+});
+
+describe("normalizeRoleCli", () => {
+  test("accepts inherit + each provider", () => {
+    expect(normalizeRoleCli("inherit")).toBe("inherit");
+    expect(normalizeRoleCli("claude")).toBe("claude");
+    expect(normalizeRoleCli("codex")).toBe("codex");
+  });
+  test("rejects unknown / wrong type", () => {
+    expect(normalizeRoleCli("gpt")).toBeNull();
+    expect(normalizeRoleCli("")).toBeNull();
+    expect(normalizeRoleCli(42)).toBeNull();
+  });
+});
+
+describe("normalizeRoleModelToken", () => {
+  test("accepts 'default' + any provider alias", () => {
+    expect(normalizeRoleModelToken("default")).toBe("default");
+    expect(normalizeRoleModelToken("opus")).toBe("opus");
+    expect(normalizeRoleModelToken("gpt-5.5")).toBe("gpt-5.5");
+  });
+  test("rejects unknown / wrong type", () => {
+    expect(normalizeRoleModelToken("inherit")).toBeNull(); // inherit lives on the cli, not the model
+    expect(normalizeRoleModelToken("gpt4")).toBeNull();
+    expect(normalizeRoleModelToken(null)).toBeNull();
+  });
+});
+
+describe("resolveRoleEnvironment", () => {
+  // cli "inherit" follows the global provider + model; with the shipped "auto" global model this is
+  // the provider default (null = no --model) — i.e. today's critic/planner/doc-agent behavior.
+  test("cli 'inherit' + global 'auto' → global provider, null model", () => {
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "auto", true)).toEqual({
+      provider: "claude",
+      model: null,
+    });
+  });
+
+  test("cli 'inherit' follows the global provider AND model", () => {
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "opus", true)).toEqual({
+      provider: "claude",
+      model: "opus",
+    });
+    expect(resolveRoleEnvironment("inherit", "default", "codex", "auto", true)).toEqual({
+      provider: "codex",
+      model: null,
+    });
+  });
+
+  test("explicit cli + model wins over the global default", () => {
+    expect(resolveRoleEnvironment("claude", "haiku", "claude", "opus", true)).toEqual({
+      provider: "claude",
+      model: "haiku",
+    });
+    expect(resolveRoleEnvironment("codex", "gpt-5.5", "claude", "opus", true)).toEqual({
+      provider: "codex",
+      model: "gpt-5.5",
+    });
+  });
+
+  test("explicit cli + 'default' model → null (provider default)", () => {
+    expect(resolveRoleEnvironment("codex", "default", "claude", "opus", true)).toEqual({
+      provider: "codex",
+      model: null,
+    });
+  });
+
+  test("clamp: a model not in the chosen provider's list → null (provider default)", () => {
+    // opus is a Claude alias, not a Codex one → clamped away when cli is codex.
+    expect(resolveRoleEnvironment("codex", "opus", "claude", "auto", true)).toEqual({
+      provider: "codex",
+      model: null,
+    });
+  });
+
+  test("unset / invalid cli defers to the global", () => {
+    expect(resolveRoleEnvironment(null, "haiku", "claude", "sonnet", true)).toEqual({
+      provider: "claude",
+      model: "sonnet",
+    });
+    expect(resolveRoleEnvironment("gpt", "haiku", "claude", "sonnet", true)).toEqual({
+      provider: "claude",
+      model: "sonnet",
+    });
+  });
+
+  test("fable substitution applies at the role layer when unavailable", () => {
+    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", false)).toEqual({
+      provider: "claude",
+      model: "opus[1m]",
+    });
+    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", true)).toEqual({
+      provider: "claude",
+      model: "fable",
+    });
+    // inherited fable from the global default also substitutes
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "fable", false)).toEqual({
+      provider: "claude",
+      model: "opus[1m]",
+    });
   });
 });
 

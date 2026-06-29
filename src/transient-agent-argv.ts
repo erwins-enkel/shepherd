@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { apiKeySettingsFragment } from "./spawn-auth";
+import { codexRoleArgv } from "./codex-role-argv";
+import type { AgentProvider } from "./types";
 
 /**
  * One home for the transient-`claude` argv shape that 10 spawn sites used to re-assemble
@@ -61,6 +63,10 @@ import { apiKeySettingsFragment } from "./spawn-auth";
 export type TransientAgentKind = "reviewer" | "doc" | "writer-ro" | "writer-only";
 
 export interface TransientAgentArgvOptions {
+  /** Which CLI to spawn. Defaults to "claude" (the historical posture below). "codex" routes to a
+   *  headless `codex exec` instead — the file-based result contract is identical across CLIs, so the
+   *  caller's verdict/result reading is unchanged; only the spawn argv differs. */
+  provider?: AgentProvider;
   /** Model to pin, or null to inherit the spawn default. `--model` is emitted only when truthy. */
   model: string | null;
   /** The agent's task — the trailing positional. */
@@ -129,6 +135,12 @@ export function buildTransientAgentArgv(
 ): { argv: string[]; sessionId: string } {
   const preset = PRESETS[kind];
   const sessionId = randomUUID();
+
+  // Codex CLI path: a headless, workspace-write-sandboxed `codex exec` runs the same prompt (which
+  // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,
+  // --allowedTools, thinkingTokens) have a Codex equivalent; the sandbox shape is enforced by
+  // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
+  if (opts.provider === "codex") return { argv: codexRoleArgv(opts.model, opts.prompt), sessionId };
 
   const settings: Record<string, unknown> = { disableAllHooks: true };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;

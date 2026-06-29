@@ -28,6 +28,14 @@ test("no downgrade when usage unknown (degraded: 0,0 → never downgrades)", () 
   expect(shouldDowngrade({ ...base, session5hPct: 0, weekPct: 0 })).toBe(false);
 });
 
+test("no downgrade at downgradePct=0 when usage unknown (0,0 stays the safe sentinel)", () => {
+  expect(shouldDowngrade({ ...base, downgradePct: 0, session5hPct: 0, weekPct: 0 })).toBe(false);
+});
+
+test("downgrades at downgradePct=0 once any real usage is measured", () => {
+  expect(shouldDowngrade({ ...base, downgradePct: 0, session5hPct: 1 })).toBe(true);
+});
+
 test("downgrades at boundary (s5h exactly at threshold)", () => {
   expect(shouldDowngrade({ ...base, session5hPct: 80 })).toBe(true);
 });

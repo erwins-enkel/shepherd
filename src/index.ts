@@ -132,6 +132,12 @@ import { releaseHeldTasks } from "./held-release";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
+import {
+  graphRateLimit,
+  isGraphqlBucketCall,
+  isRateLimitError,
+  parseRetryAfter,
+} from "./forge/rate-limit";
 
 const execFileAsync = promisify(execFile);
 
@@ -1802,8 +1808,20 @@ setInterval(checkDiagnostics, 6 * 60 * 60 * 1000);
 // parallel (a blocking execFileSync would serialize them on the event loop,
 // making the backlog load scale linearly with repo count).
 const ghRunnerAsync = async (args: string[]): Promise<string> => {
-  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
-  return stdout.toString();
+  try {
+    const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+    return stdout.toString();
+  } catch (err) {
+    // Detect GraphQL rate-limit errors and record them in the shared backoff
+    // state so pollers can pause before the next request. The error is always
+    // re-thrown so existing caller behaviour is unchanged.
+    if (isGraphqlBucketCall(args) && isRateLimitError(err)) {
+      graphRateLimit.noteLimitError(
+        parseRetryAfter(String((err as Record<string, unknown>)?.stderr ?? "")),
+      );
+    }
+    throw err;
+  }
 };
 const backlog = new CountsService(config.forges, ghRunnerAsync, fetch, undefined, (dir) =>
   store.getRepoConfig(dir),

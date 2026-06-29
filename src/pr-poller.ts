@@ -232,6 +232,30 @@ export class PrPoller implements PrCache {
     }
   }
 
+  /** Fetch the batch status for one repo. Returns the open-PR map, or null when
+   *  the repo should fall back to per-session polling (no batch methods, fork,
+   *  count-gate trip, or a transient fetch failure). All `gh` calls under `withGh`.
+   *  count < 2: batching costs 2 gh calls (countOpenPrs + listOpenPrStatuses) vs
+   *  S = count per-session calls; break-even is S ≥ 2, so a single-session repo
+   *  is a strict regression — skip both probe and list call. */
+  private async batchForRepo(
+    forge: GitForge,
+    count: number,
+  ): Promise<Map<string, PrStatus> | null> {
+    if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork || count < 2) {
+      return null;
+    }
+    try {
+      const p = await this.withGh(() => forge.countOpenPrs!());
+      if (p >= 200 || p > this.batchOpenRatio * count) {
+        return null; // cap-hit (truncated batch) or count-gate → per-session
+      }
+      return await this.withGh(() => forge.listOpenPrStatuses!());
+    } catch {
+      return null; // transient failure → per-session this sweep
+    }
+  }
+
   /** One open-PR batch per distinct non-fork repo, subject to the count-gate.
    *  Maps `forge.slug` → its `Map<headRefName, PrStatus>`, or `null` when that
    *  repo must use the per-session path (no batch methods, fork mode, count-gate
@@ -250,23 +274,7 @@ export class PrPoller implements PrCache {
       else byKey.set(forge.slug, { forge, count: 1 });
     }
     for (const [key, { forge, count }] of byKey) {
-      // count < 2: batching costs 2 gh calls (countOpenPrs + listOpenPrStatuses) vs
-      // S = count per-session calls; break-even is S ≥ 2, so a single-session repo
-      // is a strict regression — skip both probe and list call.
-      if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork || count < 2) {
-        out.set(key, null);
-        continue;
-      }
-      try {
-        const p = await this.withGh(() => forge.countOpenPrs!());
-        if (p >= 200 || p > this.batchOpenRatio * count) {
-          out.set(key, null); // cap-hit (truncated batch) or count-gate → per-session
-          continue;
-        }
-        out.set(key, await this.withGh(() => forge.listOpenPrStatuses!()));
-      } catch {
-        out.set(key, null); // transient failure → per-session this sweep
-      }
+      out.set(key, await this.batchForRepo(forge, count));
     }
     return out;
   }
@@ -421,8 +429,15 @@ export class PrPoller implements PrCache {
     const hit = batch.get(s.branch!);
     if (hit) return guard({ kind: forge.kind, ...hit });
 
-    let git: GitState | null = null;
     const needsConfirm = marked || prev == null || prev.state !== "none" || recheckNone;
+    const noneGit = (): GitState => ({
+      kind: forge.kind,
+      state: "none",
+      checks: "none",
+      deployConfigured: !!forge.deployWorkflow,
+    });
+
+    let git: GitState | null = null;
     if (needsConfirm) {
       try {
         git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch!)) });
@@ -430,29 +445,22 @@ export class PrPoller implements PrCache {
         return null;
       }
     }
-    if (git == null || git.state === "none") {
-      const live = this.reconcileBranch(s);
-      if (live && live !== s.branch) {
-        const liveHit = batch.get(live);
-        if (liveHit) {
-          git = guard({ kind: forge.kind, ...liveHit });
-        } else if (needsConfirm) {
-          try {
-            git = guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
-          } catch {
-            return null;
-          }
-        }
-      }
+
+    if (git != null && git.state !== "none") return git;
+
+    const live = this.reconcileBranch(s);
+    if (!live || live === s.branch) return git ?? noneGit();
+
+    const liveHit = batch.get(live);
+    if (liveHit) return guard({ kind: forge.kind, ...liveHit });
+
+    if (!needsConfirm) return git ?? noneGit();
+
+    try {
+      return guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
+    } catch {
+      return null;
     }
-    return (
-      git ?? {
-        kind: forge.kind,
-        state: "none",
-        checks: "none",
-        deployConfigured: !!forge.deployWorkflow,
-      }
-    );
   }
 
   /** Maintain the transient-window stamp for `id` from its latest observed `git`,

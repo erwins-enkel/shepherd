@@ -149,7 +149,14 @@ export function buildTransientAgentArgv(
   argv.push("--allowedTools", ...preset.allowedTools);
   if (opts.model) argv.push("--model", opts.model);
   argv.push("--permission-mode", "dontAsk");
-  argv.push(opts.prompt);
+  // child_process.spawn REJECTS any argv arg containing a NUL ("must be a string without null
+  // bytes") — a hard throw, not a transient failure. The prompt is the ONLY argv slot that carries
+  // untrusted free text (plan / PR diff / issue body / repo rule / recap), and a stray \0 in
+  // agent-written text (e.g. the composite-key idiom `${slug}\0${forkOwner}`) would crash EVERY
+  // transient spawn site (issue #1235). Replace each NUL with its visible 2-char escape `\0` rather
+  // than stripping it, so the surrounding text's meaning survives for the reading agent. NUL is the
+  // only spawn-illegal char; other control chars are legal in argv and left untouched.
+  argv.push(opts.prompt.replaceAll("\0", "\\0"));
 
   return { argv, sessionId };
 }

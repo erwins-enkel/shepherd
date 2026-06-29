@@ -10,9 +10,10 @@
  *
  * Degraded-usage convention mirrors usage-hold: callers pass `0` for any window
  * when usage is unknown (uncalibrated caps, api-key mode → `limits()` returns null
- * windows). With 0, `Math.max(0, 0) >= downgradePct` is false, so we never downgrade
- * when usage can't be measured — the safe default (don't silently swap the operator's
- * chosen model on telemetry we don't have).
+ * windows). A max usage of `0` is therefore the unknown sentinel, never a genuine
+ * reading, so we never downgrade when usage can't be measured — even at
+ * `downgradePct = 0` (which the UI allows). This is the safe default: don't silently
+ * swap the operator's chosen model on telemetry we don't have.
  */
 
 export interface DowngradeDecisionInput {
@@ -24,5 +25,8 @@ export interface DowngradeDecisionInput {
 
 /** Returns true if new spawns should use the downgrade model instead of their configured one. */
 export function shouldDowngrade(i: DowngradeDecisionInput): boolean {
-  return i.enabled && Math.max(i.session5hPct, i.weekPct) >= i.downgradePct;
+  const usage = Math.max(i.session5hPct, i.weekPct);
+  // `usage === 0` is the unknown/uncalibrated sentinel (see module docstring): never
+  // downgrade on telemetry we don't have, even when downgradePct is 0.
+  return i.enabled && usage > 0 && usage >= i.downgradePct;
 }

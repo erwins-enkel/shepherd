@@ -1353,8 +1353,8 @@
           aria-label={m.settings_usage_downgrade_model_label()}
           onchange={saveUsageDowngradeModel}
         >
-          <option value="auto">{m.settings_default_model_auto()}</option>
-          <option value="default">{m.newtask_model_default()}</option>
+          <!-- Concrete aliases only: "auto"/"default" resolve to null (no --model) via
+               drainSpawnModel, which would make the downgrade a silent no-op. -->
           {#each MODELS as mdl (mdl)}
             <option value={mdl}>{modelLabel(mdl)}</option>
           {/each}

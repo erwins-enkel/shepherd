@@ -14,7 +14,7 @@ import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
-import { isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
+import { apiKeyFailClosed } from "./spawn-auth";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
 
@@ -666,7 +666,7 @@ export class DocAgentService {
   private guardRepo(
     repoPath: string,
   ): { ok: true; forge: GitForge } | { ok: false; result: DocAgentResult } {
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
       console.warn(
         "[doc-agent] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );

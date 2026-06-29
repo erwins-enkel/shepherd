@@ -15,7 +15,7 @@ import {
   groundPlanBlocks,
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
+import { apiKeyFailClosed } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
@@ -295,7 +295,7 @@ export class PlanGateService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
       console.warn(
         "[plan-gate] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );

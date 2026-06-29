@@ -27,7 +27,7 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import type { RoleEnvironment } from "./default-model";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
-import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
+import { apiKeyFailClosed } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   prReviewPrompt,
@@ -406,7 +406,7 @@ export class StandalonePrCriticService {
       priorReviewedPatchIds: string[];
     },
   ): Promise<void> {
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
       this.log(
         `[pr-critic] ${repoPath}#${pr.number} api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)`,
       );

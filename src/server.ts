@@ -3390,8 +3390,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
-      // per-role model SETTINGs ("inherit" | "auto" | "default" | <alias>). "inherit" follows
-      // defaultModel; the UI shows each role's effective resolved model alongside the picker.
+      // per-role ENVIRONMENT SETTINGs, a pair per role: `<role>Cli` ("inherit" | "claude" | "codex";
+      // "inherit" follows defaultAgentProvider + defaultModel) and `<role>Model` ("default" | <alias>
+      // for that CLI). The UI shows each role's effective resolved CLI · model alongside the pickers.
       criticCli: config.criticCli,
       criticModel: config.criticModel,
       plannerCli: config.plannerCli,

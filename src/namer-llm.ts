@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
 import type { AgentProvider } from "./types";
 import { slugifyManual } from "./namer";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 
 /** The file the namer agent writes its slug to, in its temp cwd. */
@@ -129,9 +129,10 @@ export async function llmName(
     pollMs = 1_000,
   } = deps;
 
-  // Fail closed: api-key mode without a configured key must NOT bill the subscription —
-  // skip the LLM namer and keep the heuristic name.
-  if (isApiKeyMode() && !isApiKeyConfigured()) return null;
+  // Fail closed: in Anthropic api-key mode without a configured key, a Claude spawn must NOT bill
+  // the subscription — skip the LLM namer and keep the heuristic name. Gated on the resolved
+  // provider: a Codex namer uses Codex's own auth, so the Anthropic-key gate doesn't apply to it.
+  if (apiKeyFailClosed(provider)) return null;
 
   let cwd: string | null = null;
   let terminalId: string | null = null;

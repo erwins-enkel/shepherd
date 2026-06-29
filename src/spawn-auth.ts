@@ -26,6 +26,7 @@
 
 import { homedir } from "node:os";
 import { config } from "./config";
+import type { AgentProvider } from "./types";
 import { spawnAuthSettings } from "./auth-mode";
 import { ensureApiKeyConfigDir } from "./auth-config-dir";
 
@@ -45,6 +46,16 @@ export function isApiKeyMode(): boolean {
 /** True when api-key mode is selected AND a helper path is configured (ready to bill an API key). */
 export function isApiKeyConfigured(): boolean {
   return config.authMode === "api-key" && config.authApiKeyHelperPath !== null;
+}
+
+/**
+ * Whether a transient role spawn must FAIL CLOSED for auth: Anthropic api-key mode is selected but
+ * no key is configured, so a Claude spawn would silently bill the subscription. Provider-aware — a
+ * non-Claude provider (e.g. Codex) authenticates through its own CLI, not the Anthropic key, so this
+ * never gates it. One home for the gate shared by recap/critic/plan-gate/doc-agent/namer/autopilot.
+ */
+export function apiKeyFailClosed(provider: AgentProvider): boolean {
+  return provider === "claude" && isApiKeyMode() && !isApiKeyConfigured();
 }
 
 /**

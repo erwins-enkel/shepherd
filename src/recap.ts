@@ -27,7 +27,7 @@ import { readSessionUsage } from "./usage";
 import { computeDiff } from "./diff";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
@@ -381,8 +381,9 @@ export class RecapService {
     knownHead?: string,
     knownBase?: string,
   ): Promise<"started" | "empty" | "error"> {
-    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    // Fail closed: in Anthropic api-key mode without a configured key, a Claude spawn must NOT bill
+    // the subscription. Gated on the resolved provider — a Codex recap uses Codex's own auth.
+    if (apiKeyFailClosed(this.env().provider)) {
       console.warn(
         "[recap] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );

@@ -7,7 +7,7 @@ import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
+import { apiKeyFailClosed } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { checksCleared } from "./checks-gate";
@@ -341,7 +341,7 @@ export class ReviewService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
       console.warn(
         "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );

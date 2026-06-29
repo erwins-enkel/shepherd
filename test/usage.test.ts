@@ -208,6 +208,13 @@ test("dominantModelOf returns null when only 'unknown' is present", () => {
 const TS_A = "2026-05-30T09:31:01.000Z"; // in hour A
 const TS_B = "2026-05-30T10:15:00.000Z"; // in hour B
 
+// Wall-clock anchor for the rollup tests below. The rollup prunes records older than
+// `now − 30d`, so passing real `Date.now()` while the fixtures are pinned to fixed
+// dates is a time-bomb: once the wall clock passes 30d after TS_A/TS_B, the fixtures
+// age out of the window, get pruned, and windowedAccum() returns null. Anchoring `now`
+// just after hour B keeps TS_A/TS_B deterministically in-window forever.
+const NOW = Date.parse(TS_B) + 60_000;
+
 // Make a ts=0 record by using an invalid timestamp
 function asstNoTs(opts: Parameters<typeof asst>[0]): string {
   const o = JSON.parse(asst(opts));
@@ -322,7 +329,7 @@ test("SessionUsageRollup: incremental append — second refresh sees appended by
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   const w1 = r.windowedAccum(sessionId, 0);
@@ -354,7 +361,7 @@ test("SessionUsageRollup: single-flight — concurrent refresh() calls don't dou
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   // Fire two concurrent refreshes
   await Promise.all([r.refresh(sessions, now), r.refresh(sessions, now)]);
 
@@ -376,7 +383,7 @@ test("SessionUsageRollup: dedupe before accumulate — duplicate requestId acros
   writeFileSync(path, line + "\n");
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   // Append the same requestId again (simulating duplicate)
@@ -402,7 +409,7 @@ test("SessionUsageRollup: exact-cutoff windowing (cutoff>0) equals sessionCost(l
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   // cutoff = floor of hour B = exclude TS_A records
@@ -499,7 +506,7 @@ test("SessionUsageRollup: truncation reset — size < offset resets state", asyn
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   const w1 = r.windowedAccum(sessionId, 0);
@@ -530,7 +537,7 @@ test("SessionUsageRollup: drop inactive sessions not in sessions arg", async () 
   );
 
   const r = new TestRollup(dir);
-  const now = Date.now();
+  const now = NOW;
   await r.refresh([makeSession(dir, sessA), makeSession(dir, sessB)], now);
 
   expect(r.windowedAccum(sessA, 0)).not.toBeNull();
@@ -557,7 +564,7 @@ test("SessionUsageRollup: windowedAccum returns null for empty in-window set (me
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   const hourBFloor = Math.floor(Date.parse(TS_B) / 3_600_000) * 3_600_000;
@@ -580,7 +587,7 @@ test("SessionUsageRollup: dominantModel for cutoff>0 from in-window raw tokens; 
 
   const r = new TestRollup(dir);
   const sessions = [makeSession(dir, sessionId)];
-  const now = Date.now();
+  const now = NOW;
   await r.refresh(sessions, now);
 
   // cutoff===0 → session-wide: opus dominates

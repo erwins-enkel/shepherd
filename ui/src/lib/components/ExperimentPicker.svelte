@@ -44,6 +44,10 @@
       ? {
           title: VIEW[picker.mode].title(),
           confirm: VIEW[picker.mode].confirm(),
+          // Compare seeds Opus (a strong reviewer) and therefore PINS the Claude provider — a
+          // codex default would make ModelCliPicker reset the seed to a Codex alias. Variant /
+          // replace keep the user's default provider so a fresh model can be picked freely.
+          provider: picker.mode === "compare" ? ("claude" as AgentProvider) : initialProvider,
           initialModel: picker.mode === "compare" ? "opus" : "default",
         }
       : null,
@@ -85,7 +89,7 @@
     title={view.title}
     confirmLabel={view.confirm}
     {fableAvailable}
-    {initialProvider}
+    initialProvider={view.provider}
     initialModel={view.initialModel}
     {onconfirm}
     onclose={() => (picker = null)}

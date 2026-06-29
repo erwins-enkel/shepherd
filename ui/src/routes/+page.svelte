@@ -173,6 +173,9 @@
     "workspace",
   );
   let focusPluginId = $state<string | null>(null);
+  // Steer id to expand + focus in the steers editor when Settings opens (set from the
+  // steer chip's right-click → "Edit" action; null when the editor is opened plainly).
+  let focusSteerId = $state<string | null>(null);
   let showClone = $state(false);
   let showFork = $state(false);
   let showNewProject = $state(false);
@@ -526,6 +529,15 @@
       usageHoldPct,
   );
   const retryReady = $derived(haltedCount > 0 && usageBelow);
+
+  // Open Settings on the steers editor. An optional steer id (from a steer chip's
+  // right-click → "Edit") expands + focuses that row; omitted for the plain pencil.
+  // Defined here, not inline, so the nullish branch stays out of the route template.
+  function openSteersEditor(id?: string) {
+    settingsTab = "session";
+    focusSteerId = id ?? null;
+    showSettings = true;
+  }
 
   function loadSettings() {
     getSettings()
@@ -2156,10 +2168,7 @@
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
             {retryReady}
-            onedit={() => {
-              settingsTab = "session";
-              showSettings = true;
-            }}
+            onedit={openSteersEditor}
             drain={store.drain[selected.repoPath] ?? null}
             subagents={store.subagents}
           />
@@ -2308,10 +2317,7 @@
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
             {retryReady}
-            onedit={() => {
-              settingsTab = "session";
-              showSettings = true;
-            }}
+            onedit={openSteersEditor}
             drain={store.drain[selected.repoPath] ?? null}
             subagents={store.subagents}
           />
@@ -2444,9 +2450,11 @@
   {showSettings}
   {settingsTab}
   {focusPluginId}
+  {focusSteerId}
   onsettingsclose={() => {
     showSettings = false;
     focusPluginId = null;
+    focusSteerId = null;
     loadSettings();
   }}
   onsettingsherdrupdate={() => {

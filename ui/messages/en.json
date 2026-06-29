@@ -2107,5 +2107,10 @@
   "codexupdate_all_notes_link": "View all release notes",
   "settings_codex_update_label": "Codex update available",
   "feat_codex_update_title": "Codex CLI update check",
-  "feat_codex_update_body": "Shepherd now watches npm for a newer @openai/codex and shows a badge when one ships — like the herdr badge. One click runs the update; running codex panes are not interrupted."
+  "feat_codex_update_body": "Shepherd now watches npm for a newer @openai/codex and shows a badge when one ships — like the herdr badge. One click runs the update; running codex panes are not interrupted.",
+  "steermenu_label": "Actions for steer: {label}",
+  "steermenu_run": "Run",
+  "steermenu_edit": "Edit",
+  "feat_steer_context_menu_title": "Right-click a steer to edit or run it",
+  "feat_steer_context_menu_body": "Right-click a steer chip in the bar to open a small menu: run it (the same as a tap) or jump straight into the editor focused on that steer."
 }

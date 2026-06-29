@@ -13,6 +13,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: SteerBar } = await import("./SteerBar.svelte");
 const { steers } = await import("$lib/steers.svelte");
+const api = await import("$lib/api");
 
 const LABELS_KEY = "shepherd:steer-labels";
 const COACH_KEY = "shepherd:steer-coach-seen";
@@ -216,5 +217,69 @@ describe("SteerBar edit-steers button", () => {
     const abc = document.querySelector(".lbl-toggle") as HTMLElement;
     expect(getComputedStyle(editBtn).display, "edit hidden on mobile").toBe("none");
     expect(getComputedStyle(abc).display, "ABC revealed by mobile rule").not.toBe("none");
+  });
+});
+
+describe("SteerBar steer context menu", () => {
+  beforeEach(() => {
+    vi.mocked(api.replySession).mockClear();
+  });
+
+  // The steer chip carries an emoji, so `.chip.has-emoji` uniquely targets it
+  // (the leading broadcast chip is `.chip.bc`).
+  const steerChip = () => document.querySelector(".steer-bar .chip.has-emoji") as HTMLElement;
+
+  it("right-clicking a chip opens a menu with Run and Edit, and does not send", async () => {
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+
+    steerChip().dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const menu = document.querySelector(".steer-menu") as HTMLElement;
+    expect(menu, "context menu opened").not.toBeNull();
+    const items = menu.querySelectorAll(".sm-item");
+    expect(items.length).toBe(2);
+    expect(menu.getAttribute("role")).toBe("menu");
+    // The right-click itself must never fire the steer (the menu is the deliberate path).
+    expect(api.replySession).not.toHaveBeenCalled();
+  });
+
+  it("Run sends the steer to the focused session", async () => {
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {} });
+    await tick();
+
+    steerChip().dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const runItem = document.querySelectorAll(".steer-menu .sm-item")[0] as HTMLElement;
+    runItem.click();
+    await tick();
+
+    expect(api.replySession).toHaveBeenCalledWith("s1", "ship it");
+    expect(document.querySelector(".steer-menu"), "menu closes after Run").toBeNull();
+  });
+
+  it("Edit fires onedit with the steer id and does not send", async () => {
+    const onedit = vi.fn();
+    render(SteerBar, { focusedId: "s1", onbroadcast: () => {}, onedit });
+    await tick();
+
+    steerChip().dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const editItem = document.querySelectorAll(".steer-menu .sm-item")[1] as HTMLElement;
+    editItem.click();
+    await tick();
+
+    expect(onedit).toHaveBeenCalledWith("1");
+    expect(api.replySession).not.toHaveBeenCalled();
+    expect(document.querySelector(".steer-menu"), "menu closes after Edit").toBeNull();
   });
 });

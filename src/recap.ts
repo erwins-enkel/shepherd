@@ -37,11 +37,11 @@ import {
 import { groundBlocks, type VisualBlock } from "./visual-blocks";
 import {
   tolerantParseJson,
-  isSpawnWorking,
+  isSpawnAlive,
   decideVerdictAction,
   STARTUP_GRACE_MS,
 } from "./json-tolerant";
-import type { VerdictRead } from "./json-tolerant";
+import type { VerdictAction, VerdictRead } from "./json-tolerant";
 
 const execFileAsync = promisify(execFile);
 
@@ -149,7 +149,7 @@ export interface RecapServiceDeps {
     | "list"
     | "setRecapPendingDiff"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
   onChange: (id: string, recap: Recap | null) => void;
   model?: string | null;
   now?: () => number;
@@ -229,16 +229,6 @@ export class RecapService {
   /** Find a recap spawn's live terminal by its tmpdir cwd. "" when gone; herdr.stop("") is a no-op. */
   private resolveTerminal(cwd: string): string {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
-  }
-
-  /**
-   * Has the recap spawn at `cwd` finished producing output? True when its herdr agent is gone or no
-   * longer "working" — used to gate acting on a repaired/unparseable verdict (don't trust/fail on a
-   * file that may still be mid-write). See isSpawnWorking for the residual-flicker race; the hard
-   * timeout in tick() is the true backstop.
-   */
-  private spawnFinished(cwd: string): boolean {
-    return !isSpawnWorking(this.deps.herdr.list(), cwd);
   }
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
@@ -525,40 +515,56 @@ export class RecapService {
   async tick(): Promise<void> {
     for (const r of this.deps.store.generatingRecaps()) {
       if (this.finalizing.has(r.sessionId)) continue;
-
-      const read = this._readVerdict(r.cwd);
-      const elapsed = this.now() - r.spawnedAt;
-      const timedOut = elapsed > this.timeoutMs;
-      const action = decideVerdictAction(
-        read,
-        this.spawnFinished(r.cwd),
-        timedOut,
-        elapsed > STARTUP_GRACE_MS,
-      );
-      if (action === "wait") continue; // not-yet-written / repaired-or-unparseable while still working
+      this.finalizing.add(r.sessionId); // claim BEFORE the first await — race-safe (mirrors review.ts)
+      let action: VerdictAction;
+      let read: VerdictRead<unknown>;
+      let elapsed: number;
+      try {
+        elapsed = this.now() - r.spawnedAt;
+        read = this._readVerdict(r.cwd);
+        const timedOut = elapsed > this.timeoutMs;
+        // Ground-truth liveness via paneForegroundProcs (same signal as tab-reaper): a live-but-idle
+        // recap spawn between API turns reads "idle" in agentStatus but still has non-shell procs.
+        // isSpawnAlive never throws; herdr errors → fail-closed alive.
+        const finished = !(await isSpawnAlive(this.deps.herdr, r.cwd));
+        action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
+      } catch (err) {
+        // _readVerdict or decideVerdictAction threw; isSpawnAlive itself never throws.
+        // Release the flag so the next tick retries — otherwise stays in finalizing forever,
+        // wedging the session's recap and leaking its tmpdir/terminal.
+        this.finalizing.delete(r.sessionId);
+        console.warn(`[recap] liveness/read failed for ${r.sessionId}, retrying next tick:`, err);
+        continue;
+      }
+      if (action === "wait") {
+        this.finalizing.delete(r.sessionId); // release: not finalizing this tick
+        continue; // not-yet-written / repaired-or-unparseable while still working
+      }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
+      if (action === "finalize-null") this.logUnproducedVerdict(r, read, elapsed);
 
-      // Observability: a `failed` recap used to be a black hole (no log, raw discarded), so an
-      // intermittent malformed write was undiagnosable. Surface WHY before finalizing.
-      if (action === "finalize-null") {
-        if (read.status === "unparseable") {
-          console.warn(
-            `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
-          );
-        } else {
-          console.warn(
-            `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
-          );
-        }
-      }
-
-      this.finalizing.add(r.sessionId);
+      // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
         await this.finalize(r, raw);
       } finally {
         this.finalizing.delete(r.sessionId);
       }
+    }
+  }
+
+  /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a
+   *  black hole (no log, raw discarded), so an intermittent malformed write was undiagnosable —
+   *  surface WHY before finalizing. Extracted from tick() to keep its cognitive complexity in bound. */
+  private logUnproducedVerdict(r: Recap, read: VerdictRead<unknown>, elapsed: number): void {
+    if (read.status === "unparseable") {
+      console.warn(
+        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
+      );
+    } else {
+      console.warn(
+        `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
+      );
     }
   }
 

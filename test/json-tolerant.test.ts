@@ -1,5 +1,10 @@
 import { expect, test, describe } from "bun:test";
-import { tolerantParseJson, isSpawnWorking, decideVerdictAction } from "../src/json-tolerant";
+import {
+  tolerantParseJson,
+  isSpawnWorking,
+  isSpawnAlive,
+  decideVerdictAction,
+} from "../src/json-tolerant";
 import type { VerdictRead } from "../src/json-tolerant";
 
 describe("tolerantParseJson", () => {
@@ -112,5 +117,90 @@ describe("decideVerdictAction", () => {
     expect(decideVerdictAction(absent, true, false, false)).toBe("wait");
     // Back-compat: callers that omit the grace flag keep the pre-grace "wait until timeout" behavior.
     expect(decideVerdictAction(absent, true, false)).toBe("wait");
+  });
+});
+
+// ── isSpawnAlive ─────────────────────────────────────────────────────────────
+// Ground-truth process-liveness helper: uses paneForegroundProcs to determine whether a
+// verdict spawn is actually alive, rather than relying on the transient agentStatus signal.
+
+/** Minimal herdr shape that isSpawnAlive accepts. */
+function makeHerdrStub(opts: {
+  agents?: { cwd: string; paneId: string; agentStatus: string }[];
+  procs?: string[] | Error;
+  listThrows?: boolean;
+}): {
+  list: () => { cwd: string; paneId: string; agentStatus: string }[];
+  paneForegroundProcs: () => Promise<string[]>;
+} {
+  return {
+    list: () => {
+      if (opts.listThrows) throw new Error("herdr unavailable");
+      return opts.agents ?? [];
+    },
+    paneForegroundProcs: async () => {
+      if (opts.procs instanceof Error) throw opts.procs;
+      return opts.procs ?? [];
+    },
+  };
+}
+
+describe("isSpawnAlive", () => {
+  const CWD = "/review-wt";
+  const agent = (agentStatus: string) => ({ cwd: CWD, paneId: "p1", agentStatus });
+
+  test("agentStatus=working → alive (fast path, no paneForegroundProcs call)", async () => {
+    let procsCalled = false;
+    const herdr = {
+      list: () => [agent("working")],
+      paneForegroundProcs: async () => {
+        procsCalled = true;
+        return ["zsh"];
+      },
+    };
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+    expect(procsCalled).toBe(false); // fast path skips the process-info call
+  });
+
+  test("idle + non-shell procs ['claude','node-MainThread'] → alive", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: ["claude", "node-MainThread"] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
+  test("idle + non-shell procs ['claude','bash'] (critic mid-Bash) → alive", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: ["claude", "bash"] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
+  test("idle + shell-only ['zsh'] (husk, startup-death shape) → dead", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: ["zsh"] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(false);
+  });
+
+  test("idle + empty procs [] (undeterminable) → alive (fail-closed)", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: [] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
+  test("paneForegroundProcs throws → alive (fail-closed, never reap on read error)", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: new Error("ECONNREFUSED") });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
+  test("list() throws → alive (fail-closed, helper does not propagate)", async () => {
+    const herdr = makeHerdrStub({ listThrows: true });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
+  test("cwd absent from list → dead", async () => {
+    const herdr = makeHerdrStub({
+      agents: [{ cwd: "/other-wt", paneId: "p2", agentStatus: "working" }],
+    });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(false);
+  });
+
+  test("empty list (no agents) → dead", async () => {
+    const herdr = makeHerdrStub({ agents: [] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(false);
   });
 });

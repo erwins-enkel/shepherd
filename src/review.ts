@@ -10,8 +10,8 @@ import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { checksCleared } from "./checks-gate";
-import { isSpawnWorking, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
-import type { VerdictRead } from "./json-tolerant";
+import { isSpawnAlive, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
+import type { VerdictAction, VerdictRead } from "./json-tolerant";
 import {
   reviewPrompt,
   defaultReadVerdict,
@@ -117,7 +117,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "listReviewerSpawns"
     | "get"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab" | "paneForegroundProcs">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
@@ -631,17 +631,34 @@ export class ReviewService {
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
-      const read = this.readVerdict(f.worktreePath);
-      const elapsed = this.now() - f.startedAt;
-      const timedOut = elapsed > this.timeoutMs;
-      // Same finalize gate as RecapService.tick (shared decideVerdictAction): a repaired-truncated
-      // verdict must never silently drop findings or flip the decision in the merge gate, so it is
-      // trusted only once the critic spawn has finished; unparseable fails fast (raw=null → the
-      // existing transient-`error` verdict); absent fails fast once the critic has exited past the
-      // boot grace (a critic that died at startup wrote nothing), else waits for the hard timeout.
-      const finished = !isSpawnWorking(this.deps.herdr.list(), f.worktreePath);
-      const action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
+      f.finalizing = true; // claim BEFORE the first await — prevents a second overlapping tick
+      // from passing the guard above while we await isSpawnAlive below and both ticks racing
+      // to finalize the same entry (double-reap / double-putReview).
+      let action: VerdictAction;
+      let read: VerdictRead<RawVerdict>;
+      try {
+        read = this.readVerdict(f.worktreePath);
+        const elapsed = this.now() - f.startedAt;
+        const timedOut = elapsed > this.timeoutMs;
+        // Use ground-truth process liveness (paneForegroundProcs) rather than the transient
+        // agentStatus field: a live critic between API turns reads "idle"/"done" but still has
+        // claude/node-MainThread in its foreground — isSpawnAlive catches that and returns true
+        // (alive → finished=false → wait), preventing premature finalize-null + reap.
+        // isSpawnAlive never throws; any herdr error is caught internally → fail-closed alive.
+        const finished = !(await isSpawnAlive(this.deps.herdr, f.worktreePath));
+        // Same gate as RecapService.tick (shared decideVerdictAction): repaired verdict trusted
+        // only once finished; unparseable fails fast; absent fails fast past boot grace.
+        action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
+      } catch (err) {
+        // readVerdict or decideVerdictAction threw (isSpawnAlive itself never throws).
+        // Release the flag so the next tick retries — otherwise f.finalizing stays true forever,
+        // wedging the session's critic and leaking its worktree/terminal.
+        f.finalizing = false;
+        console.warn(`[review] liveness/read failed for ${f.sessionId}, retrying next tick:`, err);
+        continue;
+      }
       if (action === "wait") {
+        f.finalizing = false; // release: not finalizing this tick
         // still running (or gated, awaiting completion) — surface what the critic is doing right
         // now. Emit every tick (not only on change) so a reloaded client repopulates within one
         // tick; the client dedups identical summaries to stay quiet.
@@ -651,10 +668,9 @@ export class ReviewService {
       }
       const raw: RawVerdict | null =
         action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
-      // Always drop the entry, even if finalize throws — otherwise it stays
-      // `finalizing=true` and every later tick `continue`s past it, wedging the
-      // session's critic forever (and leaking its worktree/terminal).
+      // f.finalizing stays true; always drop the entry, even if finalize throws — otherwise it
+      // stays `finalizing=true` and every later tick `continue`s past it, wedging the session's
+      // critic forever (and leaking its worktree/terminal).
       try {
         await this.finalize(f, raw);
       } finally {

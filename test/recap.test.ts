@@ -171,12 +171,16 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
   return store;
 }
 
-type FakePaneEntry = { cwd: string; terminalId: string; agentStatus?: string };
+type FakePaneEntry = { cwd: string; terminalId: string; agentStatus?: string; paneId?: string };
 
 type FakeHerdr = {
   started: { label: string; cwd: string; argv: string[]; env?: Record<string, string> }[];
   stopped: string[];
   livePanes: FakePaneEntry[];
+  /** Per-pane procs override: paneId → procs. Falls back to defaultProcs. */
+  procsOverride: Map<string, string[]>;
+  /** Default procs for any pane not in procsOverride (default ['zsh'] = shell-only husk). */
+  defaultProcs: string[];
   start: (
     label: string,
     cwd: string,
@@ -185,13 +189,16 @@ type FakeHerdr = {
   ) => { terminalId: string };
   stop: (id: string) => void;
   list: () => FakePaneEntry[];
+  paneForegroundProcs: (paneId: string) => Promise<string[]>;
 };
 
-function makeHerdr(livePanes: FakePaneEntry[] = []): FakeHerdr {
+function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["zsh"]): FakeHerdr {
   const h: FakeHerdr = {
     started: [],
     stopped: [],
     livePanes,
+    procsOverride: new Map(),
+    defaultProcs,
     start: (label, cwd, argv, env) => {
       const tid = `tid-${h.started.length + 1}`;
       h.started.push({ label, cwd, argv, env });
@@ -200,6 +207,7 @@ function makeHerdr(livePanes: FakePaneEntry[] = []): FakeHerdr {
     },
     stop: (id) => h.stopped.push(id),
     list: () => h.livePanes,
+    paneForegroundProcs: async (paneId: string) => h.procsOverride.get(paneId) ?? h.defaultProcs,
   };
   return h;
 }
@@ -242,6 +250,12 @@ function buildSvc(opts: {
    *  Omit → { status:"absent" }. Use `verdictRead` for the repaired/unparseable statuses. */
   verdictJson?: unknown;
   verdictRead?: VerdictRead<unknown>;
+  /**
+   * A raw function override for readVerdict — called on EVERY tick instead of returning the
+   * static `verdictRead`/`verdictJson` value. Use when you need stateful behavior (e.g.
+   * throw-on-first-call, then succeed on second call).
+   */
+  readVerdictFn?: () => VerdictRead<unknown>;
   idleThresholdMs?: number;
   timeoutMs?: number;
   cleanup?: (d: string) => void;
@@ -264,11 +278,13 @@ function buildSvc(opts: {
     computeDiff: opts.computeDiff ?? (async () => (opts.diff ?? NON_EMPTY_DIFF) as any),
     readTranscript: (): ActivityEntry[] => [],
     readPlan: () => "",
-    readVerdict: (): VerdictRead<unknown> =>
-      opts.verdictRead ??
-      (opts.verdictJson !== undefined
-        ? { status: "parsed", value: opts.verdictJson, repaired: false }
-        : { status: "absent" }),
+    readVerdict: opts.readVerdictFn
+      ? opts.readVerdictFn
+      : (): VerdictRead<unknown> =>
+          opts.verdictRead ??
+          (opts.verdictJson !== undefined
+            ? { status: "parsed", value: opts.verdictJson, repaired: false }
+            : { status: "absent" }),
     readUsage: opts.readUsage ?? (async () => null),
     makeTmpDir: opts.makeTmpDir ?? (() => `/tmp/recap-test-${++tmpIdx}`),
     cleanup: opts.cleanup ?? (() => {}),
@@ -595,7 +611,7 @@ test("tick unparseable: garbage verdict → state 'failed'", async () => {
 test("#822 tick fail-fast: unparseable + finished spawn → 'failed' before timeout", async () => {
   const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-ff", spawnedAt: 1_000 });
   const store = makeStore([], [rec]);
-  // agent present but idle (finished its turn) at this cwd → spawnFinished = true.
+  // default ['zsh'] husk → isSpawnAlive=false → finished=true → fail-fast on unparseable.
   const herdr = makeHerdr([{ cwd: "/tmp/recap-ff", terminalId: "t-ff", agentStatus: "idle" }]);
   const cleaned: string[] = [];
 
@@ -656,6 +672,112 @@ test("#822 tick gate: absent + finished spawn (not timed out) → stays generati
   await svc.tick();
   expect(store.getRecap("s1")?.state).toBe("generating"); // not fail-fasted
   expect(herdr.stopped).not.toContain("t-abs");
+});
+
+// ── TASK-1021 process-liveness regressions (recap mirror) ───────────────────
+// Mirrors the review regressions: a live-but-idle recap spawn must not be finalized-null;
+// a genuine husk (shell-only) must still fast-fail. isSpawnAlive uses paneForegroundProcs.
+
+test("[TASK-1021] recap: live-but-idle spawn past grace → stays generating, NOT finalized-null", async () => {
+  // spawnedAt=1_000; nowFn returns 91_000 → elapsed=90s > STARTUP_GRACE_MS (60s)
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-live", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  // idle but with live procs → isSpawnAlive returns true → finished=false → wait
+  const herdr = makeHerdr(
+    [{ cwd: "/tmp/recap-live", terminalId: "t-live", paneId: "p-live", agentStatus: "idle" }],
+    ["claude", "node-MainThread"], // defaultProcs: live critic
+  );
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 91_000, // elapsed = 91000 - 1000 = 90s > STARTUP_GRACE_MS
+    timeoutMs: 300_000,
+    verdictRead: { status: "absent" },
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("generating"); // NOT finalized
+  expect(herdr.stopped).not.toContain("t-live");
+});
+
+test("recap: husk (shell-only) past grace → finalize-null failed (fast-fail preserved)", async () => {
+  // spawnedAt=1_000; nowFn returns 91_000 → elapsed=90s > STARTUP_GRACE_MS (60s)
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-husk", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  // shell-only pane → isSpawnAlive returns false → finished=true → finalize-null
+  const herdr = makeHerdr(
+    [{ cwd: "/tmp/recap-husk", terminalId: "t-husk", paneId: "p-husk", agentStatus: "idle" }],
+    ["zsh"], // defaultProcs: shell-only husk
+  );
+  const cleaned: string[] = [];
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 91_000, // elapsed = 91000 - 1000 = 90s > STARTUP_GRACE_MS
+    timeoutMs: 300_000,
+    verdictRead: { status: "absent" },
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("failed"); // finalize-null: fast-fail preserved
+  expect(herdr.stopped).toContain("t-husk");
+  expect(cleaned).toContain("/tmp/recap-husk");
+});
+
+// Overlapping-ticks regression: second concurrent tick must not double-finalize the same entry.
+test("recap overlapping ticks: second tick skips entry claimed by first tick", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-overlap", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr(); // no panes → not in list → dead → finished=true; strict parse finalizes
+  const cleaned: string[] = [];
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    timeoutMs: 300_000,
+    verdictJson: VALID_VERDICT_JSON, // strict parse → finalize-value regardless of spawnFinished
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  // Fire two ticks concurrently: tick1 claims finalizing before its first await; tick2 skips.
+  const tick1 = svc.tick();
+  const tick2 = svc.tick();
+  await Promise.all([tick1, tick2]);
+  // Exactly one finalize: state is 'ready' (not 'failed'), cleanup called once
+  expect(store.getRecap("s1")?.state).toBe("ready");
+  expect(cleaned.filter((d) => d === "/tmp/recap-overlap")).toHaveLength(1);
+});
+
+// Throw-after-claim regression: if readVerdict throws after the finalizing Set.add(),
+// the flag must be released so the next tick retries (no wedge/leak).
+test("recap throw-after-claim: finalizing flag released on readVerdict throw → next tick succeeds", async () => {
+  const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-throw", spawnedAt: 1_000 });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr();
+  let callCount = 0;
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    timeoutMs: 300_000,
+    readVerdictFn: () => {
+      callCount++;
+      if (callCount === 1) throw new Error("transient read error");
+      return { status: "parsed", value: VALID_VERDICT_JSON, repaired: false };
+    },
+  });
+
+  // First tick: readVerdict throws → flag released, stays generating
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("generating"); // not finalized
+  // Second tick: succeeds → finalizes
+  await svc.tick();
+  expect(store.getRecap("s1")?.state).toBe("ready");
 });
 
 test("tick restart-safety: generating row in DB, no in-memory state → finalizes", async () => {
@@ -823,11 +945,15 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
     started: [],
     stopped: [],
     livePanes: [],
+    procsOverride: new Map(),
+    defaultProcs: ["zsh"],
     start: () => {
       throw new Error("herdr start failed");
     },
     stop: (id) => herdr.stopped.push(id),
     list: () => herdr.livePanes,
+    paneForegroundProcs: async (paneId: string) =>
+      herdr.procsOverride.get(paneId) ?? herdr.defaultProcs,
   };
 
   const svc = buildSvc({

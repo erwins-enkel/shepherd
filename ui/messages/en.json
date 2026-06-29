@@ -2120,5 +2120,8 @@
   "plugin_action_failed": "Plugin action failed",
   "plugin_action_confirm_title": "Confirm action",
   "feat_plugin_gear_item_title": "Plugin gear-menu items",
-  "feat_plugin_gear_item_body": "Plugins can now add a single item to the gear menu — opening a link, running a plugin action, or jumping to the plugin's panel."
+  "feat_plugin_gear_item_body": "Plugins can now add a single item to the gear menu — opening a link, running a plugin action, or jumping to the plugin's panel.",
+  "gitrail_decommission_update_action": "Decommission & update local",
+  "feat_decommission_update_local_title": "Decommission & update local",
+  "feat_decommission_update_local_body": "When you merge an isolated session's PR, the confirmation toast now offers one action that tears the session down and fast-forwards your local default branch in a single click."
 }

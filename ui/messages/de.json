@@ -2120,5 +2120,8 @@
   "plugin_action_failed": "Plugin-Aktion fehlgeschlagen",
   "plugin_action_confirm_title": "Aktion bestätigen",
   "feat_plugin_gear_item_title": "Plugin-Einträge im Zahnradmenü",
-  "feat_plugin_gear_item_body": "Plugins können dem Zahnradmenü jetzt einen einzelnen Eintrag hinzufügen — der einen Link öffnet, eine Plugin-Aktion ausführt oder zum Plugin-Panel springt."
+  "feat_plugin_gear_item_body": "Plugins können dem Zahnradmenü jetzt einen einzelnen Eintrag hinzufügen — der einen Link öffnet, eine Plugin-Aktion ausführt oder zum Plugin-Panel springt.",
+  "gitrail_decommission_update_action": "Stilllegen & lokal aktualisieren",
+  "feat_decommission_update_local_title": "Stilllegen & lokal aktualisieren",
+  "feat_decommission_update_local_body": "Wenn du den PR einer isolierten Session mergst, bietet die Bestätigungsmeldung jetzt eine Aktion, die die Session entfernt und deinen lokalen Standard-Branch mit einem Klick auf den neuesten Stand bringt."
 }

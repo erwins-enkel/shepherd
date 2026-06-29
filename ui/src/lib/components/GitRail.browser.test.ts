@@ -56,6 +56,9 @@ vi.mock("$lib/toasts.svelte", () => ({
   toasts: { info: toastsInfo },
 }));
 
+// Mock pull-offer so the combined decommission+update action doesn't issue real fetch calls.
+vi.mock("$lib/pull-offer", () => ({ pullMainAndToast: vi.fn() }));
+
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
 // Test-only wrapper that flips ONLY autopilotOn (sessionId stable) — see the
@@ -66,6 +69,8 @@ const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHar
 // component reads so toggling it reactively updates the rendered pill.
 // repoConfig drives the critic-enabled flag the manual-review button gates on.
 const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
+// Mocked pull-offer fn — imported for assertions in the post-merge suite.
+const { pullMainAndToast } = await import("$lib/pull-offer");
 
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
 // local agree. The rail mounts into a fixed-width host cell. On desktop the
@@ -1314,6 +1319,7 @@ describe("GitRail — post-merge decommission offer", () => {
   beforeEach(() => {
     toastsInfo.mockClear();
     mergePrFn.mockClear();
+    (pullMainAndToast as ReturnType<typeof vi.fn>).mockClear();
   });
 
   // Helper: arm and confirm the merge button (two-click pattern used across the suite)
@@ -1331,8 +1337,8 @@ describe("GitRail — post-merge decommission offer", () => {
     h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)")!.click();
   }
 
-  it("remote-forge merge shows decommission offer with the merged session id", async () => {
-    // mergePr returns a github-kind merged status
+  it("remote-forge merge (non-isolated) shows plain decommission offer with the merged session id", async () => {
+    // mergePr returns a github-kind merged status; baseProps has isolated unset (→ false)
     const { mergePr: mergePrMock } = await import("$lib/api");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "github",
@@ -1356,12 +1362,13 @@ describe("GitRail — post-merge decommission offer", () => {
     // Wait for toasts.info to be called
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
 
-    // The toast must have an action with the decommission label
+    // The toast must have an action with the plain decommission label (not combo)
     const [, opts] = toastsInfo.mock.calls[0] as [
       string,
       { action?: { label: string; run: () => void }; duration?: number; key?: string },
     ];
     expect(opts?.action, "toast has action").toBeDefined();
+    expect(opts?.action?.label, "plain decommission label").toBe(m.gitrail_decommission_action());
     expect(opts?.duration, "toast has 15s duration").toBe(15_000);
     expect(opts?.key, "toast has decommission key").toBe("decommission-offer:sess-A");
 
@@ -1369,6 +1376,171 @@ describe("GitRail — post-merge decommission offer", () => {
     // not whatever session might be focused at click time.
     opts!.action!.run();
     expect(ondecommission, "ondecommission called with captured id").toHaveBeenCalledWith("sess-A");
+    expect(pullMainAndToast, "pullMainAndToast NOT called for non-isolated").not.toHaveBeenCalled();
+  });
+
+  it("remote-forge merge (isolated) shows combo decommission & update offer", async () => {
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        sessionId: "sess-A",
+        mobile: false,
+        isolated: true,
+        baseBranch: "main",
+        ondecommission,
+      },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    const [, opts] = toastsInfo.mock.calls[0] as [
+      string,
+      { action?: { label: string; run: () => void }; duration?: number; key?: string },
+    ];
+    expect(opts?.action, "toast has action").toBeDefined();
+    expect(opts?.action?.label, "combo label").toBe(m.gitrail_decommission_update_action());
+    expect(opts?.duration, "toast has 15s duration").toBe(15_000);
+    expect(opts?.key, "toast has decommission key").toBe("decommission-offer:sess-A");
+
+    opts!.action!.run();
+    expect(ondecommission, "ondecommission called with captured id").toHaveBeenCalledWith("sess-A");
+    expect(
+      pullMainAndToast,
+      "pullMainAndToast called with repoPath and baseBranch",
+    ).toHaveBeenCalledWith("/repo", "main");
+  });
+
+  it("combo action captures repoPath/baseBranch at merge time, not at click time", async () => {
+    // Regression: GitRail is reused across session switches (no {#key} wrapper in Viewport).
+    // Merging session A (repoPath "/repo"), then switching to session B (repoPath "/other")
+    // within the 15s toast window must still FF "/repo", not "/other".
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        sessionId: "sess-A",
+        mobile: false,
+        isolated: true,
+        baseBranch: "main",
+        ondecommission,
+      },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    const [, opts] = toastsInfo.mock.calls[0] as [
+      string,
+      { action?: { label: string; run: () => void }; duration?: number; key?: string },
+    ];
+    expect(opts?.action, "toast has action").toBeDefined();
+
+    // Simulate session switch: rebind the component to a different session (repo Y)
+    // before the operator clicks the toast action — mirrors the live Viewport behaviour.
+    await screen.rerender({
+      ...baseProps,
+      sessionId: "sess-B",
+      mobile: false,
+      isolated: true,
+      repoPath: "/other",
+      baseBranch: "release",
+      ondecommission,
+    });
+
+    // Invoke the captured action — must use the values snapshotted at merge time.
+    opts!.action!.run();
+    expect(
+      pullMainAndToast,
+      "pullMainAndToast called with captured (/repo, main), not live (/other, release)",
+    ).toHaveBeenCalledWith("/repo", "main");
+    expect(
+      pullMainAndToast,
+      "pullMainAndToast NOT called with live props",
+    ).not.toHaveBeenCalledWith("/other", "release");
+  });
+
+  it("combo action captures the isolated flag at merge time, not at click time", async () => {
+    // Regression: the `isolated` flag must be snapshotted before the merge await alongside
+    // the FF target. Merging an isolated session, then switching to a NON-isolated session
+    // within the 15s window, must still fast-forward (captured isolated=true wins) rather
+    // than reading the rebound live flag and silently skipping the pull.
+    const { mergePr: mergePrMock } = await import("$lib/api");
+    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: "github",
+      state: "merged",
+      checks: "none",
+      deployConfigured: false,
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+
+    const ondecommission = vi.fn();
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        sessionId: "sess-A",
+        mobile: false,
+        isolated: true,
+        baseBranch: "main",
+        ondecommission,
+      },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    await armAndConfirmMerge(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+
+    const [, opts] = toastsInfo.mock.calls[0] as [
+      string,
+      { action?: { label: string; run: () => void } },
+    ];
+
+    // Switch to a NON-isolated session before clicking the toast action.
+    await screen.rerender({
+      ...baseProps,
+      sessionId: "sess-B",
+      mobile: false,
+      isolated: false,
+      ondecommission,
+    });
+
+    opts!.action!.run();
+    expect(
+      pullMainAndToast,
+      "pull still fires with captured isolated=true despite live isolated=false",
+    ).toHaveBeenCalledWith("/repo", "main");
   });
 
   it("local-forge merge → no decommission offer action", async () => {

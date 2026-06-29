@@ -22,6 +22,7 @@
   import { featureAnnouncements } from "$lib/feature-announcements";
   import Coachmark from "$lib/components/Coachmark.svelte";
   import { pollWhileVisible } from "$lib/visibility";
+  import { pullMainAndToast } from "$lib/pull-offer";
 
   let {
     sessionId,
@@ -36,6 +37,8 @@
     drain = null,
     autopilotOn = false,
     issueNumber = null,
+    isolated = false,
+    baseBranch = "",
     ondecommission = undefined,
   }: {
     sessionId: string;
@@ -55,6 +58,11 @@
     /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
         null = no linked issue. */
     issueNumber?: number | null;
+    /** When true and repoPath is set, the post-merge toast offers a combined
+        "Decommission & update local" action that also fast-forwards the local default branch. */
+    isolated?: boolean;
+    /** The session's base branch (e.g. "main"); used by the combined fast-forward action. */
+    baseBranch?: string;
     /** Offer to tear down THIS session after its PR is merged; called with the merged session's id. */
     ondecommission?: (id: string) => void;
   } = $props();
@@ -260,6 +268,38 @@
     }
   }
 
+  // Queue the post-merge confirmation toast. Local-forge merges get a plain confirmation;
+  // remote-forge merges add a one-click Decommission, upgraded to "Decommission & update
+  // local" for isolated sessions (which also fast-forwards the local default branch). The
+  // FF target + isolation (isIsolated/ffPath/ffBranch) are captured by the caller at merge
+  // time — see doMerge. They MUST travel together: mixing a freshly-rebound isolated flag
+  // with the prior session's FF target would fast-forward the wrong checkout.
+  function showMergedToast(
+    kind: string,
+    mergedId: string,
+    isIsolated: boolean,
+    ffPath: string,
+    ffBranch: string,
+  ) {
+    const text = m.toast_merged({ name: name || mergedId });
+    if (kind === "local") {
+      toasts.info(text);
+      return;
+    }
+    const update = isIsolated && !!ffPath;
+    toasts.info(text, {
+      action: {
+        label: update ? m.gitrail_decommission_update_action() : m.gitrail_decommission_action(),
+        run: () => {
+          ondecommission?.(mergedId);
+          if (update) pullMainAndToast(ffPath, ffBranch);
+        },
+      },
+      duration: 15_000,
+      key: `decommission-offer:${mergedId}`,
+    });
+  }
+
   // skipArm lets the inline Retry re-run a confirmed action without a second arm tap
   async function doMerge(skipArm = false) {
     if (!skipArm && !arm("merge")) return;
@@ -268,16 +308,14 @@
     retry = null;
     try {
       const mergedId = sessionId;
+      // Capture the session identity AND its FF target/isolation before the await —
+      // the GitRail instance rebinds on a session switch, and the toast lives 15s, so
+      // a live read could pair a new session's isolated flag with the old FF target.
+      const isIsolated = isolated;
+      const ffPath = repoPath;
+      const ffBranch = baseBranch;
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
-      if (git.kind === "local") {
-        toasts.info(m.toast_merged({ name: name || mergedId }));
-      } else {
-        toasts.info(m.toast_merged({ name: name || mergedId }), {
-          action: { label: m.gitrail_decommission_action(), run: () => ondecommission?.(mergedId) },
-          duration: 15_000,
-          key: `decommission-offer:${mergedId}`,
-        });
-      }
+      showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
     } catch (e) {
       // prefer the known local cause over a raw server string
       err =

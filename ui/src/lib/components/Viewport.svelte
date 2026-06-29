@@ -1996,6 +1996,8 @@
         {drain}
         autopilotOn={autopilotEffective}
         issueNumber={session.issueNumber}
+        isolated={session.isolated}
+        baseBranch={session.baseBranch}
         ondecommission={confirmDecommission}
         mobile
       />

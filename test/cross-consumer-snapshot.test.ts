@@ -41,7 +41,6 @@ const CANNED_PR: PullRequest = {
   mergeable: true,
   checks: "success",
   jobs: [],
-  latestReview: null,
 };
 
 const OPEN: PrStatus = { state: "open", number: 42, checks: "success", deployConfigured: false };

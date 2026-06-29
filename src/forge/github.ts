@@ -734,7 +734,7 @@ export class GithubForge implements GitForge {
       const key = pr.headRefName;
       // All nodes come from --state open; default state to "OPEN" when the raw
       // payload omits the field (e.g. older test fixtures or minimal gh responses).
-      const prForStatus: GhPr = { state: "OPEN", ...pr };
+      const prForStatus: GhPr = { ...pr, state: pr.state ?? "OPEN" };
       const existing = statuses.get(key);
       if (!existing) {
         statuses.set(key, this.mapGhPr(prForStatus, deployConfigured));

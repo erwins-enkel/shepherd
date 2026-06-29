@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
 import { EmptyDiffError } from "../../src/forge/types";
+import type { PullRequest, PrStatus } from "../../src/forge/types";
 
 // A recording fake `gh` runner. Returns canned stdout keyed by the subcommand.
 function fakeRunner(responses: Record<string, string>) {
@@ -1521,7 +1522,7 @@ const SNAPSHOT_NODES = [
 ];
 
 /** Expected PullRequest[] golden output for SNAPSHOT_NODES (no defaultBranch → def=null). */
-const EXPECTED_PRS = [
+const EXPECTED_PRS: PullRequest[] = [
   {
     number: 1,
     title: "feat: alpha",
@@ -1561,7 +1562,7 @@ const EXPECTED_PRS = [
 ];
 
 /** Expected statuses Map golden output for SNAPSHOT_NODES (deployConfigured=false). */
-const EXPECTED_STATUSES: Map<string, object> = new Map([
+const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
   [
     "feat/alpha",
     {

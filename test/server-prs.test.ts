@@ -266,7 +266,6 @@ const CACHED_PR: PullRequest = {
   mergeable: true,
   checks: "success",
   jobs: [],
-  latestReview: null,
 };
 
 function fakeSnapshot(prs: PullRequest[]): OpenPrSnapshot {

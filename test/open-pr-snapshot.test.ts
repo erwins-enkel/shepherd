@@ -101,7 +101,7 @@ test("read-through: first get calls forge once and caches result", async () => {
 
   const snap = await svc.get(forge);
   expect(snap).not.toBeNull();
-  expect(snap!.prs[0].number).toBe(1);
+  expect(snap!.prs[0]!.number).toBe(1);
   expect(forge.calls).toBe(1);
 });
 
@@ -126,7 +126,7 @@ test("read-through: get after TTL expiry refetches", async () => {
   const snap2 = await svc.get(forge);
   expect(forge.calls).toBe(2);
   // Second fetch returns snapshot with id=2
-  expect(snap2!.prs[0].number).toBe(2);
+  expect(snap2!.prs[0]!.number).toBe(2);
 });
 
 test("single-flight: concurrent gets share one in-flight fetch", async () => {
@@ -147,7 +147,7 @@ test("refresh: forces a fetch even when a fresh entry exists", async () => {
   await svc.get(forge);
   const snap2 = await svc.refresh(forge);
   expect(forge.calls).toBe(2);
-  expect(snap2!.prs[0].number).toBe(2);
+  expect(snap2!.prs[0]!.number).toBe(2);
 });
 
 test("refresh: updates the cache so next get returns the refreshed value", async () => {
@@ -159,7 +159,7 @@ test("refresh: updates the cache so next get returns the refreshed value", async
   await svc.refresh(forge);
   const snap3 = await svc.get(forge); // should be served from cache (no extra call)
   expect(forge.calls).toBe(2);
-  expect(snap3!.prs[0].number).toBe(2);
+  expect(snap3!.prs[0]!.number).toBe(2);
 });
 
 test("preserve-on-error: failing refresh keeps last-known-good when a value exists", async () => {
@@ -168,7 +168,7 @@ test("preserve-on-error: failing refresh keeps last-known-good when a value exis
   const forge = makeForge("org/repo", { failSnapshot: false });
 
   const first = await svc.get(forge);
-  expect(first!.prs[0].number).toBe(1);
+  expect(first!.prs[0]!.number).toBe(1);
 
   // Now make the forge fail
   (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
@@ -176,7 +176,7 @@ test("preserve-on-error: failing refresh keeps last-known-good when a value exis
   };
 
   const kept = await svc.refresh(forge);
-  expect(kept!.prs[0].number).toBe(1); // last-known-good preserved
+  expect(kept!.prs[0]!.number).toBe(1); // last-known-good preserved
 });
 
 test("preserve-on-error: failing get with no prior value resolves to null", async () => {
@@ -207,7 +207,7 @@ test("peek: returns cached value without fetching", async () => {
   await svc.get(forge);
   const peeked = svc.peek(forge);
   expect(peeked).not.toBeNull();
-  expect(peeked!.prs[0].number).toBe(1);
+  expect(peeked!.prs[0]!.number).toBe(1);
   expect(forge.calls).toBe(1); // peek triggered no extra fetch
 });
 
@@ -249,7 +249,7 @@ test("keying: two forges with the same slug share a cache entry", async () => {
   const snap2 = await svc.get(forge2); // should hit cache — forge2 NOT called
   expect(forge1.calls).toBe(1);
   expect(forge2.calls).toBe(0);
-  expect(snap2!.prs[0].number).toBe(1);
+  expect(snap2!.prs[0]!.number).toBe(1);
 });
 
 test("keying: different slugs are isolated", async () => {

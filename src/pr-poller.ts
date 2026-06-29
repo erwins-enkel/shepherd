@@ -123,6 +123,21 @@ export class PrPoller implements PrCache {
   private fastCursor = 0;
   /** Latched so the over-cap notice logs once on transition, not every fast tick. */
   private fastCapLogged = false;
+  /** Tracks when each open PR entered (or re-entered via a new headSha) a transient
+   *  state — used to time-bound how long `fastTick` keeps re-polling it. */
+  private transientSince = new Map<string, { since: number; headSha?: string }>();
+
+  /** True when an open PR can still move without a human action — i.e. it is worth
+   *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
+  private isTransientOpen(git: GitState): boolean {
+    return (
+      git.state === "open" &&
+      (git.checks === "pending" ||
+        git.mergeable == null ||
+        git.mergeStateStatus === "unknown" ||
+        git.mergeStateStatus === "unstable")
+    );
+  }
 
   /** Run `fn` with the single-`gh` lock held; queues behind any in-flight poll. */
   private withGh<T>(fn: () => Promise<T>): Promise<T> {
@@ -155,10 +170,33 @@ export class PrPoller implements PrCache {
      *  returning a prior, already-merged PR that merely reused this branch name.
      *  `false` → discard the stale PR; `true`/`null` → trust it. */
     private ownsPr: (s: Session, headSha: string) => boolean | null = () => true,
+    /** Cadence gate: poll at full rate only while *warm* (a dashboard is open OR
+     *  autonomous merge work is in flight). When cold, the fast sweep pauses
+     *  entirely and the full sweep throttles to `idleIntervalMs`. */
+    private warm: () => boolean = () => true,
+    /** True while the shared GraphQL backoff is engaged — skip every sweep so we
+     *  don't burn budget against an exhausted bucket. */
+    private rateLimited: () => boolean = () => false,
+    /** Coarse full-sweep cadence while cold (no warmth) — the fast sweep is paused
+     *  outright, so this is the only PR refresh path when nobody's watching. */
+    private idleIntervalMs = 300_000,
+    /** How long a PR can remain transient (checks pending / mergeable unknown / merge
+     *  state unstable) before `fastTick` parks it and stops fast-polling it. A new
+     *  headSha resets the clock. Default: 5 minutes. */
+    private transientMaxMs = 300_000,
   ) {}
 
+  /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
+   *  throttle in `tick`. */
+  private lastFullSweepAt = 0;
+
   async tick(): Promise<void> {
+    if (this.rateLimited()) return; // GraphQL bucket exhausted — don't add to the backlog
+    // Cold path: nobody's watching and no autonomous merge work — throttle the full
+    // sweep to the coarse idle cadence instead of every `intervalMs`.
+    if (!this.warm() && Date.now() - this.lastFullSweepAt < this.idleIntervalMs) return;
     if (this.sweeping) return; // a fast tick is mid-flight — it'll be re-covered here next interval
+    this.lastFullSweepAt = Date.now();
     this.sweeping = true;
     try {
       const active = new Set<string>();
@@ -167,7 +205,10 @@ export class PrPoller implements PrCache {
         await this.withGh(() => this.refresh(s));
       }
       for (const id of [...this.cache.keys()]) {
-        if (!active.has(id)) this.cache.delete(id);
+        if (!active.has(id)) {
+          this.cache.delete(id);
+          this.transientSince.delete(id);
+        }
       }
     } finally {
       this.sweeping = false;
@@ -179,22 +220,38 @@ export class PrPoller implements PrCache {
    *  120s sweep's lag. Capped at `fastBatch` per tick, rotating so every open PR is
    *  covered across a few ticks rather than fanning out one `gh` per PR each time. */
   async fastTick(): Promise<void> {
+    // Cadence gate first: skip entirely when rate-limited or not warm, before the activity-aware filter below.
+    if (this.rateLimited() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) {
       this.fastCapLogged = false; // dropped under cap (to zero) → re-arm the notice
       return;
     }
-    let batch = open;
-    if (open.length > this.fastBatch) {
-      const start = this.fastCursor % open.length;
-      batch = [...open, ...open].slice(start, start + this.fastBatch);
-      this.fastCursor = (start + this.fastBatch) % open.length;
+    // Activity-aware filter: only re-poll PRs that are still transient AND within
+    // the time-bounded window. Stamp-missing (shouldn't happen normally) → eligible.
+    const now = Date.now();
+    const eligible = open.filter((id) => {
+      const git = this.cache.get(id)!;
+      if (!this.isTransientOpen(git)) return false;
+      const entry = this.transientSince.get(id);
+      const since = entry?.since ?? now;
+      return now - since < this.transientMaxMs;
+    });
+    if (eligible.length === 0) {
+      this.fastCapLogged = false;
+      return;
+    }
+    let batch = eligible;
+    if (eligible.length > this.fastBatch) {
+      const start = this.fastCursor % eligible.length;
+      batch = [...eligible, ...eligible].slice(start, start + this.fastBatch);
+      this.fastCursor = (start + this.fastBatch) % eligible.length;
       // Log once on entering the over-cap regime, not every 15s tick; re-arm
       // below when the open-PR count drops back under the cap.
       if (!this.fastCapLogged) {
         console.warn(
-          `[pr-poller] ${open.length} open PRs exceed fast-poll cap ${this.fastBatch}; polling ${this.fastBatch}/tick round-robin`,
+          `[pr-poller] ${eligible.length} transient open PRs exceed fast-poll cap ${this.fastBatch}; polling ${this.fastBatch}/tick round-robin`,
         );
         this.fastCapLogged = true;
       }
@@ -249,9 +306,27 @@ export class PrPoller implements PrCache {
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     git = annotateHandoff(git, s.repoPath, me);
+    this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git)) {
       this.cache.set(s.id, git);
       this.onChange(s.id, git);
+    }
+  }
+
+  /** Maintain the transient-window stamp for `id` from its latest observed `git`,
+   *  regardless of whether visible state changed. A non-transient state clears the
+   *  stamp; a headSha change (new push) resets the window; the same headSha keeps the
+   *  original `since` so the time-bound in `fastTick` measures from the first
+   *  transient observation. Extracted from `refresh` to keep that method's branch
+   *  count under the complexity gate. */
+  private trackTransient(id: string, git: GitState): void {
+    if (!this.isTransientOpen(git)) {
+      this.transientSince.delete(id);
+      return;
+    }
+    const entry = this.transientSince.get(id);
+    if (!entry || entry.headSha !== git.headSha) {
+      this.transientSince.set(id, { since: Date.now(), headSha: git.headSha });
     }
   }
 
@@ -299,6 +374,7 @@ export class PrPoller implements PrCache {
   }
   drop(id: string): void {
     this.cache.delete(id);
+    this.transientSince.delete(id);
   }
 
   start(): void {

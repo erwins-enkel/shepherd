@@ -16,7 +16,7 @@ interface CacheEntry {
   value: RepoCounts;
 }
 
-const TTL_MS = 60_000;
+const TTL_MS = 120_000;
 
 /**
  * Cap on simultaneous count fetches. The async runner made the per-repo `gh`

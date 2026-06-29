@@ -125,6 +125,48 @@ test("start/stop manage the interval timer without throwing", () => {
   expect(true).toBe(true);
 });
 
+// ── shouldWarm() gating ───────────────────────────────────────────────────────
+
+test("tick performs no warming and no broadcast when shouldWarm() is false", async () => {
+  const warmed: string[] = [];
+  let broadcasts = 0;
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+    45_000,
+    () => {
+      broadcasts++;
+    },
+    () => false, // shouldWarm
+  );
+
+  await poller.tick();
+  expect(warmed).toEqual([]);
+  expect(broadcasts).toBe(0);
+});
+
+test("tick warms when shouldWarm() is true", async () => {
+  const warmed: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+    45_000,
+    undefined,
+    () => true, // shouldWarm
+  );
+
+  await poller.tick();
+  expect(warmed).toEqual(["/a"]);
+});
+
 // ── mode-aware forge-backed tests ─────────────────────────────────────────────
 
 test("local forge (kind=local) is NOT forge-backed — not warmed", async () => {

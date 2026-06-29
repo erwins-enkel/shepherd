@@ -3,6 +3,12 @@ import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
 import { classifyPr } from "./pr-kind";
+import {
+  graphRateLimit,
+  isGraphqlBucketCall,
+  isRateLimitError,
+  parseRetryAfter,
+} from "./rate-limit";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "./types";
 import type {
   CiStatus,
@@ -113,8 +119,20 @@ const execFileAsync = promisify(execFile);
 
 const defaultRunner: GhRunner = (args) =>
   timedAsync(`gh ${args[0]}`, async () => {
-    const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
-    return stdout.toString();
+    try {
+      const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+      return stdout.toString();
+    } catch (err) {
+      // Detect GraphQL rate-limit errors and record them in the shared backoff
+      // state so pollers can pause before the next request. The error is always
+      // re-thrown so existing caller behaviour is unchanged.
+      if (isGraphqlBucketCall(args) && isRateLimitError(err)) {
+        graphRateLimit.noteLimitError(
+          parseRetryAfter(String((err as Record<string, unknown>)?.stderr ?? "")),
+        );
+      }
+      throw err;
+    }
   });
 
 interface GhReview {
@@ -243,7 +261,7 @@ export class GithubForge implements GitForge {
       "-F",
       `name=${name}`,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName labels(first:10){nodes{name}} } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ remaining resetAt }}",
     ]);
     const json = JSON.parse(out) as {
       data?: {
@@ -255,15 +273,27 @@ export class GithubForge implements GitForge {
               author?: { login?: string } | null;
               title?: string;
               headRefName?: string;
-              labels?: { nodes?: Array<{ name?: string } | null> } | null;
             } | null>;
           };
           defaultBranchRef?: {
             target?: { statusCheckRollup?: { state?: string } | null } | null;
           } | null;
         };
+        /** Top-level `rateLimit` selection — tracks GraphQL bucket consumption. */
+        rateLimit?: { remaining?: number; resetAt?: string };
       };
     };
+
+    // Feed the rateLimit reading into the shared backoff tracker so we can
+    // pause pollers before the bucket empties. Guard against malformed values.
+    const rl = json.data?.rateLimit;
+    if (typeof rl?.remaining === "number" && typeof rl?.resetAt === "string") {
+      const resetAtMs = Date.parse(rl.resetAt);
+      if (Number.isFinite(resetAtMs)) {
+        graphRateLimit.note({ remaining: rl.remaining, resetAt: resetAtMs });
+      }
+    }
+
     const repo = json.data?.repository;
     const issues = repo?.issues?.totalCount;
     const prs = repo?.pullRequests?.totalCount;
@@ -284,9 +314,6 @@ export class GithubForge implements GitForge {
             author: n.author?.login ?? "",
             title: n.title ?? "",
             headRefName: n.headRefName ?? undefined,
-            labels: (n.labels?.nodes ?? [])
-              .map((l) => l?.name)
-              .filter((name): name is string => !!name),
           }),
         );
       const release = kinds.filter((k) => k === "release").length;

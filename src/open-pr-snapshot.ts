@@ -19,8 +19,8 @@ interface CacheEntry {
 export class OpenPrSnapshotService {
   /** TTL read-through cache: slug → {at, value}. */
   private readonly cache = new Map<string, CacheEntry>();
-  /** Single-flight: slug → in-flight Promise. */
-  private readonly inflight = new Map<string, Promise<OpenPrSnapshot | null>>();
+  /** Single-flight: slug → raw in-flight Promise (resolves with value or rejects). */
+  private readonly inflight = new Map<string, Promise<OpenPrSnapshot>>();
   /** Bounds simultaneous fetches. */
   private readonly gate: Semaphore;
 
@@ -73,25 +73,38 @@ export class OpenPrSnapshotService {
     forge: GitForge,
     preserveOnError: boolean,
   ): Promise<OpenPrSnapshot | null> {
-    const existing = this.inflight.get(slug);
-    if (existing) return existing;
+    let raw = this.inflight.get(slug);
+    if (!raw) {
+      // Shared raw fetch: writes to cache on success, clears inflight on
+      // both branches, and re-throws on failure so each caller can apply
+      // its OWN preserve-on-error policy below.
+      raw = this.gate
+        .run(() => forge.listOpenPrSnapshot!())
+        .then(
+          (v) => {
+            this.cache.set(slug, { at: this.now(), value: v });
+            this.inflight.delete(slug);
+            return v;
+          },
+          (err) => {
+            this.inflight.delete(slug);
+            throw err;
+          },
+        );
+      this.inflight.set(slug, raw);
+      // Suppress the unhandled-rejection warning on the shared raw promise;
+      // each caller's derived chain below provides the actual handler.
+      raw.catch(() => {});
+    }
 
-    const promise = this.gate
-      .run(() => forge.listOpenPrSnapshot!())
-      .then(
-        (v) => {
-          this.cache.set(slug, { at: this.now(), value: v });
-          this.inflight.delete(slug);
-          return v;
-        },
-        () => {
-          this.inflight.delete(slug);
-          const prev = this.cache.get(slug);
-          if (preserveOnError && prev) return prev.value;
-          return null;
-        },
-      );
-    this.inflight.set(slug, promise);
-    return promise;
+    // Each caller chains its own error policy independently of any other
+    // concurrent caller that may have started (or joined) the same fetch.
+    return raw.then(
+      (v) => v,
+      () => {
+        const prev = this.cache.get(slug);
+        return preserveOnError && prev ? prev.value : null;
+      },
+    );
   }
 }

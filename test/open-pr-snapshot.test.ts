@@ -263,3 +263,49 @@ test("keying: different slugs are isolated", async () => {
   expect(forgeA.calls).toBe(1);
   expect(forgeB.calls).toBe(1);
 });
+
+test("interleaving: joining refresh gets stale-on-error; get gets null; single-flight preserved", async () => {
+  // Regression: when get() starts an in-flight fetch (preserveOnError=false) and
+  // refresh() joins the same in-flight (preserveOnError=true), each caller must
+  // apply its OWN error policy — refresh must return last-known-good on failure.
+
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+
+  // Seed the cache with a known stale snapshot.
+  const staleSnap = makeSnapshot(42);
+  let callCount = 0;
+  const forge = makeForge();
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    callCount++;
+    return staleSnap;
+  };
+  await svc.get(forge); // warms cache at t=0
+  expect(callCount).toBe(1);
+
+  // Advance past TTL so the cache entry is stale; get() will miss and fetch.
+  now = SNAPSHOT_TTL_MS;
+  callCount = 0; // reset for the concurrent phase
+
+  // Replace listOpenPrSnapshot with a controllable-rejecting version.
+  let pendingReject!: (e: Error) => void;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = () => {
+    callCount++;
+    return new Promise<OpenPrSnapshot>((_, reject) => {
+      pendingReject = reject;
+    });
+  };
+
+  // Fire both callers — neither awaited yet, so they share one in-flight fetch.
+  const getPromise = svc.get(forge); // preserveOnError=false
+  const refreshPromise = svc.refresh(forge); // preserveOnError=true
+
+  // Reject the shared in-flight (simulates a network failure).
+  pendingReject(new Error("network failure"));
+
+  const [getResult, refreshResult] = await Promise.all([getPromise, refreshPromise]);
+
+  expect(getResult).toBeNull(); // get has no preserve-on-error
+  expect(refreshResult).toEqual(staleSnap); // refresh keeps last-known-good
+  expect(callCount).toBe(1); // single-flight: only one forge call
+});

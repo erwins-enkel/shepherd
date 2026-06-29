@@ -78,3 +78,46 @@ test("planBlockInstructions instructs against diff and code blocks (no-diff-bloc
     expect(t).toContain("annotated-code");
   }
 });
+
+// ─── Provider-aware directive delivery (TASK-413) ────────────────────────────
+
+test("agentProvider:'claude' is byte-identical to the default (Claude regression)", () => {
+  // The new opt must NOT perturb any existing Claude caller's system prompt.
+  for (const opts of [{ research: true }, { planGate: "interactive" as const }, {}]) {
+    expect(composeSystemPrompt(null, true, { ...opts, agentProvider: "claude" })).toBe(
+      composeSystemPrompt(null, true, opts),
+    );
+  }
+});
+
+test("codex research directive drops the 'sub-agents' phrasing; claude keeps it", () => {
+  const codex = composeSystemPrompt(null, false, { research: true, agentProvider: "codex" });
+  const claude = composeSystemPrompt(null, false, { research: true, agentProvider: "claude" });
+  expect(codex).toContain("<research-directive>");
+  expect(codex).toContain("attended RESEARCH task");
+  expect(codex).not.toContain("sub-agents");
+  expect(claude).toContain("sub-agents");
+});
+
+test("codex interactive plan-gate hardens the stop clause and omits AskUserQuestion", () => {
+  const codex = composeSystemPrompt(null, false, {
+    planGate: "interactive",
+    agentProvider: "codex",
+  });
+  expect(codex).toContain("<plan-gate-directive>");
+  expect(codex).toContain("Do NOT write or modify ANY code this turn");
+  expect(codex).not.toContain("AskUserQuestion");
+  // Claude keeps the original AskUserQuestion phrasing and has no extra stop clause.
+  expect(
+    composeSystemPrompt(null, false, { planGate: "interactive", agentProvider: "claude" }),
+  ).toContain("AskUserQuestion");
+});
+
+test("planBlockInstructions(INTERACTIVE) drops AskUserQuestion for codex, keeps it for claude", () => {
+  expect(planBlockInstructions({ allowQuestionForm: false, agentProvider: "codex" })).not.toContain(
+    "AskUserQuestion",
+  );
+  expect(planBlockInstructions({ allowQuestionForm: false, agentProvider: "claude" })).toContain(
+    "AskUserQuestion",
+  );
+});

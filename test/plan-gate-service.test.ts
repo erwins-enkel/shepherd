@@ -270,6 +270,51 @@ test("approve → autopilot inherited from repo default ON auto-releases", async
   await h.svc.tick();
   expect(released).toEqual(["s1"]);
 });
+// TASK-413: enabling plan-gate for Codex makes this auto-release path reachable for Codex. Codex
+// autopilot stands down on a NON-isolated session (resume --last would target a sibling in a shared
+// cwd), so such a session is not hands-free — it must wait for the operator's Go, NOT auto-release.
+test("approve → codex NON-isolated autopilot does NOT auto-release (stands down like spawn/autopilot)", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({
+        id: "s1",
+        auto: false,
+        autopilotEnabled: true,
+        agentProvider: "codex",
+        isolated: false,
+        repoPath: "/r",
+      }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual([]);
+});
+test("approve → codex ISOLATED autopilot auto-releases (guard is isolation-specific)", async () => {
+  const released: string[] = [];
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    release: (id: string) => released.push(id),
+    store: {
+      get: () => ({
+        id: "s1",
+        auto: false,
+        autopilotEnabled: true,
+        agentProvider: "codex",
+        isolated: true,
+        repoPath: "/r",
+      }),
+      getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(released).toEqual(["s1"]);
+});
 test("approve → autopilot inherited from repo default OFF does NOT auto-release", async () => {
   const released: string[] = [];
   const h = harness({

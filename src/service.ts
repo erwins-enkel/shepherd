@@ -156,10 +156,11 @@ export interface ServiceDeps {
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
    *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
   detectEgressHostLoopback?: () => boolean;
-  /** Usage-aware model downgrade: returns a spawn-ready model alias to force on EVERY spawn
-   *  (overriding the configured model) when live usage has crossed the downgrade threshold, or
-   *  null to leave the configured model in place. Wired from src/index.ts off usageLimits +
-   *  config; absent in tests → no downgrade. Consumed by pushModelFlag. */
+  /** Usage-aware model downgrade: returns a spawn-ready model alias to force on every spawn that
+   *  flows through pushModelFlag (Claude main sessions; role agents downgrade via roleEnv) when live
+   *  usage has crossed the downgrade threshold, or null to leave the configured model in place.
+   *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
+   *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
@@ -1585,9 +1586,12 @@ export class SessionService {
   /** Push the task `--model` flag onto `argv`, substituting opus[1m] when fable is
    *  globally unavailable. Argv-only — never rewrites the stored session model. */
   private pushModelFlag(argv: string[], model: string | null): void {
-    // Usage-aware downgrade wins over the configured model for every spawn (main + roles)
-    // once live usage crosses the threshold; the thunk already returns an availability-resolved
-    // alias, so it replaces `model` outright. Below threshold / disabled → null, configured model stands.
+    // Usage-aware downgrade wins over the configured model once live usage crosses the threshold;
+    // the thunk already returns an availability-resolved alias, so it replaces `model` outright.
+    // Scope: every spawn that flows through pushModelFlag — Claude main sessions + the role agents
+    // (which downgrade via roleEnv). Codex main sessions build argv in buildCodexSpawnArgv/
+    // buildCodexResumeArgv and never reach here, so they are NOT downgraded. Below threshold /
+    // disabled → null, configured model stands.
     const downgrade = this.deps.usageDowngrade?.() ?? null;
     const requested = downgrade ?? model;
     const spawnModel = spawnModelForAvailability(requested, config.fableAvailable);

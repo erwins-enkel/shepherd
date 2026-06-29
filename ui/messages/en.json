@@ -2133,7 +2133,6 @@
   "settings_role_models_hint": "Pick the CLI and model for each helper agent Shepherd spawns. \"Follows default\" defers to the default CLI + model above; the effective environment is shown under each row.",
   "settings_role_models_advanced": "Classifiers (advanced)",
   "settings_role_models_classifier_cost_hint": "These run constantly and are kept on a small, fast model on purpose. Setting them to a heavy model can sharply raise cost.",
-  "settings_role_model_inherit": "Follows default model",
   "settings_role_model_effective": "Effective: {model}",
   "settings_role_model_effective_provider_default": "provider default",
   "settings_role_model_save_failed": "Couldn't change the role environment. Retry.",

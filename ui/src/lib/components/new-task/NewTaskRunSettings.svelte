@@ -76,13 +76,13 @@
     <label class="plan-gate" use:coachTarget={"plan-gate"}>
       <input
         type="checkbox"
-        checked={agentProvider === "codex" ? false : planGate}
+        checked={planGate}
         onchange={(e) => {
           planGate = e.currentTarget.checked;
           onPlanGateTouched();
           if (planGate) research = false;
         }}
-        disabled={planGateLoading || agentProvider === "codex"}
+        disabled={planGateLoading}
       />
       <span class="pg-label">{m.newtask_plan_gate_label()}</span>
     </label>

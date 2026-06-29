@@ -376,13 +376,10 @@
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
-  // Codex can't plan-gate yet (no spawn directives via --append-system-prompt, so the
-  // plan-gate wiring isn't available for it). Rather than mutate planGate (which would
-  // silently lose a manual override across a Codex round-trip), the plan-gate checkbox
-  // just DISPLAYS off + disabled while Codex is selected (see NewTaskRunSettings) and
-  // submit forces it off via planGateFlag — the underlying Claude-context choice is
-  // preserved untouched. Autopilot, by contrast, is now available for isolated Codex
-  // sessions (#1140) and flows through automationFlag like Claude.
+  // Plan-gate is available for Codex (TASK-413): the gate directive rides inline on the Codex
+  // spawn prompt, and the detection/review/release loop is CLI-agnostic. The checkbox is live for
+  // both providers (see NewTaskRunSettings) and the choice flows through planGateFlag. Autopilot is
+  // likewise available for isolated Codex sessions (#1140) via automationFlag.
 
   // Effective default model = repo override (if not "inherit") → global default → promo.
   // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit
@@ -621,10 +618,10 @@
     return touched ? value : null;
   }
 
-  // Plan-gate stays codex-forced-off: codex gets no spawn directives via
-  // --append-system-prompt, so the plan-gate wiring is not available for it yet.
+  // Plan-gate now flows for both providers (TASK-413): Codex receives the gate directive inline
+  // on its spawn prompt (Codex has no --append-system-prompt), and the detection/review/release
+  // machinery is CLI-agnostic. A manual choice rides; otherwise null inherits the repo default.
   function planGateFlag(touched: boolean, value: boolean): boolean | null {
-    if (agentProvider === "codex") return false;
     return touched ? value : null;
   }
 

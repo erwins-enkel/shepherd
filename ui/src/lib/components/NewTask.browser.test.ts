@@ -1042,7 +1042,7 @@ describe("NewTask first-task confirm step", () => {
       .toBeInTheDocument();
   });
 
-  it("switching Codex→Claude: plan-gate forced off (restored on flip back), autopilot available throughout", async () => {
+  it("plan-gate stays available (live, not forced off) across Codex↔Claude flips — TASK-413", async () => {
     const repoPath = "/repo/codex-restore";
     // Repo defaults both automation toggles ON.
     mockGetRepoConfig.mockResolvedValue({
@@ -1065,15 +1065,15 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
 
-    // Codex: plan-gate forced off + disabled; autopilot stays available (on + enabled).
+    // Codex: plan-gate is now available (live + enabled, not forced off); autopilot too.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(false);
-    expect(planGateBox().disabled).toBe(true);
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    expect(planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 
-    // Back to Claude in a single flip → plan-gate restored to the repo default, not stuck off.
+    // Back to Claude → unchanged, still on/enabled.
     provider().value = "claude";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => planGateBox().checked).toBe(true);
@@ -1082,7 +1082,7 @@ describe("NewTask first-task confirm step", () => {
     expect(autopilotBox().disabled).toBe(false);
   });
 
-  it("preserves a manual plan-gate override (forced-off display) and keeps autopilot on across a Codex round-trip", async () => {
+  it("a manual plan-gate override survives a Codex round-trip and the box stays live — TASK-413", async () => {
     const repoPath = "/repo/codex-preserve-override";
     // Repo defaults both automation toggles OFF.
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
@@ -1104,14 +1104,15 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => planGateBox().checked).toBe(true);
     await expect.poll(() => autopilotBox().checked).toBe(true);
 
-    // Codex displays plan-gate off (state preserved underneath, not mutated); autopilot stays on.
+    // Codex: plan-gate stays ON and the box stays live (no forced-off display anymore); autopilot too.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(false);
+    await expect.poll(() => planGateBox().checked).toBe(true);
+    expect(planGateBox().disabled).toBe(false);
     await expect.poll(() => autopilotBox().checked).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 
-    // Back to Claude → the manual plan-gate override survives the round-trip.
+    // Back to Claude → the manual override is intact.
     provider().value = "claude";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => planGateBox().checked).toBe(true);

@@ -60,6 +60,15 @@
   const graphqlResumeAt = $derived(
     Math.max(data.graphql?.resetAt ?? 0, data.backoff.pausedUntil ?? 0),
   );
+
+  // Status pill for a row: "Exhausted" only when the bucket is truly empty;
+  // "Paused" when GraphQL polling is backed off while the bucket still has budget
+  // (a transient secondary-rate-limit error, not a drained quota); none otherwise.
+  function pillLabel(row: Row): string | null {
+    if (row.bucket.remaining <= 0) return m.github_lens_exhausted();
+    if (row.isGraphql && data.backoff.blocked) return m.github_lens_paused();
+    return null;
+  }
 </script>
 
 <div class="github-lens panel">
@@ -82,12 +91,12 @@
     {#each rows as row (row.label)}
       {@const pct = usedPct(row.bucket)}
       {@const color = gaugeColor(pct)}
-      {@const empty = row.bucket.remaining <= 0}
+      {@const pill = pillLabel(row)}
       <div class="window-block">
         <div class="window-header">
           <span class="window-label">{row.label}</span>
-          {#if empty || (row.isGraphql && data.backoff.blocked)}
-            <span class="exhausted-pill">{m.github_lens_exhausted()}</span>
+          {#if pill}
+            <span class="exhausted-pill">{pill}</span>
           {/if}
           <span class="window-count" style="color:{color}">
             {row.bucket.remaining.toLocaleString()} / {row.bucket.limit.toLocaleString()}

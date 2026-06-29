@@ -1,7 +1,8 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
-  import { AGENT_PROVIDERS, CODEX_MODELS, MODELS, type AgentProvider } from "$lib/types";
+  import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider } from "$lib/types";
+  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
 
   // Small anchored, non-blocking popover for picking an agent provider + model — used to
   // start a comparison VARIANT, REPLACE a session, or spawn a COMPARISON run. Per the design
@@ -38,18 +39,12 @@
   // svelte-ignore state_referenced_locally
   let model = $state<string>(initialModel);
 
-  const providerModels = $derived(agentProvider === "codex" ? CODEX_MODELS : MODELS);
-
-  function modelAvailableForProvider(value: string): boolean {
-    if (value === "default") return true;
-    if (agentProvider === "claude" && value === "fable" && !fableAvailable) return false;
-    return (providerModels as readonly string[]).includes(value);
-  }
+  const provModels = $derived(providerModels(agentProvider));
 
   // Keep the model valid for the selected provider (seed or a provider switch may invalidate it):
   // Claude falls back to "default" (provider default), Codex to its top curated alias.
   $effect(() => {
-    if (!modelAvailableForProvider(model))
+    if (!modelAvailableForProvider(agentProvider, model, fableAvailable))
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
   });
 
@@ -117,7 +112,7 @@
     <label class="micro" for="mcp-model">{m.newtask_model_label()}</label>
     <select id="mcp-model" bind:value={model}>
       <option value="default">{m.newtask_model_default()}</option>
-      {#each providerModels as mdl (mdl)}
+      {#each provModels as mdl (mdl)}
         {#if agentProvider !== "claude" || mdl !== "fable" || fableAvailable}
           <option value={mdl}>{modelLabel(mdl)}</option>
         {/if}

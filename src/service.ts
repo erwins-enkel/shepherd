@@ -905,6 +905,22 @@ function modelCompatibleWith(model: string | null, provider: AgentProvider): boo
   return (MODELS as readonly string[]).includes(model);
 }
 
+/** Resolve the relaunch model for the EFFECTIVE provider. `validateRelaunchOverrides` is
+ *  session-blind, so the pairing is reconciled here: an absent override keeps the original's
+ *  model, but if that carried model is incompatible with a provider switch it falls back to the
+ *  provider default; an EXPLICIT incompatible override model is a hard error. */
+function reconcileRelaunchModel(
+  overrideModel: string | null | undefined,
+  originalModel: string | null,
+  provider: AgentProvider,
+): string | null {
+  const model = pickOverride(overrideModel, originalModel);
+  if (modelCompatibleWith(model, provider)) return model;
+  if (overrideModel != null && overrideModel !== "default")
+    throw new Error(`model "${overrideModel}" is not valid for provider ${provider}`);
+  return null;
+}
+
 /** Renderer env for the MAIN session spawn. Default: pin the classic renderer. The
  *  tuiFullscreen opt-in (research preview) switches to NO_FLICKER. tuiFullscreen also implies
  *  DISABLE_MOUSE (every main session is reachable in the web terminal, where fullscreen
@@ -2010,36 +2026,11 @@ export class SessionService {
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried images.
-    // Auto-carry the original's uploads UNLESS the caller passed an explicit `images` array
-    // (even empty). The composer-driven relaunch seeds `overrides.images` verbatim; a
-    // programmatic caller (startVariant / lightweight "replace") omits the key entirely and
-    // gets the originals carried, matching the bare-relaunch path so variants keep their images.
-    let images: string[];
-    if (overrides?.images !== undefined) {
-      images = overrides.images;
-    } else {
-      const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
-      images = copiedOriginalImages.slice(0, MAX_IMAGES);
-      if (copiedOriginalImages.length > images.length)
-        console.warn(
-          `[relaunch] ${originalId}: ${copiedOriginalImages.length} images exceed cap ${MAX_IMAGES}; dropped ${copiedOriginalImages.length - images.length}`,
-        );
-    }
-
-    // Provider/model coupling (validateRelaunchOverrides is session-blind): resolve the
-    // EFFECTIVE provider (override ?? original) and reconcile the carried model against it.
-    // pickOverride would otherwise carry the original's model across a provider switch
-    // (e.g. Claude "sonnet" into a Codex spawn). An explicit incompatible override model is
-    // a hard error; a merely-carried incompatible model falls back to the provider default.
+    const images = this.carryRelaunchImages(s, overrides, originalId);
+    // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
+    // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
     const effectiveProvider = overrides?.agentProvider ?? s.agentProvider ?? "claude";
-    let model = pickOverride(overrides?.model, s.model);
-    if (!modelCompatibleWith(model, effectiveProvider)) {
-      if (overrides?.model != null && overrides.model !== "default")
-        throw new Error(
-          `model "${overrides.model}" is not valid for provider ${effectiveProvider}`,
-        );
-      model = null;
-    }
+    const model = reconcileRelaunchModel(overrides?.model, s.model, effectiveProvider);
 
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
@@ -2100,6 +2091,24 @@ export class SessionService {
     sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
     const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
     return paths.map((p) => ({ path: p, name: basename(p) }));
+  }
+
+  /** Resolve the images a relaunch carries: an explicit `overrides.images` array (even empty,
+   *  composer-seeded) is used verbatim; otherwise the original's uploads are auto-carried (capped
+   *  at MAX_IMAGES) — matching the bare-relaunch path so variants/replace keep their attachments. */
+  private carryRelaunchImages(
+    s: Session,
+    overrides: RelaunchOverrides | undefined,
+    originalId: string,
+  ): string[] {
+    if (overrides?.images !== undefined) return overrides.images;
+    const copied = this.copyOriginalUploads(s.worktreePath);
+    const images = copied.slice(0, MAX_IMAGES);
+    if (copied.length > images.length)
+      console.warn(
+        `[relaunch] ${originalId}: ${copied.length} images exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
+      );
+    return images;
   }
 
   /**

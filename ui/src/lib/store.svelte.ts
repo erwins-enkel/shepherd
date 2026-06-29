@@ -317,10 +317,15 @@ export class HerdStore {
     this.patchSession(d.id, patch);
   }
 
+  /** Append a session on session:new, ignoring a duplicate id (pushes can race the bootstrap). */
+  private addSession(s: Session) {
+    if (!this.byId(s.id)) this.sessions = [...this.sessions, s];
+  }
+
   apply(ev: WsEvent) {
     switch (ev.event) {
       case "session:new":
-        if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
+        this.addSession(ev.data);
         break;
       case "session:status":
         this.applyStatus(ev.data);

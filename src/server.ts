@@ -2479,6 +2479,37 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+// Serialize concurrent same-key calls behind a 409: add the key, run, always remove. Shared by
+// the variant + compare routes (the relaunch route keeps its own copy with bespoke messaging).
+async function guardInFlight(
+  set: Set<string>,
+  key: string,
+  label: string,
+  run: () => Promise<Response>,
+): Promise<Response> {
+  if (set.has(key))
+    return json({ error: `${label} already in progress`, code: "in_progress" }, 409);
+  set.add(key);
+  try {
+    return await run();
+  } finally {
+    set.delete(key);
+  }
+}
+
+type ModelChoice = Extract<ReturnType<typeof validateModelChoice>, { ok: true }>["value"];
+
+// Parse + validate a `{ agentProvider?, model? }` body for the variant/compare routes.
+async function parseModelChoice(
+  req: Request,
+): Promise<{ ok: true; value: ModelChoice } | { ok: false; res: Response }> {
+  const body = (await req.json().catch(() => null)) as unknown;
+  const choice = validateModelChoice(body);
+  return choice.ok
+    ? { ok: true, value: choice.value }
+    : { ok: false, res: json({ error: choice.error }, 400) };
+}
+
 // Per-original-id guard against concurrent first-variant spawns. The experiment back-fill on the
 // original is a read-modify-write; without serializing on the ORIGINAL id, two near-simultaneous
 // "start variant" calls could each mint a fresh experiment id and split the group in two.
@@ -2491,27 +2522,20 @@ const inFlightVariant = new Set<string>();
 async function handleSessionVariant({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "variant")) return null;
   const id = parts[2];
-
-  if (inFlightVariant.has(id))
-    return json({ error: "variant already in progress", code: "in_progress" }, 409);
-  inFlightVariant.add(id);
-  try {
+  return guardInFlight(inFlightVariant, id, "variant", async () => {
     const original = deps.store.get(id);
     if (!original) return json({ error: "not found" }, 404);
     if (original.status === "archived") return json({ error: "already archived" }, 409);
 
-    const body = (await req.json().catch(() => null)) as unknown;
-    const choice = validateModelChoice(body);
-    if (!choice.ok) return json({ error: choice.error }, 400);
+    const choice = await parseModelChoice(req);
+    if (!choice.ok) return choice.res;
 
     let result: { variant: Session; original: Session };
     try {
       result = await deps.service.startVariant(id, choice.value);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "variant failed";
-      return json({ error: msg }, 502);
+      return json({ error: e instanceof Error ? e.message : "variant failed" }, 502);
     }
-
     deps.events.emit("session:new", result.variant);
     deps.events.emit("session:experiment", {
       id: result.original.id,
@@ -2519,9 +2543,7 @@ async function handleSessionVariant({ req, parts, deps }: Ctx): Promise<Response
       experimentRole: result.original.experimentRole,
     });
     return json({ session: result.variant }, 201);
-  } finally {
-    inFlightVariant.delete(id);
-  }
+  });
 }
 
 // POST /api/experiments/:id/compare — spawn the read-only comparison session for an experiment.
@@ -2531,28 +2553,19 @@ async function handleExperimentCompare({ req, parts, deps }: Ctx): Promise<Respo
   if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "experiments")) return null;
   if (!(parts[2] && parts[3] === "compare")) return null;
   const experimentId = parts[2];
-
-  if (inFlightCompare.has(experimentId))
-    return json({ error: "comparison already in progress", code: "in_progress" }, 409);
-  inFlightCompare.add(experimentId);
-  try {
-    const body = (await req.json().catch(() => null)) as unknown;
-    const choice = validateModelChoice(body);
-    if (!choice.ok) return json({ error: choice.error }, 400);
+  return guardInFlight(inFlightCompare, experimentId, "comparison", async () => {
+    const choice = await parseModelChoice(req);
+    if (!choice.ok) return choice.res;
 
     let session: Session;
     try {
       session = await deps.service.startComparison(experimentId, choice.value);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "comparison failed";
-      return json({ error: msg }, 502);
+      return json({ error: e instanceof Error ? e.message : "comparison failed" }, 502);
     }
-
     deps.events.emit("session:new", session);
     return json({ session }, 201);
-  } finally {
-    inFlightCompare.delete(experimentId);
-  }
+  });
 }
 
 // POST /api/sessions/:id/restore — bring an archived session back into the active Herd.

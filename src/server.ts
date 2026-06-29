@@ -251,7 +251,7 @@ export interface AppDeps {
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
-  presence?: Pick<Presence, "set" | "drop">;
+  presence?: Pick<Presence, "set" | "drop" | "connect">;
   /** Status poller; used to manually dismiss a stall flag (`acknowledgeStall`) and, when
    *  `hooksSignals` is on, as the Phase-1 signal sink the index.ts onSignal closure feeds
    *  push events to (`ingestActivity` / `ingestNotification` — issue #704). The route
@@ -5539,6 +5539,9 @@ export function serve(deps: AppDeps, port: number) {
             ws.send(JSON.stringify({ event, data })),
           );
           ws.data.unsub = unsub;
+          // A live /events socket = a dashboard is open (regardless of focus), so
+          // background pollers should run warm. `close` drops it again.
+          deps.presence?.connect(ws);
         } else {
           // Don't attach a terminal whose herdr agent is gone: attaching would make
           // herdr reply agent_not_found and the client would reconnect-loop on it.

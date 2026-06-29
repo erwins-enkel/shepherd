@@ -27,9 +27,18 @@ export class BacklogPoller {
      * never sink the warm cadence.
      */
     private onWarmed?: () => void | Promise<void>,
+    /**
+     * Cadence gate. When this returns false the timer keeps running but the tick
+     * does nothing — no per-repo `gh` warm and no `onWarmed` broadcast. Lets the
+     * composition root pause backlog warming when no dashboard is open or the
+     * GraphQL bucket is exhausted, without tearing the timer down. (Named
+     * `shouldWarm` to avoid colliding with the `warm` warm-fn param above.)
+     */
+    private shouldWarm: () => boolean = () => true,
   ) {}
 
   async tick(): Promise<void> {
+    if (!this.shouldWarm()) return; // cold / rate-limited — skip warming and the broadcast
     const forgeRepos = this.listRepos().filter((r) => this.isForgeBacked(r.path));
     await Promise.all(forgeRepos.map((r) => this.warm(r.path).catch(() => null)));
     if (this.onWarmed) await Promise.resolve(this.onWarmed()).catch(() => null);

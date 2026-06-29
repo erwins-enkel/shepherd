@@ -611,7 +611,20 @@ poller.start();
 // background Web Push: turn F3 state events into notifications for subscribed devices.
 // Suppress while any window is actively in use — clients report focus/visibility
 // over /events into `presence`, and the push gate reads it.
-const presence = new Presence();
+// When the first dashboard connects after a quiet spell, kick one immediate
+// catch-up sweep so it doesn't sit a full interval behind reality. Debounced
+// (~1.5s) so connect/disconnect flapping coalesces into a single catch-up. The
+// closure references `prPoller`/`backlogPoller` declared further down — fine, it
+// only runs at runtime when a socket actually opens, never during module init.
+let presenceCatchUp: ReturnType<typeof setTimeout> | null = null;
+const presence = new Presence(() => {
+  if (presenceCatchUp) clearTimeout(presenceCatchUp);
+  presenceCatchUp = setTimeout(() => {
+    presenceCatchUp = null;
+    void prPoller.fastTick();
+    void backlogPoller.tick();
+  }, 1_500);
+});
 const push = new PushService(store, undefined, undefined, undefined, () => presence.isActive());
 attachPush(events, store, push);
 
@@ -621,6 +634,28 @@ attachPush(events, store, push);
 // reused branch name — its head commit won't be reachable from this branch's tip.
 // Shared by the background poller and the on-demand git endpoint so they agree.
 const ownsPr = (s: Session, headSha: string) => worktree.containsCommit(s.worktreePath, headSha);
+
+// ── Poller cadence gate (#1230) ───────────────────────────────────────────────
+// The background pollers + critic sweep run at full cadence only while *warm*;
+// when truly idle they throttle/pause to spare the GraphQL bucket. Warmth is:
+//   warm() = a dashboard is open  ||  autonomous merge work is in flight
+// The second disjunct keeps a headless full-auto merge train moving even when
+// nobody is watching, so reducing polling never stalls autonomous work.
+//
+// `autonomousWorkInFlight` is a *hoisted function declaration* on purpose: it
+// references `service`, `mergeErrorSessions` (defined ~700 lines below) and
+// `store`, but only reads them when CALLED at runtime (a timer firing), never
+// during module init — so the forward reference is safe.
+function autonomousWorkInFlight(): boolean {
+  if (service.liveTrainPrs().length > 0) return true; // a live merge train
+  if (mergeErrorSessions.size > 0) return true; // train blocked/retrying — still working
+  // any non-archived full-auto session: the train may act on it without a watcher
+  return store
+    .list()
+    .some((s) => s.status !== "archived" && isFullAuto(s, store.getRepoConfig(s.repoPath)));
+}
+const warm = (): boolean => presence.hasClients() || autonomousWorkInFlight();
+
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -633,6 +668,9 @@ const prPoller = new PrPoller(
   undefined,
   undefined,
   ownsPr,
+  warm, // full cadence only while warm; cold → fast sweep pauses, full sweep throttles
+  () => graphRateLimit.blocked(), // skip every sweep while the GraphQL bucket is exhausted
+  // idleIntervalMs: default (300s coarse full-sweep cadence while cold)
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
@@ -1069,8 +1107,17 @@ setInterval(() => {
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
 // heavier than reading verdict files, so it polls coarsely while verdicts still finalize
 // promptly on the shared 15s tick.
+let lastCriticSweepAt = 0;
+const criticIdleIntervalMs = 300_000;
 setInterval(() => {
   if (maintenance.active) return;
+  if (graphRateLimit.blocked()) return; // GraphQL bucket exhausted — skip the heavy enumeration
+  const now = Date.now();
+  // Cold path: no dashboard + no autonomous work → throttle the per-repo PR
+  // enumeration to the coarse idle cadence (the cheap 15s verdict-finalize tick
+  // above is untouched, so verdicts still settle promptly).
+  if (!warm() && now - lastCriticSweepAt < criticIdleIntervalMs) return;
+  lastCriticSweepAt = now;
   void standaloneCritic.sweep();
 }, 60_000);
 // archived sessions: reap any in-flight critic + drop the verdict, and reap any
@@ -1860,6 +1907,10 @@ const backlogPoller = new BacklogPoller(
   (dir) => backlog.refresh(dir),
   45_000,
   broadcastBacklog,
+  // Warm the backlog only while a dashboard is open and the GraphQL bucket is
+  // healthy — backlog counts serve the overview, which nobody is reading when
+  // there are no clients. (A reconnect fires the debounced presence catch-up.)
+  () => presence.hasClients() && !graphRateLimit.blocked(),
 );
 setTimeout(() => void backlogPoller.tick(), 3_000);
 backlogPoller.start();

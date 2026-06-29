@@ -656,6 +656,179 @@ test("serializes a targeted poll behind a sweep — one gh at a time", async () 
   expect(maxActive).toBe(1); // never two `gh` calls in flight at once
 });
 
+// ── warm() / rateLimited() cadence gating ─────────────────────────────────────
+
+test("fastTick skips when rateLimited() is true", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  let calls = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      calls++;
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true, // warm
+    () => true, // rateLimited
+  );
+  await poller.tick(); // warm the cache (gated only on fastTick/tick, tick itself runs because warm)
+  calls = 0;
+  await poller.fastTick();
+  expect(calls).toBe(0);
+});
+
+test("fastTick skips when warm() is false and runs when warm & not limited", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  let calls = 0;
+  let warm = true;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      calls++;
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => warm,
+    () => false,
+  );
+  await poller.tick(); // cache one open PR
+  calls = 0;
+  warm = false;
+  await poller.fastTick();
+  expect(calls).toBe(0); // not warm → skipped
+  warm = true;
+  await poller.fastTick();
+  expect(calls).toBe(1); // warm & not limited → runs
+});
+
+test("tick runs every call when warm() is true", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true, // warm
+    () => false,
+  );
+  await poller.tick();
+  await poller.tick();
+  expect(calls).toBe(2);
+});
+
+test("tick when not warm runs once then skips within idleIntervalMs", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => false, // not warm
+    () => false,
+    600_000, // large idleIntervalMs → second call is throttled out
+  );
+  await poller.tick();
+  expect(calls).toBe(1); // first sweep proceeds and stamps lastFullSweepAt
+  await poller.tick();
+  expect(calls).toBe(1); // within idle window → skipped
+});
+
+test("tick when not warm runs again with idleIntervalMs 0", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => false, // not warm
+    () => false,
+    0, // no idle throttle → every call sweeps
+  );
+  await poller.tick();
+  await poller.tick();
+  expect(calls).toBe(2);
+});
+
+test("tick skips entirely when rateLimited() regardless of warm", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true, // warm
+    () => true, // but rate limited
+  );
+  await poller.tick();
+  expect(calls).toBe(0);
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

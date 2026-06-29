@@ -155,10 +155,29 @@ export class PrPoller implements PrCache {
      *  returning a prior, already-merged PR that merely reused this branch name.
      *  `false` → discard the stale PR; `true`/`null` → trust it. */
     private ownsPr: (s: Session, headSha: string) => boolean | null = () => true,
+    /** Cadence gate: poll at full rate only while *warm* (a dashboard is open OR
+     *  autonomous merge work is in flight). When cold, the fast sweep pauses
+     *  entirely and the full sweep throttles to `idleIntervalMs`. */
+    private warm: () => boolean = () => true,
+    /** True while the shared GraphQL backoff is engaged — skip every sweep so we
+     *  don't burn budget against an exhausted bucket. */
+    private rateLimited: () => boolean = () => false,
+    /** Coarse full-sweep cadence while cold (no warmth) — the fast sweep is paused
+     *  outright, so this is the only PR refresh path when nobody's watching. */
+    private idleIntervalMs = 300_000,
   ) {}
 
+  /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
+   *  throttle in `tick`. */
+  private lastFullSweepAt = 0;
+
   async tick(): Promise<void> {
+    if (this.rateLimited()) return; // GraphQL bucket exhausted — don't add to the backlog
+    // Cold path: nobody's watching and no autonomous merge work — throttle the full
+    // sweep to the coarse idle cadence instead of every `intervalMs`.
+    if (!this.warm() && Date.now() - this.lastFullSweepAt < this.idleIntervalMs) return;
     if (this.sweeping) return; // a fast tick is mid-flight — it'll be re-covered here next interval
+    this.lastFullSweepAt = Date.now();
     this.sweeping = true;
     try {
       const active = new Set<string>();
@@ -179,6 +198,9 @@ export class PrPoller implements PrCache {
    *  120s sweep's lag. Capped at `fastBatch` per tick, rotating so every open PR is
    *  covered across a few ticks rather than fanning out one `gh` per PR each time. */
   async fastTick(): Promise<void> {
+    // Cadence gate first (a later task layers an activity-aware filter after this):
+    // pause the fast sweep entirely when rate-limited or cold.
+    if (this.rateLimited() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) {

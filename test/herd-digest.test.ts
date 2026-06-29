@@ -62,6 +62,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     haltedAt: null,
     manualSteps: [],
     manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
     ...over,
   };
 }

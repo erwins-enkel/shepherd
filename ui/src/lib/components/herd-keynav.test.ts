@@ -59,6 +59,8 @@ function session(
     haltedAt: null,
     manualSteps: [],
     manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
   };
 }
 

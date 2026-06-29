@@ -57,6 +57,8 @@
     ondecommission,
     onrelaunch,
     onrelaunchElsewhere,
+    onvariant,
+    onreplace,
     repoFilter = null,
     onrepofilter,
     workingBlocked = {},
@@ -87,6 +89,10 @@
     // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
     // opens the new-task composer pre-filled from this session (cross-repo relaunch)
     onrelaunchElsewhere?: (id: string) => void;
+    // when provided, the CardMenu gains "Start as variant…" / "Replace with…" items that open
+    // the provider/model picker anchored at the passed coords (comparison experiments)
+    onvariant?: (id: string, anchor: { x: number; y: number }) => void;
+    onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     // active page-level repo filter (full repoPath); drives the icon's pressed state
     repoFilter?: string | null;
     // when provided, clicking the inline repo emoji toggles the repo filter:
@@ -223,19 +229,32 @@
   // Relaunch-elsewhere reuses the same eligibility as Relaunch, just routed to the
   // cross-repo composer instead of the in-place two-step arm.
   const relaunchElsewhereAble = $derived(!!onrelaunchElsewhere && canRelaunch(session, git, nowMs));
+  // Variant / replace share Relaunch's eligibility — both spawn a fresh run from this session.
+  // Never offer variant/replace on the experiment's comparison run — re-running its read-only
+  // compare prompt as a "variant" is nonsensical, and a relaunch would strip its experiment role.
+  const comparisonRow = $derived(session.experimentRole === "comparison");
+  const variantable = $derived(!!onvariant && !comparisonRow && canRelaunch(session, git, nowMs));
+  const replaceable = $derived(!!onreplace && !comparisonRow && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
+  const hasMenu = $derived(
+    resumable ||
+      !!ondecommission ||
+      relaunchable ||
+      relaunchElsewhereAble ||
+      variantable ||
+      replaceable,
+  );
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !ondecommission && !relaunchable && !relaunchElsewhereAble))
-      return false;
+    if (menu || !hasMenu) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !ondecommission && !relaunchable && !relaunchElsewhereAble) return; // nothing to offer → leave native menu
+    if (!hasMenu) return; // nothing to offer → leave native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -259,6 +278,17 @@
   function relaunchElsewhereFromMenu() {
     menu = null;
     onrelaunchElsewhere?.(session.id);
+  }
+  // Hand the menu's anchor coords to the parent so it can open the picker in the same spot.
+  function variantFromMenu() {
+    const anchor = menu ? { x: menu.x, y: menu.y } : { x: 0, y: 0 };
+    menu = null;
+    onvariant?.(session.id, anchor);
+  }
+  function replaceFromMenu() {
+    const anchor = menu ? { x: menu.x, y: menu.y } : { x: 0, y: 0 };
+    menu = null;
+    onreplace?.(session.id, anchor);
   }
 
   // Time-breakdown popover: the .unit-hit overlay is the row's only click/
@@ -508,6 +538,8 @@
     onresume={resumeFromMenu}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
+    onvariant={variantable ? variantFromMenu : undefined}
+    onreplace={replaceable ? replaceFromMenu : undefined}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

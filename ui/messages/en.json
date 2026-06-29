@@ -2112,5 +2112,21 @@
   "steermenu_run": "Run",
   "steermenu_edit": "Edit",
   "feat_steer_context_menu_title": "Right-click a steer to edit or run it",
-  "feat_steer_context_menu_body": "Right-click a steer chip in the bar to open a small menu: run it (the same as a tap) or jump straight into the editor focused on that steer."
+  "feat_steer_context_menu_body": "Right-click a steer chip in the bar to open a small menu: run it (the same as a tap) or jump straight into the editor focused on that steer.",
+  "cardmenu_start_variant": "Start as variant…",
+  "cardmenu_replace_with": "Replace with…",
+  "experiment_group_label": "Comparison: {name}",
+  "experiment_compare": "Compare",
+  "experiment_compare_hint": "Spawn a read-only agent that reviews each variant's committed branch and writes a comparison + recommendation.",
+  "experiment_compare_running_hint": "Wait until every variant has stopped — the comparison reads committed branch state, so a still-running run would compare a stale or empty diff.",
+  "experiment_comparison_done": "Comparison run",
+  "experiment_variant_title": "Start as variant",
+  "experiment_variant_confirm": "Start variant",
+  "experiment_replace_title": "Replace with",
+  "experiment_replace_confirm": "Replace",
+  "experiment_compare_title": "Compare variants",
+  "experiment_compare_confirm": "Start comparison",
+  "experiment_action_failed": "Could not start that run — please try again.",
+  "feature_model_comparison_title": "Compare models & CLIs on one task",
+  "feature_model_comparison_body": "From a session's menu, run the same task again as a parallel variant on a different model or CLI (or replace it). Then hit Compare to spawn a read-only run that reviews every variant and recommends the best."
 }

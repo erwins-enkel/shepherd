@@ -18,6 +18,8 @@
     statusFilter = null,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
+    onvariant = undefined,
+    onreplace = undefined,
     workingBlocked = {},
   }: {
     sessions: Session[];
@@ -32,6 +34,9 @@
     onrelaunch?: (id: string) => void;
     // when provided, each tile's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
+    // when provided, each tile's CardMenu gains "Start as variant…" / "Replace with…" items
+    onvariant?: (id: string, anchor: { x: number; y: number }) => void;
+    onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     issueActionsUnset?: boolean;
     onsettings?: () => void;
     // basename of an active repo filter; empty + filtered → neutral note, not EmptyHerd
@@ -78,6 +83,8 @@
         activity={activity[session.id]}
         {onrelaunch}
         {onrelaunchElsewhere}
+        {onvariant}
+        {onreplace}
         {workingBlocked}
       />
     {/each}

@@ -6,10 +6,10 @@
   import {
     AGENT_PROVIDERS,
     CODEX_MODELS,
-    MODELS,
     type AgentProvider,
     type SandboxProfile,
   } from "$lib/types";
+  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
 
   let {
     planGate = $bindable(),
@@ -49,22 +49,16 @@
     fableAvailable: boolean;
   } = $props();
 
-  const providerModels = $derived(agentProvider === "codex" ? CODEX_MODELS : MODELS);
-
-  function modelAvailableForProvider(value: string): boolean {
-    if (value === "default") return true;
-    if (agentProvider === "claude" && value === "fable" && !fableAvailable) return false;
-    return (providerModels as readonly string[]).includes(value);
-  }
+  const provModels = $derived(providerModels(agentProvider));
 
   function agentProviderChanged() {
-    if (!modelAvailableForProvider(model)) {
+    if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }
   }
 
   $effect(() => {
-    if (!modelAvailableForProvider(model)) {
+    if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }
   });
@@ -178,7 +172,7 @@
       <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
       <select id="nt-model" bind:value={model} onchange={() => onModelTouched()}>
         <option value="default">{m.newtask_model_default()}</option>
-        {#each providerModels as mdl (mdl)}
+        {#each provModels as mdl (mdl)}
           {#if agentProvider !== "claude" || mdl !== "fable" || fableAvailable}
             <option value={mdl}>{modelLabel(mdl)}</option>
           {/if}

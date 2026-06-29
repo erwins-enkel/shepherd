@@ -16,6 +16,7 @@ import type {
   RelaunchOverrides,
   Session,
 } from "./types";
+import { MODELS, CODEX_MODELS, CODEX_MODEL_RE } from "./types";
 import {
   copyStagedIntoWorktree,
   stagingDir,
@@ -888,6 +889,33 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
  */
 function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
+}
+
+/** True when `model` can be passed to `provider`'s --model flag. `null` (provider default) is
+ *  always compatible. Claude takes its curated alias list; Codex takes its curated list plus any
+ *  safe alias matching CODEX_MODEL_RE (the CLI may learn names before Shepherd does). Used to stop
+ *  a relaunch from carrying a model across a provider switch (see relaunch()). */
+function modelCompatibleWith(model: string | null, provider: AgentProvider): boolean {
+  if (model === null) return true;
+  if (provider === "codex")
+    return (CODEX_MODELS as readonly string[]).includes(model) || CODEX_MODEL_RE.test(model);
+  return (MODELS as readonly string[]).includes(model);
+}
+
+/** Resolve the relaunch model for the EFFECTIVE provider. `validateRelaunchOverrides` is
+ *  session-blind, so the pairing is reconciled here: an absent override keeps the original's
+ *  model, but if that carried model is incompatible with a provider switch it falls back to the
+ *  provider default; an EXPLICIT incompatible override model is a hard error. */
+function reconcileRelaunchModel(
+  overrideModel: string | null | undefined,
+  originalModel: string | null,
+  provider: AgentProvider,
+): string | null {
+  const model = pickOverride(overrideModel, originalModel);
+  if (modelCompatibleWith(model, provider)) return model;
+  if (overrideModel != null && overrideModel !== "default")
+    throw new Error(`model "${overrideModel}" is not valid for provider ${provider}`);
+  return null;
 }
 
 /** Renderer env for the MAIN session spawn. Default: pin the classic renderer. The
@@ -1995,17 +2023,11 @@ export class SessionService {
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried images.
-    let images: string[];
-    if (overrides == null) {
-      const copiedOriginalImages = this.copyOriginalUploads(s.worktreePath);
-      images = copiedOriginalImages.slice(0, MAX_IMAGES);
-      if (copiedOriginalImages.length > images.length)
-        console.warn(
-          `[relaunch] ${originalId}: ${copiedOriginalImages.length} images exceed cap ${MAX_IMAGES}; dropped ${copiedOriginalImages.length - images.length}`,
-        );
-    } else {
-      images = overrides.images ?? [];
-    }
+    const images = this.carryRelaunchImages(s, overrides, originalId);
+    // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
+    // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
+    const effectiveProvider = overrides?.agentProvider ?? s.agentProvider ?? "claude";
+    const model = reconcileRelaunchModel(overrides?.model, s.model, effectiveProvider);
 
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
@@ -2013,7 +2035,8 @@ export class SessionService {
       repoPath: overrides?.repoPath ?? s.repoPath,
       baseBranch: overrides?.baseBranch ?? s.baseBranch,
       prompt: overrides?.prompt ?? s.prompt,
-      model: pickOverride(overrides?.model, s.model),
+      agentProvider: effectiveProvider,
+      model,
       planGateEnabled: pickOverride(overrides?.planGateEnabled, s.planGateEnabled),
       // Carry autopilot at spawn time (NOT redundant with the setAutopilotState copy below):
       // create()'s build-queue pre-approval reads the session's effective autopilot and is never
@@ -2065,6 +2088,149 @@ export class SessionService {
     sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
     const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
     return paths.map((p) => ({ path: p, name: basename(p) }));
+  }
+
+  /** Resolve the images a relaunch carries: an explicit `overrides.images` array (even empty,
+   *  composer-seeded) is used verbatim; otherwise the original's uploads are auto-carried (capped
+   *  at MAX_IMAGES) — matching the bare-relaunch path so variants/replace keep their attachments. */
+  private carryRelaunchImages(
+    s: Session,
+    overrides: RelaunchOverrides | undefined,
+    originalId: string,
+  ): string[] {
+    if (overrides?.images !== undefined) return overrides.images;
+    const copied = this.copyOriginalUploads(s.worktreePath);
+    const images = copied.slice(0, MAX_IMAGES);
+    if (copied.length > images.length)
+      console.warn(
+        `[relaunch] ${originalId}: ${copied.length} images exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
+      );
+    return images;
+  }
+
+  /**
+   * Spawn a comparison VARIANT of an existing session: a fresh sibling carrying the original's
+   * prompt / base-branch / images but a different agent provider/model, linked to the original in
+   * a comparison experiment. Unlike relaunch, the original is LEFT ALIVE (the route does not tear
+   * it down) and the variant carries NO issue link (issueRef undefined) so it cannot double-claim
+   * the original's still-active issue/ACTIVE_LABEL. Idempotent on the group: if the original
+   * already anchors an experiment, the variant joins it; otherwise a new id is minted and the
+   * original is back-filled as the first `variant`. Returns both sessions reflecting the stamp so
+   * the route can emit session:new (variant) + session:experiment (original).
+   *
+   * Concurrency: the route guards on the ORIGINAL id (inFlightVariant) so two near-simultaneous
+   * first-variant spawns cannot mint two groups for the same original.
+   */
+  async startVariant(
+    originalId: string,
+    opts: { agentProvider?: AgentProvider; model: string | null },
+  ): Promise<{ variant: Session; original: Session }> {
+    const original = this.deps.store.get(originalId);
+    if (!original || original.status === "archived")
+      throw new Error(`cannot start variant of ${originalId}: missing or archived`);
+
+    // Ensure the original anchors a group (reuse an existing id — idempotent under the guard).
+    const experimentId = original.experimentId ?? randomUUID();
+    if (original.experimentId !== experimentId)
+      this.deps.store.setExperiment(originalId, { experimentId, role: "variant" });
+
+    // Spawn the sibling WITHOUT an issue link; passing no `images` key makes relaunch auto-carry
+    // the original's uploads so the variant runs the same task with the same attachments.
+    const variant = await this.relaunch(originalId, undefined, {
+      agentProvider: opts.agentProvider,
+      model: opts.model,
+    });
+    // Force auto-merge OFF on the variant (relaunch carries the original's setting). Autopilot
+    // stays as carried so the variant still runs the task hands-off — but auto-merge must not land
+    // its PR into base before the read-only comparison reads it, which would make
+    // `git diff base...<branch>` show nothing and silently break the comparison.
+    this.deps.store.setAutoMergeState(variant.id, { enabled: false });
+    this.deps.store.setExperiment(variant.id, { experimentId, role: "variant" });
+
+    return {
+      variant: this.deps.store.get(variant.id)!,
+      original: this.deps.store.get(originalId)!,
+    };
+  }
+
+  /**
+   * Spawn the read-only COMPARISON session for an experiment: a fresh agent in the variants' repo
+   * whose prompt enumerates each variant's branch + base so it can diff the committed results and
+   * write a structured comparison + recommendation. Spawned with autopilot OFF and auto-merge OFF
+   * EXPLICITLY — create() would otherwise inherit the repo defaults (unlike relaunch, which carries
+   * the original's), so under an autopilot-ON repo the comparison agent could commit/push/PR.
+   * Residual risk: a non-autopilot agent can still run git/gh by hand; the read-only contract is
+   * prompt-enforced, not sandbox-enforced.
+   */
+  async startComparison(
+    experimentId: string,
+    opts: { agentProvider?: AgentProvider; model: string | null },
+  ): Promise<Session> {
+    const members = this.deps.store.variantsForExperiment(experimentId);
+    // One comparison per experiment: the grouping renders a single comparison session, so a second
+    // would run orphaned (never shown, never reapable). A new comparison is allowed only once the
+    // prior one is archived. (The UI hides the button too — this is the authoritative guard.)
+    if (members.some((m) => m.experimentRole === "comparison" && m.status !== "archived"))
+      throw new Error(`experiment ${experimentId} already has a comparison run`);
+    const variants = members.filter((m) => m.experimentRole === "variant");
+    if (variants.length < 2)
+      throw new Error(`experiment ${experimentId} needs at least 2 variants to compare`);
+
+    // Variants share repo + base branch; anchor the comparison there so its worktree forks off the
+    // same base and can read every sibling branch through the shared .git.
+    const repoPath = variants[0]!.repoPath;
+    const baseBranch = variants[0]!.baseBranch;
+
+    const created = await this.create({
+      repoPath,
+      baseBranch,
+      prompt: this.composeComparisonPrompt(variants, baseBranch),
+      agentProvider: opts.agentProvider,
+      model: opts.model,
+      images: [],
+      autopilotEnabled: false,
+      auto: false,
+    });
+    this.deps.store.setAutoMergeState(created.id, { enabled: false });
+    this.deps.store.setExperiment(created.id, { experimentId, role: "comparison" });
+    return this.deps.store.get(created.id)!;
+  }
+
+  /** Build the read-only comparison agent's task prompt. Passes each variant's ACTUAL branch name
+   *  plus the shared base branch explicitly (the comparison runs in its own worktree off base and
+   *  reads sibling branches via the shared .git — only committed branch state is visible). */
+  private composeComparisonPrompt(variants: Session[], baseBranch: string): string {
+    const rows = variants.map((v) => {
+      const model = v.model ?? `${v.agentProvider ?? "claude"} default`;
+      return `- ${v.desig} — provider: ${v.agentProvider ?? "claude"}, model: ${model}, branch: ${
+        v.branch ?? "(no branch)"
+      }`;
+    });
+    return [
+      `You are comparing the OUTPUT of ${variants.length} parallel agent runs that were all given`,
+      `the SAME task on the SAME base branch (\`${baseBranch}\`), each using a different model/CLI.`,
+      `Your job is READ-ONLY analysis: do NOT modify code, commit, push, or open a pull request.`,
+      ``,
+      `The task all variants were given:`,
+      "```",
+      variants[0]!.prompt,
+      "```",
+      ``,
+      `The variants (each committed work on its own branch off \`${baseBranch}\`):`,
+      ...rows,
+      ``,
+      `For each variant, inspect its committed result with:`,
+      `    git diff ${baseBranch}...<branch>`,
+      `(only committed work on the branch is visible — uncommitted work in a still-running variant's`,
+      `worktree will NOT appear). If a PR exists, also use \`gh pr list --head <branch>\` /`,
+      `\`gh pr view <branch>\`.`,
+      ``,
+      `Then write a structured comparison covering, per variant: the approach taken,`,
+      `correctness/completeness against the task, diff size & scope, code quality, and any risks.`,
+      `Finish with a clear recommendation of which run is best and why, and flag anything a human`,
+      `should double-check. If a branch has little or no committed diff (e.g. the run was still in`,
+      `progress or got blocked), say so explicitly rather than guessing.`,
+    ].join("\n");
   }
 
   /**

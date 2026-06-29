@@ -699,6 +699,41 @@ export async function relaunchSession(
   throw new ApiError(r.status, base.message, body?.code);
 }
 
+/** Provider/model choice for a variant or comparison spawn (absent provider → server default). */
+export interface VariantChoice {
+  agentProvider?: AgentProvider;
+  model: string | null;
+}
+
+/**
+ * Start a parallel comparison VARIANT of a session: same task, different model/CLI. The original
+ * stays alive; both are linked into one comparison experiment. Returns the new variant session.
+ */
+export async function startVariant(id: string, choice: VariantChoice): Promise<Session> {
+  const { session } = await postJson<{ session: Session }>(
+    `/api/sessions/${id}/variant`,
+    choice,
+    "variant",
+  );
+  return session;
+}
+
+/**
+ * Start the read-only comparison session for an experiment: a fresh agent that reads every
+ * variant's branch/diff/PR and writes a structured comparison. Returns the comparison session.
+ */
+export async function startComparison(
+  experimentId: string,
+  choice: VariantChoice,
+): Promise<Session> {
+  const { session } = await postJson<{ session: Session }>(
+    `/api/experiments/${experimentId}/compare`,
+    choice,
+    "compare",
+  );
+  return session;
+}
+
 /**
  * Restore an archived session from the Done lens: re-creates the worktree on its
  * surviving branch and resumes the conversation. Returns the restored `Session` on

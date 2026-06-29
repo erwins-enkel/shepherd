@@ -2112,5 +2112,21 @@
   "steermenu_run": "Ausführen",
   "steermenu_edit": "Bearbeiten",
   "feat_steer_context_menu_title": "Rechtsklick auf einen Steer zum Bearbeiten oder Ausführen",
-  "feat_steer_context_menu_body": "Rechtsklick auf einen Steer-Chip in der Leiste öffnet ein kleines Menü: ausführen (wie ein Antippen) oder direkt in den Editor springen, fokussiert auf diesen Steer."
+  "feat_steer_context_menu_body": "Rechtsklick auf einen Steer-Chip in der Leiste öffnet ein kleines Menü: ausführen (wie ein Antippen) oder direkt in den Editor springen, fokussiert auf diesen Steer.",
+  "cardmenu_start_variant": "Als Variante starten…",
+  "cardmenu_replace_with": "Ersetzen durch…",
+  "experiment_group_label": "Vergleich: {name}",
+  "experiment_compare": "Vergleichen",
+  "experiment_compare_hint": "Startet einen read-only-Agenten, der den committeten Branch jeder Variante prüft und einen Vergleich + Empfehlung schreibt.",
+  "experiment_compare_running_hint": "Warte, bis alle Varianten gestoppt sind — der Vergleich liest den committeten Branch-Stand, ein noch laufender Lauf würde ein veraltetes oder leeres Diff vergleichen.",
+  "experiment_comparison_done": "Vergleichslauf",
+  "experiment_variant_title": "Als Variante starten",
+  "experiment_variant_confirm": "Variante starten",
+  "experiment_replace_title": "Ersetzen durch",
+  "experiment_replace_confirm": "Ersetzen",
+  "experiment_compare_title": "Varianten vergleichen",
+  "experiment_compare_confirm": "Vergleich starten",
+  "experiment_action_failed": "Lauf konnte nicht gestartet werden — bitte erneut versuchen.",
+  "feature_model_comparison_title": "Modelle & CLIs an einer Aufgabe vergleichen",
+  "feature_model_comparison_body": "Starte aus dem Menü einer Session dieselbe Aufgabe erneut als parallele Variante mit anderem Modell oder CLI (oder ersetze sie). Dann startet „Vergleichen“ einen read-only-Lauf, der alle Varianten prüft und die beste empfiehlt."
 }

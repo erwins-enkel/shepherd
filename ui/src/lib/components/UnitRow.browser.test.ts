@@ -59,6 +59,8 @@ function session(partial: Partial<Session> & { id: string }): Session {
     haltedAt: null,
     manualSteps: [],
     manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
     ...partial,
   };
 }

@@ -7,6 +7,11 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
+/** Role a session plays in a comparison experiment: a `variant` is one of the same-prompt
+ *  runs on a different model/CLI; the `comparison` session is the read-only agent that
+ *  evaluates the variants' results. Sessions with no experiment carry `null`. */
+export type ExperimentRole = "variant" | "comparison";
+
 export interface Session {
   id: string;
   desig: string; // "TASK-07"
@@ -89,6 +94,11 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
   manualStepsAckedAt: number | null;
+  /** Comparison-experiment group id this session belongs to; null = not part of an experiment.
+   *  All variants of one task + their comparison session share this id. */
+  experimentId: string | null;
+  /** This session's role within its experiment; null when not in one. */
+  experimentRole: ExperimentRole | null;
 }
 
 /**
@@ -175,6 +185,10 @@ export interface RelaunchOverrides {
   repoPath?: string;
   baseBranch?: string;
   prompt?: string;
+  /** Agent CLI override; absent → keep the original's provider. Drives "restart with a
+   *  different model/CLI" (variant + replace). When it changes the provider, `relaunch`
+   *  resets a now-incompatible carried model to the provider default. */
+  agentProvider?: AgentProvider;
   model?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
@@ -205,6 +219,11 @@ export const CODEX_MODELS = [
   "gpt-5",
   "o3",
 ] as const;
+
+/** A safe Codex `--model` alias: the installed Codex CLI may learn new names before the curated
+ *  CODEX_MODELS list does, so any conservative identifier is accepted. Single source of truth
+ *  shared by the spawn-side check (service.ts) and the request validator (validate.ts). */
+export const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
 
 export interface Steer {
   id: string;

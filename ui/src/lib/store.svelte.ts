@@ -317,10 +317,15 @@ export class HerdStore {
     this.patchSession(d.id, patch);
   }
 
+  /** Append a session on session:new, ignoring a duplicate id (pushes can race the bootstrap). */
+  private addSession(s: Session) {
+    if (!this.byId(s.id)) this.sessions = [...this.sessions, s];
+  }
+
   apply(ev: WsEvent) {
     switch (ev.event) {
       case "session:new":
-        if (!this.byId(ev.data.id)) this.sessions = [...this.sessions, ev.data];
+        this.addSession(ev.data);
         break;
       case "session:status":
         this.applyStatus(ev.data);
@@ -347,6 +352,15 @@ export class HerdStore {
         break;
       case "session:automerge":
         this.patchSession(ev.data.id, { autoMergeEnabled: ev.data.enabled });
+        break;
+      case "session:experiment":
+        // The variant carries its experiment in its session:new payload; this patches the
+        // ALREADY-VISIBLE original (or any member) when it's (back-)linked into a group so its
+        // card joins the experiment grouping live, without a reload.
+        this.patchSession(ev.data.id, {
+          experimentId: ev.data.experimentId,
+          experimentRole: ev.data.experimentRole,
+        });
         break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);

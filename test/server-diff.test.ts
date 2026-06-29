@@ -51,6 +51,8 @@ const SESSION: Session = {
   haltedAt: null,
   manualSteps: [],
   manualStepsAckedAt: null,
+  experimentId: null,
+  experimentRole: null,
 };
 
 function makeDeps(session: Session | null, prCache?: AppDeps["prCache"]): AppDeps {

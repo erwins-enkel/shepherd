@@ -13,6 +13,7 @@
   import HerdLensStrip from "./herd/HerdLensStrip.svelte";
   import HerdSegRow from "./herd/HerdSegRow.svelte";
   import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
+  import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
@@ -21,6 +22,7 @@
   import UpNextPanel from "./UpNextPanel.svelte";
   import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
+  import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "$lib/display-status";
   import { reviews, planGates } from "$lib/reviews.svelte";
@@ -45,6 +47,9 @@
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
+    onvariant = undefined,
+    onreplace = undefined,
+    oncompare = undefined,
     onclearmerged = undefined,
     onmergetrain = undefined,
     issueActionsUnset = false,
@@ -106,6 +111,11 @@
     onrelaunch?: (id: string) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
+    // when provided, each row's CardMenu gains "Start as variant…" / "Replace with…" items
+    onvariant?: (id: string, anchor: { x: number; y: number }) => void;
+    onreplace?: (id: string, anchor: { x: number; y: number }) => void;
+    // when provided, each experiment group header gains a "Compare" action
+    oncompare?: (experimentId: string, anchor: { x: number; y: number }) => void;
     // when provided, the merged group header gains a "clear all" action
     onclearmerged?: () => void;
     // when provided, the ready-to-merge group header gains a "merge train" action
@@ -222,7 +232,14 @@
   // REST (non-grouped) sessions flow into the lifecycle partition below. `shown` stays
   // the FULL filtered set so the global action counts (merge-train/clear-merged) still
   // see grouped rows.
-  const grouped = $derived(groupSessionsByEpic(shown, epics, activeEpicKeys, git, inReview, nowMs));
+  // Comparison experiments are grouped FIRST so an experiment's ORIGINAL session — which keeps its
+  // issue link (only the spawned variants drop it) — is claimed by its experiment group instead of
+  // being pulled into its epic, which would strand the remaining variant(s) (a lone variant won't
+  // form a group). Epic grouping then runs over the remainder; a session is never double-grouped.
+  const experimentGrouped = $derived(groupSessionsByExperiment(shown));
+  const grouped = $derived(
+    groupSessionsByEpic(experimentGrouped.rest, epics, activeEpicKeys, git, inReview, nowMs),
+  );
   const partition = $derived(partitionSessions(grouped.rest, git, inReview, nowMs));
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
@@ -292,6 +309,8 @@
     ondecommission,
     onrelaunch,
     onrelaunchElsewhere,
+    onvariant,
+    onreplace,
     repoFilter,
     onrepofilter,
     workingBlocked,
@@ -491,6 +510,7 @@
         {oncollapsetoggle}
         ctx={rowCtx}
       />
+      <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
       {#each partitionGroups as grp (grp.key)}
         <HerdGroup ctx={rowCtx} {...grp} />
       {/each}

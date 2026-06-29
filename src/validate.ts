@@ -5,6 +5,7 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
   AGENT_PROVIDERS,
   CODEX_MODELS,
+  CODEX_MODEL_RE,
   MODELS,
   type AgentProvider,
   type CreateSessionInput,
@@ -90,8 +91,6 @@ function validateAgentProvider(value: unknown): Field<AgentProvider | undefined>
   return field(value as AgentProvider);
 }
 
-const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
-
 /** model — optional; absent/null/"default" → null (provider default, no --model flag). */
 function validateModel(value: unknown, agentProvider?: AgentProvider): Field<string | null> {
   if (value == null || value === "default") return field(null);
@@ -109,6 +108,26 @@ function validateModel(value: unknown, agentProvider?: AgentProvider): Field<str
     return err("invalid codex model");
   }
   return err("unknown model");
+}
+
+/**
+ * Validate a `{ agentProvider?, model? }` body for the variant / comparison spawn endpoints.
+ * `agentProvider` is optional (absent → caller falls back to the original's / config default);
+ * `model` is validated against the supplied provider (absent/null/"default" → provider default).
+ * Mirrors validateCreate's `{ ok, error }` contract so routes return the same 400 shape.
+ */
+export function validateModelChoice(
+  body: unknown,
+):
+  | { ok: true; value: { agentProvider?: AgentProvider; model: string | null } }
+  | { ok: false; error: string } {
+  const obj = body == null ? {} : (body as Record<string, unknown>);
+  if (typeof obj !== "object" || Array.isArray(obj)) return err("body must be a non-null object");
+  const provider = validateAgentProvider(obj.agentProvider);
+  if (!provider.ok) return provider;
+  const model = validateModel(obj.model, provider.value);
+  if (!model.ok) return model;
+  return { ok: true, value: { agentProvider: provider.value, model: model.value } };
 }
 
 /** repoPath — required non-empty string, confined to repoRoot, existing directory. */
@@ -543,6 +562,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "repoPath",
   "baseBranch",
   "prompt",
+  "agentProvider",
   "model",
   "planGateEnabled",
   "research",
@@ -575,10 +595,15 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
   // (incl. null). Each row maps a present field through the SAME validator create uses,
   // writing the typed value onto `out`; the first failure short-circuits.
   const out: RelaunchOverrides = {};
+  // agentProvider runs BEFORE model so model can validate against the (overridden) provider —
+  // e.g. an override switching to codex lets a codex-only alias through. The session-blind
+  // pair check here is best-effort; the service re-checks against the EFFECTIVE provider
+  // (override ?? original) and resets a carried incompatible model.
   const fields: { key: keyof RelaunchOverrides; apply: () => Field<unknown> }[] = [
     { key: "prompt", apply: () => validatePrompt(obj.prompt) },
     { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
-    { key: "model", apply: () => validateModel(obj.model) },
+    { key: "agentProvider", apply: () => validateAgentProvider(obj.agentProvider) },
+    { key: "model", apply: () => validateModel(obj.model, out.agentProvider) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },

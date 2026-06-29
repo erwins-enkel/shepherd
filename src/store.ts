@@ -284,6 +284,7 @@ type ReviewVerdictRow = {
   finalRoundTimeoutMs: number | null;
   seenNoteIds: string;
   url: string | null;
+  spawnAborted: number | null;
   updatedAt: number;
 };
 
@@ -2045,6 +2046,8 @@ export class SessionStore implements CapStore, CreditStore {
       finalRoundTimeoutMs: r.finalRoundTimeoutMs ?? 900_000,
       seenNoteIds: parseFindings(r.seenNoteIds), // same string[] JSON shape as findings
       url: r.url ?? undefined,
+      // Optional flag: present only on a pre-spawn abort row; a normal verdict omits it entirely.
+      spawnAborted: r.spawnAborted ? true : undefined,
     } as ReviewVerdict;
   }
 
@@ -2052,7 +2055,7 @@ export class SessionStore implements CapStore, CreditStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as ReviewVerdictRow | null;
@@ -2062,8 +2065,8 @@ export class SessionStore implements CapStore, CreditStore {
   putReview(v: ReviewVerdict): void {
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
@@ -2071,7 +2074,7 @@ export class SessionStore implements CapStore, CreditStore {
          streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
          finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
-         url=excluded.url, updatedAt=excluded.updatedAt`,
+         url=excluded.url, spawnAborted=excluded.spawnAborted, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
         v.headSha,
@@ -2089,6 +2092,7 @@ export class SessionStore implements CapStore, CreditStore {
         v.finalRoundTimeoutMs ?? 900_000,
         JSON.stringify(v.seenNoteIds ?? []),
         v.url ?? null,
+        v.spawnAborted ? 1 : 0,
         v.updatedAt,
       ],
     );
@@ -2130,7 +2134,7 @@ export class SessionStore implements CapStore, CreditStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, updatedAt FROM reviews`,
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
     const out: Record<string, ReviewVerdict> = {};
@@ -3028,6 +3032,9 @@ export class SessionStore implements CapStore, CreditStore {
     // 900000ms = 15min; one-time backfill for pre-existing rows, not an ongoing mirror —
     // live rows carry ReviewService's DEFAULT_FINAL_ROUND_TIMEOUT_MS.
     add("finalRoundTimeoutMs", `finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000`);
+    // spawnAborted (#1211): marks a row that records a pre-spawn onSpawn abort (critic never ran),
+    // exempting it from the same-head re-review dedup. Pre-existing rows backfill to 0 (real reviews).
+    add("spawnAborted", `spawnAborted INTEGER NOT NULL DEFAULT 0`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

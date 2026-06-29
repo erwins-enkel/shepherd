@@ -96,9 +96,21 @@ describe("decideVerdictAction", () => {
     expect(decideVerdictAction(unparseable, false, true)).toBe("finalize-null"); // timeout
   });
 
-  test("absent → wait unless timed out (NOT fail-fasted even when finished)", () => {
+  test("absent → wait while the spawn is still working, regardless of grace", () => {
     expect(decideVerdictAction(absent, false, false)).toBe("wait");
-    expect(decideVerdictAction(absent, true, false)).toBe("wait"); // finished but no fail-fast
+    expect(decideVerdictAction(absent, false, false, true)).toBe("wait"); // grace up but still working
     expect(decideVerdictAction(absent, false, true)).toBe("finalize-null"); // only the hard timeout
+  });
+
+  test("absent → fail-fast once the spawn has finished AND the startup grace elapsed", () => {
+    // A critic/recap that exits without ever writing a verdict (e.g. died at startup — no usable
+    // account) used to sit "working" in the UI for the full hard timeout. Once the spawn is
+    // genuinely finished and past the boot grace, finalize it now rather than waiting it out.
+    expect(decideVerdictAction(absent, true, false, true)).toBe("finalize-null");
+    // ...but NOT during the boot grace: a slow-booting agent reads as not-yet-working before its
+    // first turn, and the verdict is legitimately absent then — don't kill it prematurely.
+    expect(decideVerdictAction(absent, true, false, false)).toBe("wait");
+    // Back-compat: callers that omit the grace flag keep the pre-grace "wait until timeout" behavior.
+    expect(decideVerdictAction(absent, true, false)).toBe("wait");
   });
 });

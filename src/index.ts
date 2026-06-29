@@ -150,6 +150,7 @@ import {
   isRateLimitError,
   parseRetryAfter,
 } from "./forge/rate-limit";
+import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 
 const execFileAsync = promisify(execFile);
 
@@ -2067,6 +2068,9 @@ const appDeps: AppDeps = {
   usageLimits,
   usageRollup,
   refreshUsage,
+  // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
+  // is quota-exempt, so it works even when the GraphQL bucket is at zero.
+  githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
   updates,
   herdrUpdates,
   codexUpdates,

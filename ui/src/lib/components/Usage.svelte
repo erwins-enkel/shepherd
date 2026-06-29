@@ -1,17 +1,24 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+  import type {
+    UsageBreakdown,
+    UsageLimits,
+    UsageProjection,
+    UsageRange,
+    GithubRateLimit,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { getUsageBreakdown, getUsageLimits } from "$lib/api";
+  import { getUsageBreakdown, getUsageLimits, getGithubRateLimit } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { formatTokenLabel } from "$lib/format";
   import { codexTokenUsage } from "$lib/components/usage-gauges";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
+  import GithubLens from "$lib/components/usage/GithubLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "limits";
+  type Tab = "spend" | "overhead" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -19,6 +26,8 @@
   let breakdown = $state<UsageBreakdown | null>(null);
   let limits = $state<UsageLimits | null>(null);
   let projections = $state<UsageProjection[]>([]);
+  let github = $state<GithubRateLimit | null>(null);
+  let githubError = $state(false);
   let loading = $state(true);
   let error = $state(false);
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
@@ -40,6 +49,20 @@
   }
   $effect(() => {
     loadLimits();
+  });
+
+  // GitHub rate-limit buckets (range-independent). `github === null && !githubError`
+  // ⇒ still loading.
+  async function loadGithub() {
+    githubError = false;
+    try {
+      github = await getGithubRateLimit();
+    } catch {
+      githubError = true;
+    }
+  }
+  $effect(() => {
+    loadGithub();
   });
 
   // Monotonic token: latest request always wins; stale requests discard their results.
@@ -66,11 +89,33 @@
     loadBreakdown(range);
   });
 
-  // Retry re-fetches BOTH tracks so either failure surface recovers.
+  // Retry re-fetches ALL tracks so any failure surface recovers.
   function retry() {
     loadBreakdown(range);
     loadLimits();
+    loadGithub();
   }
+
+  // Template-state derivations (kept out of the markup to keep the template's
+  // branching shallow). `showRange`: spend/overhead are the only ranged tabs.
+  const showRange = $derived(tab === "spend" || tab === "overhead");
+  const showBreakdownError = $derived(error && showRange);
+  // The active tab has data to render its lens (else we show loading/error chrome).
+  const hasContent = $derived(
+    ((tab === "spend" || tab === "overhead") && !!breakdown) ||
+      (tab === "limits" && !!limits) ||
+      (tab === "github" && !!github),
+  );
+  // No content yet, and the failing fetch for this tab errored (not still loading).
+  // (Spend/Overhead surface their error via the banner above, never inline.)
+  const bodyError = $derived(
+    !hasContent && ((tab === "limits" && limitsError) || (tab === "github" && githubError)),
+  );
+  const bodyLoading = $derived(
+    (showRange && !breakdown && loading) ||
+      (tab === "limits" && !limits && !limitsError) ||
+      (tab === "github" && !github && !githubError),
+  );
 </script>
 
 <div
@@ -117,10 +162,17 @@
         aria-pressed={tab === "limits"}
         onclick={() => (tab = "limits")}>{m.usage_limits_tab()}</button
       >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={tab === "github"}
+        aria-pressed={tab === "github"}
+        onclick={() => (tab = "github")}>{m.usage_github_tab()}</button
+      >
     </div>
 
     <!-- Range selector (Spend + Overhead only) -->
-    {#if tab !== "limits"}
+    {#if showRange}
       <div class="seg-row range-row" role="group" aria-label={m.usage_range_label()}>
         <button
           type="button"
@@ -176,7 +228,7 @@
       <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
            `breakdown` is still present (a failed range-change refetch) so the user isn't
            silently left on old-range data with no indication the new range failed. -->
-      {#if error && tab !== "limits"}
+      {#if showBreakdownError}
         <div class="usage-error-banner" role="alert">
           <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
           <button type="button" class="gbtn gbtn-secondary" onclick={retry}
@@ -185,25 +237,19 @@
         </div>
       {/if}
 
-      {#if tab === "spend"}
-        {#if breakdown}
-          <SpendLens {breakdown} />
-        {:else if loading}
-          <p class="usage-status-line">{m.common_loading()}</p>
-        {/if}
-      {:else if tab === "overhead"}
-        {#if breakdown}
-          <OverheadLens {breakdown} />
-        {:else if loading}
-          <p class="usage-status-line">{m.common_loading()}</p>
-        {/if}
-      {:else if limits}
+      {#if tab === "spend" && breakdown}
+        <SpendLens {breakdown} />
+      {:else if tab === "overhead" && breakdown}
+        <OverheadLens {breakdown} />
+      {:else if tab === "limits" && limits}
         <LimitsLens {limits} {projections} />
-      {:else if limitsError}
+      {:else if tab === "github" && github}
+        <GithubLens data={github} />
+      {:else if bodyError}
         <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
         <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button
         >
-      {:else}
+      {:else if bodyLoading}
         <p class="usage-status-line">{m.common_loading()}</p>
       {/if}
     </div>

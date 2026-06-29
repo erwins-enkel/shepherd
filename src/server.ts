@@ -103,6 +103,7 @@ import { matchAgent } from "./herdr";
 import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
+import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
@@ -209,6 +210,9 @@ export interface AppDeps {
   refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
+  /** Live GitHub REST + GraphQL rate-limit buckets (via `gh api rate_limit`, which is
+   *  itself quota-exempt); absent in tests → `/api/usage/github` 503s. */
+  githubRateLimit?: () => Promise<GithubRateLimitPayload>;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
@@ -2946,6 +2950,19 @@ async function handleSessionGit(ctx: Ctx): Promise<Response | null> {
   }
 }
 
+/** GET /api/usage/github — live REST + GraphQL rate-limit buckets. Extracted so the
+ *  unavailable/try-catch branches don't inflate handleUsageLimits's complexity. */
+async function githubRateLimitResponse(deps: AppDeps): Promise<Response> {
+  if (!deps.githubRateLimit) {
+    return json({ error: "github rate limit unavailable" }, 503);
+  }
+  try {
+    return json(await deps.githubRateLimit());
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "github rate limit error" }, 502);
+  }
+}
+
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (
     req.method === "POST" &&
@@ -2971,6 +2988,9 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
       limits: deps.usageLimits.limits(now),
       projections: deps.usageLimits.projections(now),
     });
+  }
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "github") {
+    return githubRateLimitResponse(deps);
   }
   if (
     req.method === "GET" &&

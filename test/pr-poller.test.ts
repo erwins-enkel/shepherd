@@ -1010,3 +1010,186 @@ test("refresh signal (a): cold cache + marked + markedNumber matches, ownsPr=fal
   expect(emitted[0]!.number).toBe(344);
   expect(poller.snapshot()[s.id]?.state).toBe("merged");
 });
+
+// ── Task 3: activity-aware fast-sweep filter ───────────────────────────────────
+
+/** Open PR that is stable-green: CI passed, mergeable, clean merge state — not transient. */
+const OPEN_STABLE: PrStatus = {
+  state: "open",
+  number: 10,
+  checks: "success",
+  mergeable: true,
+  mergeStateStatus: "clean",
+  deployConfigured: false,
+};
+
+test("fastTick skips a stable-green open PR (not transient — parked)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/stable" });
+  let fastPolled = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      fastPolled++;
+      return OPEN_STABLE;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick(); // seed cache; also calls prStatus (fastPolled++)
+  fastPolled = 0; // reset — only count fastTick polls
+  await poller.fastTick(); // stable PR → not eligible → 0 polls
+  expect(fastPolled).toBe(0);
+});
+
+test("fastTick polls a transient open PR (checks:pending)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/pending-fast" });
+  let fastPolled = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      fastPolled++;
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick();
+  fastPolled = 0;
+  await poller.fastTick(); // pending → transient → eligible → polled
+  expect(fastPolled).toBe(1);
+});
+
+test("fastTick parks a transient PR whose transientMaxMs window has expired", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/aged" });
+  let fastPolled = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      fastPolled++;
+      return OPEN_PENDING;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000, // transientMaxMs
+  );
+
+  await poller.tick(); // seed cache + transientSince (since ≈ now)
+  fastPolled = 0;
+
+  // Age the transientSince entry past the 300s window
+  const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
+  ts.set(s.id, { since: Date.now() - 400_000, headSha: undefined });
+
+  await poller.fastTick(); // aged out → parked → 0 polls
+  expect(fastPolled).toBe(0);
+});
+
+test("headSha change restamps the transient window, making an aged-out PR eligible again", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/pushed" });
+  let cur: PrStatus = { ...OPEN_PENDING, headSha: "sha-aaa" };
+  let fastPolled = 0;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async () => {
+      fastPolled++;
+      return cur;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    8,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000, // transientMaxMs
+  );
+
+  await poller.tick(); // seed with sha-aaa
+
+  // Age out the entry so fastTick would park it
+  const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
+  ts.set(s.id, { since: Date.now() - 400_000, headSha: "sha-aaa" });
+
+  fastPolled = 0;
+  await poller.fastTick(); // aged out → 0 polls
+  expect(fastPolled).toBe(0);
+
+  // New push: headSha changes → refresh() sees sha-bbb ≠ sha-aaa → restamps since
+  cur = { ...OPEN_PENDING, headSha: "sha-bbb" };
+  await poller.tick(); // tick re-stamps transientSince with since ≈ now
+  fastPolled = 0;
+  await poller.fastTick(); // fresh window → eligible → polled
+  expect(fastPolled).toBe(1);
+});
+
+test("transientSince entry is deleted when a session is pruned in tick()", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/prune-tick" });
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN_PENDING),
+    () => {},
+  );
+
+  await poller.tick(); // seed cache + transientSince
+
+  const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
+  expect(ts.has(s.id)).toBe(true);
+
+  store.archive(s.id);
+  await poller.tick(); // session no longer active → pruned from cache + transientSince
+
+  expect(ts.has(s.id)).toBe(false);
+  expect(poller.snapshot()[s.id]).toBeUndefined();
+});
+
+test("transientSince entry is deleted on drop()", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/prune-drop" });
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => OPEN_PENDING),
+    () => {},
+  );
+
+  await poller.tick(); // seed transientSince
+
+  const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
+  expect(ts.has(s.id)).toBe(true);
+
+  poller.drop(s.id);
+
+  expect(ts.has(s.id)).toBe(false);
+  expect(poller.snapshot()[s.id]).toBeUndefined();
+});

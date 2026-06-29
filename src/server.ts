@@ -141,6 +141,8 @@ import {
   normalizeRepoDefaultModelSetting,
   drainSpawnModel,
   resolveDefaultModelSetting,
+  normalizeRoleCli,
+  normalizeRoleModelToken,
 } from "./default-model";
 import { startSerially } from "./up-next";
 import { excludeHiddenSections } from "./up-next-core";
@@ -3388,6 +3390,20 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
+      // per-role model SETTINGs ("inherit" | "auto" | "default" | <alias>). "inherit" follows
+      // defaultModel; the UI shows each role's effective resolved model alongside the picker.
+      criticCli: config.criticCli,
+      criticModel: config.criticModel,
+      plannerCli: config.plannerCli,
+      plannerModel: config.plannerModel,
+      recapCli: config.recapCli,
+      recapModel: config.recapModel,
+      docAgentCli: config.docAgentCli,
+      docAgentModel: config.docAgentModel,
+      namerCli: config.namerCli,
+      namerModel: config.namerModel,
+      autopilotCli: config.autopilotCli,
+      autopilotModel: config.autopilotModel,
       defaultAgentProvider: config.defaultAgentProvider,
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
@@ -3400,6 +3416,11 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       usageHoldEnabled: config.usageHoldEnabled,
       usageHoldPct: config.usageHoldPct,
       usageHoldAutoRelease: config.usageHoldAutoRelease,
+      // usage-aware model downgrade (companion to the hold): at/above downgradePct every spawn
+      // runs on usageDowngradeModel instead of its configured model.
+      usageDowngradeEnabled: config.usageDowngradeEnabled,
+      usageDowngradePct: config.usageDowngradePct,
+      usageDowngradeModel: config.usageDowngradeModel,
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
       // TUI renderer opt-in (research preview) + mouse-capture disable; apply to new/resumed sessions.
@@ -3433,6 +3454,18 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
+  ["criticCli", makeRoleCliPatch("critic")],
+  ["criticModel", makeRoleModelPatch("critic")],
+  ["plannerCli", makeRoleCliPatch("planner")],
+  ["plannerModel", makeRoleModelPatch("planner")],
+  ["recapCli", makeRoleCliPatch("recap")],
+  ["recapModel", makeRoleModelPatch("recap")],
+  ["docAgentCli", makeRoleCliPatch("docAgent")],
+  ["docAgentModel", makeRoleModelPatch("docAgent")],
+  ["namerCli", makeRoleCliPatch("namer")],
+  ["namerModel", makeRoleModelPatch("namer")],
+  ["autopilotCli", makeRoleCliPatch("autopilot")],
+  ["autopilotModel", makeRoleModelPatch("autopilot")],
   ["defaultAgentProvider", putDefaultAgentProvider],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
@@ -3440,6 +3473,9 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
   ["usageHoldAutoRelease", putUsageHoldAutoRelease],
+  ["usageDowngradeEnabled", putUsageDowngradeEnabled],
+  ["usageDowngradePct", putUsageDowngradePct],
+  ["usageDowngradeModel", putUsageDowngradeModel],
   ["fableAvailable", putFableAvailable],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
@@ -3504,6 +3540,34 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+// Per-role ENVIRONMENT patch handlers (critic/planner/recap/doc-agent/namer/autopilot). Each role
+// is a PAIR: a `<role>Cli` ("inherit"|<provider>) and a `<role>Model` ("default"|<alias>). Both
+// live-update config (the spawn-time thunks read config per spawn, so no restart) and persist.
+// cli/model are validated + stored independently; resolveRoleEnvironment clamps an incoherent pair.
+type RoleKey = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
+
+function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
+  const key = `${role}Cli` as const;
+  return (value, deps) => {
+    const v = normalizeRoleCli(value);
+    if (v === null) return json({ error: `${key} must be "inherit", "claude", or "codex"` }, 400);
+    config[key] = v; // live: next spawn's role-env thunk picks it up
+    deps.store.setSetting(key, v); // persist across restarts
+    return json({ [key]: config[key] });
+  };
+}
+
+function makeRoleModelPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
+  const key = `${role}Model` as const;
+  return (value, deps) => {
+    const v = normalizeRoleModelToken(value);
+    if (v === null) return json({ error: `${key} must be "default" or a known model alias` }, 400);
+    config[key] = v; // live: next spawn's role-env thunk picks it up
+    deps.store.setSetting(key, v); // persist across restarts
+    return json({ [key]: config[key] });
+  };
 }
 
 function putDefaultAgentProvider(value: unknown, deps: Ctx["deps"]): Response {
@@ -3581,6 +3645,35 @@ function putUsageHoldAutoRelease(value: unknown, deps: Ctx["deps"]): Response {
   config.usageHoldAutoRelease = value;
   deps.store.setSetting("usageHoldAutoRelease", value ? "1" : "0");
   return json({ usageHoldAutoRelease: config.usageHoldAutoRelease });
+}
+
+function putUsageDowngradeEnabled(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "usageDowngradeEnabled must be a boolean" }, 400);
+  }
+  config.usageDowngradeEnabled = value; // live: next spawn picks it up
+  deps.store.setSetting("usageDowngradeEnabled", value ? "1" : "0");
+  return json({ usageDowngradeEnabled: config.usageDowngradeEnabled });
+}
+
+function putUsageDowngradePct(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "usageDowngradePct must be a number" }, 400);
+  }
+  const n = Math.min(100, Math.max(0, Math.floor(value)));
+  config.usageDowngradePct = n;
+  deps.store.setSetting("usageDowngradePct", String(n));
+  return json({ usageDowngradePct: config.usageDowngradePct });
+}
+
+// The downgrade target is a default-model SETTING ("auto"|"default"|<alias>); validated
+// via normalizeDefaultModelSetting (no "inherit" — there is nothing for it to inherit from).
+function putUsageDowngradeModel(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeDefaultModelSetting(value);
+  if (v === null) return json({ error: "usageDowngradeModel must be a valid model setting" }, 400);
+  config.usageDowngradeModel = v; // live: next spawn picks it up
+  deps.store.setSetting("usageDowngradeModel", v);
+  return json({ usageDowngradeModel: config.usageDowngradeModel });
 }
 
 function putFableAvailable(value: unknown, deps: Ctx["deps"]): Response {

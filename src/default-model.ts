@@ -13,7 +13,7 @@
  * apply it — autonomous spawns must be deterministic and operator-controlled only.
  */
 
-import { MODELS } from "./types";
+import { AGENT_PROVIDERS, type AgentProvider, MODELS, MODELS_BY_PROVIDER } from "./types";
 
 const SETTING_VALUES = new Set<string>(["auto", "default", ...MODELS]);
 
@@ -94,4 +94,62 @@ export function resolveDefaultModelSetting(
   )
     return repoSetting;
   return globalSetting;
+}
+
+/** A resolved per-role spawn environment: which CLI to launch and which model flag (null = the
+ *  provider's own default, no --model). */
+export interface RoleEnvironment {
+  provider: AgentProvider;
+  model: string | null;
+}
+
+/** Normalize a per-role CLI SETTING to "inherit" | <AgentProvider>, or null if unrecognized.
+ *  "inherit" (the default) means the role follows the global defaultAgentProvider + defaultModel. */
+export function normalizeRoleCli(value: unknown): "inherit" | AgentProvider | null {
+  if (value === "inherit") return "inherit";
+  return (AGENT_PROVIDERS as readonly unknown[]).includes(value) ? (value as AgentProvider) : null;
+}
+
+// Union of every provider's model aliases — the role MODEL token is validated against this plus
+// "default" (the cli/model pairing is enforced in the UI; the resolver clamps any mismatch).
+const ALL_PROVIDER_MODELS = new Set<string>(Object.values(MODELS_BY_PROVIDER).flat());
+
+/** Normalize a per-role MODEL token to "default" | <any provider alias>, or null if unrecognized.
+ *  "default" means "the provider's own default" (no --model flag). */
+export function normalizeRoleModelToken(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (value === "default") return "default";
+  return ALL_PROVIDER_MODELS.has(value) ? value : null;
+}
+
+/**
+ * Resolve a per-ROLE environment (plan reviewer, PR critic, recap, doc-agent, namer, autopilot)
+ * to the CLI provider + spawn-ready model flag for a role spawn.
+ *
+ * Role SETTING space is a PAIR: `roleCli` ∈ "inherit" | <AgentProvider>; `roleModel` ∈
+ * "default" | <alias>.
+ *   - cli "inherit" (or unset/invalid) → follow the global defaultAgentProvider + defaultModel.
+ *   - cli <provider> → that provider; model "default" → null (provider default); model <alias> →
+ *     the alias, clamped to null if it doesn't belong to the chosen provider (stale pairing guard).
+ * fable → opus[1m] substitution (spawnModelForAvailability) applies when fable is unavailable.
+ */
+export function resolveRoleEnvironment(
+  roleCli: string | null | undefined,
+  roleModel: string | null | undefined,
+  globalProvider: AgentProvider,
+  globalModelSetting: string,
+  fableAvailable: boolean,
+): RoleEnvironment {
+  const cli = normalizeRoleCli(roleCli);
+  if (cli === null || cli === "inherit") {
+    return {
+      provider: globalProvider,
+      model: spawnModelForAvailability(drainSpawnModel(globalModelSetting), fableAvailable),
+    };
+  }
+  const token = normalizeRoleModelToken(roleModel) ?? "default";
+  if (token === "default") return { provider: cli, model: null };
+  // Clamp: the stored model must belong to the chosen provider, else fall back to its default.
+  if (!MODELS_BY_PROVIDER[cli].includes(token)) return { provider: cli, model: null };
+  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable) };
 }

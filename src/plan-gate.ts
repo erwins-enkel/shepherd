@@ -5,7 +5,8 @@ import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
-import type { Session, PlanGate, PlanDecision } from "./types";
+import type { Session, PlanGate, PlanDecision, AgentProvider } from "./types";
+import type { RoleEnvironment } from "./default-model";
 import type { GitForge } from "./forge/types";
 import {
   type VisualBlock,
@@ -80,10 +81,11 @@ export function planReviewPrompt(
  *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). Also returns
  *  the reviewer's pinned `--session-id` so begin() can locate its transcript for token totals. */
 export function reviewerArgv(
+  provider: AgentProvider,
   model: string | null,
   prompt: string,
 ): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("reviewer", { model, prompt });
+  return buildTransientAgentArgv("reviewer", { provider, model, prompt });
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
@@ -131,7 +133,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    * effect on the next run without a restart.
    */
   cap?: number | (() => number);
-  model?: string | null; // optional --model for the reviewer
+  // optional environment thunk for the reviewer (CLI + model, read per spawn → live settings)
+  env?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
   /** default: read `.shepherd-plan.md` from the live worktree. */
@@ -255,7 +258,8 @@ export class PlanGateService {
     const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? [], issueBody);
     // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
     // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
-    const { argv, sessionId: reviewerSessionId } = reviewerArgv(this.deps.model ?? null, prompt);
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    const { argv, sessionId: reviewerSessionId } = reviewerArgv(env.provider, env.model, prompt);
 
     // Disposable detached worktree at the base: read-only codebase inspection that can't race
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.
@@ -311,7 +315,7 @@ export class PlanGateService {
         sessionId: reviewerSessionId,
         kind: "plan-gate",
         parentSessionId: session.id,
-        model: this.deps.model ?? null,
+        model: this.deps.env?.().model ?? null,
       },
     });
     if ("aborted" in aux) {
@@ -358,7 +362,7 @@ export class PlanGateService {
       taskSessionId: session.id,
       kind: "plan_gate",
       worktreePath: wt.worktreePath,
-      model: this.deps.model ?? null,
+      model: this.deps.env?.().model ?? null,
       spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);

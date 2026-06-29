@@ -11,6 +11,7 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { SessionStore } from "./store";
 import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
+import type { RoleEnvironment } from "./default-model";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
 import { isApiKeyConfigured, isApiKeyMode } from "./spawn-auth";
@@ -189,7 +190,8 @@ export interface DocAgentDeps extends MembraneSeams {
     | "listDocAgentRuns"
     | "list"
   >;
-  model?: string | null;
+  // optional environment thunk (CLI + model, read per spawn → live settings)
+  env?: () => RoleEnvironment;
   /** Phase-1 escalation: when false (Phase-0 observe), finalize() is log-only (no commit/push/PR). */
   act?: boolean;
   onChange?: (f: DocAgentFinalize) => void;
@@ -624,7 +626,7 @@ export class DocAgentService {
       taskSessionId: repoPath,
       kind: "doc_agent",
       worktreePath: wt.worktreePath,
-      model: this.deps.model ?? null,
+      model: this.deps.env?.().model ?? null,
       spawnedAt: startedAt,
     });
     return { ok: true };
@@ -698,8 +700,10 @@ export class DocAgentService {
     base: string,
     promptCtx?: RetargetPromptCtx,
   ): Promise<{ terminalId: string; spawnSessionId: string } | null | "aborted"> {
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     const { argv, sessionId } = buildTransientAgentArgv("doc", {
-      model: this.deps.model ?? null,
+      provider: env.provider,
+      model: env.model,
       prompt: this.buildPrompt(base, promptCtx),
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind any patched env THROUGH the membrane.
@@ -714,7 +718,7 @@ export class DocAgentService {
       descriptor: {
         sessionId,
         kind: "doc",
-        model: this.deps.model ?? null,
+        model: this.deps.env?.().model ?? null,
       },
     });
     if ("aborted" in aux) {

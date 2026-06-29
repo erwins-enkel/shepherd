@@ -233,6 +233,14 @@
         "reason": "Codex provider path adds one task-composer branch above the Tier-1 Svelte template cyclomatic bar; keep capped until NewTask is split further (#855)."
       },
       {
+        "files": ["ui/src/lib/components/Settings.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 50,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "Per-role agent-environment pickers (CLI + model dropdowns) and the usage-downgrade controls add branches above the Tier-1 Svelte template cyclomatic bar (43); cognitive stays within bar. Keep capped until Settings is split into per-section sub-components (#855)."
+      },
+      {
         "files": ["src/service.ts"],
         "functions": ["create"],
         "maxCyclomatic": 25,

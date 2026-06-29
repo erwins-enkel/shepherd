@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
-import type { AutopilotVerdict, AutopilotKind } from "./types";
+import type { AutopilotVerdict, AutopilotKind, AgentProvider } from "./types";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 
@@ -19,6 +19,7 @@ export interface ClassifierDeps {
   makeTmpDir?: () => string;
   readVerdict?: (cwd: string) => RawVerdict | null;
   cleanup?: (cwd: string) => void;
+  provider?: AgentProvider;
   model?: string | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -102,8 +103,8 @@ function defaultCleanup(cwd: string): void {
  *  (the agent-stop tail) is UNTRUSTED; bare `Write` is safe here via the sandbox shape (disposable
  *  temp dir, dontAsk, no exec/Edit/network), NOT because the input is trusted. See
  *  buildTransientAgentArgv for the flag-order + isolation rationale. */
-function classifierArgv(model: string | null, prompt: string): string[] {
-  return buildTransientAgentArgv("writer-only", { model, prompt }).argv;
+function classifierArgv(provider: AgentProvider, model: string | null, prompt: string): string[] {
+  return buildTransientAgentArgv("writer-only", { provider, model, prompt }).argv;
 }
 
 interface PollClock {
@@ -151,6 +152,7 @@ export async function classifyStop(
     makeTmpDir = defaultMakeTmpDir,
     readVerdict = defaultReadVerdict,
     cleanup = defaultCleanup,
+    provider = "claude",
     model = "haiku",
     now = Date.now,
     sleep = realSleep,
@@ -178,7 +180,7 @@ export async function classifyStop(
       terminalId = deps.herdr.start(
         label,
         cwd,
-        classifierArgv(model, prompt),
+        classifierArgv(provider, model, prompt),
         apiKeyPassthroughEnv(false),
       ).terminalId;
     } catch {

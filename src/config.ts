@@ -1,7 +1,12 @@
 import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
-import { normalizeDefaultModelSetting, normalizeFableAvailable } from "./default-model";
+import {
+  normalizeDefaultModelSetting,
+  normalizeFableAvailable,
+  normalizeRoleCli,
+  normalizeRoleModelToken,
+} from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
@@ -461,9 +466,11 @@ export const config = {
   // Phase-1 escalation; meaningful only with `docAgentEnabled` (Phase-0 observe). When off,
   // finalize() is log-only (it warns what PR it *would* open, then skips commit/push/openPr).
   docAgentAct: process.env.SHEPHERD_DOC_AGENT_ACT === "1",
-  // Model alias for the doc-agent spawn. Unset → no --model (spawn default). The agent does
-  // substantive comprehension, so a capable model is appropriate; override per deployment.
-  docAgentModel: process.env.SHEPHERD_DOC_AGENT_MODEL ?? null,
+  // Per-role ENVIRONMENT (CLI + model) for the doc-agent spawn. cli ∈ "inherit"|"claude"|"codex"
+  // ("inherit" follows the global defaultAgentProvider+defaultModel); model ∈ "default"|<alias>.
+  // Resolved via resolveRoleEnvironment at wiring time. Persisted + UI-configurable; env seeds a fresh DB.
+  docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
+  docAgentModel: normalizeRoleModelToken(process.env.SHEPHERD_DOC_AGENT_MODEL) ?? "default",
   // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
@@ -491,8 +498,12 @@ export const config = {
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.
   llmNaming: process.env.SHEPHERD_LLM_NAMING !== "0",
-  // model for the background namer (cheap + fast is plenty for a 2-4 word slug).
-  namerModel: process.env.SHEPHERD_NAMER_MODEL ?? "haiku",
+  // Per-role ENVIRONMENT (CLI + model) for the background namer (cheap + fast is plenty for a 2-4
+  // word slug). Seeded to Claude+haiku — a deliberate fixed default for this constant-cadence
+  // classifier (following a heavy global default would needlessly inflate naming cost). Resolved
+  // via resolveRoleEnvironment at the call site. Persisted + UI-configurable.
+  namerCli: normalizeRoleCli(process.env.SHEPHERD_NAMER_CLI) ?? "claude",
+  namerModel: normalizeRoleModelToken(process.env.SHEPHERD_NAMER_MODEL) ?? "haiku",
   // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
   // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
   // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
@@ -500,8 +511,12 @@ export const config = {
   houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
-  // Model alias for the transient autopilot stop-classifier spawn (cheap + fast is plenty).
-  autopilotModel: process.env.SHEPHERD_AUTOPILOT_MODEL ?? "haiku",
+  // Per-role ENVIRONMENT (CLI + model) for the transient autopilot stop-classifier spawn (cheap +
+  // fast is plenty). Seeded to Claude+haiku — like the namer, a deliberate fixed default for a
+  // constant-cadence classifier. Resolved via resolveRoleEnvironment at the call site.
+  // Persisted + UI-configurable.
+  autopilotCli: normalizeRoleCli(process.env.SHEPHERD_AUTOPILOT_CLI) ?? "claude",
+  autopilotModel: normalizeRoleModelToken(process.env.SHEPHERD_AUTOPILOT_MODEL) ?? "haiku",
   // Max PR-critic auto-address rounds before escalating to a human (drives ReviewService).
   // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
   prReviewCyclesCap: clampCap(
@@ -518,6 +533,19 @@ export const config = {
     PLAN_REVIEW_CYCLES_MAX,
     PLAN_REVIEW_CYCLES_DEFAULT,
   ),
+  // Per-role ENVIRONMENTs (CLI + model) for the PR critic (ReviewService + StandalonePrCriticService)
+  // and the pre-execution plan-gate reviewer. cli ∈ "inherit"|"claude"|"codex"; model ∈
+  // "default"|<alias>. Seeded to cli "inherit" → both follow the global defaultAgentProvider +
+  // defaultModel (today's behavior). Resolved via resolveRoleEnvironment at wiring time. Persisted +
+  // UI-configurable; env seeds a fresh DB.
+  criticCli: normalizeRoleCli(process.env.SHEPHERD_CRITIC_CLI) ?? "inherit",
+  criticModel: normalizeRoleModelToken(process.env.SHEPHERD_CRITIC_MODEL) ?? "default",
+  plannerCli: normalizeRoleCli(process.env.SHEPHERD_PLANNER_CLI) ?? "inherit",
+  plannerModel: normalizeRoleModelToken(process.env.SHEPHERD_PLANNER_MODEL) ?? "default",
+  // Per-role ENVIRONMENT for the recap (session-summary) agent. Seeded to Claude+sonnet to preserve
+  // the prior hardcoded default; resolved via resolveRoleEnvironment. Persisted + UI-configurable.
+  recapCli: normalizeRoleCli(process.env.SHEPHERD_RECAP_CLI) ?? "claude",
+  recapModel: normalizeRoleModelToken(process.env.SHEPHERD_RECAP_MODEL) ?? "sonnet",
   // Default model for spawned agents. Persisted + UI-configurable. "auto" = unset seed
   // (picker uses client promo fallback, drain falls back to no --model); an explicit
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
@@ -600,6 +628,18 @@ export const config = {
   usageHoldAutoRelease: !["0", "false"].includes(
     (process.env.SHEPHERD_USAGE_HOLD_AUTO_RELEASE ?? "").toLowerCase(),
   ),
+  // Usage-aware model downgrade (companion to the hold above): when usage is at or above
+  // downgradePct, every newly spawned agent (main task agents AND the role agents) runs on
+  // usageDowngradeModel instead of its configured model — work keeps flowing, just cheaper.
+  // Intended two-tier escalation: downgrade at a LOWER pct, hold at a higher one. Default OFF
+  // (opt-in, no behavior change); set SHEPHERD_USAGE_DOWNGRADE_ENABLED=1 to enable. downgradePct:
+  // [0,100], default 80. Model: a default-model SETTING ("auto"|"default"|<alias>), default haiku.
+  usageDowngradeEnabled: ["1", "true"].includes(
+    (process.env.SHEPHERD_USAGE_DOWNGRADE_ENABLED ?? "").toLowerCase(),
+  ),
+  usageDowngradePct: clampCap(Number(process.env.SHEPHERD_USAGE_DOWNGRADE_PCT ?? 80), 0, 100, 80),
+  usageDowngradeModel:
+    normalizeDefaultModelSetting(process.env.SHEPHERD_USAGE_DOWNGRADE_MODEL) ?? "haiku",
 };
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
+import type { AgentProvider } from "./types";
 import { slugifyManual } from "./namer";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -14,6 +15,7 @@ export interface LlmNamerDeps {
   makeTmpDir?: () => string;
   readName?: (cwd: string) => string | null;
   cleanup?: (cwd: string) => void;
+  provider?: AgentProvider;
   model?: string | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -61,8 +63,9 @@ function defaultCleanup(cwd: string): void {
 /** The namer spawn's argv — the shared `writer-only` transient-agent shape (Write-only, dontAsk,
  *  clean context). The only input is the user's OWN task prompt (trusted), so bare `Write` is an
  *  accepted trade-off; see buildTransientAgentArgv for the full flag-order + posture rationale. */
-function namerArgv(model: string | null, taskText: string): string[] {
-  return buildTransientAgentArgv("writer-only", { model, prompt: namingPrompt(taskText) }).argv;
+function namerArgv(provider: AgentProvider, model: string | null, taskText: string): string[] {
+  return buildTransientAgentArgv("writer-only", { provider, model, prompt: namingPrompt(taskText) })
+    .argv;
 }
 
 interface PollClock {
@@ -118,6 +121,7 @@ export async function llmName(
     makeTmpDir = defaultMakeTmpDir,
     readName = defaultReadName,
     cleanup = defaultCleanup,
+    provider = "claude",
     model = "haiku",
     now = Date.now,
     sleep = realSleep,
@@ -137,7 +141,7 @@ export async function llmName(
       terminalId = deps.herdr.start(
         label,
         cwd,
-        namerArgv(model, taskText),
+        namerArgv(provider, model, taskText),
         apiKeyPassthroughEnv(false),
       ).terminalId;
     } catch {

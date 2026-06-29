@@ -28,7 +28,7 @@ test("prompt omits the issue block when no issue body is given (or null)", () =>
   }
 });
 test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAllHooks, slash disabled", () => {
-  const { argv: a } = reviewerArgv(null, "PROMPT");
+  const { argv: a } = reviewerArgv("claude", null, "PROMPT");
   expect(a).not.toContain("--bare");
   expect(a).toContain("--disable-slash-commands");
   expect(a.join(" ")).toContain('{"disableAllHooks":true,"enableAllProjectMcpServers":true}');
@@ -43,7 +43,7 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   expect(a.indexOf("--safe-mode")).toBeLessThan(a.indexOf("--allowedTools"));
 });
 test("reviewerArgv inserts --model when given", () => {
-  const { argv: a } = reviewerArgv("opus", "PROMPT");
+  const { argv: a } = reviewerArgv("claude", "opus", "PROMPT");
   const mi = a.indexOf("--model");
   expect(mi).toBeGreaterThan(-1);
   expect(a[mi + 1]).toBe("opus");

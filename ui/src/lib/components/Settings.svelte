@@ -7,6 +7,8 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putRoleModel,
+    putRoleCli,
     putDefaultAgentProvider,
     putAuthMode,
     putAnthropicApiKey,
@@ -14,6 +16,9 @@
     putExtraCreditsDrainCeiling,
     putUsageHoldEnabled,
     putUsageHoldPct,
+    putUsageDowngradeEnabled,
+    putUsageDowngradePct,
+    putUsageDowngradeModel,
     putFableAvailable,
     putReducedPushMode,
     putTuiFullscreen,
@@ -25,6 +30,7 @@
   import {
     AGENT_PROVIDERS,
     MODELS,
+    MODELS_BY_PROVIDER,
     PREMIUM_MODELS,
     type AgentProvider,
     type HerdrUpdateStatus,
@@ -182,6 +188,158 @@
   // 1M-context variants ("opus[1m]"/"sonnet[1m]") carry an extra per-turn cost the
   // generic premium warning doesn't convey, so they surface an additional note.
   const is1mModel = $derived(defaultModel.endsWith("[1m]"));
+
+  // Per-role ENVIRONMENT overrides (plan reviewer, PR critic, recap, doc-agent, namer, autopilot).
+  // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
+  // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
+  // mirror the server defaults so the pickers read sensibly before load() resolves.
+  const ROLE_BASES = ["planner", "critic", "docAgent", "recap", "namer", "autopilot"] as const;
+  type RoleBase = (typeof ROLE_BASES)[number];
+  const ROLE_CLI_SEED: Record<RoleBase, string> = {
+    planner: "inherit",
+    critic: "inherit",
+    docAgent: "inherit",
+    recap: "claude",
+    namer: "claude",
+    autopilot: "claude",
+  };
+  const ROLE_MODEL_SEED: Record<RoleBase, string> = {
+    planner: "default",
+    critic: "default",
+    docAgent: "default",
+    recap: "sonnet",
+    namer: "haiku",
+    autopilot: "haiku",
+  };
+  let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
+  let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
+  let roleModelV = $state<Record<RoleBase, string>>({ ...ROLE_MODEL_SEED });
+  let roleModelSaved: Record<RoleBase, string> = { ...ROLE_MODEL_SEED };
+  let roleBusy = $state<Record<RoleBase, boolean>>({
+    planner: false,
+    critic: false,
+    docAgent: false,
+    recap: false,
+    namer: false,
+    autopilot: false,
+  });
+  // Foreground (content) roles vs. collapsed classifiers (constant-cadence, kept cheap).
+  const ROLE_PRIMARY: RoleBase[] = ["planner", "critic", "docAgent", "recap"];
+  const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
+
+  function roleTitle(role: RoleBase): string {
+    switch (role) {
+      case "planner":
+        return m.settings_role_model_planner_title();
+      case "critic":
+        return m.settings_role_model_critic_title();
+      case "docAgent":
+        return m.settings_role_model_docagent_title();
+      case "recap":
+        return m.settings_role_model_recap_title();
+      case "namer":
+        return m.settings_role_model_namer_title();
+      case "autopilot":
+        return m.settings_role_model_autopilot_title();
+    }
+  }
+  function roleHint(role: RoleBase): string {
+    switch (role) {
+      case "planner":
+        return m.settings_role_model_planner_hint();
+      case "critic":
+        return m.settings_role_model_critic_hint();
+      case "docAgent":
+        return m.settings_role_model_docagent_hint();
+      case "recap":
+        return m.settings_role_model_recap_hint();
+      case "namer":
+        return m.settings_role_model_namer_hint();
+      case "autopilot":
+        return m.settings_role_model_autopilot_hint();
+    }
+  }
+  // Display label for a CLI/provider (the CLI dropdown options + the effective line).
+  function providerLabel(provider: string): string {
+    return provider === "codex" ? m.settings_cli_codex() : m.settings_cli_claude();
+  }
+  // The model options for a role's currently-selected CLI (empty when it inherits).
+  function roleModelOptions(role: RoleBase): readonly string[] {
+    const cli = roleCli[role];
+    return cli === "claude" || cli === "codex" ? MODELS_BY_PROVIDER[cli] : [];
+  }
+  // Client-side mirror of the server's resolveRoleEnvironment, for the "effective →" hint only:
+  // returns a "CLI · Model" label. inherit → global provider+model; "default"/"auto" → provider
+  // default; fable substitutes when off; a model not in the CLI's list clamps to the default.
+  function effectiveEnvLabel(role: RoleBase): string {
+    const cli = roleCli[role];
+    let provider: string;
+    let token: string;
+    if (cli === "claude" || cli === "codex") {
+      provider = cli;
+      token = roleModelV[role];
+      if (token !== "default" && !MODELS_BY_PROVIDER[cli].includes(token)) token = "default";
+    } else {
+      provider = defaultAgentProvider;
+      token = defaultModel; // "auto" | "default" | <alias>
+    }
+    let modelLbl: string;
+    if (token === "auto" || token === "default") {
+      modelLbl = m.settings_role_model_effective_provider_default();
+    } else {
+      let s = token;
+      if (s === "fable" && !fableAvailable) s = "opus[1m]";
+      modelLbl = modelLabel(s);
+    }
+    return `${providerLabel(provider)} · ${modelLbl}`;
+  }
+
+  async function saveRoleCli(role: RoleBase) {
+    if (roleBusy[role]) return;
+    roleBusy[role] = true;
+    try {
+      const r = await putRoleCli(`${role}Cli`, roleCli[role]);
+      const v = r[`${role}Cli`];
+      if (typeof v === "string") {
+        roleCli[role] = v;
+        roleCliSaved[role] = v;
+      }
+      // If the new CLI doesn't offer the currently-selected model, snap the model back to its
+      // provider default and persist that too — keeps the stored pair coherent.
+      const opts = roleModelOptions(role);
+      if (opts.length && roleModelV[role] !== "default" && !opts.includes(roleModelV[role])) {
+        roleModelV[role] = "default";
+        await saveRoleModel(role);
+      }
+    } catch {
+      roleCli[role] = roleCliSaved[role]; // revert; surface a persistent, deduped alert
+      toasts.info(m.settings_role_model_save_failed(), {
+        key: `role-cli-${role}`,
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      roleBusy[role] = false;
+    }
+  }
+
+  async function saveRoleModel(role: RoleBase) {
+    try {
+      const r = await putRoleModel(`${role}Model`, roleModelV[role]);
+      const v = r[`${role}Model`];
+      if (typeof v === "string") {
+        roleModelV[role] = v;
+        roleModelSaved[role] = v;
+      }
+    } catch {
+      roleModelV[role] = roleModelSaved[role]; // revert; surface a persistent, deduped alert
+      toasts.info(m.settings_role_model_save_failed(), {
+        key: `role-model-${role}`,
+        duration: null,
+        alert: true,
+      });
+    }
+  }
   let authMode = $state("subscription"); // how spawned agents authenticate
   let authModeSaved = "subscription"; // last server-confirmed value, for revert on failure
   let authBusy = $state(false);
@@ -200,6 +358,17 @@
   let usageHoldPct = $state(80); // threshold percentage (0–100); matches server default
   let usageHoldPctSaved = 80;
   let usageHoldPctBusy = $state(false);
+
+  // Usage-aware model downgrade — at/above the (lower) threshold every spawn runs on a cheap
+  // model instead of pausing; the hold above still pauses at its (higher) threshold.
+  let usageDowngradeEnabled = $state(false);
+  let usageDowngradeBusy = $state(false);
+  let usageDowngradePct = $state(80); // threshold percentage (0–100); matches server default
+  let usageDowngradePctSaved = 80;
+  let usageDowngradePctBusy = $state(false);
+  let usageDowngradeModel = $state("haiku"); // setting ("auto"|"default"|<alias>); matches server seed
+  let usageDowngradeModelSaved = "haiku";
+  let usageDowngradeModelBusy = $state(false);
 
   // Fable availability — operator kill-switch while Fable is globally unavailable.
   let fableAvailable = $state(true);
@@ -549,6 +718,65 @@
     }
   }
 
+  async function toggleUsageDowngrade() {
+    if (usageDowngradeBusy) return;
+    usageDowngradeBusy = true;
+    const next = !usageDowngradeEnabled;
+    try {
+      const s = await putUsageDowngradeEnabled(next);
+      usageDowngradeEnabled = s.usageDowngradeEnabled;
+    } catch {
+      toasts.info(m.settings_usage_downgrade_enabled_save_failed(), {
+        key: "usage-downgrade-enabled",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      usageDowngradeBusy = false;
+    }
+  }
+
+  async function saveUsageDowngradePct() {
+    if (usageDowngradePctBusy) return;
+    usageDowngradePctBusy = true;
+    const n = Math.round(Number(usageDowngradePct));
+    const clamped = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : usageDowngradePctSaved;
+    usageDowngradePct = clamped;
+    try {
+      const r = await putUsageDowngradePct(clamped);
+      usageDowngradePct = r.usageDowngradePct;
+      usageDowngradePctSaved = r.usageDowngradePct;
+    } catch {
+      usageDowngradePct = usageDowngradePctSaved;
+      toasts.info(m.settings_usage_downgrade_pct_save_failed(), {
+        key: "usage-downgrade-pct",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      usageDowngradePctBusy = false;
+    }
+  }
+
+  async function saveUsageDowngradeModel() {
+    if (usageDowngradeModelBusy) return;
+    usageDowngradeModelBusy = true;
+    try {
+      const r = await putUsageDowngradeModel(usageDowngradeModel);
+      usageDowngradeModel = r.usageDowngradeModel;
+      usageDowngradeModelSaved = r.usageDowngradeModel;
+    } catch {
+      usageDowngradeModel = usageDowngradeModelSaved;
+      toasts.info(m.settings_usage_downgrade_model_save_failed(), {
+        key: "usage-downgrade-model",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      usageDowngradeModelBusy = false;
+    }
+  }
+
   async function toggleRemoteControl() {
     if (rcBusy) return;
     rcBusy = true;
@@ -592,8 +820,20 @@
       planReviewCyclesMax = s.planReviewCyclesMax;
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
-      defaultModel = s.defaultModel;
-      defaultModelSaved = s.defaultModel;
+      defaultModel = s.defaultModel ?? "auto";
+      defaultModelSaved = defaultModel;
+      // Fall back to the seed default per role when a field is absent (e.g. an older backend that
+      // predates per-role environments) so the pickers never render blank — a sensible default is
+      // always shown.
+      const sr = s as unknown as Record<string, unknown>;
+      for (const role of ROLE_BASES) {
+        const cli = sr[`${role}Cli`];
+        roleCli[role] = typeof cli === "string" ? cli : ROLE_CLI_SEED[role];
+        const mdl = sr[`${role}Model`];
+        roleModelV[role] = typeof mdl === "string" ? mdl : ROLE_MODEL_SEED[role];
+      }
+      roleCliSaved = { ...roleCli };
+      roleModelSaved = { ...roleModelV };
       defaultAgentProvider = s.defaultAgentProvider ?? "claude";
       defaultAgentProviderSaved = s.defaultAgentProvider ?? "claude";
       authMode = s.authMode;
@@ -604,6 +844,13 @@
       usageHoldEnabled = s.usageHoldEnabled;
       usageHoldPct = s.usageHoldPct;
       usageHoldPctSaved = s.usageHoldPct;
+      // Fall back to the server seed when a field is absent (older backend) so the controls
+      // never render blank.
+      usageDowngradeEnabled = s.usageDowngradeEnabled ?? false;
+      usageDowngradePct = s.usageDowngradePct ?? 80;
+      usageDowngradePctSaved = usageDowngradePct;
+      usageDowngradeModel = s.usageDowngradeModel ?? "haiku";
+      usageDowngradeModelSaved = usageDowngradeModel;
       fableAvailable = s.fableAvailable;
       tuiFullscreen = s.tuiFullscreen;
       tuiDisableMouse = s.tuiDisableMouse;
@@ -839,6 +1086,61 @@
         </div>
       </div>
 
+      {#snippet roleRow(role: RoleBase)}
+        <div class="rc">
+          <span class="micro">{roleTitle(role)}</span>
+          <p class="hint">{roleHint(role)}</p>
+          <div class="cli-row">
+            <select
+              class="model-select"
+              bind:value={roleCli[role]}
+              disabled={roleBusy[role]}
+              aria-label={m.settings_role_cli_label({ role: roleTitle(role) })}
+              onchange={() => saveRoleCli(role)}
+            >
+              <option value="inherit">{m.settings_role_cli_inherit()}</option>
+              {#each AGENT_PROVIDERS as p (p)}
+                <option value={p}>{providerLabel(p)}</option>
+              {/each}
+            </select>
+            {#if roleCli[role] !== "inherit"}
+              <select
+                class="model-select"
+                bind:value={roleModelV[role]}
+                disabled={roleBusy[role]}
+                aria-label={m.settings_role_model_label({ role: roleTitle(role) })}
+                onchange={() => saveRoleModel(role)}
+              >
+                <option value="default">{m.newtask_model_default()}</option>
+                {#each roleModelOptions(role) as mdl (mdl)}
+                  <option value={mdl}>{modelLabel(mdl)}</option>
+                {/each}
+              </select>
+            {/if}
+          </div>
+          <p class="hint role-eff">
+            {m.settings_role_model_effective({ model: effectiveEnvLabel(role) })}
+          </p>
+        </div>
+      {/snippet}
+
+      <div class="cli-section">
+        <div class="cli-head">
+          <span class="micro">{m.settings_role_models_title()}</span>
+          <p class="hint">{m.settings_role_models_hint()}</p>
+        </div>
+        {#each ROLE_PRIMARY as role (role)}
+          {@render roleRow(role)}
+        {/each}
+        <details class="role-advanced">
+          <summary>{m.settings_role_models_advanced()}</summary>
+          <p class="hint">{m.settings_role_models_classifier_cost_hint()}</p>
+          {#each ROLE_CLASSIFIERS as role (role)}
+            {@render roleRow(role)}
+          {/each}
+        </details>
+      </div>
+
       <div class="cli-section">
         <div class="cli-head">
           <span class="micro">{m.settings_cli_codex_title()}</span>
@@ -1003,6 +1305,60 @@
             onchange={saveUsageHoldPct}
           />
         </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_usage_downgrade_enabled_label()}</span>
+        <p class="hint">{m.settings_usage_downgrade_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={usageDowngradeEnabled}
+          disabled={usageDowngradeBusy}
+          onclick={toggleUsageDowngrade}
+        >
+          <span class="track" class:on={usageDowngradeEnabled}><span class="knob"></span></span>
+          <span class="state"
+            >{usageDowngradeEnabled
+              ? m.settings_usage_hold_on()
+              : m.settings_usage_hold_off()}</span
+          >
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_usage_downgrade_pct_label()}</span>
+        <p class="hint">{m.settings_usage_downgrade_pct_hint()}</p>
+        <label class="cycles">
+          <span class="cycles-label">{m.settings_usage_downgrade_pct_field_label()}</span>
+          <input
+            class="num"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            disabled={usageDowngradePctBusy || !usageDowngradeEnabled}
+            bind:value={usageDowngradePct}
+            aria-label={m.settings_usage_downgrade_pct_label()}
+            onchange={saveUsageDowngradePct}
+          />
+        </label>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_usage_downgrade_model_label()}</span>
+        <p class="hint">{m.settings_usage_downgrade_model_hint()}</p>
+        <select
+          class="model-select"
+          bind:value={usageDowngradeModel}
+          disabled={usageDowngradeModelBusy || !usageDowngradeEnabled}
+          aria-label={m.settings_usage_downgrade_model_label()}
+          onchange={saveUsageDowngradeModel}
+        >
+          <option value="auto">{m.settings_default_model_auto()}</option>
+          <option value="default">{m.newtask_model_default()}</option>
+          {#each MODELS as mdl (mdl)}
+            <option value={mdl}>{modelLabel(mdl)}</option>
+          {/each}
+        </select>
       </div>
       <div class="rc">
         <span class="micro">{m.settings_fable_available_label()}</span>
@@ -1341,6 +1697,28 @@
     font-size: var(--fs-meta);
     margin: 0;
   }
+  /* Per-role "effective →" resolution line: a touch brighter than the plain hint so the
+     actually-spawned model reads as the answer, not chrome. */
+  .rc .hint.role-eff {
+    color: var(--color-muted);
+  }
+  /* Collapsed classifiers group (namer/autopilot): a native, keyboard-reachable disclosure. */
+  .role-advanced {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .role-advanced > summary {
+    cursor: pointer;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .role-advanced > summary:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   /* Review-cycles stepper: an inline label + compact number input, mirroring the
      drain-cap control in AutomationPanel. */
   .cycles {
@@ -1392,6 +1770,17 @@
   .model-select:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  /* Per-role environment: the CLI select + the model select sit side by side, wrapping on narrow
+     viewports so neither is clipped on mobile. */
+  .cli-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cli-row .model-select {
+    flex: 1 1 9rem;
+    min-width: 9rem;
   }
   .premium-warn {
     color: var(--color-amber);

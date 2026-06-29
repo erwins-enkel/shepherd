@@ -249,6 +249,19 @@ export const putUsageHoldAutoRelease = (
   enabled: boolean,
 ): Promise<{ usageHoldAutoRelease: boolean }> => patchSettings({ usageHoldAutoRelease: enabled });
 
+// Toggle usage-aware model downgrade (spawn every agent on the cheap model once usage is high).
+export const putUsageDowngradeEnabled = (
+  enabled: boolean,
+): Promise<{ usageDowngradeEnabled: boolean }> => patchSettings({ usageDowngradeEnabled: enabled });
+
+// Persist the downgrade threshold percentage (0–100). At/above it, spawns use the downgrade model.
+export const putUsageDowngradePct = (pct: number): Promise<{ usageDowngradePct: number }> =>
+  patchSettings({ usageDowngradePct: pct });
+
+// Persist the model spawns downgrade to when usage is high (a default-model setting alias).
+export const putUsageDowngradeModel = (model: string): Promise<{ usageDowngradeModel: string }> =>
+  patchSettings({ usageDowngradeModel: model });
+
 // Toggle whether Fable is globally available; when false, Fable-targeted tasks run on Opus (1M).
 export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boolean }> =>
   patchSettings<{ fableAvailable: boolean }>({ fableAvailable: value });
@@ -477,6 +490,25 @@ export const putDefaultAgentProvider = (
   provider: AgentProvider,
 ): Promise<{ defaultAgentProvider: AgentProvider }> =>
   patchSettings<{ defaultAgentProvider: AgentProvider }>({ defaultAgentProvider: provider });
+
+// The per-role ENVIRONMENT settings the Settings UI can override. Each role has a PAIR: a
+// `<role>Cli` ("inherit" | "claude" | "codex") and a `<role>Model` ("default" | <alias>). The
+// server validates + persists each independently and echoes the stored value under the same key.
+export type RoleBase = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
+export type RoleCliKey = `${RoleBase}Cli`;
+export type RoleModelKey = `${RoleBase}Model`;
+
+// Persist a single per-role CLI setting. The server echoes the stored value under the same key.
+export const putRoleCli = (
+  key: RoleCliKey,
+  cli: string,
+): Promise<Partial<Record<RoleCliKey, string>>> => patchSettings({ [key]: cli });
+
+// Persist a single per-role model setting. The server echoes the stored value under the same key.
+export const putRoleModel = (
+  key: RoleModelKey,
+  model: string,
+): Promise<Partial<Record<RoleModelKey, string>>> => patchSettings({ [key]: model });
 
 // Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
 export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>

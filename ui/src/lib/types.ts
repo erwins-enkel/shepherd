@@ -2,6 +2,9 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
+/** Role a session plays in a comparison experiment (see server `ExperimentRole`). */
+export type ExperimentRole = "variant" | "comparison";
+
 export type BuildStepStatus = "pending" | "active" | "done" | "skipped";
 
 export interface BuildStep {
@@ -777,6 +780,10 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
   manualStepsAckedAt: number | null;
+  /** Comparison-experiment group id this session belongs to; null = not part of an experiment. */
+  experimentId: string | null;
+  /** This session's role within its experiment; null when not in one. */
+  experimentRole: ExperimentRole | null;
   /** Transient, server-derived: true when the session's scratchpad holds any file/dir (#1164).
    *  Gates the Files tab. Not persisted — folded into the /api/sessions payload + session:status
    *  (idle/done) push; absent (undefined) on partial pushes that don't recompute it. */
@@ -1269,6 +1276,10 @@ export type WsEvent =
       };
     }
   | { event: "session:archived"; data: { id: string } }
+  | {
+      event: "session:experiment";
+      data: { id: string; experimentId: string | null; experimentRole: ExperimentRole | null };
+    }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
@@ -1345,6 +1356,8 @@ export interface RelaunchOverrides {
   repoPath?: string;
   baseBranch?: string;
   prompt?: string;
+  /** Agent CLI override; absent → keep the original's provider (drives "Replace with…"). */
+  agentProvider?: AgentProvider;
   model?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];

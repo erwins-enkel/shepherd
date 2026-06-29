@@ -7,6 +7,8 @@
     createSession,
     archiveSession,
     relaunchSession,
+    startVariant,
+    startComparison,
     restoreSession,
     stageRelaunchImages,
     ApiError,
@@ -105,6 +107,7 @@
   } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import AppOverlays from "$lib/components/page/AppOverlays.svelte";
+  import ModelCliPicker from "$lib/components/new-task/ModelCliPicker.svelte";
   import FeedbackDialog from "$lib/components/FeedbackDialog.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
@@ -1699,6 +1702,53 @@
     }
   }
 
+  // ── Comparison experiments ───────────────────────────────────────────────────
+  // A card's "Start as variant…" / "Replace with…" menu item and an experiment group's
+  // "Compare" button all open the SAME anchored provider/model picker; the chosen pair drives
+  // the matching API call. Variants/comparison spawns appear live via session:new; the original
+  // joins the group live via session:experiment.
+  let picker = $state<
+    | { mode: "variant" | "replace"; id: string; x: number; y: number }
+    | { mode: "compare"; experimentId: string; x: number; y: number }
+    | null
+  >(null);
+  function onvariant(id: string, anchor: { x: number; y: number }) {
+    picker = { mode: "variant", id, x: anchor.x, y: anchor.y };
+  }
+  function onreplace(id: string, anchor: { x: number; y: number }) {
+    picker = { mode: "replace", id, x: anchor.x, y: anchor.y };
+  }
+  function oncompare(experimentId: string, anchor: { x: number; y: number }) {
+    picker = { mode: "compare", experimentId, x: anchor.x, y: anchor.y };
+  }
+  async function onPickerConfirm(choice: { agentProvider: AgentProvider; model: string | null }) {
+    const p = picker;
+    picker = null;
+    if (!p) return;
+    try {
+      if (p.mode === "compare") {
+        selectUnit((await startComparison(p.experimentId, choice)).id);
+      } else if (p.mode === "variant") {
+        selectUnit((await startVariant(p.id, choice)).id);
+      } else {
+        const { session, archived } = await relaunchSession(p.id, {
+          agentProvider: choice.agentProvider,
+          model: choice.model,
+        });
+        if (archived) toasts.info(m.relaunch_done({ desig: session.desig }));
+        else
+          toasts.info(m.relaunch_archive_failed(), {
+            duration: null,
+            alert: true,
+            key: `relaunch-fail:${p.id}`,
+          });
+        selectUnit(session.id);
+      }
+    } catch {
+      toasts.info(m.experiment_action_failed(), { alert: true });
+    }
+  }
+
   // Restore an archived session from the Done lens: re-creates the worktree on its
   // surviving branch and resumes the conversation (recovers committed work only).
   // The two-step arm lives in DoneRecapPanel, so by the time this fires the operator
@@ -2071,6 +2121,9 @@
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
+            {onvariant}
+            {onreplace}
+            {oncompare}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
@@ -2186,6 +2239,8 @@
           activity={store.activity}
           {onrelaunch}
           {onrelaunchElsewhere}
+          {onvariant}
+          {onreplace}
           onselect={(id) => {
             selectedId = id;
             viewMode = "focus";
@@ -2235,6 +2290,9 @@
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
+            {onvariant}
+            {onreplace}
+            {oncompare}
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
@@ -2539,6 +2597,28 @@
 />
 
 <FeedbackDialog />
+
+{#if picker}
+  <ModelCliPicker
+    x={picker.x}
+    y={picker.y}
+    title={picker.mode === "variant"
+      ? m.experiment_variant_title()
+      : picker.mode === "replace"
+        ? m.experiment_replace_title()
+        : m.experiment_compare_title()}
+    confirmLabel={picker.mode === "variant"
+      ? m.experiment_variant_confirm()
+      : picker.mode === "replace"
+        ? m.experiment_replace_confirm()
+        : m.experiment_compare_confirm()}
+    fableAvailable={settings?.fableAvailable ?? true}
+    initialProvider={settings?.defaultAgentProvider ?? "claude"}
+    initialModel={picker.mode === "compare" ? "opus" : "default"}
+    onconfirm={onPickerConfirm}
+    onclose={() => (picker = null)}
+  />
+{/if}
 
 <Toasts aboveActionBar={mobileActionBarPresent} />
 

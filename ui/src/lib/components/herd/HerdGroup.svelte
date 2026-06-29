@@ -14,6 +14,8 @@
     ondecommission?: (id: string) => void;
     onrelaunch?: (id: string) => void;
     onrelaunchElsewhere?: (id: string) => void;
+    onvariant?: (id: string, anchor: { x: number; y: number }) => void;
+    onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     repoFilter: string | null;
     onrepofilter?: (repoPath: string | null) => void;
     workingBlocked: Record<string, boolean>;
@@ -80,6 +82,8 @@
     ondecommission={ctx.ondecommission}
     onrelaunch={ctx.onrelaunch}
     onrelaunchElsewhere={ctx.onrelaunchElsewhere}
+    onvariant={ctx.onvariant}
+    onreplace={ctx.onreplace}
     repoFilter={ctx.repoFilter}
     onrepofilter={ctx.onrepofilter}
     workingBlocked={ctx.workingBlocked}

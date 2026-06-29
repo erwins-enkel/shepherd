@@ -66,6 +66,8 @@ function session(id: string): Session {
     haltedAt: null,
     manualSteps: [],
     manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
   };
 }
 
@@ -101,6 +103,21 @@ test("session:ready patches the target session's readyToMerge", () => {
   expect(s.byId("s2")?.readyToMerge).toBe(false);
   s.apply({ event: "session:ready", data: { id: "s1", ready: false } });
   expect(s.byId("s1")?.readyToMerge).toBe(false);
+});
+
+test("session:experiment links the target into a comparison group live", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  expect(s.byId("s1")?.experimentId).toBe(null);
+  // back-fill the original when its first variant spawns
+  s.apply({
+    event: "session:experiment",
+    data: { id: "s1", experimentId: "exp-1", experimentRole: "variant" },
+  });
+  expect(s.byId("s1")?.experimentId).toBe("exp-1");
+  expect(s.byId("s1")?.experimentRole).toBe("variant");
+  // unrelated sessions are untouched
+  expect(s.byId("s2")?.experimentId).toBe(null);
 });
 
 test("plugin:status updates the matching plugin's health + published status in place", () => {

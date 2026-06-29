@@ -46,6 +46,8 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     haltedAt: null,
     manualSteps: [],
     manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
   };
 }
 

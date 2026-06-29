@@ -348,6 +348,15 @@ export class HerdStore {
       case "session:automerge":
         this.patchSession(ev.data.id, { autoMergeEnabled: ev.data.enabled });
         break;
+      case "session:experiment":
+        // The variant carries its experiment in its session:new payload; this patches the
+        // ALREADY-VISIBLE original (or any member) when it's (back-)linked into a group so its
+        // card joins the experiment grouping live, without a reload.
+        this.patchSession(ev.data.id, {
+          experimentId: ev.data.experimentId,
+          experimentRole: ev.data.experimentRole,
+        });
+        break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);

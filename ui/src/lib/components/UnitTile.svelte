@@ -40,6 +40,8 @@
     activity,
     onrelaunch,
     onrelaunchElsewhere,
+    onvariant,
+    onreplace,
     workingBlocked = {},
   }: {
     session: Session;
@@ -55,6 +57,10 @@
     // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
     // opens the new-task composer pre-filled from this session (cross-repo relaunch)
     onrelaunchElsewhere?: (id: string) => void;
+    // when provided, the CardMenu gains "Start as variant…" / "Replace with…" items that open
+    // the provider/model picker anchored at the passed coords (comparison experiments)
+    onvariant?: (id: string, anchor: { x: number; y: number }) => void;
+    onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
   } = $props();
@@ -190,16 +196,22 @@
   // Relaunch-elsewhere reuses the same eligibility as Relaunch, just routed to the
   // cross-repo composer instead of the in-place two-step arm.
   const relaunchElsewhereAble = $derived(!!onrelaunchElsewhere && canRelaunch(session, git, nowMs));
+  // Variant / replace share Relaunch's eligibility — both spawn a fresh run from this session.
+  const variantable = $derived(!!onvariant && canRelaunch(session, git, nowMs));
+  const replaceable = $derived(!!onreplace && canRelaunch(session, git, nowMs));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
+  const hasMenu = $derived(
+    resumable || relaunchable || relaunchElsewhereAble || variantable || replaceable,
+  );
   function openMenuAt(x: number, y: number): boolean {
-    if (menu || (!resumable && !relaunchable && !relaunchElsewhereAble)) return false;
+    if (menu || !hasMenu) return false;
     menu = { x, y, opener: hitEl! };
     return true;
   }
   function onContextMenu(e: MouseEvent) {
-    if (!resumable && !relaunchable && !relaunchElsewhereAble) return; // nothing to offer → leave the native menu
+    if (!hasMenu) return; // nothing to offer → leave the native menu
     e.preventDefault();
     openMenuAt(e.clientX, e.clientY);
   }
@@ -219,6 +231,17 @@
   function relaunchElsewhereFromMenu() {
     menu = null;
     onrelaunchElsewhere?.(session.id);
+  }
+  // Hand the menu's anchor coords to the parent so it can open the picker in the same spot.
+  function variantFromMenu() {
+    const anchor = menu ? { x: menu.x, y: menu.y } : { x: 0, y: 0 };
+    menu = null;
+    onvariant?.(session.id, anchor);
+  }
+  function replaceFromMenu() {
+    const anchor = menu ? { x: menu.x, y: menu.y } : { x: 0, y: 0 };
+    menu = null;
+    onreplace?.(session.id, anchor);
   }
 
   // Time-breakdown popover: the .tile-hit overlay is the tile's only click/
@@ -338,6 +361,8 @@
     onresume={resumeFromMenu}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
+    onvariant={variantable ? variantFromMenu : undefined}
+    onreplace={replaceable ? replaceFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

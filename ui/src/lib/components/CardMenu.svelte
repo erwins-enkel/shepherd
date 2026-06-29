@@ -14,6 +14,8 @@
     onresume,
     onrelaunch,
     onrelaunchElsewhere,
+    onvariant,
+    onreplace,
     ondecommission,
     onclose,
   }: {
@@ -31,6 +33,10 @@
     // when provided, a one-click "Relaunch elsewhere" item appears below Relaunch —
     // no two-step arm (the composer dialog + explicit submit is the confirmation)
     onrelaunchElsewhere?: () => void;
+    // when provided, "Start as variant…" / "Replace with…" items appear — each opens the
+    // provider/model picker (its explicit confirm is the confirmation, so no two-step arm here)
+    onvariant?: () => void;
+    onreplace?: () => void;
     ondecommission?: () => void;
     onclose: () => void;
   } = $props();
@@ -164,6 +170,16 @@
       onclick={onrelaunchElsewhere}
     >
       <span class="cm-icon" aria-hidden="true">⇄</span>{m.cardmenu_relaunch_elsewhere()}
+    </button>
+  {/if}
+  {#if onvariant}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onvariant}>
+      <span class="cm-icon" aria-hidden="true">⎌</span>{m.cardmenu_start_variant()}
+    </button>
+  {/if}
+  {#if onreplace}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onreplace}>
+      <span class="cm-icon" aria-hidden="true">⇆</span>{m.cardmenu_replace_with()}
     </button>
   {/if}
   {#if ondecommission}

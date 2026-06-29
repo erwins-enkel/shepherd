@@ -45,6 +45,8 @@ const s = (id: string, status: any = "running"): Session => ({
   haltedAt: null,
   manualSteps: [],
   manualStepsAckedAt: null,
+  experimentId: null,
+  experimentRole: null,
 });
 
 test("applies snapshot, new, status, archived", () => {

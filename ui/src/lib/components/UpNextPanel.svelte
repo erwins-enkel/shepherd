@@ -10,7 +10,10 @@
   import { onMount } from "svelte";
 
   // Open the Backlog overlay from the empty state (threaded up through Herd to +page).
-  let { onbacklog }: { onbacklog?: () => void } = $props();
+  // repoFilter: full repoPath of the active chip-rail filter (null = unfiltered) — scopes the
+  // queue to one repo, identical to how the session lenses filter.
+  let { onbacklog, repoFilter = null }: { onbacklog?: () => void; repoFilter?: string | null } =
+    $props();
 
   // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
   // triggers a background refresh that lands in place via the upnext:snapshot WS event), so the
@@ -28,7 +31,20 @@
   const CONFIRM_THRESHOLD = 3;
 
   const snap = $derived(upNext.snapshot);
-  const sections = $derived(snap?.sections ?? []);
+  // The chip-rail repo filter scopes the queue to one repo, identical to the session lenses.
+  // Repo sections drop unless they match; the cross-repo priority section keeps only its items
+  // from the active repo (re-counting totalCount so "show all N" stays honest).
+  const sections = $derived.by(() => {
+    const all = snap?.sections ?? [];
+    if (!repoFilter) return all;
+    return all
+      .map((s): UpNextSection | null => {
+        if (s.kind === "repo") return s.repoPath === repoFilter ? s : null;
+        const items = s.items.filter((it) => it.repoPath === repoFilter);
+        return items.length > 0 ? { ...s, items, totalCount: items.length } : null;
+      })
+      .filter((s): s is UpNextSection => s !== null);
+  });
   // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
   // never-computed snapshot shows loading, not the all-clear.
   const computed = $derived(snap?.generatedAt != null);
@@ -212,7 +228,11 @@
       <p class="un-muted">{m.common_loading()}</p>
     {:else if isEmpty}
       <div class="un-empty">
-        <p class="un-muted">{m.upnext_empty()}</p>
+        <p class="un-muted">
+          {repoFilter
+            ? m.upnext_repo_filter_empty({ repo: repoBase(repoFilter) })
+            : m.upnext_empty()}
+        </p>
         {#if onbacklog}
           <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}
             >{m.upnext_open_backlog()}</button

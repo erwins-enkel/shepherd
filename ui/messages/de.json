@@ -2073,6 +2073,7 @@
   "upnext_updated_ago": "aktualisiert vor {ago}",
   "upnext_refresh": "Aktualisieren",
   "upnext_empty": "Alles erledigt — nichts zum Starten in der Warteschlange.",
+  "upnext_repo_filter_empty": "Nichts zum Starten für {repo}.",
   "upnext_open_backlog": "Backlog öffnen",
   "upnext_main_hint": "Als Nächstes wird im Herd-Panel links angezeigt.",
   "upnext_priority_section": "Priorität",

@@ -111,7 +111,11 @@ install_os_prereqs() {
   # logrotate backs the OPTIONAL log-rotation timer (#1212), Linux service path only. Best-effort
   # (warn, never die) and Linux-gated: a failed optional install must not abort the whole install,
   # and macOS/core-only installs no timer (and has none of ensure_pkg's package managers).
-  [ "$OS_KIND" = "Linux" ] && ensure_logrotate
+  # NB: a proper `if` (not `[ … ] && …`) so the non-Linux skip leaves a 0 exit — else this last
+  # command returns 1 on macOS and `set -e` aborts the installer.
+  if [ "$OS_KIND" = "Linux" ]; then
+    ensure_logrotate
+  fi
 }
 
 # ensure_pkg <bin> <pkg>: install <pkg> via apt/apk/dnf/pacman if <bin> is absent.

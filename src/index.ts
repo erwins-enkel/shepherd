@@ -1905,7 +1905,7 @@ const backlogPoller = new BacklogPoller(
   () => listRepos(config.repoRoot),
   resolveForge,
   (dir) => backlog.refresh(dir),
-  45_000,
+  90_000,
   broadcastBacklog,
   // Warm the backlog only while a dashboard is open and the GraphQL bucket is
   // healthy — backlog counts serve the overview, which nobody is reading when

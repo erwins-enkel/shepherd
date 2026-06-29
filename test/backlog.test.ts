@@ -113,7 +113,7 @@ test("CountsService: Gitea repo returns openIssues and openPRs from REST API", a
   expect(result.openPRs).toBe(1);
 });
 
-// 3. 60s TTL: two calls within the window invoke runner ONCE
+// 3. 120s TTL: two calls within the window invoke runner ONCE
 test("CountsService: TTL caches result — second call within window skips runner", async () => {
   const repoDir = gitInit(join(tmpBase, "gh-ttl"), "https://github.com/o/r");
   const forges: ForgeMap = {};
@@ -202,7 +202,7 @@ test("CountsService: failure yields null not 0", async () => {
 });
 
 // 7. TTL expiry: second call after TTL elapses re-invokes the runner
-test("CountsService: TTL expiry — call after 60s window re-fetches from runner", async () => {
+test("CountsService: TTL expiry — call after 120s window re-fetches from runner", async () => {
   const repoDir = gitInit(join(tmpBase, "gh-ttl-expire"), "https://github.com/o/ttl-expire");
   const forges: ForgeMap = {};
 
@@ -215,9 +215,9 @@ test("CountsService: TTL expiry — call after 60s window re-fetches from runner
   // First fetch — populates cache
   await svc.counts(repoDir);
 
-  // Backdate the cache entry's `at` field to simulate TTL expiry (> 60 000 ms ago)
+  // Backdate the cache entry's `at` field to simulate TTL expiry (> 120 000 ms ago)
   const entry = (svc as any).cache.get(repoDir);
-  entry.at = Date.now() - 61_000;
+  entry.at = Date.now() - 121_000;
 
   // Second fetch — cache is stale, runner should be called again
   await svc.counts(repoDir);
@@ -443,14 +443,10 @@ test("CountsService: prKinds breaks open PRs down by kind", async () => {
           pullRequests: {
             totalCount: 4,
             nodes: [
-              { author: { login: "dependabot[bot]" }, title: "bump foo", labels: { nodes: [] } },
-              {
-                author: { login: "me" },
-                title: "chore(main): release 1.0.0",
-                labels: { nodes: [] },
-              },
-              { author: { login: "me" }, title: "fix: a bug", labels: { nodes: [] } },
-              { author: { login: "me" }, title: "feat: a thing", labels: { nodes: [] } },
+              { author: { login: "dependabot[bot]" }, title: "bump foo" },
+              { author: { login: "me" }, title: "chore(main): release 1.0.0" },
+              { author: { login: "me" }, title: "fix: a bug" },
+              { author: { login: "me" }, title: "feat: a thing" },
             ],
           },
         },
@@ -469,8 +465,8 @@ test("CountsService: prKinds clamps the >100-PR tail into regular", async () => 
   const repoDir = gitInit(join(tmpBase, "gh-kinds-cap"), "https://github.com/o/kinds-cap");
   const nodes = Array.from({ length: 100 }, (_, i) =>
     i === 0
-      ? { author: { login: "dependabot[bot]" }, title: "bump foo", labels: { nodes: [] } }
-      : { author: { login: "me" }, title: "feat: thing", labels: { nodes: [] } },
+      ? { author: { login: "dependabot[bot]" }, title: "bump foo" }
+      : { author: { login: "me" }, title: "feat: thing" },
   );
   const { run } = fakeRunner(
     JSON.stringify({

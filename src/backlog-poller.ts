@@ -6,7 +6,7 @@ import type { RepoCounts } from "./backlog";
  * visibly the cold first paint of an empty overview. Mirrors PrPoller's
  * boot-warmup + interval cadence.
  *
- * The default cadence is intentionally below CountsService's 60s read-TTL so a
+ * The default cadence is intentionally below CountsService's 120s read-TTL so a
  * forced refresh rewrites each entry before it can expire — the request path
  * then always finds a fresh value. Best-effort: a failing warm is swallowed so
  * one bad repo never sinks the tick or its siblings.
@@ -18,7 +18,7 @@ export class BacklogPoller {
     private listRepos: () => Array<{ path: string }>,
     private resolveForge: (repoPath: string) => { kind?: string } | null,
     private warm: (repoPath: string) => Promise<RepoCounts>,
-    private intervalMs = 45_000,
+    private intervalMs = 90_000,
     /**
      * Fired once per tick after every repo's counts are warm. Lets the caller
      * push the freshly-warmed overview to clients (a `backlog:update` WS frame)

@@ -77,6 +77,20 @@ describe("classifyPr — release", () => {
   it("does NOT match a title that merely contains 'release'", () => {
     expect(classifyPr({ author: "alice", title: "feat: add release notes link" })).toBe("regular");
   });
+
+  it("classifies as release from branch alone — no labels needed", () => {
+    expect(
+      classifyPr({
+        author: "google-cloud-policy[bot]",
+        title: "chore: release",
+        headRefName: "release-please--branches--main--component--my-lib",
+      }),
+    ).toBe("release");
+  });
+
+  it("classifies as release from title alone — no labels needed", () => {
+    expect(classifyPr({ author: "alice", title: "chore: release 2.3.1" })).toBe("release");
+  });
 });
 
 describe("classifyPr — regular", () => {

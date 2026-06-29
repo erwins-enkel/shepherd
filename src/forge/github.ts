@@ -261,7 +261,7 @@ export class GithubForge implements GitForge {
       "-F",
       `name=${name}`,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName labels(first:10){nodes{name}} } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ cost remaining resetAt }}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ cost remaining resetAt }}",
     ]);
     const json = JSON.parse(out) as {
       data?: {
@@ -273,7 +273,6 @@ export class GithubForge implements GitForge {
               author?: { login?: string } | null;
               title?: string;
               headRefName?: string;
-              labels?: { nodes?: Array<{ name?: string } | null> } | null;
             } | null>;
           };
           defaultBranchRef?: {
@@ -315,9 +314,6 @@ export class GithubForge implements GitForge {
             author: n.author?.login ?? "",
             title: n.title ?? "",
             headRefName: n.headRefName ?? undefined,
-            labels: (n.labels?.nodes ?? [])
-              .map((l) => l?.name)
-              .filter((name): name is string => !!name),
           }),
         );
       const release = kinds.filter((k) => k === "release").length;

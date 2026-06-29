@@ -2186,5 +2186,6 @@
   "github_lens_no_data": "GitHub-Rate-Limit-Daten nicht verfügbar.",
   "feat_github_rate_limits_title": "GitHub-Rate-Limits im Verbrauch",
   "feat_github_rate_limits_body": "Die Verbrauchsansicht hat einen neuen GitHub-Tab, der dein REST- und GraphQL-API-Kontingent getrennt zeigt. Ist eines erschöpft, erklärt er, welche Funktionen bis zum Reset pausieren — ein leeres GraphQL-Kontingent wirkt so nicht mehr wie ein stiller Defekt.",
-  "github_lens_paused": "Pausiert"
+  "github_lens_paused": "Pausiert",
+  "github_lens_graphql_backoff": "GraphQL-Polling pausiert, während ein Rate-Limit-Backoff abklingt — PR-, Issue- und Backlog-Updates laufen in ~{time} weiter."
 }

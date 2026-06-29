@@ -49,11 +49,11 @@
     return b.limit > 0 ? Math.min(Math.max((b.used / b.limit) * 100, 0), 100) : 0;
   }
 
-  // GraphQL is paused either because its bucket is empty or because Shepherd's own
-  // backoff is engaged (an error tripped it before the live reading caught up).
-  const graphqlPaused = $derived(
-    (!!data.graphql && data.graphql.remaining <= 0) || data.backoff.blocked,
-  );
+  // Two distinct GraphQL-paused causes, kept apart so the banner copy matches the
+  // row pill: a truly drained bucket ("exhausted") vs. a backoff engaged while the
+  // bucket still has budget ("paused" — a transient secondary-rate-limit error).
+  const graphqlExhausted = $derived(!!data.graphql && data.graphql.remaining <= 0);
+  const graphqlBackedOff = $derived(!graphqlExhausted && data.backoff.blocked);
   const restPaused = $derived(!!data.rest && data.rest.remaining <= 0);
 
   // When to resume GraphQL: the later of the bucket reset and any active backoff window.
@@ -74,9 +74,13 @@
 <div class="github-lens panel">
   <p class="intro">{m.github_lens_intro()}</p>
 
-  {#if graphqlPaused}
+  {#if graphqlExhausted}
     <div class="paused-banner" role="alert">
       {m.github_lens_graphql_paused({ time: formatResetIn(graphqlResumeAt, nowMs) })}
+    </div>
+  {:else if graphqlBackedOff}
+    <div class="paused-banner" role="alert">
+      {m.github_lens_graphql_backoff({ time: formatResetIn(graphqlResumeAt, nowMs) })}
     </div>
   {/if}
   {#if restPaused && data.rest}

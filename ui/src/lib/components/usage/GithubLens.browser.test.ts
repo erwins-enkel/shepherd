@@ -56,6 +56,14 @@ describe("GithubLens", () => {
     await expect
       .element(page.getByText(m.github_lens_exhausted(), { exact: true }))
       .not.toBeInTheDocument();
+    // The banner must use the backoff copy, not the contradictory "exhausted" copy.
+    // Match the time-independent clause (the interpolated "~{time}" floors to 59m/1h).
+    await expect
+      .element(page.getByText("rate-limit backoff clears", { exact: false }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("GraphQL budget exhausted", { exact: false }))
+      .not.toBeInTheDocument();
   });
 
   it("shows no pill when both buckets are healthy and backoff is clear", async () => {

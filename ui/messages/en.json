@@ -2186,5 +2186,6 @@
   "github_lens_no_data": "GitHub rate-limit data unavailable.",
   "feat_github_rate_limits_title": "GitHub rate limits in Usage",
   "feat_github_rate_limits_body": "The Usage view has a new GitHub tab showing your REST and GraphQL API budgets separately. When one is exhausted it explains which features pause until reset — so an empty GraphQL budget no longer looks like a silent breakage.",
-  "github_lens_paused": "Paused"
+  "github_lens_paused": "Paused",
+  "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}."
 }

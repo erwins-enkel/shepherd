@@ -5,6 +5,7 @@ import { makeForgeMemo } from "./forge/resolve";
 import type { GhRunner } from "./forge/github";
 import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
 import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
+import { Semaphore } from "./semaphore";
 
 // RepoCounts now lives with the GitForge seam (each adapter returns it); re-export
 // so existing importers (backlog-poller, server) keep their "./backlog" path. (CiStatus
@@ -28,34 +29,6 @@ const TTL_MS = 120_000;
 const DEFAULT_MAX_CONCURRENCY = 6;
 
 const NULL_COUNTS = EMPTY_BACKLOG_COUNTS;
-
-/**
- * Minimal FIFO semaphore — bounds how many gated thunks run concurrently.
- * Strict: a releaser hands its slot directly to the next waiter (the active
- * count is unchanged across the handoff) instead of decrementing and letting
- * the woken waiter re-increment. That closes the window where a fresh arrival
- * could slip in between a decrement and a wake-up and push `active` to max+1.
- */
-class Semaphore {
-  private active = 0;
-  private readonly queue: Array<() => void> = [];
-  constructor(private readonly max: number) {}
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active >= this.max) {
-      await new Promise<void>((resolve) => this.queue.push(resolve)); // woken = slot already ours
-    } else {
-      this.active++;
-    }
-    try {
-      return await fn();
-    } finally {
-      const next = this.queue.shift();
-      if (next)
-        next(); // hand the slot off — keep `active`
-      else this.active--; // no waiter — free the slot
-    }
-  }
-}
 
 /**
  * Number of workflows *defined* in a repo working copy — the count shown on the

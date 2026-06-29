@@ -23,6 +23,7 @@ import {
 import {
   validateCreate,
   validateRelaunchOverrides,
+  validateModelChoice,
   validateCloneUrl,
   validateForkTarget,
   validateNewProject,
@@ -2478,6 +2479,82 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+// Per-original-id guard against concurrent first-variant spawns. The experiment back-fill on the
+// original is a read-modify-write; without serializing on the ORIGINAL id, two near-simultaneous
+// "start variant" calls could each mint a fresh experiment id and split the group in two.
+const inFlightVariant = new Set<string>();
+
+// POST /api/sessions/:id/variant — spawn a parallel comparison VARIANT (same prompt, different
+// model/CLI) of the target, leaving the original ALIVE and linking both into one experiment.
+// Emits session:new for the variant and session:experiment for the (possibly back-filled) original
+// so both cards live-update. Carries NO issue link (no double-claim) — see service.startVariant.
+async function handleSessionVariant({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "variant")) return null;
+  const id = parts[2];
+
+  if (inFlightVariant.has(id))
+    return json({ error: "variant already in progress", code: "in_progress" }, 409);
+  inFlightVariant.add(id);
+  try {
+    const original = deps.store.get(id);
+    if (!original) return json({ error: "not found" }, 404);
+    if (original.status === "archived") return json({ error: "already archived" }, 409);
+
+    const body = (await req.json().catch(() => null)) as unknown;
+    const choice = validateModelChoice(body);
+    if (!choice.ok) return json({ error: choice.error }, 400);
+
+    let result: { variant: Session; original: Session };
+    try {
+      result = await deps.service.startVariant(id, choice.value);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "variant failed";
+      return json({ error: msg }, 502);
+    }
+
+    deps.events.emit("session:new", result.variant);
+    deps.events.emit("session:experiment", {
+      id: result.original.id,
+      experimentId: result.original.experimentId,
+      experimentRole: result.original.experimentRole,
+    });
+    return json({ session: result.variant }, 201);
+  } finally {
+    inFlightVariant.delete(id);
+  }
+}
+
+// POST /api/experiments/:id/compare — spawn the read-only comparison session for an experiment.
+// Top-level (parts[1] === "experiments"), registered in the main route table.
+const inFlightCompare = new Set<string>();
+async function handleExperimentCompare({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "experiments")) return null;
+  if (!(parts[2] && parts[3] === "compare")) return null;
+  const experimentId = parts[2];
+
+  if (inFlightCompare.has(experimentId))
+    return json({ error: "comparison already in progress", code: "in_progress" }, 409);
+  inFlightCompare.add(experimentId);
+  try {
+    const body = (await req.json().catch(() => null)) as unknown;
+    const choice = validateModelChoice(body);
+    if (!choice.ok) return json({ error: choice.error }, 400);
+
+    let session: Session;
+    try {
+      session = await deps.service.startComparison(experimentId, choice.value);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "comparison failed";
+      return json({ error: msg }, 502);
+    }
+
+    deps.events.emit("session:new", session);
+    return json({ session }, 201);
+  } finally {
+    inFlightCompare.delete(experimentId);
+  }
+}
+
 // POST /api/sessions/:id/restore — bring an archived session back into the active Herd.
 // Re-creates the worktree (if isolated), resumes the Claude conversation, clears archivedAt.
 async function handleSessionRestore({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -2666,6 +2743,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAutopilot,
     handleSessionAutoMerge,
     handleSessionRelaunch,
+    handleSessionVariant,
     handleSessionRestore,
     handleRelaunchUploads,
   ]) {
@@ -5299,6 +5377,7 @@ const ROUTE_HANDLERS = [
   handleSessionHooks,
   handleBuildQueue,
   handleSessions,
+  handleExperimentCompare,
   handleSessionGit,
   handleUsageLimits,
   handleUsageBreakdown,

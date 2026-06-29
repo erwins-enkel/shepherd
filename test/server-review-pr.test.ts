@@ -57,6 +57,8 @@ const SESSION: Session = {
   haltedAt: null,
   manualSteps: [],
   manualStepsAckedAt: null,
+  experimentId: null,
+  experimentRole: null,
 };
 
 function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {

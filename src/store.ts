@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type {
   Session,
+  ExperimentRole,
   ReviewVerdict,
   ReviewDecision,
   PlanGate,
@@ -186,6 +187,8 @@ type NewSession = Omit<
   | "haltedAt"
   | "manualSteps"
   | "manualStepsAckedAt"
+  | "experimentId"
+  | "experimentRole"
 > & {
   id?: string;
   model?: string | null;
@@ -212,7 +215,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
-  haltReason, haltedAt, manualStepsJson, manualStepsAckedAt`;
+  haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -264,6 +267,8 @@ type SessionRow = {
   haltedAt: number | null;
   manualStepsJson: string | null;
   manualStepsAckedAt: number | null;
+  experimentId: string | null;
+  experimentRole: string | null;
 };
 
 /** SQLite row shape for the reviews table. */
@@ -1692,6 +1697,8 @@ export class SessionStore implements CapStore, CreditStore {
       haltedAt: null,
       manualSteps: [],
       manualStepsAckedAt: null,
+      experimentId: null,
+      experimentRole: null,
     };
   }
 
@@ -1701,7 +1708,7 @@ export class SessionStore implements CapStore, CreditStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1749,6 +1756,8 @@ export class SessionStore implements CapStore, CreditStore {
           null, // haltedAt — always null at create
           null, // manualStepsJson — always null at create (detected later from the PR body)
           null, // manualStepsAckedAt — always null at create (P2)
+          null, // experimentId — always null at create (stamped post-create by startVariant/startComparison)
+          null, // experimentRole — always null at create
         ],
       );
       return s;
@@ -1909,6 +1918,32 @@ export class SessionStore implements CapStore, CreditStore {
       `UPDATE sessions SET autoMergeEnabled=?, autoMergeRebaseCount=?, autoMergeRebaseHead=?, updatedAt=? WHERE id=?`,
       [enabled === null ? null : enabled ? 1 : 0, rebaseCount, rebaseHead, Date.now(), id],
     );
+  }
+
+  /** Link a session into a comparison experiment (group id + role), or clear it with both
+   *  null. Idempotent. Bumps updatedAt so a re-fetch reflects the change. */
+  setExperiment(
+    id: string,
+    patch: { experimentId: string | null; role: ExperimentRole | null },
+  ): void {
+    const cur = this.get(id);
+    if (!cur) return;
+    this.db.run(`UPDATE sessions SET experimentId=?, experimentRole=?, updatedAt=? WHERE id=?`, [
+      patch.experimentId,
+      patch.role,
+      Date.now(),
+      id,
+    ]);
+  }
+
+  /** All sessions tagged with `experimentId`, oldest-first (variants + the comparison session).
+   *  Includes archived rows so a comparison can still reference a torn-down variant's branch. */
+  variantsForExperiment(experimentId: string): Session[] {
+    return (
+      this.db
+        .query(`SELECT ${COLS} FROM sessions WHERE experimentId = ? ORDER BY createdAt`)
+        .all(experimentId) as SessionRow[]
+    ).map((r) => this.hydrate(r));
   }
 
   /** Map of repoPath → most-recent session createdAt (across all sessions, incl. archived). */
@@ -2881,6 +2916,10 @@ export class SessionStore implements CapStore, CreditStore {
     // is purely additive. Both nullable: absence = no detection ran / not yet acknowledged.
     add("manualStepsJson", `manualStepsJson TEXT`);
     add("manualStepsAckedAt", `manualStepsAckedAt INTEGER`);
+    // comparison experiments: group id + role (variant|comparison). Both nullable; legacy
+    // rows default to null (not part of any experiment).
+    add("experimentId", `experimentId TEXT`);
+    add("experimentRole", `experimentRole TEXT`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -4142,6 +4181,11 @@ export class SessionStore implements CapStore, CreditStore {
       haltedAt: r.haltedAt ?? null,
       manualSteps: parseManualStepsJson(r.manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
+      experimentId: r.experimentId ?? null,
+      experimentRole:
+        r.experimentRole === "variant" || r.experimentRole === "comparison"
+          ? (r.experimentRole as ExperimentRole)
+          : null,
     } as Session;
   }
 

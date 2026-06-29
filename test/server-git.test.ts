@@ -56,6 +56,8 @@ const SESSION: Session = {
   haltedAt: null,
   manualSteps: [],
   manualStepsAckedAt: null,
+  experimentId: null,
+  experimentRole: null,
 };
 
 function fakeForge(

@@ -111,6 +111,26 @@ function validateModel(value: unknown, agentProvider?: AgentProvider): Field<str
   return err("unknown model");
 }
 
+/**
+ * Validate a `{ agentProvider?, model? }` body for the variant / comparison spawn endpoints.
+ * `agentProvider` is optional (absent → caller falls back to the original's / config default);
+ * `model` is validated against the supplied provider (absent/null/"default" → provider default).
+ * Mirrors validateCreate's `{ ok, error }` contract so routes return the same 400 shape.
+ */
+export function validateModelChoice(
+  body: unknown,
+):
+  | { ok: true; value: { agentProvider?: AgentProvider; model: string | null } }
+  | { ok: false; error: string } {
+  const obj = body == null ? {} : (body as Record<string, unknown>);
+  if (typeof obj !== "object" || Array.isArray(obj)) return err("body must be a non-null object");
+  const provider = validateAgentProvider(obj.agentProvider);
+  if (!provider.ok) return provider;
+  const model = validateModel(obj.model, provider.value);
+  if (!model.ok) return model;
+  return { ok: true, value: { agentProvider: provider.value, model: model.value } };
+}
+
 /** repoPath — required non-empty string, confined to repoRoot, existing directory. */
 function validateRepoPath(value: unknown, root: string): Field<string> {
   if (typeof value !== "string" || value.length === 0) {
@@ -543,6 +563,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "repoPath",
   "baseBranch",
   "prompt",
+  "agentProvider",
   "model",
   "planGateEnabled",
   "research",
@@ -575,10 +596,15 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
   // (incl. null). Each row maps a present field through the SAME validator create uses,
   // writing the typed value onto `out`; the first failure short-circuits.
   const out: RelaunchOverrides = {};
+  // agentProvider runs BEFORE model so model can validate against the (overridden) provider —
+  // e.g. an override switching to codex lets a codex-only alias through. The session-blind
+  // pair check here is best-effort; the service re-checks against the EFFECTIVE provider
+  // (override ?? original) and resets a carried incompatible model.
   const fields: { key: keyof RelaunchOverrides; apply: () => Field<unknown> }[] = [
     { key: "prompt", apply: () => validatePrompt(obj.prompt) },
     { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
-    { key: "model", apply: () => validateModel(obj.model) },
+    { key: "agentProvider", apply: () => validateAgentProvider(obj.agentProvider) },
+    { key: "model", apply: () => validateModel(obj.model, out.agentProvider) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },

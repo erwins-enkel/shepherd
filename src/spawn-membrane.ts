@@ -85,7 +85,7 @@ export function resolveSpawnMembrane(args: {
   // (directly or via SpawnPatch.credentialDir). For the credential to actually EXIST inside the
   // bwrap sandbox it must be BOUND, not just --setenv'd: bind the patched dir AS the membrane's
   // claudeDir so buildMembraneFlags mounts it (+ masks/credential-binds + rw-binds its
-  // .claude.json + re-sets CLAUDE_CONFIG_DIR from the bind at sandbox.ts:424). The patched dir's
+  // .claude.json + re-sets CLAUDE_CONFIG_DIR from the bind at sandbox.ts:445). The patched dir's
   // existence is validated upstream (resolveAuxSpawn) so a missing dir never reaches the hard
   // --ro-bind here. To preserve readback, the (pool) claudeDir's `projects` is sourced from the
   // ACTIVE projects dir so the transcript lands where Shepherd's usage/activity readback looks.

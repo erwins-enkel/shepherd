@@ -10,7 +10,7 @@ import { isApiKeyMode, isApiKeyConfigured } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { checksCleared } from "./checks-gate";
-import { isSpawnWorking, decideVerdictAction } from "./json-tolerant";
+import { isSpawnWorking, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
 import {
   reviewPrompt,
@@ -369,6 +369,11 @@ export class ReviewService {
     if ("aborted" in aux) {
       console.warn(`[review] onSpawn aborted for ${session.id}: ${aux.aborted.reason}`);
       this.deps.worktree.remove(wt.worktreePath);
+      // Surface WHY instead of failing silently: an onSpawn abort (e.g. the claude-swap pool has
+      // no usable account) becomes a visible `error` verdict carrying the reason, so the badge
+      // reads "REVIEW ERR: <reason>" rather than a generic failure or a misleading "critic did not
+      // produce a verdict". Self-heals — the next consider() that lands a real verdict overwrites it.
+      this.publishSpawnAbort(session, git, aux.aborted.reason, prior);
       return;
     }
     let terminalId: string;
@@ -624,13 +629,15 @@ export class ReviewService {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
       const read = this.readVerdict(f.worktreePath);
-      const timedOut = this.now() - f.startedAt > this.timeoutMs;
+      const elapsed = this.now() - f.startedAt;
+      const timedOut = elapsed > this.timeoutMs;
       // Same finalize gate as RecapService.tick (shared decideVerdictAction): a repaired-truncated
       // verdict must never silently drop findings or flip the decision in the merge gate, so it is
       // trusted only once the critic spawn has finished; unparseable fails fast (raw=null → the
-      // existing transient-`error` verdict); absent waits for the hard timeout.
+      // existing transient-`error` verdict); absent fails fast once the critic has exited past the
+      // boot grace (a critic that died at startup wrote nothing), else waits for the hard timeout.
       const finished = !isSpawnWorking(this.deps.herdr.list(), f.worktreePath);
-      const action = decideVerdictAction(read, finished, timedOut);
+      const action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
       if (action === "wait") {
         // still running (or gated, awaiting completion) — surface what the critic is doing right
         // now. Emit every tick (not only on change) so a reloaded client repopulates within one
@@ -932,6 +939,50 @@ export class ReviewService {
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
       updatedAt: this.now(),
     };
+  }
+
+  /**
+   * Persist an onSpawn-abort (the critic never spawned — e.g. the claude-swap pool had no usable
+   * account) as a visible `error` verdict carrying the abort reason. Deduped on (headSha, reason)
+   * so a pool that stays cold across poll ticks does not churn putReview/onChange every tick. The
+   * verdict is intentionally NOT findings-bearing (findings:[]) and preserves the prior streak/error
+   * counters, so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall
+   * — it is a pre-spawn refusal, not a finished critic run.
+   */
+  private publishSpawnAbort(
+    session: Session,
+    git: GitState,
+    reason: string,
+    prior: ReviewVerdict | null,
+  ): void {
+    const summary = reason.slice(0, 100);
+    if (
+      prior?.decision === "error" &&
+      prior.headSha === git.headSha! &&
+      prior.summary === summary
+    ) {
+      return; // already surfaced for this head — no churn
+    }
+    const verdict: ReviewVerdict = {
+      sessionId: session.id,
+      headSha: git.headSha!,
+      patchId: "", // transient: a later identical head must re-attempt, not inherit this abort
+      decision: "error",
+      summary,
+      body: "",
+      findings: [],
+      addressRound: prior?.addressRound ?? 0,
+      addressCap: this.cap,
+      streakReviews: prior?.streakReviews ?? 0,
+      reviewedPatchIds: prior?.reviewedPatchIds ?? [],
+      errorRound: prior?.errorRound ?? 0,
+      finalRoundPending: prior?.finalRoundPending ?? false,
+      finalRoundTimeoutMs: prior?.finalRoundTimeoutMs ?? DEFAULT_FINAL_ROUND_TIMEOUT_MS,
+      seenNoteIds: prior?.seenNoteIds ?? [],
+      updatedAt: this.now(),
+    };
+    this.deps.store.putReview(verdict);
+    this.deps.onChange(session.id, verdict);
   }
 
   /** Find a live herdr agent that was spawned for a review run, resolved by NAME first

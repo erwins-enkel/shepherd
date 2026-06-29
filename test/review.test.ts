@@ -2617,3 +2617,39 @@ test("critic: onSpawn abortSpawn → review skipped, worktree reaped, no spawn",
   expect(started).toHaveLength(0);
   expect(removed).toEqual(["/review-wt"]);
 });
+
+test("critic: onSpawn abort surfaces the reason as an error verdict (not a silent failure)", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({
+    runSpawnHooks: async () => {
+      throw new PluginSpawnAborted("no usable ready account available", "cswap");
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(0); // never spawned
+  const v = reviews["s1"];
+  expect(v?.decision).toBe("error");
+  expect(v?.summary).toBe("no usable ready account available");
+  expect(v?.headSha).toBe("abc");
+  expect(v?.findings).toEqual([]); // not findings-bearing → must not trip the spawn ceiling
+  expect(v?.patchId).toBe(""); // transient: a later identical head must re-attempt, not inherit it
+});
+
+test("critic: a repeated onSpawn abort for the same head does not churn the verdict", async () => {
+  let changes = 0;
+  const { deps: d } = makeDeps({
+    runSpawnHooks: async () => {
+      throw new PluginSpawnAborted("pool cold", "cswap");
+    },
+    onChange: () => {
+      changes++;
+    },
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(changes).toBe(1); // surfaced once; the still-cold-pool retry is a no-op
+});

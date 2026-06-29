@@ -35,7 +35,12 @@ import {
   needsRecap,
 } from "./recap-core";
 import { groundBlocks, type VisualBlock } from "./visual-blocks";
-import { tolerantParseJson, isSpawnWorking, decideVerdictAction } from "./json-tolerant";
+import {
+  tolerantParseJson,
+  isSpawnWorking,
+  decideVerdictAction,
+  STARTUP_GRACE_MS,
+} from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
 
 const execFileAsync = promisify(execFile);
@@ -522,8 +527,14 @@ export class RecapService {
       if (this.finalizing.has(r.sessionId)) continue;
 
       const read = this._readVerdict(r.cwd);
-      const timedOut = this.now() - r.spawnedAt > this.timeoutMs;
-      const action = decideVerdictAction(read, this.spawnFinished(r.cwd), timedOut);
+      const elapsed = this.now() - r.spawnedAt;
+      const timedOut = elapsed > this.timeoutMs;
+      const action = decideVerdictAction(
+        read,
+        this.spawnFinished(r.cwd),
+        timedOut,
+        elapsed > STARTUP_GRACE_MS,
+      );
       if (action === "wait") continue; // not-yet-written / repaired-or-unparseable while still working
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
@@ -537,7 +548,7 @@ export class RecapService {
           );
         } else {
           console.warn(
-            `[recap] ${r.sessionId}: no verdict file after ${Math.round(this.timeoutMs / 1000)}s — agent produced nothing.`,
+            `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
           );
         }
       }

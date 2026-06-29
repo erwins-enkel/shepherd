@@ -48,7 +48,15 @@
   // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
   // never-computed snapshot shows loading, not the all-clear.
   const computed = $derived(snap?.generatedAt != null);
-  const isEmpty = $derived(computed && sections.length === 0);
+  // A fetch failure must not masquerade as "all caught up" (#1221): either the GET itself threw
+  // (upNext.loadError), or the server dropped repos whose issue fetch errored AND the whole
+  // (unfiltered) queue came back empty. Keyed off snap.sections — not the filtered `sections` —
+  // so a repo filter that is legitimately empty still reads as empty, not failed.
+  const loadFailed = $derived(
+    upNext.loadError ||
+      (computed && (snap?.failedRepoCount ?? 0) > 0 && (snap?.sections.length ?? 0) === 0),
+  );
+  const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
   const updatedAgo = $derived(
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
@@ -223,7 +231,11 @@
   {/if}
 
   <div class="un-body">
-    {#if !computed}
+    {#if loadFailed}
+      <!-- Fetch failed (GET threw, or every-/some-repo issue fetch errored into an empty queue):
+           surface it rather than implying an empty backlog. The header ⟳ retries. -->
+      <p class="un-muted">{m.common_issues_load_failed()}</p>
+    {:else if !computed}
       <!-- No server snapshot yet (first compute in flight) → loading, never the all-clear. -->
       <p class="un-muted">{m.common_loading()}</p>
     {:else if isEmpty}

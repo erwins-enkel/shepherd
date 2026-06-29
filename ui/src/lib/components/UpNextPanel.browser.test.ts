@@ -5,6 +5,7 @@ import "../../app.css";
 import type { UpNextItem, UpNextSnapshot } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { upNext } from "$lib/up-next.svelte";
+import { getUpNext } from "$lib/api";
 
 // Mock the API so mounting (which kicks upNext.load()) makes no real network call.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -36,6 +37,7 @@ const SNAPSHOT: UpNextSnapshot = {
   generatedAt: 1,
   repoCount: 2,
   fallback: null,
+  failedRepoCount: 0,
   sections: [
     {
       kind: "priority",
@@ -81,6 +83,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   upNext.snapshot = null;
+  upNext.loadError = false;
   fontStyle.remove();
 });
 
@@ -106,5 +109,48 @@ describe("UpNextPanel repo filter", () => {
     await expect
       .element(page.getByText(m.upnext_repo_filter_empty({ repo: "does-not-exist" })))
       .toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel load failure", () => {
+  it("surfaces a load error when every repo's issue fetch failed (empty queue, failures > 0)", async () => {
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 0,
+      fallback: null,
+      failedRepoCount: 2,
+      sections: [],
+    };
+    render(UpNextPanel, {});
+    // The failure must win over the "all caught up" empty state.
+    await expect.element(page.getByText(m.common_issues_load_failed())).toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_empty())).not.toBeInTheDocument();
+  });
+
+  it("surfaces a load error when the snapshot fetch itself throws", async () => {
+    upNext.snapshot = null;
+    vi.mocked(getUpNext).mockRejectedValueOnce(new Error("network down"));
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.common_issues_load_failed())).toBeInTheDocument();
+  });
+
+  it("shows the all-caught-up empty state (not an error) when the queue is genuinely empty", async () => {
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 3,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [],
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.upnext_empty())).toBeInTheDocument();
+    await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
+  });
+
+  it("renders the queue (no error) when some repos failed but work remains", async () => {
+    upNext.snapshot = { ...SNAPSHOT, failedRepoCount: 1 };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
   });
 });

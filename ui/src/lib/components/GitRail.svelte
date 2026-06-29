@@ -22,6 +22,7 @@
   import { featureAnnouncements } from "$lib/feature-announcements";
   import Coachmark from "$lib/components/Coachmark.svelte";
   import { pollWhileVisible } from "$lib/visibility";
+  import { pullMainAndToast } from "$lib/pull-offer";
 
   let {
     sessionId,
@@ -36,6 +37,8 @@
     drain = null,
     autopilotOn = false,
     issueNumber = null,
+    isolated = false,
+    baseBranch = "",
     ondecommission = undefined,
   }: {
     sessionId: string;
@@ -55,6 +58,11 @@
     /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
         null = no linked issue. */
     issueNumber?: number | null;
+    /** When true and repoPath is set, the post-merge toast offers a combined
+        "Decommission & update local" action that also fast-forwards the local default branch. */
+    isolated?: boolean;
+    /** The session's base branch (e.g. "main"); used by the combined fast-forward action. */
+    baseBranch?: string;
     /** Offer to tear down THIS session after its PR is merged; called with the merged session's id. */
     ondecommission?: (id: string) => void;
   } = $props();
@@ -268,12 +276,23 @@
     retry = null;
     try {
       const mergedId = sessionId;
+      const ffPath = repoPath; // capture FF target at merge time, like mergedId —
+      const ffBranch = baseBranch; // the toast lives 15s and the GitRail instance rebinds on session switch
       git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
       if (git.kind === "local") {
         toasts.info(m.toast_merged({ name: name || mergedId }));
       } else {
+        const update = isolated && !!ffPath;
         toasts.info(m.toast_merged({ name: name || mergedId }), {
-          action: { label: m.gitrail_decommission_action(), run: () => ondecommission?.(mergedId) },
+          action: {
+            label: update
+              ? m.gitrail_decommission_update_action()
+              : m.gitrail_decommission_action(),
+            run: () => {
+              ondecommission?.(mergedId);
+              if (update) pullMainAndToast(ffPath, ffBranch);
+            },
+          },
           duration: 15_000,
           key: `decommission-offer:${mergedId}`,
         });

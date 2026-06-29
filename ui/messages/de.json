@@ -2092,5 +2092,20 @@
   "feat_plugin_gear_item_body": "Plugins können dem Zahnradmenü jetzt einen einzelnen Eintrag hinzufügen — der einen Link öffnet, eine Plugin-Aktion ausführt oder zum Plugin-Panel springt.",
   "gitrail_decommission_update_action": "Stilllegen & lokal aktualisieren",
   "feat_decommission_update_local_title": "Stilllegen & lokal aktualisieren",
-  "feat_decommission_update_local_body": "Wenn du den PR einer isolierten Session mergst, bietet die Bestätigungsmeldung jetzt eine Aktion, die die Session entfernt und deinen lokalen Standard-Branch mit einem Klick auf den neuesten Stand bringt."
+  "feat_decommission_update_local_body": "Wenn du den PR einer isolierten Session mergst, bietet die Bestätigungsmeldung jetzt eine Aktion, die die Session entfernt und deinen lokalen Standard-Branch mit einem Klick auf den neuesten Stand bringt.",
+  "topbar_codex_update_badge": "codex",
+  "topbar_codex_update_title": "codex {latest} verfügbar (installiert: {current})",
+  "codexupdate_title": "codex-Update verfügbar",
+  "codexupdate_versions": "{current} → {latest}",
+  "codexupdate_instructions": "Führt npm install -g @openai/codex aus. Bereits laufende codex-Panes behalten ihre Version; nur neue Sessions nutzen das Update. Shepherd bleibt aktiv.",
+  "codexupdate_confirm": "Jetzt aktualisieren",
+  "codexupdate_busy": "Aktualisiere… npm install -g @openai/codex läuft. Shepherd bleibt aktiv.",
+  "codexupdate_done_ok": "Auf {latest} aktualisiert. Neue codex-Sessions nutzen es.",
+  "codexupdate_done_fail": "Update nicht abgeschlossen (weiterhin auf {current}). Prüfe das Log; du kannst es erneut versuchen.",
+  "codexupdate_later": "Später",
+  "codexupdate_log_label": "Update-Protokoll",
+  "codexupdate_all_notes_link": "Alle Release-Notes ansehen",
+  "settings_codex_update_label": "Codex-Update verfügbar",
+  "feat_codex_update_title": "Codex-CLI-Update-Check",
+  "feat_codex_update_body": "Shepherd prüft jetzt npm auf eine neuere @openai/codex und zeigt ein Badge, sobald eine erscheint — wie das herdr-Badge. Ein Klick führt das Update aus; laufende codex-Panes werden nicht unterbrochen."
 }

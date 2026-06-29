@@ -15,6 +15,11 @@ const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.
 // post-mortem is `cat ~/.shepherd/herdr-update.log`; SHEPHERD_HERDR_UPDATE_LOG overrides.
 const herdrUpdateLogPath =
   process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
+// persistent codex-update audit log, mirroring herdrUpdateLogPath: one delimited
+// block per `npm install -g @openai/codex`, written by the update child itself so
+// `cat ~/.shepherd/codex-update.log` is a durable post-mortem. SHEPHERD_CODEX_UPDATE_LOG overrides.
+const codexUpdateLogPath =
+  process.env.SHEPHERD_CODEX_UPDATE_LOG ?? join(dirname(dbPath), "codex-update.log");
 // Server-side plugin dir (issue #1124): private/out-of-repo extensions live here,
 // alongside the db, so they survive `bun run update` and can never leak into the public
 // repo. Default ~/.shepherd/plugins; SHEPHERD_PLUGINS_DIR overrides. A missing/empty dir
@@ -374,6 +379,8 @@ export const config = {
   pluginsDir,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,
+  codexBin: process.env.CODEX_BIN ?? "codex",
+  codexUpdateLogPath,
   // node binary for the PTY attach helper (pty-attach.mjs). Resolved so a node
   // managed by mise/nvm/fnm still works when the launcher's PATH excludes it —
   // otherwise the helper can't spawn and every session pane stays black.

@@ -50,6 +50,7 @@
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
+  import CodexUpdateModal from "$lib/components/CodexUpdateModal.svelte";
   import StarPrompt from "$lib/components/StarPrompt.svelte";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
   import FableArrival from "$lib/components/FableArrival.svelte";
@@ -81,6 +82,10 @@
     onherdrupdateconfirm,
     onherdrupdateclose,
     onherdrupdatejump,
+    showCodexUpdate,
+    codexUpdating,
+    oncodexupdateconfirm,
+    oncodexupdateclose,
     showOnboarding,
     diagnosticsLoadFailed,
     ononboardingretry,
@@ -120,6 +125,7 @@
     focusPluginId = null,
     onsettingsclose,
     onsettingsherdrupdate,
+    onsettingscodexupdate,
     onsettingswhatsnew,
     showUsage,
     onusageclose,
@@ -175,6 +181,10 @@
     onherdrupdateconfirm: () => void;
     onherdrupdateclose: () => void;
     onherdrupdatejump: (id: string) => void;
+    showCodexUpdate: boolean;
+    codexUpdating: boolean;
+    oncodexupdateconfirm: () => void;
+    oncodexupdateclose: () => void;
     showOnboarding: boolean;
     diagnosticsLoadFailed: boolean;
     ononboardingretry: () => void;
@@ -213,6 +223,7 @@
     focusPluginId?: string | null;
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
+    onsettingscodexupdate: () => void;
     onsettingswhatsnew: () => void;
     showUsage: boolean;
     onusageclose: () => void;
@@ -369,6 +380,16 @@
   />
 {/if}
 
+{#if showCodexUpdate && store.codexUpdate && (store.codexUpdate.updateAvailable || codexUpdating)}
+  <CodexUpdateModal
+    update={store.codexUpdate}
+    log={store.codexUpdateLog}
+    done={store.codexUpdateDone}
+    onconfirm={oncodexupdateconfirm}
+    onclose={oncodexupdateclose}
+  />
+{/if}
+
 {#if showOnboarding}
   <Onboarding
     checks={store.diagnostics?.checks ?? null}
@@ -425,6 +446,8 @@
     onclose={onsettingsclose}
     herdrUpdate={store.herdrUpdate}
     onherdrupdate={onsettingsherdrupdate}
+    codexUpdate={store.codexUpdate}
+    oncodexupdate={onsettingscodexupdate}
     onwhatsnew={onsettingswhatsnew}
   />
 {/if}

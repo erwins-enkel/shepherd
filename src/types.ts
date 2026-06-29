@@ -270,6 +270,24 @@ export interface HerdrUpdateStatus {
   error?: string;
 }
 
+// ── codex CLI version update check (informational only) ─────────────────────
+/** Same shape as {@link HerdrUpdateStatus}: the installed @openai/codex version
+ *  vs the latest published on npm. `notes` is always null (the npm registry
+ *  carries no changelog); kept for symmetry with the herdr/update modals. */
+export interface CodexUpdateStatus {
+  /** installed codex version (from `codex --version`); null if unknown */
+  current: string | null;
+  /** latest published version on npm; null on error */
+  latest: string | null;
+  /** true when latest > current; never true on error */
+  updateAvailable: boolean;
+  /** kept for shape-symmetry with HerdrUpdateStatus; always null for codex */
+  notes: string | null;
+  checkedAt: number;
+  /** set when the check itself failed (binary missing / network); badge stays hidden */
+  error?: string;
+}
+
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────
 /** State of a single dependency probe. `error` = the hard gate (missing /
  *  unauthenticated / unreachable); `warning` = advisory (e.g. below the version

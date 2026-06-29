@@ -4,6 +4,7 @@
     UsageLimits,
     UpdateStatus,
     HerdrUpdateStatus,
+    CodexUpdateStatus,
     DiagnosticState,
   } from "$lib/types";
   import { displayStatus } from "$lib/display-status";
@@ -52,6 +53,8 @@
     onupdate,
     herdrUpdate = null,
     onherdrupdate,
+    codexUpdate = null,
+    oncodexupdate,
     whatsNew = false,
     onwhatsnew,
     statusFilter = null,
@@ -80,6 +83,8 @@
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
+    codexUpdate?: CodexUpdateStatus | null;
+    oncodexupdate?: () => void;
     whatsNew?: boolean;
     onwhatsnew?: () => void;
     // page-level session-status filter the tallies toggle; null = no filter
@@ -113,6 +118,7 @@
 
   const updateAvailable = $derived(!!update && update.behind > 0);
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
+  const codexUpdateAvailable = $derived(!!codexUpdate && codexUpdate.updateAvailable);
   // Tallies are DISPLAY: a working-while-blocked session counts as working, not
   // blocked (displayStatus upgrades it). The halt e-stop instead reads the RAW
   // status (`haltable` below): the server's haltAll only reaches agents herdr
@@ -137,6 +143,7 @@
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
+    codexUpdateAvailable,
     whatsNew,
     learnings: learnings + learningsCurate,
     // held arrives async via the held:changed WS event; counting it here makes the
@@ -548,7 +555,7 @@
           ? "orange"
           : diagnosticsOverall === "warning"
             ? "yellow"
-            : herdrUpdateAvailable || whatsNew || learningsPresent
+            : herdrUpdateAvailable || codexUpdateAvailable || whatsNew || learningsPresent
               ? "blue"
               : null,
   );
@@ -746,6 +753,9 @@
         {herdrUpdateAvailable}
         {herdrUpdate}
         {onherdrupdate}
+        {codexUpdateAvailable}
+        {codexUpdate}
+        {oncodexupdate}
         {whatsNew}
         {onwhatsnew}
         {diagnosticsOverall}
@@ -828,6 +838,7 @@
     {updateAvailable}
     {update}
     {herdrUpdateAvailable}
+    {codexUpdateAvailable}
     {whatsNew}
     {learningsPresent}
     {learnings}
@@ -851,6 +862,7 @@
     {ondiagnose}
     {onupdate}
     {onherdrupdate}
+    {oncodexupdate}
     {onwhatsnew}
     {onlearnings}
     {onFeedback}

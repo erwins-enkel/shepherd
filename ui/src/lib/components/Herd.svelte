@@ -446,7 +446,7 @@
   <div class="units" class:flow>
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
-      <UpNextPanel {onbacklog} />
+      <UpNextPanel {onbacklog} {repoFilter} />
     {:else if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />

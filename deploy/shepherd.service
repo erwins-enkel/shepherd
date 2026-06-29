@@ -20,7 +20,8 @@ Environment=SHEPHERD_ALLOWED_HOSTS=localhost,127.0.0.1,::1,[::1],shepherd.chicke
 EnvironmentFile=-%h/.shepherd/env
 
 # app output keeps appending to the existing log file; unit lifecycle (start/stop/restart)
-# is still in journald via `journalctl --user -u shepherd`
+# is still in journald via `journalctl --user -u shepherd`. The file is size-bounded by
+# shepherd-logrotate.timer (copytruncate keeps this held fd writing to the truncated inode). #1212
 StandardOutput=append:%h/.shepherd/shepherd.log
 StandardError=append:%h/.shepherd/shepherd.log
 

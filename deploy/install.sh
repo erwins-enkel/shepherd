@@ -108,6 +108,10 @@ install_os_prereqs() {
   ensure_pkg git git
   ensure_pkg unzip unzip
   ensure_toolchain
+  # logrotate backs the OPTIONAL log-rotation timer (#1212), Linux service path only. Best-effort
+  # (warn, never die) and Linux-gated: a failed optional install must not abort the whole install,
+  # and macOS/core-only installs no timer (and has none of ensure_pkg's package managers).
+  [ "$OS_KIND" = "Linux" ] && ensure_logrotate
 }
 
 # ensure_pkg <bin> <pkg>: install <pkg> via apt/apk/dnf/pacman if <bin> is absent.
@@ -128,6 +132,21 @@ ensure_toolchain() {
   note "installing C/C++ build toolchain + python3 (node-pty native build)"
   $sp sh -c "(apt-get update && apt-get install -y build-essential python3) || apk add --no-cache build-base python3 || dnf install -y gcc-c++ make python3 || pacman -Sy --noconfirm base-devel python3" \
     || die "failed to install a C/C++ toolchain + python3 with any supported package manager"
+}
+
+# ensure_logrotate: best-effort install of logrotate for the optional log-rotation timer (#1212).
+# Unlike ensure_pkg this NEVER dies — logrotate is optional, so a failed install just means
+# provision.ts soft-skips the timer (the log stays unbounded, as before). Detection searches
+# /usr/sbin:/sbin where logrotate usually lives (a curl|bash non-login PATH often omits sbin).
+ensure_logrotate() {
+  local sp
+  PATH="$PATH:/usr/sbin:/sbin" command -v logrotate >/dev/null 2>&1 && return 0
+  # sudo_prefix dies if it can't elevate; run it in a subshell so that exit can't abort us — an
+  # empty prefix then makes the install attempt fail unprivileged and fall through to the warn.
+  sp="$(sudo_prefix logrotate 2>/dev/null || true)"
+  note "installing logrotate (optional — log-rotation timer)"
+  $sp sh -c "(apt-get update && apt-get install -y logrotate) || apk add --no-cache logrotate || dnf install -y logrotate || pacman -Sy --noconfirm logrotate" \
+    || warn "could not install logrotate — log-rotation timer will be skipped (log stays unbounded)"
 }
 
 # ── Bun ───────────────────────────────────────────────────────────────────────

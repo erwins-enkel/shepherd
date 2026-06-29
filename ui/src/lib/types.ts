@@ -1242,6 +1242,9 @@ export interface UpNextSnapshot {
   sections: UpNextSection[];
   repoCount: number;
   fallback: string | null;
+  /** Repos whose issue fetch failed this refresh; >0 + empty queue = surface a load error,
+   *  not "all caught up". */
+  failedRepoCount: number;
 }
 
 export type WsEvent =

@@ -59,7 +59,7 @@ describe("UpNextService.refresh", () => {
     expect(s.snapshot()).toBe(snap);
   });
 
-  test("a repo whose listIssues throws is dropped (no section)", async () => {
+  test("a repo whose listIssues throws is dropped and flagged as a fetch failure", async () => {
     const s = svc({
       resolveForge: () =>
         fakeForge({
@@ -70,6 +70,9 @@ describe("UpNextService.refresh", () => {
     });
     const snap = await s.refresh();
     expect(snap.sections).toEqual([]);
+    // The empty queue is a fetch failure, not "all caught up": flag it so the UI surfaces it.
+    expect(snap.repoCount).toBe(0);
+    expect(snap.failedRepoCount).toBe(1);
   });
 
   test("refresh is single-flight (concurrent callers share one compute)", async () => {

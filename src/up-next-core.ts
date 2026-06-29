@@ -47,10 +47,13 @@ export interface UpNextSection {
 export interface UpNextSnapshot {
   generatedAt: number;
   sections: UpNextSection[];
-  /** Forge-backed repos scanned this refresh. */
+  /** Forge-backed repos successfully scanned this refresh (excludes ones whose fetch failed). */
   repoCount: number;
   /** Degraded rung applied this refresh (e.g. "warm-repos-only"), or null when clean. */
   fallback: string | null;
+  /** Repos whose issue fetch threw this refresh and were dropped. >0 means a fetch failure may
+   *  be hiding work, so the UI surfaces a load error instead of an "all caught up" empty state. */
+  failedRepoCount: number;
 }
 
 /** A resolved epic, as fed in by the service (after buildEpic + selectEpicCandidates). */
@@ -206,6 +209,7 @@ export function buildSnapshot(
   repos: RepoInput[],
   now: number,
   fallback: string | null = null,
+  failedRepoCount = 0,
 ): UpNextSnapshot {
   const rank = warmRanks(repos);
   const all = repos.flatMap((r) => repoItems(r));
@@ -258,7 +262,7 @@ export function buildSnapshot(
     });
   }
 
-  return { generatedAt: now, sections, repoCount: repos.length, fallback };
+  return { generatedAt: now, sections, repoCount: repos.length, fallback, failedRepoCount };
 }
 
 /**

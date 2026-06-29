@@ -22,6 +22,7 @@ const SNAP: UpNextSnapshot = {
   generatedAt: 123,
   repoCount: 1,
   fallback: null,
+  failedRepoCount: 0,
   sections: [],
 };
 
@@ -167,6 +168,7 @@ test("GET /api/up-next?peek strips hidden-repo sections via hiddenRepoPathsRaw",
     generatedAt: 999,
     repoCount: 2,
     fallback: null,
+    failedRepoCount: 0,
     sections: [hiddenSection, visibleSection],
   };
   const { app } = harness({

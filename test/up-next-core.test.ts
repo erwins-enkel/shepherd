@@ -316,7 +316,7 @@ function makePrioritySection(items: UpNextItem[]): UpNextSection {
 }
 
 function makeSnap(sections: UpNextSection[], repoCount: number): UpNextSnapshot {
-  return { generatedAt: 1000, sections, repoCount, fallback: null };
+  return { generatedAt: 1000, sections, repoCount, fallback: null, failedRepoCount: 0 };
 }
 
 describe("excludeHiddenSections", () => {

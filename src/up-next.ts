@@ -120,10 +120,9 @@ export class UpNextService {
     const resolved = await mapBounded(repos, this.concurrency, (r) =>
       this.resolveRepo(r, lastUsed),
     );
-    const snap = buildSnapshot(
-      resolved.filter((r): r is RepoInput => r !== null),
-      this.now(),
-    );
+    const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
+    const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
+    const snap = buildSnapshot(ok, this.now(), null, failedRepoCount);
     this.snap = snap;
     try {
       this.deps.onChange(snap);
@@ -136,14 +135,16 @@ export class UpNextService {
   private async resolveRepo(
     r: UpNextRepo,
     lastUsed: Record<string, number>,
-  ): Promise<RepoInput | null> {
+  ): Promise<RepoInput | "fetch_failed" | null> {
     const forge = this.deps.resolveForge(r.repoPath);
-    if (!forge) return null;
+    if (!forge) return null; // forge vanished mid-compute → benign skip, not a fetch failure
     let openIssues: Awaited<ReturnType<GitForge["listIssues"]>>;
     try {
       openIssues = await forge.listIssues();
     } catch {
-      return null; // forge/network error → drop the repo this refresh (empty section omitted)
+      // forge/network error (e.g. rate limit) → drop the repo, but flag it as a failure so the
+      // snapshot can surface a load error rather than looking "all caught up" (cf. #1221).
+      return "fetch_failed";
     }
     const summaries = (await forge.listSubIssueSummaries?.().catch(() => null)) ?? {
       summaries: new Map<number, { total: number; completed: number }>(),

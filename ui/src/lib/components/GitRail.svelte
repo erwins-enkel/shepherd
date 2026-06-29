@@ -72,6 +72,11 @@
   let err = $state<string | null>(null);
   // which handler last failed, so the inline Retry re-invokes the same action
   let retry = $state<(() => void) | null>(null);
+  // the initial PR-status fetch threw (forge error, e.g. 502 when GitHub is
+  // rate-limited) — distinct from a legit 404 (gitState returns null silently for
+  // "no forge / no PR"). Drives the error+Retry fallback so the rail never renders
+  // silently empty, and keeps the poll retrying until the forge recovers.
+  let loadFailed = $state(false);
 
   // Open-PR popover
   let showPr = $state(false);
@@ -109,9 +114,18 @@
   async function load(id: string) {
     try {
       const g = await gitState(id);
-      if (id === sessionId) git = g;
+      if (id === sessionId) {
+        git = g;
+        loadFailed = false;
+      }
     } catch {
-      if (id === sessionId) git = null;
+      // The forge call failed (non-404 — gitState already maps 404 to a silent null
+      // for "no forge / no PR"). Flag it so the rail shows a Retry affordance instead
+      // of rendering empty, and so the poll below keeps retrying until it recovers.
+      if (id === sessionId) {
+        git = null;
+        loadFailed = true;
+      }
     }
   }
 
@@ -147,11 +161,14 @@
     showReview = false;
     showAutomation = false;
     awaitingPlanReview = false;
+    loadFailed = false;
     load(id);
-    // light poll only while a PR is open (CI/merge state can change);
-    // hidden-tab ticks are skipped, with a refresh on tab return
+    // light poll while a PR is open (CI/merge state can change) OR while the last load
+    // failed — a transient forge error (e.g. GitHub rate-limited) then clears on its own
+    // instead of leaving the rail permanently blank. Hidden-tab ticks are skipped, with
+    // a refresh on tab return.
     return pollWhileVisible(() => {
-      if (git?.state === "open") load(id);
+      if (loadFailed || git?.state === "open") load(id);
     }, 15000);
   });
 
@@ -771,6 +788,21 @@
         {/if}
       </div>
     {/if}
+  </span>
+{:else if loadFailed}
+  <!-- the forge call failed (e.g. 502 — GitHub rate-limited). Without this branch the
+       rail rendered nothing: no PR link, no error, no way to retry — the operator just
+       saw missing buttons and couldn't open the PR. Surface the failure + a manual
+       retry; the 15s poll also keeps retrying so a transient rate-limit clears itself. -->
+  <span class="git-rail-wrap" class:mobile>
+    <span class="rail" class:mobile use:edgeFades={mobile}>
+      <span class="err" role="alert" title={m.gitrail_status_failed()}
+        >{m.gitrail_status_failed()}</span
+      >
+      <button class="gbtn" type="button" disabled={busy} onclick={() => load(sessionId)}
+        >{m.common_retry()}</button
+      >
+    </span>
   </span>
 {/if}
 

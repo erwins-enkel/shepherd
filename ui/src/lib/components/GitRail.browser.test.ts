@@ -525,6 +525,53 @@ describe("GitRail — controls stay within the cell", () => {
   });
 });
 
+describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
+  // Regression: a thrown gitState (forge 502 — e.g. GitHub rate-limited) used to set
+  // git=null and render NOTHING — no PR link, no error, no retry. The desktop PR
+  // disclosure strip then showed only the surrounding autopilot control, so the
+  // operator saw "missing buttons" and couldn't open the PR. The fetch retry was also
+  // gated on git?.state === "open", so a null (failed) state never recovered.
+  it("desktop — gitState rejects → shows error + Retry instead of an empty rail", async () => {
+    gitStateFn.mockRejectedValue(new Error("forge 502"));
+    await page.viewport(600, 900);
+    const h = host(600);
+    render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    // the error fallback appears (not a blank rail)
+    await vi.waitFor(() =>
+      expect(h.querySelector<HTMLElement>(".err")?.textContent?.trim()).toBe(
+        m.gitrail_status_failed(),
+      ),
+    );
+    // a Retry button is present and the full PR control set is NOT rendered
+    const retry = [...h.querySelectorAll<HTMLButtonElement>("button.gbtn")].find(
+      (b) => b.textContent?.trim() === m.common_retry(),
+    );
+    expect(retry, "Retry button present").not.toBeUndefined();
+    expect(h.querySelector("a[href]"), "no PR link while load failed").toBeNull();
+  });
+
+  it("desktop — Retry after the forge recovers renders the full PR rail", async () => {
+    gitStateFn.mockRejectedValue(new Error("forge 502"));
+    await page.viewport(600, 900);
+    const h = host(600);
+    render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await vi.waitFor(() => expect(h.querySelector(".err")).not.toBeNull());
+
+    // forge recovers; clicking Retry re-fetches and the rail self-heals
+    gitStateFn.mockResolvedValue(openPrState);
+    const retry = [...h.querySelectorAll<HTMLButtonElement>("button.gbtn")].find(
+      (b) => b.textContent?.trim() === m.common_retry(),
+    )!;
+    retry.click();
+    await vi.waitFor(() => {
+      const link = h.querySelector<HTMLAnchorElement>("a.prlink");
+      expect(link, "PR link rendered after retry").not.toBeNull();
+      expect(link!.getAttribute("href")).toBe(openPrState.url);
+    });
+    expect(h.querySelector(".err"), "error cleared after successful retry").toBeNull();
+  });
+});
+
 describe("GitRail — mobile scroll affordance", () => {
   it("mobile 360px — overflowing rail fades its trailing edge to cue the scroll", async () => {
     gitStateFn.mockResolvedValue(openPrState);

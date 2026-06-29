@@ -542,20 +542,7 @@ export class RecapService {
       }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
-
-      // Observability: a `failed` recap used to be a black hole (no log, raw discarded), so an
-      // intermittent malformed write was undiagnosable. Surface WHY before finalizing.
-      if (action === "finalize-null") {
-        if (read.status === "unparseable") {
-          console.warn(
-            `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
-          );
-        } else {
-          console.warn(
-            `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
-          );
-        }
-      }
+      if (action === "finalize-null") this.logUnproducedVerdict(r, read, elapsed);
 
       // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
@@ -563,6 +550,21 @@ export class RecapService {
       } finally {
         this.finalizing.delete(r.sessionId);
       }
+    }
+  }
+
+  /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a
+   *  black hole (no log, raw discarded), so an intermittent malformed write was undiagnosable —
+   *  surface WHY before finalizing. Extracted from tick() to keep its cognitive complexity in bound. */
+  private logUnproducedVerdict(r: Recap, read: VerdictRead<unknown>, elapsed: number): void {
+    if (read.status === "unparseable") {
+      console.warn(
+        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
+      );
+    } else {
+      console.warn(
+        `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
+      );
     }
   }
 

@@ -1357,6 +1357,8 @@ describe("TopBar — CR extra-credit gauge", () => {
           weekTokens: 92_600_000,
           updatedAt: 1_700_000_000_000,
           stale,
+          session5h: null,
+          week: null,
         },
       ],
     };

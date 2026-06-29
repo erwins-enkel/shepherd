@@ -92,6 +92,8 @@ describe("providerSnapshots", () => {
           weekTokens: 9_000,
           updatedAt: 123,
           stale: false,
+          session5h: null,
+          week: null,
         },
       ],
     });

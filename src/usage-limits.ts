@@ -335,6 +335,11 @@ export type UsageProviderSnapshot =
       weekTokens: number;
       updatedAt: number | null;
       stale: boolean;
+      // Rate-limit windows scraped from Codex's own session rollout logs (the same
+      // 5h/weekly used-% + reset that `codex` reports). null when no rollout carries
+      // a rate-limit event yet, so the UI falls back to the raw token counts.
+      session5h: LimitWindow | null;
+      week: LimitWindow | null;
     };
 
 export interface UsageProviderSource {

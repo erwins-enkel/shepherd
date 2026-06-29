@@ -38,6 +38,8 @@ const inlineLimits: UsageLimits = {
       weekTokens: 87_654_321,
       updatedAt: BASE - 60_000,
       stale: false,
+      session5h: null,
+      week: null,
     },
   ],
 };

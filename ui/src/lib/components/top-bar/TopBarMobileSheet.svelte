@@ -12,7 +12,7 @@
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import CreditDetail from "./CreditDetail.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
-  import { gaugeColor } from "../usage-gauges";
+  import { gaugeColor, codexGaugeList } from "../usage-gauges";
   import { formatResetIn, formatReset, formatTokenLabel } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -120,6 +120,10 @@
     pluginItems?: { id: string; label: string; icon?: string }[];
     onPluginItem?: (id: string) => void;
   } = $props();
+
+  // Codex's own 5h/weekly rate-limit windows as Claude-style gauges, so both CLIs read alike.
+  // Empty until Codex logs a rate-limit event (then only the raw token counts show).
+  const codexWindows = $derived(codexGaugeList(codexUsage));
 </script>
 
 <!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
@@ -230,6 +234,27 @@
                 <span class="gp-period">{m.agent_provider_codex()}</span>
                 <span class="token-total">{formatTokenLabel(codexUsage.totalTokens)}</span>
               </div>
+              {#each codexWindows as g (g.label)}
+                <div class="sheet-gauge-row">
+                  <div class="sheet-gauge-head">
+                    <span class="gp-period">{periodLabel(g.label)}</span>
+                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                  </div>
+                  <span class="g-bar g-bar-wide"
+                    ><span
+                      class="g-fill"
+                      style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
+                        100});background:{gaugeColor(g.w.pct)}"
+                    ></span></span
+                  >
+                  <div class="gauge-pop-reset micro">
+                    {m.topbar_gauge_reset_rel({
+                      rel: formatResetIn(g.w.resetAt, nowMs),
+                      abs: formatReset(g.w.resetAt, nowMs),
+                    })}
+                  </div>
+                </div>
+              {/each}
               <div class="token-line">
                 <span>{m.topbar_tokens_window({ period: "5H" })}</span>
                 <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>

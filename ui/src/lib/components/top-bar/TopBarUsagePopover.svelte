@@ -140,7 +140,7 @@
   {/if}
   {#if codexUsage}
     <div class="gp-window token-window" class:stale={codexUsage.stale}>
-      <CodexTokenDetail usage={codexUsage} />
+      <CodexTokenDetail usage={codexUsage} {nowMs} {periodLabel} />
     </div>
   {/if}
   <button type="button" class="gauge-pop-link" aria-haspopup="dialog" onclick={onOpenUsage}>

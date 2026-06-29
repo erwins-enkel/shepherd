@@ -440,9 +440,11 @@ const service = new SessionService({
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
-  // threshold, EVERY spawn — main task agents (here) and role agents (via roleEnv) alike — runs on
-  // the cheap usageDowngradeModel instead of its configured model, so work keeps flowing before the
-  // higher hold threshold pauses it. See pushModelFlag in service.ts + roleEnv below.
+  // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
+  // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured
+  // model, so work keeps flowing before the higher hold threshold pauses it. Codex main sessions
+  // build their own argv and bypass pushModelFlag, so they are not downgraded. See pushModelFlag in
+  // service.ts + roleEnv below.
   usageDowngrade: () => usageDowngradeModel(),
   detectEgressHostLoopback,
   namer: generateName,

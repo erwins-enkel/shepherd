@@ -2133,7 +2133,6 @@
   "settings_role_models_hint": "Wähle CLI und Modell für jede von Shepherd gestartete Helfer-Rolle. „Folgt Standard“ übernimmt CLI + Standardmodell von oben; die effektive Umgebung steht unter jeder Zeile.",
   "settings_role_models_advanced": "Klassifizierer (erweitert)",
   "settings_role_models_classifier_cost_hint": "Diese laufen ständig und nutzen bewusst ein kleines, schnelles Modell. Ein schweres Modell hier steigert die Kosten stark.",
-  "settings_role_model_inherit": "Folgt Standardmodell",
   "settings_role_model_effective": "Effektiv: {model}",
   "settings_role_model_effective_provider_default": "Provider-Standard",
   "settings_role_model_save_failed": "Rollen-Umgebung konnte nicht geändert werden. Erneut versuchen.",

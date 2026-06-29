@@ -108,7 +108,7 @@
   --icon-btn-hit: 28px; /* desktop square hit area for header icon buttons */
   --icon-btn-glyph: 18px; /* canonical inline-SVG glyph size */
 
-  /* Shared height for the top bar's right-cluster boxed controls (needsyou/held/
+  /* Shared height for the top bar's right-cluster boxed controls (held/
      update/learnings badges, what's-new, docs link, gear) — single source so a
      box's glyph or padding can't drift its height (the recurring "zoo of heights").
      A fixed chrome height: NOT scaled by --ui-scale; consumers use it as a

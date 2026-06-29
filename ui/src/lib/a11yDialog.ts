@@ -12,7 +12,7 @@
 // is what makes aria-modal honest: the Tab-trap and Escape listener live on the
 // node, so they only fire while focus sits inside it. Dialogs that autofocus a
 // field keep that field; dialogs that don't (BroadcastDialog, BacklogOverlay,
-// LeftoverDialog, Update/HerdrUpdateModal, TriageDrawer) get focus on the first
+// LeftoverDialog, Update/HerdrUpdateModal) get focus on the first
 // focusable control, or the node itself as a fallback.
 
 interface DialogParams {

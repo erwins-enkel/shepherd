@@ -20,7 +20,7 @@
     connected = false,
     mobile = false,
     touch = false,
-    needsYou = 0,
+    learnings = 0,
     update = null,
     initialLimits = null,
     initialHeldCount = 0,
@@ -30,7 +30,7 @@
     connected?: boolean;
     mobile?: boolean;
     touch?: boolean;
-    needsYou?: number;
+    learnings?: number;
     update?: UpdateStatus | null;
     /** Seed for the internal `limits` $state. Defaults to null so the gauge-arrival
      *  test (which flips null→populated via setLimits) is unaffected; the held test
@@ -77,7 +77,7 @@
     {mobile}
     {touch}
     {limits}
-    {needsYou}
+    {learnings}
     {update}
     {heldCount}
   />

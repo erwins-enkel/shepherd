@@ -6,8 +6,6 @@
   import { toasts } from "$lib/toasts.svelte";
   import { basename } from "$lib/components/learnings-drawer";
   import {
-    replySession,
-    dismissStall,
     approveLearning,
     dismissLearning,
     distillRepo,
@@ -24,7 +22,6 @@
     mergeSuggestNow,
   } from "$lib/api";
   import type { HerdStore } from "$lib/store.svelte";
-  import type { BlockedEntry } from "$lib/triage";
   import type {
     AgentProvider,
     BacklogPayload,
@@ -38,7 +35,6 @@
     Steer,
   } from "$lib/types";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
-  import TriageDrawer from "$lib/components/TriageDrawer.svelte";
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
   import NewTask from "$lib/components/NewTask.svelte";
   import Settings from "$lib/components/Settings.svelte";
@@ -72,14 +68,6 @@
     settings,
     mobile,
     // in-shell drawers
-    showTriage,
-    blockedEntries,
-    nowMs,
-    ontriageopen,
-    ontriageclose,
-    onresumequota,
-    ontakeoverquota,
-    onabandonquota,
     showLearnings,
     learningsRepo,
     onlearningsclose,
@@ -175,14 +163,6 @@
     store: HerdStore;
     settings: Settings_ | null;
     mobile: boolean;
-    showTriage: boolean;
-    blockedEntries: BlockedEntry[];
-    nowMs: number;
-    ontriageopen: (id: string) => void;
-    ontriageclose: () => void;
-    onresumequota: (id: string) => void;
-    ontakeoverquota: (id: string) => void;
-    onabandonquota: (id: string) => void;
     showLearnings: boolean;
     learningsRepo: string | null;
     onlearningsclose: () => void;
@@ -287,20 +267,6 @@
   const newTaskInitialModel = $derived(composeModel ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
 </script>
-
-{#if showTriage}
-  <TriageDrawer
-    entries={blockedEntries}
-    {nowMs}
-    onreply={(id, text) => replySession(id, text).catch(() => {})}
-    ondismiss={(id) => dismissStall(id).catch(() => {})}
-    onopen={ontriageopen}
-    onclose={ontriageclose}
-    onresume={onresumequota}
-    ontakeover={ontakeoverquota}
-    onabandon={onabandonquota}
-  />
-{/if}
 
 {#if showLearnings}
   <LearningsDrawer

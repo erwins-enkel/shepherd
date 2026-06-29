@@ -7,7 +7,7 @@ import type { HerdStore } from "$lib/store.svelte";
 
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
 // Keep every other $lib/api export real (AppOverlays imports many for the
-// learnings/triage drawers, but those only fire on interaction, not on mount).
+// learnings drawer, but those only fire on interaction, not on mount).
 vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
   listRepos: vi.fn().mockResolvedValue({ repos: [], recentWindowDays: 30 }),
@@ -25,14 +25,6 @@ function baseProps(): Props {
     store,
     settings: null,
     mobile: false,
-    showTriage: false,
-    blockedEntries: [],
-    nowMs: 0,
-    ontriageopen: vi.fn(),
-    ontriageclose: vi.fn(),
-    onresumequota: vi.fn(),
-    ontakeoverquota: vi.fn(),
-    onabandonquota: vi.fn(),
     showLearnings: false,
     learningsRepo: null,
     onlearningsclose: vi.fn(),

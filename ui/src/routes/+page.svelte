@@ -39,8 +39,6 @@
     getDiagnostics,
     getPlugins,
     halt as apiHalt,
-    resumeQuota,
-    dismissQuota,
     getBuildQueues,
     listHeld,
     updateHeld,
@@ -203,7 +201,6 @@
     otherRepoCount: number;
     run: () => Promise<void>;
   } | null>(null);
-  let showTriage = $state(false);
   let showLearnings = $state(false);
   // True once the first learnings.load() has resolved. Gates the auto-close effect so a
   // deep-link (issue #852: ?learnings=1 / "open-learnings") that opens the drawer before
@@ -417,11 +414,6 @@
       .catch(() => {});
   }
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks, store.holds));
-  // Once every "needs you" item is handled the drawer has nothing left to show —
-  // close it so it slides out instead of lingering on an empty state.
-  $effect(() => {
-    if (showTriage && blockedEntries.length === 0) showTriage = false;
-  });
   $effect(() => {
     // Close only when both the proposed list and the injected view are empty —
     // a repo can have injected rules to curate with zero outstanding proposals.
@@ -1098,7 +1090,6 @@
       showBacklog ||
       showBroadcast ||
       showRetry ||
-      showTriage ||
       showUpdate ||
       showHerdrUpdate ||
       showWhatsNew
@@ -1502,41 +1493,6 @@
         alert: true,
         key: `relaunch-fail:${id}`,
       });
-  }
-
-  async function handleResumeQuota(id: string) {
-    try {
-      const result = await resumeQuota(id);
-      if (result.status === "resumed" || result.status === "started") {
-        toasts.info(m.quota_resume_started());
-      } else if (result.status === "pr-merged" || result.status === "pr-closed") {
-        toasts.info(m.quota_resume_pr_gone());
-      } else if (result.status === "not-stalled") {
-        toasts.info(m.quota_resume_cleared());
-      } else {
-        toasts.info(m.quota_resume_failed(), {
-          duration: null,
-          alert: true,
-          key: `quota-resume-fail:${id}`,
-        });
-      }
-    } catch {
-      toasts.info(m.quota_resume_failed(), {
-        duration: null,
-        alert: true,
-        key: `quota-resume-fail:${id}`,
-      });
-    }
-  }
-
-  function handleTakeoverQuota(id: string) {
-    selectUnit(id);
-    showTriage = false;
-    dismissQuota(id).catch(() => {});
-  }
-
-  function handleAbandonQuota(id: string) {
-    archiveSession(id).catch(() => {});
   }
 
   // Persist an edited held task: replace its stored input via PATCH, keeping it held.
@@ -2016,8 +1972,6 @@
         }}
         onusage={() => (showUsage = true)}
         onhalt={haltHerd}
-        needsYou={blockedEntries.length}
-        ontriage={() => (showTriage = true)}
         update={store.update}
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}
@@ -2362,17 +2316,6 @@
   {store}
   {settings}
   mobile={mobile.current}
-  {showTriage}
-  {blockedEntries}
-  {nowMs}
-  ontriageopen={(id) => {
-    selectUnit(id);
-    showTriage = false;
-  }}
-  ontriageclose={() => (showTriage = false)}
-  onresumequota={(id) => handleResumeQuota(id)}
-  ontakeoverquota={(id) => handleTakeoverQuota(id)}
-  onabandonquota={(id) => handleAbandonQuota(id)}
   {showLearnings}
   {learningsRepo}
   onlearningsclose={() => {

@@ -261,7 +261,7 @@ export class GithubForge implements GitForge {
       "-F",
       `name=${name}`,
       "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ cost remaining resetAt }}",
+      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ remaining resetAt }}",
     ]);
     const json = JSON.parse(out) as {
       data?: {

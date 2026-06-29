@@ -220,8 +220,7 @@ export class PrPoller implements PrCache {
    *  120s sweep's lag. Capped at `fastBatch` per tick, rotating so every open PR is
    *  covered across a few ticks rather than fanning out one `gh` per PR each time. */
   async fastTick(): Promise<void> {
-    // Cadence gate first (a later task layers an activity-aware filter after this):
-    // pause the fast sweep entirely when rate-limited or cold.
+    // Cadence gate first: skip entirely when rate-limited or not warm, before the activity-aware filter below.
     if (this.rateLimited() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
@@ -252,7 +251,7 @@ export class PrPoller implements PrCache {
       // below when the open-PR count drops back under the cap.
       if (!this.fastCapLogged) {
         console.warn(
-          `[pr-poller] ${eligible.length} open PRs exceed fast-poll cap ${this.fastBatch}; polling ${this.fastBatch}/tick round-robin`,
+          `[pr-poller] ${eligible.length} transient open PRs exceed fast-poll cap ${this.fastBatch}; polling ${this.fastBatch}/tick round-robin`,
         );
         this.fastCapLogged = true;
       }

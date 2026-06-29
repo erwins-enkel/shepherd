@@ -1085,7 +1085,7 @@
   }
   .card {
     position: relative;
-    width: min(520px, 92vw);
+    width: min(560px, 92vw);
     max-height: 86vh;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);

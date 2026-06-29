@@ -83,7 +83,12 @@ test("planBlockInstructions instructs against diff and code blocks (no-diff-bloc
 
 test("agentProvider:'claude' is byte-identical to the default (Claude regression)", () => {
   // The new opt must NOT perturb any existing Claude caller's system prompt.
-  for (const opts of [{ research: true }, { planGate: "interactive" as const }, {}]) {
+  for (const opts of [
+    { research: true },
+    { planGate: "interactive" as const },
+    { planGate: "auto" as const },
+    {},
+  ]) {
     expect(composeSystemPrompt(null, true, { ...opts, agentProvider: "claude" })).toBe(
       composeSystemPrompt(null, true, opts),
     );
@@ -111,6 +116,17 @@ test("codex interactive plan-gate hardens the stop clause and omits AskUserQuest
   expect(
     composeSystemPrompt(null, false, { planGate: "interactive", agentProvider: "claude" }),
   ).toContain("AskUserQuestion");
+});
+
+test("codex auto plan-gate also gets the hardened stop clause (unattended path, no human backstop)", () => {
+  const codex = composeSystemPrompt(null, false, { planGate: "auto", agentProvider: "codex" });
+  expect(codex).toContain("<plan-gate-directive>");
+  expect(codex).toContain("running unattended");
+  expect(codex).toContain("Do NOT write or modify ANY code this turn");
+  // Claude's auto variant keeps the original phrasing — no extra stop clause.
+  expect(
+    composeSystemPrompt(null, false, { planGate: "auto", agentProvider: "claude" }),
+  ).not.toContain("Do NOT write or modify ANY code this turn");
 });
 
 test("planBlockInstructions(INTERACTIVE) drops AskUserQuestion for codex, keeps it for claude", () => {

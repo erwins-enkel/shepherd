@@ -809,13 +809,30 @@ function planGateDirectiveInteractive(agentProvider: AgentProvider): string {
   );
 }
 const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
-const PLAN_GATE_DIRECTIVE_AUTO =
-  "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
-  "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
-  "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
-  "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
-  "are told the plan is approved.\n\n" +
-  planBlockInstructions({ allowQuestionForm: true });
+/**
+ * The unattended (drain) plan-gate directive, provider-adjusted. The auto path has NO human to catch
+ * an eager Codex that starts implementing — so it needs the hardened stop clause even MORE than the
+ * interactive path. Codex gets the same lead-in stop clause; Claude keeps the original phrasing.
+ * `planGateDirectiveAuto("claude")` is byte-identical to the prior `PLAN_GATE_DIRECTIVE_AUTO`
+ * constant — keep it that way (Claude regression).
+ */
+function planGateDirectiveAuto(agentProvider: AgentProvider): string {
+  const stopClause =
+    agentProvider === "codex"
+      ? "Do NOT write or modify ANY code this turn. Your ONLY deliverable right now is the plan file " +
+        "`.shepherd-plan.md`; once you have written it, STOP and wait — do not start implementing.\n"
+      : "";
+  return (
+    stopClause +
+    "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
+    "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
+    "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
+    "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
+    "are told the plan is approved.\n\n" +
+    planBlockInstructions({ allowQuestionForm: true, agentProvider })
+  );
+}
+const PLAN_GATE_DIRECTIVE_AUTO = planGateDirectiveAuto("claude");
 export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
 
 /**
@@ -929,6 +946,33 @@ export function planGoSteer(draftMode: boolean): string {
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
+/**
+ * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
+ * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
+ * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
+ * keep that function under the complexity gate.
+ */
+function primaryDirectiveBlock(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  opts: { research?: boolean; planGate?: "interactive" | "auto" },
+): string | null {
+  if (opts.research) {
+    return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
+  }
+  if (opts.planGate) {
+    const variant =
+      opts.planGate === "auto"
+        ? planGateDirectiveAuto(agentProvider)
+        : planGateDirectiveInteractive(agentProvider);
+    return `<plan-gate-directive>\n${variant}\n</plan-gate-directive>`;
+  }
+  if (autopilotActive) {
+    return `<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
+  }
+  return null;
+}
+
 export function composeSystemPrompt(
   houseRules: string | null,
   autopilotActive = false,
@@ -969,18 +1013,9 @@ export function composeSystemPrompt(
     }
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
-  // directive (none of those fit a report-PR/issue deliverable).
-  if (opts.research) {
-    blocks.push(`<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`);
-  } else if (opts.planGate) {
-    const variant =
-      opts.planGate === "auto"
-        ? PLAN_GATE_DIRECTIVE_AUTO
-        : planGateDirectiveInteractive(agentProvider);
-    blocks.push(`<plan-gate-directive>\n${variant}\n</plan-gate-directive>`);
-  } else if (autopilotActive) {
-    blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
-  }
+  // directive (none of those fit a report-PR/issue deliverable). See primaryDirectiveBlock.
+  const primary = primaryDirectiveBlock(agentProvider, autopilotActive, opts);
+  if (primary) blocks.push(primary);
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
   // but a research session authors no queue — suppress it there too.
   if (!opts.research && opts.buildQueue != null)

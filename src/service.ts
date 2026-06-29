@@ -2140,6 +2140,11 @@ export class SessionService {
       agentProvider: opts.agentProvider,
       model: opts.model,
     });
+    // Force auto-merge OFF on the variant (relaunch carries the original's setting). Autopilot
+    // stays as carried so the variant still runs the task hands-off — but auto-merge must not land
+    // its PR into base before the read-only comparison reads it, which would make
+    // `git diff base...<branch>` show nothing and silently break the comparison.
+    this.deps.store.setAutoMergeState(variant.id, { enabled: false });
     this.deps.store.setExperiment(variant.id, { experimentId, role: "variant" });
 
     return {

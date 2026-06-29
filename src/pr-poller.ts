@@ -101,8 +101,12 @@ function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
  * `checks: "pending"` is short-lived and the 120s sweep routinely sampled `none`
  * then `success` two sweeps later, never recording the running state, so the
  * list jumped straight to green and never showed the pulsing "CI running" dot.
- * The fast sweep is capped at `fastBatch` open PRs per tick (round-robin beyond
- * it) so it never fans out one blocking `gh` per PR over an unbounded backlog.
+ * The fast sweep routes its eligible (transient, in-window) open PRs through the
+ * same per-repo batch path as `tick` (`buildBatches`/`batchForRepo` + count-gate):
+ * a repo whose transient PRs dominate its open set is refreshed with one
+ * `listOpenPrStatuses`; a repo with many stable open PRs beyond the few transient
+ * ones falls back to bounded per-session polls (the gate protects the 15s points
+ * budget). No per-PR cap or round-robin — every eligible PR is covered each tick.
  */
 export class PrPoller implements PrCache {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -119,10 +123,6 @@ export class PrPoller implements PrCache {
    *  up a backlog of queued ticks. The targeted poll does NOT consult it — it
    *  serializes via `ghChain` instead, so a turn-end poll is never dropped. */
   private sweeping = false;
-  /** Round-robin offset into the open-PR list when it exceeds `fastBatch`. */
-  private fastCursor = 0;
-  /** Latched so the over-cap notice logs once on transition, not every fast tick. */
-  private fastCapLogged = false;
   /** Tracks when each open PR entered (or re-entered via a new headSha) a transient
    *  state — used to time-bound how long `fastTick` keeps re-polling it. */
   private transientSince = new Map<string, { since: number; headSha?: string }>();
@@ -163,8 +163,6 @@ export class PrPoller implements PrCache {
     private reconcileBranch: (s: Session) => string | null = () => null,
     /** Fast cadence for re-polling open PRs (in-flight CI/merge state). */
     private fastIntervalMs = 15_000,
-    /** Max open PRs polled per fast tick; the rest rotate in on later ticks. */
-    private fastBatch = 8,
     /** Whether a name-matched terminal (merged/closed) PR's head commit actually
      *  belongs to the session's branch. Guards against `gh pr list --head <name>`
      *  returning a prior, already-merged PR that merely reused this branch name.
@@ -292,17 +290,19 @@ export class PrPoller implements PrCache {
 
   /** Accelerated re-poll of in-flight PRs (cached `state === "open"`) so the list
    *  overview tracks CI running/transition as live as the detail view, without the
-   *  120s sweep's lag. Capped at `fastBatch` per tick, rotating so every open PR is
-   *  covered across a few ticks rather than fanning out one `gh` per PR each time. */
+   *  120s sweep's lag. Routes the eligible (transient, in-window) open PRs through
+   *  the same per-repo batch path as the full sweep (`buildBatches`/`batchFor` +
+   *  count-gate): a repo whose transient PRs dominate its open set is refreshed
+   *  with one `listOpenPrStatuses`; a repo with stable open PRs beyond the few
+   *  transient ones trips the gate and falls back to bounded per-session polls. No
+   *  per-PR cap or round-robin — every eligible PR is covered each tick, O(repos)
+   *  when transient-dominant, O(eligible) per-session otherwise. */
   async fastTick(): Promise<void> {
     // Cadence gate first: skip entirely when rate-limited or not warm, before the activity-aware filter below.
     if (this.rateLimited() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
-    if (open.length === 0) {
-      this.fastCapLogged = false; // dropped under cap (to zero) → re-arm the notice
-      return;
-    }
+    if (open.length === 0) return;
     // Activity-aware filter: only re-poll PRs that are still transient AND within
     // the time-bounded window. Stamp-missing (shouldn't happen normally) → eligible.
     const now = Date.now();
@@ -313,29 +313,28 @@ export class PrPoller implements PrCache {
       const since = entry?.since ?? now;
       return now - since < this.transientMaxMs;
     });
-    if (eligible.length === 0) {
-      this.fastCapLogged = false;
-      return;
-    }
-    let batch = eligible;
-    if (eligible.length > this.fastBatch) {
-      const start = this.fastCursor % eligible.length;
-      batch = [...eligible, ...eligible].slice(start, start + this.fastBatch);
-      this.fastCursor = (start + this.fastBatch) % eligible.length;
-      // Log once on entering the over-cap regime, not every 15s tick; re-arm
-      // below when the open-PR count drops back under the cap.
-      if (!this.fastCapLogged) {
-        console.warn(
-          `[pr-poller] ${eligible.length} transient open PRs exceed fast-poll cap ${this.fastBatch}; polling ${this.fastBatch}/tick round-robin`,
-        );
-        this.fastCapLogged = true;
-      }
-    } else {
-      this.fastCapLogged = false;
-    }
+    if (eligible.length === 0) return;
+    // Resolve to live sessions (an archived/gone session is pruned by the next full
+    // tick); the count-gate is fed only this eligible-transient set, so it weighs a
+    // batch against the per-session calls we'd actually make this tick.
+    const sessions = eligible
+      .map((id) => this.store.get(id))
+      .filter((s): s is Session => !!s && s.status !== "archived");
+    if (sessions.length === 0) return;
+    // Flag BEFORE buildBatches so its countOpenPrs/listOpenPrStatuses probe runs
+    // inside the mutual-exclusion window — a concurrent full tick can't interleave.
     this.sweeping = true;
     try {
-      for (const id of batch) await this.refreshOne(id);
+      const batches = await this.buildBatches(sessions);
+      for (const s of sessions) {
+        if (this.inFlight.has(s.id)) continue; // a targeted pollSession is already covering it
+        this.inFlight.add(s.id);
+        try {
+          await this.withGh(() => this.refresh(s, this.batchFor(s, batches)));
+        } finally {
+          this.inFlight.delete(s.id);
+        }
+      }
     } finally {
       this.sweeping = false;
     }

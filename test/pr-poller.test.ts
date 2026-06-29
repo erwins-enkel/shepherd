@@ -432,7 +432,6 @@ test("discards a merged PR whose head commit isn't on this session's branch (nam
     1000,
     () => null, // no other branch to adopt
     15_000,
-    8,
     () => false, // head commit does NOT belong to this session's branch
   );
 
@@ -454,7 +453,6 @@ test("keeps a merged PR whose head commit is on this session's branch", async ()
     1000,
     () => null,
     15_000,
-    8,
     () => true, // genuinely this session's own merged PR
   );
 
@@ -474,7 +472,6 @@ test("keeps a merged PR when ownership is unknowable (null) rather than hiding i
     1000,
     () => null,
     15_000,
-    8,
     () => null, // bad worktree / git error → don't mask a real merge
   );
 
@@ -494,7 +491,6 @@ test("never runs the ownership check for an open PR (name match is current)", as
     1000,
     () => null,
     15_000,
-    8,
     () => {
       ownsCalls++;
       return false;
@@ -518,7 +514,6 @@ test("applies the ownership guard to an adopted live branch's terminal PR too", 
     1000,
     () => "shepherd/renamed", // agent renamed the worktree branch
     15_000,
-    8,
     () => false, // the adopted branch's merged head isn't this session's commit
   );
 
@@ -556,74 +551,136 @@ test("fast tick re-polls only open PRs — accelerating in-flight CI", async () 
   expect(polled).toEqual(["shepherd/a"]);
 });
 
-test("fast tick caps open-PR polling per tick and rotates to cover all", async () => {
+test("fastTick batches a transient-dominant repo via one listOpenPrStatuses (a)", async () => {
   const store = new SessionStore(":memory:");
-  for (let i = 0; i < 5; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
-  const polled: string[] = [];
-  const forge: GitForge = {
-    ...forgeByBranch({}),
-    prStatus: async (head: string) => {
-      polled.push(head);
-      return OPEN_PENDING;
-    },
-  };
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  // P == eligible: the open set is exactly the two transient PRs → P ≤ ratio×count → batch.
+  const { forge, stats } = forgeWithBatch({
+    "shepherd/a": OPEN_PENDING,
+    "shepherd/b": OPEN_PENDING,
+  });
   const poller = new PrPoller(
     store,
     () => forge,
     () => {},
-    120_000,
-    1000,
-    () => null,
-    15_000,
-    2, // fastBatch cap
+  );
+
+  await poller.tick(); // seed cache (both open+transient) + transientSince
+  stats.list = 0;
+  stats.count = 0;
+  stats.prStatus = 0;
+  await poller.fastTick();
+  expect(stats.count).toBe(1); // one count-gate probe for the repo
+  expect(stats.list).toBe(1); // one batch refresh covers both PRs
+  expect(stats.prStatus).toBe(0); // no per-PR fan-out
+});
+
+test("fastTick falls back to per-session for a single eligible PR — count<2 (b)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/a": OPEN_PENDING },
+    { prStatusByBranch: { "shepherd/a": OPEN_PENDING } },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
   );
 
   await poller.tick();
-  polled.length = 0;
-  await poller.fastTick(); // 2 polled
-  await poller.fastTick(); // next 2
-  await poller.fastTick(); // wraps; 2 more
-  expect(polled.length).toBe(6); // capped at 2 per tick
-  expect(new Set(polled).size).toBe(5); // every open PR covered across ticks
+  stats.list = 0;
+  stats.count = 0;
+  stats.prStatus = 0;
+  await poller.fastTick();
+  expect(stats.count).toBe(0); // count<2 short-circuits before the probe
+  expect(stats.list).toBe(0);
+  expect(stats.prStatus).toBe(1); // lone eligible → per-session
 });
 
-test("over-cap notice re-logs after the open-PR count drops to zero and back", async () => {
+test("fastTick fans out O(eligible) per-session across singleton repos, no cap (c)", async () => {
   const store = new SessionStore(":memory:");
-  for (let i = 0; i < 3; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
-  let cur: PrStatus = OPEN_PENDING;
-  let warnings = 0;
-  const orig = console.warn;
-  console.warn = (msg?: unknown) => {
-    if (typeof msg === "string" && msg.includes("exceed fast-poll cap")) warnings++;
-  };
-  try {
-    const poller = new PrPoller(
-      store,
-      () => ({ ...forgeByBranch({}), prStatus: async () => cur }),
-      () => {},
-      120_000,
-      1000,
-      () => null,
-      15_000,
-      1, // fastBatch=1 → 3 open PRs are over-cap
+  const REPOS = 10; // exceeds the old fastBatch=8 cap → proves no cap remains
+  const forges: Record<string, GitForge> = {};
+  let prStatusCalls = 0;
+  let listCalls = 0;
+  for (let i = 0; i < REPOS; i++) {
+    const repoPath = `/r${i}`;
+    store.create({ ...baseSession, repoPath, branch: `shepherd/${i}` });
+    const { forge } = forgeWithBatch(
+      { [`shepherd/${i}`]: OPEN_PENDING },
+      { slug: `o/r${i}`, prStatusByBranch: { [`shepherd/${i}`]: OPEN_PENDING } },
     );
-    await poller.tick(); // cache 3 open PRs
-    await poller.fastTick(); // over-cap → logs once
-    await poller.fastTick(); // still over-cap → latched, no re-log
-    expect(warnings).toBe(1);
-
-    cur = { state: "merged", number: 1, checks: "success", deployConfigured: false };
-    await poller.tick(); // PRs settle → cache holds no open entries
-    await poller.fastTick(); // zero open → re-arms the latch
-    expect(warnings).toBe(1);
-
-    cur = OPEN_PENDING;
-    await poller.tick(); // open again, still over-cap
-    await poller.fastTick(); // latch re-armed → logs again
-    expect(warnings).toBe(2);
-  } finally {
-    console.warn = orig;
+    forges[repoPath] = {
+      ...forge,
+      prStatus: async () => {
+        prStatusCalls++;
+        return OPEN_PENDING;
+      },
+      listOpenPrStatuses: async () => {
+        listCalls++;
+        return new Map();
+      },
+    };
   }
+  const poller = new PrPoller(
+    store,
+    (rp) => forges[rp] ?? null,
+    () => {},
+  );
+
+  await poller.tick();
+  prStatusCalls = 0;
+  listCalls = 0;
+  await poller.fastTick();
+  expect(prStatusCalls).toBe(REPOS); // every singleton repo polled per-session in one tick
+  expect(listCalls).toBe(0); // count<2 each → never batched
+});
+
+test("fastTick covers all eligible PRs of one repo in a single tick — no rotation (d)", async () => {
+  const store = new SessionStore(":memory:");
+  const open: Record<string, PrStatus> = {};
+  for (let i = 0; i < 10; i++) open[`shepherd/${i}`] = { ...OPEN_PENDING, number: i + 1 };
+  for (let i = 0; i < 10; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
+  const { forge, stats } = forgeWithBatch(open);
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick();
+  stats.list = 0;
+  stats.prStatus = 0;
+  await poller.fastTick();
+  expect(stats.list).toBe(1); // single batch covers all 10 (old code rotated 8/tick)
+  expect(stats.prStatus).toBe(0);
+});
+
+test("fastTick keeps a mixed repo (P ≫ eligible) per-session via the count-gate (e)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  // Only 2 transient PRs eligible, but the repo has 20 open PRs total → 20 > 2×2 → per-session.
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/a": OPEN_PENDING, "shepherd/b": OPEN_PENDING },
+    { count: 20, prStatusByBranch: { "shepherd/a": OPEN_PENDING, "shepherd/b": OPEN_PENDING } },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick();
+  stats.list = 0;
+  stats.count = 0;
+  stats.prStatus = 0;
+  await poller.fastTick();
+  expect(stats.count).toBe(1); // probed countOpenPrs
+  expect(stats.list).toBe(0); // gate tripped → no full-rollup batch
+  expect(stats.prStatus).toBe(2); // refreshed the 2 eligible per-session
 });
 
 test("serializes a targeted poll behind a sweep — one gh at a time", async () => {
@@ -678,7 +735,6 @@ test("fastTick skips when rateLimited() is true", async () => {
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true, // warm
     () => rl,
@@ -711,7 +767,6 @@ test("fastTick skips when warm() is false and runs when warm & not limited", asy
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => warm,
     () => false,
@@ -742,7 +797,6 @@ test("tick runs every call when warm() is true", async () => {
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true, // warm
     () => false,
@@ -768,7 +822,6 @@ test("tick when not warm runs once then skips within idleIntervalMs", async () =
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => false, // not warm
     () => false,
@@ -796,7 +849,6 @@ test("tick when not warm runs again with idleIntervalMs 0", async () => {
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => false, // not warm
     () => false,
@@ -823,7 +875,6 @@ test("tick skips entirely when rateLimited() regardless of warm", async () => {
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true, // warm
     () => true, // but rate limited
@@ -963,7 +1014,6 @@ test("refresh signal (b): prior-owned PR transitions to merged, bypasses guard w
     1000,
     () => null,
     15_000,
-    8,
     () => false, // ownsPr always returns false
   );
 
@@ -1000,7 +1050,6 @@ test("refresh signal (a): cold cache + marked + markedNumber matches, ownsPr=fal
     1000,
     () => null,
     15_000,
-    8,
     () => false, // ownsPr always returns false
   );
 
@@ -1088,7 +1137,6 @@ test("fastTick parks a transient PR whose transientMaxMs window has expired", as
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true,
     () => false,
@@ -1127,7 +1175,6 @@ test("headSha change restamps the transient window, making an aged-out PR eligib
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true,
     () => false,
@@ -1384,7 +1431,6 @@ test("stale-terminal guard under batch: reused-name merged dropped to none", asy
     1000,
     () => null,
     15_000,
-    8,
     () => false, // ownsPr false → reused-name terminal rejected
   );
 
@@ -1485,7 +1531,6 @@ test("stuck-none heals after noneRecheckMs via a per-session re-confirm", async 
     1000,
     () => null,
     15_000,
-    8,
     () => true, // ownsPr true → keep the merge
     () => true,
     () => false,
@@ -1646,7 +1691,6 @@ test("cap-hit: countOpenPrs≥200 forces per-session regardless of ratio", async
     1000,
     () => null,
     15_000,
-    8,
     () => true,
     () => true,
     () => false,

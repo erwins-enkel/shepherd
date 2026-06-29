@@ -754,7 +754,6 @@ const prPoller = new PrPoller(
   // is recognized instead of staying invisible against the stale stored branch
   (s) => service.syncWorktreeBranch(s.id),
   undefined,
-  undefined,
   ownsPr,
   warm, // full cadence only while warm; cold → fast sweep pauses, full sweep throttles
   () => graphRateLimit.blocked(), // skip every sweep while the GraphQL bucket is exhausted

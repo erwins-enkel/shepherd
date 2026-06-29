@@ -662,6 +662,7 @@ test("fastTick skips when rateLimited() is true", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: "shepherd/a" });
   let calls = 0;
+  let rl = false;
   const forge: GitForge = {
     ...forgeByBranch({}),
     prStatus: async () => {
@@ -680,12 +681,14 @@ test("fastTick skips when rateLimited() is true", async () => {
     8,
     () => true,
     () => true, // warm
-    () => true, // rateLimited
+    () => rl,
   );
-  await poller.tick(); // warm the cache (gated only on fastTick/tick, tick itself runs because warm)
+  await poller.tick(); // cache one open PR (rl=false so tick runs)
   calls = 0;
+  rl = true; // engage the rate-limit gate
   await poller.fastTick();
-  expect(calls).toBe(0);
+  expect(calls).toBe(0); // rateLimited → skipped; cache still holds the open PR
+  expect(poller.snapshot()).toBeDefined(); // cache untouched
 });
 
 test("fastTick skips when warm() is false and runs when warm & not limited", async () => {

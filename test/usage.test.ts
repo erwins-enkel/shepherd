@@ -203,10 +203,14 @@ test("dominantModelOf returns null when only 'unknown' is present", () => {
 // ── foldSessionBuckets ────────────────────────────────────────────────────────
 
 // Fixture: two different hours + one ts=0 record, with distinct models and multiple token kinds.
-// Hour A: 2026-05-30T09:00:00.000Z
-// Hour B: 2026-05-30T10:00:00.000Z
-const TS_A = "2026-05-30T09:31:01.000Z"; // in hour A
-const TS_B = "2026-05-30T10:15:00.000Z"; // in hour B
+// Anchored relative to "now" (~1 day ago) so the records always sit well inside the rollup's
+// 30-day prune window. These used to be hard-coded 2026-05-30 calendar dates, which crossed the
+// 30-day horizon as real time advanced and broke `verify` on every PR (issue #1222). Hour A and
+// hour B are adjacent, distinct hour buckets — the fold/window/cutoff tests below depend on that.
+const HOUR_MS = 3_600_000;
+const HOUR_A_FLOOR = Math.floor((Date.now() - 86_400_000) / HOUR_MS) * HOUR_MS;
+const TS_A = new Date(HOUR_A_FLOOR + 31 * 60_000 + 1_000).toISOString(); // hour A, :31:01
+const TS_B = new Date(HOUR_A_FLOOR + HOUR_MS + 15 * 60_000).toISOString(); // hour B (= A+1h), :15:00
 
 // Make a ts=0 record by using an invalid timestamp
 function asstNoTs(opts: Parameters<typeof asst>[0]): string {

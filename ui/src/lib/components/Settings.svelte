@@ -847,7 +847,7 @@
       // Fall back to the server seed when a field is absent (older backend) so the controls
       // never render blank.
       usageDowngradeEnabled = s.usageDowngradeEnabled ?? false;
-      usageDowngradePct = s.usageDowngradePct ?? 80;
+      usageDowngradePct = s.usageDowngradePct ?? 70;
       usageDowngradePctSaved = usageDowngradePct;
       usageDowngradeModel = s.usageDowngradeModel ?? "haiku";
       usageDowngradeModelSaved = usageDowngradeModel;

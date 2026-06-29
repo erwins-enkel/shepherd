@@ -808,7 +808,13 @@
     };
   }
 
-  const mobile = new MediaQuery("max-width: 768px");
+  // Mobile layout fires when the viewport is narrow OR short: width ≤768px is the
+  // phone breakpoint; height ≤600px catches wide-but-short viewports (an unfolded
+  // foldable in split-screen landscape, ordinary phone landscape, a short desktop
+  // window) that would otherwise land in the desktop branch and get crushed — its
+  // fixed-height chrome assumes a tall viewport. Both terms are parenthesised so
+  // Svelte's MediaQuery passes the comma to matchMedia verbatim as a top-level OR.
+  const mobile = new MediaQuery("(max-width: 768px), (max-height: 600px)");
   // touch-primary device (e.g. unfolded foldable wider than the mobile breakpoint):
   // gets the control-key bar even in desktop layout, since there's no hardware keyboard
   const touch = new MediaQuery("(pointer: coarse)");
@@ -2716,6 +2722,20 @@
       max(var(--mobile-shell-pad), env(safe-area-inset-bottom))
       max(var(--mobile-shell-pad), env(safe-area-inset-left));
     gap: 10px;
+  }
+
+  /* Short viewports (foldable split-screen landscape, phone landscape): reclaim
+     vertical room for the cramped pane — tighten the inter-section gap and the
+     top/bottom breathing room (safe-area insets still win where present, e.g. a
+     notch). Horizontal padding is unchanged. The detail screen (.shell.mobile
+     without .list) is the main beneficiary; the .list rule below keeps its own
+     padding-top:0 / ActionBar padding-bottom by higher specificity. */
+  @media (max-height: 600px) {
+    .shell.mobile {
+      gap: 6px;
+      padding-top: max(6px, env(safe-area-inset-top));
+      padding-bottom: max(6px, env(safe-area-inset-bottom));
+    }
   }
 
   .chrome {

@@ -478,9 +478,11 @@ export interface GitForge {
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
    *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
    *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
-   *  prStatus to O(repos)). Fork mode keeps only PRs whose head lives on OUR fork
-   *  (mirrors prStatus's headRepositoryOwner filter). Optional: forges without it
-   *  (Gitea/Local) fall back to per-session prStatus. */
+   *  prStatus to O(repos)). On a headRefName collision the implementation may
+   *  deterministically prefer the repo-owned PR, but it does NOT filter by owner —
+   *  every open PR is returned. Optional: forges without it (Gitea/Local), and
+   *  fork-mode repos (which the poller routes around → per-session), fall back to
+   *  per-session prStatus. */
   listOpenPrStatuses?(): Promise<Map<string, PrStatus>>;
   /** Cheap open-PR count (`gh pr list --state open --json number --limit 200`,
    *  ~1 GraphQL point regardless of count) — the poller's count-gate uses it to

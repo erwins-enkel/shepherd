@@ -710,8 +710,13 @@ export class GithubForge implements GitForge {
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
    *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
    *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
-   *  prStatus to O(repos)). Fork mode keeps only PRs whose head lives on OUR fork
-   *  (mirrors prStatus's headRepositoryOwner filter). */
+   *  prStatus to O(repos)). When two open PRs share a headRefName (e.g. an
+   *  internal-branch PR and a fork PR for the same name) the entry owned by
+   *  `forkOwner ?? owner(slug)` wins regardless of array order — a deterministic
+   *  collision dedup, NOT a fork filter (all open PRs are returned). The poller
+   *  does not call this in fork mode (`batchForRepo` skips `isFork` repos →
+   *  per-session `prStatus`); the `forkOwner` arm of the dedup key is just
+   *  defensive. */
   async listOpenPrStatuses(): Promise<Map<string, PrStatus>> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
     const out = await this.run([

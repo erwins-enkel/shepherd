@@ -79,6 +79,45 @@ describe("IssuesPanel repo slug link", () => {
   });
 });
 
+describe("IssuesPanel empty vs fetch-failed", () => {
+  it("shows the no-open-issues message when the listing is a genuine zero", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_no_open_issues());
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+  });
+
+  it("shows the load-failed message when the forge listing errored (e.g. rate limit)", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_issues_load_failed());
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_no_open_issues(),
+    );
+  });
+});
+
 describe("IssuesPanel epic badge", () => {
   function issue(number: number, title: string): Issue {
     return {

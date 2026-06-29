@@ -1800,6 +1800,8 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     sinceVersion: "1.39.0",
     titleKey: "feat_codex_update_title",
     bodyKey: "feat_codex_update_body",
+  },
+  {
     // No targetId: the task-id button is per-card, not a single stable anchor —
     // surface via the What's-New drawer only. 1.38.0 is the latest released tag.
     id: "taskid-copy-details",

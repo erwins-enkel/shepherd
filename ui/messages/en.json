@@ -2170,5 +2170,6 @@
   "settings_usage_downgrade_model_save_failed": "Couldn't change the downgrade model. Retry.",
   "taskid_copy_payload": "{label} — Shepherd task · repo: {repoPath} · branch: {branch} · worktree: {worktreePath}",
   "feat_taskid_copy_payload_title": "Copy ID now carries the task's details",
-  "feat_taskid_copy_payload_body": "Copying a task ID now puts its repo, branch and worktree path on the clipboard alongside the id. Paste it into a coding agent and it knows exactly what the task is and where its work lives — no lookup, no wasted tokens researching."
+  "feat_taskid_copy_payload_body": "Copying a task ID now puts its repo, branch and worktree path on the clipboard alongside the id. Paste it into a coding agent and it knows exactly what the task is and where its work lives — no lookup, no wasted tokens researching.",
+  "taskid_copy_payload_inrepo": "{label} — Shepherd task · repo: {repoPath} · branch: {branch}"
 }

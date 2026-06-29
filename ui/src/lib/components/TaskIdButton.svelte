@@ -39,12 +39,17 @@
     // and where its work lives without researching. Names/designations are data, so
     // the label is assembled here; only the chrome words are translated.
     const label = session.name ? `${session.desig} (${session.name})` : session.desig;
-    const text = m.taskid_copy_payload({
-      label,
-      repoPath: session.repoPath,
-      branch: session.branch ?? "—",
-      worktreePath: session.worktreePath,
-    });
+    const branch = session.branch ?? "—";
+    // Non-isolated sessions work in the repo itself (worktreePath === repoPath), so the
+    // worktree segment would just repeat the repo path — drop it in that case.
+    const text = !session.isolated
+      ? m.taskid_copy_payload_inrepo({ label, repoPath: session.repoPath, branch })
+      : m.taskid_copy_payload({
+          label,
+          repoPath: session.repoPath,
+          branch,
+          worktreePath: session.worktreePath,
+        });
     try {
       await navigator.clipboard.writeText(text);
       copied = true;

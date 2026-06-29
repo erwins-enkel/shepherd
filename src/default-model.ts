@@ -13,9 +13,18 @@
  * apply it — autonomous spawns must be deterministic and operator-controlled only.
  */
 
-import { AGENT_PROVIDERS, type AgentProvider, MODELS, MODELS_BY_PROVIDER } from "./types";
+import {
+  AGENT_PROVIDERS,
+  CODEX_MODELS,
+  CODEX_MODEL_RE,
+  type AgentProvider,
+  MODELS,
+  MODELS_BY_PROVIDER,
+} from "./types";
 
 const SETTING_VALUES = new Set<string>(["auto", "default", ...MODELS]);
+const CLAUDE_MODEL_VALUES = new Set<string>(MODELS);
+const CODEX_MODEL_VALUES = new Set<string>(CODEX_MODELS);
 
 // The per-repo override space is the global space plus an "inherit" sentinel,
 // which means "no repo override — fall back to the global default setting".
@@ -52,6 +61,31 @@ export function spawnModelForAvailability(
   fableAvailable: boolean,
 ): string | null {
   return model === "fable" && !fableAvailable ? "opus[1m]" : model;
+}
+
+/** True when `model` is a valid explicit model alias for `provider`.
+ *
+ * Codex accepts safe future-looking aliases so Shepherd can work with a newer installed CLI before
+ * the curated list is updated, but known Claude aliases are excluded from that free-form path.
+ */
+export function modelCompatibleWithProvider(
+  model: string | null,
+  provider: AgentProvider,
+): boolean {
+  if (model === null) return true;
+  if (provider === "claude") return CLAUDE_MODEL_VALUES.has(model);
+  return (
+    CODEX_MODEL_VALUES.has(model) || (CODEX_MODEL_RE.test(model) && !CLAUDE_MODEL_VALUES.has(model))
+  );
+}
+
+/** Clamp a stored model to the target provider's value space. Used when an existing task changes
+ * provider after its model was already validated for the original provider. */
+export function modelForProviderOrDefault(
+  model: string | null,
+  provider: AgentProvider,
+): string | null {
+  return modelCompatibleWithProvider(model, provider) ? model : null;
 }
 
 /**
@@ -150,6 +184,6 @@ export function resolveRoleEnvironment(
   const token = normalizeRoleModelToken(roleModel) ?? "default";
   if (token === "default") return { provider: cli, model: null };
   // Clamp: the stored model must belong to the chosen provider, else fall back to its default.
-  if (!MODELS_BY_PROVIDER[cli].includes(token)) return { provider: cli, model: null };
+  if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null };
   return { provider: cli, model: spawnModelForAvailability(token, fableAvailable) };
 }

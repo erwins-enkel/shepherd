@@ -198,6 +198,29 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
 });
 
+test("createSession: codex drops a carried Claude model and uses provider default", async () => {
+  const { store, service, calls } = codexHarness(true);
+
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: "opus",
+    images: [],
+  });
+
+  expect(calls.start.argv).toEqual([
+    "codex",
+    "--no-alt-screen",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "flatten it",
+  ]);
+  expect(s.agentProvider).toBe("codex");
+  expect(s.model).toBeNull();
+  expect(store.get(s.id)?.model).toBeNull();
+});
+
 test("createSession: codex + isolated + autopilotEnabled=true → directive injected, persisted true", async () => {
   const { store, service, calls } = codexHarness(true);
   const s = await service.create({

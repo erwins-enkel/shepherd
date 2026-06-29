@@ -5,7 +5,6 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
   AGENT_PROVIDERS,
   CODEX_MODELS,
-  CODEX_MODEL_RE,
   MODELS,
   type AgentProvider,
   type CreateSessionInput,
@@ -15,6 +14,7 @@ import {
   type BuildStepInput,
   type BuildStepStatus,
 } from "./types";
+import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
@@ -95,17 +95,15 @@ function validateAgentProvider(value: unknown): Field<AgentProvider | undefined>
 function validateModel(value: unknown, agentProvider?: AgentProvider): Field<string | null> {
   if (value == null || value === "default") return field(null);
   if (typeof value !== "string") return err("model must be a string");
-  if (agentProvider !== "codex" && (MODELS as readonly string[]).includes(value)) {
-    return field(value);
+  if (agentProvider) {
+    if (modelCompatibleWithProvider(value, agentProvider)) return field(value);
+    return agentProvider === "codex" ? err("invalid codex model") : err("unknown model");
   }
-  if (agentProvider !== "claude" && (CODEX_MODELS as readonly string[]).includes(value)) {
+  if (
+    (MODELS as readonly string[]).includes(value) ||
+    (CODEX_MODELS as readonly string[]).includes(value)
+  ) {
     return field(value);
-  }
-  if (agentProvider === "codex" && CODEX_MODEL_RE.test(value)) {
-    return field(value);
-  }
-  if (agentProvider === "codex") {
-    return err("invalid codex model");
   }
   return err("unknown model");
 }
@@ -918,8 +916,7 @@ export function validateEpicRunPatch(
   return out;
 }
 
-/** Validate a POST /api/broadcast payload. Returns null on any violation. */
-export function validateBroadcast(body: unknown): { text: string; ids: string[] } | null {
+function validateTextToIds(body: unknown): { text: string; ids: string[] } | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
   const o = body as Record<string, unknown>;
   if (typeof o.text !== "string") return null;
@@ -934,18 +931,12 @@ export function validateBroadcast(body: unknown): { text: string; ids: string[] 
   return { text, ids };
 }
 
+/** Validate a POST /api/broadcast payload. Returns null on any violation. */
+export function validateBroadcast(body: unknown): { text: string; ids: string[] } | null {
+  return validateTextToIds(body);
+}
+
 /** Validate a POST /api/retry payload. Returns null on any violation. */
 export function validateRetry(body: unknown): { text: string; ids: string[] } | null {
-  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
-  const o = body as Record<string, unknown>;
-  if (typeof o.text !== "string") return null;
-  const text = o.text.trim();
-  if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
-  if (!Array.isArray(o.ids)) return null;
-  const ids: string[] = [];
-  for (const id of o.ids) {
-    if (typeof id !== "string" || id.length === 0) return null;
-    ids.push(id);
-  }
-  return { text, ids };
+  return validateTextToIds(body);
 }

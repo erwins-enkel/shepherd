@@ -85,6 +85,7 @@ import { handleUpload } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
+import type { CodexUpdateService } from "./codex-update";
 import type { DiagnosticsService } from "./diagnostics";
 import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
@@ -210,6 +211,8 @@ export interface AppDeps {
   updates?: Pick<UpdateService, "current" | "apply"> & Partial<Pick<UpdateService, "applyState">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
+  /** codex-version tracker + applier; absent in environments where it isn't wired. */
+  codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -2976,6 +2979,21 @@ function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
+// ── codex update: status + (non-destructive) apply ─────────────────────
+function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
+  if (!(parts[0] === "api" && parts[1] === "codex-update" && !parts[2])) return null;
+  if (req.method === "GET") {
+    return json(deps.codexUpdates?.current() ?? { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() });
+  }
+  if (req.method !== "POST") return null;
+  if (!deps.codexUpdates) return json({ error: "codex updates not available" }, 503);
+  if (!deps.codexUpdates.current()?.updateAvailable) {
+    return json({ error: "no update available" }, 409);
+  }
+  const r = deps.codexUpdates.apply();
+  return json({ ok: r.started }, r.started ? 202 : 409);
+}
+
 // Fallback snapshot when the diagnostics service isn't wired (e.g. in tests):
 // an empty, all-ok payload so the UI renders a benign "nothing to flag" state.
 const DIAGNOSTICS_IDLE = {
@@ -5286,6 +5304,7 @@ const ROUTE_HANDLERS = [
   handleUsageBreakdown,
   handleUpdate,
   handleHerdrUpdate,
+  handleCodexUpdate,
   handleDiagnostics,
   handleDiagnosticsFix,
   handleStarPrompt,

@@ -1034,6 +1034,27 @@ export interface HerdrUpdateStatus {
   error?: string;
 }
 
+/** Informational codex-version (npm @openai/codex) update check (manual apply).
+ *  Same shape as HerdrUpdateStatus; `notes` is always null for codex. */
+export interface CodexUpdateStatus {
+  current: string | null;
+  latest: string | null;
+  updateAvailable: boolean;
+  notes: string | null;
+  checkedAt: number;
+  error?: string;
+}
+
+/** Terminal outcome of a codex update apply() — the UI mirror of the server's
+ *  CodexUpdateResult (src/codex-update.ts). Shared by the `codex-update:done`
+ *  event, the store's `codexUpdateDone` signal, and the modal's `done` prop. */
+export interface CodexUpdateResult {
+  ok: boolean;
+  from: string | null;
+  to: string | null;
+  error?: string;
+}
+
 /** State of the "star us on GitHub?" nudge (see src/star-prompt.ts). */
 export interface StarPromptStatus {
   /** Render the nudge now? False once dismissed/starred/snoozed or still in the grace window. */
@@ -1273,6 +1294,9 @@ export type WsEvent =
       event: "herdr-update:done";
       data: { ok: boolean; from: string | null; to: string | null; error?: string };
     }
+  | { event: "codex-update:status"; data: CodexUpdateStatus }
+  | { event: "codex-update:log"; data: { line: string } }
+  | { event: "codex-update:done"; data: CodexUpdateResult }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "herd:digest"; data: { digest: HerdDigest } }

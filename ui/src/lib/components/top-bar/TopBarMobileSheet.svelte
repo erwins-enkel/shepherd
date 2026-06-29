@@ -45,6 +45,7 @@
     updateAvailable,
     update,
     herdrUpdateAvailable,
+    codexUpdateAvailable,
     whatsNew,
     learningsPresent,
     learnings,
@@ -68,6 +69,7 @@
     ondiagnose,
     onupdate,
     onherdrupdate,
+    oncodexupdate,
     onwhatsnew,
     onlearnings,
     onFeedback,
@@ -83,6 +85,7 @@
     updateAvailable: boolean;
     update: UpdateStatus | null;
     herdrUpdateAvailable: boolean;
+    codexUpdateAvailable: boolean;
     whatsNew: boolean;
     learningsPresent: boolean;
     learnings: number;
@@ -106,6 +109,7 @@
     ondiagnose: (() => void) | undefined;
     onupdate: (() => void) | undefined;
     onherdrupdate: (() => void) | undefined;
+    oncodexupdate: (() => void) | undefined;
     onwhatsnew: (() => void) | undefined;
     onlearnings: (() => void) | undefined;
     onFeedback: (kind: FeedbackKind) => void;
@@ -315,6 +319,34 @@
           <path d="m5 12 7-7 7 7" />
         </svg>
         <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
+      </button>
+    {/if}
+
+    <!-- Codex update row: when a newer @openai/codex is published -->
+    {#if codexUpdateAvailable}
+      <button
+        type="button"
+        class="sheet-item sheet-update"
+        onclick={() => {
+          closeMenu();
+          oncodexupdate?.();
+        }}
+        aria-label={m.topbar_codex_update_badge()}
+      >
+        <svg
+          class="sheet-glyph sheet-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m6 15 6-6 6 6" />
+          <path d="m6 9 6-6 6 6" />
+        </svg>
+        <span class="sheet-label">{m.topbar_codex_update_badge()}</span>
       </button>
     {/if}
 

@@ -14,6 +14,7 @@
     getUpdate,
     getUpdateLog,
     getHerdrUpdate,
+    getCodexUpdate,
     getStarPrompt,
     gitStates,
     activityStates,
@@ -375,6 +376,19 @@
   // set once the operator confirms the herdr update; herdr+shepherd restart drops
   // the WS and the store auto-reconnects, refreshing state once the new build is live.
   let herdrUpdating = $state(false);
+  let showCodexUpdate = $state(false);
+  // set once the operator confirms the codex update; the install runs server-side
+  // and the modal resolves itself via the codex-update:done event.
+  let codexUpdating = $state(false);
+  // Open the codex modal fresh: drop any prior terminal result + log so a *failed*
+  // apply's "you can retry" state doesn't linger and hide the Update button (the
+  // done event can land after the modal was closed, re-arming the stale result).
+  function openCodexUpdate() {
+    store.codexUpdateDone = null;
+    store.codexUpdateLog = [];
+    codexUpdating = false;
+    showCodexUpdate = true;
+  }
   let showWhatsNew = $state(false);
   let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
   let whatsNewDotOn = $state(false);
@@ -1092,6 +1106,7 @@
       showRetry ||
       showUpdate ||
       showHerdrUpdate ||
+      showCodexUpdate ||
       showWhatsNew
     );
   }
@@ -1215,6 +1230,9 @@
       .catch(() => {});
     getHerdrUpdate()
       .then((u) => (store.herdrUpdate = u))
+      .catch(() => {});
+    getCodexUpdate()
+      .then((u) => (store.codexUpdate = u))
       .catch(() => {});
     loadDiagnostics();
     loadPlugins();
@@ -1976,6 +1994,8 @@
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}
         onherdrupdate={() => (showHerdrUpdate = true)}
+        codexUpdate={store.codexUpdate}
+        oncodexupdate={openCodexUpdate}
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
         learnings={learningsCounts.proposed}
@@ -2344,6 +2364,18 @@
     store.herdrUpdateDone = null;
     selectUnit(id);
   }}
+  {showCodexUpdate}
+  {codexUpdating}
+  oncodexupdateconfirm={() => {
+    codexUpdating = true;
+    store.codexUpdateDone = null; // fresh run: clear any prior result
+    store.codexUpdateLog = [];
+  }}
+  oncodexupdateclose={() => {
+    showCodexUpdate = false;
+    codexUpdating = false;
+    store.codexUpdateDone = null;
+  }}
   {showOnboarding}
   {diagnosticsLoadFailed}
   ononboardingretry={loadDiagnostics}
@@ -2420,6 +2452,10 @@
   onsettingsherdrupdate={() => {
     showSettings = false;
     showHerdrUpdate = true;
+  }}
+  onsettingscodexupdate={() => {
+    showSettings = false;
+    openCodexUpdate();
   }}
   onsettingswhatsnew={() => {
     showSettings = false;

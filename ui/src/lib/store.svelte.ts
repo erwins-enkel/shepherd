@@ -9,6 +9,8 @@ import type {
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
+  CodexUpdateStatus,
+  CodexUpdateResult,
   DiagnosticsSnapshot,
   DiagnosticState,
   StarPromptStatus,
@@ -44,6 +46,7 @@ export class HerdStore {
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
+  codexUpdate = $state<CodexUpdateStatus | null>(null);
   diagnostics = $state<DiagnosticsSnapshot | null>(null);
   /** Loaded server-side plugins (issue #1124). Empty → Settings → Plugins tab hidden.
    *  Seeded by a bootstrap GET /api/plugins; live-updated by the `plugin:status` event. */
@@ -55,6 +58,8 @@ export class HerdStore {
     to: string | null;
     error?: string;
   } | null>(null);
+  codexUpdateLog = $state<string[]>([]);
+  codexUpdateDone = $state<CodexUpdateResult | null>(null);
   /** Worst-of diagnostics state; "ok" until a snapshot lands. */
   get diagnosticsOverall(): DiagnosticState {
     return this.diagnostics?.overall ?? "ok";
@@ -494,6 +499,25 @@ export class HerdStore {
     }
   }
 
+  /** Handle the `codex-update:*` WS events (status / log / done), mirroring
+   *  applyHerdrUpdateEvent. Split out so the dispatch switch stays under the
+   *  complexity gate. Returns true if handled. */
+  private applyCodexUpdateEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "codex-update:status":
+        this.codexUpdate = ev.data;
+        return true;
+      case "codex-update:log":
+        this.codexUpdateLog = [...this.codexUpdateLog, ev.data.line].slice(-200);
+        return true;
+      case "codex-update:done":
+        this.codexUpdateDone = ev.data;
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /** Handle the `doc-agent:done` WS event. Sets the reactive `docAgentDone` signal and,
    *  when `docAgentEnabled` is true, fires an outcome-keyed toast. Returns true if handled. */
   private applyDocAgentEvent(ev: WsEvent): boolean {
@@ -601,6 +625,7 @@ export class HerdStore {
 
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applyHerdrUpdateEvent(ev)) return;
+    if (this.applyCodexUpdateEvent(ev)) return;
     if (this.applyDocAgentEvent(ev)) return;
     if (this.applyEpicEvent(ev)) return;
     if (this.applyStatusEvent(ev)) return;

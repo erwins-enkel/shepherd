@@ -28,6 +28,7 @@
     PREMIUM_MODELS,
     type AgentProvider,
     type HerdrUpdateStatus,
+    type CodexUpdateStatus,
     type DiagnosticCheck,
     type PluginInfo,
   } from "$lib/types";
@@ -79,6 +80,8 @@
     onsaved,
     herdrUpdate = null,
     onherdrupdate,
+    codexUpdate = null,
+    oncodexupdate,
     onwhatsnew,
     initialTab = "workspace",
     initialDiagnostics = null,
@@ -89,6 +92,8 @@
     onsaved?: (root: string) => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
+    codexUpdate?: CodexUpdateStatus | null;
+    oncodexupdate?: () => void;
     onwhatsnew?: () => void;
     initialTab?: TabId;
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
@@ -143,6 +148,8 @@
 
   // On a phone the HERDR badge folds into the gear; its update flow lands here.
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
+  // Same fold-in for the Codex CLI update badge.
+  const codexUpdateAvailable = $derived(!!codexUpdate && codexUpdate.updateAvailable);
 
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
@@ -637,6 +644,22 @@
             >{m.topbar_herdr_update_title({
               current: herdrUpdate!.current ?? "?",
               latest: herdrUpdate!.latest ?? "?",
+            })}</span
+          >
+        </span>
+        <span class="hc-chev" aria-hidden="true">›</span>
+      </button>
+    {/if}
+
+    {#if codexUpdateAvailable}
+      <button type="button" class="herdr-cta codex-cta" onclick={() => oncodexupdate?.()}>
+        <span class="hc-dot" aria-hidden="true">▲</span>
+        <span class="hc-text">
+          <span class="hc-label">{m.settings_codex_update_label()}</span>
+          <span class="hc-ver"
+            >{m.topbar_codex_update_title({
+              current: codexUpdate!.current ?? "?",
+              latest: codexUpdate!.latest ?? "?",
             })}</span
           >
         </span>
@@ -1267,6 +1290,16 @@
     color: var(--color-green);
     font-size: var(--fs-xl);
     line-height: 1;
+  }
+  /* Codex CLI update entry point — blue (informational), matching its badge. */
+  .codex-cta {
+    border-color: var(--color-blue);
+    background: color-mix(in srgb, var(--color-blue) 12%, transparent);
+  }
+  .codex-cta .hc-dot,
+  .codex-cta .hc-label,
+  .codex-cta .hc-chev {
+    color: var(--color-blue);
   }
   .rc {
     display: flex;

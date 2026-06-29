@@ -21,6 +21,7 @@ import type {
   UpdateStatus,
   DeployState,
   HerdrUpdateStatus,
+  CodexUpdateStatus,
   DiagnosticsSnapshot,
   PluginInfo,
   StarPromptStatus,
@@ -1002,6 +1003,13 @@ export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
   return r.json();
 }
 
+/** Current codex-version update status (whether a newer @openai/codex exists). */
+export async function getCodexUpdate(): Promise<CodexUpdateStatus> {
+  const r = await fetch("/api/codex-update");
+  if (!r.ok) throw await failed(r, "codex update status");
+  return r.json();
+}
+
 /** Current environment-readiness diagnostics; `refresh` forces a re-probe. */
 export async function getDiagnostics(refresh = false): Promise<DiagnosticsSnapshot> {
   const r = await fetch(`/api/diagnostics${refresh ? "?refresh=1" : ""}`);
@@ -1059,6 +1067,16 @@ export async function fixDiagnostic(checkId: string): Promise<DiagnosticsSnapsho
 /** Trigger `herdr update` (restarts herdr → ends live sessions → restarts shepherd). */
 export async function applyHerdrUpdate(): Promise<void> {
   const r = await fetch("/api/herdr-update", { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+}
+
+/** Trigger `npm install -g @openai/codex` (non-destructive: running panes keep
+ *  their loaded build; only new codex sessions pick up the new version). */
+export async function applyCodexUpdate(): Promise<void> {
+  const r = await fetch("/api/codex-update", { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) {
     const msg = await r.json().catch(() => ({ error: `${r.status}` }));
     throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);

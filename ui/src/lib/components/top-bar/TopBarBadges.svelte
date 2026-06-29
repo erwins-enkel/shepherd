@@ -1,7 +1,12 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import type { UpdateStatus, HerdrUpdateStatus, DiagnosticState } from "$lib/types";
+  import type {
+    UpdateStatus,
+    HerdrUpdateStatus,
+    CodexUpdateStatus,
+    DiagnosticState,
+  } from "$lib/types";
 
   let {
     compactBadges,
@@ -11,6 +16,9 @@
     herdrUpdateAvailable,
     herdrUpdate,
     onherdrupdate,
+    codexUpdateAvailable,
+    codexUpdate,
+    oncodexupdate,
     whatsNew,
     onwhatsnew,
     diagnosticsOverall,
@@ -30,6 +38,9 @@
     herdrUpdateAvailable: boolean;
     herdrUpdate: HerdrUpdateStatus | null;
     onherdrupdate: (() => void) | undefined;
+    codexUpdateAvailable: boolean;
+    codexUpdate: CodexUpdateStatus | null;
+    oncodexupdate: (() => void) | undefined;
     whatsNew: boolean;
     onwhatsnew: (() => void) | undefined;
     diagnosticsOverall: DiagnosticState;
@@ -98,6 +109,35 @@
       <path d="m5 12 7-7 7 7" />
     </svg>
     {#if !compactBadges}<span class="up-label">{m.topbar_herdr_update_badge()}</span>{/if}
+  </button>
+{/if}
+<!-- Codex CLI update: same informational/manual semantics as the HERDR badge
+     (calm blue, no pulse), with a distinct double-chevron glyph so the two read
+     apart in the label-less compact/touch state. -->
+{#if codexUpdateAvailable}
+  <button
+    class="update-badge codex"
+    onclick={() => oncodexupdate?.()}
+    aria-label={m.topbar_codex_update_badge()}
+    title={m.topbar_codex_update_title({
+      current: codexUpdate!.current ?? "?",
+      latest: codexUpdate!.latest ?? "?",
+    })}
+  >
+    <svg
+      class="up-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 15 6-6 6 6" />
+      <path d="m6 9 6-6 6 6" />
+    </svg>
+    {#if !compactBadges}<span class="up-label">{m.topbar_codex_update_badge()}</span>{/if}
   </button>
 {/if}
 {#if whatsNew}
@@ -199,7 +239,8 @@
   /* herdr badge: informational (operator updates manually), so it reads as calm
      blue — the informational accent — and doesn't pulse like the actionable
      self-update badge */
-  .update-badge.herdr {
+  .update-badge.herdr,
+  .update-badge.codex {
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
     border-color: var(--color-blue);
     color: var(--color-blue);

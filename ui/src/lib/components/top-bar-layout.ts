@@ -16,6 +16,7 @@ export type Mode = "mobile" | "touch-desktop" | "desktop";
 export interface ChromeState {
   updateAvailable: boolean;
   herdrUpdateAvailable: boolean;
+  codexUpdateAvailable: boolean;
   whatsNew: boolean;
   /** pending learnings to review across all repos; >0 renders the global learnings badge */
   learnings: number;
@@ -36,6 +37,7 @@ export function badgeCount(s: ChromeState): number {
   return (
     (s.updateAvailable ? 1 : 0) +
     (s.herdrUpdateAvailable ? 1 : 0) +
+    (s.codexUpdateAvailable ? 1 : 0) +
     (s.whatsNew ? 1 : 0) +
     (s.learnings > 0 ? 1 : 0) +
     (s.held > 0 ? 1 : 0)

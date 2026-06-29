@@ -1811,6 +1811,8 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     sinceVersion: "1.39.0",
     titleKey: "feat_steer_context_menu_title",
     bodyKey: "feat_steer_context_menu_body",
+  },
+  {
     // No targetId: "Start as variant…" / "Replace with…" live in a card's context menu and the
     // "Compare" button only mounts on an experiment group's header (present only once variants
     // exist), so there's no always-present anchor — surface via the What's-New drawer only.

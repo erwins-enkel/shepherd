@@ -472,7 +472,9 @@ describe("Herd epic grouping", () => {
       activeEpicKeys,
       onclearmerged: () => {},
     });
-    await expect.element(page.getByRole("button", { name: "Clear all" })).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Decommission all" }))
+      .toBeInTheDocument();
     await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
   });
 

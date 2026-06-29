@@ -172,6 +172,7 @@
       type="button"
       role="menuitem"
       tabindex="-1"
+      title={m.viewport_decommission_title()}
       onclick={ondecommission}
     >
       <span class="cm-icon" aria-hidden="true">✕</span>{m.cardmenu_decommission()}

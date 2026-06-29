@@ -10,6 +10,7 @@ import type {
   UpdateStatus,
   HerdrUpdateStatus,
   CodexUpdateStatus,
+  CodexUpdateResult,
   DiagnosticsSnapshot,
   DiagnosticState,
   StarPromptStatus,
@@ -58,12 +59,7 @@ export class HerdStore {
     error?: string;
   } | null>(null);
   codexUpdateLog = $state<string[]>([]);
-  codexUpdateDone = $state<{
-    ok: boolean;
-    from: string | null;
-    to: string | null;
-    error?: string;
-  } | null>(null);
+  codexUpdateDone = $state<CodexUpdateResult | null>(null);
   /** Worst-of diagnostics state; "ok" until a snapshot lands. */
   get diagnosticsOverall(): DiagnosticState {
     return this.diagnostics?.overall ?? "ok";
@@ -515,12 +511,7 @@ export class HerdStore {
         this.codexUpdateLog = [...this.codexUpdateLog, ev.data.line].slice(-200);
         return true;
       case "codex-update:done":
-        this.codexUpdateDone = ev.data as {
-          ok: boolean;
-          from: string | null;
-          to: string | null;
-          error?: string;
-        };
+        this.codexUpdateDone = ev.data;
         return true;
       default:
         return false;

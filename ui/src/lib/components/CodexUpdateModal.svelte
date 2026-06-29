@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { CodexUpdateStatus } from "$lib/types";
+  import type { CodexUpdateStatus, CodexUpdateResult } from "$lib/types";
   import { applyCodexUpdate } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
@@ -14,7 +14,7 @@
   }: {
     update: CodexUpdateStatus;
     log?: string[];
-    done?: { ok: boolean; from: string | null; to: string | null; error?: string } | null;
+    done?: CodexUpdateResult | null;
     onconfirm?: () => void;
     onclose?: () => void;
   } = $props();

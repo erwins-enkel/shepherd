@@ -233,7 +233,10 @@ export class ReviewService {
     if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return "skipped";
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getReview(session.id);
-    if (!force && prior?.headSha === git.headSha) return "skipped"; // head already reviewed
+    // Head already reviewed → skip. EXCEPT a spawn-abort row: the critic never ran (e.g. the pool
+    // had no usable account), so the head is NOT reviewed — re-attempt it every poll (cheap: a
+    // still-cold pool aborts again pre-spawn) so the review self-heals once the pool warms.
+    if (!force && prior?.headSha === git.headSha && !prior.spawnAborted) return "skipped";
     // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
     // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
     // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
@@ -943,11 +946,13 @@ export class ReviewService {
 
   /**
    * Persist an onSpawn-abort (the critic never spawned — e.g. the claude-swap pool had no usable
-   * account) as a visible `error` verdict carrying the abort reason. Deduped on (headSha, reason)
-   * so a pool that stays cold across poll ticks does not churn putReview/onChange every tick. The
-   * verdict is intentionally NOT findings-bearing (findings:[]) and preserves the prior streak/error
-   * counters, so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall
-   * — it is a pre-spawn refusal, not a finished critic run.
+   * account) as a visible `error` verdict carrying the abort reason. The row is flagged
+   * `spawnAborted` so consider()'s same-head dedup re-attempts it (the head was never reviewed) —
+   * which means consider() reaches here again every poll while the pool stays cold; the (headSha,
+   * reason) dedup below keeps that from churning putReview/onChange every tick. The verdict is
+   * intentionally NOT findings-bearing (findings:[]) and preserves the prior streak/error counters,
+   * so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall — it is a
+   * pre-spawn refusal, not a finished critic run.
    */
   private publishSpawnAbort(
     session: Session,
@@ -979,6 +984,7 @@ export class ReviewService {
       finalRoundPending: prior?.finalRoundPending ?? false,
       finalRoundTimeoutMs: prior?.finalRoundTimeoutMs ?? DEFAULT_FINAL_ROUND_TIMEOUT_MS,
       seenNoteIds: prior?.seenNoteIds ?? [],
+      spawnAborted: true, // exempt from the same-head dedup → auto path re-attempts when the pool warms
       updatedAt: this.now(),
     };
     this.deps.store.putReview(verdict);

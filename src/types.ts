@@ -337,6 +337,7 @@ export interface ReviewVerdict {
   finalRoundTimeoutMs: number; // live abandonment timeout; surfaced so the UI never hardcodes it
   seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
   url?: string; // posted PR-review URL, when the host returns one
+  spawnAborted?: boolean; // true ⇒ this row records a pre-spawn onSpawn abort (critic never ran — e.g. no usable account), surfaced for the badge but EXEMPT from the same-head dedup so the auto path re-attempts once the blocker clears. Cleared (omitted) on every real verdict.
   updatedAt: number;
 }
 

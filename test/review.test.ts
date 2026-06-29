@@ -2636,11 +2636,31 @@ test("critic: onSpawn abort surfaces the reason as an error verdict (not a silen
   expect(v?.headSha).toBe("abc");
   expect(v?.findings).toEqual([]); // not findings-bearing → must not trip the spawn ceiling
   expect(v?.patchId).toBe(""); // transient: a later identical head must re-attempt, not inherit it
+  expect(v?.spawnAborted).toBe(true); // marks it exempt from the same-head dedup
+});
+
+test("critic: an abort verdict does NOT block re-attempting the same head — it self-heals", async () => {
+  // First pass: pool cold → abort persists a spawnAborted error verdict for head "abc".
+  let cold = true;
+  const { deps: d, started } = makeDeps({
+    runSpawnHooks: async () => {
+      if (cold) throw new PluginSpawnAborted("no usable ready account available", "cswap");
+      return {}; // pool warm → empty patch, the spawn proceeds
+    },
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(0); // aborted, nothing spawned
+
+  // Pool warms; the SAME head must re-attempt (the abort row is dedup-exempt) and now spawn.
+  cold = false;
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(1); // re-attempted on the same head and spawned the critic
 });
 
 test("critic: a repeated onSpawn abort for the same head does not churn the verdict", async () => {
   let changes = 0;
-  const { deps: d } = makeDeps({
+  const { deps: d, removed } = makeDeps({
     runSpawnHooks: async () => {
       throw new PluginSpawnAborted("pool cold", "cswap");
     },
@@ -2651,5 +2671,9 @@ test("critic: a repeated onSpawn abort for the same head does not churn the verd
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN);
   await svc.consider(session(), OPEN_GREEN);
-  expect(changes).toBe(1); // surfaced once; the still-cold-pool retry is a no-op
+  // begin() ran BOTH times (the abort row is dedup-exempt, so consider didn't bail at the
+  // same-head guard) — proven by two worktree reaps — yet the (headSha, reason) dedup inside
+  // publishSpawnAbort kept it to a single onChange.
+  expect(removed).toEqual(["/review-wt", "/review-wt"]);
+  expect(changes).toBe(1);
 });

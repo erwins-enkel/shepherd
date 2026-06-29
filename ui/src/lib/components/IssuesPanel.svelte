@@ -47,6 +47,10 @@
   let repoUrl = $state<string | null>(null);
   let viewer = $state<string | null>(null);
   let loading = $state(true);
+  // True when the forge listing failed (rate-limited gh, network, un-authed CLI):
+  // the empty issues[] is a fetch failure, not a genuine zero. Mirrors
+  // PromptSources — distinguishes "couldn't load" from "no open issues".
+  let loadError = $state(false);
   let filter = $state("");
   // Epic summaries for this repo: number → EpicSummary.
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
@@ -101,6 +105,7 @@
   $effect(() => {
     const rp = repoPath;
     loading = true;
+    loadError = false;
     filter = "";
     expanded.clear();
     epicByNumber = new Map();
@@ -114,9 +119,11 @@
         repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
+        loadError = r.error != null;
         loading = false;
       })
       .catch(() => {
+        loadError = true;
         loading = false;
       });
     getEpics(rp)
@@ -193,6 +200,8 @@
   <div class="issues-list">
     {#if loading}
       <div class="muted">{m.common_loading()}</div>
+    {:else if loadError}
+      <div class="muted">{m.common_issues_load_failed()}</div>
     {:else if slug === null}
       <div class="muted">{m.issuespanel_no_host()}</div>
     {:else if issues.length === 0}

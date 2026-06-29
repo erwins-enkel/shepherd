@@ -12,7 +12,7 @@ The egress firewall (slirp4netns + nftables + dnsmasq, shipped in **PR #601**,
 closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
-attendedness (`src/sandbox.ts` `egressApplies`, ~L532).
+attendedness (`src/sandbox.ts` `egressApplies`, ~L554).
 
 This note records two residuals the operator has **accepted** after the audit.
 
@@ -21,12 +21,12 @@ This note records two residuals the operator has **accepted** after the audit.
 The membrane keeps two token surfaces readable to any in-membrane tool call:
 
 - `~/.claude/.credentials.json` — bound **RW** so OAuth refresh writes back
-  (`src/sandbox.ts:309-311`, `--bind-try`); the whole `~/.claude` dir is
-  `--ro-bind`ed at `src/sandbox.ts:302-304`.
+  (`src/sandbox.ts:315-317`, `--bind-try`); the whole `~/.claude` dir is
+  `--ro-bind`ed at `src/sandbox.ts:308-310`.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
-  `gh pr create`) at `src/sandbox.ts:392`.
+  `gh pr create`) at `src/sandbox.ts:413`.
 
-`--clearenv` (`src/sandbox.ts:417`) strips **all** inherited env
+`--clearenv` (`src/sandbox.ts:438`) strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,
 …), re-setting only HOME/PATH/TERM + non-secret locale vars — so these two
 **bound files** are the only token surfaces left inside the membrane.
@@ -51,7 +51,7 @@ secrets out of the membrane entirely.
 ## Attended-mode egress coverage
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
-is watching (`willEgressConfine`, `src/sandbox.ts:544-549`; applied at
+is watching (`willEgressConfine`, `src/sandbox.ts:565-570`; applied at
 `src/service.ts:1374`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
@@ -68,7 +68,7 @@ in the repo's Settings panel, or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`
 
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
-  refused outright (`src/sandbox.ts` `autoHoldReason`, ~L480-481).
+  refused outright (`src/sandbox.ts` `autoHoldReason`, ~L501-502).
 - **Unattended reviewers** (PR critic + plan-gate) run **read-only**, not
   skip-permissions: `--safe-mode --disable-slash-commands --allowedTools Read
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)

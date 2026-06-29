@@ -28,7 +28,8 @@ export interface SpawnDescriptor {
   sessionId: string;
   /** What kind of spawn this is (issue #1205). `"session"` is a normal task session
    *  (create/drain/resume); the others are the reviewer-style auto-process spawns that also
-   *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account). */
+   *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account) — see
+   *  {@link SpawnPatch.credentialDir} for how a returned credentialDir is bound (#1213). */
   kind: "session" | "review" | "plan-gate" | "doc";
   /** For an aux spawn tied to a managed session (review, plan-gate): that session's id, so a
    *  plugin can keep the aux spawn on the parent session's account. Undefined for a normal
@@ -61,7 +62,22 @@ export interface SpawnPatch {
   env?: Record<string, string>;
   /** Appended to the inner agent argv. */
   extraArgs?: string[];
-  /** Convenience for `env.CLAUDE_CONFIG_DIR`; overrides it when both are set. */
+  /** Convenience for `env.CLAUDE_CONFIG_DIR`; overrides it when both are set.
+   *
+   *  ROUTING (#1213): for a reviewer-style AUX spawn (`kind` ∈ review/plan-gate/doc) this dir is
+   *  BIND-MOUNTED into the bwrap sandbox (not merely `--setenv`'d), so the reviewer is genuinely
+   *  authenticated under that dir's account — e.g. to route review quota onto a pool account.
+   *  Contract:
+   *   - The dir MUST exist on host (it is hard-bound); a missing dir is ignored with a log and the
+   *     spawn falls open to the active account.
+   *   - Its `projects` subtree is transparently redirected to Shepherd's active projects dir so the
+   *     reviewer transcript stays where usage/activity readback looks — the routed dir need not (and
+   *     does not) accumulate transcripts.
+   *   - The reviewer reads/writes ONLY this dir's own `.claude.json` (its `oauthAccount` is a
+   *     cosmetic display field, not a login); the operator's `~/.claude.json` is never touched, so
+   *     there is no identity cross-contamination or account-mismatch prompt.
+   *   - Routing REQUIRES a sandbox backend: with no backend in api-key mode the credential-less
+   *     mirror is kept (the patched dir's real OAuth creds would otherwise conflict with the key). */
   credentialDir?: string;
 }
 

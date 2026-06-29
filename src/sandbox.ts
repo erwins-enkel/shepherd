@@ -187,6 +187,12 @@ export interface MembraneInputs {
    *  credential-less CLAUDE_CONFIG_DIR mirror (auth-config-dir.ts). Also skips
    *  the rw credentials bind. So no "Use custom API key?"/re-auth prompt fires. */
   maskCredentials?: boolean;
+  /** Host dir to bind AS `<claudeDir>/projects` inside the sandbox. Default
+   *  `<claudeDir>/projects` (source == dest — byte-identical). A plugin-redirected aux
+   *  spawn (#1213) sets this to the ACTIVE projects dir so the reviewer transcript lands
+   *  where Shepherd's usage/activity readback looks (config.claudeProjectsDir via
+   *  jsonlPathFor) even though auth comes from the (pool) claudeDir. */
+  projectsBindSource?: string;
 }
 
 /**
@@ -349,9 +355,12 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     // ── claude config: base RO (auth + commands + skills) ────────────────
     // Subscription: whole-dir RO. api-key: per-child RO minus `.credentials.json`.
     ...claudeDirBaseBinds,
-    // RW: agent writes transcript; host reads it after.
+    // RW: agent writes transcript; host reads it after. The SOURCE defaults to
+    // `<claudeDir>/projects` (source == dest) but a plugin-redirected aux spawn (#1213)
+    // overrides it with the ACTIVE projects dir so the transcript lands where Shepherd's
+    // usage/activity readback looks even when claudeDir is a (pool) config dir.
     "--bind",
-    `${claudeDir}/projects`,
+    inputs.projectsBindSource ?? `${claudeDir}/projects`,
     `${claudeDir}/projects`,
     "--bind-try",
     `${claudeDir}/todos`,
@@ -383,6 +392,18 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     `${home}/.local/bin`,
     `${home}/.local/bin`,
   ];
+
+  // ── config-dir .claude.json (non-default CLAUDE_CONFIG_DIR) ───────────────
+  // When CLAUDE_CONFIG_DIR is non-default (a plugin-redirected pool dir #1213, or a
+  // custom-config-dir operator), Claude reads/writes `.claude.json` from the CONFIG dir
+  // — NOT `$HOME/.claude.json` (see auth-config-dir.ts). The whole-dir/masked binds above
+  // mount that file RO, so rw-override it here (same guard as the CLAUDE_CONFIG_DIR setenv
+  // below) — else Claude can't persist onboarding/project state and non-interactive auto
+  // hangs on onboarding (the same failure the `$HOME/.claude.json` rw bind guards). For the
+  // default `~/.claude` (guard false) nothing is added → flags stay byte-identical.
+  if (claudeDir !== `${home}/.claude`) {
+    f.push("--bind-try", `${claudeDir}/.claude.json`, `${claudeDir}/.claude.json`);
+  }
 
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));

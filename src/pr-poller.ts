@@ -306,20 +306,27 @@ export class PrPoller implements PrCache {
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     git = annotateHandoff(git, s.repoPath, me);
-    // Maintain the transient-window stamp regardless of whether visible state changed.
-    // A headSha change (new push) resets the clock; same headSha keeps the original since.
-    if (!this.isTransientOpen(git)) {
-      this.transientSince.delete(s.id);
-    } else {
-      const entry = this.transientSince.get(s.id);
-      if (!entry || entry.headSha !== git.headSha) {
-        this.transientSince.set(s.id, { since: Date.now(), headSha: git.headSha });
-      }
-      // else: same headSha → keep original since (preserves the window start time)
-    }
+    this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git)) {
       this.cache.set(s.id, git);
       this.onChange(s.id, git);
+    }
+  }
+
+  /** Maintain the transient-window stamp for `id` from its latest observed `git`,
+   *  regardless of whether visible state changed. A non-transient state clears the
+   *  stamp; a headSha change (new push) resets the window; the same headSha keeps the
+   *  original `since` so the time-bound in `fastTick` measures from the first
+   *  transient observation. Extracted from `refresh` to keep that method's branch
+   *  count under the complexity gate. */
+  private trackTransient(id: string, git: GitState): void {
+    if (!this.isTransientOpen(git)) {
+      this.transientSince.delete(id);
+      return;
+    }
+    const entry = this.transientSince.get(id);
+    if (!entry || entry.headSha !== git.headSha) {
+      this.transientSince.set(id, { since: Date.now(), headSha: git.headSha });
     }
   }
 

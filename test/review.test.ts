@@ -155,6 +155,18 @@ function makeDeps(
     verdictRead?: VerdictRead<RawVerdict>;
     /** agentStatus reported by herdr.list() for the critic at /review-wt (default "idle" = finished). */
     criticAgentStatus?: string;
+    /**
+     * Foreground processes returned by herdr.paneForegroundProcs for the critic pane.
+     * Default ['zsh'] (shell-only husk → isSpawnAlive returns false for non-working agents).
+     * Pass non-shell procs to simulate a live-but-idle critic.
+     */
+    criticProcs?: string[];
+    /**
+     * Raw readVerdict function override — bypasses adaptLegacyVerdict. Use when you need
+     * stateful behavior (e.g. throw on first call, succeed on second). Takes precedence over
+     * both `verdictRead` and `over.readVerdict`.
+     */
+    readVerdictFn?: () => VerdictRead<RawVerdict>;
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -202,11 +214,24 @@ function makeDeps(
       stop(t: string) {
         this.recorded.push(t); // this.recorded → throws TypeError if called unbound
       }
-      // tick() consults agentStatus via isSpawnWorking to gate repaired/unparseable verdicts.
+      // tick() consults agentStatus + paneForegroundProcs via isSpawnAlive to gate verdicts.
       list() {
         return [
-          { cwd: "/review-wt", terminalId: "rt", agentStatus: opts.criticAgentStatus ?? "idle" },
+          {
+            cwd: "/review-wt",
+            terminalId: "rt",
+            paneId: "p1",
+            agentStatus: opts.criticAgentStatus ?? "idle",
+          },
         ] as any;
+      }
+      async paneForegroundProcs(): Promise<string[]> {
+        // Default: shell-only (husk) so non-working agents are treated as dead by isSpawnAlive.
+        // Tests that need a live-but-idle critic pass criticProcs with non-shell entries.
+        return opts.criticProcs ?? ["zsh"];
+      }
+      closeTab() {
+        /* forward-compat; used by other tests via the existing path */
       }
     })(),
     worktree: new (class {
@@ -236,13 +261,15 @@ function makeDeps(
     ...over,
     // Adapt the legacy `() => RawVerdict | null` reader (default or `over.readVerdict`) into the
     // 3-way VerdictRead the service now consumes — placed AFTER `...over` so the wrap always wins.
-    // `verdictRead` (raw 3-way) takes precedence for the #822 gate tests.
-    readVerdict: opts.verdictRead
-      ? () => opts.verdictRead!
-      : adaptLegacyVerdict(
-          over.readVerdict ??
-            (() => ({ decision: "request-changes", summary: "2 issues", body: "## findings" })),
-        ),
+    // Priority: readVerdictFn (raw stateful) > verdictRead (raw static) > adapted legacy reader.
+    readVerdict: opts.readVerdictFn
+      ? opts.readVerdictFn
+      : opts.verdictRead
+        ? () => opts.verdictRead!
+        : adaptLegacyVerdict(
+            over.readVerdict ??
+              (() => ({ decision: "request-changes", summary: "2 issues", body: "## findings" })),
+          ),
   };
   return {
     deps: base,
@@ -616,6 +643,116 @@ test("#822 review gate: absent + finished critic (not timed out) → not finaliz
   await svc.tick();
   expect(reviews["s1"]).toBeUndefined(); // not fail-fasted
   expect(removed).toEqual([]);
+});
+
+// ── TASK-1021 process-liveness regressions ────────────────────────────────────
+// A live-but-idle critic (agentStatus "idle" between API turns, but claude/node still running)
+// past the 60s startup grace must NOT be finalized-null and reaped — the root cause of
+// TASK-1021's three successive review failures (62s, 69s, 73s runs, all reaped while working).
+
+test("[TASK-1021] live-but-idle critic past grace: stays inflight, NOT finalized-null", async () => {
+  let t = 1000; // consider() sets startedAt=1000
+  const {
+    deps: d,
+    reviews,
+    stopped,
+    removed,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 300_000 },
+    {
+      verdictRead: { status: "absent" },
+      criticAgentStatus: "idle",
+      criticProcs: ["claude", "node-MainThread"], // live critic mid-turn
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 90_000; // advance past STARTUP_GRACE_MS (60s); elapsed=90s
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // not finalized
+  expect(stopped).toEqual([]); // not reaped
+  expect(removed).toEqual([]);
+});
+
+test("husk critic (shell-only) past grace: finalize-null error (fast-fail preserved)", async () => {
+  let t = 1000; // consider() sets startedAt=1000
+  const {
+    deps: d,
+    reviews,
+    stopped,
+    removed,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 300_000 },
+    {
+      verdictRead: { status: "absent" },
+      criticAgentStatus: "idle",
+      criticProcs: ["zsh"], // shell-only husk — genuinely dead
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + 90_000; // advance past STARTUP_GRACE_MS (60s); elapsed=90s
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error"); // finalize-null: fast-fail preserved
+  expect(stopped).not.toEqual([]); // reaped
+  expect(removed).not.toEqual([]);
+});
+
+// Overlapping-ticks regression: the second concurrent tick must skip an entry whose
+// finalizing flag was claimed by the first tick before the first async yield.
+test("overlapping ticks: second tick skips entry already claimed by first tick", async () => {
+  const {
+    deps: d,
+    stopped,
+    removed,
+  } = makeDeps(
+    { now: () => 1000, timeoutMs: 300_000 },
+    {
+      // strict parse → finalize-value regardless of spawnFinished, so tick will finalize
+      // criticProcs is default ['zsh'] (dead) — doesn't matter for strict parse
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // Fire two ticks concurrently — tick1 claims finalizing before its first await;
+  // tick2 sees finalizing=true and skips the entry entirely.
+  const tick1 = svc.tick();
+  const tick2 = svc.tick();
+  await Promise.all([tick1, tick2]);
+  // Exactly one finalize: exactly one stop + one remove
+  expect(stopped.length).toBe(1);
+  expect(removed.length).toBe(1);
+});
+
+// Throw-after-claim regression: if something throws after finalizing is claimed (but before
+// finalize()), the flag must be released so the next tick can retry (no wedge/leak).
+test("throw-after-claim: finalizing flag released on readVerdict throw → next tick succeeds", async () => {
+  let callCount = 0;
+  const { deps: d, reviews } = makeDeps(
+    { now: () => 1000, timeoutMs: 300_000 },
+    {
+      // Raw fn (bypasses adaptLegacyVerdict) so the VerdictRead shapes are returned correctly.
+      // First call throws (simulates readVerdict failing after flag is claimed);
+      // second call returns a valid verdict so the subsequent tick can finalize.
+      readVerdictFn: (): VerdictRead<RawVerdict> => {
+        callCount++;
+        if (callCount === 1) throw new Error("transient read error");
+        return {
+          status: "parsed",
+          value: { decision: "request-changes", summary: "issue", body: "## findings" },
+          repaired: false,
+        };
+      },
+    },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // First tick: readVerdict throws → flag released, entry stays inflight
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // not finalized yet (throw caused retry)
+  // Second tick: readVerdict succeeds → finalizes normally
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("changes_requested"); // finalized on retry
 });
 
 test("comment decision maps to COMMENT and never approves", async () => {

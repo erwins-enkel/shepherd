@@ -12,9 +12,16 @@
  * and reports whether repair was needed (`repaired`) — because a repaired parse is NOT trustworthy
  * on its own: jsonrepair will also "close up" a TRUNCATED partial write into a shape-valid but
  * incomplete object. Callers therefore trust a repaired parse only once the spawn has finished
- * (or the hard timeout fires), which `isSpawnWorking` answers.
+ * (or the hard timeout fires), which `isSpawnWorking` and `isSpawnAlive` answer.
  */
 import { jsonrepair } from "jsonrepair";
+
+/**
+ * Foreground process names that mean "just an idle shell" (a husk PTY). Shared with
+ * `src/tab-reaper.ts` (single source of truth — tab-reaper imports this constant back).
+ * A verdict spawn whose foreground is *only* shell entries has nothing running in it.
+ */
+export const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash"]);
 
 export type TolerantParse =
   | { status: "ok"; value: unknown; repaired: boolean } // repaired=false ⇒ strict JSON.parse succeeded
@@ -70,6 +77,48 @@ export function isSpawnWorking(
 ): boolean {
   const a = agents.find((x) => x.cwd === cwd);
   return !!a && a.agentStatus === "working";
+}
+
+/**
+ * Ground-truth process-liveness check for a verdict spawn. Uses `paneForegroundProcs`
+ * (the same signal `tab-reaper.ts` uses) instead of the transient `agentStatus` field,
+ * so a live-but-idle critic between API turns is never misclassified as finished.
+ *
+ * Decision table (applied only when `agentStatus !== "working"`):
+ *   - cwd absent from list              → **dead** — true absence under herdr 0.7.
+ *   - `list()` throws                   → **alive** (fail-closed; never reap on read error).
+ *   - `paneForegroundProcs` throws      → **alive** (fail-closed; transient herdr blip).
+ *   - empty proc list                   → **alive** (undeterminable; fail-closed).
+ *   - any non-shell proc present        → **alive** (claude/node/etc. still running).
+ *   - shell-only (`procs.every(SHELLS)`) → **dead** (husk PTY; matches observed startup-death shape).
+ *
+ * Fast path: `agentStatus === "working"` → **alive** without a `paneForegroundProcs` call.
+ *
+ * Never throws — all `list()` and `paneForegroundProcs` errors are caught internally so a
+ * transient herdr blip yields `finished=false → wait` rather than propagating and wedging
+ * the tick's try-catch. Callers may still wrap in their own try for defense-in-depth.
+ */
+export async function isSpawnAlive(
+  herdr: {
+    list: () => { cwd: string; paneId: string; agentStatus: string }[];
+    paneForegroundProcs: (paneId: string) => Promise<string[]>;
+  },
+  cwd: string,
+): Promise<boolean> {
+  try {
+    const agent = herdr.list().find((x) => x.cwd === cwd);
+    if (!agent) return false; // absent from list → genuinely dead (herdr 0.7: husks persist in list)
+    if (agent.agentStatus === "working") return true; // fast path — skip process-info call
+    try {
+      const procs = await herdr.paneForegroundProcs(agent.paneId);
+      if (procs.length === 0) return true; // undeterminable → fail-closed alive
+      return !procs.every((p) => SHELLS.has(p)); // shell-only → dead; any non-shell → alive
+    } catch {
+      return true; // paneForegroundProcs failure → fail-closed alive
+    }
+  } catch {
+    return true; // list() failure → fail-closed alive
+  }
 }
 
 /** What a verdict finalize-loop should do this tick. */

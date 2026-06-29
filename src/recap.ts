@@ -37,11 +37,12 @@ import {
 import { groundBlocks, type VisualBlock } from "./visual-blocks";
 import {
   tolerantParseJson,
+  isSpawnAlive,
   isSpawnWorking,
   decideVerdictAction,
   STARTUP_GRACE_MS,
 } from "./json-tolerant";
-import type { VerdictRead } from "./json-tolerant";
+import type { VerdictAction, VerdictRead } from "./json-tolerant";
 
 const execFileAsync = promisify(execFile);
 
@@ -149,7 +150,7 @@ export interface RecapServiceDeps {
     | "list"
     | "setRecapPendingDiff"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
   onChange: (id: string, recap: Recap | null) => void;
   model?: string | null;
   now?: () => number;
@@ -525,17 +526,30 @@ export class RecapService {
   async tick(): Promise<void> {
     for (const r of this.deps.store.generatingRecaps()) {
       if (this.finalizing.has(r.sessionId)) continue;
-
-      const read = this._readVerdict(r.cwd);
-      const elapsed = this.now() - r.spawnedAt;
-      const timedOut = elapsed > this.timeoutMs;
-      const action = decideVerdictAction(
-        read,
-        this.spawnFinished(r.cwd),
-        timedOut,
-        elapsed > STARTUP_GRACE_MS,
-      );
-      if (action === "wait") continue; // not-yet-written / repaired-or-unparseable while still working
+      this.finalizing.add(r.sessionId); // claim BEFORE the first await — race-safe (mirrors review.ts)
+      let action: VerdictAction;
+      let read: VerdictRead<unknown>;
+      const elapsed = this.now() - r.spawnedAt; // hoisted: also used in the finalize-null log below
+      try {
+        read = this._readVerdict(r.cwd);
+        const timedOut = elapsed > this.timeoutMs;
+        // Ground-truth liveness via paneForegroundProcs (same signal as tab-reaper): a live-but-idle
+        // recap spawn between API turns reads "idle" in agentStatus but still has non-shell procs.
+        // isSpawnAlive never throws; herdr errors → fail-closed alive.
+        const finished = !(await isSpawnAlive(this.deps.herdr, r.cwd));
+        action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
+      } catch (err) {
+        // _readVerdict or decideVerdictAction threw; isSpawnAlive itself never throws.
+        // Release the flag so the next tick retries — otherwise stays in finalizing forever,
+        // wedging the session's recap and leaking its tmpdir/terminal.
+        this.finalizing.delete(r.sessionId);
+        console.warn(`[recap] liveness/read failed for ${r.sessionId}, retrying next tick:`, err);
+        continue;
+      }
+      if (action === "wait") {
+        this.finalizing.delete(r.sessionId); // release: not finalizing this tick
+        continue; // not-yet-written / repaired-or-unparseable while still working
+      }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
 
@@ -553,7 +567,7 @@ export class RecapService {
         }
       }
 
-      this.finalizing.add(r.sessionId);
+      // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
         await this.finalize(r, raw);
       } finally {

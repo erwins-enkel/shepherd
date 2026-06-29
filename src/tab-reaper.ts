@@ -4,6 +4,7 @@ import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
 import { MERGE_LABEL } from "./merge-suggest";
+import { SHELLS } from "./json-tolerant";
 
 export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
 
@@ -61,9 +62,7 @@ export function isShepherdHelperLabel(label: string): boolean {
   );
 }
 
-/** Foreground process names that mean "just an idle shell" (a husk PTY). A helper pane
- *  whose foreground is *only* one of these has nothing running in it. */
-const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash"]);
+// SHELLS is defined in json-tolerant.ts and imported above — single source of truth.
 
 /** Breakdown of one reconciliation sweep. */
 export interface ReapResult {

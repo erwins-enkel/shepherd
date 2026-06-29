@@ -633,11 +633,14 @@ export const config = {
   // usageDowngradeModel instead of its configured model — work keeps flowing, just cheaper.
   // Intended two-tier escalation: downgrade at a LOWER pct, hold at a higher one. Default OFF
   // (opt-in, no behavior change); set SHEPHERD_USAGE_DOWNGRADE_ENABLED=1 to enable. downgradePct:
-  // [0,100], default 80. Model: a default-model SETTING ("auto"|"default"|<alias>), default haiku.
+  // [0,100], default 70 — deliberately BELOW the usageHoldPct default (80) so enabling downgrade
+  // with defaults actually downgrades first (at 70) before the hold pauses (at 80); an equal default
+  // would make the hold fire first and the downgrade a silent no-op. Model: a default-model SETTING
+  // ("auto"|"default"|<alias>), default haiku.
   usageDowngradeEnabled: ["1", "true"].includes(
     (process.env.SHEPHERD_USAGE_DOWNGRADE_ENABLED ?? "").toLowerCase(),
   ),
-  usageDowngradePct: clampCap(Number(process.env.SHEPHERD_USAGE_DOWNGRADE_PCT ?? 80), 0, 100, 80),
+  usageDowngradePct: clampCap(Number(process.env.SHEPHERD_USAGE_DOWNGRADE_PCT ?? 70), 0, 100, 70),
   usageDowngradeModel:
     normalizeDefaultModelSetting(process.env.SHEPHERD_USAGE_DOWNGRADE_MODEL) ?? "haiku",
 };

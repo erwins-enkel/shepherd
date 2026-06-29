@@ -363,8 +363,8 @@
   // model instead of pausing; the hold above still pauses at its (higher) threshold.
   let usageDowngradeEnabled = $state(false);
   let usageDowngradeBusy = $state(false);
-  let usageDowngradePct = $state(80); // threshold percentage (0–100); matches server default
-  let usageDowngradePctSaved = 80;
+  let usageDowngradePct = $state(70); // threshold percentage (0–100); matches server default (below hold)
+  let usageDowngradePctSaved = 70;
   let usageDowngradePctBusy = $state(false);
   let usageDowngradeModel = $state("haiku"); // setting ("auto"|"default"|<alias>); matches server seed
   let usageDowngradeModelSaved = "haiku";

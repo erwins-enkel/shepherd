@@ -2190,5 +2190,7 @@
   "feat_owed_badge_title": "Zähler-Badge der Owed-Linse",
   "feat_owed_badge_body": "Die OWED-Herd-Linse zeigt jetzt ein Zähler-Badge, wenn gemergte PRs noch offene manuelle Post-Merge-Schritte haben — so verdient die Linse deine Aufmerksamkeit nur, wenn es etwas zu tun gibt, statt bei 0 oder 5 offenen Schritten gleich auszusehen.",
   "github_lens_paused": "Pausiert",
-  "github_lens_graphql_backoff": "GraphQL-Polling pausiert, während ein Rate-Limit-Backoff abklingt — PR-, Issue- und Backlog-Updates laufen in ~{time} weiter."
+  "github_lens_graphql_backoff": "GraphQL-Polling pausiert, während ein Rate-Limit-Backoff abklingt — PR-, Issue- und Backlog-Updates laufen in ~{time} weiter.",
+  "docagent_status_error": "Formatierung fehlgeschlagen",
+  "docagent_toast_error": "{repo}: Doku-Update abgebrochen — Prettier konnte die Doku nicht formatieren"
 }

@@ -40,10 +40,20 @@
         ? m.docagent_status_pr()
         : runs[0]?.outcome === "observe"
           ? m.docagent_status_observe()
-          : m.docagent_status_nochange(),
+          : runs[0]?.outcome === "error"
+            ? m.docagent_status_error()
+            : m.docagent_status_nochange(),
   );
 
-  const badgeVariant = $derived(running ? "running" : runs[0]?.outcome === "pr" ? "pr" : "muted");
+  const badgeVariant = $derived(
+    running
+      ? "running"
+      : runs[0]?.outcome === "pr"
+        ? "pr"
+        : runs[0]?.outcome === "error"
+          ? "error"
+          : "muted",
+  );
 
   // Position the popover below the badge whenever open + both elements exist.
   $effect(() => {
@@ -102,6 +112,7 @@
   function outcomeLabel(outcome: DocAgentRun["outcome"]): string {
     if (outcome === "pr") return m.docagent_status_pr();
     if (outcome === "observe") return m.docagent_status_observe();
+    if (outcome === "error") return m.docagent_status_error();
     return m.docagent_status_nochange();
   }
 </script>
@@ -270,6 +281,12 @@
   .status-badge.pr {
     color: var(--color-green);
     border-color: color-mix(in srgb, var(--color-green) 45%, transparent);
+  }
+
+  /* Error state — red (semantic danger token) */
+  .status-badge.error {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
   }
 
   /* History popover surface — mirrors .filter-popover from IssueFilterPopover */

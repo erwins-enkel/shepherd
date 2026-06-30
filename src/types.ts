@@ -497,7 +497,7 @@ export interface HerdDigest {
 
 // ── doc-agent run history ────────────────────────────────────────────────────
 /** Outcome of a completed doc-agent run, surfaced in the UI run history. */
-export type DocAgentOutcome = "pr" | "observe" | "nochange";
+export type DocAgentOutcome = "pr" | "observe" | "nochange" | "error";
 
 /** One completed doc-agent run, stored newest-first in the KV under
  *  `docagent:runs:<repoPath>` (capped at 10). */

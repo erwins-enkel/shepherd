@@ -3,6 +3,7 @@ import {
   DocAgentService,
   DOC_AGENT_LABEL,
   SERVER_INSTALL_ROOT,
+  PrettierFormatError,
   isDocRelevantMerge,
   type DocAgentFinalize,
   type DocAgentDeps,
@@ -81,6 +82,8 @@ interface Harness {
   startArgs: { name: string; cwd: string; argv: string[] }[];
   /** Captured editPr calls (prNumber + patch). */
   editPrCalls: { prNumber: number; title?: string; body?: string }[];
+  /** terminalIds passed to herdr.stop (mirrors removedWorktrees pattern). */
+  stoppedTerminals: string[];
   __merge: number;
 }
 
@@ -244,6 +247,7 @@ function mkHarness(opts?: {
   const completedRows: CompletedRow[] = [];
   const deletedRemote: string[] = [];
   const editPrCalls: { prNumber: number; title?: string; body?: string }[] = [];
+  const stoppedTerminals: string[] = [];
   const store = {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
@@ -389,7 +393,9 @@ function mkHarness(opts?: {
       startArgs.push({ name, cwd, argv: wrapped ?? [] });
       return { terminalId: "term-" + starts.length } as any;
     },
-    stop: () => {},
+    stop: (terminalId: string) => {
+      stoppedTerminals.push(terminalId);
+    },
     list: () =>
       o.herdrAgents.map(
         (a) =>
@@ -491,6 +497,7 @@ function mkHarness(opts?: {
     markers,
     startArgs,
     editPrCalls,
+    stoppedTerminals,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -1077,18 +1084,42 @@ test("prettier regression: docs-site paths are never passed to prettier", async 
   }
 });
 
-test("prettier failure path: throwing prettier stub still results in commit + push + PR (best-effort)", async () => {
+test("PrettierFormatError: is exported, carries repoPath + files, name is set correctly", () => {
+  const cause = new Error("binary not found");
+  const err = new PrettierFormatError("/repo", ["/wt/docs/a.md"], { cause });
+  expect(err).toBeInstanceOf(PrettierFormatError);
+  expect(err.name).toBe("PrettierFormatError");
+  expect(err.repoPath).toBe("/repo");
+  expect(err.files).toEqual(["/wt/docs/a.md"]);
+  expect(err.cause).toBe(cause);
+  expect(err.message).toContain("/repo");
+  expect(err.message).toContain("/wt/docs/a.md");
+});
+
+test("prettier failure path: throwing prettier ABORTS the run (no commit/push/PR), records error outcome, cleans up (fail-closed)", async () => {
   const h = mkHarness({ act: true, prettierThrows: true });
   await h.svc.consider("/repo");
   await h.svc.tick();
 
-  // prettier threw, but the act path is best-effort — commit/push/openPr must still fire
-  expect(h.gitCalls.some((c) => c.args[0] === "commit" && c.args.includes("--no-verify"))).toBe(
-    true,
-  );
-  expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(true);
-  expect(h.openPrInputs).toHaveLength(1);
-  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" }]);
+  // fail-closed: no commit, no push, no PR
+  expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
+  expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
+  expect(h.openPrInputs).toHaveLength(0);
+
+  // error outcome recorded and fired through onChange
+  expect(h.finalizes).toHaveLength(1);
+  expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: null, outcome: "error" });
+
+  // recorded in store
+  const runs = h.kv.get("docagent:runs:/repo");
+  expect(runs).toBeDefined();
+  const parsed = JSON.parse(runs!) as { outcome: string; url: string | null }[];
+  expect(parsed[0]!.outcome).toBe("error");
+  expect(parsed[0]!.url).toBeNull();
+
+  // cleanup still ran: worktree removed AND herdr.stop called
+  expect(h.removedWorktrees).toHaveLength(1);
+  expect(h.stoppedTerminals).toHaveLength(1);
 });
 
 // ── outcome tracking (issue #906) ────────────────────────────────────────────

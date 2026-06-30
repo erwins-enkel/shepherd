@@ -1087,6 +1087,22 @@ test("doc-agent:done outcome=nochange fires keyed toast", () => {
   expect(toasts.items.some((x) => x.key === "doc-agent-done:/repos/da-nochange")).toBe(true);
 });
 
+test("doc-agent:done outcome=error fires a persistent assertive toast keyed doc-agent-error:", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    data: { repoPath: "/repos/da-error", url: null, outcome: "error" },
+  });
+  const t = toasts.items.find((x) => x.key === "doc-agent-error:/repos/da-error");
+  expect(t).toBeDefined();
+  expect(t?.alert).toBe(true);
+  // persistent: no durationMs set (duration: null → undefined in the store)
+  expect(t?.durationMs).toBeUndefined();
+  expect(t?.text).toContain("da-error");
+});
+
 test("doc-agent:done dedupes repeated events for the same repo (same key)", () => {
   toasts.items = [];
   const s = new HerdStore();

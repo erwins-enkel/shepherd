@@ -1814,10 +1814,15 @@ export class SessionStore implements CapStore, CreditStore {
         | "lastState"
         | "branch"
         | "herdrAgentId"
+        | "claudeSessionId"
+        | "agentProvider"
+        | "model"
         | "readyToMerge"
         | "mergingSince"
         | "mergingTrainId"
         | "mergingPrNumber"
+        | "planGateEnabled"
+        | "planPhase"
       >
     >,
   ) {
@@ -1825,17 +1830,22 @@ export class SessionStore implements CapStore, CreditStore {
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, agentProvider=?, model=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
         next.lastState,
         next.branch,
         next.herdrAgentId,
+        next.claudeSessionId,
+        next.agentProvider ?? "claude",
+        next.model,
         next.readyToMerge ? 1 : 0,
         next.mergingSince,
         next.mergingTrainId,
         next.mergingPrNumber,
+        next.planGateEnabled === null ? null : next.planGateEnabled ? 1 : 0,
+        next.planPhase,
         next.updatedAt,
         id,
       ],

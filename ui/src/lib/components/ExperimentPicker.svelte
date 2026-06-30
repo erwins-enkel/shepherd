@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import type { AgentProvider } from "$lib/types";
-  import { startVariant, startComparison, relaunchSession } from "$lib/api";
+  import { startVariant, startComparison, replaceSessionAgent } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
 
@@ -57,14 +57,7 @@
     id: string,
     choice: { agentProvider: AgentProvider; model: string | null },
   ) {
-    const { session, archived } = await relaunchSession(id, choice);
-    if (archived) toasts.info(m.relaunch_done({ desig: session.desig }));
-    else
-      toasts.info(m.relaunch_archive_failed(), {
-        duration: null,
-        alert: true,
-        key: `relaunch-fail:${id}`,
-      });
+    const session = await replaceSessionAgent(id, choice);
     onselect(session.id);
   }
 

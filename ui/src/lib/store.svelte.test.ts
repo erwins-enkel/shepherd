@@ -105,6 +105,29 @@ test("session:ready patches the target session's readyToMerge", () => {
   expect(s.byId("s1")?.readyToMerge).toBe(false);
 });
 
+test("session:status with session fields patches the existing row in place", () => {
+  const s = new HerdStore();
+  const original = session("s1");
+  s.setAll([original]);
+  s.apply({
+    event: "session:status",
+    data: {
+      ...original,
+      herdrAgentId: "term_codex",
+      claudeSessionId: "",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      status: "running",
+      worktreePath: "/wt",
+    },
+  });
+  expect(s.sessions).toHaveLength(1);
+  expect(s.byId("s1")?.worktreePath).toBe("/wt");
+  expect(s.byId("s1")?.herdrAgentId).toBe("term_codex");
+  expect(s.byId("s1")?.agentProvider).toBe("codex");
+  expect(s.byId("s1")?.model).toBe("gpt-5.5");
+});
+
 test("session:experiment links the target into a comparison group live", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

@@ -2065,6 +2065,15 @@ export class SessionService {
     return copied;
   }
 
+  private listWorktreeUploads(worktreePath: string): string[] {
+    const dir = worktreeUploadsDir(worktreePath);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .sort()
+      .map((name) => join(dir, name))
+      .filter((p) => statSync(p).isFile());
+  }
+
   /**
    * Spawn a fresh replacement for an existing task, carrying its prompt and all
    * per-task settings — including the spawn-baked ones that can't be changed after
@@ -2155,6 +2164,105 @@ export class SessionService {
 
     // Re-fetch AFTER the override writes so the returned session reflects them.
     return this.deps.store.get(newSession.id)!;
+  }
+
+  /**
+   * Replace the live agent process for an existing Shepherd session without creating a new
+   * worktree or session row. Used by "Replace with…" when the operator wants the same task and
+   * same checked-out worktree to continue under a different CLI/model (e.g. Claude → Codex).
+   */
+  async replaceAgent(
+    id: string,
+    opts: { agentProvider?: AgentProvider; model: string | null },
+  ): Promise<Session> {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived")
+      throw new Error(`cannot replace agent for ${id}: missing or archived`);
+
+    const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
+    const model = modelForProviderOrDefault(opts.model, agentProvider);
+    const claudeSessionId = agentProvider === "claude" ? randomUUID() : "";
+    const carriedImages = this.listWorktreeUploads(s.worktreePath);
+    const promptImages = carriedImages.slice(0, MAX_IMAGES);
+    if (carriedImages.length > promptImages.length)
+      console.warn(
+        `[replace] ${s.id}: ${carriedImages.length} images exceed cap ${MAX_IMAGES}; dropped ${carriedImages.length - promptImages.length}`,
+      );
+    const input: CreateSessionInput = {
+      repoPath: s.repoPath,
+      baseBranch: s.baseBranch,
+      prompt: s.prompt,
+      agentProvider,
+      model,
+      images: [],
+      planGateEnabled: s.planGateEnabled,
+      autopilotEnabled: s.autopilotEnabled,
+      research: s.research,
+      auto: false,
+    };
+    const composed = await this.composePromptArg(input, s.worktreePath);
+    const promptArg =
+      promptImages.length > 0
+        ? `${composed.promptArg}\n\nAttached images:\n${promptImages.join("\n")}`
+        : composed.promptArg;
+    const launch = await this.resolveCreateLaunch(
+      input,
+      { isolated: s.isolated },
+      promptArg,
+      s.id,
+      claudeSessionId,
+    );
+
+    const outcome = await this.prepareSpawnOrThrow(launch.argv, {
+      sessionId: s.id,
+      name: s.name,
+      worktreePath: s.worktreePath,
+      repoPath: s.repoPath,
+      isolated: s.isolated,
+      auto: false,
+      profileOverride: launch.profileOverride,
+      model: launch.spawnInput.model,
+      agentProvider,
+    });
+
+    try {
+      this.deps.store.update(s.id, {
+        herdrAgentId: outcome.terminalId,
+        claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
+        agentProvider,
+        model: launch.spawnInput.model,
+        status: "running",
+        lastState: "idle",
+        readyToMerge: false,
+        mergingSince: null,
+        mergingTrainId: null,
+        mergingPrNumber: null,
+        planGateEnabled:
+          agentProvider === "claude" ? (launch.spawnInput.planGateEnabled ?? null) : false,
+        planPhase: launch.planGateOn ? "planning" : null,
+      });
+      this.deps.store.setSandboxState(s.id, {
+        applied: outcome.applied,
+        degraded: outcome.degraded,
+        egressApplied: outcome.egressApplied,
+        egressDegraded: outcome.egressDegraded,
+      });
+    } catch (e) {
+      try {
+        this.deps.herdr.stop(outcome.terminalId);
+      } catch {
+        /* best-effort: leave the original agent registered if persistence failed */
+      }
+      throw e;
+    }
+
+    try {
+      this.deps.herdr.stop(s.herdrAgentId);
+    } catch {
+      /* best-effort: the replacement is already persisted */
+    }
+
+    return this.deps.store.get(s.id)!;
   }
 
   /**

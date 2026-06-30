@@ -1014,6 +1014,23 @@ export interface UsageBreakdown {
   repos: UsageRepoBreakdown[];
 }
 
+/** One hour of weighted-unit consumption (mirrors server UsageTimelineHour). */
+export interface UsageTimelineHour {
+  hourStart: number; // ms epoch, floored to the hour (UTC boundary); never 0 (timeless rows excluded)
+  units: number; // weighted units consumed in that hour (authoring + live + satellite)
+}
+
+/** GET /api/usage/timeline response — the Timeline lens's per-hour series.
+ *  `hours` is ASC by `hourStart` and contains only non-empty hours; `totalUnits`
+ *  and `peakHourUnits` span the full range even when the UI grid is row-capped. */
+export interface UsageTimeline {
+  range: UsageRange;
+  generatedAt: number; // ms epoch
+  hours: UsageTimelineHour[];
+  totalUnits: number; // Σ units across all in-range hours
+  peakHourUnits: number; // max single-hour units (0 when empty) — heatmap color reference
+}
+
 /** Burn-down projection for the Limits lens. */
 export interface UsageProjection {
   window: "5H" | "WK";

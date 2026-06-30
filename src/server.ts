@@ -85,6 +85,7 @@ import { computeDiff } from "./diff";
 import { resolveDiffBase } from "./diff-base";
 import { sessionTokens, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
+import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
@@ -3076,6 +3077,26 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
   return json(breakdown);
 }
 
+async function handleUsageTimeline({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "timeline"
+  ))
+    return null;
+  const raw = url.searchParams.get("range") ?? "7d";
+  if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
+    return json({ error: "invalid range" }, 400);
+  const timeline = await buildUsageTimeline({
+    store: deps.store,
+    range: raw,
+    now: Date.now(),
+    usageRollup: deps.usageRollup,
+  });
+  return json(timeline);
+}
+
 // ── self-update: status + trigger ──────────────────────────────────────
 function updateStatus(deps: AppDeps): Response {
   return json(
@@ -5552,6 +5573,7 @@ const ROUTE_HANDLERS = [
   handleSessionGit,
   handleUsageLimits,
   handleUsageBreakdown,
+  handleUsageTimeline,
   handleUpdate,
   handleHerdrUpdate,
   handleCodexUpdate,

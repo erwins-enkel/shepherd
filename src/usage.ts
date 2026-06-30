@@ -343,7 +343,7 @@ export class AccountUsageIndex {
 // ── Session bucket fold ───────────────────────────────────────────────────────
 
 /** floor-hour: truncate ms-epoch to the start of its UTC hour. ts=0 → 0. */
-function floorHour(ts: number): number {
+export function floorHour(ts: number): number {
   return ts - (ts % 3_600_000);
 }
 
@@ -685,5 +685,22 @@ export class SessionUsageRollup {
       dominantModel: dominantModelOf(rawByModel),
       messageCount,
     };
+  }
+
+  /** Per-hour weighted units for one session's in-window records, keyed by floorHour(ts).
+   *  Timeless records (ts=0) are excluded — they have no placeable hour, so they cannot sit on
+   *  a timeline. cutoff===0 ⇒ every timestamped record; cutoff>0 ⇒ records with ts>=cutoff.
+   *  Returns an empty map for an unknown session. Feeds buildUsageTimeline's live contribution. */
+  hourlyUnits(sessionId: string, cutoff: number): Map<number, number> {
+    const out = new Map<number, number>();
+    const st = this.sessions.get(sessionId);
+    if (!st) return out;
+    for (const rec of st.records) {
+      if (rec.ts === 0) continue; // timeless — not placeable on a timeline
+      if (rec.ts < cutoff) continue; // out of window (cutoff===0 keeps all ts>0)
+      const h = floorHour(rec.ts);
+      out.set(h, (out.get(h) ?? 0) + rec.weighted);
+    }
+    return out;
   }
 }

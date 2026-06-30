@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { UsageLimits, UsageProjection, UsageRange } from "$lib/types";
+import type { UsageLimits, UsageProjection, UsageRange, UsageTimeline } from "$lib/types";
 import { formatTokenLabel } from "$lib/format";
 import { m } from "$lib/paraglide/messages";
 import * as api from "$lib/api";
@@ -45,11 +45,23 @@ const inlineProjections: UsageProjection[] = [
   { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
 ];
 
+const inlineTimeline: UsageTimeline = {
+  range: "7d",
+  generatedAt: BASE,
+  hours: [
+    { hourStart: BASE - 2 * H - (BASE % H), units: 12 },
+    { hourStart: BASE - H - (BASE % H), units: 40 },
+  ],
+  totalUnits: 52,
+  peakHourUnits: 40,
+};
+
 // Mock the API so tests are deterministic and backend-independent.
 vi.mock("$lib/api", async () => {
   const { mockBreakdown } = await import("$lib/usage-mock");
   return {
     getUsageBreakdown: vi.fn((range: UsageRange) => Promise.resolve(mockBreakdown(range))),
+    getUsageTimeline: vi.fn((range: UsageRange) => Promise.resolve({ ...inlineTimeline, range })),
     getUsageLimits: vi.fn(() =>
       Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
     ),
@@ -114,6 +126,25 @@ describe("Usage modal component", () => {
     // Range selector must not be present on the Limits tab
     const rangeGroup = document.querySelector('[role="group"][aria-label]');
     expect(rangeGroup, "range selector hidden on Limits tab").toBeNull();
+  });
+
+  it("clicking the Timeline tab renders the heatmap and keeps the range selector", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    const timelineBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent?.trim() === m.usage_timeline_tab(),
+    );
+    expect(timelineBtn, "Timeline tab button exists").not.toBeNull();
+
+    timelineBtn!.click();
+
+    // The lazily-loaded heatmap appears: at least one day row with 24 hour cells.
+    await expect.poll(() => document.querySelectorAll(".tl-row").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".tl-row .tl-cell").length).toBe(24);
+
+    // Timeline is a ranged tab — the range selector stays visible.
+    const rangeGroup = document.querySelector('[role="group"][aria-label]');
+    expect(rangeGroup, "range selector present on Timeline tab").not.toBeNull();
   });
 
   it("clicking the GitHub tab shows REST + GraphQL buckets and the GraphQL-paused banner", async () => {

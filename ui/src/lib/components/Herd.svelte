@@ -27,6 +27,12 @@
   import { displayStatus } from "$lib/display-status";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { postMergeSteps } from "$lib/post-merge-steps.svelte";
+
+  // Outstanding owed records (#1257) — drives the OWED lens count badge. The container reads the
+  // shared store; HerdLensStrip stays a pure prop-driven component. Loaded in +page.svelte (desktop
+  // eager load); 0 until then, which simply hides the badge.
+  const owedCount = $derived(postMergeSteps.records.length);
 
   let {
     sessions,
@@ -458,6 +464,7 @@
       {statusFilter}
       {statusLabel}
       {collapsible}
+      {owedCount}
       {onstatusfilter}
       {oncollapse}
     />

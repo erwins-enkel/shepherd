@@ -7,14 +7,22 @@ import { getOutstandingManualSteps, setManualStepDone, dismissManualSteps } from
 class PostMergeStepsStore {
   records = $state<PostMergeSteps[]>([]);
   loaded = $state(false);
+  /** In-flight guard (#1257): true while a `load()` GET is outstanding. Stops a viewport toggle (or
+   *  any re-entrant caller — eager badge load, lens-open fallback, WS refresh) from firing a
+   *  duplicate fetch before the first one resolves and flips `loaded`. */
+  private loading = false;
 
   /** Re-fetch the outstanding set. On failure leaves the existing list untouched (next call retries). */
   async load() {
+    if (this.loading) return; // a fetch is already in flight — don't duplicate it
+    this.loading = true;
     try {
       this.records = await getOutstandingManualSteps();
       this.loaded = true;
     } catch {
       /* best-effort; the next load retries */
+    } finally {
+      this.loading = false;
     }
   }
 

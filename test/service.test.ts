@@ -159,6 +159,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean) {
 }
 
 const hasDirective = (argv: string[]) => argv.some((a) => a.includes("<autopilot-directive>"));
+const hasManualNotice = (argv: string[]) => argv.some((a) => a.includes("<manual-steps-notice>"));
 
 test("createSession: codex provider starts interactive codex; plan-gate forced off, autopilot off → no directive", async () => {
   const { store, service, calls } = codexHarness(true);
@@ -174,14 +175,20 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     autopilotEnabled: false,
   });
 
-  expect(calls.start.argv).toEqual([
+  // The fixed flags + model are exact; the prompt (last arg) now carries the #1257 manual-steps
+  // notice appended inline (every codex CODE spawn), so it starts with the user prompt rather than
+  // equalling it. Autopilot is off here → no autopilot directive.
+  expect(calls.start.argv.slice(0, 5)).toEqual([
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
     "gpt-5.5",
-    "flatten it",
   ]);
+  const codexPrompt = calls.start.argv[5] as string;
+  expect(codexPrompt.startsWith("flatten it")).toBe(true);
+  expect(codexPrompt).not.toContain("<autopilot-directive>");
+  expect(codexPrompt).toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
   expect(s.claudeSessionId).toBe("");
@@ -269,6 +276,38 @@ test("createSession: codex + isolated + research + repo-default ON → NO direct
     research: true,
   });
   expect(hasDirective(calls.start.argv)).toBe(false);
+});
+
+// #1257: the manual-steps notice rides every codex CODE spawn (gated only on !research — its
+// single-pr-invariant equivalent), independent of the autopilot/isolation gate, and is suppressed
+// for a research spawn (which opens no code PR).
+test("createSession: codex code spawn carries the manual-steps notice, even with autopilot off", async () => {
+  const { service, calls } = codexHarness(true);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "build it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    autopilotEnabled: false,
+  });
+  expect(hasManualNotice(calls.start.argv)).toBe(true);
+  expect(hasDirective(calls.start.argv)).toBe(false);
+});
+
+test("createSession: codex research spawn omits the manual-steps notice", async () => {
+  const { service, calls } = codexHarness(true);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    research: true,
+  });
+  expect(hasManualNotice(calls.start.argv)).toBe(false);
 });
 
 // Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the
@@ -3159,6 +3198,29 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
   // Suppressed for a research deliverable.
   expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
     "<single-pr-invariant>",
+  );
+});
+
+test("composeSystemPrompt rides the manual-steps notice on code spawns, never on research", () => {
+  // #1257: the notice gives the Owed lens a live data source. Same gate as the single-PR invariant —
+  // every CODE spawn, suppressed only for research (which opens no code PR).
+  const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
+  const codeSpawns = [
+    composeSystemPrompt(null),
+    composeSystemPrompt(withRules),
+    composeSystemPrompt(null, true),
+    composeSystemPrompt(null, true, { planGate: "interactive" }),
+    composeSystemPrompt(null, true, { planGate: "auto" }),
+  ];
+  for (const sp of codeSpawns) {
+    expect(sp).toContain("<manual-steps-notice>");
+    expect(sp).toContain("</manual-steps-notice>");
+    // Anchor on the stable carrier syntax (the parser contract) + the emphatic default-empty rule.
+    expect(sp).toContain("```shepherd:manual-steps");
+    expect(sp).toContain("DEFAULT TO DECLARING NOTHING");
+  }
+  expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
+    "<manual-steps-notice>",
   );
 });
 

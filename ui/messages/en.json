@@ -1892,6 +1892,7 @@
   "automation_manual_steps_issue_name": "Track manual steps in an issue",
   "automation_manual_steps_issue_desc": "On merge, open a GitHub issue listing the PR's manual operator steps",
   "herd_owed_title": "Post-merge manual steps you still owe",
+  "herd_owed_count": "{count} merged PR(s) still owe post-merge steps",
   "owed_main_hint": "Owed post-merge steps are shown in the herd panel on the left.",
   "owed_title": "Post-merge steps owed",
   "owed_empty": "No post-merge steps owed — you're all caught up.",
@@ -2186,6 +2187,8 @@
   "github_lens_no_data": "GitHub rate-limit data unavailable.",
   "feat_github_rate_limits_title": "GitHub rate limits in Usage",
   "feat_github_rate_limits_body": "The Usage view has a new GitHub tab showing your REST and GraphQL API budgets separately. When one is exhausted it explains which features pause until reset — so an empty GraphQL budget no longer looks like a silent breakage.",
+  "feat_owed_badge_title": "Owed lens count badge",
+  "feat_owed_badge_body": "The OWED Herd lens now shows a count badge when merged PRs still owe post-merge manual steps — so the lens earns your attention only when there's something to do, instead of looking identical whether 0 or 5 steps are outstanding.",
   "github_lens_paused": "Paused",
   "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}."
 }

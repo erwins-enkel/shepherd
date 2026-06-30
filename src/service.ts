@@ -514,6 +514,40 @@ const SINGLE_PR_INVARIANT =
   "Never split the work across two PRs from this one session.";
 
 /**
+ * Agent-facing notice (#1257) that tells a PR-authoring agent to DECLARE manual operator steps in the
+ * PR body via the carriers `parseManualSteps()` (src/manual-steps.ts) understands, so the #1061
+ * post-merge pipeline + the Owed lens get a live data source. Rides every CODE spawn (suppressed for
+ * research) — Claude gets it via composeSystemPrompt, Codex inline via buildCodexSpawnArgv (Codex has
+ * no --append-system-prompt). Not user-facing chrome (an instruction to the agent), so no i18n — same
+ * precedent as SINGLE_PR_INVARIANT / AUTOPILOT_DIRECTIVE.
+ *
+ * IMPORTANT — the embedded fenced example is the SOURCE OF TRUTH for the carrier syntax and is pinned
+ * to the parser by a unit test (`parseManualSteps(MANUAL_STEPS_NOTICE)` in test/manual-steps.test.ts).
+ * The fence-open line must stay EXACTLY ```shepherd:manual-steps (FENCE_OPEN regex) and each step a
+ * column-0-or-indented `- [ ]` line (TASK_LINE) so a wording edit can never silently break parsing.
+ * The notice is emphatically default-empty: a fabricated step is worse than none.
+ */
+export const MANUAL_STEPS_NOTICE =
+  "Before you open the pull request, declare any MANUAL OPERATOR STEPS the change implies — work a " +
+  "human must do around merge/deploy that the diff itself cannot perform (flip a feature flag, set " +
+  "an env var, run a one-off backfill/migration, restart a worker, DNS cutover, seed a record). " +
+  "Shepherd parses these from the PR body and surfaces them on the Owed lens so they survive merge " +
+  "and teardown.\n" +
+  "Declare them in the PR body with EITHER carrier:\n" +
+  "- A fenced block — each `- [ ]` line is one step:\n" +
+  "```shepherd:manual-steps\n" +
+  "- [ ] Set the FEATURE_X env var in production\n" +
+  "- [ ] POST-MERGE: Run the data backfill once the PR is live\n" +
+  "```\n" +
+  "- Or column-0 `Manual-Step:` trailer lines (flush-left, outside any fence), e.g. a line reading " +
+  "exactly `Manual-Step: Rotate the signing key`.\n" +
+  "Prefix a step with `POST-MERGE:` when it must happen AFTER the PR merges.\n" +
+  "DEFAULT TO DECLARING NOTHING: most PRs need NO manual steps. Add a step ONLY for a real " +
+  "out-of-band action a human must take; if merging fully completes the change, OMIT the carrier " +
+  "entirely. NEVER invent steps to fill the block — a spurious step is worse than none. When in " +
+  "doubt, declare nothing.";
+
+/**
  * Injected as the highest-priority directive for an attended RESEARCH task (`research: true`).
  * A research session does open-ended web research with sub-agents and delivers a report-only PR
  * OR a GitHub issue — never code. It SUPPRESSES the plan-gate, autopilot, and build-queue
@@ -829,6 +863,10 @@ export function composeSystemPrompt(
   // redundant there and would muddy that deliverable.
   if (!opts.research) {
     blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
+    // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
+    // opens no code PR) — same gate as the single-PR invariant. Gives the Owed lens a live data
+    // source by telling the agent to declare manual steps via the carriers parseManualSteps reads.
+    blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
   // directive (none of those fit a report-PR/issue deliverable).
@@ -1660,15 +1698,20 @@ export class SessionService {
     promptArg: string,
     model: string | null,
     autopilotActive: boolean,
+    manualStepsNotice: boolean,
   ): string[] {
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     if (model) argv.push("--model", model);
-    // Codex has no --append-system-prompt, so the autopilot directive (which Claude gets via
-    // composeSystemPrompt) must ride inline on the prompt. Gated by the caller on
-    // !research && isolated && effectiveAutopilot — see buildSpawnArgv call site.
-    const prompt = autopilotActive
-      ? `${promptArg}\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`
-      : promptArg;
+    // Codex has no --append-system-prompt, so the blocks Claude gets via composeSystemPrompt must
+    // ride inline on the prompt. The autopilot directive is gated by the caller on
+    // !research && isolated && effectiveAutopilot; the manual-steps notice (#1257) is gated only on
+    // !research (its single-pr-invariant equivalent — every code spawn, autopilot or not). See the
+    // buildCodexSpawnArgv call site.
+    let prompt = promptArg;
+    if (autopilotActive)
+      prompt += `\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
+    if (manualStepsNotice)
+      prompt += `\n\n<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`;
     argv.push(prompt);
     return argv;
   }
@@ -1892,6 +1935,9 @@ export class SessionService {
                   { autopilotEnabled: input.autopilotEnabled ?? null },
                   repoConfig.autopilotEnabled,
                 ),
+              // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
+              // research — its single-pr-invariant equivalent, independent of the autopilot gate.
+              !input.research,
             )
           : this.buildSpawnArgv(
               input,

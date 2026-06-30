@@ -92,7 +92,17 @@ export class PostMergeStepsService {
       console.warn(`[post-merge-steps] materialize for ${session.id} failed:`, err);
       return;
     }
-    if (inserted) this.deps.emitChange();
+    if (inserted) {
+      // Observability (#1257): a fresh owed record is the real-world signal that an agent actually
+      // declared manual steps in its PR body. Logging it lets the operator audit which PRs populate
+      // the Owed lens and watch the false-positive (fabricated-step) rate — the prompt notice that
+      // drives this is unverifiable in-PR, so this log is the verification path.
+      const pr = prNumber != null ? `pr#${prNumber}` : "no-pr";
+      console.info(
+        `[post-merge-steps] materialized ${steps.length} step(s) for ${session.desig} (${session.id}, ${pr})`,
+      );
+      this.deps.emitChange();
+    }
 
     await this.maybeOpenTrackingIssue(session, prNumber, steps, forge);
   }

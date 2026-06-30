@@ -1855,4 +1855,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feat_github_rate_limits_title",
     bodyKey: "feat_github_rate_limits_body",
   },
+  {
+    // The OWED Herd lens now wears a count badge when merged PRs still owe post-merge
+    // manual steps. targetId "owed-lens" is the existing coachmark anchor on the lens
+    // segment, so the coachmark points right at the badge.
+    id: "owed-lens-count-badge",
+    sinceVersion: "1.39.0",
+    titleKey: "feat_owed_badge_title",
+    bodyKey: "feat_owed_badge_body",
+    targetId: "owed-lens",
+  },
 ];

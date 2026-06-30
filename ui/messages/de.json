@@ -1892,6 +1892,7 @@
   "automation_manual_steps_issue_name": "Manuelle Schritte als Issue verfolgen",
   "automation_manual_steps_issue_desc": "Beim Merge ein GitHub-Issue mit den manuellen Schritten des PRs öffnen",
   "herd_owed_title": "Manuelle Schritte nach dem Merge, die noch offen sind",
+  "herd_owed_count": "{count} gemergte PR(s) mit offenen Post-Merge-Schritten",
   "owed_main_hint": "Offene Schritte nach dem Merge werden im Herd-Panel links angezeigt.",
   "owed_title": "Offene Schritte nach dem Merge",
   "owed_empty": "Keine offenen Schritte nach dem Merge — alles erledigt.",
@@ -2186,6 +2187,8 @@
   "github_lens_no_data": "GitHub-Rate-Limit-Daten nicht verfügbar.",
   "feat_github_rate_limits_title": "GitHub-Rate-Limits im Verbrauch",
   "feat_github_rate_limits_body": "Die Verbrauchsansicht hat einen neuen GitHub-Tab, der dein REST- und GraphQL-API-Kontingent getrennt zeigt. Ist eines erschöpft, erklärt er, welche Funktionen bis zum Reset pausieren — ein leeres GraphQL-Kontingent wirkt so nicht mehr wie ein stiller Defekt.",
+  "feat_owed_badge_title": "Zähler-Badge der Owed-Linse",
+  "feat_owed_badge_body": "Die OWED-Herd-Linse zeigt jetzt ein Zähler-Badge, wenn gemergte PRs noch offene manuelle Post-Merge-Schritte haben — so verdient die Linse deine Aufmerksamkeit nur, wenn es etwas zu tun gibt, statt bei 0 oder 5 offenen Schritten gleich auszusehen.",
   "github_lens_paused": "Pausiert",
   "github_lens_graphql_backoff": "GraphQL-Polling pausiert, während ein Rate-Limit-Backoff abklingt — PR-, Issue- und Backlog-Updates laufen in ~{time} weiter."
 }

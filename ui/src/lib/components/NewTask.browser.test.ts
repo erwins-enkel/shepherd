@@ -1457,4 +1457,42 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
     // Alt+1 = first NON-hidden recent (realtop), never the higher-count hidden "secret".
     await expect.poll(() => selectedRepo()).toBe("realtop");
   });
+
+  it("cycle from a hidden current repo enters the visible subset at its boundary", async () => {
+    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-1", display: "vis1" };
+    const hiddenCur: RepoEntry = {
+      name: "hcur",
+      path: "/repo/hh-bnd-hidden",
+      display: "hcur",
+      hidden: true,
+    };
+    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-2", display: "vis2" };
+    mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
+    // Seeded selection is the hidden repo (still shown in the trigger), so cur === -1 in
+    // the visible subset [vis1, vis2].
+    render(NewTask, { props: base({ initialRepoPath: hiddenCur.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("hcur");
+    // Forward enters at the FIRST visible repo (not the second).
+    altChord("BracketRight");
+    await expect.poll(() => selectedRepo()).toBe("vis1");
+  });
+
+  it("backward cycle from a hidden current repo enters at the last visible repo", async () => {
+    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-b1", display: "vis1" };
+    const hiddenCur: RepoEntry = {
+      name: "hcur",
+      path: "/repo/hh-bnd-b-hidden",
+      display: "hcur",
+      hidden: true,
+    };
+    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-b2", display: "vis2" };
+    mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: hiddenCur.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("hcur");
+    // Backward enters at the LAST visible repo.
+    altChord("BracketLeft");
+    await expect.poll(() => selectedRepo()).toBe("vis2");
+  });
 });

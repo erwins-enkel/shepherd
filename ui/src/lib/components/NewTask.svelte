@@ -570,8 +570,13 @@
     const n = list.length;
     if (n === 0) return;
     const cur = list.findIndex((r) => r.path === repoPath);
-    const i = cur === -1 ? 0 : cur;
-    repoPath = list[(i + dir + n) % n]!.path;
+    // Current repo hidden (cur === -1): enter the visible subset at its boundary — the
+    // first repo on a forward step, the last on a backward step — so neither end is skipped.
+    if (cur === -1) {
+      repoPath = list[dir === 1 ? 0 : n - 1]!.path;
+      return;
+    }
+    repoPath = list[(cur + dir + n) % n]!.path;
   }
 
   // Alt-tier repo switchers, keyed on physical e.code so they work on any layout

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { VisualBlock } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { highlightLines } from "$lib/highlight";
   import { theme } from "$lib/theme.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "code" }> } = $props();
@@ -17,7 +16,11 @@
     }
     let alive = true;
     const lines = code.split("\n");
-    highlightLines(lines, block.filename, resolved)
+    // Shiki is dynamically imported so the highlighter (and its registry/WASM
+    // engine) stays off the first-paint critical path — DiffFileBlock relies on
+    // the same lazy import, so a static import here would pull it back in.
+    import("$lib/highlight")
+      .then(({ highlightLines }) => highlightLines(lines, block.filename, resolved))
       .then((result) => {
         if (alive) highlightedLines = result;
       })

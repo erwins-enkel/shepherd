@@ -2202,5 +2202,7 @@
   "files_upload_failed": "Upload of {name} failed",
   "feat_scratchpad_upload_title": "Upload files to the scratchpad",
   "feat_scratchpad_upload_body": "You can now upload files directly into a session's scratchpad from the Files tab — click Upload or drag-and-drop files onto the list. The agent can read anything you drop there.",
-  "files_list_aria": "Scratchpad files"
+  "files_list_aria": "Scratchpad files",
+  "feat_newtask_hide_hidden_title": "Hidden repos stay out of the New Task picker",
+  "feat_newtask_hide_hidden_body": "Repos you've hidden no longer clutter the repo picker when you start a new task. They're dropped from the list and the recents shortcuts, but still appear the moment you search for one by name — so a hidden repo is always one keystroke away when you need it."
 }

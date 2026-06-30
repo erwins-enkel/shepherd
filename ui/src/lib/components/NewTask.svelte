@@ -275,7 +275,11 @@
       .then(({ repos: r, recentWindowDays }) => {
         repos = r;
         recentRepoWindowDays = recentWindowDays;
-        if (!repoPath && r.length > 0) repoPath = defaultRepoPath(r);
+        // Prefer the most-recently-used NON-hidden repo so the picker never opens
+        // pre-selected on a hidden repo; if every repo is hidden, fall back to the full
+        // list so repoPath is never left empty.
+        if (!repoPath && r.length > 0)
+          repoPath = defaultRepoPath(r.filter((repo) => !repo.hidden)) || r[0]!.path;
       })
       .catch(() => {});
     // Focus the prompt so the user can type immediately when the dialog opens.
@@ -560,11 +564,14 @@
   }
 
   function cycleRepo(dir: 1 | -1) {
-    const n = repos.length;
+    // Cycle only the non-hidden subset so Alt+[/] can never surface a hidden repo in the
+    // trigger label. If the current repo is hidden (cur === -1) we enter the visible subset.
+    const list = repos.filter((r) => !r.hidden);
+    const n = list.length;
     if (n === 0) return;
-    const cur = repos.findIndex((r) => r.path === repoPath);
+    const cur = list.findIndex((r) => r.path === repoPath);
     const i = cur === -1 ? 0 : cur;
-    repoPath = repos[(i + dir + n) % n]!.path;
+    repoPath = list[(i + dir + n) % n]!.path;
   }
 
   // Alt-tier repo switchers, keyed on physical e.code so they work on any layout
@@ -587,7 +594,9 @@
       case "Digit1":
       case "Digit2":
       case "Digit3": {
-        const target = recentRepos(repos)[Number(e.code.slice(5)) - 1];
+        // Filter hidden BEFORE recentRepos' top-N slice so the digit index matches the
+        // picker's pinned recents group exactly (shared single source of truth).
+        const target = recentRepos(repos.filter((r) => !r.hidden))[Number(e.code.slice(5)) - 1];
         if (target) repoPath = target.path; // out of range → no selection change
         break; // still swallow the chord below
       }
@@ -796,6 +805,7 @@
           {onnewproject}
           onsync={handleSync}
           onescape={() => promptInput?.focus()}
+          hideHidden
         />
       </div>
 

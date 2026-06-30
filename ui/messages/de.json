@@ -2202,5 +2202,7 @@
   "files_upload_failed": "{name} konnte nicht hochgeladen werden",
   "feat_scratchpad_upload_title": "Dateien ins Scratchpad hochladen",
   "feat_scratchpad_upload_body": "Du kannst jetzt direkt aus dem Dateien-Tab Dateien in das Scratchpad einer Session laden - per Klick auf Hochladen oder per Drag-and-drop. Der Agent kann alles lesen, was du dort ablegst.",
-  "files_list_aria": "Scratchpad-Dateien"
+  "files_list_aria": "Scratchpad-Dateien",
+  "feat_newtask_hide_hidden_title": "Ausgeblendete Repos bleiben aus der Neue-Aufgabe-Auswahl",
+  "feat_newtask_hide_hidden_body": "Repos, die du ausgeblendet hast, überladen die Repo-Auswahl beim Start einer neuen Aufgabe nicht mehr. Sie verschwinden aus der Liste und den Zuletzt-verwendet-Kürzeln, erscheinen aber sofort, sobald du nach ihrem Namen suchst - ein ausgeblendetes Repo ist also bei Bedarf immer nur einen Tastendruck entfernt."
 }

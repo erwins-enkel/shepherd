@@ -18,6 +18,7 @@
     onsync,
     windowDays,
     onescape,
+    hideHidden = false,
   }: {
     repos: RepoEntry[];
     value: string;
@@ -33,6 +34,10 @@
     /** Invoked when an open panel is dismissed via Escape, so the parent can restore
      *  focus — e.g. NewTask refocuses its prompt. */
     onescape?: () => void;
+    /** Opt-in: drop repos flagged `hidden` from the default list + recents, but reveal
+     *  them once a name search matches. Off by default so the other (backlog/steers/card)
+     *  RepoSelect consumers are unaffected. */
+    hideHidden?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -73,16 +78,32 @@
       : m.reposelect_recent_agents_other({ count, days: windowDays });
   }
 
+  // Selected-row lookup stays over the FULL list so an already-selected (e.g. relaunch-
+  // seeded) repo still renders in the trigger label even when hideHidden drops it from
+  // the dropdown.
   const selected = $derived(repos.find((r) => r.path === value) ?? null);
 
+  // Active search term — drives reveal-on-search: with hideHidden on, hidden repos are
+  // absent from the empty-search list but reappear once a matching term is typed.
+  const searching = $derived(filter.trim() !== "");
+
   const filtered = $derived(
-    repos.filter((r) => (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase())),
+    repos
+      // Hide flagged repos only while not searching; typing a name reveals them so a
+      // hidden repo can still be picked to start a task.
+      .filter((r) => !hideHidden || searching || !r.hidden)
+      .filter((r) => (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase())),
   );
 
   // The top few repos we've run the most agents on lately (desc by count, then by
   // most-recently-used). Only shown when the list isn't being filtered — once the
   // user types, the shortcut just gets in the way of the search they asked for.
-  const recents = $derived(filter.trim() === "" ? recentRepos(repos) : []);
+  // Filter hidden BEFORE recentRepos' top-N slice so the pinned rows stay index-aligned
+  // with NewTask's Alt+digit shortcut (which filters before too) — recentRepos is the
+  // single source of truth for both (see recentRepos.ts).
+  const recents = $derived(
+    searching ? [] : recentRepos(hideHidden ? repos.filter((r) => !r.hidden) : repos),
+  );
 
   // Single option sequence the keyboard cursor walks: pinned recents first, then the
   // full list. Pinned repos intentionally re-appear below — the group is a shortcut,

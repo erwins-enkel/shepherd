@@ -210,12 +210,15 @@ test("createSession: codex drops a carried Claude model and uses provider defaul
     images: [],
   });
 
-  expect(calls.start.argv).toEqual([
+  expect(calls.start.argv.slice(0, 3)).toEqual([
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
-    "flatten it",
   ]);
+  expect(calls.start.argv).not.toContain("--model");
+  const codexPrompt = calls.start.argv[3] as string;
+  expect(codexPrompt.startsWith("flatten it")).toBe(true);
+  expect(codexPrompt).toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBeNull();
   expect(store.get(s.id)?.model).toBeNull();

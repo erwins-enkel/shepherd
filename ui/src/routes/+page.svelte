@@ -1013,8 +1013,8 @@
   });
   // Owed lens count badge (#1257): eagerly load the durable post-merge steps on the DESKTOP layout
   // so the OWED lens badge reflects the outstanding count before the lens is ever opened. Gated on
-  // `!mobile.current` because the mobile branch renders HerdSegRow, which has no OWED segment (no
-  // badge to feed) — and re-fires if the viewport later widens to desktop. Once-only via the
+  // `!mobile.current` because the mobile branch renders HerdSegRow, whose OWED segment (#1198)
+  // carries no count badge to feed — and re-fires if the viewport later widens to desktop. Once-only via the
   // store's `loaded` guard; the store's in-flight guard stops a viewport toggle mid-load from
   // duplicating the GET. Live updates thereafter arrive via the `post-merge-steps:changed` WS event
   // (handled in store.svelte.ts), whose `refreshIfLoaded()` is a no-op until `loaded` is true.

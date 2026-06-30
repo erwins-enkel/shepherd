@@ -92,6 +92,18 @@ export default defineConfig({
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],
+          // CI memory headroom (#1261 OOM, exit 137): on a many-core self-hosted
+          // runner vitest defaults maxWorkers to nproc, so the browser project
+          // spawns ~nproc concurrent chromium pages AND overlaps the full-parallel
+          // node project — peak RSS hit ~8.9 GiB on a 32-core box and intermittently
+          // OOM-killed the run. Cap browser file-parallelism to 2 and give it a
+          // distinct sequence.groupOrder so it runs AFTER the node project instead
+          // of concurrently (vitest requires unique groupOrder when projects differ
+          // on maxWorkers). Together this ~halves peak RSS (~8.9→~4.8 GiB) with both
+          // projects green. CI-only (GitHub Actions sets CI=true) so local
+          // `bun run test` is unchanged. Note: a global `--maxWorkers` CLI flag does
+          // NOT cap the browser pool — it must live in the project's test config.
+          ...(process.env.CI ? { maxWorkers: 2, sequence: { groupOrder: 1 } } : {}),
           browser: {
             enabled: true,
             provider: playwright(),

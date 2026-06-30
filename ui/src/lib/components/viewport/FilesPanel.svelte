@@ -17,8 +17,13 @@
   let loading = $state(false);
   let error = $state(false);
 
-  type UploadStatus = { name: string; state: "uploading" | "done" | "failed" | "too_large" };
+  type UploadStatus = {
+    id: number;
+    name: string;
+    state: "uploading" | "done" | "failed" | "too_large";
+  };
   let uploads = $state<UploadStatus[]>([]);
+  let nextUploadId = 0;
   let dragOver = $state(false);
 
   let fileInput: HTMLInputElement;
@@ -63,20 +68,25 @@
     if (!files.length) return;
     const dirPath = listing?.path || undefined;
 
-    // Add each file to the status list as "uploading"
-    const newUploads: UploadStatus[] = files.map((f) => ({ name: f.name, state: "uploading" }));
+    // Add each file to the status list as "uploading"; assign stable unique ids
+    const newUploads: UploadStatus[] = files.map((f) => ({
+      id: nextUploadId++,
+      name: f.name,
+      state: "uploading",
+    }));
     uploads = [...uploads, ...newUploads];
 
     await Promise.all(
-      files.map(async (file, idx) => {
-        const statusIdx = uploads.length - files.length + idx;
+      newUploads.map(async (entry, idx) => {
+        const uid = entry.id;
+        const file = files[idx];
         try {
           await uploadScratchpadFile(sessionId, file, dirPath);
-          uploads = uploads.map((u, i) => (i === statusIdx ? { ...u, state: "done" } : u));
+          uploads = uploads.map((u) => (u.id === uid ? { ...u, state: "done" } : u));
         } catch (e) {
           const isTooLarge = e instanceof ApiError && e.status === 413;
-          uploads = uploads.map((u, i) =>
-            i === statusIdx ? { ...u, state: isTooLarge ? "too_large" : "failed" } : u,
+          uploads = uploads.map((u) =>
+            u.id === uid ? { ...u, state: isTooLarge ? "too_large" : "failed" } : u,
           );
         }
       }),
@@ -99,7 +109,9 @@
     dragOver = true;
   }
 
-  function handleDragLeave() {
+  function handleDragLeave(e: DragEvent) {
+    // Ignore leave events triggered by crossing into a child element — only clear on a real exit.
+    if (e.relatedTarget && (e.currentTarget as Node).contains(e.relatedTarget as Node)) return;
     dragOver = false;
   }
 
@@ -149,7 +161,7 @@
   </div>
 
   <!-- Upload status lines -->
-  {#each uploads as u (u.name + u.state)}
+  {#each uploads as u (u.id)}
     {#if u.state === "uploading"}
       <div class="upload-status">{m.files_uploading({ name: u.name })}</div>
     {:else if u.state === "too_large"}
@@ -165,7 +177,7 @@
   <div
     class={["list", dragOver && "drop-active"]}
     role="region"
-    aria-label={m.files_upload_aria()}
+    aria-label={m.files_list_aria()}
     ondragover={handleDragOver}
     ondragleave={handleDragLeave}
     ondrop={handleDrop}
@@ -248,6 +260,28 @@
   .crumb-sep {
     color: var(--color-faint);
   }
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
   .upload-btn {
     font-size: var(--fs-meta);
     padding: 4px 10px;
@@ -288,8 +322,8 @@
       background 0.1s ease;
   }
   .list.drop-active {
-    border-color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-inset));
+    border-color: var(--color-blue);
+    background: color-mix(in srgb, var(--color-blue) 8%, var(--color-inset));
   }
   .placeholder {
     padding: 14px 12px;

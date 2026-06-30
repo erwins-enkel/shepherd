@@ -2201,5 +2201,6 @@
   "files_upload_too_large": "{name} ist zu groß (max. 10 MB)",
   "files_upload_failed": "{name} konnte nicht hochgeladen werden",
   "feat_scratchpad_upload_title": "Dateien ins Scratchpad hochladen",
-  "feat_scratchpad_upload_body": "Du kannst jetzt direkt aus dem Dateien-Tab Dateien in das Scratchpad einer Session laden - per Klick auf Hochladen oder per Drag-and-drop. Der Agent kann alles lesen, was du dort ablegst."
+  "feat_scratchpad_upload_body": "Du kannst jetzt direkt aus dem Dateien-Tab Dateien in das Scratchpad einer Session laden - per Klick auf Hochladen oder per Drag-and-drop. Der Agent kann alles lesen, was du dort ablegst.",
+  "files_list_aria": "Scratchpad-Dateien"
 }

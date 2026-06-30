@@ -229,8 +229,9 @@
       onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
     >
     {#if hasFiles}
-      <!-- only when the session's scratchpad holds files (server-derived hasScratchpadFiles):
-           skips an empty browser. Updates live at turn-end via the session:status push. -->
+      <!-- shown for any live session with a claudeSessionId, so files can be uploaded before the
+           agent writes anything (#1258). hasScratchpadFiles is now subsumed — it can only be true
+           for a live session with a claudeSessionId. Tab visibility is refreshed via session:status push. -->
       <button
         class="tab-btn"
         class:active={tab === "files"}

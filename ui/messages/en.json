@@ -2201,5 +2201,6 @@
   "files_upload_too_large": "{name} is too large (max 10 MB)",
   "files_upload_failed": "Upload of {name} failed",
   "feat_scratchpad_upload_title": "Upload files to the scratchpad",
-  "feat_scratchpad_upload_body": "You can now upload files directly into a session's scratchpad from the Files tab — click Upload or drag-and-drop files onto the list. The agent can read anything you drop there."
+  "feat_scratchpad_upload_body": "You can now upload files directly into a session's scratchpad from the Files tab — click Upload or drag-and-drop files onto the list. The agent can read anything you drop there.",
+  "files_list_aria": "Scratchpad files"
 }

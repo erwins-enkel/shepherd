@@ -71,7 +71,13 @@ import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { scratchpadHasFiles } from "./tmp-sweep";
-import { listScratchpad, resolveScratchpadFile, attachmentDisposition } from "./scratchpad";
+import {
+  listScratchpad,
+  resolveScratchpadFile,
+  attachmentDisposition,
+  resolveScratchpadUploadDir,
+  placeScratchpadUpload,
+} from "./scratchpad";
 import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
@@ -82,7 +88,7 @@ import { buildUsageBreakdown } from "./usage-breakdown";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
 import { sessionActivity } from "./activity";
-import { handleUpload } from "./uploads";
+import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
@@ -1825,28 +1831,67 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
 // Read-only browse + single-file download, rooted at and realpath-contained to the session's
 // OWN scratchpad dir (#1164). Live sessions only: 404 on a missing/archived session. `path` is
 // relative to the scratchpad root; containment is enforced in src/scratchpad.ts.
+// Stream one contained scratchpad file as an attachment download.
+async function scratchpadDownload(s: Session, rel: string): Promise<Response> {
+  const file = await resolveScratchpadFile(s.worktreePath, s.claudeSessionId, rel);
+  if (!file) return json({ error: "not found" }, 404);
+  const f = Bun.file(file);
+  return new Response(f, {
+    headers: {
+      "content-type": f.type || "application/octet-stream",
+      "content-disposition": attachmentDisposition(basename(file)),
+    },
+  });
+}
+
+// List one scratchpad directory. A missing ROOT for a started session (agent hasn't written
+// yet) returns a synthetic empty listing so the Files tab doesn't error before the first
+// upload/write; a missing non-root path still 404s.
+async function scratchpadList(s: Session, rel: string): Promise<Response> {
+  const listing = await listScratchpad(s.worktreePath, s.claudeSessionId, rel);
+  if (listing) return json(listing);
+  if (rel === "" && s.claudeSessionId) return json({ path: "", parent: null, entries: [] });
+  return json({ error: "not found" }, 404);
+}
+
 async function handleSessionScratchpad({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[3] !== "scratchpad") return null;
   const s = deps.store.get(parts[2] ?? "");
   if (!s || s.status === "archived") return json({ error: "not found" }, 404);
   const rel = url.searchParams.get("path") ?? "";
-
-  if (parts[4] === "download") {
-    const file = await resolveScratchpadFile(s.worktreePath, s.claudeSessionId, rel);
-    if (!file) return json({ error: "not found" }, 404);
-    const f = Bun.file(file);
-    return new Response(f, {
-      headers: {
-        "content-type": f.type || "application/octet-stream",
-        "content-disposition": attachmentDisposition(basename(file)),
-      },
-    });
-  }
-  if (!parts[4]) {
-    const listing = await listScratchpad(s.worktreePath, s.claudeSessionId, rel);
-    return listing ? json(listing) : json({ error: "not found" }, 404);
-  }
+  if (parts[4] === "download") return scratchpadDownload(s, rel);
+  if (!parts[4]) return scratchpadList(s, rel);
   return null;
+}
+
+// ── scratchpad upload: POST /api/sessions/:id/scratchpad/upload[?path=] ──
+// Accepts any binary file (no MIME restriction) up to MAX_UPLOAD_BYTES. The `?path` param
+// is a relative subdir within the scratchpad root (default: root). The scratchpad root is
+// created on demand (start-of-session path). Live sessions only; 404 on archived/unknown.
+async function handleSessionScratchpadUpload({
+  req,
+  parts,
+  url,
+  deps,
+}: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[3] === "scratchpad" && parts[4] === "upload")) return null;
+  const s = deps.store.get(parts[2] ?? "");
+  if (!s || s.status === "archived") return json({ error: "not found" }, 404);
+
+  const file = await parseUploadFile(req);
+  if (file instanceof Response) return file;
+
+  if (file.size > MAX_UPLOAD_BYTES) return json({ error: "file too large" }, 413);
+
+  const rel = url.searchParams.get("path") ?? "";
+  const dir = await resolveScratchpadUploadDir(s.worktreePath, s.claudeSessionId, rel);
+  if (!dir) return json({ error: "not found" }, 404);
+
+  const placed = await placeScratchpadUpload(dir.rootReal, dir.dirReal, file.name);
+  if (!placed) return json({ error: "not found" }, 404);
+
+  await Bun.write(placed.abs, file);
+  return json({ path: placed.rel });
 }
 
 // Active sessions whose cached PR state is "merged" — the set "clear all merged"
@@ -2747,6 +2792,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionCreate,
     handleSessionReads,
     handleSessionScratchpad,
+    handleSessionScratchpadUpload,
     handleSessionDelete,
     handleSessionReply,
     handleSessionRecommend,

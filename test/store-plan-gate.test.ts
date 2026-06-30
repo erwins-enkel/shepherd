@@ -78,8 +78,7 @@ test("putPlanGate/getPlanGate round-trips blocks with inferred flag intact", () 
   expect(got?.blocks).toEqual(blocks);
   // inferred flag on data-model must survive the round-trip
   const dm = got?.blocks?.find((b) => b.type === "data-model") as
-    | { inferred?: boolean }
-    | undefined;
+    { inferred?: boolean } | undefined;
   expect(dm?.inferred).toBe(true);
 });
 

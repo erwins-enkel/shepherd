@@ -3010,14 +3010,12 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
 }
 
 async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "GET" &&
-      parts[0] === "api" &&
-      parts[1] === "usage" &&
-      parts[2] === "breakdown"
-    )
-  )
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "breakdown"
+  ))
     return null;
   const raw = url.searchParams.get("range") ?? "7d";
   if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
@@ -3371,15 +3369,13 @@ async function handleGithubRepos({ req, parts, deps }: Ctx): Promise<Response | 
 // POST /api/settings/verify-key → spawns a transient verify agent (via deps.verifyKey)
 // and returns ONLY {ok,reason?,detail?} — never the key or its helper path, never logged.
 async function handleSettingsVerifyKey({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      parts[0] === "api" &&
-      parts[1] === "settings" &&
-      parts[2] === "verify-key" &&
-      !parts[3] &&
-      req.method === "POST"
-    )
-  )
+  if (!(
+    parts[0] === "api" &&
+    parts[1] === "settings" &&
+    parts[2] === "verify-key" &&
+    !parts[3] &&
+    req.method === "POST"
+  ))
     return null;
   if (!deps.verifyKey) return json({ error: "verify not available" }, 503);
   const r = await deps.verifyKey();
@@ -5025,14 +5021,12 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
 
 // POST /api/epic/approve-next?repo=&parent= — approve the next attended epic spawn.
 async function handleEpicApproveNext({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "POST" &&
-      parts[0] === "api" &&
-      parts[1] === "epic" &&
-      parts[2] === "approve-next"
-    )
-  )
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epic" &&
+    parts[2] === "approve-next"
+  ))
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
@@ -5056,9 +5050,12 @@ async function handleEpicApproveNext({ req, parts, url, deps }: Ctx): Promise<Re
 
 // POST /api/epic/import?repo=&parent= — import markdown epic links as native sub-issues.
 async function handleEpicImport({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(req.method === "POST" && parts[0] === "api" && parts[1] === "epic" && parts[2] === "import")
-  )
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epic" &&
+    parts[2] === "import"
+  ))
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
@@ -5207,15 +5204,13 @@ async function reconcileCompletedEpicsForRepo(deps: AppDeps, repo: string): Prom
 // backfill an all-merged idle run that never got recorded). Always serves DB rows; never 500s
 // on forge/network failure and never 503s just because drain is absent.
 async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "GET" &&
-      parts[0] === "api" &&
-      parts[1] === "epics" &&
-      parts[2] === "completed" &&
-      !parts[3]
-    )
-  )
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "completed" &&
+    !parts[3]
+  ))
     return null;
 
   const repoParam = url.searchParams.get("repo");
@@ -5277,15 +5272,13 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
 
 // POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
 async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "POST" &&
-      parts[0] === "api" &&
-      parts[1] === "epics" &&
-      parts[2] === "completed" &&
-      parts[3] === "dismiss"
-    )
-  )
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "completed" &&
+    parts[3] === "dismiss"
+  ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
   const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
@@ -5306,15 +5299,13 @@ async function handleEpicsCompletedAckMigrations({
   parts,
   deps,
 }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "POST" &&
-      parts[0] === "api" &&
-      parts[1] === "epics" &&
-      parts[2] === "completed" &&
-      parts[3] === "ack-migrations"
-    )
-  )
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "completed" &&
+    parts[3] === "ack-migrations"
+  ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
   const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
@@ -5402,15 +5393,13 @@ async function resolveLandTarget(
 // host-configured merge method (same as AutoMergeService + the other merge routes), so the feature
 // works on squash-only repos too. Fail-closed: only merges when computeLandingReady confirms green.
 async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (
-    !(
-      req.method === "POST" &&
-      parts[0] === "api" &&
-      parts[1] === "epics" &&
-      parts[2] === "completed" &&
-      parts[3] === "land"
-    )
-  )
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "completed" &&
+    parts[3] === "land"
+  ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
   const r = await resolveLandTarget(deps, body);

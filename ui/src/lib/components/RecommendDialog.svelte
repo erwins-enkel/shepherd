@@ -24,9 +24,7 @@
   } = $props();
 
   type Phase =
-    | { kind: "loading" }
-    | { kind: "result"; prompt: string }
-    | { kind: "error"; code: string };
+    { kind: "loading" } | { kind: "result"; prompt: string } | { kind: "error"; code: string };
 
   let phase = $state<Phase>({ kind: "loading" });
   let copied = $state(false);

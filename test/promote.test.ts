@@ -32,11 +32,12 @@ test("upsertLearningsBlock handles empty file", () => {
   expect(out.startsWith(LEARNINGS_START)).toBe(true);
 });
 
-test("upsertLearningsBlock puts a blank line after the start marker", () => {
-  // prettier/CommonMark requires the blank line between the HTML-comment block and the
-  // list, else `prettier --check` fails in target repos (flowagent #418).
+test("upsertLearningsBlock brackets the list with a blank line on both sides", () => {
+  // prettier/CommonMark requires a blank line between the HTML-comment block and an adjacent
+  // list — after the start marker AND before the end marker (the latter since prettier 3.9) —
+  // else `prettier --check` fails in target repos (flowagent #418).
   const out = upsertLearningsBlock("# Repo\n", ["a", "b"]);
-  expect(out).toContain(`${LEARNINGS_START}\n\n- a\n- b\n${LEARNINGS_END}`);
+  expect(out).toContain(`${LEARNINGS_START}\n\n- a\n- b\n\n${LEARNINGS_END}`);
 });
 
 test("sanitizeRule normalizes whitespace and escapes leading markdown markers", () => {

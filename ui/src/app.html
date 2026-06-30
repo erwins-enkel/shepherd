@@ -54,14 +54,12 @@
     <script>
       (function () {
         try {
-          if (
-            !(
-              window.CSS &&
-              CSS.supports &&
-              CSS.supports("font: -apple-system-body") &&
-              CSS.supports("-webkit-touch-callout: default")
-            )
-          )
+          if (!(
+            window.CSS &&
+            CSS.supports &&
+            CSS.supports("font: -apple-system-body") &&
+            CSS.supports("-webkit-touch-callout: default")
+          ))
             return;
           var probe = document.createElement("div");
           probe.setAttribute("aria-hidden", "true");

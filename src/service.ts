@@ -972,8 +972,7 @@ type SpawnSuccess = {
   egressDegraded: boolean;
 };
 type SpawnOutcome =
-  | SpawnSuccess
-  | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
+  SpawnSuccess | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
 
 /** Total char budget for the issue-comment block appended to a spawn prompt. Generous —
  *  comments ride out-of-band like the body, so they don't count against the 8000-char

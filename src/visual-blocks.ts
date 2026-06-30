@@ -132,11 +132,7 @@ export const MERMAID_SOURCE_MAX_CHARS = 8000;
 export const WIREFRAME_HTML_MAX_CHARS = 20000;
 
 export const WIREFRAME_SURFACES: readonly (
-  | "browser"
-  | "desktop"
-  | "mobile"
-  | "popover"
-  | "panel"
+  "browser" | "desktop" | "mobile" | "popover" | "panel"
 )[] = ["browser", "desktop", "mobile", "popover", "panel"];
 
 export const QUESTION_KINDS: readonly QuestionKind[] = ["single", "multi", "freeform"];

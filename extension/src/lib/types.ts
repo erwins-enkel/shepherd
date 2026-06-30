@@ -87,13 +87,7 @@ export interface SpawnPayload {
  * `detail`. `too_large`/`unsupported` are the upload-specific 413/415.
  */
 export type TransportErrorKind =
-  | "origin"
-  | "auth"
-  | "invalid"
-  | "too_large"
-  | "unsupported"
-  | "unreachable"
-  | "unknown";
+  "origin" | "auth" | "invalid" | "too_large" | "unsupported" | "unreachable" | "unknown";
 
 export class TransportError extends Error {
   kind: TransportErrorKind;

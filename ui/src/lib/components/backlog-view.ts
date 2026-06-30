@@ -61,9 +61,7 @@ export function prsTabLabel(sel: BacklogProject | null): string {
  * - bare: no selection / unknown count (null workflows on non-github forges).
  */
 export type ActionsTabState =
-  | { kind: "failing" }
-  | { kind: "count"; count: number }
-  | { kind: "bare" };
+  { kind: "failing" } | { kind: "count"; count: number } | { kind: "bare" };
 
 export function actionsTabState(sel: BacklogProject | null): ActionsTabState {
   if (sel && sel.ciStatus === "failure") return { kind: "failing" };

@@ -110,14 +110,7 @@ export type ChecksState = "none" | "pending" | "success" | "failure";
  *  the GitHub enum (BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS |
  *  UNKNOWN | UNSTABLE). */
 export type MergeStateStatus =
-  | "behind"
-  | "blocked"
-  | "clean"
-  | "dirty"
-  | "draft"
-  | "has_hooks"
-  | "unknown"
-  | "unstable";
+  "behind" | "blocked" | "clean" | "dirty" | "draft" | "has_hooks" | "unknown" | "unstable";
 
 /** A newest-review summary (critic-marked reviews excluded). Shared by PrStatus
  *  and the backlog PullRequest row. */

@@ -20,16 +20,14 @@ vi.mock("$lib/api", async (importOriginal) => {
   return {
     ...actual,
     getActivity: vi.fn(async (): Promise<ActivityEntry[]> => []),
-    getDiff: vi.fn(
-      async (): Promise<DiffResult> => ({
-        base: "main",
-        baseRef: "main",
-        head: null,
-        fetchFailed: false,
-        truncated: false,
-        files: [],
-      }),
-    ),
+    getDiff: vi.fn(async (): Promise<DiffResult> => ({
+      base: "main",
+      baseRef: "main",
+      head: null,
+      fetchFailed: false,
+      truncated: false,
+      files: [],
+    })),
   };
 });
 

@@ -12,6 +12,7 @@ import type {
   UsageLimitsResponse,
   UsageBreakdown,
   UsageRange,
+  GithubRateLimit,
   GitState,
   PrStatus,
   MergeMethod,
@@ -643,6 +644,12 @@ export async function getUsageBreakdown(range: UsageRange): Promise<UsageBreakdo
 export async function refreshUsage(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/refresh", { method: "POST" });
   if (!r.ok) throw await failed(r, "refresh");
+  return r.json();
+}
+
+export async function getGithubRateLimit(): Promise<GithubRateLimit> {
+  const r = await fetch("/api/usage/github");
+  if (!r.ok) throw await failed(r, "github");
   return r.json();
 }
 

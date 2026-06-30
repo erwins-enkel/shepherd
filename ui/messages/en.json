@@ -2171,5 +2171,21 @@
   "taskid_copy_payload": "{label} — Shepherd task · repo: {repoPath} · branch: {branch} · worktree: {worktreePath}",
   "feat_taskid_copy_payload_title": "Copy ID now carries the task's details",
   "feat_taskid_copy_payload_body": "Copying a task ID now puts its repo, branch and worktree path on the clipboard alongside the id. Paste it into a coding agent and it knows exactly what the task is and where its work lives — no lookup, no wasted tokens researching.",
-  "taskid_copy_payload_inrepo": "{label} — Shepherd task · repo: {repoPath} · branch: {branch}"
+  "taskid_copy_payload_inrepo": "{label} — Shepherd task · repo: {repoPath} · branch: {branch}",
+  "usage_github_tab": "GitHub",
+  "github_lens_intro": "GitHub limits REST and GraphQL access in separate hourly budgets. When one runs out, the features that depend on it pause until it resets — the other keeps working.",
+  "github_lens_rest_label": "REST API",
+  "github_lens_rest_desc": "CI status, merges, run logs",
+  "github_lens_graphql_label": "GraphQL API",
+  "github_lens_graphql_desc": "PR, issue & backlog updates",
+  "github_lens_search_label": "Search",
+  "github_lens_search_desc": "Issue & code search",
+  "github_lens_exhausted": "Exhausted",
+  "github_lens_graphql_paused": "GraphQL budget exhausted — PR, issue and backlog updates are paused for ~{time}.",
+  "github_lens_rest_paused": "REST budget exhausted — CI status and merge actions are paused for ~{time}.",
+  "github_lens_no_data": "GitHub rate-limit data unavailable.",
+  "feat_github_rate_limits_title": "GitHub rate limits in Usage",
+  "feat_github_rate_limits_body": "The Usage view has a new GitHub tab showing your REST and GraphQL API budgets separately. When one is exhausted it explains which features pause until reset — so an empty GraphQL budget no longer looks like a silent breakage.",
+  "github_lens_paused": "Paused",
+  "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}."
 }

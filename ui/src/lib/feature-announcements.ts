@@ -1847,4 +1847,12 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     titleKey: "feature_model_comparison_title",
     bodyKey: "feature_model_comparison_body",
   },
+  {
+    // No targetId: the GitHub tab lives inside the Usage modal, which isn't mounted
+    // until opened — no stable always-present anchor. What's-New drawer only.
+    id: "github-rate-limits",
+    sinceVersion: "1.39.0",
+    titleKey: "feat_github_rate_limits_title",
+    bodyKey: "feat_github_rate_limits_body",
+  },
 ];

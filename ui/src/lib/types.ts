@@ -937,6 +937,35 @@ export type UsageProviderSnapshot =
 
 export type UsageRange = "24h" | "7d" | "30d" | "all";
 
+/** One GitHub rate-limit bucket (REST core / GraphQL / search). Mirrors the
+ *  server `GhRateBucket`. */
+export interface GhRateBucket {
+  limit: number;
+  used: number;
+  remaining: number;
+  /** Epoch-ms when this bucket refills. */
+  resetAt: number;
+}
+
+/** GitHub REST + GraphQL rate-limit state shown in the usage view's GitHub tab.
+ *  Mirrors the server `GithubRateLimitPayload`. GitHub runs the REST and GraphQL
+ *  buckets independently, so one can be exhausted while the other is healthy. */
+export interface GithubRateLimit {
+  rest: GhRateBucket | null;
+  graphql: GhRateBucket | null;
+  search: GhRateBucket | null;
+  /** Epoch-ms when these readings were fetched. */
+  fetchedAt: number;
+  /** Shepherd's GraphQL backoff state — explains a polling pause even before a
+   *  bucket is fully empty. */
+  backoff: {
+    remaining: number | null;
+    resetAt: number | null;
+    pausedUntil: number | null;
+    blocked: boolean;
+  };
+}
+
 /** Raw token detail (authoring side). */
 export interface UsageTokens {
   input: number;

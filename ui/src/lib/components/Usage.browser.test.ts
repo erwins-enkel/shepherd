@@ -53,6 +53,15 @@ vi.mock("$lib/api", async () => {
     getUsageLimits: vi.fn(() =>
       Promise.resolve({ limits: inlineLimits, projections: inlineProjections }),
     ),
+    getGithubRateLimit: vi.fn(() =>
+      Promise.resolve({
+        rest: { limit: 5000, used: 173, remaining: 4827, resetAt: BASE + H },
+        graphql: { limit: 5000, used: 5002, remaining: 0, resetAt: BASE + H },
+        search: { limit: 30, used: 0, remaining: 30, resetAt: BASE + H },
+        fetchedAt: BASE,
+        backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
+      }),
+    ),
   };
 });
 
@@ -105,6 +114,26 @@ describe("Usage modal component", () => {
     // Range selector must not be present on the Limits tab
     const rangeGroup = document.querySelector('[role="group"][aria-label]');
     expect(rangeGroup, "range selector hidden on Limits tab").toBeNull();
+  });
+
+  it("clicking the GitHub tab shows REST + GraphQL buckets and the GraphQL-paused banner", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    const githubBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent?.trim() === "GitHub",
+    );
+    expect(githubBtn, "GitHub tab button exists").not.toBeNull();
+
+    githubBtn!.click();
+
+    // Both bucket labels render; the exhausted GraphQL bucket surfaces a paused banner.
+    await expect.element(page.getByText(m.github_lens_rest_label())).toBeInTheDocument();
+    await expect.element(page.getByText(m.github_lens_graphql_label())).toBeInTheDocument();
+    await expect.element(page.getByRole("alert")).toBeInTheDocument();
+
+    // Range selector must not be present on the GitHub tab.
+    const rangeGroup = document.querySelector('[role="group"][aria-label]');
+    expect(rangeGroup, "range selector hidden on GitHub tab").toBeNull();
   });
 
   it("range selector is present on the Spend tab", async () => {

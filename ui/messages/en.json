@@ -2190,5 +2190,7 @@
   "feat_owed_badge_title": "Owed lens count badge",
   "feat_owed_badge_body": "The OWED Herd lens now shows a count badge when merged PRs still owe post-merge manual steps — so the lens earns your attention only when there's something to do, instead of looking identical whether 0 or 5 steps are outstanding.",
   "github_lens_paused": "Paused",
-  "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}."
+  "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}.",
+  "docagent_status_error": "format failed",
+  "docagent_toast_error": "{repo}: doc update aborted — prettier couldn't format the docs"
 }

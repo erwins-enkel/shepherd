@@ -555,6 +555,12 @@ export class HerdStore {
       });
     } else if (ev.data.outcome === "observe") {
       toasts.info(m.docagent_toast_observe({ repo }), { key });
+    } else if (ev.data.outcome === "error") {
+      toasts.info(m.docagent_toast_error({ repo }), {
+        key: `doc-agent-error:${ev.data.repoPath}`,
+        duration: null,
+        alert: true,
+      });
     } else {
       toasts.info(m.docagent_toast_no_changes({ repo }), { key });
     }

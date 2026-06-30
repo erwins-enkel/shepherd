@@ -103,6 +103,14 @@ describe("DocAgentControl", () => {
     expect(badgeBtn()!.textContent?.trim()).toBe(m.docagent_status_nochange());
   });
 
+  it("badge shows 'format failed' label and error class for an error outcome run", async () => {
+    const runs: DocAgentRun[] = [{ at: Date.now() - 60000, url: null, outcome: "error" }];
+    render(DocAgentControl, { ...defaultProps, runs });
+    await expect.poll(() => badgeBtn()).toBeTruthy();
+    expect(badgeBtn()!.textContent?.trim()).toBe(m.docagent_status_error());
+    expect(badgeBtn()!.classList.contains("error")).toBe(true);
+  });
+
   it("clicking badge opens history popover", async () => {
     const runs: DocAgentRun[] = [
       {

@@ -1197,7 +1197,7 @@ export interface DiagnosticsSnapshot {
   overall: DiagnosticState;
 }
 
-export type DocAgentOutcome = "pr" | "observe" | "nochange";
+export type DocAgentOutcome = "pr" | "observe" | "nochange" | "error";
 export interface DocAgentRun {
   at: number;
   url: string | null;

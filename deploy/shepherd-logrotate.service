@@ -4,14 +4,13 @@ Documentation=https://github.com/erwins-enkel/shepherd
 
 [Service]
 Type=oneshot
-# The config + state live under ~/.shepherd. systemd expands %h here (logrotate does NOT — the
-# config's own log path is pre-templated to the real home by provision.ts/update.sh).
-ExecStart=logrotate --state %h/.shepherd/logrotate.state %h/.shepherd/shepherd.logrotate
+# Self-contained rotator — no external `logrotate` binary (it was absent on some hosts → the log
+# grew unbounded). provision.ts/update.sh copy deploy/rotate-shepherd-log.sh to ~/.shepherd; systemd
+# expands %h here. Run via /bin/sh so the copied script needs no exec bit.
+ExecStart=/bin/sh %h/.shepherd/rotate-shepherd-log.sh
 
-# logrotate commonly lives in /usr/sbin — include sbin (and /usr/local) so the timer-driven run
-# resolves it even under a minimal inherited PATH (the backup unit's PATH omits sbin). This list
-# MUST stay in lockstep with the detection PATH in install.sh/update.sh and resolveLogrotate's
-# candidates in provision.ts — else detection could match a logrotate this run can't exec.
+# The script uses plain coreutils (cp, gzip, wc, mv, rm) — give the oneshot a normal PATH so it
+# resolves them under the minimal PATH a user timer can inherit.
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Output goes to journald: `journalctl --user -u shepherd-logrotate`

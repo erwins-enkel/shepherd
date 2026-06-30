@@ -114,39 +114,6 @@ export function templateUnit(unit: string, repo: string): string {
   return unit.replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${repo}`);
 }
 
-/** logrotate config paths are literal — logrotate does NOT expand %h/~. So the repo config uses
- *  %h as a placeholder and we template it to the real home before writing the on-disk copy the
- *  timer runs. (Unit files DO get %h from systemd, so only the config needs this.) #1212 */
-export function templateLogrotateConfig(cfg: string, home: string): string {
-  return cfg.replaceAll("%h", home);
-}
-
-/** The dirs the shepherd-logrotate.service unit puts on PATH — MUST stay in lockstep with that
- *  unit's `Environment=PATH` (and install.sh/update.sh detection). logrotate commonly lives in
- *  /usr/sbin, which a `curl | bash` non-login PATH often omits. */
-const LOGROTATE_DIRS = [
-  "/usr/local/sbin",
-  "/usr/local/bin",
-  "/usr/sbin",
-  "/usr/bin",
-  "/sbin",
-  "/bin",
-] as const;
-
-/** Absolute candidates only — NO bare `logrotate`: a bare probe resolves against the inherited
- *  PATH, which can match a dir absent from the unit's PATH, so the timer would install yet fail to
- *  exec logrotate at runtime. Absolute paths make detection ≡ execution. */
-const LOGROTATE_CANDIDATES = LOGROTATE_DIRS.map((dir) => `${dir}/logrotate`);
-
-/** First logrotate candidate that responds to `--version`, or null if none is found. Gates the
- *  (optional) log-rotation timer install; null ⇒ soft-skip. */
-export function resolveLogrotate(probe: (bin: string) => string | null): string | null {
-  for (const candidate of LOGROTATE_CANDIDATES) {
-    if (probe(candidate) !== null) return candidate;
-  }
-  return null;
-}
-
 /** Final guidance follow-ups that need a human secret and are NEVER auto-run. */
 export function guidanceNextSteps(): string[] {
   return [
@@ -286,7 +253,6 @@ export function installService(
   env: NodeJS.ProcessEnv,
   home: string,
   buildEnv: NodeJS.ProcessEnv,
-  probe: (bin: string) => string | null = probeVersion,
 ): void {
   log("installing systemd user unit");
   const unitDir = join(home, ".config", "systemd", "user");
@@ -308,29 +274,23 @@ export function installService(
   fileIO.write(join(unitDir, "shepherd-backup.service"), templateUnit(backupSvc, repo));
   const backupTimer = fileIO.read(join(repo, "deploy", "shepherd-backup.timer"));
   fileIO.write(join(unitDir, "shepherd-backup.timer"), backupTimer);
-  // Log-rotation units (#1212) — OPTIONAL: gated on the logrotate binary being present (search
-  // sbin too, where it usually lives). If absent we soft-skip (no crash) — the log just stays
-  // unbounded as before, same posture as the "no systemd user manager" skip. Template the
-  // config's %h log path to the real home (logrotate won't expand %h) → ~/.shepherd; the units'
+  // Log-rotation units (#1212). Self-contained: the timer runs deploy/rotate-shepherd-log.sh (a
+  // copytruncate size-cap), so there's NO external `logrotate` binary to be missing — it's
+  // unconditional now (was gated on logrotate being present, which left the log unbounded on hosts
+  // that lacked it). Copy the rotator to ~/.shepherd (the unit execs %h/.shepherd/...); the units'
   // own %h paths are expanded by systemd, so they copy verbatim.
-  const logrotateBin = resolveLogrotate(probe);
-  if (logrotateBin) {
-    const lrCfg = fileIO.read(join(repo, "deploy", "shepherd.logrotate"));
-    fileIO.write(
-      join(home, ".shepherd", "shepherd.logrotate"),
-      templateLogrotateConfig(lrCfg, home),
-    );
-    fileIO.write(
-      join(unitDir, "shepherd-logrotate.service"),
-      fileIO.read(join(repo, "deploy", "shepherd-logrotate.service")),
-    );
-    fileIO.write(
-      join(unitDir, "shepherd-logrotate.timer"),
-      fileIO.read(join(repo, "deploy", "shepherd-logrotate.timer")),
-    );
-  } else {
-    log("  logrotate not found (searched PATH + /usr/sbin:/sbin) — skipping log-rotation timer");
-  }
+  fileIO.write(
+    join(home, ".shepherd", "rotate-shepherd-log.sh"),
+    fileIO.read(join(repo, "deploy", "rotate-shepherd-log.sh")),
+  );
+  fileIO.write(
+    join(unitDir, "shepherd-logrotate.service"),
+    fileIO.read(join(repo, "deploy", "shepherd-logrotate.service")),
+  );
+  fileIO.write(
+    join(unitDir, "shepherd-logrotate.timer"),
+    fileIO.read(join(repo, "deploy", "shepherd-logrotate.timer")),
+  );
   run("systemctl", ["--user", "daemon-reload"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
@@ -342,11 +302,8 @@ export function installService(
   run("mkdir", ["-p", resolveBackupDir(env)]);
   fileIO.write(backupConfiguredMarker(env), "shepherd-backup.timer enabled\n");
   run("systemctl", ["--user", "enable", "--now", "shepherd-backup.timer"]);
-  // Enable the (already-written) hourly log-rotation timer. Skipped silently when logrotate is
-  // absent — the units were never written above. #1212
-  if (logrotateBin) {
-    run("systemctl", ["--user", "enable", "--now", "shepherd-logrotate.timer"]);
-  }
+  // Enable the (already-written) hourly log-rotation timer. #1212
+  run("systemctl", ["--user", "enable", "--now", "shepherd-logrotate.timer"]);
   // No immediate `start shepherd-backup.service` here: on a fresh install the DB does not exist yet
   // (the server is started below by update.sh), so a read-only snapshot would fail the oneshot and
   // abort provision. update.sh runs its own GUARDED kick once deps are built, and the staleness
@@ -386,7 +343,7 @@ export function provision(opts: ProvisionOpts = {}): void {
 
   const decision = decideServicePath(platform, env.SHEPHERD_NO_SERVICE);
   if (decision.service) {
-    installService(repo, run, fileIO, env, home, buildEnv, probe);
+    installService(repo, run, fileIO, env, home, buildEnv);
   } else {
     buildOnly(repo, run, buildEnv);
   }

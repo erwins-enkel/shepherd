@@ -4406,19 +4406,22 @@ export class SessionStore implements CapStore, CreditStore {
   /** Sum weighted units per hour across ALL sessions' persisted buckets, for the timeline.
    *  Selects rows WHERE bucketStart >= floorHour(cutoff) AND bucketStart != 0 (the timeless
    *  bucket has no placeable hour). cutoff===0 ⇒ all timestamped buckets. Returns a map keyed
-   *  by bucketStart (ms-epoch hour) → Σ weightedUnits. */
+   *  by bucketStart (ms-epoch hour) → Σ weightedUnits.
+   *  Folds in JS (no SQL SUM) so float math matches archive-time folding, exactly as
+   *  sumSessionUsageBucketsSince does. */
   sumUsageUnitsByHourSince(cutoff: number): Map<number, number> {
     const floorHour = cutoff - (cutoff % 3_600_000);
     const rows = this.db
       .query(
-        `SELECT bucketStart, SUM(weightedUnits) AS units
+        `SELECT bucketStart, weightedUnits
          FROM session_usage_bucket
-         WHERE bucketStart != 0 AND bucketStart >= ?
-         GROUP BY bucketStart`,
+         WHERE bucketStart != 0 AND bucketStart >= ?`,
       )
-      .all(floorHour) as { bucketStart: number; units: number }[];
+      .all(floorHour) as { bucketStart: number; weightedUnits: number }[];
     const result = new Map<number, number>();
-    for (const row of rows) result.set(row.bucketStart, row.units);
+    for (const row of rows) {
+      result.set(row.bucketStart, (result.get(row.bucketStart) ?? 0) + row.weightedUnits);
+    }
     return result;
   }
 

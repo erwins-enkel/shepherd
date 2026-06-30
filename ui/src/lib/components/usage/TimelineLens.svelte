@@ -133,14 +133,17 @@
           <span class="tl-row-label">{row.label}</span>
           <div class="tl-cells">
             {#each row.cells as units, h (h)}
+              {@const label = m.usage_timeline_cell_aria({
+                day: row.label,
+                hour: hourLabel(h),
+                units: formatUnits(units),
+              })}
               <span
                 class="tl-cell"
                 style="--i: {intensity(units)}"
-                title={m.usage_timeline_cell_aria({
-                  day: row.label,
-                  hour: hourLabel(h),
-                  units: formatUnits(units),
-                })}
+                role="img"
+                aria-label={label}
+                title={label}
               ></span>
             {/each}
           </div>

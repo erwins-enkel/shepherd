@@ -1760,6 +1760,15 @@
   "usage_page_title": "Usage",
   "usage_spend_tab": "Spend",
   "usage_overhead_tab": "Overhead",
+  "usage_timeline_tab": "Timeline",
+  "usage_timeline_heading": "Usage over time",
+  "usage_timeline_peak": "peak {units}/h",
+  "usage_timeline_total": "total {units}",
+  "usage_timeline_legend_low": "low",
+  "usage_timeline_legend_high": "high",
+  "usage_timeline_empty": "No usage recorded in this range yet",
+  "usage_timeline_more_days": "+{count} earlier days not shown",
+  "usage_timeline_cell_aria": "{day} {hour}: {units} weighted units",
   "usage_limits_tab": "Limits",
   "usage_range_label": "Time range",
   "usage_range_24h": "24h",
@@ -2204,5 +2213,7 @@
   "feat_scratchpad_upload_body": "You can now upload files directly into a session's scratchpad from the Files tab — click Upload or drag-and-drop files onto the list. The agent can read anything you drop there.",
   "files_list_aria": "Scratchpad files",
   "feat_newtask_hide_hidden_title": "Hidden repos stay out of the New Task picker",
-  "feat_newtask_hide_hidden_body": "Repos you've hidden no longer clutter the repo picker when you start a new task. They're dropped from the list and the recents shortcuts, but still appear the moment you search for one by name — so a hidden repo is always one keystroke away when you need it."
+  "feat_newtask_hide_hidden_body": "Repos you've hidden no longer clutter the repo picker when you start a new task. They're dropped from the list and the recents shortcuts, but still appear the moment you search for one by name — so a hidden repo is always one keystroke away when you need it.",
+  "feat_usage_timeline_title": "See your token usage over time",
+  "feat_usage_timeline_body": "The Usage panel has a new Timeline tab: a day-by-hour heatmap of weighted-unit consumption across the selected range. Hotter hours read darker, so you can spot your high- and low-usage periods at a glance — including activity from sessions running right now."
 }

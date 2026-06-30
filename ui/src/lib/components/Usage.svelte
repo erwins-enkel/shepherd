@@ -1,13 +1,19 @@
 <script lang="ts">
   import type {
     UsageBreakdown,
+    UsageTimeline,
     UsageLimits,
     UsageProjection,
     UsageRange,
     GithubRateLimit,
   } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { getUsageBreakdown, getUsageLimits, getGithubRateLimit } from "$lib/api";
+  import {
+    getUsageBreakdown,
+    getUsageTimeline,
+    getUsageLimits,
+    getGithubRateLimit,
+  } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { formatTokenLabel } from "$lib/format";
   import { codexTokenUsage } from "$lib/components/usage-gauges";
@@ -15,15 +21,18 @@
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
   import GithubLens from "$lib/components/usage/GithubLens.svelte";
+  import TimelineLens from "$lib/components/usage/TimelineLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "limits" | "github";
+  type Tab = "spend" | "overhead" | "timeline" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
 
   let breakdown = $state<UsageBreakdown | null>(null);
+  let timeline = $state<UsageTimeline | null>(null);
+  let timelineError = $state(false);
   let limits = $state<UsageLimits | null>(null);
   let projections = $state<UsageProjection[]>([]);
   let github = $state<GithubRateLimit | null>(null);
@@ -89,30 +98,56 @@
     loadBreakdown(range);
   });
 
+  // Timeline is range-dependent and loaded lazily (only while its tab is active), with its own
+  // monotonic token so a stale range's response can't overwrite a newer one.
+  let timelineReqToken = 0;
+
+  async function loadTimeline(r: UsageRange) {
+    const my = ++timelineReqToken;
+    timelineError = false;
+    try {
+      const t = await getUsageTimeline(r);
+      if (my !== timelineReqToken) return;
+      timeline = t;
+    } catch {
+      if (my !== timelineReqToken) return;
+      timelineError = true;
+    }
+  }
+
+  $effect(() => {
+    if (tab === "timeline") loadTimeline(range);
+  });
+
   // Retry re-fetches ALL tracks so any failure surface recovers.
   function retry() {
     loadBreakdown(range);
+    loadTimeline(range);
     loadLimits();
     loadGithub();
   }
 
   // Template-state derivations (kept out of the markup to keep the template's
   // branching shallow). `showRange`: spend/overhead are the only ranged tabs.
-  const showRange = $derived(tab === "spend" || tab === "overhead");
-  const showBreakdownError = $derived(error && showRange);
+  const showRange = $derived(tab === "spend" || tab === "overhead" || tab === "timeline");
+  // Non-blocking refetch banner — Spend/Overhead use `breakdown`'s error track, Timeline its own.
+  const showBreakdownError = $derived(error && (tab === "spend" || tab === "overhead"));
+  const showTimelineError = $derived(timelineError && tab === "timeline");
   // The active tab has data to render its lens (else we show loading/error chrome).
   const hasContent = $derived(
     ((tab === "spend" || tab === "overhead") && !!breakdown) ||
+      (tab === "timeline" && !!timeline) ||
       (tab === "limits" && !!limits) ||
       (tab === "github" && !!github),
   );
   // No content yet, and the failing fetch for this tab errored (not still loading).
-  // (Spend/Overhead surface their error via the banner above, never inline.)
+  // (Spend/Overhead/Timeline surface their error via the banner above, never inline.)
   const bodyError = $derived(
     !hasContent && ((tab === "limits" && limitsError) || (tab === "github" && githubError)),
   );
   const bodyLoading = $derived(
-    (showRange && !breakdown && loading) ||
+    ((tab === "spend" || tab === "overhead") && !breakdown && loading) ||
+      (tab === "timeline" && !timeline && !timelineError) ||
       (tab === "limits" && !limits && !limitsError) ||
       (tab === "github" && !github && !githubError),
   );
@@ -154,6 +189,13 @@
         class:seg-active={tab === "overhead"}
         aria-pressed={tab === "overhead"}
         onclick={() => (tab = "overhead")}>{m.usage_overhead_tab()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={tab === "timeline"}
+        aria-pressed={tab === "timeline"}
+        onclick={() => (tab = "timeline")}>{m.usage_timeline_tab()}</button
       >
       <button
         type="button"
@@ -228,7 +270,7 @@
       <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
            `breakdown` is still present (a failed range-change refetch) so the user isn't
            silently left on old-range data with no indication the new range failed. -->
-      {#if showBreakdownError}
+      {#if showBreakdownError || showTimelineError}
         <div class="usage-error-banner" role="alert">
           <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
           <button type="button" class="gbtn gbtn-secondary" onclick={retry}
@@ -241,6 +283,8 @@
         <SpendLens {breakdown} />
       {:else if tab === "overhead" && breakdown}
         <OverheadLens {breakdown} />
+      {:else if tab === "timeline" && timeline}
+        <TimelineLens {timeline} />
       {:else if tab === "limits" && limits}
         <LimitsLens {limits} {projections} />
       {:else if tab === "github" && github}

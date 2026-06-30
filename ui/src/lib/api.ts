@@ -11,6 +11,7 @@ import type {
   UsageLimits,
   UsageLimitsResponse,
   UsageBreakdown,
+  UsageTimeline,
   UsageRange,
   GithubRateLimit,
   GitState,
@@ -656,6 +657,12 @@ export async function getUsageLimits(): Promise<UsageLimitsResponse> {
 export async function getUsageBreakdown(range: UsageRange): Promise<UsageBreakdown> {
   const r = await fetch(`/api/usage/breakdown?range=${range}`);
   if (!r.ok) throw await failed(r, "breakdown");
+  return r.json();
+}
+
+export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline> {
+  const r = await fetch(`/api/usage/timeline?range=${range}`);
+  if (!r.ok) throw await failed(r, "timeline");
   return r.json();
 }
 

@@ -862,6 +862,22 @@ export interface UsageBreakdown {
   repos: UsageRepoBreakdown[];
 }
 
+// One hour of weighted-unit consumption — mirror of UsageTimelineHour in ui/src/lib/types.ts.
+export interface UsageTimelineHour {
+  hourStart: number; // ms epoch, floored to the hour (UTC boundary); never 0 (timeless rows excluded)
+  units: number; // weighted units consumed in that hour (authoring + live + satellite)
+}
+
+// GET /api/usage/timeline response — mirror of UsageTimeline in ui/src/lib/types.ts.
+// `hours` is ASC by hourStart, non-empty hours only; totalUnits/peakHourUnits span the full range.
+export interface UsageTimeline {
+  range: UsageRange;
+  generatedAt: number;
+  hours: UsageTimelineHour[];
+  totalUnits: number;
+  peakHourUnits: number;
+}
+
 // Runtime key-lists — drift sentinels (TS types vanish at runtime).
 // Mirrors UsageTokens:
 export const USAGE_TOKENS_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -900,6 +916,16 @@ export const USAGE_BREAKDOWN_KEYS = [
   "satelliteByKind",
   "dollars",
   "repos",
+] as const;
+// Mirrors UsageTimelineHour:
+export const USAGE_TIMELINE_HOUR_KEYS = ["hourStart", "units"] as const;
+// Mirrors UsageTimeline:
+export const USAGE_TIMELINE_KEYS = [
+  "range",
+  "generatedAt",
+  "hours",
+  "totalUnits",
+  "peakHourUnits",
 ] as const;
 
 // ── per-session hold reason ("Why parked?") ──────────────────────────────────

@@ -65,7 +65,7 @@
     { id: "diagnose", label: m.settings_tab_diagnose },
   ] as const;
   type TabId = (typeof ALL_TABS)[number]["id"];
-  let tabEls: HTMLButtonElement[] = [];
+  let tabEls = $state<HTMLButtonElement[]>([]);
 
   function onTabKey(e: KeyboardEvent, i: number) {
     const tabs = visibleTabs;

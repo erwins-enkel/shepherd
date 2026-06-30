@@ -16,14 +16,16 @@
 
 <!-- Mobile-only segmented control: replaces the .fbtn filter row in flow
      mode. A direct child of the already-full-bleed .panel.flow, so it spans
-     the full phone width without its own negative margin. Equal-width segments,
-     44px touch targets, no leading glyphs. Labels are --fs-base (13px), a
-     DELIBERATE exception to the ≥16px label floor (NOT an oversight): five
-     equal segments on a 390px phone leave ~78px each, but the longest label
-     ("Nächstes", DE) needs ~83px at 16px — so ≥16px would truncate it, which
-     breaks the "keep full text labels" criterion. 13px is the largest size
-     that fits the full word; contrast is held high to compensate (active
-     --color-amber 8.49:1, inactive --color-muted 5.27:1). -->
+     the full phone width without its own negative margin. Six equal-width
+     segments (#1198 added Owed), 44px touch targets, no leading glyphs. Labels
+     are --fs-meta (11px), a DELIBERATE exception to the ≥16px label floor (NOT
+     an oversight): six equal segments on a 390px phone leave ~65px each (~60px
+     content after padding/border), but the longest label ("Nächstes", DE)
+     measures ~67px at 13px — it would truncate, breaking the "keep full text
+     labels" criterion. 11px shrinks it to ~57px so all six full labels fit
+     (matching the desktop HerdLensStrip's --fs-meta labels); contrast is held
+     high to compensate (active --color-amber 8.49:1, inactive --color-muted
+     5.27:1, both > 4.5:1 AA). -->
 <div class="seg-row" use:coachTarget={"mobile-seg-ctrl"}>
   <button
     type="button"
@@ -81,18 +83,32 @@
       onstatusfilter?.(null);
     }}>{m.herd_seg_rundown()}</button
   >
+  <button
+    type="button"
+    class="seg-btn"
+    class:seg-active={statusFilter == null && filter === "owed"}
+    title={m.herd_owed_title()}
+    aria-pressed={statusFilter == null && filter === "owed"}
+    use:coachTarget={"owed-lens"}
+    onclick={() => {
+      filter = "owed";
+      onstatusfilter?.(null);
+    }}>{m.herd_seg_owed()}</button
+  >
 </div>
 
 <style>
   /* Mobile-only segmented control: replaces the .fbtn filter row in flow mode.
      A direct child of the already-full-bleed .panel.flow, so it spans the full
-     phone width without its own negative margin. Equal-width segments, 44px touch
-     targets. Labels are --fs-base (13px) — a DELIBERATE sub-16px exception, not an
-     oversight: at the 390px reference five equal segments give ~78px each and the
-     longest label "Nächstes" (DE) measures ~83px at 16px (it would truncate),
-     vs ~67px at 13px (fits). The ≥16px floor is waived for this one control to keep
-     full text labels; high contrast (amber active / muted inactive) compensates.
-     A text-overflow:ellipsis below handles even-narrower fold-cover widths. */
+     phone width without its own negative margin. Six equal-width segments (#1198
+     added Owed), 44px touch targets. Labels are --fs-meta (11px) — a DELIBERATE
+     sub-16px exception, not an oversight: at the 390px reference six equal
+     segments give ~65px each (~60px content) and the longest label "Nächstes"
+     (DE) measures ~67px at 13px (it would truncate) vs ~57px at 11px (fits).
+     The ≥16px floor is waived for this one control to keep full text labels
+     (matching the desktop HerdLensStrip's 11px labels); high contrast (amber
+     active / muted inactive) compensates. A text-overflow:ellipsis below handles
+     even-narrower fold-cover widths. */
   .seg-row {
     display: flex;
     border-bottom: 1px solid var(--color-line);
@@ -105,7 +121,7 @@
     border-right: 1px solid var(--color-line);
     background: none;
     font-family: inherit;
-    font-size: var(--fs-base);
+    font-size: var(--fs-meta);
     cursor: pointer;
     padding: 0 2px;
     color: var(--color-muted);

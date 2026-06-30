@@ -16,7 +16,6 @@ import type {
   RelaunchOverrides,
   Session,
 } from "./types";
-import { MODELS, CODEX_MODELS, CODEX_MODEL_RE } from "./types";
 import {
   copyStagedIntoWorktree,
   stagingDir,
@@ -26,7 +25,11 @@ import {
   worktreeUploadsDir,
 } from "./uploads";
 import { slugifyManual, isHeuristicNameStrong } from "./namer";
-import { spawnModelForAvailability } from "./default-model";
+import {
+  modelCompatibleWithProvider,
+  modelForProviderOrDefault,
+  spawnModelForAvailability,
+} from "./default-model";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -935,17 +938,6 @@ function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
 
-/** True when `model` can be passed to `provider`'s --model flag. `null` (provider default) is
- *  always compatible. Claude takes its curated alias list; Codex takes its curated list plus any
- *  safe alias matching CODEX_MODEL_RE (the CLI may learn names before Shepherd does). Used to stop
- *  a relaunch from carrying a model across a provider switch (see relaunch()). */
-function modelCompatibleWith(model: string | null, provider: AgentProvider): boolean {
-  if (model === null) return true;
-  if (provider === "codex")
-    return (CODEX_MODELS as readonly string[]).includes(model) || CODEX_MODEL_RE.test(model);
-  return (MODELS as readonly string[]).includes(model);
-}
-
 /** Resolve the relaunch model for the EFFECTIVE provider. `validateRelaunchOverrides` is
  *  session-blind, so the pairing is reconciled here: an absent override keeps the original's
  *  model, but if that carried model is incompatible with a provider switch it falls back to the
@@ -956,7 +948,7 @@ function reconcileRelaunchModel(
   provider: AgentProvider,
 ): string | null {
   const model = pickOverride(overrideModel, originalModel);
-  if (modelCompatibleWith(model, provider)) return model;
+  if (modelCompatibleWithProvider(model, provider)) return model;
   if (overrideModel != null && overrideModel !== "default")
     throw new Error(`model "${overrideModel}" is not valid for provider ${provider}`);
   return null;
@@ -1422,24 +1414,10 @@ export class SessionService {
     // applies to BOTH interactive create (prepareSpawnOrThrow → throws) and
     // resume/drain (returns ok:false → null/caught).
     if (apiKeyAuth.hold) return { ok: false, holdReason: apiKeyAuth.hold };
-    const profile = resolveProfile(
+    const { profile, backend, egressBackend, hold } = this.resolveSpawnPreflight(
       ctx.profileOverride,
       repoConfig.sandboxProfile,
-      config.sandboxDefaultProfile,
     );
-    // Skip the (real subprocess) backend self-test for trusted: backend is irrelevant there
-    // — autoHoldReason/isDegraded/wrapArgv are all backend-independent for trusted (passthrough,
-    // never held, never degraded). This keeps a default/trusted install from paying a bwrap
-    // node/git probe on its first spawn.
-    const backend = profile === "trusted" ? null : this.detectBackend();
-    // Probe the egress backend ONLY for an autonomous spawn that already has an FS backend;
-    // otherwise leave it undefined so autoHoldReason's 2-arg semantics hold (egress not
-    // considered — standard/trusted are never egress-confined).
-    const egressBackend =
-      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
-    // 3-arg gate: an autonomous AUTO spawn refuses (loud EGRESS_UNAVAILABLE_REASON) when the
-    // egress backend is null. standard/trusted are unaffected (egressBackend undefined).
-    const hold = autoHoldReason(profile, backend, egressBackend);
     if (ctx.auto && hold) return { ok: false, holdReason: hold };
     const degraded = isDegraded(profile, backend);
     // egress WILL wrap iff autonomous + FS backend + egress backend all present (shared predicate).
@@ -1523,6 +1501,33 @@ export class SessionService {
       degraded,
       egressApplied: egressOn,
       egressDegraded,
+    };
+  }
+
+  private resolveSpawnPreflight(
+    profileOverride: string | null | undefined,
+    repoSandboxProfile: SandboxProfile,
+  ): {
+    profile: SandboxProfile;
+    backend: SandboxBackend;
+    egressBackend: EgressBackend | undefined;
+    hold: string | null;
+  } {
+    const profile = resolveProfile(
+      profileOverride,
+      repoSandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    // Trusted is passthrough, so no backend probe can change the result. Egress is considered only
+    // when autonomous already has a filesystem backend.
+    const backend = profile === "trusted" ? null : this.detectBackend();
+    const egressBackend =
+      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
+    return {
+      profile,
+      backend,
+      egressBackend,
+      hold: autoHoldReason(profile, backend, egressBackend),
     };
   }
 
@@ -1882,6 +1887,72 @@ export class SessionService {
     return baseRef;
   }
 
+  private async resolveCreateLaunch(
+    input: CreateSessionInput,
+    wt: { isolated: boolean },
+    promptArg: string,
+    sessionId: string,
+    claudeSessionId: string,
+  ): Promise<{
+    agentProvider: AgentProvider;
+    spawnInput: CreateSessionInput;
+    repoConfig: RepoConfig;
+    planGateOn: boolean;
+    profileOverride: string | null | undefined;
+    argv: string[];
+  }> {
+    const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
+    const model = modelForProviderOrDefault(input.model, agentProvider);
+    const spawnInput = model === input.model ? input : { ...input, model };
+    if (input.model && model === null) {
+      console.warn(
+        `[spawn] dropping model "${input.model}" because it is not valid for ${agentProvider}; using provider default`,
+      );
+    }
+
+    const repoConfig = this.deps.store.getRepoConfig(spawnInput.repoPath);
+    const planGateOn =
+      agentProvider === "claude" ? this.resolvePlanGateOn(spawnInput, repoConfig) : false;
+    const trim = await this.trimFor(spawnInput.auto);
+    const profileOverride =
+      agentProvider === "codex"
+        ? "trusted"
+        : this.researchSafeProfileOverride(spawnInput, repoConfig, sessionId);
+    const baseUrl = this.resolveSpawnBaseUrl(profileOverride, spawnInput.repoPath);
+    const argv =
+      agentProvider === "codex"
+        ? this.buildCodexSpawnArgv(
+            promptArg,
+            spawnInput.model,
+            // Deliberate divergence from Claude (which gates its directive on the repo
+            // default only, see buildSpawnArgv): Codex uses effectiveAutopilot so the
+            // headline case (repo default OFF + per-session toggle ON) gets the directive.
+            // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
+            // (which replaces the autopilot directive) and non-isolated (which autopilot
+            // stands down on — see eligible()).
+            !spawnInput.research &&
+              wt.isolated &&
+              effectiveAutopilot(
+                { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
+                repoConfig.autopilotEnabled,
+              ),
+            // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
+            // research — its single-pr-invariant equivalent, independent of the autopilot gate.
+            !spawnInput.research,
+          )
+        : this.buildSpawnArgv(
+            spawnInput,
+            claudeSessionId,
+            sessionId,
+            promptArg,
+            planGateOn,
+            wt.isolated,
+            trim,
+            baseUrl,
+          );
+    return { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv };
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
@@ -1901,54 +1972,8 @@ export class SessionService {
         input,
         wt.worktreePath,
       );
-      const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-      const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
-      // Plan gate (#348): when on, spawn into a PLANNING phase with a grill directive that
-      // suppresses autopilot — interactive grills a present human, auto (drain) just writes the
-      // plan. See resolvePlanGateOn for the override + research semantics.
-      const planGateOn =
-        agentProvider === "claude" ? this.resolvePlanGateOn(input, repoConfig) : false;
-      const trim = await this.trimFor(input.auto);
-      // Research needs OPEN web egress; a research session resolving to autonomous is
-      // downgraded to standard for this spawn (see researchSafeProfileOverride). Resolved BEFORE
-      // buildSpawnArgv so resolveSpawnBaseUrl bakes the URL matching the SAME profile prepareSpawn
-      // will wrap with — buildSpawnArgv doesn't use the override otherwise, so reordering is safe.
-      const profileOverride =
-        agentProvider === "codex"
-          ? "trusted"
-          : this.researchSafeProfileOverride(input, repoConfig, sessionId);
-      const baseUrl = this.resolveSpawnBaseUrl(profileOverride, input.repoPath);
-      const argv =
-        agentProvider === "codex"
-          ? this.buildCodexSpawnArgv(
-              promptArg,
-              input.model,
-              // Deliberate divergence from Claude (which gates its directive on the repo
-              // default only, see buildSpawnArgv): codex uses effectiveAutopilot so the
-              // headline case (repo default OFF + per-session toggle ON) gets the directive.
-              // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
-              // (which replaces the autopilot directive) and non-isolated (which autopilot
-              // stands down on — see eligible()).
-              !input.research &&
-                wt.isolated &&
-                effectiveAutopilot(
-                  { autopilotEnabled: input.autopilotEnabled ?? null },
-                  repoConfig.autopilotEnabled,
-                ),
-              // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
-              // research — its single-pr-invariant equivalent, independent of the autopilot gate.
-              !input.research,
-            )
-          : this.buildSpawnArgv(
-              input,
-              claudeSessionId,
-              sessionId,
-              promptArg,
-              planGateOn,
-              wt.isolated,
-              trim,
-              baseUrl,
-            );
+      const { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv } =
+        await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = await this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -1956,9 +1981,9 @@ export class SessionService {
         worktreePath: wt.worktreePath,
         repoPath: input.repoPath,
         isolated: wt.isolated,
-        auto: input.auto,
+        auto: spawnInput.auto,
         profileOverride,
-        model: input.model,
+        model: spawnInput.model,
         agentProvider,
       });
       const session = this.deps.store.create({
@@ -1978,19 +2003,19 @@ export class SessionService {
         egressDegraded: outcome.egressDegraded,
         claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
         agentProvider,
-        model: input.model,
-        auto: input.auto ?? false,
-        issueNumber: input.issueRef?.number ?? null,
-        planGateEnabled: agentProvider === "claude" ? (input.planGateEnabled ?? null) : false,
-        autopilotEnabled: input.autopilotEnabled ?? null,
+        model: spawnInput.model,
+        auto: spawnInput.auto ?? false,
+        issueNumber: spawnInput.issueRef?.number ?? null,
+        planGateEnabled: agentProvider === "claude" ? (spawnInput.planGateEnabled ?? null) : false,
+        autopilotEnabled: spawnInput.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
-        research: input.research ?? false,
-        mergeTrainPrs: input.mergeTrainPrs,
+        research: spawnInput.research ?? false,
+        mergeTrainPrs: spawnInput.mergeTrainPrs,
       });
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
-      if (shouldPreApproveBuildQueue(repoConfig, session, input.research))
+      if (shouldPreApproveBuildQueue(repoConfig, session, spawnInput.research))
         this.deps.store.setBuildQueueApproved(sessionId, true, "auto");
       // An attached image was lost before spawn (staged upload swept after 24h). The session
       // started without it; surface that to the operator as a toast — they can relaunch with

@@ -112,6 +112,21 @@ test("unsafe codex model rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/codex model/i);
 });
 
+test("known Claude model rejected when provider is codex", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "opus",
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/codex model/i);
+});
+
 test("agentProvider accepts claude and codex", () => {
   for (const agentProvider of ["claude", "codex"] as const) {
     const r = validateCreate(

@@ -9,6 +9,8 @@ import {
   drainSpawnModel,
   spawnModelForAvailability,
   normalizeFableAvailable,
+  modelCompatibleWithProvider,
+  modelForProviderOrDefault,
 } from "../src/default-model";
 import { MODELS } from "../src/types";
 
@@ -85,6 +87,24 @@ describe("drainSpawnModel", () => {
     expect(normalizeDefaultModelSetting("sonnet[1m]")).toBe("sonnet[1m]");
     expect(drainSpawnModel("opus[1m]")).toBe("opus[1m]");
     expect(drainSpawnModel("sonnet[1m]")).toBe("sonnet[1m]");
+  });
+});
+
+describe("modelCompatibleWithProvider", () => {
+  test("known Claude aliases are not accepted through Codex's future-alias regex", () => {
+    expect(modelCompatibleWithProvider("opus", "codex")).toBe(false);
+    expect(modelCompatibleWithProvider("opus[1m]", "codex")).toBe(false);
+    expect(modelForProviderOrDefault("opus", "codex")).toBeNull();
+  });
+
+  test("Codex accepts curated aliases and safe future aliases", () => {
+    expect(modelCompatibleWithProvider("gpt-5.5", "codex")).toBe(true);
+    expect(modelCompatibleWithProvider("gpt-5.6-codex", "codex")).toBe(true);
+  });
+
+  test("Claude accepts only Claude aliases", () => {
+    expect(modelCompatibleWithProvider("opus", "claude")).toBe(true);
+    expect(modelCompatibleWithProvider("gpt-5.5", "claude")).toBe(false);
   });
 });
 

@@ -20,7 +20,7 @@ interface Split {
 const splits: Split[] = [
   {
     title: "herdr holds the sessions",
-    body: "The PTYs your claude agents run in live in herdr, not in Shepherd. A Shepherd restart never reaches into them — when the dashboard comes back, it just reattaches to the herd that kept running.",
+    body: "The PTYs your agents run in live in herdr, not in Shepherd. A Shepherd restart never reaches into them — when the dashboard comes back, it just reattaches to the herd that kept running.",
   },
   {
     title: "One click, in place",
@@ -42,8 +42,8 @@ const splits: Split[] = [
 
     <div class="claim">
       <p class="big">
-        herdr durably <strong>owns the interactive <code>claude</code> PTYs</strong>;
-        Shepherd is the <strong>control plane</strong> that bridges them to your
+        herdr durably <strong>owns the interactive agent PTYs</strong>; Shepherd
+        is the <strong>control plane</strong> that bridges them to your
         browser. So you can pull, rebuild, and restart Shepherd while agents are
         mid-task — the dashboard reloads, the sessions <strong>keep running and
         reattach</strong>. Nothing lost, no run interrupted.

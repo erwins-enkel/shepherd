@@ -108,8 +108,8 @@ install_os_prereqs() {
   ensure_pkg git git
   ensure_pkg unzip unzip
   ensure_toolchain
-  # The log-rotation timer (#1212) is self-contained (deploy/rotate-shepherd-log.sh, coreutils only)
-  # — no external `logrotate` package to install here anymore.
+  # The log-rotation timer (#1212) is self-contained (deploy/rotate-shepherd-log.sh, coreutils +
+  # gzip — both baseline) — no external `logrotate` package to install here anymore.
 }
 
 # ensure_pkg <bin> <pkg>: install <pkg> via apt/apk/dnf/pacman if <bin> is absent.

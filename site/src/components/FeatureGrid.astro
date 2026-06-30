@@ -1,9 +1,12 @@
 ---
-// Nine-card feature grid. Copy is faithful to the README "Opinionated by
-// design" + intro and the feature-announcement catalog
+// Nine-card feature grid — the capabilities you operate. The discipline GATES
+// (plan gate, critic, learnings, merge train, hygiene) live in their own
+// Guardrails section below, so they are not duplicated here. Copy is faithful
+// to the README and the feature-announcement catalog
 // (ui/src/lib/feature-announcements.ts) — describes what ships, no invented
-// capabilities. Body text is rendered verbatim (no markdown), so copy stays
-// plain prose with no backticks.
+// capabilities. Codex is alpha; never stated at parity with Claude. Body text
+// is rendered verbatim (no markdown), so copy stays plain prose with no
+// backticks.
 interface Feature {
   title: string;
   body: string;
@@ -12,39 +15,39 @@ interface Feature {
 const features: Feature[] = [
   {
     title: "Interactive agent control",
-    body: "Spawn, watch, and steer a herd of real claude sessions in isolated git worktrees, from your browser or phone.",
+    body: "Spawn, watch, and steer a herd of real agent sessions in isolated git worktrees, from your browser or phone.",
+  },
+  {
+    title: "Multi-CLI",
+    body: "Drive Claude Code today, with the Codex CLI in alpha — both as genuine interactive terminal sessions, never headless. A held task can hand off from one CLI to the other.",
   },
   {
     title: "Your /commands come with you",
-    body: "Every slash command, skill, and plugin you use locally is available — each session is a genuine interactive claude against your own ~/.claude. The cloud Claude Code can't carry that.",
+    body: "Every slash command, skill, and plugin you use locally is available — each Claude session is a genuine interactive claude against your own ~/.claude. The cloud Claude Code can't carry that.",
   },
   {
     title: "Readiness",
     body: "Scores a JS/TS repo's guardrails — typecheck, lint, tests, CI, house rules — before you point agents at it, turning gaps into an install task.",
   },
   {
-    title: "Plan gate",
-    body: "Before an autonomous run, the agent writes a plan a separate read-only reviewer grills adversarially; only a plan that survives review is released to implement.",
+    title: "Autopilot",
+    body: "Hand a task the whole loop: the agent plans, implements, opens a PR, addresses the critic's findings, and merges when it's ready — or completes research and issue-creation tasks that never produce a PR. Opt in per task, where you trust it.",
+  },
+  {
+    title: "Epics & sub-issues",
+    body: "Run an epic as many coordinated branches, backed by native GitHub sub-issues and grouped by epic. The landing PR auto-lands once every piece is green.",
   },
   {
     title: "Visual plans & recaps",
-    body: "Plan-gate plans render as a scannable document — file trees, diagrams, data models — not a wall of text. When a session finishes, its recap does the same: a tree of what changed, the annotated diff, and toned callouts.",
+    body: "Plan-gate plans render as a scannable document — file trees, diagrams, data models — not a wall of text. When a session finishes, its recap does the same: a tree of what changed, the annotated diff, toned callouts, and Mermaid diagrams.",
   },
   {
-    title: "Critic",
-    body: "The moment a PR's CI goes green, an isolated read-only agent reviews the full diff and posts a verdict; with Auto-Address on, findings flow back to the author until the list is empty.",
-  },
-  {
-    title: "Learnings",
-    body: "Distills past sessions' failure signals into proposed house rules; the ones you approve are injected into every new agent in the repo. Rules that stop helping retire themselves, can be scoped to matching paths, and — when they recur across repos — promote to your global config.",
-  },
-  {
-    title: "Merge train",
-    body: "A finished PR lands only when it's open, CI-green, conflict-free, and up to date; one that has fallen behind is rebased and fully re-verified first.",
+    title: "Dev-server preview",
+    body: "When a session starts a dev server, Shepherd serves it over Tailscale and drops a preview into the session — open the agent's running app from your phone, with no setup.",
   },
   {
     title: "Usage-aware",
-    body: "Run many agents on one subscription without burning it. When usage is high and a session is already running, new tasks hold and start on their own when usage resets — submit anyway to override. A session halted at a usage limit resumes in one click.",
+    body: "Run many agents on one subscription without burning it. When usage is high a new task holds and starts on its own when usage resets — submit anyway to override — and a session halted at a limit resumes in one click. A usage dashboard, timeline heatmap, and trends show where the tokens go.",
   },
 ];
 ---
@@ -53,9 +56,11 @@ const features: Feature[] = [
   <div class="inner">
     <header class="sec-head">
       <p class="eyebrow">What's in the herd</p>
-      <h2 id="features-h">
-        The discipline that keeps parallel agent work shippable
-      </h2>
+      <h2 id="features-h">Everything you operate the herd with</h2>
+      <p class="sub">
+        The review gates that keep its output shippable get their own section
+        below.
+      </p>
     </header>
 
     <ul class="grid">
@@ -101,6 +106,12 @@ const features: Feature[] = [
     font-weight: 700;
     font-size: clamp(1.6rem, 4vw, 2.4rem);
     letter-spacing: -0.02em;
+  }
+
+  .sub {
+    margin-top: 0.8rem;
+    color: var(--ink-muted);
+    font-size: 1rem;
   }
 
   .grid {

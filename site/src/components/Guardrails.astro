@@ -17,11 +17,15 @@ const gates: Gate[] = [
   },
   {
     name: "Learnings",
-    body: "Approved house rules distilled from past failures are injected into every new agent in the repo.",
+    body: "House rules distilled from past failures are injected into every new agent in the repo; ones that stop helping retire themselves, and recurring ones promote across repos.",
   },
   {
     name: "Merge train",
     body: "Nothing lands while behind its base — a stale PR is rebased and fully re-verified first.",
+  },
+  {
+    name: "Manual operator steps",
+    body: "Human-only steps a PR declares — env vars, migrations, DNS cutovers — are surfaced and hold auto-merge until they are acknowledged.",
   },
   {
     name: "Hygiene gates",

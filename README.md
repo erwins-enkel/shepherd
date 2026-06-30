@@ -1,16 +1,16 @@
 # Shepherd
 
-> Self-hosted mission control for **interactive** Claude Code — and opinionated about how
-> agent-built software should ship. Spawn, watch, and steer a herd of real `claude` sessions from
-> your browser or phone, with best-practice guardrails built in. On your own server, on your own
-> subscription.
+> Self-hosted mission control for **interactive** AI coding CLIs — and opinionated about how
+> agent-built software should ship. Spawn, watch, and steer a herd of real `claude` sessions (with
+> the Codex CLI in alpha) from your browser or phone, with best-practice guardrails built in. On
+> your own server, on your own subscription.
 
-Shepherd spawns genuine interactive `claude` sessions in isolated git worktrees (via `herdr`, the
-interactive-pane manager), bridges each PTY to an `xterm.js` pane in the browser, and lets one
-operator run many agents in parallel — observing their status and steering them by typing, exactly
-like a human at a terminal. Around those sessions it adds the engineering discipline that parallel
-agent work otherwise erodes: every plan and PR faces adversarial review, and nothing merges while
-behind its base — a stale PR is rebased and re-verified first.
+Shepherd spawns genuine interactive `claude` sessions (and, in alpha, `codex` sessions) in isolated
+git worktrees (via `herdr`, the interactive-pane manager), bridges each PTY to an `xterm.js` pane in
+the browser, and lets one operator run many agents in parallel — observing their status and steering
+them by typing, exactly like a human at a terminal. Around those sessions it adds the engineering
+discipline that parallel agent work otherwise erodes: every plan and PR faces adversarial review,
+and nothing merges while behind its base — a stale PR is rebased and re-verified first.
 
 ## Opinionated by design
 
@@ -43,6 +43,9 @@ This is the defining constraint, not a footnote. Shepherd runs on the operator's
 subscription, so it **only drives interactive terminal sessions** — it never uses the Agent SDK or
 `claude -p`. It observes (reads the terminal + agent status) and steers (injects keystrokes into the
 live pane). Auth is the operator's own login; no token relay, no impersonation, single operator.
+
+The Codex CLI (alpha) is driven the same way — a genuine interactive terminal session, never a
+headless or scripted invocation.
 
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.

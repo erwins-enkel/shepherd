@@ -13,13 +13,13 @@ const osMatrix: OsRow[] = [
     os: "Linux",
     mode: "Full",
     modeKind: "full",
-    note: "systemd + unprivileged userns — sandbox membrane, egress allowlist, auto-drain, previews, and the systemd unit.",
+    note: "systemd + unprivileged userns — sandbox membrane, egress allowlist, auto-drain, tailscale-served dev-server previews, and the systemd unit.",
   },
   {
     os: "macOS",
     mode: "Core-only",
     modeKind: "degraded",
-    note: "Installs and builds, but no sandbox, egress allowlist, auto-drain, previews, or systemd unit. Run bun run start manually.",
+    note: "Installs and builds, but no sandbox, egress allowlist, auto-drain, dev-server previews, or systemd unit. Run bun run start manually.",
   },
   {
     os: "Windows",
@@ -31,8 +31,8 @@ const osMatrix: OsRow[] = [
 
 const needs = [
   "Bun — backend runtime + package manager",
-  "herdr on PATH — owns the interactive claude PTYs",
-  "The claude CLI, logged in",
+  "herdr on PATH — owns the interactive agent PTYs",
+  "The claude CLI, logged in (the Codex CLI too, for the alpha path)",
   "Node.js — for the PTY helper subprocess",
 ];
 ---

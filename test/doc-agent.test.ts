@@ -82,6 +82,8 @@ interface Harness {
   startArgs: { name: string; cwd: string; argv: string[] }[];
   /** Captured editPr calls (prNumber + patch). */
   editPrCalls: { prNumber: number; title?: string; body?: string }[];
+  /** terminalIds passed to herdr.stop (mirrors removedWorktrees pattern). */
+  stoppedTerminals: string[];
   __merge: number;
 }
 
@@ -245,6 +247,7 @@ function mkHarness(opts?: {
   const completedRows: CompletedRow[] = [];
   const deletedRemote: string[] = [];
   const editPrCalls: { prNumber: number; title?: string; body?: string }[] = [];
+  const stoppedTerminals: string[] = [];
   const store = {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
@@ -390,7 +393,9 @@ function mkHarness(opts?: {
       startArgs.push({ name, cwd, argv: wrapped ?? [] });
       return { terminalId: "term-" + starts.length } as any;
     },
-    stop: () => {},
+    stop: (terminalId: string) => {
+      stoppedTerminals.push(terminalId);
+    },
     list: () =>
       o.herdrAgents.map(
         (a) =>
@@ -492,6 +497,7 @@ function mkHarness(opts?: {
     markers,
     startArgs,
     editPrCalls,
+    stoppedTerminals,
     mergeCalls: 0,
     get __merge() {
       return mergeCalls;
@@ -1111,8 +1117,9 @@ test("prettier failure path: throwing prettier ABORTS the run (no commit/push/PR
   expect(parsed[0]!.outcome).toBe("error");
   expect(parsed[0]!.url).toBeNull();
 
-  // cleanup still ran: worktree removed
+  // cleanup still ran: worktree removed AND herdr.stop called
   expect(h.removedWorktrees).toHaveLength(1);
+  expect(h.stoppedTerminals).toHaveLength(1);
 });
 
 // ── outcome tracking (issue #906) ────────────────────────────────────────────

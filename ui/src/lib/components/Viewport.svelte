@@ -510,9 +510,10 @@
     if (todoExists === false && tab === "todo") tab = "term";
   });
 
-  // The Files tab is gated on the server-derived hasScratchpadFiles flag (#1164) — folded into
-  // the session payload + refreshed by the session:status (idle/done) push, so no extra poll.
-  const hasFiles = $derived(session.hasScratchpadFiles === true);
+  // The Files tab is shown for any live session that has a claudeSessionId (#1258). This lets an
+  // operator upload files even before the agent writes anything. hasScratchpadFiles is subsumed —
+  // it can only be true for a live session with a claudeSessionId — so it no longer drives visibility.
+  const hasFiles = $derived(session.claudeSessionId !== "" && session.status !== "archived");
   // Don't strand the operator on a Files tab whose scratchpad just emptied.
   $effect(() => {
     if (!hasFiles && tab === "files") tab = "term";

@@ -2192,5 +2192,15 @@
   "github_lens_paused": "Paused",
   "github_lens_graphql_backoff": "GraphQL polling is paused while a rate-limit backoff clears — PR, issue and backlog updates resume in ~{time}.",
   "docagent_status_error": "format failed",
-  "docagent_toast_error": "{repo}: doc update aborted — prettier couldn't format the docs"
+  "docagent_toast_error": "{repo}: doc update aborted — prettier couldn't format the docs",
+  "files_upload_button": "Upload",
+  "files_upload_aria": "Upload files to scratchpad",
+  "files_upload_drop_hint": "Drop files to upload",
+  "files_uploading": "Uploading {name}…",
+  "files_upload_done": "{name} uploaded",
+  "files_upload_too_large": "{name} is too large (max 10 MB)",
+  "files_upload_failed": "Upload of {name} failed",
+  "feat_scratchpad_upload_title": "Upload files to the scratchpad",
+  "feat_scratchpad_upload_body": "You can now upload files directly into a session's scratchpad from the Files tab — click Upload or drag-and-drop files onto the list. The agent can read anything you drop there.",
+  "files_list_aria": "Scratchpad files"
 }

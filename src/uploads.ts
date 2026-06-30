@@ -80,11 +80,22 @@ export interface UploadDeps {
   repoRoot: string;
 }
 
-/** POST /api/uploads — multipart `file`; optional `?session=<id>`. Returns { path }. */
-export async function handleUpload(req: Request, deps: UploadDeps): Promise<Response> {
+/**
+ * Parse the multipart `file` field from a request. Returns the `File` on success, or a
+ * 400 `Response` when the field is absent / the body can't be parsed. Does NOT perform size
+ * or MIME checks — those are caller responsibilities.
+ */
+export async function parseUploadFile(req: Request): Promise<File | Response> {
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) return j({ error: "missing file field" }, 400);
+  return file;
+}
+
+/** POST /api/uploads — multipart `file`; optional `?session=<id>`. Returns { path }. */
+export async function handleUpload(req: Request, deps: UploadDeps): Promise<Response> {
+  const file = await parseUploadFile(req);
+  if (file instanceof Response) return file;
 
   const ext = extForMime(file.type);
   if (!ext) return j({ error: "unsupported image type" }, 415);

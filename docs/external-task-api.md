@@ -124,10 +124,19 @@ Once a task exists, an external agent can also drive it:
 - `DELETE /api/sessions/:id` — archive (end) the session.
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,
   `/activity`, `/usage` for inspection.
-- `GET /api/sessions/:id/scratchpad[?path=]` — read-only browse of a live
-  session's own scratchpad subtree; `GET /api/sessions/:id/scratchpad/download?path=`
+- `GET /api/sessions/:id/scratchpad[?path=]` — browse a live session's own
+  scratchpad subtree; `GET /api/sessions/:id/scratchpad/download?path=`
   streams a single file. Paths are relative to the scratchpad root and
   realpath-contained to it (`..`, absolute, and symlink escapes are rejected);
   both `404` on a missing/archived session.
+- `POST /api/sessions/:id/scratchpad/upload[?path=<relDir>]` — upload an
+  arbitrary binary file (multipart `file` field, no MIME restriction) into the
+  session's scratchpad. `?path` selects a relative subdirectory within the
+  scratchpad root (default: the root); the root is created on demand but the
+  subdir must already exist. The same realpath-containment rules apply. Returns
+  `{ "path": "<relpath>" }` (a colliding name is given a numeric suffix rather
+  than overwriting). `400` on a missing `file` field, `413` when the file
+  exceeds the upload size limit (10 MiB), and `404` on a missing/archived
+  session or an out-of-root `path`.
 
 All of these honor the same auth/origin rules as task creation.

@@ -253,6 +253,16 @@ export interface DocAgentDeps extends MembraneSeams {
  * branches with no PR, working even when the herdr daemon also restarted (it parses `git worktree
  * list`).
  */
+function computeDocAgentOutcome(
+  result: { url: string | null; hadStagedChanges: boolean; prettierFailed: boolean },
+  act: boolean,
+): DocAgentOutcome {
+  if (result.prettierFailed) return "error";
+  if (result.url !== null) return "pr";
+  if (result.hadStagedChanges && !act) return "observe";
+  return "nochange";
+}
+
 export class DocAgentService {
   private inflight = new Map<string, InFlight>();
   private starting = new Set<string>();
@@ -809,36 +819,42 @@ export class DocAgentService {
     return (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
   }
 
-  private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
-    let url: string | null = null;
-    let hadStagedChanges = false;
-    let prettierFailed = false;
+  /** Stage the in-scope docs and publish them. Returns the run's url (null if nothing
+   *  published / observe phase), whether anything was staged, and whether prettier aborted
+   *  the run (fail-closed). A non-PrettierFormatError propagates (handled by tick()). */
+  private async stageAndPublish(
+    f: InFlight,
+    sentinel: string | null,
+  ): Promise<{ url: string | null; hadStagedChanges: boolean; prettierFailed: boolean }> {
+    const forge = this.deps.resolveForge(f.repoPath);
+    if (!forge) return { url: null, hadStagedChanges: false, prettierFailed: false };
+    let stagedOut: string;
     try {
-      const forge = this.deps.resolveForge(f.repoPath);
-      if (forge) {
-        let stagedOut: string;
-        try {
-          stagedOut = await this.stageInScope(f);
-        } catch (err) {
-          if (err instanceof PrettierFormatError) {
-            prettierFailed = true;
-            console.error(
-              `[doc-agent] aborting run — prettier failed for ${f.repoPath}; refusing to commit unformatted docs (fail-closed): ${err.files.join(", ")}`,
-              err.cause ?? err,
-            );
-            stagedOut = "";
-          } else {
-            throw err; // unexpected — keep existing propagate-to-tick() behaviour
-          }
-        }
-        if (!prettierFailed && stagedOut.length > 0) {
-          hadStagedChanges = true;
-          url =
-            f.mode === "retarget"
-              ? await this.publishRetarget(f, sentinel, forge, stagedOut)
-              : await this.publishStaged(f, sentinel, forge, stagedOut);
-        }
+      stagedOut = await this.stageInScope(f);
+    } catch (err) {
+      if (err instanceof PrettierFormatError) {
+        console.error(
+          `[doc-agent] aborting run — prettier failed for ${f.repoPath}; refusing to commit unformatted docs (fail-closed): ${err.files.join(", ")}`,
+          err.cause ?? err,
+        );
+        return { url: null, hadStagedChanges: false, prettierFailed: true };
       }
+      throw err; // unexpected — keep existing propagate-to-tick() behaviour
+    }
+    if (stagedOut.length === 0)
+      return { url: null, hadStagedChanges: false, prettierFailed: false };
+    const url =
+      f.mode === "retarget"
+        ? await this.publishRetarget(f, sentinel, forge, stagedOut)
+        : await this.publishStaged(f, sentinel, forge, stagedOut);
+    return { url, hadStagedChanges: true, prettierFailed: false };
+  }
+
+  private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
+    let result:
+      { url: string | null; hadStagedChanges: boolean; prettierFailed: boolean } | undefined;
+    try {
+      result = await this.stageAndPublish(f, sentinel);
     } finally {
       // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
       // and act) BEFORE the worktree is removed — mirrors herd-digest.ts / review.ts.
@@ -856,17 +872,13 @@ export class DocAgentService {
       }
     }
     // Compute outcome from locals set above (after try/finally so cleanup always runs first).
-    const outcome: DocAgentOutcome = prettierFailed
-      ? "error"
-      : url !== null
-        ? "pr"
-        : hadStagedChanges && !this.act
-          ? "observe"
-          : "nochange";
+    // result is always defined here — an error in stageAndPublish propagates out of finalize.
+    const r = result!;
+    const outcome: DocAgentOutcome = computeDocAgentOutcome(r, this.act);
     // Record the run in the durable per-repo history (additive alongside the cost-ledger spawn row).
-    const run: DocAgentRun = { at: this.now(), url, outcome };
+    const run: DocAgentRun = { at: this.now(), url: r.url, outcome };
     this.deps.store.recordDocAgentRun(f.repoPath, run);
-    this.deps.onChange?.({ repoPath: f.repoPath, url, outcome });
+    this.deps.onChange?.({ repoPath: f.repoPath, url: r.url, outcome });
   }
 
   /**

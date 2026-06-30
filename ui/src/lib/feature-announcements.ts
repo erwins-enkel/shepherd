@@ -1802,6 +1802,14 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_codex_update_body",
   },
   {
+    // No targetId: the task-id button is per-card, not a single stable anchor —
+    // surface via the What's-New drawer only. 1.38.0 is the latest released tag.
+    id: "taskid-copy-details",
+    sinceVersion: "1.39.0",
+    titleKey: "feat_taskid_copy_payload_title",
+    bodyKey: "feat_taskid_copy_payload_body",
+  },
+  {
     // No targetId: the per-role environment pickers live in the Settings modal (Coding agents
     // tab), closed by default, so a coachmark anchor would rarely be mounted — surface
     // via the What's-New drawer only.

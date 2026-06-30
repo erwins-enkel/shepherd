@@ -36,7 +36,7 @@
     if (!focusId) return;
     const el = document.getElementById(`plugin-card-${focusId}`);
     if (!el) return;
-    el.scrollIntoView({ block: "center" });
+    el.scrollIntoView({ block: "start" });
     el.classList.add("focus-flash");
     const t = setTimeout(() => el.classList.remove("focus-flash"), 1200);
     return () => clearTimeout(t);

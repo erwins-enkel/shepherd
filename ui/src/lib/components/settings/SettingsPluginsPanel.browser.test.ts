@@ -104,6 +104,28 @@ describe("SettingsPluginsPanel", () => {
     expect(document.getElementById("plugin-card-beta")).not.toBeNull();
   });
 
+  it("focusId scrolls the card to the top of the panel (block:start, not center)", async () => {
+    // #1254: a tall plugin card centered (block:center) lands the operator mid-panel;
+    // it must align its top to the panel viewport instead.
+    const calls: ScrollIntoViewOptions[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
+      calls.push((arg ?? {}) as ScrollIntoViewOptions);
+    };
+    try {
+      render(SettingsPluginsPanel, {
+        plugins: [plugin({ id: "tall-plugin", name: "Tall Plugin" })],
+        focusId: "tall-plugin",
+      });
+      // The $effect runs after mount; wait a microtask for it to fire.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(calls.length, "scrollIntoView was called").toBeGreaterThan(0);
+      expect(calls[0].block).toBe("start");
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
   it("focusId applies focus-flash class to the matching card", async () => {
     render(SettingsPluginsPanel, {
       plugins: [plugin({ id: "target-plugin", name: "Target Plugin" })],

@@ -128,104 +128,141 @@
   }
 </script>
 
-<div class="files">
-  <div class="toolbar">
-    <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
-      {#each crumbs as c, i (c.path)}
-        {#if i > 0}<span class="crumb-sep" aria-hidden="true">/</span>{/if}
-        {#if i === crumbs.length - 1}
-          <span class="crumb current" aria-current="page">{c.label}</span>
-        {:else}
-          <button type="button" class="crumb" onclick={() => browse(c.path)}>{c.label}</button>
-        {/if}
-      {/each}
-    </nav>
-    <button
-      type="button"
-      class="gbtn upload-btn"
-      aria-label={m.files_upload_aria()}
-      disabled={listing === null}
-      onclick={openFilePicker}
-      use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
-    >
-    <!-- Hidden real input; triggered by the upload button -->
-    <input
-      bind:this={fileInput}
-      type="file"
-      multiple
-      class="sr-only"
-      aria-hidden="true"
-      tabindex="-1"
-      onchange={handleFileInput}
-    />
-  </div>
+<div
+  class="files"
+  role="region"
+  aria-label={m.files_list_aria()}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+>
+  {#if dragOver}
+    <!-- Whole-tab drop overlay; sits over (not inside) the scroll wrapper so it always covers the
+         visible area, and pointer-events:none keeps drag/drop events reaching .files -->
+    <div class="drop-overlay" aria-hidden="true">
+      <span class="drop-overlay-hint">{m.files_upload_drop_hint()}</span>
+    </div>
+  {/if}
+  <!-- Scroll wrapper; .files itself stays non-scrolling so the overlay anchors to the viewport -->
+  <div class="files-scroll">
+    <div class="toolbar">
+      <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
+        {#each crumbs as c, i (c.path)}
+          {#if i > 0}<span class="crumb-sep" aria-hidden="true">/</span>{/if}
+          {#if i === crumbs.length - 1}
+            <span class="crumb current" aria-current="page">{c.label}</span>
+          {:else}
+            <button type="button" class="crumb" onclick={() => browse(c.path)}>{c.label}</button>
+          {/if}
+        {/each}
+      </nav>
+      <button
+        type="button"
+        class="gbtn upload-btn"
+        aria-label={m.files_upload_aria()}
+        disabled={listing === null}
+        onclick={openFilePicker}
+        use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
+      >
+      <!-- Hidden real input; triggered by the upload button -->
+      <input
+        bind:this={fileInput}
+        type="file"
+        multiple
+        class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
+        onchange={handleFileInput}
+      />
+    </div>
 
-  <!-- Upload status lines -->
-  {#each uploads as u (u.id)}
-    {#if u.state === "uploading"}
-      <div class="upload-status">{m.files_uploading({ name: u.name })}</div>
-    {:else if u.state === "too_large"}
-      <div class="upload-status err">{m.files_upload_too_large({ name: u.name })}</div>
-    {:else if u.state === "failed"}
-      <div class="upload-status err">{m.files_upload_failed({ name: u.name })}</div>
-    {:else if u.state === "done"}
-      <div class="upload-status ok">{m.files_upload_done({ name: u.name })}</div>
-    {/if}
-  {/each}
+    <!-- Upload status lines -->
+    {#each uploads as u (u.id)}
+      {#if u.state === "uploading"}
+        <div class="upload-status">{m.files_uploading({ name: u.name })}</div>
+      {:else if u.state === "too_large"}
+        <div class="upload-status err">{m.files_upload_too_large({ name: u.name })}</div>
+      {:else if u.state === "failed"}
+        <div class="upload-status err">{m.files_upload_failed({ name: u.name })}</div>
+      {:else if u.state === "done"}
+        <div class="upload-status ok">{m.files_upload_done({ name: u.name })}</div>
+      {/if}
+    {/each}
 
-  <!-- Drop zone wrapping the file list -->
-  <div
-    class={["list", dragOver && "drop-active"]}
-    role="region"
-    aria-label={m.files_list_aria()}
-    ondragover={handleDragOver}
-    ondragleave={handleDragLeave}
-    ondrop={handleDrop}
-  >
-    {#if loading && !listing}
-      <div class="placeholder">{m.common_loading()}</div>
-    {:else if error}
-      <div class="placeholder err">{m.files_load_error()}</div>
-    {:else if listing && listing.entries.length === 0}
-      <div class="placeholder empty-droppable">
-        <span>{m.files_empty()}</span>
-        <span class="drop-hint">{m.files_upload_drop_hint()}</span>
-      </div>
-    {:else if listing}
-      {#each listing.entries as e (e.path)}
-        {#if e.type === "dir"}
-          <button type="button" class="row" onclick={() => browse(e.path)}>
-            <span class="ico" aria-hidden="true">▸</span>
-            <span class="nm">{e.name}</span>
-            <span class="chev" aria-hidden="true">›</span>
-          </button>
-        {:else}
-          <!-- eslint-disable svelte/no-navigation-without-resolve -- server API download endpoint, not an app route -->
-          <a
-            class="row file"
-            href={scratchpadDownloadUrl(sessionId, e.path)}
-            download={e.name}
-            aria-label={m.files_download_aria({ name: e.name })}
-          >
-            <span class="ico" aria-hidden="true">▢</span>
-            <span class="nm">{e.name}</span>
-            <span class="dl" aria-hidden="true">↓</span>
-          </a>
-          <!-- eslint-enable svelte/no-navigation-without-resolve -->
-        {/if}
-      {/each}
-    {/if}
+    <!-- File list; the whole .files tab is the drop zone (see handlers above) -->
+    <div class="list">
+      {#if loading && !listing}
+        <div class="placeholder">{m.common_loading()}</div>
+      {:else if error}
+        <div class="placeholder err">{m.files_load_error()}</div>
+      {:else if listing && listing.entries.length === 0}
+        <div class="placeholder empty-droppable">
+          <span>{m.files_empty()}</span>
+          <span class="drop-hint">{m.files_upload_drop_hint()}</span>
+        </div>
+      {:else if listing}
+        {#each listing.entries as e (e.path)}
+          {#if e.type === "dir"}
+            <button type="button" class="row" onclick={() => browse(e.path)}>
+              <span class="ico" aria-hidden="true">▸</span>
+              <span class="nm">{e.name}</span>
+              <span class="chev" aria-hidden="true">›</span>
+            </button>
+          {:else}
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- server API download endpoint, not an app route -->
+            <a
+              class="row file"
+              href={scratchpadDownloadUrl(sessionId, e.path)}
+              download={e.name}
+              aria-label={m.files_download_aria({ name: e.name })}
+            >
+              <span class="ico" aria-hidden="true">▢</span>
+              <span class="nm">{e.name}</span>
+              <span class="dl" aria-hidden="true">↓</span>
+            </a>
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          {/if}
+        {/each}
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
   .files {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+  .files-scroll {
     display: flex;
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
     overflow-y: auto;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
+  }
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 6px;
+    border: 2px dashed var(--color-blue);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-blue) 10%, var(--color-inset));
+  }
+  .drop-overlay-hint {
+    color: var(--color-blue);
+    font-family: var(--font-mono);
+    font-size: var(--fs-lg);
+    letter-spacing: 0.04em;
   }
   .toolbar {
     display: flex;
@@ -317,13 +354,6 @@
     border-radius: 2px;
     display: flex;
     flex-direction: column;
-    transition:
-      border-color 0.1s ease,
-      background 0.1s ease;
-  }
-  .list.drop-active {
-    border-color: var(--color-blue);
-    background: color-mix(in srgb, var(--color-blue) 8%, var(--color-inset));
   }
   .placeholder {
     padding: 14px 12px;

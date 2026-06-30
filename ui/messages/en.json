@@ -92,6 +92,7 @@
   "gitrail_confirm_redeploy": "confirm ⟳",
   "gitrail_redeploy": "⟳ Redeploy",
   "gitrail_closed": "closed",
+  "gitrail_status_failed": "PR status unavailable",
   "gitrail_pr_title_placeholder": "PR title",
   "gitrail_pr_description_placeholder": "Description",
   "gitrail_cancel": "Cancel",

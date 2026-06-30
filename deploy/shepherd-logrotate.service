@@ -9,8 +9,8 @@ Type=oneshot
 # expands %h here. Run via /bin/sh so the copied script needs no exec bit.
 ExecStart=/bin/sh %h/.shepherd/rotate-shepherd-log.sh
 
-# The script uses plain coreutils (cp, gzip, wc, mv, rm) — give the oneshot a normal PATH so it
-# resolves them under the minimal PATH a user timer can inherit.
+# The script uses baseline tools (coreutils cp/wc/mv/rm + gzip) — give the oneshot a normal PATH so
+# it resolves them under the minimal PATH a user timer can inherit.
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Output goes to journald: `journalctl --user -u shepherd-logrotate`

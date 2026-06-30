@@ -4,8 +4,9 @@
 # Replaces the former dependency on the external `logrotate` binary. logrotate was OPTIONAL: on a
 # host where it was absent (and the best-effort install failed — no root, package unavailable, …)
 # the timer was skipped and shepherd.log grew unbounded ("logrotate not found — skipping
-# log-rotation timer"). This script reproduces the same posture with zero external deps beyond
-# coreutils, so rotation works on every host with systemd:
+# log-rotation timer"). This script reproduces the same posture using only baseline tools (coreutils
+# + gzip — gzip is universally present and was already required by logrotate's `compress`), so
+# rotation works on every host with systemd:
 #   size 50M · keep 7 compressed rotations · copytruncate · missingok · notifempty
 #
 # copytruncate is REQUIRED, not a preference: shepherd.service redirects stdout/stderr with

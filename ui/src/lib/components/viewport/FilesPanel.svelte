@@ -1,15 +1,27 @@
 <script lang="ts">
-  import { getScratchpadListing, scratchpadDownloadUrl } from "$lib/api";
+  import {
+    getScratchpadListing,
+    scratchpadDownloadUrl,
+    uploadScratchpadFile,
+    ApiError,
+  } from "$lib/api";
   import type { ScratchListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
-  // Read-only browser of the session's scratchpad subtree (#1164). Click a directory to descend,
-  // click a file to download it. Server enforces containment to the scratchpad root.
+  // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to
+  // descend, click a file to download it. Upload via button or drag-and-drop into the current dir.
   let { sessionId }: { sessionId: string } = $props();
 
   let listing = $state<ScratchListing | null>(null);
   let loading = $state(false);
   let error = $state(false);
+
+  type UploadStatus = { name: string; state: "uploading" | "done" | "failed" | "too_large" };
+  let uploads = $state<UploadStatus[]>([]);
+  let dragOver = $state(false);
+
+  let fileInput: HTMLInputElement;
 
   async function browse(path: string) {
     loading = true;
@@ -29,6 +41,7 @@
     const id = sessionId;
     listing = null;
     error = false;
+    uploads = [];
     void browse("");
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     id;
@@ -45,27 +58,127 @@
     }
     return out;
   });
+
+  async function uploadFiles(files: File[]) {
+    if (!files.length) return;
+    const dirPath = listing?.path || undefined;
+
+    // Add each file to the status list as "uploading"
+    const newUploads: UploadStatus[] = files.map((f) => ({ name: f.name, state: "uploading" }));
+    uploads = [...uploads, ...newUploads];
+
+    await Promise.all(
+      files.map(async (file, idx) => {
+        const statusIdx = uploads.length - files.length + idx;
+        try {
+          await uploadScratchpadFile(sessionId, file, dirPath);
+          uploads = uploads.map((u, i) => (i === statusIdx ? { ...u, state: "done" } : u));
+        } catch (e) {
+          const isTooLarge = e instanceof ApiError && e.status === 413;
+          uploads = uploads.map((u, i) =>
+            i === statusIdx ? { ...u, state: isTooLarge ? "too_large" : "failed" } : u,
+          );
+        }
+      }),
+    );
+
+    // Refresh listing once all uploads have settled
+    void browse(listing?.path ?? "");
+  }
+
+  function handleFileInput(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files?.length) {
+      void uploadFiles(Array.from(input.files));
+      input.value = "";
+    }
+  }
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    dragOver = true;
+  }
+
+  function handleDragLeave() {
+    dragOver = false;
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    dragOver = false;
+    if (!listing) return; // still loading
+    const files = e.dataTransfer?.files;
+    if (files?.length) void uploadFiles(Array.from(files));
+  }
+
+  function openFilePicker() {
+    fileInput.click();
+  }
 </script>
 
 <div class="files">
-  <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
-    {#each crumbs as c, i (c.path)}
-      {#if i > 0}<span class="crumb-sep" aria-hidden="true">/</span>{/if}
-      {#if i === crumbs.length - 1}
-        <span class="crumb current" aria-current="page">{c.label}</span>
-      {:else}
-        <button type="button" class="crumb" onclick={() => browse(c.path)}>{c.label}</button>
-      {/if}
-    {/each}
-  </nav>
+  <div class="toolbar">
+    <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
+      {#each crumbs as c, i (c.path)}
+        {#if i > 0}<span class="crumb-sep" aria-hidden="true">/</span>{/if}
+        {#if i === crumbs.length - 1}
+          <span class="crumb current" aria-current="page">{c.label}</span>
+        {:else}
+          <button type="button" class="crumb" onclick={() => browse(c.path)}>{c.label}</button>
+        {/if}
+      {/each}
+    </nav>
+    <button
+      type="button"
+      class="gbtn upload-btn"
+      aria-label={m.files_upload_aria()}
+      disabled={listing === null}
+      onclick={openFilePicker}
+      use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
+    >
+    <!-- Hidden real input; triggered by the upload button -->
+    <input
+      bind:this={fileInput}
+      type="file"
+      multiple
+      class="sr-only"
+      aria-hidden="true"
+      tabindex="-1"
+      onchange={handleFileInput}
+    />
+  </div>
 
-  <div class="list">
+  <!-- Upload status lines -->
+  {#each uploads as u (u.name + u.state)}
+    {#if u.state === "uploading"}
+      <div class="upload-status">{m.files_uploading({ name: u.name })}</div>
+    {:else if u.state === "too_large"}
+      <div class="upload-status err">{m.files_upload_too_large({ name: u.name })}</div>
+    {:else if u.state === "failed"}
+      <div class="upload-status err">{m.files_upload_failed({ name: u.name })}</div>
+    {:else if u.state === "done"}
+      <div class="upload-status ok">{m.files_upload_done({ name: u.name })}</div>
+    {/if}
+  {/each}
+
+  <!-- Drop zone wrapping the file list -->
+  <div
+    class={["list", dragOver && "drop-active"]}
+    role="region"
+    aria-label={m.files_upload_aria()}
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
+  >
     {#if loading && !listing}
       <div class="placeholder">{m.common_loading()}</div>
     {:else if error}
       <div class="placeholder err">{m.files_load_error()}</div>
     {:else if listing && listing.entries.length === 0}
-      <div class="placeholder">{m.files_empty()}</div>
+      <div class="placeholder empty-droppable">
+        <span>{m.files_empty()}</span>
+        <span class="drop-hint">{m.files_upload_drop_hint()}</span>
+      </div>
     {:else if listing}
       {#each listing.entries as e (e.path)}
         {#if e.type === "dir"}
@@ -102,6 +215,12 @@
     overflow-y: auto;
     height: 100%;
   }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .crumbs {
     display: flex;
     align-items: center;
@@ -109,6 +228,7 @@
     gap: 4px;
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
+    flex: 1;
   }
   .crumb {
     background: transparent;
@@ -128,12 +248,48 @@
   .crumb-sep {
     color: var(--color-faint);
   }
+  .upload-btn {
+    font-size: var(--fs-meta);
+    padding: 4px 10px;
+    min-height: 28px;
+    flex-shrink: 0;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .upload-status {
+    padding: 5px 12px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    letter-spacing: 0.04em;
+  }
+  .upload-status.err {
+    color: var(--color-red);
+  }
+  .upload-status.ok {
+    color: var(--color-muted);
+  }
   .list {
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     border-radius: 2px;
     display: flex;
     flex-direction: column;
+    transition:
+      border-color 0.1s ease,
+      background 0.1s ease;
+  }
+  .list.drop-active {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 8%, var(--color-inset));
   }
   .placeholder {
     padding: 14px 12px;
@@ -143,6 +299,16 @@
   }
   .placeholder.err {
     color: var(--color-red);
+  }
+  .empty-droppable {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .drop-hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    font-style: italic;
   }
   .row {
     display: flex;
@@ -190,6 +356,10 @@
   @media (max-width: 768px) {
     .row {
       min-height: 44px;
+    }
+    .upload-btn {
+      min-height: 44px;
+      padding: 8px 14px;
     }
   }
 </style>

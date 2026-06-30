@@ -557,6 +557,24 @@ export function scratchpadDownloadUrl(id: string, path: string): string {
   return `/api/sessions/${id}/scratchpad/download?path=${encodeURIComponent(path)}`;
 }
 
+/** Upload one arbitrary file into a session's scratchpad dir (#1258). Returns the root-relative path.
+ *  Throws an ApiError so callers can branch on status (e.g. 413 = too large, max 10 MB). */
+export async function uploadScratchpadFile(
+  id: string,
+  file: File,
+  dirPath?: string,
+): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const q = dirPath ? `?path=${encodeURIComponent(dirPath)}` : "";
+  const r = await fetch(`/api/sessions/${id}/scratchpad/upload${q}`, { method: "POST", body: fd });
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(r.status, body?.error ?? `upload failed: ${r.status}`);
+  }
+  return (await r.json()).path as string;
+}
+
 export interface BranchList {
   branches: string[];
   current: string | null;

@@ -2192,5 +2192,14 @@
   "github_lens_paused": "Pausiert",
   "github_lens_graphql_backoff": "GraphQL-Polling pausiert, während ein Rate-Limit-Backoff abklingt — PR-, Issue- und Backlog-Updates laufen in ~{time} weiter.",
   "docagent_status_error": "Formatierung fehlgeschlagen",
-  "docagent_toast_error": "{repo}: Doku-Update abgebrochen — Prettier konnte die Doku nicht formatieren"
+  "docagent_toast_error": "{repo}: Doku-Update abgebrochen — Prettier konnte die Doku nicht formatieren",
+  "files_upload_button": "Hochladen",
+  "files_upload_aria": "Dateien ins Scratchpad hochladen",
+  "files_upload_drop_hint": "Dateien zum Hochladen hierher ziehen",
+  "files_uploading": "{name} wird hochgeladen…",
+  "files_upload_done": "{name} hochgeladen",
+  "files_upload_too_large": "{name} ist zu groß (max. 10 MB)",
+  "files_upload_failed": "{name} konnte nicht hochgeladen werden",
+  "feat_scratchpad_upload_title": "Dateien ins Scratchpad hochladen",
+  "feat_scratchpad_upload_body": "Du kannst jetzt direkt aus dem Dateien-Tab Dateien in das Scratchpad einer Session laden - per Klick auf Hochladen oder per Drag-and-drop. Der Agent kann alles lesen, was du dort ablegst."
 }

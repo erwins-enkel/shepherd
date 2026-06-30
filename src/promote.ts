@@ -321,14 +321,16 @@ export function sanitizeRule(rule: string): string {
 /** Insert or replace the managed shepherd:learnings block in CLAUDE.md content.
  *  Idempotent: replaces the existing block's contents rather than appending a
  *  duplicate; appends a fresh block when no markers are present. Each rule is one
- *  `- <rule>` bullet. A blank line follows the start marker — prettier/CommonMark
- *  requires it between an HTML-comment block and the list, else `prettier --check`
+ *  `- <rule>` bullet. A blank line brackets the list on both sides — prettier/CommonMark
+ *  requires one between an HTML-comment block and an adjacent list (after the start marker
+ *  AND before the end marker, the latter since prettier 3.9), else `prettier --check`
  *  fails in target repos (flowagent #418). Each rule is sanitized for the same reason. */
 export function upsertLearningsBlock(content: string, rules: string[]): string {
   const body = [
     LEARNINGS_START,
     "",
     ...rules.map((r) => `- ${sanitizeRule(r)}`),
+    "",
     LEARNINGS_END,
   ].join("\n");
   const start = content.indexOf(LEARNINGS_START);

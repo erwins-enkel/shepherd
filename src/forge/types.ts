@@ -296,6 +296,17 @@ export interface PostReviewInput {
   body: string;
 }
 
+/** One per-repo open-PR fetch (`gh pr list --state open`) mapped into every shape its
+ *  consumers need, so a single query feeds the PRs-tab rows and the pr-poller batch. */
+export interface OpenPrSnapshot {
+  /** Backlog PRs-tab rows (newest-first, as listPullRequests returns today). */
+  prs: PullRequest[];
+  /** pr-poller batch keyed by headRefName, as listOpenPrStatuses returns today. */
+  statuses: Map<string, PrStatus>;
+  /** True when ≥200 open PRs were returned (tail truncated by the --limit 200 cap). */
+  capped: boolean;
+}
+
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
@@ -489,6 +500,10 @@ export interface GitForge {
    *  decide whether the full listOpenPrStatuses batch is cheaper than per-session
    *  for this repo. Capped at 200 (a ≥200 result means "at least 200"). Optional. */
   countOpenPrs?(): Promise<number>;
+  /** Open PRs for this repo fetched ONCE and mapped into both consumer shapes (PRs-tab
+   *  rows + headRefName-keyed poll statuses). Optional: only GitHub implements it;
+   *  Gitea/Local omit it and callers fall back to listPullRequests / per-session prStatus. */
+  listOpenPrSnapshot?(): Promise<OpenPrSnapshot>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

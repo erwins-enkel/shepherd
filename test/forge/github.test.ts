@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
 import { EmptyDiffError } from "../../src/forge/types";
+import type { PullRequest, PrStatus } from "../../src/forge/types";
 
 // A recording fake `gh` runner. Returns canned stdout keyed by the subcommand.
 function fakeRunner(responses: Record<string, string>) {
@@ -1457,4 +1458,263 @@ test("countOpenPrs: returns array length from --json number response", async () 
   const listCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
   expect(listCall).toContain("number");
   expect(listCall).toContain("open");
+});
+
+// ── listOpenPrSnapshot ───────────────────────────────────────────────────────
+
+/** Multi-PR fixture for golden-equivalence tests. Every node has a parseable
+ *  createdAt so comparisons don't flake on Date.now() fallback. */
+const SNAPSHOT_NODES = [
+  {
+    number: 1,
+    url: "https://github.com/o/r/pull/1",
+    title: "feat: alpha",
+    state: "OPEN",
+    author: { login: "alice" },
+    createdAt: "2026-01-02T03:04:05Z",
+    isDraft: false,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    statusCheckRollup: [
+      {
+        __typename: "CheckRun",
+        name: "ci",
+        workflowName: "CI",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        detailsUrl: "https://gh/job/ci",
+      },
+    ],
+    reviews: [
+      {
+        author: { login: "bob" },
+        state: "APPROVED",
+        body: "",
+        submittedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+    reviewRequests: [{ login: "carol" }],
+    headRefName: "feat/alpha",
+    headRefOid: "aaa111",
+    baseRefName: "main",
+    labels: [{ name: "feature" }],
+    headRepositoryOwner: { login: "o" },
+  },
+  {
+    number: 2,
+    url: "https://github.com/o/r/pull/2",
+    title: "fix: beta",
+    state: "OPEN",
+    author: { login: "dave" },
+    createdAt: "2026-01-03T00:00:00Z",
+    isDraft: true,
+    mergeable: "CONFLICTING",
+    mergeStateStatus: "DIRTY",
+    statusCheckRollup: [],
+    reviews: [],
+    reviewRequests: [],
+    headRefName: "fix/beta",
+    headRefOid: "bbb222",
+    baseRefName: "main",
+    labels: [],
+    headRepositoryOwner: { login: "o" },
+  },
+];
+
+/** Expected PullRequest[] golden output for SNAPSHOT_NODES (no defaultBranch → def=null). */
+const EXPECTED_PRS: PullRequest[] = [
+  {
+    number: 1,
+    title: "feat: alpha",
+    url: "https://github.com/o/r/pull/1",
+    author: "alice",
+    kind: "regular",
+    createdAt: Date.parse("2026-01-02T03:04:05Z"),
+    isDraft: false,
+    mergeable: true,
+    checks: "success",
+    jobs: [{ name: "CI / ci", state: "success", url: "https://gh/job/ci" }],
+    latestReview: {
+      state: "approved",
+      author: "bob",
+      submittedAt: Date.parse("2026-01-01T00:00:00Z"),
+    },
+    nonDefaultBase: undefined,
+    headSha: "aaa111",
+    headRefName: "feat/alpha",
+  },
+  {
+    number: 2,
+    title: "fix: beta",
+    url: "https://github.com/o/r/pull/2",
+    author: "dave",
+    kind: "regular",
+    createdAt: Date.parse("2026-01-03T00:00:00Z"),
+    isDraft: true,
+    mergeable: false,
+    checks: "none",
+    jobs: [],
+    latestReview: undefined,
+    nonDefaultBase: undefined,
+    headSha: "bbb222",
+    headRefName: "fix/beta",
+  },
+];
+
+/** Expected statuses Map golden output for SNAPSHOT_NODES (deployConfigured=false). */
+const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
+  [
+    "feat/alpha",
+    {
+      state: "open",
+      number: 1,
+      url: "https://github.com/o/r/pull/1",
+      title: "feat: alpha",
+      createdAt: Date.parse("2026-01-02T03:04:05Z"),
+      mergeable: true,
+      mergeStateStatus: "clean",
+      isDraft: false,
+      checks: "success",
+      headSha: "aaa111",
+      baseRefName: "main",
+      latestReview: {
+        state: "approved",
+        author: "bob",
+        submittedAt: Date.parse("2026-01-01T00:00:00Z"),
+      },
+      requestedReviewers: ["carol"],
+      deployConfigured: false,
+    },
+  ],
+  [
+    "fix/beta",
+    {
+      state: "open",
+      number: 2,
+      url: "https://github.com/o/r/pull/2",
+      title: "fix: beta",
+      createdAt: Date.parse("2026-01-03T00:00:00Z"),
+      mergeable: false,
+      mergeStateStatus: "dirty",
+      isDraft: true,
+      checks: "none",
+      headSha: "bbb222",
+      baseRefName: "main",
+      latestReview: undefined,
+      requestedReviewers: [],
+      deployConfigured: false,
+    },
+  ],
+]);
+
+test("listOpenPrSnapshot: golden equivalence — prs matches PullRequest[] shape", async () => {
+  const { run } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const forge = new GithubForge("o/r", {}, run);
+  const snap = await forge.listOpenPrSnapshot!();
+  expect(snap.prs).toEqual(EXPECTED_PRS);
+});
+
+test("listOpenPrSnapshot: golden equivalence — statuses matches Map<string, PrStatus>", async () => {
+  const { run } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const forge = new GithubForge("o/r", {}, run);
+  const snap = await forge.listOpenPrSnapshot!();
+  expect(snap.statuses).toEqual(EXPECTED_STATUSES);
+});
+
+test("listOpenPrSnapshot: single underlying fetch — one pr list call yields both shapes", async () => {
+  const { run, calls } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const forge = new GithubForge("o/r", {}, run);
+  const snap = await forge.listOpenPrSnapshot!();
+  const prListCalls = calls.filter((c) => c[0] === "pr" && c[1] === "list");
+  expect(prListCalls.length).toBe(1);
+  // Both shapes populated from the single call
+  expect(snap.prs.length).toBe(2);
+  expect(snap.statuses.size).toBe(2);
+});
+
+test("listOpenPrSnapshot: requests union field set including author, labels, state, mergeStateStatus", async () => {
+  const { run, calls } = fakeRunner({ "pr list": "[]" });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.listOpenPrSnapshot!();
+  const listCall = calls.find((c) => c[0] === "pr" && c[1] === "list")!;
+  const jsonFields = (listCall[listCall.indexOf("--json") + 1] ?? "").split(",");
+  for (const field of [
+    "author",
+    "labels",
+    "state",
+    "mergeStateStatus",
+    "reviewRequests",
+    "headRepositoryOwner",
+  ]) {
+    expect(jsonFields).toContain(field);
+  }
+});
+
+test("listOpenPrSnapshot: fork-collision dedup — expectedOwner wins regardless of order", async () => {
+  const ownedPr = {
+    number: 10,
+    url: "u10",
+    title: "owned",
+    state: "OPEN",
+    createdAt: "2026-01-01T00:00:00Z",
+    headRefName: "feat/shared",
+    headRepositoryOwner: { login: "o" },
+  };
+  const forkPr = {
+    number: 20,
+    url: "u20",
+    title: "fork",
+    state: "OPEN",
+    createdAt: "2026-01-01T00:00:00Z",
+    headRefName: "feat/shared",
+    headRepositoryOwner: { login: "someforker" },
+  };
+
+  // fork-owner first → owned PR should still win
+  {
+    const { run } = fakeRunner({ "pr list": JSON.stringify([forkPr, ownedPr]) });
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.statuses.get("feat/shared")!.number).toBe(10);
+  }
+
+  // owned PR first → still 10
+  {
+    const { run } = fakeRunner({ "pr list": JSON.stringify([ownedPr, forkPr]) });
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.statuses.get("feat/shared")!.number).toBe(10);
+  }
+});
+
+test("listOpenPrSnapshot: capped=true when 200 nodes returned", async () => {
+  const prs200 = Array.from({ length: 200 }, (_, i) => ({
+    number: i + 1,
+    url: `u${i + 1}`,
+    title: `pr${i + 1}`,
+    state: "OPEN",
+    createdAt: "2026-01-01T00:00:00Z",
+    headRefName: `branch-${i + 1}`,
+  }));
+  const { run } = fakeRunner({ "pr list": JSON.stringify(prs200) });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.capped).toBe(true);
+});
+
+test("listOpenPrSnapshot: capped=false when fewer than 200 nodes returned", async () => {
+  const { run } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.capped).toBe(false);
+});
+
+test("listPullRequests delegates to listOpenPrSnapshot: same output via wrapper", async () => {
+  const { run } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs).toEqual(EXPECTED_PRS);
+});
+
+test("listOpenPrStatuses delegates to listOpenPrSnapshot: same output via wrapper", async () => {
+  const { run } = fakeRunner({ "pr list": JSON.stringify(SNAPSHOT_NODES) });
+  const forge = new GithubForge("o/r", {}, run);
+  const statuses = await forge.listOpenPrStatuses!();
+  expect(statuses).toEqual(EXPECTED_STATUSES);
 });

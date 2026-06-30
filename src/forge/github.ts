@@ -20,6 +20,7 @@ import type {
   MergeMethod,
   MergeStateStatus,
   OpenPrInput,
+  OpenPrSnapshot,
   PostReviewInput,
   PrComment,
   PrReviewMeta,
@@ -445,55 +446,36 @@ export class GithubForge implements GitForge {
     }));
   }
 
+  private mapGhPrToPullRequest(
+    p: GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> },
+    defaultBranch: string | null,
+  ): PullRequest {
+    const ts = Date.parse(p.createdAt ?? "");
+    const author = p.author?.login ?? "";
+    const labels = (p.labels ?? []).map((l) => l.name).filter((n): n is string => !!n);
+    return {
+      number: p.number,
+      title: p.title,
+      url: p.url,
+      author,
+      kind: classifyPr({ author, title: p.title, headRefName: p.headRefName, labels }),
+      createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      isDraft: p.isDraft ?? false,
+      mergeable: mapMergeable(p.mergeable),
+      checks: rollupChecks(p.statusCheckRollup ?? []),
+      jobs: jobsFromRollup(p.statusCheckRollup ?? []),
+      latestReview: latestHumanReview(p.reviews),
+      nonDefaultBase:
+        defaultBranch && p.baseRefName && p.baseRefName !== defaultBranch
+          ? p.baseRefName
+          : undefined,
+      headSha: p.headRefOid,
+      headRefName: p.headRefName,
+    };
+  }
+
   async listPullRequests(): Promise<PullRequest[]> {
-    const [out, def] = await Promise.all([
-      this.run([
-        "pr",
-        "list",
-        "--repo",
-        this.slug,
-        "--state",
-        "open",
-        "--json",
-        "number,title,url,author,createdAt,isDraft,mergeable,statusCheckRollup,reviews,headRefName,headRefOid,baseRefName,labels",
-        // See listIssues: 200 cap vs unbounded PR count (pullRequests.totalCount).
-        "--limit",
-        "200",
-      ]),
-      this.defaultBranch().catch(() => null),
-    ]);
-    const raw = JSON.parse(out || "[]") as Array<
-      GhPr & {
-        author?: { login?: string } | null;
-        createdAt?: string;
-        isDraft?: boolean;
-        headRefName?: string;
-        headRefOid?: string;
-        baseRefName?: string;
-        labels?: Array<{ name?: string }>;
-      }
-    >;
-    return raw.map((p) => {
-      const ts = Date.parse(p.createdAt ?? "");
-      const author = p.author?.login ?? "";
-      const labels = (p.labels ?? []).map((l) => l.name).filter((n): n is string => !!n);
-      return {
-        number: p.number,
-        title: p.title,
-        url: p.url,
-        author,
-        kind: classifyPr({ author, title: p.title, headRefName: p.headRefName, labels }),
-        createdAt: Number.isFinite(ts) ? ts : Date.now(),
-        isDraft: p.isDraft ?? false,
-        mergeable: mapMergeable(p.mergeable),
-        checks: rollupChecks(p.statusCheckRollup ?? []),
-        jobs: jobsFromRollup(p.statusCheckRollup ?? []),
-        latestReview: latestHumanReview(p.reviews),
-        nonDefaultBase: def && p.baseRefName && p.baseRefName !== def ? p.baseRefName : undefined,
-        headSha: p.headRefOid,
-        headRefName: p.headRefName,
-      };
-    });
+    return (await this.listOpenPrSnapshot()).prs;
   }
 
   async listWorkflowRuns(): Promise<WorkflowRun[]> {
@@ -707,6 +689,65 @@ export class GithubForge implements GitForge {
     return this.mapGhPr(pr, deployConfigured);
   }
 
+  /** One per-repo open-PR fetch (`gh pr list --state open`) mapped into every shape its
+   *  consumers need, so a single query feeds the PRs-tab rows and the pr-poller batch. */
+  async listOpenPrSnapshot(): Promise<OpenPrSnapshot> {
+    const deployConfigured = Boolean(this.cfg.deployWorkflow);
+    const [out, def] = await Promise.all([
+      this.run([
+        "pr",
+        "list",
+        "--repo",
+        this.slug,
+        "--state",
+        "open",
+        "--json",
+        "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner",
+        "--limit",
+        "200",
+      ]),
+      this.defaultBranch().catch(() => null),
+    ]);
+
+    const prs = JSON.parse(out || "[]") as Array<
+      GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }
+    >;
+
+    if (prs.length >= 200 && !this.openPrCapLogged) {
+      this.openPrCapLogged = true;
+      console.warn(
+        `[github] ${this.slug} has ≥200 open PRs; batch truncated — tail branches fall back to per-session`,
+      );
+    }
+
+    // Build PRs-tab rows (newest-first as gh returns).
+    const pullRequests = prs.map((p) => this.mapGhPrToPullRequest(p, def));
+
+    // Build headRefName-keyed statuses with deterministic fork-collision dedup.
+    // The expectedOwner-owned entry always wins regardless of array order; if no
+    // entry matches, first-seen wins (mirrors prStatus's prs[0] no-match fallback).
+    const expectedOwner = this.forkOwner ?? this.slug.split("/")[0];
+    const statuses = new Map<string, PrStatus>();
+
+    for (const pr of prs) {
+      if (!pr.headRefName) continue;
+      const key = pr.headRefName;
+      // All nodes come from --state open; default state to "OPEN" when the raw
+      // payload omits the field (e.g. older test fixtures or minimal gh responses).
+      const prForStatus: GhPr = { ...pr, state: pr.state ?? "OPEN" };
+      const existing = statuses.get(key);
+      if (!existing) {
+        statuses.set(key, this.mapGhPr(prForStatus, deployConfigured));
+      } else if (pr.headRepositoryOwner?.login === expectedOwner) {
+        // Current entry's owner matches: overwrite whatever was first-seen
+        statuses.set(key, this.mapGhPr(prForStatus, deployConfigured));
+      }
+      // else: existing is already the right entry — keep it
+    }
+
+    return { prs: pullRequests, statuses, capped: prs.length >= 200 };
+  }
+
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
    *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
    *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
@@ -718,49 +759,7 @@ export class GithubForge implements GitForge {
    *  per-session `prStatus`); the `forkOwner` arm of the dedup key is just
    *  defensive. */
   async listOpenPrStatuses(): Promise<Map<string, PrStatus>> {
-    const deployConfigured = Boolean(this.cfg.deployWorkflow);
-    const out = await this.run([
-      "pr",
-      "list",
-      "--repo",
-      this.slug,
-      "--state",
-      "open",
-      "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,headRefName,baseRefName,reviews,reviewRequests,headRepositoryOwner",
-      "--limit",
-      "200",
-    ]);
-    const prs = JSON.parse(out || "[]") as GhPr[];
-
-    if (prs.length >= 200 && !this.openPrCapLogged) {
-      this.openPrCapLogged = true;
-      console.warn(
-        `[github] ${this.slug} has ≥200 open PRs; batch truncated — tail branches fall back to per-session`,
-      );
-    }
-
-    // Deterministic dedup when two open PRs share a headRefName (e.g. an internal
-    // branch PR and a fork PR for the same name). The expectedOwner-owned entry
-    // always wins regardless of array order; if no entry matches, first-seen wins
-    // (mirrors prStatus's prs[0] no-match fallback).
-    const expectedOwner = this.forkOwner ?? this.slug.split("/")[0];
-    const result = new Map<string, PrStatus>();
-
-    for (const pr of prs) {
-      if (!pr.headRefName) continue;
-      const key = pr.headRefName;
-      const existing = result.get(key);
-      if (!existing) {
-        result.set(key, this.mapGhPr(pr, deployConfigured));
-      } else if (pr.headRepositoryOwner?.login === expectedOwner) {
-        // Current entry's owner matches: overwrite whatever was first-seen
-        result.set(key, this.mapGhPr(pr, deployConfigured));
-      }
-      // else: existing is already the right entry — keep it
-    }
-
-    return result;
+    return (await this.listOpenPrSnapshot()).statuses;
   }
 
   /** Cheap open-PR count (`gh pr list --state open --json number --limit 200`).

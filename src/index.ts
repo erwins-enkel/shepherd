@@ -84,6 +84,7 @@ import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
 import { recommendPrompt } from "./prompt-recommend";
 import { CountsService } from "./backlog";
+import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
@@ -744,6 +745,7 @@ function autonomousWorkInFlight(): boolean {
 }
 const warm = (): boolean => presence.hasClients() || autonomousWorkInFlight();
 
+const openPrSnapshot = new OpenPrSnapshotService();
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -757,7 +759,11 @@ const prPoller = new PrPoller(
   ownsPr,
   warm, // full cadence only while warm; cold → fast sweep pauses, full sweep throttles
   () => graphRateLimit.blocked(), // skip every sweep while the GraphQL bucket is exhausted
-  // idleIntervalMs: default (300s coarse full-sweep cadence while cold)
+  undefined, // idleIntervalMs (default 300s coarse full-sweep cadence while cold)
+  undefined, // transientMaxMs (default)
+  undefined, // batchOpenRatio (default)
+  undefined, // noneRecheckMs (default)
+  openPrSnapshot, // shared per-repo open-PR snapshot cache (PRs tab reuses the poller's fetch)
 );
 setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
 prPoller.start();
@@ -2111,6 +2117,7 @@ const appDeps: AppDeps = {
   },
   verifyKey: () => verifyApiKey({ herdr }),
   backlog,
+  openPrSnapshot,
   // After a backlog merge, force-refresh the repo's counts past the read-TTL and
   // re-broadcast the overview so the merged PR (and any auto-closed linked issue)
   // leaves the counters + headline at once, not on the next ~45s warm tick.

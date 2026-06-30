@@ -2,6 +2,7 @@ import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 
 /** Read/write handle the HTTP layer uses to serve snapshots and apply instant
  *  updates from PR actions. `PrPoller` implements it. */
@@ -192,6 +193,10 @@ export class PrPoller implements PrCache {
      *  created and reached terminal between sweeps). Bounds stuck-`none` self-heal
      *  latency without per-sweep O(none-sessions) fan-out. */
     private noneRecheckMs = 600_000,
+    /** Shared per-repo open-PR snapshot cache. When present, the full-sweep batch is sourced
+     *  from it (`refresh`, always-fresh) so the PRs tab reuses the poller's fetch; when absent
+     *  (older test wiring), the batch falls back to the forge's direct `listOpenPrStatuses`. */
+    private snapshotSvc?: OpenPrSnapshotService,
   ) {}
 
   /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
@@ -233,20 +238,23 @@ export class PrPoller implements PrCache {
   /** Fetch the batch status for one repo. Returns the open-PR map, or null when
    *  the repo should fall back to per-session polling (no batch methods, fork,
    *  count-gate trip, or a transient fetch failure). All `gh` calls under `withGh`.
-   *  count < 2: batching costs 2 gh calls (countOpenPrs + listOpenPrStatuses) vs
+   *  count < 2: batching costs 2 gh calls (countOpenPrs + refresh) vs
    *  S = count per-session calls; break-even is S ≥ 2, so a single-session repo
    *  is a strict regression — skip both probe and list call. */
   private async batchForRepo(
     forge: GitForge,
     count: number,
   ): Promise<Map<string, PrStatus> | null> {
-    if (!forge.listOpenPrStatuses || !forge.countOpenPrs || forge.isFork || count < 2) {
-      return null;
-    }
+    if (!forge.countOpenPrs || forge.isFork || count < 2) return null;
+    if (!forge.listOpenPrSnapshot && !forge.listOpenPrStatuses) return null;
     try {
       const p = await this.withGh(() => forge.countOpenPrs!());
       if (p >= 200 || p > this.batchOpenRatio * count) {
         return null; // cap-hit (truncated batch) or count-gate → per-session
+      }
+      if (this.snapshotSvc && forge.listOpenPrSnapshot) {
+        const snap = await this.withGh(() => this.snapshotSvc!.refresh(forge));
+        return snap?.statuses ?? null;
       }
       return await this.withGh(() => forge.listOpenPrStatuses!());
     } catch {

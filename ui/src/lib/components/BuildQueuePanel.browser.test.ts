@@ -12,15 +12,21 @@ vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {
     ...actual,
-    getBuildQueue: vi.fn(
-      async (): Promise<BuildQueue> => ({ sessionId: "s1", steps: [], approved: false }),
-    ),
-    putBuildQueue: vi.fn(
-      async (_, steps): Promise<BuildQueue> => ({ sessionId: "s1", steps, approved: false }),
-    ),
-    approveBuildQueue: vi.fn(
-      async (): Promise<BuildQueue> => ({ sessionId: "s1", steps: [], approved: true }),
-    ),
+    getBuildQueue: vi.fn(async (): Promise<BuildQueue> => ({
+      sessionId: "s1",
+      steps: [],
+      approved: false,
+    })),
+    putBuildQueue: vi.fn(async (_, steps): Promise<BuildQueue> => ({
+      sessionId: "s1",
+      steps,
+      approved: false,
+    })),
+    approveBuildQueue: vi.fn(async (): Promise<BuildQueue> => ({
+      sessionId: "s1",
+      steps: [],
+      approved: true,
+    })),
   };
 });
 

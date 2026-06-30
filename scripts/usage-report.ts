@@ -915,10 +915,9 @@ async function main(): Promise<void> {
   let spawns: ReviewerSpawnRow[] = [];
   try {
     spawns = db
-      .query<
-        ReviewerSpawnRow,
-        []
-      >("SELECT reviewerSessionId, taskSessionId, model, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens FROM reviewer_spawns")
+      .query<ReviewerSpawnRow, []>(
+        "SELECT reviewerSessionId, taskSessionId, model, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens FROM reviewer_spawns",
+      )
       .all();
   } catch {
     /* table absent on legacy DBs */

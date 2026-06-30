@@ -13,8 +13,7 @@ export type RepoConfigView = RepoConfig & {
 export type RepoConfigPatch = Partial<RepoConfig>;
 
 export type RepoConfigPatchResult =
-  | { ok: true; config: RepoConfigView }
-  | { ok: false; error: string };
+  { ok: true; config: RepoConfigView } | { ok: false; error: string };
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type RepoConfigStore = Pick<

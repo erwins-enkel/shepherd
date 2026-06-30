@@ -29,8 +29,7 @@ export interface PromoterDeps {
 }
 
 export type PromoteResult =
-  | { ok: true; url: string }
-  | { ok: false; error: string; status: number };
+  { ok: true; url: string } | { ok: false; error: string; status: number };
 
 export class Promoter {
   private git: (cwd: string, args: string[]) => Promise<void>;

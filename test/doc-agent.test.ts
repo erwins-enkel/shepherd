@@ -203,8 +203,7 @@ function mkHarness(opts?: {
     docTreePresent: true,
     inScopeFilesPresent: true,
     sentinel: "## Changes\n- updated configuration.md (grounded in src/config.ts)\n" as
-      | string
-      | null,
+      string | null,
     stagedNames: "docs-site/src/content/docs/reference/configuration.md",
     worktreeListPorcelain: "",
     herdrAgents: [] as { name: string; tabId: string; cwd?: string; terminalId?: string }[],

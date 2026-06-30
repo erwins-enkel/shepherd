@@ -11,8 +11,7 @@ function evidenceExcerpt(payload: string, max = 140): string {
 }
 
 export type ApplyMergeResult =
-  | { ok: true }
-  | { ok: false; reason: "not-found" | "already-resolved" | "stale" };
+  { ok: true } | { ok: false; reason: "not-found" | "already-resolved" | "stale" };
 
 /** A pending learning with its evidence resolved — both provenance fields (optional on
  *  Learning, since they're only attached here) are always present on this projection. */

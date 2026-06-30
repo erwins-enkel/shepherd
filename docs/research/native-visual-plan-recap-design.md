@@ -133,9 +133,7 @@ type VisualBlock =
   | {
       type: "question-form";
       id: string;
-      questions: {
-        /* plans only */
-      }[];
+      questions: { /* plans only */ }[];
     };
 ```
 

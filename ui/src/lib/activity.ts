@@ -2,14 +2,7 @@ import type { ActivityEntry } from "./types";
 
 /** Classification kind for activity entries. */
 export type ActivityKind =
-  | "edit"
-  | "read"
-  | "search"
-  | "exec"
-  | "tasks"
-  | "agent"
-  | "web"
-  | "other";
+  "edit" | "read" | "search" | "exec" | "tasks" | "agent" | "web" | "other";
 
 /** Grouped activity entries by kind. */
 export interface ActivityGroup {

@@ -15,12 +15,10 @@ const setManualStepDone = vi.fn(
     ],
   }),
 );
-const dismissManualSteps = vi.fn(
-  async (sessionId: string): Promise<PostMergeSteps> => ({
-    ...record({ sessionId }),
-    clearedAt: Date.now(),
-  }),
-);
+const dismissManualSteps = vi.fn(async (sessionId: string): Promise<PostMergeSteps> => ({
+  ...record({ sessionId }),
+  clearedAt: Date.now(),
+}));
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {

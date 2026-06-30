@@ -3325,7 +3325,13 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
       const recentCounts = deps.store.recentSessionCountsByRepo(
         Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       );
-      const repos = listRepos(config.repoRoot).map((r) => ({
+      const baseRepos = listRepos(config.repoRoot);
+      // repo_config keys are safeRepoDir/realpath-resolved while listRepos enumerates the
+      // raw join(repoRoot, name) path; reconcile the hidden set into raw space (same as the
+      // backlog payload) so a persisted hide matches its repo even under a symlinked root.
+      // The picker (NewTask) hides these by default but reveals them on name search.
+      const hiddenSet = reconcileRealPathsToRaw(deps.store.hiddenRepoPaths(), baseRepos);
+      const repos = baseRepos.map((r) => ({
         ...r,
         lastUsedAt: lastUsed[r.path],
         recentAgentCount: recentCounts[r.path],
@@ -3333,6 +3339,7 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
         // can offer "Sync fork" only on fork repos. resolveForge is cached per dir
         // and shared with the backlog poller — no extra git shell on a warm cache.
         isFork: deps.resolveForge?.(r.path)?.isFork ?? false,
+        hidden: hiddenSet.has(r.path),
       }));
       // Return the window alongside the repos so the picker labels the count with
       // the exact day count it was computed over — single source of truth.

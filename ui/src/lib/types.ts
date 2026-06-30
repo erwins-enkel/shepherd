@@ -35,6 +35,9 @@ export interface RepoEntry {
   /** True when the repo is a fork (origin = fork, upstream = original) — the repo
    *  picker shows a "Sync fork" action on these. Absent/false ⇒ not a fork. */
   isFork?: boolean;
+  /** True when the repo is flagged hidden (RepoConfig.hidden). The New Task picker
+   *  hides these by default but reveals them on name search. Absent/false ⇒ visible. */
+  hidden?: boolean;
 }
 
 export interface Settings {

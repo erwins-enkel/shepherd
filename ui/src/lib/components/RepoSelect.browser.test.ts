@@ -89,3 +89,64 @@ describe("RepoSelect — keyboard cursor on open", () => {
     await expect.element(firstOption).toHaveTextContent("alpha");
   });
 });
+
+describe("RepoSelect — hideHidden", () => {
+  // "secret" has the highest recentAgentCount, so without hiding it would lead the pinned
+  // recents group; it must be absent from BOTH the recents and the main list by default.
+  function makeReposWithHidden(): RepoEntry[] {
+    return [
+      { name: "alpha", path: "/repos/alpha", display: "~/repos/alpha", recentAgentCount: 5 },
+      { name: "beta", path: "/repos/beta", display: "~/repos/beta", recentAgentCount: 3 },
+      {
+        name: "secret",
+        path: "/repos/secret",
+        display: "~/repos/secret",
+        recentAgentCount: 9,
+        hidden: true,
+      },
+    ];
+  }
+
+  it("omits hidden repos from the default list and recents when hideHidden is on", async () => {
+    render(RepoSelect, {
+      repos: makeReposWithHidden(),
+      value: "/repos/alpha",
+      onchange: noop,
+      windowDays: 7,
+      hideHidden: true,
+    });
+
+    await page.getByRole("button", { name: /alpha/ }).click();
+    // Wait for the dropdown to render before asserting absence.
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    expect(page.getByRole("option", { name: /secret/ }).elements()).toHaveLength(0);
+  });
+
+  it("reveals a hidden repo once its name is searched", async () => {
+    render(RepoSelect, {
+      repos: makeReposWithHidden(),
+      value: "/repos/alpha",
+      onchange: noop,
+      windowDays: 7,
+      hideHidden: true,
+    });
+
+    await page.getByRole("button", { name: /alpha/ }).click();
+    await page.getByPlaceholder(m.reposelect_filter_placeholder()).fill("secret");
+
+    const revealed = page.getByRole("option", { name: /secret/ });
+    await expect.element(revealed).toBeVisible();
+  });
+
+  it("keeps hidden repos visible when hideHidden is off (other consumers unaffected)", async () => {
+    render(RepoSelect, {
+      repos: makeReposWithHidden(),
+      value: "/repos/alpha",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    await page.getByRole("button", { name: /alpha/ }).click();
+    await expect.element(page.getByRole("option", { name: /secret/ }).first()).toBeVisible();
+  });
+});

@@ -1383,3 +1383,116 @@ describe("FirstTaskAutomationConfirm", () => {
     expect(confirmBtn?.textContent?.trim()).toContain(m.firsttask_confirm_cta());
   });
 });
+
+describe("NewTask — hidden repos excluded from keyboard selection paths", () => {
+  // The bold name in the repo picker's trigger reflects the currently-selected repo.
+  const selectedRepo = () => document.querySelector(".rs-trigger b")?.textContent ?? "";
+
+  // The repo Alt-tier shortcuts listen on the dialog <form> (keydown bubbles up from the
+  // prompt textarea), keyed on physical e.code. Dispatch there to drive them in a test.
+  function altChord(code: string) {
+    document
+      .querySelector("form")!
+      .dispatchEvent(new KeyboardEvent("keydown", { code, altKey: true, bubbles: true }));
+  }
+
+  it("default selection skips a hidden repo even when it's the most-recently-used", async () => {
+    const visible: RepoEntry = {
+      name: "visible",
+      path: "/repo/hh-default-visible",
+      display: "visible",
+      lastUsedAt: 100,
+    };
+    const secret: RepoEntry = {
+      name: "secret",
+      path: "/repo/hh-default-secret",
+      display: "secret",
+      lastUsedAt: 999, // most-recently-used, but hidden → must not be auto-selected
+      hidden: true,
+    };
+    mockListRepos.mockResolvedValue({ repos: [secret, visible], recentWindowDays: 30 });
+    render(NewTask, { props: base() });
+
+    await expect.poll(() => selectedRepo()).toBe("visible");
+  });
+
+  it("Alt+] cycle steps over a hidden repo instead of surfacing it", async () => {
+    const a: RepoEntry = { name: "aaa", path: "/repo/hh-cyc-a", display: "aaa" };
+    const hidden: RepoEntry = {
+      name: "hhh",
+      path: "/repo/hh-cyc-hidden",
+      display: "hhh",
+      hidden: true,
+    };
+    const c: RepoEntry = { name: "ccc", path: "/repo/hh-cyc-c", display: "ccc" };
+    mockListRepos.mockResolvedValue({ repos: [a, hidden, c], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: a.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("aaa");
+    altChord("BracketRight");
+    // The cycle skips the hidden "hhh" between aaa and ccc and lands on ccc.
+    await expect.poll(() => selectedRepo()).toBe("ccc");
+  });
+
+  it("Alt+1 digit shortcut never targets a hidden repo", async () => {
+    const secret: RepoEntry = {
+      name: "secret",
+      path: "/repo/hh-dig-secret",
+      display: "secret",
+      recentAgentCount: 9, // would be the #1 recent if not hidden
+      hidden: true,
+    };
+    const realtop: RepoEntry = {
+      name: "realtop",
+      path: "/repo/hh-dig-top",
+      display: "realtop",
+      recentAgentCount: 5,
+    };
+    const other: RepoEntry = { name: "other", path: "/repo/hh-dig-other", display: "other" };
+    mockListRepos.mockResolvedValue({ repos: [secret, realtop, other], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: other.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("other");
+    altChord("Digit1");
+    // Alt+1 = first NON-hidden recent (realtop), never the higher-count hidden "secret".
+    await expect.poll(() => selectedRepo()).toBe("realtop");
+  });
+
+  it("cycle from a hidden current repo enters the visible subset at its boundary", async () => {
+    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-1", display: "vis1" };
+    const hiddenCur: RepoEntry = {
+      name: "hcur",
+      path: "/repo/hh-bnd-hidden",
+      display: "hcur",
+      hidden: true,
+    };
+    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-2", display: "vis2" };
+    mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
+    // Seeded selection is the hidden repo (still shown in the trigger), so cur === -1 in
+    // the visible subset [vis1, vis2].
+    render(NewTask, { props: base({ initialRepoPath: hiddenCur.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("hcur");
+    // Forward enters at the FIRST visible repo (not the second).
+    altChord("BracketRight");
+    await expect.poll(() => selectedRepo()).toBe("vis1");
+  });
+
+  it("backward cycle from a hidden current repo enters at the last visible repo", async () => {
+    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-b1", display: "vis1" };
+    const hiddenCur: RepoEntry = {
+      name: "hcur",
+      path: "/repo/hh-bnd-b-hidden",
+      display: "hcur",
+      hidden: true,
+    };
+    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-b2", display: "vis2" };
+    mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: hiddenCur.path }) });
+
+    await expect.poll(() => selectedRepo()).toBe("hcur");
+    // Backward enters at the LAST visible repo.
+    altChord("BracketLeft");
+    await expect.poll(() => selectedRepo()).toBe("vis2");
+  });
+});

@@ -122,26 +122,44 @@ describe("FilesPanel — 413 too-large error surfaces inline", () => {
 });
 
 describe("FilesPanel — drag-and-drop calls uploadScratchpadFile", () => {
-  it("calls uploadScratchpadFile on drop with correct args", async () => {
+  it("calls uploadScratchpadFile on drop anywhere in the tab with correct args", async () => {
     mockUpload.mockResolvedValue("dropped.txt");
 
     render(FilesPanel, { sessionId: "sess-4" });
     await waitForPanel();
 
     const file = new File(["drop"], "dropped.txt", { type: "text/plain" });
-    const list = document.querySelector<HTMLDivElement>(".list")!;
-    expect(list).not.toBeNull();
+    // The whole .files tab is the drop zone, not just the inner list.
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    expect(tab).not.toBeNull();
 
     const dt = new DataTransfer();
     dt.items.add(file);
-    list.dispatchEvent(
+    tab.dispatchEvent(
       new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }),
     );
-    list.dispatchEvent(
-      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }),
-    );
+    tab.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
 
     await expect.poll(() => mockUpload.mock.calls.length).toBe(1);
     expect(mockUpload).toHaveBeenCalledWith("sess-4", file, undefined);
+  });
+
+  it("shows the whole-tab drop overlay on dragover and clears it on drop", async () => {
+    mockUpload.mockResolvedValue("dropped.txt");
+
+    render(FilesPanel, { sessionId: "sess-5" });
+    await waitForPanel();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    const dt = new DataTransfer();
+    dt.items.add(new File(["drop"], "dropped.txt", { type: "text/plain" }));
+
+    tab.dispatchEvent(
+      new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+    await expect.poll(() => document.querySelector(".drop-overlay")).toBeTruthy();
+
+    tab.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    await expect.poll(() => document.querySelector(".drop-overlay")).toBeFalsy();
   });
 });

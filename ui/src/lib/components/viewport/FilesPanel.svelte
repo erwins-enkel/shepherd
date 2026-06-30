@@ -128,7 +128,20 @@
   }
 </script>
 
-<div class="files">
+<div
+  class="files"
+  role="region"
+  aria-label={m.files_list_aria()}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+>
+  {#if dragOver}
+    <!-- Whole-tab drop overlay; pointer-events:none so drag/drop events keep reaching .files -->
+    <div class="drop-overlay" aria-hidden="true">
+      <span class="drop-overlay-hint">{m.files_upload_drop_hint()}</span>
+    </div>
+  {/if}
   <div class="toolbar">
     <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
       {#each crumbs as c, i (c.path)}
@@ -173,15 +186,8 @@
     {/if}
   {/each}
 
-  <!-- Drop zone wrapping the file list -->
-  <div
-    class={["list", dragOver && "drop-active"]}
-    role="region"
-    aria-label={m.files_list_aria()}
-    ondragover={handleDragOver}
-    ondragleave={handleDragLeave}
-    ondrop={handleDrop}
-  >
+  <!-- File list; the whole .files tab is the drop zone (see handlers above) -->
+  <div class="list">
     {#if loading && !listing}
       <div class="placeholder">{m.common_loading()}</div>
     {:else if error}
@@ -220,12 +226,32 @@
 
 <style>
   .files {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
     overflow-y: auto;
     height: 100%;
+  }
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 6px;
+    border: 2px dashed var(--color-blue);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-blue) 10%, var(--color-inset));
+  }
+  .drop-overlay-hint {
+    color: var(--color-blue);
+    font-family: var(--font-mono);
+    font-size: var(--fs-lg);
+    letter-spacing: 0.04em;
   }
   .toolbar {
     display: flex;
@@ -317,13 +343,6 @@
     border-radius: 2px;
     display: flex;
     flex-direction: column;
-    transition:
-      border-color 0.1s ease,
-      background 0.1s ease;
-  }
-  .list.drop-active {
-    border-color: var(--color-blue);
-    background: color-mix(in srgb, var(--color-blue) 8%, var(--color-inset));
   }
   .placeholder {
     padding: 14px 12px;

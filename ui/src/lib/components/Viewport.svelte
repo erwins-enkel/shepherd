@@ -2275,6 +2275,24 @@
     transition: none;
   }
 
+  /* Short viewports (unfolded foldable split-screen landscape, phone landscape):
+     the detail/terminal screen is a fixed-height .shell.mobile column — NOT the
+     document-scroll list shell. .viewport keeps its definite height:100%, so vp-body
+     fills the pane and the terminal keeps its own internal scroll while content fits
+     (no page scrollbar). Only at the extreme-short floor (column min-content > pane,
+     vp-body pinned to its 4rem min) would the bottom bars (SteerBar /
+     ViewportTermControls / SessionRecap) be clipped by overflow:hidden with no way to
+     reach them — so allow vertical page-scroll there. overflow-x stays hidden to
+     preserve the horizontal swipe-to-navigate clip. Safe to key on height alone: at
+     height ≤600 the app is in the mobile branch (the desktop Viewport instance is
+     unmounted), and tall mobile (height >600) never matches, so normal phone detail
+     is untouched. */
+  @media (max-height: 600px) {
+    .viewport {
+      overflow: hidden auto;
+    }
+  }
+
   /* phone session view: full-bleed terminal — the side borders + rounded corners
      cost two vertical lines plus gutters on a narrow phone, so drop them and
      stretch into the shell's base edge padding (--mobile-shell-pad, shared with

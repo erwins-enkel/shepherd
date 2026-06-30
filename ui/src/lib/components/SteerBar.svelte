@@ -417,8 +417,11 @@
      regardless of `compact`, so there's always a label to reveal — the `.lbl-toggle`
      reveal below is viewport-only (1 class, so it ties the base `display: none` and
      wins by coming later in source order), independent of `.show-labels` so the
-     toggle stays visible to collapse back once ABC is pressed. */
-  @media (max-width: 768px) {
+     toggle stays visible to collapse back once ABC is pressed.
+     The (max-height: 600px) arm keeps this collapse consistent on short-wide
+     viewports (foldable split-screen / phone landscape) that now route to the
+     mobile layout but are wider than the 768px breakpoint. */
+  @media (max-width: 768px), (max-height: 600px) {
     .steer-bar:not(.show-labels) .chip.bc {
       min-width: 44px;
       padding: 0;

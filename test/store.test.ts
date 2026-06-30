@@ -42,6 +42,32 @@ test("session agentProvider defaults to claude and round-trips codex", () => {
   expect(s.get(codex.id)?.agentProvider).toBe("codex");
 });
 
+test("update can replace a session's agent identity without changing the row", () => {
+  const s = mk();
+  const orig = s.create({ ...base, claudeSessionId: "claude-old", model: "opus" });
+
+  s.update(orig.id, {
+    herdrAgentId: "term_codex",
+    claudeSessionId: "",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    status: "running",
+    lastState: "idle",
+    planGateEnabled: false,
+    planPhase: null,
+  });
+
+  const got = s.get(orig.id)!;
+  expect(got.id).toBe(orig.id);
+  expect(got.worktreePath).toBe(orig.worktreePath);
+  expect(got.herdrAgentId).toBe("term_codex");
+  expect(got.claudeSessionId).toBe("");
+  expect(got.agentProvider).toBe("codex");
+  expect(got.model).toBe("gpt-5.5");
+  expect(got.planGateEnabled).toBe(false);
+  expect(got.planPhase).toBeNull();
+});
+
 test("lastUsedByRepo returns max createdAt per repoPath", () => {
   const s = mk();
   s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });

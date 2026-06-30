@@ -311,8 +311,10 @@ export class HerdStore {
   /** Apply a session:status push. Merges the turn-end scratchpad flag (#1164) only when this
    *  push carries it (idle/done transitions); the undefined guard stops a status-only push
    *  (e.g. → running) from clobbering the live flag back to falsy. */
-  private applyStatus(d: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean }) {
-    const patch: Partial<Session> = { status: d.status };
+  private applyStatus(
+    d: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>,
+  ) {
+    const patch: Partial<Session> = { ...d, status: d.status };
     if (d.hasScratchpadFiles !== undefined) patch.hasScratchpadFiles = d.hasScratchpadFiles;
     this.patchSession(d.id, patch);
   }

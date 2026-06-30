@@ -2538,6 +2538,39 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+const inFlightReplace = new Set<string>();
+
+// POST /api/sessions/:id/replace — stop the current agent process and start a new provider/model
+// in the SAME Shepherd session and worktree. This is intentionally not relaunch: no new branch,
+// no new worktree, no archive event.
+async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "replace")) return null;
+  const id = parts[2];
+
+  if (inFlightReplace.has(id))
+    return json({ error: "replace already in progress", code: "in_progress" }, 409);
+  inFlightReplace.add(id);
+  try {
+    const original = deps.store.get(id);
+    if (!original) return json({ error: "not found" }, 404);
+    if (original.status === "archived") return json({ error: "already archived" }, 409);
+
+    const choice = await parseModelChoice(req);
+    if (!choice.ok) return choice.res;
+
+    let session: Session;
+    try {
+      session = await deps.service.replaceAgent(id, choice.value);
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : "replace failed" }, 502);
+    }
+    deps.events.emit("session:status", session);
+    return json({ session }, 200);
+  } finally {
+    inFlightReplace.delete(id);
+  }
+}
+
 // Serialize concurrent same-key calls behind a 409: add the key, run, always remove. Shared by
 // the variant + compare routes (the relaunch route keeps its own copy with bespoke messaging).
 async function guardInFlight(
@@ -2816,6 +2849,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAutopilot,
     handleSessionAutoMerge,
     handleSessionRelaunch,
+    handleSessionReplace,
     handleSessionVariant,
     handleSessionRestore,
     handleRelaunchUploads,

@@ -4580,8 +4580,13 @@ function relaunchHarness(store: SessionStore) {
     started: { name: string; cwd: string; argv: string[] }[];
     stopped: string[];
     removed: string[];
-  } = { started: [], stopped: [], removed: [] };
+    order: string[];
+  } = { started: [], stopped: [], removed: [], order: [] };
   let n = 0;
+  let failStart = false;
+  const breakStart = () => {
+    failStart = true;
+  };
   // Make the post-create override step throw (called only after seeding the original).
   const breakOverride = () => {
     store.setAutopilotState = () => {
@@ -4602,16 +4607,21 @@ function relaunchHarness(store: SessionStore) {
     } as any,
     herdr: {
       start: (name: string, cwd: string, argv: string[]) => {
+        if (failStart) throw new Error("spawn failed");
         calls.started.push({ name, cwd, argv });
+        calls.order.push("start");
         return { terminalId: `term_${n}`, agentStatus: "working" } as any;
       },
       list: () => [],
-      stop: (id: string) => calls.stopped.push(id),
+      stop: (id: string) => {
+        calls.stopped.push(id);
+        calls.order.push(`stop:${id}`);
+      },
     } as any,
     copyUploads: (images: string[], worktreePath: string) =>
       images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
   });
-  return { service, calls, breakOverride };
+  return { service, calls, breakOverride, breakStart };
 }
 
 /** Seed a non-archived "original" session with the per-task settings to be copied. */
@@ -4736,6 +4746,96 @@ test("relaunch does NOT archive the original", async () => {
   expect(store.get(orig.id)?.status).not.toBe("archived");
   expect(calls.stopped).not.toContain("term_orig"); // original agent left running
   expect(calls.removed).not.toContain("/wt/orig"); // original worktree left in place
+});
+
+test("replaceAgent swaps provider in the same session and worktree", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, { claudeSessionId: "claude-old", agentProvider: "claude" });
+  store.update(orig.id, {
+    status: "done",
+    lastState: "done",
+    readyToMerge: true,
+    mergingSince: 1234,
+    mergingTrainId: "train-1",
+    mergingPrNumber: 42,
+  });
+
+  const replaced = await service.replaceAgent(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.5",
+  });
+
+  expect(replaced.id).toBe(orig.id);
+  expect(replaced.desig).toBe(orig.desig);
+  expect(replaced.worktreePath).toBe("/wt/orig");
+  expect(replaced.agentProvider).toBe("codex");
+  expect(replaced.model).toBe("gpt-5.5");
+  expect(replaced.claudeSessionId).toBe("");
+  expect(replaced.herdrAgentId).not.toBe("term_orig");
+  expect(replaced.status).toBe("running");
+  expect(replaced.lastState).toBe("idle");
+  expect(replaced.readyToMerge).toBe(false);
+  expect(replaced.mergingSince).toBeNull();
+  expect(replaced.mergingTrainId).toBeNull();
+  expect(replaced.mergingPrNumber).toBeNull();
+  expect(calls.stopped).toEqual(["term_orig"]);
+  expect(calls.order).toEqual(["start", "stop:term_orig"]);
+  expect(calls.started).toHaveLength(1);
+  expect(calls.started[0]).toMatchObject({ name: orig.name, cwd: "/wt/orig" });
+  expect(calls.started[0]!.argv.slice(0, 5)).toEqual([
+    "codex",
+    "--no-alt-screen",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--model",
+    "gpt-5.5",
+  ]);
+  expect(calls.removed).toEqual([]);
+});
+
+test("replaceAgent keeps the old agent registered if replacement spawn fails", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls, breakStart } = relaunchHarness(store);
+  const orig = originalSession(store, { claudeSessionId: "claude-old", agentProvider: "claude" });
+  breakStart();
+
+  await expect(
+    service.replaceAgent(orig.id, { agentProvider: "codex", model: "gpt-5.5" }),
+  ).rejects.toThrow("spawn failed");
+
+  const persisted = store.get(orig.id)!;
+  expect(persisted.herdrAgentId).toBe("term_orig");
+  expect(persisted.agentProvider).toBe("claude");
+  expect(persisted.claudeSessionId).toBe("claude-old");
+  expect(calls.stopped).toEqual([]);
+});
+
+test("replaceAgent re-attaches existing uploads without copying them back into the same worktree", async () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "replace-root-"));
+  const wt = mkdtempSync(join(tmpdir(), "replace-wt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "diagram.png"), "PNGDATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service, calls } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    await service.replaceAgent(orig.id, { agentProvider: "codex", model: null });
+    await service.replaceAgent(orig.id, { agentProvider: "claude", model: null });
+
+    const promptArg = calls.started[0]!.argv.at(-1)!;
+    expect(promptArg).toContain("Attached images:");
+    expect(promptArg).toContain(join(uploads, "diagram.png"));
+    expect(calls.started[1]!.argv.at(-1)!).toContain(join(uploads, "diagram.png"));
+    expect(readdirSync(uploads)).toEqual(["diagram.png"]);
+    expect(existsSync(join(root, ".shepherd-uploads-staging"))).toBe(false);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
 });
 
 test("relaunch tears down the just-created session if a post-create step throws (no orphan)", async () => {

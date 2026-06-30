@@ -769,6 +769,16 @@ export interface VariantChoice {
   model: string | null;
 }
 
+/** Replace the agent CLI/model in-place, keeping the same Shepherd session + worktree. */
+export async function replaceSessionAgent(id: string, choice: VariantChoice): Promise<Session> {
+  const { session } = await postJson<{ session: Session }>(
+    `/api/sessions/${id}/replace`,
+    choice,
+    "replace",
+  );
+  return session;
+}
+
 /**
  * Start a parallel comparison VARIANT of a session: same task, different model/CLI. The original
  * stays alive; both are linked into one comparison experiment. Returns the new variant session.

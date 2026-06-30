@@ -14,11 +14,13 @@ function harness(opts: {
   original?: Partial<Session> | null;
   startVariant?: (id: string, choice: unknown) => Promise<{ variant: Session; original: Session }>;
   startComparison?: (experimentId: string, choice: unknown) => Promise<Session>;
+  replaceAgent?: (id: string, choice: unknown) => Promise<Session>;
 }) {
   const emitted: Spy[] = [];
   const calls = {
     startVariant: [] as Array<{ id: string; choice: unknown }>,
     startComparison: [] as Array<{ experimentId: string; choice: unknown }>,
+    replaceAgent: [] as Array<{ id: string; choice: unknown }>,
   };
 
   const originalSession =
@@ -57,6 +59,17 @@ function harness(opts: {
         experimentRole: "comparison",
       } as unknown as Session;
     },
+    replaceAgent: async (id: string, choice: unknown) => {
+      calls.replaceAgent.push({ id, choice });
+      if (opts.replaceAgent) return opts.replaceAgent(id, choice);
+      return {
+        ...originalSession,
+        id,
+        agentProvider: "codex",
+        model: "gpt-5.5",
+        worktreePath: "/same-wt",
+      } as unknown as Session;
+    },
   } as unknown as SessionService;
 
   const events = {
@@ -86,6 +99,17 @@ function variantReq(
 
 function compareReq(experimentId = "exp", body: unknown = { model: "opus" }): Request {
   return new Request(`http://localhost/api/experiments/${experimentId}/compare`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function replaceReq(
+  id = "orig",
+  body: unknown = { agentProvider: "codex", model: "gpt-5.5" },
+): Request {
+  return new Request(`http://localhost/api/sessions/${id}/replace`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -129,6 +153,33 @@ test("variant: 400 on an invalid model/provider pair", async () => {
   const res = await h.app.fetch(variantReq("orig", { agentProvider: "claude", model: "gpt-5.5" }));
   expect(res.status).toBe(400);
   expect(h.calls.startVariant).toHaveLength(0);
+});
+
+test("replace: updates the existing session and emits no new/archive events", async () => {
+  const h = harness({ original: { worktreePath: "/same-wt", agentProvider: "claude" } });
+  const res = await h.app.fetch(replaceReq());
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { session: Session };
+  expect(body.session.id).toBe("orig");
+  expect(body.session.worktreePath).toBe("/same-wt");
+  expect(h.calls.replaceAgent[0]).toEqual({
+    id: "orig",
+    choice: { agentProvider: "codex", model: "gpt-5.5" },
+  });
+  expect(h.emitted.map((e) => e.event)).toEqual(["session:status"]);
+  expect(h.emitted[0]?.data).toMatchObject({
+    id: "orig",
+    status: "running",
+    worktreePath: "/same-wt",
+    agentProvider: "codex",
+  });
+});
+
+test("replace: 400 on an invalid model/provider pair", async () => {
+  const h = harness({});
+  const res = await h.app.fetch(replaceReq("orig", { agentProvider: "claude", model: "gpt-5.5" }));
+  expect(res.status).toBe(400);
+  expect(h.calls.replaceAgent).toHaveLength(0);
 });
 
 test("compare: spawns, returns 201 and emits session:new", async () => {

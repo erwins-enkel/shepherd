@@ -1324,7 +1324,7 @@ export type WsEvent =
   | { event: "session:new"; data: Session }
   | {
       event: "session:status";
-      data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean };
+      data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;
     }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
   | {

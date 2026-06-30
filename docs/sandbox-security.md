@@ -52,7 +52,7 @@ secrets out of the membrane entirely.
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
 is watching (`willEgressConfine`, `src/sandbox.ts:565-570`; applied at
-`src/service.ts:1374`): the wrap applies iff the autonomous profile resolves
+`src/service.ts:1409`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -76,7 +76,7 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L1749-1767, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L1796-1814, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it

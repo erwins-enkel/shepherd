@@ -7,6 +7,7 @@ import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, MergeInput, OpenPrSnapshot, PullRequest } from "../src/forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { config } from "../src/config";
 
 let tmpRoot: string;
@@ -340,4 +341,34 @@ test("GET /api/prs swallows snapshot service error → {slug, prs:[]}", async ()
   const res = await app.fetch(getReq(repoDir));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, prs: [] });
+});
+
+// End-to-end against a REAL OpenPrSnapshotService (not a get-only stub) so the
+// assertion can't pass vacuously: warm the cache, merge, then prove the next
+// GET misses the still-TTL-fresh entry and returns the post-merge list.
+test("POST /api/prs/merge invalidates the snapshot so the next GET /api/prs drops the merged PR", async () => {
+  let merged = false;
+  const forge = fakeForge({
+    merge: async () => {
+      merged = true;
+    },
+    // Open PR present before merge, gone after — what `gh pr list --state open` would report.
+    listOpenPrSnapshot: async () => fakeSnapshot(merged ? [] : [PR]),
+  });
+  const deps = makeDeps(() => forge);
+  deps.openPrSnapshot = new OpenPrSnapshotService(); // real cache + invalidate
+  const app = makeApp(deps);
+
+  // 1. Warm the snapshot cache — lists the open PR.
+  const before = await (await app.fetch(getReq(repoDir))).json();
+  expect(before.prs).toEqual([PR]);
+
+  // 2. Merge it (handler invalidates the snapshot for this repo).
+  const mergeRes = await app.fetch(mergeReq({ repo: repoDir, number: PR.number }));
+  expect(mergeRes.status).toBe(200);
+
+  // 3. Refetch — without invalidation the entry is still TTL-fresh and would re-list
+  //    the merged PR; with it the GET misses and fetches the post-merge (empty) list.
+  const after = await (await app.fetch(getReq(repoDir))).json();
+  expect(after.prs).toEqual([]);
 });

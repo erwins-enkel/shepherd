@@ -309,3 +309,61 @@ test("interleaving: joining refresh gets stale-on-error; get gets null; single-f
   expect(refreshResult).toEqual(staleSnap); // refresh keeps last-known-good
   expect(callCount).toBe(1); // single-flight: only one forge call
 });
+
+test("invalidate: evicts the cached entry so the next get refetches within TTL", async () => {
+  const now = 0; // clock never advances — entry would stay fresh without invalidation
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+
+  await svc.get(forge); // warm cache (id=1)
+  expect(forge.calls).toBe(1);
+
+  svc.invalidate(forge);
+  expect(svc.peek(forge)).toBeNull(); // entry gone, even though still within TTL
+
+  const snap = await svc.get(forge); // miss → refetch (id=2)
+  expect(forge.calls).toBe(2);
+  expect(snap!.prs[0]!.number).toBe(2);
+});
+
+test("invalidate: clears inflight — a later get starts a fresh fetch and a late pre-invalidate fetch can't poison the cache", async () => {
+  const now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+
+  // Controllable, ordered resolutions so we can interleave invalidate between fetches.
+  const resolvers: Array<(v: OpenPrSnapshot) => void> = [];
+  let callCount = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = () => {
+    callCount++;
+    return new Promise<OpenPrSnapshot>((res) => resolvers.push(res));
+  };
+
+  const a = svc.get(forge); // fetch A in flight (call #1)
+  svc.invalidate(forge); // drop cache + inflight pointer
+  const b = svc.get(forge); // must NOT join A — starts fetch B (call #2)
+  expect(callCount).toBe(2);
+
+  // Resolve A (the abandoned pre-invalidate fetch) FIRST, then B.
+  resolvers[0]!(makeSnapshot(1)); // A's stale value
+  resolvers[1]!(makeSnapshot(2)); // B's fresh value
+  const [av, bv] = await Promise.all([a, b]);
+
+  // Each caller still receives the value it fetched…
+  expect(av!.prs[0]!.number).toBe(1);
+  expect(bv!.prs[0]!.number).toBe(2);
+  // …but only B (the current inflight) repopulated the cache; A's late resolution was dropped.
+  expect(svc.peek(forge)!.prs[0]!.number).toBe(2);
+});
+
+test("invalidate: no-op for incapable forges (null slug / no listOpenPrSnapshot)", async () => {
+  const svc = new OpenPrSnapshotService();
+  const nullSlug = makeForge(null);
+  const noMethod = makeForge("org/repo", { noSnapshot: true });
+
+  // Should neither throw nor touch the forge.
+  expect(() => svc.invalidate(nullSlug)).not.toThrow();
+  expect(() => svc.invalidate(noMethod)).not.toThrow();
+  expect(nullSlug.calls).toBe(0);
+  expect(noMethod.calls).toBe(0);
+});

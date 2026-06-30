@@ -343,8 +343,11 @@ export interface AppDeps {
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Shared per-repo open-PR snapshot cache (read by the PRs tab; warmed by the pr-poller).
+   *  `invalidate` is evicted after an interactive merge so the panel's refetch misses the
+   *  stale snapshot. It is optional so `get`-only test stubs keep compiling.
    *  Absent in tests that don't exercise it — the PRs route then fetches fresh. */
-  openPrSnapshot?: Pick<OpenPrSnapshotService, "get">;
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "get"> &
+    Partial<Pick<OpenPrSnapshotService, "invalidate">>;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -2884,6 +2887,10 @@ async function forgeMerge(
       );
     throw err;
   }
+  // Evict the repo's open-PR snapshot so the backlog PRs panel for this repo can't
+  // re-list this merged PR from a still-TTL-fresh cache. No-op for incapable forges
+  // (local / null slug), so it's safe on both the local and host branches below.
+  deps.openPrSnapshot?.invalidate?.(forge);
   // Lightweight (local) merge happened in-tree — nobody else tears the session down (no host
   // poller path, no merge train), so the worktree/branch would leak. Settle it here, mirroring
   // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human
@@ -4354,6 +4361,11 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
     });
+    // Evict the open-PR snapshot for this repo so the panel's silent refetch
+    // (GET /api/prs, right after this 200) misses the cache and fetches fresh —
+    // otherwise the still-TTL-fresh snapshot re-lists the just-merged PR. Sync,
+    // before the response, so the refetch can't race a cache that still has it.
+    deps.openPrSnapshot?.invalidate?.(forge);
     // Detached, best-effort: the merge already succeeded, so a refresh/broadcast
     // hiccup must not fail the response, and the GraphQL refetch must not delay the
     // "merged" feedback. Pushes the merged PR (and any auto-closed linked issue) out

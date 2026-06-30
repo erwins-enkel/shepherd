@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { parseManualSteps } from "../src/manual-steps";
+import { MANUAL_STEPS_NOTICE } from "../src/service";
 
 const block = (lines: string) => "Some PR prose.\n\n```shepherd:manual-steps\n" + lines + "\n```\n";
 
@@ -79,6 +80,17 @@ describe("parseManualSteps — manual-operator-step carrier parsing (#1059)", ()
     expect(parseManualSteps(body)).toEqual([
       { id: "ms1", text: "block step", postMerge: false },
       { id: "ms2", text: "trailer step", postMerge: false },
+    ]);
+  });
+
+  // Drift guard (#1257): the carrier example embedded in the agent-facing MANUAL_STEPS_NOTICE must
+  // stay parseable by THIS parser. If a wording edit breaks the fence-open line, a checkbox line, or
+  // the POST-MERGE prefix, agents would emit non-parsing carriers and the Owed lens would silently
+  // never populate. Pinning the notice's own example to parseManualSteps catches that at CI time.
+  test("MANUAL_STEPS_NOTICE's embedded example parses to the documented steps (incl. POST-MERGE)", () => {
+    expect(parseManualSteps(MANUAL_STEPS_NOTICE)).toEqual([
+      { id: "ms1", text: "Set the FEATURE_X env var in production", postMerge: false },
+      { id: "ms2", text: "Run the data backfill once the PR is live", postMerge: true },
     ]);
   });
 });

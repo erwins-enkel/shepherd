@@ -1011,10 +1011,23 @@
     void doneSessions.load();
     void recaps.load();
   });
-  // Owed lens (#1061): (re)load the durable post-merge steps whenever the lens opens. Live updates
-  // arrive via the `post-merge-steps:changed` WS event (handled in store.svelte.ts).
+  // Owed lens count badge (#1257): eagerly load the durable post-merge steps on the DESKTOP layout
+  // so the OWED lens badge reflects the outstanding count before the lens is ever opened. Gated on
+  // `!mobile.current` because the mobile branch renders HerdSegRow, which has no OWED segment (no
+  // badge to feed) — and re-fires if the viewport later widens to desktop. Once-only via the
+  // store's `loaded` guard; the store's in-flight guard stops a viewport toggle mid-load from
+  // duplicating the GET. Live updates thereafter arrive via the `post-merge-steps:changed` WS event
+  // (handled in store.svelte.ts), whose `refreshIfLoaded()` is a no-op until `loaded` is true.
   $effect(() => {
-    if (herdFilter !== "owed") return;
+    if (mobile.current || postMergeStepsStore.loaded) return;
+    void postMergeStepsStore.load();
+  });
+  // Failure-recovery fallback (#1257): if the eager load above failed (`loaded` still false), opening
+  // the OWED lens retries — the operator's natural action when they suspect owed work. The `!loaded`
+  // guard makes this a no-op on the happy path (eager load already populated it), so there is no
+  // double-fetch when the lens opens normally.
+  $effect(() => {
+    if (herdFilter !== "owed" || postMergeStepsStore.loaded) return;
     void postMergeStepsStore.load();
   });
   $effect(() => {

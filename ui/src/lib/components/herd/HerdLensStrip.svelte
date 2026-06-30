@@ -8,6 +8,7 @@
     statusFilter,
     statusLabel,
     collapsible,
+    owedCount = 0,
     onstatusfilter,
     oncollapse,
   }: {
@@ -15,9 +16,14 @@
     statusFilter: "running" | "idle" | "blocked" | null;
     statusLabel: string;
     collapsible: boolean;
+    /** Outstanding post-merge owed records (#1257) — drives the OWED lens count badge; 0 hides it. */
+    owedCount?: number;
     onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
     oncollapse?: () => void;
   } = $props();
+
+  // Bound the badge width so a large count can't perturb the fixed 6-lens single-row grid.
+  const owedBadge = $derived(owedCount > 99 ? "99+" : String(owedCount));
 </script>
 
 <!-- Desktop / touch-wide lens strip: replaces the inline .fbtn filter row that overflowed
@@ -118,9 +124,9 @@
   </button>
   <button
     type="button"
-    class="lens"
+    class="lens lens-owed"
     class:on={statusFilter == null && filter === "owed"}
-    title={m.herd_owed_title()}
+    title={owedCount > 0 ? m.herd_owed_count({ count: owedCount }) : m.herd_owed_title()}
     aria-pressed={statusFilter == null && filter === "owed"}
     use:coachTarget={"owed-lens"}
     onclick={() => {
@@ -130,6 +136,11 @@
   >
     <span class="ic" aria-hidden="true">☑</span>
     <span class="lb">{m.herd_seg_owed()}</span>
+    {#if owedCount > 0}
+      <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}
+        >{owedBadge}</span
+      >
+    {/if}
   </button>
 </div>
 
@@ -237,6 +248,30 @@
   .lens:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Anchor for the absolutely-positioned owed count badge so it overlays the segment's
+     top-right corner without consuming column width (keeps the 6-lens single-row grid intact). */
+  .lens-owed {
+    position: relative;
+  }
+  /* Owed count badge (#1257): mirrors UnitRow's .chip-manual-steps recipe (--status-warn border/
+     text + color-mix wash). --fs-micro is a deliberate sub-16px exception — same precedent as the
+     strip's own label and the UnitRow chip; it's a count overlay, not body text. */
+  .owed-badge {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    min-width: 14px;
+    box-sizing: border-box;
+    text-align: center;
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    padding: 0 3px;
+    border: 1px solid var(--status-warn);
+    border-radius: 7px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 14%, var(--color-panel));
   }
   /* Shrink the label when the strip itself is narrow so the longest DE label ("Nächstes")
      stays on one line and all six lenses keep to a single row at the 300px sidebar floor. */

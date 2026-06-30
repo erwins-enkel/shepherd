@@ -69,3 +69,45 @@ describe("HerdLensStrip header bits", () => {
     expect(frame.querySelector(".statchip")).not.toBeNull();
   });
 });
+
+describe("HerdLensStrip OWED count badge (#1257)", () => {
+  it("hides the badge when owedCount is 0 (or default)", async () => {
+    const frame = mount300();
+    expect(frame.querySelector(".owed-badge")).toBeNull();
+  });
+
+  it("renders the badge with the count when owedCount > 0", async () => {
+    const frame = document.createElement("div");
+    frame.style.width = "300px";
+    document.body.appendChild(frame);
+    render(HerdLensStrip, { props: { ...base, owedCount: 3 }, target: frame });
+    const badge = frame.querySelector(".owed-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toBe("3");
+    // The badge anchors to the OWED lens (absolute → inside a position:relative segment).
+    expect(frame.querySelector(".lens-owed .owed-badge")).not.toBeNull();
+  });
+
+  it("caps a large count at 99+", async () => {
+    const frame = document.createElement("div");
+    frame.style.width = "300px";
+    document.body.appendChild(frame);
+    render(HerdLensStrip, { props: { ...base, owedCount: 250 }, target: frame });
+    expect(frame.querySelector(".owed-badge")!.textContent).toBe("99+");
+  });
+
+  it("keeps all six lenses on a single row at the 300px floor with a 2-digit badge", async () => {
+    const frame = document.createElement("div");
+    frame.style.width = "300px";
+    document.body.appendChild(frame);
+    render(HerdLensStrip, { props: { ...base, owedCount: 42 }, target: frame });
+    const btns = [...frame.querySelectorAll<HTMLElement>(".lens")];
+    expect(btns).toHaveLength(6);
+    // single row ⇒ every segment shares the same offsetTop (the absolute badge adds no flow width)
+    expect(new Set(btns.map((b) => b.offsetTop)).size).toBe(1);
+    // the badge itself must not overflow the OWED segment's box
+    const owed = frame.querySelector<HTMLElement>(".lens-owed")!;
+    const badge = frame.querySelector<HTMLElement>(".owed-badge")!;
+    expect(badge.offsetWidth).toBeLessThanOrEqual(owed.offsetWidth);
+  });
+});

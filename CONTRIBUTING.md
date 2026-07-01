@@ -159,6 +159,7 @@ at a temp dir so your real working tree is never touched.
 
 - Branch off `main`; open a PR back into `main`. Don't commit to `main` directly.
 - Keep PRs focused — one logical change.
+- **The PR _title_ must itself be a [Conventional Commit](https://www.conventionalcommits.org/)** — `<type>(<scope>): <subject>`, same grammar as commit messages above. PRs land via **squash-merge**, so the PR title (not the branch's commits) becomes the single commit subject on `main`, and release-please builds the changelog by parsing it. A non-conventional title (e.g. `Pin repo filter chips` instead of `feat(ui): pin repo filter chips`) still merges, but release-please **silently drops it from the release notes** — so a shipped feature vanishes from the changelog even though its commits were conventional. commitlint gates commit messages, **not** the PR title; nothing blocks a bad title, so this is on the author. If a title slipped through, pass `gh pr merge --squash --subject "feat(scope): …"` to fix the subject at merge time.
 - Ensure the pre-push suite passes locally (CI runs the identical gate on every PR).
 - Update docs (`README.md`, `PRD.md`, this file) when you change public behavior,
   config, CLI flags, or the contribution flow.

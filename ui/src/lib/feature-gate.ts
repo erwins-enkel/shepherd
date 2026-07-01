@@ -50,8 +50,8 @@ export function computeNewEntries(
     if (!since) continue;
     if (cmp(since, lastSeen) > 0 && cmp(since, current) <= 0) fresh.push({ entry, since });
   }
-  // The catalog is append-only (oldest first); sort is stable, so entries of the
-  // same release keep their catalog order.
+  // The catalog is provided oldest first; sort is stable, so entries of the same
+  // release keep the deterministic fragment order from feature-announcements.ts.
   fresh.sort((a, b) => cmp(b.since, a.since));
   return fresh.map((f) => f.entry);
 }

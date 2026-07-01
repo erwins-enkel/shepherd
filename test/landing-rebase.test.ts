@@ -48,7 +48,6 @@ const GITATTRIBUTES =
     "* text=auto eol=lf",
     "ui/messages/*.json merge=i18n-union",
     "extension/messages/*.json merge=i18n-union",
-    "ui/src/lib/feature-announcements.ts merge=union",
   ].join("\n") + "\n";
 
 /**

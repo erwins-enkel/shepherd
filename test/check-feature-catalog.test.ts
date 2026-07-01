@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
 const SCRIPT = join(import.meta.dir, "..", "scripts", "check-feature-catalog.sh");
-const CATALOG = "ui/src/lib/feature-announcements.ts";
+const CATALOG_ENTRY = "ui/src/lib/feature-announcements/entries/v1.99.0-widget.ts";
 
 const GIT_ENV = {
   ...process.env,
@@ -46,8 +46,8 @@ function runGate(base = "main"): { code: number; out: string } {
 beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), "shepherd-catalog-"));
   git("init", "-q", "-b", "main");
-  // Seed main with the catalog so it exists pre-branch.
-  writeRepoFile(CATALOG, "export const featureAnnouncements = [];\n");
+  // Seed main with a UI file so the branch diff is only the feature under test.
+  writeRepoFile("ui/src/lib/feature-announcements.ts", "export const featureAnnouncements = [];\n");
   commit("chore: seed");
   git("checkout", "-q", "-b", "feature");
 });
@@ -63,7 +63,7 @@ test("feat + UI change without catalog entry → fails", () => {
 
 test("feat + UI change with catalog entry → passes", () => {
   writeRepoFile("ui/src/lib/components/Widget.svelte", "<div>hi</div>\n");
-  writeRepoFile(CATALOG, "export const featureAnnouncements = [{ id: 'widget' }];\n");
+  writeRepoFile(CATALOG_ENTRY, "export default { id: 'widget' };\n");
   commit("feat(ui): add widget");
   const { code, out } = runGate();
   expect(code).toBe(0);

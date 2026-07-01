@@ -232,6 +232,12 @@ test("openPrSteer carries an explicit --base for the session's base branch", () 
   expect(openPrSteer(false, "main")).toContain("gh pr create --base main");
 });
 
+test("openPrSteer requires local verification before commit/push/PR", () => {
+  const steer = openPrSteer(false, "main");
+  expect(steer).toContain("Before committing");
+  expect(steer).toContain("lint/check/test");
+});
+
 test("openPrSteer(false, ...) omits the draft note", () => {
   expect(openPrSteer(false, "main")).not.toContain(DRAFT_PR_NOTE);
 });

@@ -3066,6 +3066,8 @@ test("composeSystemPrompt adds the autopilot directive only when active", () => 
   const on = composeSystemPrompt(null, true);
   expect(on).toContain("<autopilot-directive>");
   expect(on).toContain("Shepherd autopilot");
+  expect(on).toContain("verified local changes");
+  expect(on).toContain("lint/check/test");
   expect(on).toContain("<branch-rename-notice>"); // still present alongside
 });
 
@@ -4068,6 +4070,7 @@ test("composeSystemPrompt <draft-mode> block is present alongside autopilot dire
 test("planGoSteer(false) matches the base text exactly (no draft note)", () => {
   const steer = planGoSteer(false);
   expect(steer).toContain("gh pr create");
+  expect(steer).toContain("lint/check/test");
   expect(steer).not.toContain(DRAFT_PR_NOTE);
 });
 

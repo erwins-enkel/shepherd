@@ -476,7 +476,10 @@ const AUTOPILOT_DIRECTIVE =
   "You are running unattended in Shepherd autopilot. Do not stop to ask for permission on " +
   "procedural or workflow steps — writing a spec or plan, committing, pushing, or opening a " +
   "pull request. Make a reasonable decision and keep going until the task's deliverable is " +
-  "complete; for a code change that means an open PR (`gh pr create`). Only stop to ask when " +
+  "complete; for a code change that means verified local changes and an open PR (`gh pr create`). " +
+  "Before committing, pushing, or opening the PR for a code change, run the relevant local " +
+  "lint/check/test commands from the repository instructions for the files you touched, and fix " +
+  "failures before proceeding. Only stop to ask when " +
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
@@ -808,8 +811,10 @@ export function PREVIEW_START_STEER(
  *  When `draftMode` is true, appends the draft-PR note so the agent opens a draft PR. */
 const PLAN_GO_STEER_BASE =
   "Plan approved. Execute `.shepherd-plan.md` now, autonomously — implement it fully, commit, push, " +
-  "and open a pull request (`gh pr create`). Don't re-litigate the plan; if you hit a genuine product " +
-  "decision that only the user can make, ask, otherwise keep going.";
+  "and open a pull request (`gh pr create`). Before committing, pushing, or opening the PR, run the " +
+  "relevant local lint/check/test commands from the repository instructions for the files you " +
+  "touched, and fix failures before proceeding. Don't re-litigate the plan; if you hit a genuine " +
+  "product decision that only the user can make, ask, otherwise keep going.";
 
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {

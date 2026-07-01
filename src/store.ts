@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type {
   Session,
@@ -114,6 +114,10 @@ export interface RepoConfig {
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
+  /** Local, non-replicated script Shepherd can run to start a repo preview without steering an agent. */
+  previewStartScript?: string | null;
+  /** The command captured when the local preview script was generated; used to recreate stale scripts. */
+  previewStartCommand?: string | null;
 }
 
 export interface LocalPr {
@@ -426,6 +430,8 @@ type RepoCfgRow = {
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
   hidden: number;
+  previewStartScript: string | null;
+  previewStartCommand: string | null;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -551,6 +557,8 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       hidden: false,
+      previewStartScript: null,
+      previewStartCommand: null,
     };
   }
   return {
@@ -575,7 +583,39 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     hidden: !!r.hidden,
+    previewStartScript: r.previewStartScript ?? null,
+    previewStartCommand: r.previewStartCommand ?? null,
   };
+}
+
+function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[] {
+  return [
+    repoPath,
+    Number(Boolean(cfg.criticEnabled)),
+    Number(Boolean(cfg.criticAllPrs)),
+    Number(Boolean(cfg.autoAddressEnabled)),
+    Number(Boolean(cfg.learningsEnabled)),
+    Number(Boolean(cfg.autopilotEnabled)),
+    Number(Boolean(cfg.planGateEnabled)),
+    Number(Boolean(cfg.autoDrainEnabled)),
+    Number(Boolean(cfg.autoMergeEnabled)),
+    Number(Boolean(cfg.buildQueueEnabled)),
+    Number(Boolean(cfg.draftMode)),
+    cfg.signoffAuthority,
+    cfg.maxAuto,
+    cfg.autoLabel,
+    cfg.usageCeilingPct,
+    cfg.sandboxProfile,
+    cfg.defaultModel,
+    JSON.stringify(cfg.egressExtraHosts ?? []),
+    cfg.repoMode,
+    Number(Boolean(cfg.autoOptimizeFlagged)),
+    Number(Boolean(cfg.manualStepsIssueEnabled)),
+    Number(Boolean(cfg.hidden)),
+    cfg.previewStartScript ?? null,
+    cfg.previewStartCommand ?? null,
+    Date.now(),
+  ];
 }
 
 type LocalPrRow = {
@@ -1087,7 +1127,7 @@ export class SessionStore implements CapStore, CreditStore {
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, hidden
+                autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1100,8 +1140,8 @@ export class SessionStore implements CapStore, CreditStore {
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -1123,32 +1163,10 @@ export class SessionStore implements CapStore, CreditStore {
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          hidden = excluded.hidden,
+         previewStartScript = excluded.previewStartScript,
+         previewStartCommand = excluded.previewStartCommand,
          updatedAt = excluded.updatedAt`,
-      [
-        repoPath,
-        cfg.criticEnabled ? 1 : 0,
-        cfg.criticAllPrs ? 1 : 0,
-        cfg.autoAddressEnabled ? 1 : 0,
-        cfg.learningsEnabled ? 1 : 0,
-        cfg.autopilotEnabled ? 1 : 0,
-        cfg.planGateEnabled ? 1 : 0,
-        cfg.autoDrainEnabled ? 1 : 0,
-        cfg.autoMergeEnabled ? 1 : 0,
-        cfg.buildQueueEnabled ? 1 : 0,
-        cfg.draftMode ? 1 : 0,
-        cfg.signoffAuthority,
-        cfg.maxAuto,
-        cfg.autoLabel,
-        cfg.usageCeilingPct,
-        cfg.sandboxProfile,
-        cfg.defaultModel,
-        JSON.stringify(cfg.egressExtraHosts ?? []),
-        cfg.repoMode,
-        cfg.autoOptimizeFlagged ? 1 : 0,
-        cfg.manualStepsIssueEnabled ? 1 : 0,
-        cfg.hidden ? 1 : 0,
-        Date.now(),
-      ],
+      repoConfigParams(repoPath, cfg),
     );
   }
 
@@ -3003,6 +3021,9 @@ export class SessionStore implements CapStore, CreditStore {
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
+    // Local preview launcher metadata. Nullable: absent until first successful script setup.
+    add("previewStartScript", `previewStartScript TEXT`);
+    add("previewStartCommand", `previewStartCommand TEXT`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

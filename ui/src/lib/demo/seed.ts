@@ -1423,6 +1423,8 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
     automationConfirmed: true,
     automationRowExists: true,
   };

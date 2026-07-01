@@ -73,6 +73,8 @@ function repoConfig(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
     automationConfirmed: true,
     automationRowExists: true,
   };
@@ -983,6 +985,8 @@ function unconfirmedNewRepoConfig(): RepoConfig & {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
     automationConfirmed: false,
     automationRowExists: false,
   };

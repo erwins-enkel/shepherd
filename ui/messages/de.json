@@ -460,7 +460,7 @@
   "viewport_preview_open_new_tab": "In neuem Tab öffnen",
   "viewport_preview_setup_hint": "Leer? Stelle sicher, dass der Vorschau-Port über Tailscale erreichbar ist; siehe Setup.",
   "viewport_preview_start": "Devserver starten",
-  "viewport_preview_start_note": "Sendet die agent-spezifische Hintergrund-Startanweisung in das aktive Terminal",
+  "viewport_preview_start_note": "Startet das lokale Vorschau-Skript des Repos; falls es fehlt, richtet der Agent es einmalig ein",
   "viewport_preview_start_sent": "Vorschau-Start an {name} gesendet (läuft: {command})",
   "viewport_preview_start_failed": "Vorschau konnte nicht gestartet werden; Terminal auf Details prüfen",
   "viewport_preview_start_confirm_working": "Start bestätigen (Agent aktiv)",
@@ -2260,5 +2260,10 @@
   "prbadge_draft_toggle_failed": "PR-Zustand konnte nicht geändert werden: {reason}",
   "prbadge_unknown_error": "unbekannter Fehler",
   "feat_pr_badge_menu_title": "PR-Aktionen direkt auf Karten",
-  "feat_pr_badge_menu_body": "Session-Karten öffnen jetzt am PR-Badge ein kompaktes PR-Menü. Du kannst den Pull Request in einem neuen Tab öffnen oder einen offenen PR direkt aus der Herd-Ansicht zwischen Draft und Ready for Review umschalten."
+  "feat_pr_badge_menu_body": "Session-Karten öffnen jetzt am PR-Badge ein kompaktes PR-Menü. Du kannst den Pull Request in einem neuen Tab öffnen oder einen offenen PR direkt aus der Herd-Ansicht zwischen Draft und Ready for Review umschalten.",
+  "viewport_preview_start_local": "Vorschau-Skript für {name} gestartet ({command})",
+  "viewport_preview_setup_sent": "Vorschau-Einrichtung an {name} gesendet; künftige Starts nutzen das lokale Repo-Skript",
+  "viewport_preview_already_running": "Devserver läuft bereits; Vorschau wird geöffnet",
+  "feat_preview_local_script_title": "Lokale Vorschau-Startskripte",
+  "feat_preview_local_script_body": "Der Vorschau-Startbutton erstellt und nutzt jetzt ein lokales Skript in den Git-Metadaten des Repos. Spätere Sessions können denselben Devserver ohne Agent-Tokens starten, und Shepherd verwendet einen bereits laufenden Server statt eine zweite Kopie zu starten."
 }

@@ -14,6 +14,36 @@ describe("startPreview", () => {
     expect(result).toEqual({ ok: true, command: "npm run dev" });
   });
 
+  it("maps 200 local already-running preview metadata", async () => {
+    globalThis.fetch = mockFetch(200, {
+      ok: true,
+      command: "existing dev server",
+      mode: "local",
+      alreadyRunning: true,
+    });
+    const result = await startPreview("s1");
+    expect(result).toEqual({
+      ok: true,
+      command: "existing dev server",
+      mode: "local",
+      alreadyRunning: true,
+    });
+  });
+
+  it("maps 200 agent setup preview metadata", async () => {
+    globalThis.fetch = mockFetch(200, {
+      ok: true,
+      command: "setup local preview script",
+      mode: "agent_setup",
+    });
+    const result = await startPreview("s1");
+    expect(result).toEqual({
+      ok: true,
+      command: "setup local preview script",
+      mode: "agent_setup",
+    });
+  });
+
   it("maps 409 command_unknown → {needCommand: true}", async () => {
     globalThis.fetch = mockFetch(409, { error: "command_unknown" });
     const result = await startPreview("s1");

@@ -5,8 +5,8 @@
 > the browser/mobile — designed around interactive-only subscription use as a good-faith
 > compliance stance, with best-practice guardrails built in, on your own server.
 
-Derived from Creator Magic's "Shepherd" demo (yt: hXWwqPgexZU), re-architected for our stack
-(kanban-api · herdr · gitea · searxng · Hermes). Clean-room; we can do better.
+Inspired by a Creator Magic YouTube proof-of-concept (yt: hXWwqPgexZU), re-architected for our
+stack (kanban-api · herdr · gitea · searxng · Hermes) as an independent clean-room implementation.
 
 ---
 

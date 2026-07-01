@@ -859,17 +859,28 @@ test("tick when not warm runs again with idleIntervalMs 0", async () => {
   expect(calls).toBe(2);
 });
 
-test("tick skips entirely when rateLimited() regardless of warm", async () => {
+test("tick under rateLimited() skips GraphQL batches but still polls sessions", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   let calls = 0;
+  let batchCalls = 0;
+  const forge: GitForge = {
+    ...forgeReturning(() => {
+      calls++;
+      return OPEN;
+    }),
+    countOpenPrs: async () => {
+      batchCalls++;
+      return 1;
+    },
+    listOpenPrSnapshot: async () => {
+      batchCalls++;
+      return { prs: [], statuses: new Map(), capped: false };
+    },
+  };
   const poller = new PrPoller(
     store,
-    () =>
-      forgeReturning(() => {
-        calls++;
-        return OPEN;
-      }),
+    () => forge,
     () => {},
     120_000,
     1000,
@@ -880,7 +891,8 @@ test("tick skips entirely when rateLimited() regardless of warm", async () => {
     () => true, // but rate limited
   );
   await poller.tick();
-  expect(calls).toBe(0);
+  expect(calls).toBe(1);
+  expect(batchCalls).toBe(0);
 });
 
 test("prunes cache entries for sessions no longer active", async () => {

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.1](https://github.com/erwins-enkel/shepherd/compare/v1.39.0...v1.39.1) (2026-07-01)
+
+
+### Code Refactoring
+
+* **poller:** extract per-session stall/liveness state machine into SessionLiveness ([#1095](https://github.com/erwins-enkel/shepherd/issues/1095)) ([#1306](https://github.com/erwins-enkel/shepherd/issues/1306)) ([bdd7d2a](https://github.com/erwins-enkel/shepherd/commit/bdd7d2a48445d33d7e73a503576cb7490dff7621))
+
 ## [1.39.0](https://github.com/erwins-enkel/shepherd/compare/v1.38.0...v1.39.0) (2026-07-01)
 
 

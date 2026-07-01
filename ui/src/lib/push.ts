@@ -92,6 +92,8 @@ export async function registerSW(): Promise<void> {
 }
 
 export async function pushState(): Promise<PushStatus> {
+  // Demo mode never registers a SW and must not touch serviceWorker.ready.
+  if (__DEMO__) return { supported: false, permission: "unsupported", subscribed: false };
   if (!supported()) return { supported: false, permission: "unsupported", subscribed: false };
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
@@ -124,6 +126,8 @@ export async function enablePush(): Promise<boolean> {
 }
 
 export async function disablePush(): Promise<void> {
+  // Demo mode has no push backend and must not touch serviceWorker.ready.
+  if (__DEMO__) return;
   if (!supported()) return;
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();

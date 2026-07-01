@@ -10,6 +10,27 @@
   const CTA_URL = "https://shepherd.run";
 
   let expanded = $state(false);
+  let ribbonEl: HTMLElement | undefined = $state();
+
+  // Publish the ribbon's live height to `--demo-ribbon-h` on the document root so the
+  // app shell can reserve space for it (see `.shell:not(.mobile)` in +page.svelte) —
+  // the fixed ribbon otherwise overlays the desktop bottom bar (New Task etc.). The var
+  // is set ONLY by this demo-only component; outside the demo it stays unset and the
+  // shell's `calc(100dvh - var(--demo-ribbon-h, 0px))` falls back to a plain 100dvh, so
+  // the real Shepherd layout is untouched. ResizeObserver keeps it correct if the row
+  // wraps at narrow widths.
+  $effect(() => {
+    if (!ribbonEl || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const apply = () => root.style.setProperty("--demo-ribbon-h", `${ribbonEl!.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(ribbonEl);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--demo-ribbon-h");
+    };
+  });
 
   function resetDemo(): void {
     // Demo state is entirely in-memory (see demo/state.ts) and re-seeds on
@@ -18,7 +39,12 @@
   }
 </script>
 
-<div class="demo-ribbon" role="complementary" aria-label={m.demoribbon_aria_label()}>
+<div
+  class="demo-ribbon"
+  role="complementary"
+  aria-label={m.demoribbon_aria_label()}
+  bind:this={ribbonEl}
+>
   <span class="dot" aria-hidden="true"></span>
   <span class="label">{m.demoribbon_label()}</span>
   <span class="sep" aria-hidden="true">·</span>
@@ -144,7 +170,14 @@
     min-width: var(--mobile-actionbar-hit);
   }
 
-  @media (max-width: 640px) {
+  /* Match the app's OWN mobile breakpoint verbatim (`(max-width: 768px),
+     (max-height: 600px)` — the MediaQuery in +page.svelte). In that mode the
+     ActionBar switches to `.actions.mobile` (position: fixed; bottom: 0) and the
+     desktop height-reservation (`.shell:not(.mobile)`) does NOT apply — so the
+     ribbon must lift itself clear of that fixed bar here, across the WHOLE mobile
+     band (not just ≤640px, which left an uncovered 641–768px / short-viewport gap
+     where a full-width bottom ribbon buried New Task/Backlog). */
+  @media (max-width: 768px), (max-height: 600px) {
     .blurb {
       display: none;
     }

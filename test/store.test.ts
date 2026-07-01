@@ -923,6 +923,90 @@ test("desig: seed from pre-existing DB high-water mark", () => {
   }
 });
 
+// ── first-run classification migration (see src/first-run.ts) ───────────────
+// :memory: is discarded on close, so the boot-2/pre-existing cases (which need to reopen the
+// *same* db to observe run-once idempotency) use a temp file db instead.
+
+test("first-run migration: new install boot-1 runs the migration but leaves firstRunResolved unset", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-firstrun-boot1-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const store = new SessionStore(dbPath);
+    expect(store.getSetting("firstRunResolved")).toBeNull();
+    expect(store.getSetting("firstRunMigrated")).toBe("1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("first-run migration: boot-2 after auth secrets exist does NOT retroactively resolve — regression guard", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-firstrun-boot2-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Boot 1: fresh, empty DB — the migration runs, sees nothing pre-existing, and stamps only
+    // firstRunMigrated (not firstRunResolved).
+    const boot1 = new SessionStore(dbPath);
+    expect(boot1.getSetting("firstRunResolved")).toBeNull();
+    // Simulate bootstrapAuth seeding secrets on this same boot, AFTER the migration already ran.
+    boot1.setSetting("cookieSecret", "secret");
+    boot1.setSetting("passwordHash", "hash");
+    // Boot 2: reopen the same db. A per-boot (rather than run-once) stamp would see these
+    // secrets and wrongly mark firstRunResolved here — the bug this migration exists to avoid.
+    const boot2 = new SessionStore(dbPath);
+    expect(boot2.getSetting("firstRunResolved")).toBeNull();
+    expect(boot2.getSetting("firstRunMigrated")).toBe("1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("first-run migration: pre-existing settings (cookieSecret) before first construction marks resolved", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-firstrun-preexisting-settings-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Raw-seed the settings table BEFORE any SessionStore is ever constructed over this file,
+    // modeling a pre-feature DB that already had auth bootstrapped.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    raw.run(`INSERT INTO settings (key, value) VALUES ('cookieSecret', 'preexisting-secret')`);
+    raw.close();
+    const store = new SessionStore(dbPath);
+    expect(store.getSetting("firstRunResolved")).toBe("1");
+    expect(store.getSetting("firstRunMigrated")).toBe("1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("first-run migration: pre-existing session row (no settings) before first construction marks resolved", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-firstrun-preexisting-session-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Raw-seed a sessions row BEFORE any SessionStore is ever constructed, modeling a
+    // pre-feature DB with existing session history but no settings rows at all.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, worktreePath, isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt)
+       VALUES ('leg1', 'TASK-01', 'n', 'p', '/r', 'main', '/wt', 1, 'h', 't', 'running', 'idle', 1, 1)`,
+    );
+    raw.close();
+    const store = new SessionStore(dbPath);
+    expect(store.getSetting("firstRunResolved")).toBe("1");
+    expect(store.getSetting("firstRunMigrated")).toBe("1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ── reviewer spawn cost attribution ──────────────────────────────────────────
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   input: 10,

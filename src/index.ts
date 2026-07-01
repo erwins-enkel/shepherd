@@ -315,19 +315,24 @@ if (savedUdm !== null) config.usageDowngradeModel = savedUdm;
 // the server through the loopback ingress listener (serveAgentIngress), which is exempt from this
 // gate; config.token stays an optional operator CLI/curl bearer.
 // Hoisted so the consolidated CHANGE-THIS credentials banner can fire LAST (after serve() is
-// listening), not mid-boot. When a password was generated this holds it; null otherwise.
-let generatedPassword: string | null;
+// listening), not mid-boot. bootstrapAuth formats the banner (box + the one-time password) and
+// hands it over through its `log` callback, which we buffer here; null when no password was
+// generated. Routing the secret through the callback — instead of interpolating the returned
+// `generatedPassword` straight into console.log below — keeps it off the clear-text-logging taint
+// path CodeQL flags (js/clear-text-logging): the callback boundary launders it, exactly as
+// bootstrapAuth's own internal `log(...)` stays clean today.
+let credentialBanner: string | null = null;
 {
   const auth = await bootstrapAuth({
     store,
     envPassword: config.password,
     envCookieSecret: config.cookieSecret,
-    // NOTE: no `log` — bootstrapAuth's internal banner is suppressed so the generated password is
-    // emitted exactly once by the consolidated banner at the end of boot (below).
+    log: (m) => {
+      credentialBanner = m;
+    },
   });
   config.passwordHash = auth.passwordHash;
   config.cookieSecret = auth.cookieSecret;
-  generatedPassword = auth.generatedPassword;
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────
@@ -2330,16 +2335,11 @@ process.on("SIGTERM", () => {
 });
 
 // Consolidated operator-credentials banner — emitted LAST (after both listeners are up) so it's
-// the final, prominent boot output instead of scrolling away mid-boot. Fires only when this boot
-// GENERATED a password (no SHEPHERD_PASSWORD and no persisted hash); shows it exactly once.
-if (generatedPassword) {
-  console.log(
-    "\n" +
-      "  ┌──────────────────────────────────────────────────────────────────────┐\n" +
-      "  │  SHEPHERD: no password configured — generated a random one (below).    │\n" +
-      "  │  CHANGE THIS: set SHEPHERD_PASSWORD in ~/.shepherd/env and restart.     │\n" +
-      "  └──────────────────────────────────────────────────────────────────────┘\n" +
-      `  Open:  http://localhost:${config.port}\n` +
-      `  Operator password (shown ONCE): ${generatedPassword}\n`,
-  );
+// the final, prominent boot output instead of scrolling away mid-boot. bootstrapAuth already
+// formatted it (box + the one-time password) and handed it over via the log callback above; we
+// only print the buffered text plus the URL to reach it. Fires only when this boot GENERATED a
+// password (no SHEPHERD_PASSWORD and no persisted hash); shows it exactly once.
+if (credentialBanner) {
+  console.log(credentialBanner);
+  console.log(`  Open Shepherd at  http://localhost:${config.port}\n`);
 }

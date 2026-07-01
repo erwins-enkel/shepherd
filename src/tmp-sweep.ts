@@ -447,6 +447,8 @@ export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallo
 interface PruneOpts {
   /** Injectable git-exec hook for tests. Receives the same args as `git -C <repo> worktree prune`. */
   execGit?: (repo: string, args: string[]) => Promise<void>;
+  /** Injectable git-repo predicate for tests. Defaults to an async `.git` presence check. */
+  isGitRepo?: (repo: string) => Promise<boolean>;
   log?: (msg: string) => void;
 }
 
@@ -456,10 +458,13 @@ export interface PruneResult {
 }
 
 /**
- * Runs `git worktree prune` for each supplied repo path. Unconditional — prunes every
+ * Runs `git worktree prune` for each supplied repo path that is a git repo — prunes every
  * orphaned record (missing working dir) regardless of how the dir vanished (reboot,
- * tmpfiles, manual rm). Per-repo try/catch: a failing repo is logged and skipped; the
- * rest still run. Never rejects. Returns `{ pruned, failed }`.
+ * tmpfiles, manual rm). The caller enumerates *every* work-dir folder (not just git repos),
+ * so a non-git folder is skipped silently up front — neither logged nor counted — rather
+ * than spawning git and logging its `fatal: not a git repository` as a failure. Per-repo
+ * try/catch on the rest: a git repo whose prune truly errors is logged and skipped while the
+ * others still run. Never rejects. Returns `{ pruned, failed }`.
  */
 export async function pruneRepoWorktrees(
   repoPaths: string[],
@@ -468,10 +473,20 @@ export async function pruneRepoWorktrees(
   const log = opts?.log ?? console.warn;
   const execGit =
     opts?.execGit ?? ((repo: string, args: string[]) => execFileAsync("git", args).then(() => {}));
+  const isGitRepo =
+    opts?.isGitRepo ??
+    ((repo: string) =>
+      fsp.access(join(repo, ".git")).then(
+        () => true,
+        () => false,
+      ));
 
   let pruned = 0;
   let failed = 0;
   for (const repo of repoPaths) {
+    // Skip non-git folders silently: the work dir holds plain project folders alongside
+    // repos, and pruning those only yields a benign "not a git repository" error.
+    if (!(await isGitRepo(repo))) continue;
     try {
       // `--expire=now` makes the immediate-prune intent explicit. A bare `git worktree prune`
       // already defaults to `--expire=TIME_MAX` (prune every orphaned record regardless of age),

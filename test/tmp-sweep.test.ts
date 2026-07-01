@@ -540,6 +540,7 @@ describe("pruneRepoWorktrees", () => {
 
     const res = await pruneRepoWorktrees(["/repo/a", "/repo/b"], {
       execGit: fakeExecGit,
+      isGitRepo: async () => true,
       log: () => {},
     });
 
@@ -559,12 +560,29 @@ describe("pruneRepoWorktrees", () => {
 
     const res = await pruneRepoWorktrees(["/repo/bad", "/repo/good"], {
       execGit: fakeExecGit,
+      isGitRepo: async () => true,
       log: () => {},
     });
 
     expect(res.pruned).toBe(1);
     expect(res.failed).toBe(1);
     expect(calls).toEqual(["/repo/good"]);
+  });
+
+  test("skips non-git folders silently — no prune, no failure, no log", async () => {
+    const calls: string[] = [];
+    const logs: string[] = [];
+    const res = await pruneRepoWorktrees(["/work/gdpr", "/work/repo"], {
+      execGit: async (repo) => {
+        calls.push(repo);
+      },
+      isGitRepo: async (repo) => repo === "/work/repo",
+      log: (msg) => logs.push(msg),
+    });
+
+    expect(res).toEqual({ pruned: 1, failed: 0 });
+    expect(calls).toEqual(["/work/repo"]);
+    expect(logs).toEqual([]);
   });
 
   test("never rejects; empty list returns zeroes", async () => {

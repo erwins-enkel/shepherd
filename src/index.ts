@@ -1991,7 +1991,6 @@ const runCalibrate = async (): Promise<{ limits: UsageLimits; scraped: boolean }
   return { limits: usageLimits.limits(Date.now()), scraped };
 };
 const calibrate = singleFlight(runCalibrate);
-setTimeout(calibrate, 3_000);
 // self-rescheduling so the cadence escalates while the weekly window nears its cap (keeping
 // paid extra-credit spend fresh) and relaxes back to daily once it's clear of the cap.
 const scheduleCalibrate = () => {
@@ -2003,7 +2002,10 @@ const scheduleCalibrate = () => {
     calibrateDelay(usageLimits.limits(Date.now())),
   );
 };
-scheduleCalibrate();
+deferredStarts.push(() => {
+  setTimeout(calibrate, 3_000);
+  scheduleCalibrate();
+});
 const refreshUsage = () => calibrate();
 
 // watch origin/main for new commits and push the result to clients; the badge in

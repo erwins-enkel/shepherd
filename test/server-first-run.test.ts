@@ -96,6 +96,14 @@ test("POST /api/repos (clone) is blocked with 409 first_run_pending while pendin
   expect(await res.json()).toEqual({ error: "first_run_pending" });
 });
 
+test("POST /api/usage/refresh is blocked with 409 first_run_pending while pending", async () => {
+  firstRun.pending = true;
+  const { app } = harness();
+  const res = await post(app, "/api/usage/refresh");
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "first_run_pending" });
+});
+
 test("POST /api/sessions is NOT blocked when not pending — proceeds to normal validation", async () => {
   firstRun.pending = false;
   const { app } = harness();

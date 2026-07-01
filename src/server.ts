@@ -3298,6 +3298,8 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
     parts[1] === "usage" &&
     parts[2] === "refresh"
   ) {
+    const b = firstRunBlock();
+    if (b) return b;
     // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
     const { limits, scraped } = deps.refreshUsage
       ? await deps.refreshUsage()

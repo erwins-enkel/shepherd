@@ -54,15 +54,15 @@ Data passed through verbatim (tool-use summaries, PR titles, designations like `
 
 ## Feature discovery (REQUIRED for user-facing features)
 
-New user-facing capabilities surface to users through the What's-New drawer + first-view coachmarks, both driven by the catalog `ui/src/lib/feature-announcements.ts`. **A `feat` that ships UX but skips the catalog rots it silently** — it builds, passes CI, and deploys while the discovery system stops reflecting reality. So every shipped user-facing feature adds **one** catalog entry **in the same PR as the feature**:
+New user-facing capabilities surface to users through the What's-New drawer + first-view coachmarks, both driven by the catalog exported from `ui/src/lib/feature-announcements.ts`. The actual entries live as one-file fragments under `ui/src/lib/feature-announcements/entries/` to avoid every feature PR editing the same array tail. **A `feat` that ships UX but skips the catalog rots it silently** — it builds, passes CI, and deploys while the discovery system stops reflecting reality. So every shipped user-facing feature adds **one** catalog entry **in the same PR as the feature**:
 
-1. Append a `FeatureAnnouncement` to `featureAnnouncements` in `ui/src/lib/feature-announcements.ts` with: `id` (stable kebab slug), `sinceVersion` (the release it ships in), `titleKey` + `bodyKey`.
+1. Add one fragment file in `ui/src/lib/feature-announcements/entries/` named `v<version>-<id>.ts` (for example `v1.40.0-quick-filter.ts`) with a default export that satisfies `FeatureAnnouncement`: `id` (stable kebab slug), `sinceVersion` (the release it ships in), `titleKey` + `bodyKey`.
 2. Add `titleKey`/`bodyKey` to **both** `ui/messages/en.json` and `de.json` (see Internationalization above — `check:i18n` enforces parity).
 3. Optionally set `targetId` and put `use:coachTarget={"<id>"}` on the anchor element so the coachmark can point at it.
 
 Server-only, internal-plumbing, or mislabeled-`feat` changes that ship **no** user-facing UX are exempt — opt out by putting `[no-feature-entry]` in a commit subject or the PR body.
 
-**Gate:** `scripts/check-feature-catalog.sh` is a pragmatic heuristic — if a `feat(...)` commit in the branch's range touches user-facing UI (`ui/src/lib/components/**`, `ui/src/routes/**`) it asserts that `feature-announcements.ts` was modified in the same range, else fails with a fix hint. The `[no-feature-entry]` opt-out skips the check **loudly** (it echoes what it skipped). It runs in the **PR hygiene** CI workflow and the pre-push hook, alongside branch-hygiene + `check:i18n`. Like those, it asserts presence, not content quality — an accurate, well-written entry is on you and review.
+**Gate:** `scripts/check-feature-catalog.sh` is a pragmatic heuristic — if a `feat(...)` commit in the branch's range touches user-facing UI (`ui/src/lib/components/**`, `ui/src/routes/**`) it asserts that a `ui/src/lib/feature-announcements/entries/*.ts` fragment was modified in the same range, else fails with a fix hint. The `[no-feature-entry]` opt-out skips the check **loudly** (it echoes what it skipped). It runs in the **PR hygiene** CI workflow and the pre-push hook, alongside branch-hygiene + `check:i18n`. Like those, it asserts presence, not content quality — an accurate, well-written entry is on you and review.
 
 It's a heuristic with deliberate holes — review still has to catch what it can't:
 

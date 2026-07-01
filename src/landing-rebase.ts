@@ -114,8 +114,8 @@ function parseUnionGlobs(repoPath: string): string[] {
  * real gitattributes basename semantics for slash-free patterns (where `*.json`
  * would match any `*.json` at any depth). All Shepherd union globs in
  * `.gitattributes` contain a slash (`ui/messages/*.json`,
- * `extension/messages/*.json`, `ui/src/lib/feature-announcements.ts`), so this is
- * exact for every real union glob. A hypothetical slash-free union glob would
+ * `extension/messages/*.json`), so this is exact for every real union glob.
+ * A hypothetical slash-free union glob would
  * therefore NOT be treated as union-managed — and that is the fail-SAFE direction:
  * an unmatched conflicted path is classified as a non-union conflict, yielding
  * `conflict` (operator hand-off) rather than a wrongly-auto-resolved push.

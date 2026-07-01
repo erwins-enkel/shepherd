@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Feature-catalog gate: a feat PR that ships user-facing UI must register itself
-# in the What's-New / coachmark catalog (ui/src/lib/feature-announcements.ts).
+# in the What's-New / coachmark catalog (ui/src/lib/feature-announcements/entries/).
 #
 # The failure mode (see issue #299): a `feat` PR adds a user-facing capability,
 # builds clean, passes CI, deploys — and silently never adds its catalog entry,
@@ -9,7 +9,7 @@
 #
 # A perfect "did this ship a user-facing feature?" check is undecidable, so this
 # is a pragmatic heuristic: a `feat(...)` commit + a diff touching user-facing UI
-# ⇒ the catalog must have been touched in the same range. Genuinely non-surfacing
+# ⇒ a catalog fragment must have been touched in the same range. Genuinely non-surfacing
 # feats (server-only, internal plumbing, mislabeled refactors) opt out LOUDLY via
 # a documented token — never a silent bypass.
 #
@@ -34,7 +34,7 @@
 set -euo pipefail
 
 BASE="${BASE_REF:-origin/main}"
-CATALOG="ui/src/lib/feature-announcements.ts"
+CATALOG_DIR="ui/src/lib/feature-announcements/entries/"
 OPT_OUT="[no-feature-entry]"
 # User-facing UI surfaces — a feat touching these is presumed to ship UX.
 UI_GLOBS=("ui/src/lib/components/" "ui/src/routes/")
@@ -90,15 +90,23 @@ if [ -z "$ui_touched" ]; then
   exit 0
 fi
 
-# UI changed under a feat — the catalog must have been touched too.
-if printf '%s\n' "$changed" | grep -qxF "$CATALOG"; then
-  echo "✓ feature catalog: feat + user-facing UI change registered in ${CATALOG}"
+# UI changed under a feat — a catalog fragment must have been touched too.
+catalog_touched=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in "$CATALOG_DIR"*.ts) catalog_touched="yes"; break;; esac
+done <<EOF
+$changed
+EOF
+
+if [ -n "$catalog_touched" ]; then
+  echo "✓ feature catalog: feat + user-facing UI change registered in ${CATALOG_DIR}"
   exit 0
 fi
 
 cat >&2 <<MSG
 ✗ feature catalog: a feat(...) commit touches user-facing UI but does NOT modify
-  ${CATALOG}.
+  ${CATALOG_DIR}.
 
   feat commit(s) in range:
 $(echo "$feat_commits" | sed 's/^/    • /')
@@ -107,7 +115,7 @@ $(echo "$feat_commits" | sed 's/^/    • /')
   (id, sinceVersion, titleKey/bodyKey in EN+DE, optional targetId). It drives the
   What's-New drawer + first-view coachmarks. See CLAUDE.md → "Feature discovery".
 
-  Fix: add your entry to ${CATALOG}
+  Fix: add one FeatureAnnouncement fragment to ${CATALOG_DIR}
   Or, if this feat ships no user-facing UX (server-only / internal / mislabeled),
   opt out by putting ${OPT_OUT} in a commit subject or the PR body.
 MSG

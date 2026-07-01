@@ -57,18 +57,19 @@ test("isFullAuto: draftMode off, autopilot off → false (unchanged behavior)", 
   expect(isFullAuto(session, fullAutoCfg)).toBe(false);
 });
 
-test("isFullAuto: codex provider → false even with autopilot + auto-merge both on (bis zum PR, never landed)", () => {
+test("isFullAuto: non-isolated codex provider → false even with autopilot + auto-merge both on", () => {
   const codexSession = {
     autopilotEnabled: true as boolean | null,
     autoMergeEnabled: true as boolean | null,
     baseBranch: "main",
     agentProvider: "codex" as const,
+    isolated: false,
   };
-  // Codex autopilot deliberately stops AT the open PR — the merge train must never carry it.
+  // Non-isolated Codex resume is unsafe (`codex resume --last` can target a sibling session).
   expect(isFullAuto(codexSession, fullAutoCfg)).toBe(false);
 });
 
-test("isFullAuto: codex provider → false even when it inherits repo auto-merge (session autoMerge null)", () => {
+test("isFullAuto: codex provider without an isolated flag → false fail-closed", () => {
   const codexInherits = {
     autopilotEnabled: true as boolean | null,
     autoMergeEnabled: null as boolean | null,
@@ -76,6 +77,28 @@ test("isFullAuto: codex provider → false even when it inherits repo auto-merge
     agentProvider: "codex" as const,
   };
   expect(isFullAuto(codexInherits, fullAutoCfg)).toBe(false);
+});
+
+test("isFullAuto: isolated codex provider → true with autopilot + auto-merge both on", () => {
+  const codexSession = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: true as boolean | null,
+    baseBranch: "main",
+    agentProvider: "codex" as const,
+    isolated: true,
+  };
+  expect(isFullAuto(codexSession, fullAutoCfg)).toBe(true);
+});
+
+test("isFullAuto: isolated codex provider → true when it inherits repo auto-merge", () => {
+  const codexInherits = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: null as boolean | null,
+    baseBranch: "main",
+    agentProvider: "codex" as const,
+    isolated: true,
+  };
+  expect(isFullAuto(codexInherits, fullAutoCfg)).toBe(true);
 });
 
 test("isFullAuto: claude provider with same config → true (codex guard does not regress claude)", () => {

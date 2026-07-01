@@ -15,17 +15,19 @@ import { isEpicIntegrationBranch } from "./epic-branch";
  * autoMergeEnabled override — draft PRs must go through sign-off before they can be landed.
  */
 export function isFullAuto(
-  s: Pick<Session, "autopilotEnabled" | "autoMergeEnabled" | "baseBranch" | "agentProvider">,
+  s: Pick<Session, "autopilotEnabled" | "autoMergeEnabled" | "baseBranch" | "agentProvider"> & {
+    isolated?: boolean;
+  },
   cfg: Pick<RepoConfig, "autopilotEnabled" | "autoMergeEnabled" | "draftMode">,
 ): boolean {
   // Epic children are squash-merged into their integration branch by the drain's retire path,
   // never carried by the merge train — exclude them regardless of repo auto-merge config.
   if (isEpicIntegrationBranch(s.baseBranch)) return false;
-  // Codex autopilot deliberately ends AT the open PR ("bis zum PR"): never landed by the merge
-  // train, never driven past the PR. (Codex autopilot is best-effort/Alpha; auto-merge for codex
-  // is explicitly out of scope.) The isolation guard in autopilot.ts eligible() does not cover
-  // the merge-train/drain legs, which call isFullAuto directly — so the cutoff lives here.
-  if ((s.agentProvider ?? "claude") === "codex") return false;
+  // Codex can only be carried by full-auto when Shepherd owns an isolated worktree. Rebase/CI
+  // recovery may resume the pane, and Codex resume is currently `codex resume --last`; in a shared
+  // cwd that can target a sibling Codex session. This mirrors autopilot.ts's isolated-session guard
+  // while still letting isolated Codex autopilot use the same post-PR recovery path as Claude.
+  if ((s.agentProvider ?? "claude") === "codex" && s.isolated !== true) return false;
   const autopilot = effectiveAutopilot(s, cfg.autopilotEnabled);
   const merge = cfg.draftMode ? false : (s.autoMergeEnabled ?? cfg.autoMergeEnabled);
   return autopilot && merge;

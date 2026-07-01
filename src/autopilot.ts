@@ -47,7 +47,9 @@ export function epicBaseDirective(baseBranch: string): string {
 export function openPrSteer(draftMode: boolean, baseBranch: string): string {
   const steer = [
     "You're in autopilot and you've stopped, but there's no pull request yet. Commit your",
-    `work, push the branch, and open a PR (gh pr create --base ${baseBranch}). If something`,
+    `work, push the branch, and open a PR (gh pr create --base ${baseBranch}). Before committing,`,
+    "pushing, or opening the PR, run the relevant local lint/check/test commands from the repository",
+    "instructions for the files you touched, and fix failures before proceeding. If something",
     "genuinely blocks that, say specifically what you need.",
   ].join("\n");
   return draftMode ? `${steer} ${DRAFT_PR_NOTE}` : steer;

@@ -2248,5 +2248,16 @@
   "experiment_continue_mode_summarize": "Summarize first",
   "experiment_continue_mode_summarize_hint": "Read the worktree, write a short summary, then wait for new instructions.",
   "feat_continue_with_handoff_title": "Continue a session with another CLI",
-  "feat_continue_with_handoff_body": "The old Replace action is now Continue with. It keeps the same Shepherd session and worktree, lets you pick the next CLI/model, and can either load the original task or ask the new agent to summarize first and wait."
+  "feat_continue_with_handoff_body": "The old Replace action is now Continue with. It keeps the same Shepherd session and worktree, lets you pick the next CLI/model, and can either load the original task or ask the new agent to summarize first and wait.",
+  "prbadge_button_title": "{label} actions",
+  "prbadge_menu_label": "PR actions",
+  "prbadge_open_pr": "Open PR",
+  "prbadge_mark_ready": "Set Ready for Review",
+  "prbadge_mark_draft": "Set back to Draft",
+  "prbadge_marked_ready": "PR marked Ready for Review",
+  "prbadge_marked_draft": "PR marked as Draft",
+  "prbadge_draft_toggle_failed": "Couldn't change PR state: {reason}",
+  "prbadge_unknown_error": "unknown error",
+  "feat_pr_badge_menu_title": "PR actions on cards",
+  "feat_pr_badge_menu_body": "Session cards now open a compact PR menu from the PR badge. Open the pull request in a new tab, or flip an open PR between Draft and Ready for Review without leaving the Herd view."
 }

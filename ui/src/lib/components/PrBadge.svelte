@@ -1,10 +1,14 @@
 <script lang="ts">
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { setPrDraftState } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import { prBadgeLabel, prBadgeIsDraft } from "./pr-badge";
+  import PrBadgeMenu from "./PrBadgeMenu.svelte";
 
-  let { git }: { git?: GitState } = $props();
+  let { git, sessionId }: { git?: GitState; sessionId?: string } = $props();
   const label = $derived(prBadgeLabel(git));
+  const actionable = $derived(!!sessionId && git?.state === "open" && !!git.number);
   // CI only matters on an open PR; `none` means no checks reported.
   const showCi = $derived(git?.state === "open" && git.checks !== "none");
   const review = $derived(git?.latestReview);
@@ -19,10 +23,51 @@
   );
   // Draft marker: only on open PRs; never green — always slate.
   const showDraft = $derived(prBadgeIsDraft(git));
+  let btnEl = $state<HTMLButtonElement>();
+  let menu = $state<{ anchor: DOMRect } | null>(null);
+  let busy = $state(false);
+
+  function toggleMenu(e: MouseEvent) {
+    e.stopPropagation();
+    if (!actionable) return;
+    if (menu) {
+      menu = null;
+      return;
+    }
+    if (btnEl) menu = { anchor: btnEl.getBoundingClientRect() };
+  }
+
+  function openPr() {
+    menu = null;
+    if (!git?.url) return;
+    window.open(git.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function toggleDraftState() {
+    if (!sessionId) return;
+    const nextDraft = !showDraft;
+    busy = true;
+    try {
+      await setPrDraftState(sessionId, nextDraft);
+      menu = null;
+      toasts.info(nextDraft ? m.prbadge_marked_draft() : m.prbadge_marked_ready(), {
+        key: `pr-draft:${sessionId}`,
+      });
+    } catch (err) {
+      toasts.info(
+        m.prbadge_draft_toggle_failed({
+          reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+        }),
+        { alert: true, duration: null, key: `pr-draft:${sessionId}` },
+      );
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 {#if label}
-  <span class="pr-badge pr-{git!.state}">
+  {#snippet content()}
     {#if showCi}
       <span
         class="dot dot-{git!.checks}"
@@ -36,7 +81,40 @@
     {#if showDraft}
       <span class="draft-marker" aria-label={m.prbadge_draft()}>{m.prbadge_draft()}</span>
     {/if}{label}
-  </span>
+  {/snippet}
+
+  {#if actionable}
+    <button
+      bind:this={btnEl}
+      type="button"
+      class="pr-badge pr-{git!.state} as-button"
+      class:open={!!menu}
+      title={m.prbadge_button_title({ label })}
+      aria-label={m.prbadge_button_title({ label })}
+      aria-haspopup="menu"
+      aria-expanded={!!menu}
+      onclick={toggleMenu}
+    >
+      {@render content()}
+    </button>
+  {:else}
+    <span class="pr-badge pr-{git!.state}">
+      {@render content()}
+    </span>
+  {/if}
+{/if}
+
+{#if menu}
+  <PrBadgeMenu
+    anchor={menu.anchor}
+    opener={btnEl}
+    isDraft={showDraft}
+    canOpen={!!git?.url}
+    {busy}
+    onopen={openPr}
+    ontoggledraft={toggleDraftState}
+    onclose={() => (menu = null)}
+  />
 {/if}
 
 <style>
@@ -52,6 +130,27 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+  }
+  .as-button {
+    position: relative;
+    z-index: 1;
+    appearance: none;
+    margin: 0;
+    font-family: inherit;
+    line-height: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .as-button:hover,
+  .as-button.open {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-hover);
+  }
+  .as-button:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+    color: var(--color-ink-bright);
   }
   /* `pr-open` is the brightest PR state via the default muted styling — no hue.
      Amber is reserved for the one actionable badge (critic CHANGES); PR

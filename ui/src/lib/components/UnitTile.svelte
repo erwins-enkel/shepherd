@@ -327,7 +327,7 @@
       <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
     {/if}
     <ResearchBadge {session} />
-    <PrBadge {git} />
+    <PrBadge {git} sessionId={session.id} />
     <CriticBadge sessionId={session.id} />
     <PlanGateBadge {session} allowView={false} />
     <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->

@@ -93,7 +93,7 @@
     >
   {/if}
   <ResearchBadge {session} />
-  {#if !stepperTerminal}<PrBadge {git} />{/if}
+  {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} />
   <BuildQueueBadge sessionId={session.id} />
   <PlanGateBadge {session} allowView={false} />

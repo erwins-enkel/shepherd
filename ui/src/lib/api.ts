@@ -997,6 +997,15 @@ export async function gitState(id: string): Promise<GitState | null> {
   return r.json();
 }
 
+/** Flip an open session PR between draft and ready-for-review. The server emits
+ *  `session:git` after the forge confirms the new state, so callers don't need to
+ *  mutate the list snapshot optimistically. */
+export async function setPrDraftState(id: string, draft: boolean): Promise<GitState> {
+  const r = await fetch(`/api/sessions/${id}/git/${draft ? "draft" : "ready"}`, JSON_POST());
+  if (!r.ok) throw await failed(r, draft ? "mark PR draft" : "mark PR ready");
+  return r.json();
+}
+
 /** Snapshot of every active session's PR state, keyed by session id (for the
  *  list overview). Empty object when no forge is configured anywhere. */
 export async function gitStates(): Promise<Record<string, GitState>> {

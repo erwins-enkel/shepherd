@@ -2974,6 +2974,42 @@ async function forgeRedeploy(forge: GitForge, session: Session): Promise<Respons
   return json({ ok: true });
 }
 
+async function refreshSessionGit(
+  forge: GitForge,
+  session: Session,
+  deps: AppDeps,
+): Promise<GitState> {
+  const me = (await forge.currentUser?.()) ?? null;
+  const git: GitState = annotateHandoff(
+    { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
+    session.repoPath,
+    me,
+  );
+  deps.prCache?.set(session.id, git);
+  deps.events.emit("session:git", { id: session.id, git });
+  return git;
+}
+
+async function forgeSetDraftState(
+  forge: GitForge,
+  session: Session,
+  draft: boolean,
+  deps: AppDeps,
+): Promise<Response> {
+  const cur = await forge.prStatus(session.branch ?? "");
+  if (cur.state !== "open" || !cur.number) {
+    return json({ error: "no open PR" }, 409);
+  }
+  if (!!cur.isDraft !== draft) {
+    const action = draft ? forge.convertToDraft : forge.markReady;
+    if (!action) {
+      return json({ error: "forge does not support changing draft state" }, 400);
+    }
+    await action.call(forge, cur.number);
+  }
+  return json(await refreshSessionGit(forge, session, deps));
+}
+
 async function dispatchForgeAction(
   forge: GitForge,
   session: Session,
@@ -2988,6 +3024,8 @@ async function dispatchForgeAction(
     if (parts[4] === "pr") return forgeOpenPr(forge, session, req, deps);
     if (parts[4] === "merge") return forgeMerge(forge, session, req, deps);
     if (parts[4] === "redeploy") return forgeRedeploy(forge, session);
+    if (parts[4] === "ready") return forgeSetDraftState(forge, session, false, deps);
+    if (parts[4] === "draft") return forgeSetDraftState(forge, session, true, deps);
   }
   return null;
 }

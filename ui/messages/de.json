@@ -2248,5 +2248,16 @@
   "experiment_continue_mode_summarize": "Erst zusammenfassen",
   "experiment_continue_mode_summarize_hint": "Worktree lesen, kurze Zusammenfassung schreiben und dann auf neue Instruktionen warten.",
   "feat_continue_with_handoff_title": "Session mit anderer CLI weiterführen",
-  "feat_continue_with_handoff_body": "Die alte Aktion „Ersetzen“ heißt jetzt „Weiterführen mit“. Sie behält dieselbe Shepherd-Session und denselben Worktree, lässt dich die nächste CLI samt Modell wählen und kann entweder den ursprünglichen Auftrag laden oder den neuen Agenten erst zusammenfassen und warten lassen."
+  "feat_continue_with_handoff_body": "Die alte Aktion „Ersetzen“ heißt jetzt „Weiterführen mit“. Sie behält dieselbe Shepherd-Session und denselben Worktree, lässt dich die nächste CLI samt Modell wählen und kann entweder den ursprünglichen Auftrag laden oder den neuen Agenten erst zusammenfassen und warten lassen.",
+  "prbadge_button_title": "{label}-Aktionen",
+  "prbadge_menu_label": "PR-Aktionen",
+  "prbadge_open_pr": "PR öffnen",
+  "prbadge_mark_ready": "Auf Ready for Review setzen",
+  "prbadge_mark_draft": "Auf Draft zurücksetzen",
+  "prbadge_marked_ready": "PR auf Ready for Review gesetzt",
+  "prbadge_marked_draft": "PR auf Draft zurückgesetzt",
+  "prbadge_draft_toggle_failed": "PR-Zustand konnte nicht geändert werden: {reason}",
+  "prbadge_unknown_error": "unbekannter Fehler",
+  "feat_pr_badge_menu_title": "PR-Aktionen direkt auf Karten",
+  "feat_pr_badge_menu_body": "Session-Karten öffnen jetzt am PR-Badge ein kompaktes PR-Menü. Du kannst den Pull Request in einem neuen Tab öffnen oder einen offenen PR direkt aus der Herd-Ansicht zwischen Draft und Ready for Review umschalten."
 }

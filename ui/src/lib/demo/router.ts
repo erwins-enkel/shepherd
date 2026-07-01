@@ -34,10 +34,10 @@ function handleGet(path: string, url: URL): Response | null {
     // ── bootstrap ──────────────────────────────────────────────────────────
     case "/api/sessions":
       return json(demoState.sessions());
-    // Admin "clear merged": the demo has no merged-branch sessions to clear, so the
-    // clearable set is empty. Shape matches getMergedClearable() in api.ts exactly.
+    // Admin "clear merged": derives the merged, non-archived session ids from live
+    // state (currently `deps`) — shape matches getMergedClearable() in api.ts exactly.
     case "/api/sessions/clear-merged":
-      return json({ ids: [], leftovers: 0 });
+      return json(demoState.mergedClearable());
     case "/api/held":
       return json(demoState.held());
     case "/api/usage/limits":
@@ -132,10 +132,10 @@ function handleGet(path: string, url: URL): Response | null {
 }
 
 function handleMutation(method: string, path: string, body: unknown): Response | null {
-  // POST /api/sessions/clear-merged — nothing merged to clear in the demo. Shape
-  // matches clearMerged() in api.ts. Handled before the /:id/<tail> patterns below.
+  // POST /api/sessions/clear-merged — archives the given merged ids in demoState.
+  // Shape matches clearMerged() in api.ts. Handled before the /:id/<tail> patterns below.
   if (method === "POST" && path === "/api/sessions/clear-merged") {
-    return json({ cleared: [], leftovers: 0 });
+    return json(demoState.clearMerged(field<string[]>(body, "ids") ?? []));
   }
   // POST /api/sessions/:id/reply
   if (method === "POST" && /^\/api\/sessions\/[^/]+\/reply$/.test(path)) {

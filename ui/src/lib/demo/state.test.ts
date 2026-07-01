@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { demoState } from "./state";
 import { bus } from "./bus";
+import { displayStatus } from "$lib/display-status";
 import type { WsEvent } from "$lib/types";
 
 /** Collect every frame the bus emits while `fn` runs. */
@@ -118,6 +119,31 @@ describe("the rich 7-session scenario is seeded coherently", () => {
     expect(holds.deps.code).toBe("manual-steps");
   });
 
+  it("neon is NOT workingBlocked, so displayStatus renders it blocked (not upgraded to running)", () => {
+    const neon = demoState.sessions().find((s) => s.id === "neon")!;
+    expect(neon.status).toBe("blocked");
+    expect(demoState.workingBlockedStates().neon).toBe(false);
+    expect(displayStatus(neon, demoState.workingBlockedStates())).toBe("blocked");
+  });
+
+  it("no seeded session is stuck working-blocked (which would silently upgrade a blocked status)", () => {
+    const blocked = new Set(
+      demoState
+        .sessions()
+        .filter((s) => s.status === "blocked")
+        .map((s) => s.id),
+    );
+    for (const [id, isWorkingBlocked] of Object.entries(demoState.workingBlockedStates())) {
+      if (isWorkingBlocked) expect(blocked.has(id)).toBe(false);
+    }
+  });
+
+  it("diagnostics checks carry valid, existing hintKeys (diagnostics_hint_<tool>_<state>)", () => {
+    for (const check of demoState.diagnostics().checks) {
+      expect(check.hintKey).toMatch(/^diagnostics_hint_\w+_\w+$/);
+    }
+  });
+
   it("the showcased lens datasets are seeded and keyed to the scenario", () => {
     expect(demoState.reviews().rounding).toBeDefined();
     expect(demoState.planGates().authstore?.approved).toBe(true);
@@ -194,6 +220,25 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     const frames = capture(() => demoState.archiveSession("coupon"));
     expect(events(frames)).toEqual(["session:archived"]);
     expect(demoState.sessions().find((s) => s.id === "coupon")).toBeUndefined();
+  });
+
+  it("mergedClearable returns the merged, non-archived deps session", () => {
+    expect(demoState.mergedClearable()).toEqual({ ids: ["deps"], leftovers: 0 });
+  });
+
+  it("clearMerged archives the merged ids, emits session:archived, and deps disappears", () => {
+    let result: { cleared: string[]; leftovers: number } | undefined;
+    const frames = capture(() => (result = demoState.clearMerged(["deps"])));
+    expect(events(frames)).toEqual(["session:archived"]);
+    expect(result).toEqual({ cleared: ["deps"], leftovers: 0 });
+    expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
+    expect(demoState.mergedClearable()).toEqual({ ids: [], leftovers: 0 });
+  });
+
+  it("clearMerged skips ids that aren't actually merged", () => {
+    const result = demoState.clearMerged(["coupon"]);
+    expect(result).toEqual({ cleared: [], leftovers: 0 });
+    expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
   });
 
   it("answerPlanQuestions emits activity and reports delivered", () => {

@@ -904,10 +904,10 @@ function buildDiagnostics(): DiagnosticsSnapshot {
     generatedAt: NOW - HOUR,
     overall: "ok",
     checks: [
-      { id: "git", state: "ok", hintKey: "diag_git" },
-      { id: "gh", state: "ok", hintKey: "diag_gh" },
-      { id: "node", state: "ok", hintKey: "diag_node" },
-      { id: "bun", state: "ok", hintKey: "diag_bun" },
+      { id: "git", state: "ok", hintKey: "diagnostics_hint_git_ok" },
+      { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" },
+      { id: "node", state: "ok", hintKey: "diagnostics_hint_node_ok" },
+      { id: "bun", state: "ok", hintKey: "diagnostics_hint_bun_ok" },
     ],
   };
 }
@@ -1091,7 +1091,10 @@ export function buildSeed(): DemoWorld {
     workingBlockedStates: {
       coupon: false,
       "checkout-child": false,
-      neon: true,
+      // neon is genuinely blocked (autopilot-paused on an unanswered question) — a
+      // `true` here would upgrade it to "running" in displayStatus() and hide it
+      // from the Blocked lens. No session in this scenario is a stale-resumed showcase.
+      neon: false,
     },
     holdStates: buildHolds(),
     subagentStates: buildSubagentStates(),

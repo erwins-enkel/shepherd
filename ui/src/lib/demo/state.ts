@@ -110,6 +110,14 @@ export const demoState = {
   projectIcons: (): ProjectIcons => world.projectIcons,
   pendingLearnings: (): Learning[] => world.pendingLearnings,
 
+  /** Merged, non-archived session ids — for the "Clear merged" confirm modal.
+   *  Matches `getMergedClearable()`'s `{ids, leftovers}` in api.ts exactly; the demo
+   *  has no real leftover subprocesses, so the count is always 0. */
+  mergedClearable: (): { ids: string[]; leftovers: number } => ({
+    ids: world.sessions.filter((s) => world.gitStates[s.id]?.state === "merged").map((s) => s.id),
+    leftovers: 0,
+  }),
+
   /** GET /api/epic — one epic by repo + parent issue number. */
   epic: (repoPath: string, parent: number): Epic | null =>
     world.epics.find((e) => e.repoPath === repoPath && e.parentIssueNumber === parent) ?? null,
@@ -273,5 +281,19 @@ export const demoState = {
     delete world.subagentStates[id];
     delete world.previewStates[id];
     emit({ event: "session:archived", data: { id } });
+  },
+
+  /** Archive every given id that's still merged (the server re-validates, same as
+   *  the real API) — clears the herd's "Merged" group. Matches `clearMerged()`'s
+   *  `{cleared, leftovers}` in api.ts; each archive emits its own `session:archived`. */
+  clearMerged(ids: string[]): { cleared: string[]; leftovers: number } {
+    const cleared: string[] = [];
+    for (const id of ids) {
+      if (world.gitStates[id]?.state === "merged" && find(id)) {
+        this.archiveSession(id);
+        cleared.push(id);
+      }
+    }
+    return { cleared, leftovers: 0 };
   },
 };

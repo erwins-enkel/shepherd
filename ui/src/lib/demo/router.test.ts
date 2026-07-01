@@ -67,10 +67,10 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
     expect(one.body.parentIssueNumber).toBe(100);
   });
 
-  it("GET /api/sessions/clear-merged returns the empty clearable shape (never throws)", async () => {
+  it("GET /api/sessions/clear-merged returns the merged, non-archived ids (deps)", async () => {
     const { status, body } = await get("/api/sessions/clear-merged");
     expect(status).toBe(200);
-    expect(body).toEqual({ ids: [], leftovers: 0 });
+    expect(body).toEqual({ ids: ["deps"], leftovers: 0 });
   });
 
   it("the rich scenario seeds seven sessions across two repos", async () => {
@@ -110,10 +110,25 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect(body).toHaveProperty("checks");
   });
 
-  it("POST /api/sessions/clear-merged returns the empty cleared shape", async () => {
+  it("POST /api/sessions/clear-merged with no ids clears nothing", async () => {
     const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: [] });
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ cleared: [], leftovers: 0 });
+  });
+
+  it("POST /api/sessions/clear-merged archives the merged session and it disappears", async () => {
+    const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: ["deps"] });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ cleared: ["deps"], leftovers: 0 });
+    expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
+    // re-querying the clearable set now returns none — deps is gone, not re-offered.
+    expect((await get("/api/sessions/clear-merged")).body).toEqual({ ids: [], leftovers: 0 });
+  });
+
+  it("POST /api/sessions/clear-merged ignores an id that isn't actually merged", async () => {
+    const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: ["coupon"] });
+    expect(await r.json()).toEqual({ cleared: [], leftovers: 0 });
+    expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
   });
 
   it("POST epic/approve-next returns the updated Epic", async () => {

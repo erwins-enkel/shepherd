@@ -30,13 +30,16 @@ when done, not when read.
       branch name, so a fork PR branched `release-please--x` skipped **all** CI while still
       reporting the required checks satisfied (skipped == passing). Fixed in this PR: the skip
       now also requires the release-bot **identity**, which a fork can't spoof.
-- [x] **Candid internal research docs removed.** Seven `docs/research/` notes (the ToS-position,
-      compliance-audit, account-integration and launch-strategy cluster, plus three borderline
-      spikes) are deleted from the tree in this PR, and their inbound links + the sharper ToS
-      framing in `README.md` / `PRD.md` / `PRODUCT.md` / `docs/sandbox-security.md` are softened
-      to the design-stance level. **Operator step:** run the history scrub (`git filter-repo`)
-      per the runbook so the files leave git history too, then force-push — do this **while
-      still private**. See the PR description for the exact commands.
+- [x] **Candid internal research docs removed from the tree.** Seven `docs/research/` notes (the
+      ToS-position, compliance-audit, account-integration and launch-strategy cluster, plus three
+      borderline spikes) are deleted in this PR, and their inbound links + the sharper ToS framing
+      in `README.md` / `PRD.md` / `PRODUCT.md` / `docs/sandbox-security.md` are softened to the
+      design-stance level. **Scope note (deliberate):** this is a tip-only removal — the content
+      stays in deep git history and in the diffs of the ~4 PRs that originally added it. We do
+      **not** rewrite history: it's editorial positioning, not secrets; a `filter-repo` rewrite
+      wouldn't reach GitHub's PR-diff caches anyway (that needs GitHub Support), and it would
+      strand every worktree and clone off `~/Work/shepherd`. Removing from the tree keeps it out
+      of the repo browser and search, which is the proportionate bar for this content.
 
 ## 🟡 Medium — soon after flip
 

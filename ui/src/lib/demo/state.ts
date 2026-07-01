@@ -49,9 +49,12 @@ import type { DemoWorld, DemoRepoConfig } from "./types-world";
 
 // A canonical, never-mutated seed. Every `reset()` `structuredClone`s from THIS, so
 // live mutations can never leak back into the seed and a reset always restores clean.
-const SEED: DemoWorld = buildSeed();
+// `/*#__PURE__*/` so Rollup treats these module-eval calls as side-effect-free and
+// tree-shakes the whole demo tree out of the production bundle (it's referenced only
+// inside the `if (__DEMO__)` guard, which DCEs to `if (false)` in prod).
+const SEED: DemoWorld = /*#__PURE__*/ buildSeed();
 
-let world: DemoWorld = structuredClone(SEED);
+let world: DemoWorld = /*#__PURE__*/ structuredClone(SEED);
 
 // Task 6: director registers reset hook here — `reset()` invokes each so the liveness
 // engine can stop/restart its timers without state.ts importing director (no cycle).

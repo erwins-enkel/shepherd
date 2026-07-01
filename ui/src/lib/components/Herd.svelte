@@ -83,6 +83,7 @@
     focusEpic = null,
     onackmigrationsepic = undefined,
     onackmanualsteps = undefined,
+    onshowowed = undefined,
     onbacklog = undefined,
   }: {
     sessions: Session[];
@@ -190,6 +191,8 @@
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
     onackmanualsteps?: (id: string) => void;
+    // manual-steps chip -> Owed lens (#1275)
+    onshowowed?: (id: string) => void;
     // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
     onbacklog?: () => void;
   } = $props();
@@ -323,6 +326,7 @@
     quotaKindFor,
     holdFor,
     onackmanualsteps,
+    onshowowed,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

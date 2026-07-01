@@ -24,6 +24,8 @@
     holdFor: (id: string) => HoldReason | undefined;
     // acknowledge a session's manual operator steps, clearing its auto-merge gate (#1060)
     onackmanualsteps?: (id: string) => void;
+    // manual-steps chip -> Owed lens (#1275)
+    onshowowed?: (id: string) => void;
   };
 
   type ActionDef = {
@@ -90,6 +92,7 @@
     quotaKind={ctx.quotaKindFor(session.id)}
     hold={ctx.holdFor(session.id)}
     onackmanualsteps={ctx.onackmanualsteps}
+    onshowowed={ctx.onshowowed}
   />
 {/each}
 

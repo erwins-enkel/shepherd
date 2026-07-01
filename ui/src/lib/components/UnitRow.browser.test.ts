@@ -381,3 +381,41 @@ describe("UnitRow quota-stalled badge", () => {
     await expect.element(page.getByTitle(m.unitrow_quota_title())).toBeInTheDocument();
   });
 });
+
+describe("UnitRow manual-steps chip", () => {
+  // The chip's text content (the count) bubbles into the accessible name too, so match it
+  // precisely by its title attribute rather than the ambiguous role+name (same pattern as the
+  // Preview badge tests above).
+  it("is a button and fires onshowowed with the session id, not onselect, when clicked", async () => {
+    let shown: string | null = null;
+    let selects = 0;
+    render(UnitRow, {
+      session: session({
+        id: "ms1",
+        manualSteps: [{ id: "m1", text: "do a thing", postMerge: true }],
+      }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      onshowowed: (id: string) => (shown = id),
+    });
+    await page.getByTitle(m.unitrow_manual_steps_link()).click();
+    expect(shown).toBe("ms1");
+    // the chip stops propagation, so the row's own select doesn't also fire
+    expect(selects).toBe(0);
+  });
+
+  it("stays a static span (no button) when onshowowed is not provided", async () => {
+    render(UnitRow, {
+      session: session({
+        id: "ms2",
+        manualSteps: [{ id: "m1", text: "do a thing", postMerge: true }],
+      }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByTitle(m.unitrow_manual_steps_link())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.unitrow_manual_steps({ count: 1 }))).toBeInTheDocument();
+  });
+});

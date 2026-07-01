@@ -1891,6 +1891,7 @@
   "feat_scroll_to_end_key_title": "Jump-to-latest key",
   "feat_scroll_to_end_key_body": "The mobile terminal control bar gains a pinned ⤓ key that jumps to the latest output, mirroring Claude Code's Ctrl+End — always reachable, even when you're not scrolled up.",
   "unitrow_manual_steps": "{count} manual step(s)",
+  "unitrow_manual_steps_link": "View these steps on the Owed lens",
   "feat_manual_operator_steps_title": "Manual operator steps",
   "feat_manual_operator_steps_body": "Declare manual steps in a PR's shepherd:manual-steps block (flip a flag, set an env var, run a backfill) and Shepherd surfaces them as an amber chip on the session row and a checklist in the Done recap — so they aren't lost when the PR lands.",
   "unitrow_ack_manual_steps": "Ack steps",

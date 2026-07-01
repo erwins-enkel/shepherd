@@ -1925,6 +1925,13 @@
     }
   }
 
+  // Manual-steps chip -> Owed lens (#1275). Just a lens switch for now; scroll-to + highlight +
+  // frozen-card fallback land in a later task, which is when this id param starts being used.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- id is wired for a later task
+  function onShowOwed(_id: string) {
+    herdFilter = "owed";
+  }
+
   // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
   // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
   async function onLandEpic(repoPath: string, parent: number) {
@@ -2138,6 +2145,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onshowowed={onShowOwed}
             onbacklog={() => (showBacklog = true)}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
@@ -2305,6 +2313,7 @@
             {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
+            onshowowed={onShowOwed}
             onbacklog={() => (showBacklog = true)}
           />
         {/if}

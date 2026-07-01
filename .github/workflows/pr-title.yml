@@ -1,0 +1,43 @@
+name: PR title
+
+# Squash-merge makes the PR *title* the commit subject on main, and release-please
+# builds the changelog by parsing that subject. A non-conventional title lands a
+# non-conventional subject even when the branch's own commits are conventional, so
+# release-please silently drops the change from the release notes (that's how #1278
+# vanished from the 1.39.0 notes). commitlint's commit-msg hook gates commit
+# *messages*, not the PR title — so gate the title here with the very same
+# commitlint config (commitlint.config.js) for zero rule drift.
+on:
+  pull_request:
+    # `edited` so re-titling a PR re-runs the check (default types omit it).
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: pr title
+    # release-please's generated title ("chore(main): release X.Y.Z") is already
+    # conventional and its branch is bot-maintained — skip to match ci.yml /
+    # pr-hygiene.yml, which guard off the same head_ref prefix.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # Runner toggle for the closed-source phase (see ci.yml): CI_RUNNER=self-hosted
+    # uses the local runner; unset falls back to ubuntu-latest.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install (root)
+        uses: ./.github/actions/bun-install-retry
+      - name: Lint PR title with commitlint (same rules as commit messages)
+        env:
+          # Pass the title via env, never interpolated into the shell, so a title
+          # containing shell metacharacters can't inject into the run step.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | bunx commitlint

@@ -2,7 +2,7 @@ import type { WsEvent } from "$lib/types";
 
 // Typed, synchronous pub/sub carrying `WsEvent` frames. The demo world (Task 3+)
 // emits here; the EventsSocket subscribes and forwards each frame to the live UI.
-export type BusListener = (ev: WsEvent) => void;
+type BusListener = (ev: WsEvent) => void;
 
 const listeners = new Set<BusListener>();
 

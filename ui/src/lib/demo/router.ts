@@ -3,6 +3,12 @@
 // GET, every showcased-lens GET, and the demo-flow mutations — has an exact handler
 // returning the precise shape its `api.ts` caller consumes. Everything off-screen
 // falls through to a permissive, never-throwing stub. `handleApi` never throws.
+//
+// GET routes are exact-path lookups grouped into small tables by resource family
+// (bootstrap / lenses / epics), plus one regex-matched group for session-detail
+// tabs. Mutations are grouped the same way (sessions / held / manual-steps).
+// This keeps each dispatcher a flat lookup or a handful of same-shape checks
+// instead of one long branchy switch.
 
 import { demoState } from "./state";
 
@@ -26,133 +32,97 @@ function seg(path: string, index: number): string {
   return decodeURIComponent(path.split("/")[index] ?? "");
 }
 
-function handleGet(path: string, url: URL): Response | null {
-  switch (path) {
-    case "/api/me":
-      return json({ authenticated: true });
+/** Read the `repo` query param shared by most repo-scoped GET routes. */
+function repoParam(url: URL): string {
+  return url.searchParams.get("repo") ?? "";
+}
 
-    // ── bootstrap ──────────────────────────────────────────────────────────
-    case "/api/sessions":
-      return json(demoState.sessions());
-    // Admin "clear merged": derives the merged, non-archived session ids from live
-    // state (currently `deps`) — shape matches getMergedClearable() in api.ts exactly.
-    case "/api/sessions/clear-merged":
-      return json(demoState.mergedClearable());
-    // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
-    // Must precede the `/api/sessions/:id/<tail>` regexes below — "done" isn't a session id.
-    case "/api/sessions/done":
-      return json(demoState.doneSessions());
-    case "/api/repo-config": {
-      const repo = url.searchParams.get("repo") ?? "";
-      return json(demoState.repoConfig(repo));
-    }
-    case "/api/commands": {
-      const repo = url.searchParams.get("repo") ?? "";
-      return json(demoState.commands(repo));
-    }
-    case "/api/todo": {
-      const repo = url.searchParams.get("repo") ?? "";
-      return json(demoState.todo(repo));
-    }
-    // Owed lens (#Task 8): durable post-merge step records — outstanding only. Svelte's
-    // `{#each}` silently no-ops on the old `{}` fallback, so this gap never threw; it
-    // just left the lens empty even though `deps` seeds one genuinely-owed step.
-    case "/api/manual-steps/outstanding":
-      return json(demoState.outstandingManualSteps());
-    case "/api/held":
-      return json(demoState.held());
-    case "/api/usage/limits":
-      return json(demoState.usageLimits());
-    case "/api/update":
-      return json(demoState.update());
-    case "/api/update/log":
-      return json({ phase: "idle", exitCode: null, log: "" });
-    case "/api/herdr-update":
-      return json(demoState.herdrUpdate());
-    case "/api/codex-update":
-      return json(demoState.codexUpdate());
-    case "/api/star-prompt":
-      return json(demoState.starPrompt());
-    case "/api/git":
-      return json(demoState.gitStates());
-    case "/api/activity":
-      return json(demoState.activityStates());
-    case "/api/claude-alive":
-      return json(demoState.claudeAliveStates());
-    case "/api/working-blocked":
-      return json(demoState.workingBlockedStates());
-    case "/api/holds":
-      return json(demoState.holdStates());
-    case "/api/subagents":
-      return json(demoState.subagentStates());
-    case "/api/preview":
-      return json(demoState.previewStates());
-    case "/api/drain":
-      return json(demoState.drain());
-    case "/api/automerge":
-      return json(demoState.autoMerge());
-    case "/api/epics/completed":
-      return json(demoState.completedEpics());
+type GetHandler = (url: URL) => Response;
 
-    // ── lenses / drawers ─────────────────────────────────────────────────────
-    case "/api/settings":
-      return json(demoState.settings());
-    case "/api/plugins":
-      return json({ plugins: demoState.plugins() });
-    case "/api/diagnostics":
-      return json(demoState.diagnostics());
-    case "/api/backlog":
-      return json(demoState.backlog());
-    case "/api/queues":
-      return json(demoState.buildQueues());
-    case "/api/reviews":
-      return json(demoState.reviews());
-    case "/api/reviews/inflight":
-      return json([]);
-    case "/api/plan-gates":
-      return json(demoState.planGates());
-    case "/api/plan-gates/inflight":
-      return json([]);
-    case "/api/recaps":
-      return json(demoState.recaps());
-    case "/api/herd/digest":
-      return json(demoState.herdDigest());
-    case "/api/up-next":
-      return json(demoState.upNext());
-    case "/api/steers":
-      return json(demoState.steers());
-    case "/api/project-icons":
-      return json(demoState.projectIcons());
-    case "/api/learnings/pending":
-      return json(demoState.pendingLearnings());
-    case "/api/learnings/injectable":
-      return json([]);
-    case "/api/learnings/merge-suggestions":
-      return json([]);
-    case "/api/learnings/health":
-      return json({ ok: true, consecutiveFailures: 0, lastFailure: null });
-    case "/api/epics": {
-      const repo = url.searchParams.get("repo") ?? "";
-      return json(demoState.epicSummaries(repo));
-    }
-    case "/api/epic": {
-      const repo = url.searchParams.get("repo") ?? "";
-      const parent = Number(url.searchParams.get("parent") ?? "0");
-      const epic = demoState.epic(repo, parent);
-      return epic ? json(epic) : new Response(null, { status: 404 });
-    }
-  }
+// ── bootstrap ──────────────────────────────────────────────────────────────
+const bootstrapGetRoutes: Record<string, GetHandler> = {
+  "/api/me": () => json({ authenticated: true }),
+  "/api/sessions": () => json(demoState.sessions()),
+  // Admin "clear merged": derives the merged, non-archived session ids from live
+  // state (currently `deps`) — shape matches getMergedClearable() in api.ts exactly.
+  "/api/sessions/clear-merged": () => json(demoState.mergedClearable()),
+  // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
+  "/api/sessions/done": () => json(demoState.doneSessions()),
+  "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
+  "/api/commands": (url) => json(demoState.commands(repoParam(url))),
+  "/api/todo": (url) => json(demoState.todo(repoParam(url))),
+  // Owed lens (#Task 8): durable post-merge step records — outstanding only. Svelte's
+  // `{#each}` silently no-ops on the old `{}` fallback, so this gap never threw; it
+  // just left the lens empty even though `deps` seeds one genuinely-owed step.
+  "/api/manual-steps/outstanding": () => json(demoState.outstandingManualSteps()),
+  "/api/held": () => json(demoState.held()),
+  "/api/usage/limits": () => json(demoState.usageLimits()),
+  "/api/update": () => json(demoState.update()),
+  "/api/update/log": () => json({ phase: "idle", exitCode: null, log: "" }),
+  "/api/herdr-update": () => json(demoState.herdrUpdate()),
+  "/api/codex-update": () => json(demoState.codexUpdate()),
+  "/api/star-prompt": () => json(demoState.starPrompt()),
+  "/api/git": () => json(demoState.gitStates()),
+  "/api/activity": () => json(demoState.activityStates()),
+  "/api/claude-alive": () => json(demoState.claudeAliveStates()),
+  "/api/working-blocked": () => json(demoState.workingBlockedStates()),
+  "/api/holds": () => json(demoState.holdStates()),
+  "/api/subagents": () => json(demoState.subagentStates()),
+  "/api/preview": () => json(demoState.previewStates()),
+  "/api/drain": () => json(demoState.drain()),
+  "/api/automerge": () => json(demoState.autoMerge()),
+  "/api/epics/completed": () => json(demoState.completedEpics()),
+};
 
-  // `/api/sessions/:id/git` — single-session PR state (404 → api returns null).
+// ── lenses / drawers ─────────────────────────────────────────────────────
+const lensGetRoutes: Record<string, GetHandler> = {
+  "/api/settings": () => json(demoState.settings()),
+  "/api/plugins": () => json({ plugins: demoState.plugins() }),
+  "/api/diagnostics": () => json(demoState.diagnostics()),
+  "/api/backlog": () => json(demoState.backlog()),
+  "/api/queues": () => json(demoState.buildQueues()),
+  "/api/reviews": () => json(demoState.reviews()),
+  "/api/reviews/inflight": () => json([]),
+  "/api/plan-gates": () => json(demoState.planGates()),
+  "/api/plan-gates/inflight": () => json([]),
+  "/api/recaps": () => json(demoState.recaps()),
+  "/api/herd/digest": () => json(demoState.herdDigest()),
+  "/api/up-next": () => json(demoState.upNext()),
+  "/api/steers": () => json(demoState.steers()),
+  "/api/project-icons": () => json(demoState.projectIcons()),
+  "/api/learnings/pending": () => json(demoState.pendingLearnings()),
+  "/api/learnings/injectable": () => json([]),
+  "/api/learnings/merge-suggestions": () => json([]),
+  "/api/learnings/health": () => json({ ok: true, consecutiveFailures: 0, lastFailure: null }),
+};
+
+// ── epics ────────────────────────────────────────────────────────────────
+const epicsGetRoutes: Record<string, GetHandler> = {
+  "/api/epics": (url) => json(demoState.epicSummaries(repoParam(url))),
+  "/api/epic": (url) => {
+    const parent = Number(url.searchParams.get("parent") ?? "0");
+    const epic = demoState.epic(repoParam(url), parent);
+    return epic ? json(epic) : new Response(null, { status: 404 });
+  },
+};
+
+const exactGetRoutes: Record<string, GetHandler> = {
+  ...bootstrapGetRoutes,
+  ...lensGetRoutes,
+  ...epicsGetRoutes,
+};
+
+// ── session-detail tabs (Task 8 sibling audit) ─────────────────────────────
+// Every GET a Viewport tab (or its always-on chrome) fires when a session is opened,
+// plus the single-session PR-state GET. Each returns a correctly-shaped, never-`{}`
+// response — see the matching demoState getter in state.ts for the exact fallback
+// shape per endpoint. Must run after the exact-match table above — "done" (etc.)
+// isn't a session id, so the exact routes take priority.
+function handleSessionDetailGet(path: string, url: URL): Response | null {
   if (/^\/api\/sessions\/[^/]+\/git$/.test(path)) {
     const git = demoState.gitState(seg(path, 3));
     return git ? json(git) : new Response(null, { status: 404 });
   }
-
-  // ── session-detail tabs (Task 8 sibling audit) ─────────────────────────
-  // Every GET a Viewport tab (or its always-on chrome) fires when a session is opened.
-  // Each returns a correctly-shaped, never-`{}` response — see the matching demoState
-  // getter in state.ts for the exact fallback shape per endpoint.
   if (/^\/api\/sessions\/[^/]+\/activity$/.test(path)) {
     return json(demoState.activityEntries(seg(path, 3)));
   }
@@ -175,59 +145,130 @@ function handleGet(path: string, url: URL): Response | null {
   if (/^\/api\/sessions\/[^/]+\/queue$/.test(path)) {
     return json(demoState.sessionBuildQueue(seg(path, 3)));
   }
-
   return null;
 }
 
-function handleMutation(method: string, path: string, body: unknown): Response | null {
+function handleGet(path: string, url: URL): Response | null {
+  const exact = exactGetRoutes[path];
+  if (exact) return exact(url);
+  return handleSessionDetailGet(path, url);
+}
+
+// ── session mutations ───────────────────────────────────────────────────────
+// The `/api/sessions/:id/<tail>` (+ `DELETE /api/sessions/:id`) family is
+// data-driven: one row per (method, tail pattern) rather than a chain of
+// `if (method === … && regex.test(path))` branches, so adding a route doesn't
+// grow this function's branching — only the table.
+type SessionMutationHandler = (path: string, body: unknown) => Response;
+
+const sessionIdMutationRoutes: ReadonlyArray<{
+  method: string;
+  pattern: RegExp;
+  handle: SessionMutationHandler;
+}> = [
+  {
+    // POST /api/sessions/:id/reply
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/reply$/,
+    handle: (path, body) => {
+      demoState.reply(seg(path, 3), field<string>(body, "text") ?? "");
+      return json({});
+    },
+  },
+  {
+    // PUT /api/sessions/:id/autopilot
+    method: "PUT",
+    pattern: /^\/api\/sessions\/[^/]+\/autopilot$/,
+    handle: (path, body) => {
+      demoState.setAutopilot(seg(path, 3), field<boolean | null>(body, "enabled") ?? null);
+      return json({});
+    },
+  },
+  {
+    // POST /api/sessions/:id/review-plan
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/review-plan$/,
+    handle: (path) => {
+      demoState.reviewPlan(seg(path, 3));
+      return json({ status: "started" });
+    },
+  },
+  {
+    // POST /api/sessions/:id/go  (release plan gate)
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/go$/,
+    handle: (path) => {
+      const ok = demoState.releasePlanGate(seg(path, 3));
+      return json({ ok }, ok ? 200 : 409);
+    },
+  },
+  {
+    // POST /api/sessions/:id/answer-plan-questions
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/answer-plan-questions$/,
+    handle: (path) => json(demoState.answerPlanQuestions(seg(path, 3))),
+  },
+  {
+    // POST /api/sessions/:id/git/merge
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/git\/merge$/,
+    handle: (path) => json(demoState.mergePr(seg(path, 3))),
+  },
+  {
+    // POST /api/sessions/:id/ready
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/ready$/,
+    handle: (path, body) => {
+      demoState.setReadyToMerge(seg(path, 3), field<boolean>(body, "ready") ?? true);
+      return json({});
+    },
+  },
+  {
+    // DELETE /api/sessions/:id  (archive)
+    method: "DELETE",
+    pattern: /^\/api\/sessions\/[^/]+$/,
+    handle: (path) => {
+      demoState.archiveSession(seg(path, 3));
+      return json({});
+    },
+  },
+];
+
+function handleSessionMutation(
+  method: string,
+  path: string,
+  url: URL,
+  body: unknown,
+): Response | null {
   // POST /api/sessions/clear-merged — archives the given merged ids in demoState.
-  // Shape matches clearMerged() in api.ts. Handled before the /:id/<tail> patterns below.
+  // Shape matches clearMerged() in api.ts. Handled before the /:id/<tail> table
+  // below — "clear-merged" isn't a session id.
   if (method === "POST" && path === "/api/sessions/clear-merged") {
     return json(demoState.clearMerged(field<string[]>(body, "ids") ?? []));
   }
-  // POST /api/sessions/:id/reply
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/reply$/.test(path)) {
-    demoState.reply(seg(path, 3), field<string>(body, "text") ?? "");
-    return json({});
+  // POST /api/epic/approve-next needs the URL query, so it's handled here alongside
+  // the other epic-shaped mutations rather than inline in handleApi.
+  if (method === "POST" && path === "/api/epic/approve-next") {
+    const parent = Number(url.searchParams.get("parent") ?? "0");
+    const epic = demoState.approveEpicNext(repoParam(url), parent);
+    return epic ? json(epic) : new Response(null, { status: 404 });
   }
-  // PUT /api/sessions/:id/autopilot
-  if (method === "PUT" && /^\/api\/sessions\/[^/]+\/autopilot$/.test(path)) {
-    demoState.setAutopilot(seg(path, 3), field<boolean | null>(body, "enabled") ?? null);
-    return json({});
-  }
-  // POST /api/sessions/:id/review-plan
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/review-plan$/.test(path)) {
-    demoState.reviewPlan(seg(path, 3));
-    return json({ status: "started" });
-  }
-  // POST /api/sessions/:id/go  (release plan gate)
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/go$/.test(path)) {
-    const ok = demoState.releasePlanGate(seg(path, 3));
-    return json({ ok }, ok ? 200 : 409);
-  }
-  // POST /api/sessions/:id/answer-plan-questions
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/answer-plan-questions$/.test(path)) {
-    return json(demoState.answerPlanQuestions(seg(path, 3)));
-  }
-  // POST /api/sessions/:id/git/merge
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/git\/merge$/.test(path)) {
-    return json(demoState.mergePr(seg(path, 3)));
-  }
-  // POST /api/sessions/:id/ready
-  if (method === "POST" && /^\/api\/sessions\/[^/]+\/ready$/.test(path)) {
-    demoState.setReadyToMerge(seg(path, 3), field<boolean>(body, "ready") ?? true);
-    return json({});
-  }
-  // DELETE /api/sessions/:id  (archive)
-  if (method === "DELETE" && /^\/api\/sessions\/[^/]+$/.test(path)) {
-    demoState.archiveSession(seg(path, 3));
-    return json({});
-  }
+  const route = sessionIdMutationRoutes.find((r) => r.method === method && r.pattern.test(path));
+  return route ? route.handle(path, body) : null;
+}
+
+// ── held-session mutations ───────────────────────────────────────────────────
+function handleHeldMutation(method: string, path: string): Response | null {
   // POST /api/held/:id/spawn
   if (method === "POST" && /^\/api\/held\/[^/]+\/spawn$/.test(path)) {
     const s = demoState.spawnHeld(seg(path, 3));
     return s ? json(s) : new Response(null, { status: 404 });
   }
+  return null;
+}
+
+// ── manual-steps (Owed lens) mutations ───────────────────────────────────────
+function handleManualStepsMutation(method: string, path: string, body: unknown): Response | null {
   // POST /api/manual-steps/:sessionId/steps/:stepId — tick/un-tick one owed step.
   if (method === "POST" && /^\/api\/manual-steps\/[^/]+\/steps\/[^/]+$/.test(path)) {
     const updated = demoState.setManualStepDone(
@@ -245,32 +286,26 @@ function handleMutation(method: string, path: string, body: unknown): Response |
   return null;
 }
 
+function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
+  return (
+    handleSessionMutation(method, path, url, body) ??
+    handleHeldMutation(method, path) ??
+    handleManualStepsMutation(method, path, body)
+  );
+}
+
 /** Map an intercepted `/api/**` request to a Response. Always resolves; never throws. */
 export async function handleApi(method: string, url: URL, body: unknown): Promise<Response> {
   try {
     const path = url.pathname;
     const m = method.toUpperCase();
-
-    if (m === "GET") {
-      const res = handleGet(path, url);
-      if (res) return res;
-    } else {
-      // POST /api/epic/approve-next needs the URL query, so handle it here.
-      if (m === "POST" && path === "/api/epic/approve-next") {
-        const repo = url.searchParams.get("repo") ?? "";
-        const parent = Number(url.searchParams.get("parent") ?? "0");
-        const epic = demoState.approveEpicNext(repo, parent);
-        return epic ? json(epic) : new Response(null, { status: 404 });
-      }
-      const res = handleMutation(m, path, body);
-      if (res) return res;
-    }
+    const res = m === "GET" ? handleGet(path, url) : handleMutation(m, path, url, body);
+    if (res) return res;
 
     // Permissive fallback for off-screen endpoints: unmatched read → benign empty
     // object; unmatched mutation → a generic success. Keeps the demo UI from
     // erroring on endpoints no showcased screen touches.
-    if (m === "GET") return json({});
-    return json({ ok: true });
+    return json(m === "GET" ? {} : { ok: true });
   } catch {
     // Never throw out of the transport — a malformed request degrades to a stub.
     return json(method.toUpperCase() === "GET" ? {} : { ok: true });

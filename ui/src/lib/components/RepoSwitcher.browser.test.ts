@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -15,6 +16,10 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { default: RepoSwitcher } = await import("./RepoSwitcher.svelte");
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function drain(partial: Partial<DrainStatus> & { repoPath: string }): DrainStatus {
   return {
@@ -77,6 +82,204 @@ describe("RepoSwitcher — filter rail", () => {
     // active chip carries the "showing X only — click to show all" aria label
     await page.getByRole("button", { name: m.repo_filter_active_aria({ repo: "alpha" }) }).click();
     expect(filtered).toBe(null);
+  });
+
+  it("sorts the pinned repo to the first chip slot and marks it for assistive tech", async () => {
+    const { container } = render(RepoSwitcher, {
+      chips: [
+        chip({ repoPath: "/repo/alpha" }),
+        chip({ repoPath: "/repo/beta" }),
+        chip({ repoPath: "/repo/gamma" }),
+      ],
+      repoFilter: null,
+      pinnedRepo: "/repo/beta",
+      onrepofilter: () => {},
+    });
+
+    const names = Array.from(container.querySelectorAll(".rs-name")).map((el) => el.textContent);
+    expect(names).toEqual(["beta", "alpha", "gamma"]);
+    expect(container.querySelector(".rs-chip.pinned .rs-pin-mark"), "pin mark").not.toBeNull();
+    await expect
+      .element(
+        page.getByRole("button", {
+          name: `${m.repo_filter_apply_aria({ repo: "beta" })} ${m.repo_chip_pinned_aria()}`,
+        }),
+      )
+      .toBeVisible();
+  });
+
+  it("right-clicking a repo chip opens the pin menu without changing the filter", async () => {
+    const onrepofilter = vi.fn();
+    const onpinrepo = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter,
+      onpinrepo,
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const menu = document.querySelector(".rs-menu") as HTMLElement;
+    expect(menu, "repo pin menu opened").not.toBeNull();
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(onrepofilter).not.toHaveBeenCalled();
+
+    (menu.querySelector(".rs-menu-item") as HTMLElement).click();
+    await tick();
+    expect(onpinrepo).toHaveBeenCalledWith("/repo/alpha");
+    expect(document.querySelector(".rs-menu"), "menu closes after pin").toBeNull();
+  });
+
+  it("anchors a keyboard-opened context menu to the focused chip instead of viewport origin", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    vi.spyOn(alpha, "getBoundingClientRect").mockReturnValue({
+      x: 120,
+      y: 30,
+      left: 120,
+      top: 30,
+      right: 190,
+      bottom: 58,
+      width: 70,
+      height: 28,
+      toJSON: () => ({}),
+    });
+
+    alpha.dispatchEvent(new MouseEvent("contextmenu", { clientX: 0, clientY: 0, bubbles: true }));
+    await tick();
+
+    const menu = document.querySelector(".rs-menu") as HTMLElement;
+    expect(menu, "keyboard context menu opened").not.toBeNull();
+    expect(menu.style.left).toBe("120px");
+    expect(menu.style.top).toBe("58px");
+  });
+
+  it("the pin menu unpins an already-pinned repo", async () => {
+    const onpinrepo = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      pinnedRepo: "/repo/alpha",
+      onrepofilter: () => {},
+      onpinrepo,
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    await expect.element(page.getByRole("menuitem", { name: m.repo_chip_unpin() })).toBeVisible();
+    (document.querySelector(".rs-menu-item") as HTMLElement).click();
+    await tick();
+
+    expect(onpinrepo).toHaveBeenCalledWith(null);
+  });
+
+  it("scrolls the chip rail back to the left after pinning a repo", async () => {
+    const onpinrepo = vi.fn();
+    render(RepoSwitcher, {
+      chips: [
+        chip({ repoPath: "/repo/alpha" }),
+        chip({ repoPath: "/repo/beta" }),
+        chip({ repoPath: "/repo/gamma" }),
+      ],
+      repoFilter: null,
+      onrepofilter: () => {},
+      onpinrepo,
+    });
+    const scroller = document.querySelector(".rs-scroller") as HTMLElement & {
+      scrollLeft: number;
+    };
+    Object.defineProperty(scroller, "scrollLeft", {
+      value: 120,
+      writable: true,
+      configurable: true,
+    });
+    const beta = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) });
+
+    beta
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+    await tick();
+    (document.querySelector(".rs-menu-item") as HTMLElement).click();
+    await tick();
+    await tick();
+
+    expect(onpinrepo).toHaveBeenCalledWith("/repo/beta");
+    expect(scroller.scrollLeft).toBe(0);
+  });
+
+  it("holding a chip opens the pin menu and suppresses the filter click", async () => {
+    vi.useFakeTimers();
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter,
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+
+    alpha.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        clientX: 40,
+        clientY: 40,
+        bubbles: true,
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    await tick();
+    alpha.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+    alpha.click();
+    await tick();
+
+    expect(document.querySelector(".rs-menu"), "hold opened menu").not.toBeNull();
+    expect(onrepofilter).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress the next chip click after dismissing a held-open pin menu", async () => {
+    vi.useFakeTimers();
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter,
+    });
+    const alpha = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) });
+    const beta = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) });
+
+    alpha.element().dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        clientX: 40,
+        clientY: 40,
+        bubbles: true,
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    await tick();
+    alpha.element().dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    await beta.click();
+
+    expect(document.querySelector(".rs-menu"), "menu closed by Escape").toBeNull();
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta");
   });
 
   it("a paused repo shows the ● marker AND announces via the live region", async () => {

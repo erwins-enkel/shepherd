@@ -2265,5 +2265,11 @@
   "viewport_preview_setup_sent": "Vorschau-Einrichtung an {name} gesendet; künftige Starts nutzen das lokale Repo-Skript",
   "viewport_preview_already_running": "Devserver läuft bereits; Vorschau wird geöffnet",
   "feat_preview_local_script_title": "Lokale Vorschau-Startskripte",
-  "feat_preview_local_script_body": "Der Vorschau-Startbutton erstellt und nutzt jetzt ein lokales Skript in den Git-Metadaten des Repos. Spätere Sessions können denselben Devserver ohne Agent-Tokens starten, und Shepherd verwendet einen bereits laufenden Server statt eine zweite Kopie zu starten."
+  "feat_preview_local_script_body": "Der Vorschau-Startbutton erstellt und nutzt jetzt ein lokales Skript in den Git-Metadaten des Repos. Spätere Sessions können denselben Devserver ohne Agent-Tokens starten, und Shepherd verwendet einen bereits laufenden Server statt eine zweite Kopie zu starten.",
+  "repo_chip_pinned_aria": "Angeheftet",
+  "repo_chip_menu_label": "Repo-Aktionen für {repo}",
+  "repo_chip_pin": "Repo anheften",
+  "repo_chip_unpin": "Repo lösen",
+  "feat_repo_chip_pin_title": "Repo-Chip anheften",
+  "feat_repo_chip_pin_body": "Rechtsklicke oder halte einen Repo-Chip gedrückt, um dieses Repo links im Herdenfilter anzuheften. Der normale Klick zum Filtern bleibt gleich und die Auswahl gilt auf diesem Gerät."
 }

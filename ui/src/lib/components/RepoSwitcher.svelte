@@ -1,22 +1,30 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { RepoChip } from "./queue-strip";
   import { m } from "$lib/paraglide/messages";
   import { basename } from "./learnings-drawer";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
+  import { longPress } from "./longpress";
 
   let {
     chips,
     repoFilter,
+    pinnedRepo = null,
     onrepofilter,
+    onpinrepo = () => {},
     mobile = false,
   }: {
     chips: RepoChip[];
     // active repo full path, or null when showing every repo
     repoFilter: string | null;
+    // locally pinned repo, shown first when its live chip exists
+    pinnedRepo?: string | null;
     // toggle the herd filter for a repo; null clears it
     onrepofilter: (repoPath: string | null) => void;
+    // pin or unpin a repo in the switcher; null clears the pin
+    onpinrepo?: (repoPath: string | null) => void;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
     // telemetry band (collapses into the selected-state subline instead)
     mobile?: boolean;
@@ -24,6 +32,15 @@
 
   // ── render branch selection ────────────────────────────────────────────────
   const railVisible = $derived(chipRailVisible(chips, repoFilter));
+  const shownChips = $derived.by(() => {
+    if (!pinnedRepo) return chips;
+    return [...chips].sort((a, b) => {
+      const ap = a.repoPath === pinnedRepo;
+      const bp = b.repoPath === pinnedRepo;
+      if (ap !== bp) return ap ? -1 : 1;
+      return 0;
+    });
+  });
   // Lone-repo telemetry: one repo with no active filter, carrying drain telemetry.
   // (When that lone repo IS the active filter, the rail shows instead — see railVisible.)
   const loneChip = $derived(chips.length === 1 && chipHasTelemetry(chips[0]) ? chips[0] : null);
@@ -97,6 +114,150 @@
     e.preventDefault();
     recomputeScroll();
   }
+
+  function scrollRailToStart() {
+    const el = scroller;
+    if (!el) return;
+    el.scrollLeft = 0;
+    recomputeScroll();
+  }
+
+  // Pinning is a secondary action: click keeps filtering, while right-click,
+  // touch long-press, or mouse/stylus hold opens this anchored menu.
+  let menu = $state<{ chip: RepoChip; x: number; y: number; opener: HTMLElement } | null>(null);
+  let menuEl = $state<HTMLDivElement | null>(null);
+  let menuPos = $state<{ left: number; top: number } | null>(null);
+
+  function repoLabel(chip: RepoChip): string {
+    return basename(chip.repoPath);
+  }
+
+  function chipAria(chip: RepoChip, active: boolean, pinned: boolean): string {
+    const repo = repoLabel(chip);
+    return [
+      active ? m.repo_filter_active_aria({ repo }) : m.repo_filter_apply_aria({ repo }),
+      chip.insights > 0 || chip.curate > 0
+        ? m.repo_chip_learnings_aria({ count: chip.insights > 0 ? chip.insights : chip.curate })
+        : "",
+      pinned ? m.repo_chip_pinned_aria() : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function openPinMenu(chip: RepoChip, x: number, y: number, opener: HTMLElement): boolean {
+    menu = { chip, x, y, opener };
+    menuPos = null;
+    return true;
+  }
+
+  function onContextMenu(e: MouseEvent, chip: RepoChip) {
+    e.preventDefault();
+    const opener = e.currentTarget as HTMLElement;
+    const r = opener.getBoundingClientRect();
+    const x = e.clientX === 0 && e.clientY === 0 ? r.left : e.clientX;
+    const y = e.clientX === 0 && e.clientY === 0 ? r.bottom : e.clientY;
+    openPinMenu(chip, x, y, opener);
+  }
+
+  const HOLD_MS = 500;
+  const HOLD_SLOP = 10;
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  let holdPointerId: number | null = null;
+  let holdStart: { x: number; y: number } | null = null;
+  let holdFired = false;
+
+  function clearHold() {
+    clearTimeout(holdTimer);
+    holdTimer = undefined;
+    holdPointerId = null;
+    holdStart = null;
+  }
+
+  function onPointerDown(e: PointerEvent, chip: RepoChip) {
+    if (e.pointerType === "touch" || e.button !== 0) return;
+    const opener = e.currentTarget as HTMLElement;
+    holdFired = false;
+    holdPointerId = e.pointerId;
+    holdStart = { x: e.clientX, y: e.clientY };
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      if (!holdStart) return;
+      const { x, y } = holdStart;
+      holdFired = openPinMenu(chip, x, y, opener);
+      clearHold();
+    }, HOLD_MS);
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (holdPointerId !== e.pointerId || !holdStart) return;
+    if (Math.hypot(e.clientX - holdStart.x, e.clientY - holdStart.y) > HOLD_SLOP) clearHold();
+  }
+
+  function onPointerEnd(e: PointerEvent) {
+    if (holdPointerId === e.pointerId) clearHold();
+    if (holdFired) e.preventDefault();
+  }
+
+  function onChipClick(chip: RepoChip, active: boolean) {
+    if (holdFired) {
+      holdFired = false;
+      return;
+    }
+    onrepofilter(active ? null : chip.repoPath);
+  }
+
+  function closeMenu() {
+    menu = null;
+    menuPos = null;
+    holdFired = false;
+  }
+
+  async function commitPin() {
+    if (!menu) return;
+    onpinrepo(pinnedRepo === menu.chip.repoPath ? null : menu.chip.repoPath);
+    closeMenu();
+    scrollRailToStart();
+    await tick();
+    scrollRailToStart();
+  }
+
+  $effect(() => () => clearHold());
+
+  $effect(() => {
+    const node = menuEl;
+    const current = menu;
+    if (!node || !current) return;
+    const r = node.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(current.x, window.innerWidth - r.width - margin);
+    const top = Math.min(current.y, window.innerHeight - r.height - margin);
+    menuPos = { left: Math.max(margin, left), top: Math.max(margin, top) };
+    node.querySelector<HTMLButtonElement>(".rs-menu-item")?.focus();
+  });
+
+  $effect(() => {
+    const current = menu;
+    if (!current) return;
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeMenu();
+    }
+    function onPointer(e: Event) {
+      if (menuEl && !menuEl.contains(e.target as Node)) closeMenu();
+    }
+    window.addEventListener("keydown", onKeydown);
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      const opener = current.opener;
+      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("scroll", closeMenu, true);
+      queueMicrotask(() => {
+        if (opener?.isConnected && document.activeElement === document.body) opener.focus();
+      });
+    };
+  });
 </script>
 
 {#if railVisible}
@@ -113,29 +274,42 @@
            on it catches label/icon/count content-width changes at a fixed chip
            count (which the scroller's own resize does not). -->
       <div class="rs-track" bind:this={track}>
-        {#each chips as chip (chip.repoPath)}
+        {#each shownChips as chip (chip.repoPath)}
           {@const active = repoFilter === chip.repoPath}
-          {@const repo = basename(chip.repoPath)}
+          {@const pinned = pinnedRepo === chip.repoPath}
           <button
             type="button"
             class="rs-chip"
             class:active
+            class:pinned
             aria-pressed={active}
-            aria-label={(active
-              ? m.repo_filter_active_aria({ repo })
-              : m.repo_filter_apply_aria({ repo })) +
-              (chip.insights > 0 || chip.curate > 0
-                ? " " +
-                  m.repo_chip_learnings_aria({
-                    count: chip.insights > 0 ? chip.insights : chip.curate,
-                  })
-                : "")}
-            onclick={() => onrepofilter(active ? null : chip.repoPath)}
+            aria-label={chipAria(chip, active, pinned)}
+            oncontextmenu={(e) => onContextMenu(e, chip)}
+            onpointerdown={(e) => onPointerDown(e, chip)}
+            onpointermove={onPointerMove}
+            onpointerup={onPointerEnd}
+            onpointercancel={onPointerEnd}
+            use:longPress={{
+              ms: HOLD_MS,
+              onTrigger: (x, y) =>
+                openPinMenu(
+                  chip,
+                  x,
+                  y,
+                  (document.elementFromPoint(x, y)?.closest(".rs-chip") as HTMLElement | null) ??
+                    scroller ??
+                    document.body,
+                ),
+            }}
+            onclick={() => onChipClick(chip, active)}
           >
             <span class="rs-glyph" aria-hidden="true"
               >{projectIcons.iconFor(chip.repoPath) ?? "▣"}</span
             >
-            <span class="rs-name">{repo}</span>
+            <span class="rs-name">{repoLabel(chip)}</span>
+            {#if pinned}
+              <span class="rs-pin-mark" aria-hidden="true">⌖</span>
+            {/if}
             <span class="rs-count">{chip.count}</span>
             {#if chip.drain?.paused}
               <span class="rs-paused-dot" aria-hidden="true">●</span>
@@ -161,6 +335,24 @@
 {:else if loneChip && !mobile}
   <div class="rs">
     <RepoChipTelemetry chip={loneChip} />
+  </div>
+{/if}
+
+{#if menu}
+  {@const menuPinned = pinnedRepo === menu.chip.repoPath}
+  <div
+    bind:this={menuEl}
+    class="rs-menu"
+    role="menu"
+    tabindex="-1"
+    aria-label={m.repo_chip_menu_label({ repo: repoLabel(menu.chip) })}
+    style="left:{menuPos?.left ?? menu.x}px;top:{menuPos?.top ?? menu.y}px"
+  >
+    <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={commitPin}>
+      <span class="rs-menu-icon" aria-hidden="true">{menuPinned ? "⌫" : "⌖"}</span>{menuPinned
+        ? m.repo_chip_unpin()
+        : m.repo_chip_pin()}
+    </button>
   </div>
 {/if}
 
@@ -258,6 +450,9 @@
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
+  .rs-chip.pinned:not(.active) {
+    border-color: var(--color-line-bright);
+  }
   /* the repo glyph is identity, not status — keep it on the ink ramp, never a
      status hue (Four-Light Rule). */
   .rs-glyph {
@@ -270,6 +465,11 @@
   .rs-count {
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
+  }
+  .rs-pin-mark {
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    line-height: 1;
   }
   .rs-chip.active .rs-count {
     color: var(--color-amber);
@@ -303,6 +503,50 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+
+  .rs-menu {
+    position: fixed;
+    z-index: 60;
+    min-width: 150px;
+    max-width: calc(100vw - 16px);
+    padding: 4px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 3px;
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--color-bg) 60%, transparent);
+    display: flex;
+    flex-direction: column;
+  }
+  .rs-menu:focus {
+    outline: none;
+  }
+  .rs-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 11px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-base);
+    text-align: left;
+    cursor: pointer;
+  }
+  .rs-menu-item:hover,
+  .rs-menu-item:focus-visible {
+    background: var(--color-hover);
+    outline: none;
+  }
+  .rs-menu-icon {
+    width: 1em;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    text-align: center;
+    flex-shrink: 0;
   }
 
   /* Coarse pointers: ≥44px tap targets on the chips (mirrors the QueueStrip /

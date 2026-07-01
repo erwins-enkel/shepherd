@@ -39,6 +39,26 @@ describe("PrBadge", () => {
       .toBeInTheDocument();
   });
 
+  it("opens the action menu on mouse hover", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      () =>
+        ({
+          matches: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    document
+      .querySelector<HTMLButtonElement>(".pr-badge.as-button")!
+      .dispatchEvent(new MouseEvent("mouseenter"));
+
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_open_pr() }))
+      .toBeInTheDocument();
+  });
+
   it("opens the PR URL in a new tab from the menu", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(PrBadge, { props: { git: git(), sessionId: "s1" } });
@@ -73,5 +93,18 @@ describe("PrBadge", () => {
     await page.getByRole("menuitem", { name: m.prbadge_mark_ready() }).click();
 
     expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/git/ready", expect.any(Object));
+  });
+
+  it("disables draft changes for unsupported forge kinds", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, { props: { git: git({ kind: "local" }), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    const draftAction = page.getByRole("menuitem", { name: m.prbadge_mark_draft() });
+
+    await expect.element(draftAction).toBeDisabled();
+    await draftAction.click({ force: true });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

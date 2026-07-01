@@ -7,6 +7,8 @@
     opener,
     isDraft,
     canOpen,
+    canToggleDraft,
+    autoFocus = true,
     busy = false,
     onopen,
     ontoggledraft,
@@ -16,6 +18,8 @@
     opener?: HTMLElement;
     isDraft: boolean;
     canOpen: boolean;
+    canToggleDraft: boolean;
+    autoFocus?: boolean;
     busy?: boolean;
     onopen: () => void;
     ontoggledraft: () => void;
@@ -35,15 +39,18 @@
     const top = below + r.height + margin > window.innerHeight && above > margin ? above : below;
     const left = Math.min(anchor.left, window.innerWidth - r.width - margin);
     pos = { left: Math.max(margin, left), top: Math.max(margin, top) };
-    items()[0]?.focus();
+    if (autoFocus) enabledItems()[0]?.focus();
   });
 
   function items(): HTMLButtonElement[] {
     return el ? Array.from(el.querySelectorAll<HTMLButtonElement>(".pm-item")) : [];
   }
+  function enabledItems(): HTMLButtonElement[] {
+    return items().filter((item) => !item.disabled);
+  }
 
   function onNav(e: KeyboardEvent) {
-    const list = items().filter((item) => !item.disabled);
+    const list = enabledItems();
     if (list.length === 0) return;
     const i = list.indexOf(document.activeElement as HTMLButtonElement);
     const fwd = (i + 1) % list.length;
@@ -107,8 +114,9 @@
     type="button"
     role="menuitem"
     tabindex="-1"
-    disabled={busy}
+    disabled={busy || !canToggleDraft}
     aria-busy={busy}
+    title={!canToggleDraft ? m.prbadge_draft_unsupported() : undefined}
     onclick={ontoggledraft}
   >
     <span class="pm-icon" aria-hidden="true">{isDraft ? "✓" : "□"}</span>{isDraft

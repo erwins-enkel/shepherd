@@ -9,6 +9,7 @@
   let { git, sessionId }: { git?: GitState; sessionId?: string } = $props();
   const label = $derived(prBadgeLabel(git));
   const actionable = $derived(!!sessionId && git?.state === "open" && !!git.number);
+  const canToggleDraft = $derived(git?.kind === "github" || git?.kind === "gitea");
   // CI only matters on an open PR; `none` means no checks reported.
   const showCi = $derived(git?.state === "open" && git.checks !== "none");
   const review = $derived(git?.latestReview);
@@ -24,17 +25,36 @@
   // Draft marker: only on open PRs; never green — always slate.
   const showDraft = $derived(prBadgeIsDraft(git));
   let btnEl = $state<HTMLButtonElement>();
-  let menu = $state<{ anchor: DOMRect } | null>(null);
+  let menu = $state<{
+    anchor: DOMRect;
+    autoFocus: boolean;
+    openedBy: "click" | "hover";
+  } | null>(null);
   let busy = $state(false);
+
+  function openMenu(autoFocus: boolean, openedBy: "click" | "hover") {
+    if (!actionable || !btnEl) return;
+    menu = { anchor: btnEl.getBoundingClientRect(), autoFocus, openedBy };
+  }
 
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
     if (!actionable) return;
     if (menu) {
+      if (menu.openedBy === "hover") {
+        openMenu(true, "click");
+        return;
+      }
       menu = null;
       return;
     }
-    if (btnEl) menu = { anchor: btnEl.getBoundingClientRect() };
+    openMenu(true, "click");
+  }
+
+  function openMenuOnHover() {
+    if (menu) return;
+    const canHover = window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? true;
+    if (canHover) openMenu(false, "hover");
   }
 
   function openPr() {
@@ -44,7 +64,7 @@
   }
 
   async function toggleDraftState() {
-    if (!sessionId) return;
+    if (!sessionId || !canToggleDraft) return;
     const nextDraft = !showDraft;
     busy = true;
     try {
@@ -93,6 +113,7 @@
       aria-label={m.prbadge_button_title({ label })}
       aria-haspopup="menu"
       aria-expanded={!!menu}
+      onmouseenter={openMenuOnHover}
       onclick={toggleMenu}
     >
       {@render content()}
@@ -110,6 +131,8 @@
     opener={btnEl}
     isDraft={showDraft}
     canOpen={!!git?.url}
+    {canToggleDraft}
+    autoFocus={menu.autoFocus}
     {busy}
     onopen={openPr}
     ontoggledraft={toggleDraftState}

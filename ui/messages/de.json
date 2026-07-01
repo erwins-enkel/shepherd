@@ -2254,6 +2254,7 @@
   "prbadge_open_pr": "PR öffnen",
   "prbadge_mark_ready": "Auf Ready for Review setzen",
   "prbadge_mark_draft": "Auf Draft zurücksetzen",
+  "prbadge_draft_unsupported": "Draft-Zustandswechsel sind für diesen Forge nicht verfügbar",
   "prbadge_marked_ready": "PR auf Ready for Review gesetzt",
   "prbadge_marked_draft": "PR auf Draft zurückgesetzt",
   "prbadge_draft_toggle_failed": "PR-Zustand konnte nicht geändert werden: {reason}",

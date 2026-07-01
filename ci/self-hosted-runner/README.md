@@ -190,13 +190,37 @@ step's warning.
 
 ## ⚠️ MANDATORY public-repo cutover
 
-> **Before making this repo public, run `gh variable delete CI_RUNNER`.**
->
-> A self-hosted runner attached to a **public** repo executes **fork-PR code on this
-> host** — any internet stranger's pull request runs on your machine, beside production.
-> This is GitHub's own loud warning, and here it's non-negotiable. Delete the variable
-> (reverting CI to GitHub-hosted runners) **before** the repo goes public, and tear the
-> runner down if it won't be re-privatized.
+A self-hosted runner attached to a **public** repo executes **fork-PR code on this
+host** — any internet stranger's pull request runs on your machine, beside production.
+This is GitHub's own loud warning, and here it's non-negotiable. Making the repo public
+does **not** disarm this on its own: the runners stay registered and `CI_RUNNER` stays
+set until you remove them. Standard GitHub-hosted runners are **free and unlimited on
+public repos**, so there's no cost reason to keep self-hosted once public — do the full
+teardown.
+
+Run this checklist **while the repo is still private**, in order, so you validate hosted
+CI before you lose the self-hosted fallback and never sit in a public-and-self-hosted
+state:
+
+1. **Revert routing to hosted.** `gh variable delete CI_RUNNER` — every workflow's
+   `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` now falls back to GitHub-hosted.
+2. **Prove hosted CI is green** on a throwaway PR **before** tearing anything down:
+   confirm `verify` (ci.yml) and the PR-hygiene jobs pass on `ubuntu-latest`. This is
+   your last chance to catch a hosted-only failure while the fallback still exists.
+3. **Tear the runners down** — follow [Teardown](#teardown) to stop/disable the units
+   and **deregister every replica** (a lingering registration keeps the label live).
+4. **Verify nothing self-hosted remains:**
+
+   ```sh
+   gh variable list                                                  # no CI_RUNNER
+   gh api repos/erwins-enkel/shepherd/actions/runners --jq .total_count  # -> 0
+   ```
+
+5. **Only now flip the repo to public.**
+
+> Optional hardening for the public phase: drop the `vars.CI_RUNNER ||` toggle from the
+> workflow files entirely, so a single `gh variable set` can't silently re-arm the
+> self-hosted path on a public repo.
 
 ## Egress real-machinery tests
 

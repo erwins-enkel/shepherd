@@ -68,6 +68,7 @@
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
   import { upNext } from "$lib/up-next.svelte";
+  import { claudeUsageHoldLikely } from "$lib/provider-capacity";
   import { doneSessions } from "$lib/done.svelte";
   import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
   import { learnings } from "$lib/learnings.svelte";
@@ -496,9 +497,7 @@
   // snapshot lands, so the prediction is conservatively false until data is available.
   // Gates on usage alone (no running-session term) — see src/usage-hold.ts.
   const holdLikely = $derived(
-    usageHoldEnabled &&
-      Math.max(store.usageLimits?.session5h?.pct ?? 0, store.usageLimits?.week?.pct ?? 0) >=
-        usageHoldPct,
+    claudeUsageHoldLikely(store.usageLimits, usageHoldEnabled, usageHoldPct),
   );
   // Held only when creating fresh (not a relaunch, not editing an already-held task).
   // Pre-computed here so the ternary lives in <script>, keeping it out of the

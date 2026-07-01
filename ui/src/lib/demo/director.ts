@@ -140,6 +140,17 @@ function startAmbientWorkingSet(): void {
   for (const id of workingIds()) startAmbient(id);
 }
 
+/** Stop (or no-op if absent) the ambient loop for `id` — an already-cleared or
+ *  never-started id is a safe no-op, so this can't throw on a stale/unknown id. */
+function stopAmbient(id: string): void {
+  const t = ambientLoops.get(id);
+  if (t !== undefined) {
+    clearTimeout(t);
+    timers.delete(t);
+  }
+  ambientLoops.delete(id);
+}
+
 // ── mutation reactions (each a BOUNDED, self-marked follow-up sequence) ──────────
 
 /** Push a small bounded burst of terminal lines on a staggered cadence. */
@@ -147,11 +158,15 @@ function pushBurst(id: string, lines: string[], baseDelay: number): void {
   lines.forEach((line, i) => schedule(() => ptyStream.push(id, line), baseDelay + i * 500));
 }
 
-/** merge → after a beat, land the PR (git merged + status + mergetrain:landed). */
+/** merge → after a beat, land the PR (git merged + status + mergetrain:landed) and
+ *  post the recap payoff (idempotent — a re-land of the same id is a no-op past
+ *  the first call, so it can never stack). */
 function reactMerge(id: string): void {
   pushBurst(id, [`${GRAY}  ⎿ merging…${RESET}${NL}`], 600);
   schedule(() => {
     asSelf(() => demoState.landMerge(id));
+    const recap = asSelf(() => demoState.landRecap(id));
+    if (recap) emit({ event: "session:recap", data: { id, recap } });
     ptyStream.push(id, `${GREEN}✓${RESET} Merged — landed on the default branch.${NL}`);
   }, 1800);
 }
@@ -238,6 +253,9 @@ function onBusEvent(ev: WsEvent): void {
       break;
     case "session:new":
       reactSpawn(ev.data.id);
+      break;
+    case "session:archived":
+      stopAmbient(ev.data.id);
       break;
   }
 }

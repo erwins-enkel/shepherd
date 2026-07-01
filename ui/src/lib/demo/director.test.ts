@@ -129,6 +129,27 @@ describe("director mutation reactions", () => {
     unsub();
   });
 
+  it("merge → also posts the recap payoff (session:recap), matching world.recaps", () => {
+    director.start();
+    const { frames, unsub } = collectBus();
+
+    demoState.mergePr("ogimg");
+    vi.advanceTimersByTime(20_000);
+
+    const recapFrames = frames.filter((f) => f.event === "session:recap");
+    expect(recapFrames.length).toBe(1);
+    const emitted = (recapFrames[0].data as { id: string; recap: unknown }).recap;
+    expect(emitted).toBeTruthy();
+    expect(demoState.recaps()["ogimg"]).toEqual(emitted);
+
+    // Landing again doesn't stack/duplicate the recap — content survives a re-land unchanged.
+    demoState.mergePr("ogimg");
+    vi.advanceTimersByTime(20_000);
+    expect(demoState.recaps()["ogimg"]).toEqual(emitted);
+
+    unsub();
+  });
+
   it("plan-gate release → session starts working (status running + ambient begins)", () => {
     // authstore is PLAN-GATE awaiting Go; approve the gate so release is permitted.
     const gate = demoState.planGates()["authstore"];
@@ -198,6 +219,36 @@ describe("director mutation reactions", () => {
 
     unsub();
     term.unsub();
+  });
+});
+
+describe("director archive stops the ambient loop", () => {
+  it("archiving a working session stops its loop — no further activity/PTY for that id", () => {
+    director.start();
+    const { frames, unsub } = collectBus();
+    const coupon = collectPty("coupon");
+
+    vi.advanceTimersByTime(5_000);
+    expect(coupon.bytes.length).toBeGreaterThan(0);
+
+    demoState.archiveSession("coupon");
+    const activityBefore = idsOf(frames, "session:activity").filter((id) => id === "coupon").length;
+    const bytesBefore = coupon.bytes.length;
+
+    vi.advanceTimersByTime(60_000);
+
+    const activityAfter = idsOf(frames, "session:activity").filter((id) => id === "coupon").length;
+    expect(activityAfter).toBe(activityBefore);
+    expect(coupon.bytes.length).toBe(bytesBefore);
+
+    unsub();
+    coupon.unsub();
+  });
+
+  it("archiving a session with no ambient loop is a safe no-op", () => {
+    director.start();
+    expect(() => demoState.archiveSession("rounding")).not.toThrow();
+    expect(() => demoState.archiveSession("does-not-exist")).not.toThrow();
   });
 });
 

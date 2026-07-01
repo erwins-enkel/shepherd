@@ -191,6 +191,34 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.sessions().find((s) => s.id === "rounding")?.mergingSince).not.toBeNull();
   });
 
+  it("landMerge + landRecap: a landed session gets a recap, idempotent across repeat lands", () => {
+    expect(demoState.recaps()["ogimg"]).toBeUndefined();
+    demoState.landMerge("ogimg");
+    const frames = capture(() => demoState.landRecap("ogimg"));
+    expect(events(frames)).toEqual([]); // landRecap only mutates world state; the director emits
+    const recap = demoState.recaps()["ogimg"];
+    expect(recap).toBeTruthy();
+    expect(recap?.sessionId).toBe("ogimg");
+    expect(recap?.headline).toContain("508"); // ogimg's seeded PR number
+
+    // Landing again is a no-op past the first call — same content, no duplicate/regeneration.
+    const again = demoState.landRecap("ogimg");
+    expect(again).toEqual(recap);
+    expect(demoState.recaps()["ogimg"]).toEqual(recap);
+  });
+
+  it("landRecap leaves an already-seeded recap untouched (deps has one from the seed)", () => {
+    const before = demoState.recaps()["deps"];
+    expect(before).toBeTruthy();
+    const result = demoState.landRecap("deps");
+    expect(result).toEqual(before);
+    expect(demoState.recaps()["deps"]).toEqual(before);
+  });
+
+  it("landRecap on an unknown session returns null and touches nothing", () => {
+    expect(demoState.landRecap("does-not-exist")).toBeNull();
+  });
+
   it("setReadyToMerge emits session:ready", () => {
     const frames = capture(() => demoState.setReadyToMerge("coupon", true));
     expect(events(frames)).toEqual(["session:ready"]);

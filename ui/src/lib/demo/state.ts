@@ -302,6 +302,40 @@ export const demoState = {
     if (s) emit({ event: "mergetrain:landed", data: { repoPath: s.repoPath } });
   },
 
+  /** Generate + insert the "recap appears" payoff for a session that just landed
+   *  (director follow-up to {@link landMerge}, emits `session:recap`). Idempotent: a
+   *  session that already has a recap (seeded, or from a prior land) keeps it
+   *  unchanged rather than growing/duplicating — landing the same id twice is a
+   *  no-op past the first call. Returns null only if the session no longer exists. */
+  landRecap(id: string): Recap | null {
+    const s = find(id);
+    if (!s) return null;
+    const existing = world.recaps[id];
+    if (existing) return existing;
+    const git = world.gitStates[id];
+    const title = git?.title ?? s.name;
+    const prNumber = git?.number ?? null;
+    const now = Date.now();
+    const recap: Recap = {
+      sessionId: id,
+      state: "ready",
+      headSha: git?.headSha ?? "0000000",
+      verdict: "ready",
+      headline: prNumber ? `${title} — merged (PR #${prNumber})` : `${title} — merged`,
+      body: `Landed on the default branch${prNumber ? ` via PR #${prNumber}` : ""}. ${s.prompt}`.trim(),
+      openItems: [],
+      changedFiles: [],
+      spawnSessionId: `recap-${id}`,
+      cwd: s.worktreePath,
+      model: s.model,
+      spawnedAt: now - 2 * 60_000,
+      generatedAt: now,
+      updatedAt: now,
+    };
+    world.recaps = { ...world.recaps, [id]: recap };
+    return recap;
+  },
+
   /** Spawn a session for the epic child the director just advanced to "running"
    *  (director follow-up to {@link approveEpicNext}). Emits `session:new`. */
   spawnEpicChild(repoPath: string, parent: number): Session | null {

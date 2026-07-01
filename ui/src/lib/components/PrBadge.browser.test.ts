@@ -39,24 +39,27 @@ describe("PrBadge", () => {
       .toBeInTheDocument();
   });
 
-  it("opens the action menu on mouse hover", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation(
-      () =>
-        ({
-          matches: true,
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-        }) as unknown as MediaQueryList,
-    );
+  it("does not open the action menu on mouse hover", async () => {
     render(PrBadge, { props: { git: git(), sessionId: "s1" } });
 
     document
       .querySelector<HTMLButtonElement>(".pr-badge.as-button")!
       .dispatchEvent(new MouseEvent("mouseenter"));
 
+    expect(document.querySelector("[role='menu']")).toBeNull();
+  });
+
+  it("closes the action menu when the pointer moves away", async () => {
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
     await expect
       .element(page.getByRole("menuitem", { name: m.prbadge_open_pr() }))
       .toBeInTheDocument();
+
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: -100, clientY: -100 }));
+
+    await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
   });
 
   it("opens the PR URL in a new tab from the menu", async () => {

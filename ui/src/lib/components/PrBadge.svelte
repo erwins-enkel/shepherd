@@ -28,33 +28,19 @@
   let menu = $state<{
     anchor: DOMRect;
     autoFocus: boolean;
-    openedBy: "click" | "hover";
   } | null>(null);
   let busy = $state(false);
 
-  function openMenu(autoFocus: boolean, openedBy: "click" | "hover") {
+  function openMenu(autoFocus: boolean) {
     if (!actionable || !btnEl) return;
-    menu = { anchor: btnEl.getBoundingClientRect(), autoFocus, openedBy };
+    menu = { anchor: btnEl.getBoundingClientRect(), autoFocus };
   }
 
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
     if (!actionable) return;
-    if (menu) {
-      if (menu.openedBy === "hover") {
-        openMenu(true, "click");
-        return;
-      }
-      menu = null;
-      return;
-    }
-    openMenu(true, "click");
-  }
-
-  function openMenuOnHover() {
-    if (menu) return;
-    const canHover = window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? true;
-    if (canHover) openMenu(false, "hover");
+    if (menu) menu = null;
+    else openMenu(true);
   }
 
   function openPr() {
@@ -113,7 +99,6 @@
       aria-label={m.prbadge_button_title({ label })}
       aria-haspopup="menu"
       aria-expanded={!!menu}
-      onmouseenter={openMenuOnHover}
       onclick={toggleMenu}
     >
       {@render content()}

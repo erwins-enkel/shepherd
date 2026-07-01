@@ -49,6 +49,32 @@
     return items().filter((item) => !item.disabled);
   }
 
+  function containsPoint(rect: DOMRect, x: number, y: number, pad = 0) {
+    return (
+      x >= rect.left - pad &&
+      x <= rect.right + pad &&
+      y >= rect.top - pad &&
+      y <= rect.bottom + pad
+    );
+  }
+
+  function insidePointerKeepalive(x: number, y: number) {
+    if (!el) return false;
+    const menuRect = el.getBoundingClientRect();
+    const openerRect = opener?.getBoundingClientRect();
+    if (containsPoint(menuRect, x, y, 4)) return true;
+    if (openerRect && containsPoint(openerRect, x, y, 4)) return true;
+    if (!openerRect) return false;
+
+    const bridge = new DOMRect(
+      Math.min(menuRect.left, openerRect.left),
+      Math.min(menuRect.top, openerRect.top),
+      Math.max(menuRect.right, openerRect.right) - Math.min(menuRect.left, openerRect.left),
+      Math.max(menuRect.bottom, openerRect.bottom) - Math.min(menuRect.top, openerRect.top),
+    );
+    return containsPoint(bridge, x, y, 8);
+  }
+
   function onNav(e: KeyboardEvent) {
     const list = enabledItems();
     if (list.length === 0) return;
@@ -74,12 +100,17 @@
       const t = e.target as Node;
       if (el && !el.contains(t) && !opener?.contains(t)) onclose();
     }
+    function onPointerMove(e: PointerEvent) {
+      if (!insidePointerKeepalive(e.clientX, e.clientY)) onclose();
+    }
     window.addEventListener("keydown", onKeydown);
     window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("pointermove", onPointerMove, true);
     window.addEventListener("scroll", onclose, true);
     return () => {
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("scroll", onclose, true);
       const target = opener;
       queueMicrotask(() => {

@@ -93,7 +93,7 @@ Shepherd core  ──  Bun + TypeScript (src/)
 curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
 ```
 
-Provisions prerequisites, clones to `~/Work/shepherd`, builds the UI, and on Linux installs and
+Provisions prerequisites, clones to `~/.shepherd/app`, builds the UI, and on Linux installs and
 enables the systemd user service. Idempotent — safe to re-run: it never clobbers an existing
 `~/.shepherd/` state dir and never force-resets a dirty checkout.
 
@@ -122,7 +122,7 @@ before running it. Read the script first:
 
 | Variable              | Default           | Purpose                                                                                       |
 | --------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `SHEPHERD_DIR`        | `~/Work/shepherd` | Where the repo is cloned / found                                                              |
+| `SHEPHERD_DIR`        | `~/.shepherd/app` | Where the repo is cloned / found                                                              |
 | `SHEPHERD_REF`        | `main`            | Git ref to clone or check out                                                                 |
 | `SHEPHERD_SRC`        | _(none)_          | Install from a local tarball or directory instead of cloning (used by the onboarding harness) |
 | `SHEPHERD_NO_SERVICE` | _(none)_          | Skip the systemd unit step (set automatically on macOS)                                       |
@@ -180,8 +180,8 @@ private), running the local script:
 
 ```bash
 gh auth login                                      # or a read-only PAT in the git credential helper
-gh repo clone erwins-enkel/shepherd ~/Work/shepherd
-bash ~/Work/shepherd/deploy/install.sh
+gh repo clone erwins-enkel/shepherd ~/.shepherd/app
+bash ~/.shepherd/app/deploy/install.sh
 ```
 
 This keeps them on `main` with `update.sh` / `git pull` for ongoing updates. Either way, full

@@ -4,7 +4,7 @@ Documentation=https://github.com/erwins-enkel/shepherd
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/Work/shepherd
+WorkingDirectory=%h/.shepherd/app
 ExecStart=%h/.bun/bin/bun run scripts/backup.ts
 
 # bun lives in ~/.bun/bin; keep the same resolvable PATH as shepherd.service

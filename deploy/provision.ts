@@ -105,8 +105,8 @@ export function decideServicePath(
 }
 
 /** Template the systemd unit so its WorkingDirectory points at the ACTUAL checkout
- *  (`repo`) instead of the hardcoded `%h/Work/shepherd`. This makes the default
- *  (`~/Work/shepherd`) install byte-identical to today while making a custom
+ *  (`repo`) instead of the hardcoded `%h/.shepherd/app`. This makes the default
+ *  (`~/.shepherd/app`) install byte-identical while making a custom
  *  SHEPHERD_DIR correct — ExecStart stays `bun run src/index.ts` (relative to
  *  WorkingDirectory) and bun's path is independent of the checkout, so retargeting
  *  WorkingDirectory alone suffices. Replaces the single `WorkingDirectory=` line. */
@@ -265,7 +265,7 @@ export function installService(
   run("mkdir", ["-p", join(home, ".shepherd")]);
   // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
   // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
-  // hardcoded %h/Work/shepherd. Default repo (~/Work/shepherd) ⇒ identical output.
+  // hardcoded %h/.shepherd/app. Default repo (~/.shepherd/app) ⇒ identical output.
   const unitSrc = fileIO.read(join(repo, "deploy", "shepherd.service"));
   fileIO.write(join(unitDir, "shepherd.service"), templateUnit(unitSrc, repo));
   // Hourly backup units (#1080), installed alongside the main service. The .service carries a

@@ -2215,5 +2215,11 @@
   "feat_newtask_hide_hidden_title": "Hidden repos stay out of the New Task picker",
   "feat_newtask_hide_hidden_body": "Repos you've hidden no longer clutter the repo picker when you start a new task. They're dropped from the list and the recents shortcuts, but still appear the moment you search for one by name — so a hidden repo is always one keystroke away when you need it.",
   "feat_usage_timeline_title": "See your token usage over time",
-  "feat_usage_timeline_body": "The Usage panel has a new Timeline tab: a day-by-hour heatmap of weighted-unit consumption across the selected range. Hotter hours read darker, so you can spot your high- and low-usage periods at a glance — including activity from sessions running right now."
+  "feat_usage_timeline_body": "The Usage panel has a new Timeline tab: a day-by-hour heatmap of weighted-unit consumption across the selected range. Hotter hours read darker, so you can spot your high- and low-usage periods at a glance — including activity from sessions running right now.",
+  "demoribbon_aria_label": "Live demo notice",
+  "demoribbon_label": "Live demo",
+  "demoribbon_blurb": "Backend is simulated — nothing here is real infrastructure.",
+  "demoribbon_cta": "Get Shepherd →",
+  "demoribbon_more_aria": "More demo options",
+  "demoribbon_reset": "Reset demo"
 }

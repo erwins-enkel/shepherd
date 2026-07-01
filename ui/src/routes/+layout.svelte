@@ -6,6 +6,10 @@
   import { auth } from "$lib/auth.svelte";
   import { getMe } from "$lib/api";
   import Login from "$lib/components/Login.svelte";
+  // Demo-only marketing chrome (Task 7). __DEMO__ is a compile-time constant
+  // (vite `define`), so the `{#if __DEMO__}` guard below dead-code-eliminates
+  // both this import and the component from a production build.
+  import DemoRibbon from "$lib/demo/DemoRibbon.svelte";
 
   let { children } = $props();
 
@@ -29,6 +33,10 @@
   <Login />
 {:else if auth.checked}
   {@render children()}
+{/if}
+
+{#if __DEMO__}
+  <DemoRibbon />
 {/if}
 
 <style>

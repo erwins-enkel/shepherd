@@ -97,6 +97,7 @@ import {
   startPreviewScript,
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
+import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
@@ -461,6 +462,12 @@ const sessionUsage = (s: Session) =>
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** 409 while the first-run gate is pending — nothing may spawn or scaffold until a repo root
+ *  is picked. Returns null (proceed) once resolved. */
+function firstRunBlock(): Response | null {
+  return firstRun.pending ? json({ error: "first_run_pending" }, 409) : null;
+}
 
 /**
  * Total accessors (#1092) for the learnings / repo-config deep modules. They lazily
@@ -874,6 +881,8 @@ function parseUpNextStartItems(body: unknown): UpNextStartItem[] | null {
 }
 
 async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
   const items = parseUpNextStartItems(await req.json().catch(() => null));
   if (!items) return json({ error: "items required" }, 400);
 
@@ -1754,6 +1763,8 @@ function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps)
 // POST /api/sessions — create a session.
 async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && !parts[2])) return null;
+  const b = firstRunBlock();
+  if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
   const body = await req.json().catch(() => null);
@@ -2674,6 +2685,8 @@ async function finalizeRelaunch(
 // then decommission the original (retaining its drain claim — a relaunch is not a retire).
 async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "relaunch")) return null;
+  const b = firstRunBlock();
+  if (b) return b;
   const id = parts[2];
 
   // In-flight guard: reject a concurrent second relaunch of the same id (409) before
@@ -3278,6 +3291,25 @@ async function githubRateLimitResponse(deps: AppDeps): Promise<Response> {
   }
 }
 
+// POST /api/usage/refresh — re-scrape usage and return the fresh limits. Extracted from
+// handleUsageLimits so the multi-route dispatcher stays lean and this spawn-triggering path
+// (blocked while first-run pending) is a single focused unit.
+async function handleUsageRefresh(deps: Ctx["deps"]): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
+  // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
+  const { limits, scraped } = deps.refreshUsage
+    ? await deps.refreshUsage()
+    : { limits: deps.usageLimits.limits(Date.now()), scraped: true };
+  // Fail closed: a refresh that didn't actually re-scrape (probe failed, or skipped) must NOT
+  // look like success — return non-OK so the client surfaces its retry state instead of silently
+  // keeping the stale numbers. Subscription-only attempts no scrape, so it never trips.
+  if (!scraped && !limits.subscriptionOnly) {
+    return json({ error: "usage refresh did not re-scrape", code: "refresh_stale" }, 503);
+  }
+  return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
+}
+
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (
     req.method === "POST" &&
@@ -3285,17 +3317,7 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
     parts[1] === "usage" &&
     parts[2] === "refresh"
   ) {
-    // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
-    const { limits, scraped } = deps.refreshUsage
-      ? await deps.refreshUsage()
-      : { limits: deps.usageLimits.limits(Date.now()), scraped: true };
-    // Fail closed: a refresh that didn't actually re-scrape (probe failed, or skipped) must NOT
-    // look like success — return non-OK so the client surfaces its retry state instead of silently
-    // keeping the stale numbers. Subscription-only attempts no scrape, so it never trips.
-    if (!scraped && !limits.subscriptionOnly) {
-      return json({ error: "usage refresh did not re-scrape", code: "refresh_stale" }, 503);
-    }
-    return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
+    return handleUsageRefresh(deps);
   }
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
     const now = Date.now();
@@ -3547,6 +3569,8 @@ const CLONE_ERROR_STATUS: Record<string, number> = {
 };
 
 async function cloneRepoFromRequest(req: Request): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
   const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
@@ -3566,6 +3590,8 @@ const FORK_ERROR_STATUS: Record<string, number> = {
 };
 
 async function forkRepoFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
   const body = (await req.json().catch(() => null)) as { target?: unknown } | null;
@@ -3592,6 +3618,8 @@ const PROJECT_ERROR_STATUS: Record<string, number> = {
 };
 
 async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
   const body = (await req.json().catch(() => null)) as unknown;
@@ -3719,6 +3747,8 @@ async function handleSettingsVerifyKey({ req, parts, deps }: Ctx): Promise<Respo
     req.method === "POST"
   ))
     return null;
+  const b = firstRunBlock();
+  if (b) return b;
   if (!deps.verifyKey) return json({ error: "verify not available" }, 503);
   const r = await deps.verifyKey();
   return json({ ok: r.ok, reason: r.reason, detail: r.detail });
@@ -3731,6 +3761,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
     return json({
       repoRoot: config.repoRoot,
       repoRootDisplay: collapseHome(config.repoRoot),
+      // blocking-onboarding-picker gate: true until a repo root has been picked/detected.
+      firstRunPending: firstRun.pending,
       remoteControlAtStartup: config.remoteControlAtStartup,
       reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
@@ -4072,6 +4104,12 @@ function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
   }
   config.repoRoot = root; // live: every later read picks it up
   deps.store.setSetting("repoRoot", root); // persist across restarts
+  // First-ever root pick: resolve the first-run gate so the deferred background herd
+  // starts (startBackground() reads config.repoRoot, already assigned above).
+  if (firstRun.pending) {
+    deps.store.setSetting("firstRunResolved", "1");
+    firstRun.resolve();
+  }
   return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
 }
 
@@ -4211,6 +4249,8 @@ async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
 
   // POST /api/held/:id/spawn — release one held task immediately
   if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
+    const b = firstRunBlock();
+    if (b) return b;
     const body = await req.json().catch(() => null);
     return heldSpawn(parts[2], deps, body);
   }

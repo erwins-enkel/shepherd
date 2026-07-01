@@ -51,6 +51,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
     repoRoot: "/repo",
     repoRootDisplay: "/repo",
+    firstRunPending: false,
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",

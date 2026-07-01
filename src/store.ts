@@ -755,6 +755,7 @@ export class SessionStore implements CapStore, CreditStore {
       repoMode TEXT NOT NULL DEFAULT 'forge',
       updatedAt INTEGER NOT NULL)`);
     this.migrateRepoConfigColumns();
+    this.migrateFirstRunMarker();
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
       repoPath  TEXT NOT NULL,
@@ -3035,6 +3036,22 @@ export class SessionStore implements CapStore, CreditStore {
         `UPDATE repo_config SET automationConfirmedAt = updatedAt WHERE automationConfirmedAt IS NULL`,
       );
     }
+  }
+
+  // One-time first-run classification (see first-run gate). Runs once per DB, keyed off its
+  // OWN marker so it can never re-fire: on a NEW install it runs on boot 1 against an empty DB
+  // (before bootstrapAuth seeds any secret) → not pre-existing → not stamped, so the gate
+  // applies; a genuinely pre-existing DB (auth secrets / a chosen root / any session already
+  // present) is stamped resolved once so it is never gated.
+  private migrateFirstRunMarker(): void {
+    if (this.getSetting("firstRunMigrated")) return; // run-once, idempotent on its OWN marker
+    const preExisting =
+      !!this.getSetting("cookieSecret") ||
+      !!this.getSetting("passwordHash") ||
+      !!this.getSetting("repoRoot") ||
+      this.list().length > 0;
+    if (preExisting) this.setSetting("firstRunResolved", "1");
+    this.setSetting("firstRunMigrated", "1"); // unconditional → never runs again
   }
 
   private migrateEpicIntegratedColumns(): void {

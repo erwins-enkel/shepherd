@@ -46,6 +46,7 @@ function baseProps(): Props {
     diagnosticsLoadFailed: false,
     ononboardingretry: vi.fn(),
     ononboardingdismiss: vi.fn(),
+    ononboardingpicked: vi.fn(),
     showWhatsNew: false,
     whatsNewEntries: [],
     onwhatsnewdismiss: vi.fn(),

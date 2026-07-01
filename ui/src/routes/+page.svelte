@@ -504,6 +504,17 @@
   let backlog = $state<BacklogPayload | null>(null);
   // loaded once on mount (previewHost etc.); re-read on settings close.
   let settings = $state<Settings_ | null>(null);
+  // Drives Onboarding's required-pick, non-dismissible mode: true exactly while the server still
+  // reports first-run-pending (see loadSettings()). Once the pick persists, handleOnboardingPicked
+  // re-loads settings and this flips false on its own.
+  const onboardingBlocking = $derived(settings?.firstRunPending ?? false);
+  // The blocking picker resolved server-side (putSettings persisted a root): close the gate and
+  // re-pull settings so repoRoot/repoRootDisplay/firstRunPending are all fresh.
+  function handleOnboardingPicked() {
+    showOnboarding = false;
+    featureDiscovery.markSeen("onboarding");
+    loadSettings();
+  }
   // Usage hold settings — extracted from the settings object for the holdLikely derived.
   let usageHoldEnabled = $state(false);
   let usageHoldPct = $state(80);
@@ -569,6 +580,10 @@
         usageHoldEnabled = s.usageHoldEnabled;
         usageHoldPct = s.usageHoldPct;
         store.docAgentEnabled = s.docAgentEnabled;
+        // Server-reported first run (settings.firstRunPending) is the source of truth for the
+        // required-pick onboarding gate — force it open even if the localStorage feature-discovery
+        // "seen" latch would otherwise keep the (non-blocking) checklist from reappearing.
+        if (s.firstRunPending) showOnboarding = true;
         // One-shot: loadSettings() also re-fires on tab return, so the eligibility
         // flag is consumed and `seen` re-checked here — a dismissed (or already-seen)
         // arrival must never reappear. See resolveFableArrival.
@@ -2524,12 +2539,14 @@
     store.codexUpdateDone = null;
   }}
   {showOnboarding}
+  {onboardingBlocking}
   {diagnosticsLoadFailed}
   ononboardingretry={loadDiagnostics}
   ononboardingdismiss={() => {
     featureDiscovery.markSeen("onboarding");
     showOnboarding = false;
   }}
+  ononboardingpicked={handleOnboardingPicked}
   {showWhatsNew}
   {whatsNewEntries}
   onwhatsnewdismiss={() => {

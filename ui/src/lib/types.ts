@@ -47,6 +47,10 @@ export interface RepoEntry {
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
+  /** True on a genuine server-detected first run: the onboarding surface must block until the
+   *  operator picks a repo root (see `Onboarding.svelte`'s `blocking` prop). Flips false once a
+   *  root is persisted. */
+  firstRunPending: boolean;
   remoteControlAtStartup: boolean;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;

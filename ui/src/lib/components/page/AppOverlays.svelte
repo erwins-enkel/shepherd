@@ -88,9 +88,11 @@
     oncodexupdateconfirm,
     oncodexupdateclose,
     showOnboarding,
+    onboardingBlocking = false,
     diagnosticsLoadFailed,
     ononboardingretry,
     ononboardingdismiss,
+    ononboardingpicked,
     showWhatsNew,
     whatsNewEntries,
     onwhatsnewdismiss,
@@ -188,9 +190,15 @@
     oncodexupdateconfirm: () => void;
     oncodexupdateclose: () => void;
     showOnboarding: boolean;
+    /** True on a genuine server-reported first run (`settings.firstRunPending`) — forces the
+     *  Onboarding surface into its required-pick, non-dismissible mode. */
+    onboardingBlocking?: boolean;
     diagnosticsLoadFailed: boolean;
     ononboardingretry: () => void;
     ononboardingdismiss: () => void;
+    /** Fires once the operator's folder pick persists in blocking mode, so the parent can clear
+     *  the gate (`showOnboarding = false`). */
+    ononboardingpicked: (root: string) => void;
     showWhatsNew: boolean;
     whatsNewEntries: FeatureAnnouncement[];
     onwhatsnewdismiss: () => void;
@@ -280,6 +288,10 @@
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
   const newTaskInitialModel = $derived(composeModel ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
+  // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
+  const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
+  const onboardingRepoRootDisplay = $derived(settings?.repoRootDisplay ?? null);
+  const onboardingSettingsLoaded = $derived(settings !== null);
   const newTaskHeldProviders = $derived(new Set<AgentProvider>(holdLikely ? ["claude"] : []));
   const newTaskDefaultAgentProvider = $derived(
     capacitySuggestedProvider(
@@ -407,6 +419,11 @@
     failed={diagnosticsLoadFailed}
     onretry={ononboardingretry}
     ondismiss={ononboardingdismiss}
+    blocking={onboardingBlocking}
+    repoRoot={onboardingRepoRoot}
+    repoRootDisplay={onboardingRepoRootDisplay}
+    settingsLoaded={onboardingSettingsLoaded}
+    onpicked={ononboardingpicked}
   />
 {/if}
 

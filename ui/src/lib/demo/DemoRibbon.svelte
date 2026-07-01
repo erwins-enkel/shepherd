@@ -103,6 +103,32 @@
     min-width: 8px;
   }
 
+  /* .gbtn recipe — copied verbatim from ui/src/routes/design-system/+page.svelte
+     (the canonical reference, ~lines 95-109). Do not edit the tokens here;
+     edit the source recipe and re-copy instead. */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+
   .cta {
     text-decoration: none;
     display: inline-flex;
@@ -124,6 +150,22 @@
     }
     .sep {
       display: none;
+    }
+    /* ActionBar's mobile bar (.actions.mobile in ActionBar.svelte) is also
+       fixed to the viewport bottom, occupying --mobile-actionbar-h, and would
+       otherwise sit under this ribbon's higher z-index and lose its primary
+       "New Task"/"Backlog" actions. Lift the ribbon clear of that bar and
+       shrink it to a compact, non-stretched pill (drop the left:0/right:0
+       stretch) so it reads as a small anchored aside rather than a second
+       bar covering content. */
+    .demo-ribbon {
+      left: auto;
+      right: 8px;
+      bottom: calc(var(--mobile-actionbar-h) + 8px);
+      border-top: none;
+      border: 1px solid var(--color-line);
+      border-radius: 999px;
+      padding: 6px 10px;
     }
   }
 </style>

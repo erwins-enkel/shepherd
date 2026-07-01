@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { flip } from "svelte/animate";
   import { dragHandleZone, dragHandle } from "svelte-dnd-action";
   import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
   import EmojiPicker from "$lib/components/EmojiPicker.svelte";
   import SlashCommandMenu from "$lib/components/SlashCommandMenu.svelte";
   import { getCommands } from "$lib/api";
@@ -24,15 +26,20 @@
   let saved = $state(false);
   // steer id whose emoji picker is open; null = closed
   let pickerFor = $state<string | null>(null);
+  // steer id whose repo popover is open; null = closed
+  let reposFor = $state<string | null>(null);
+  let reposPopEl = $state<HTMLDivElement | null>(null);
   // steer id currently being edited (its prompt field is focused). While set, that
   // row expands to a full-width, multi-line layout and — on mobile — becomes the
   // only row on screen, so a long prompt or a typed /command is fully readable.
   let editingId = $state<string | null>(null);
 
   // ── inline slash-command autocomplete for each steer's prompt field ──
-  // Steers are global presets (not bound to a repo), so we load the user-scope
-  // command index: passing no repo to /api/commands yields the user/.claude
-  // commands + skills only, the layer common to every session.
+  // A steer can now be bound to specific repos (s.repos), but that binding only
+  // gates WHERE the steer appears (bar/issues) — it doesn't change which slash
+  // commands are offered while editing its prompt. So we still load the
+  // user-scope command index here: passing no repo to /api/commands yields the
+  // user/.claude commands + skills only, the layer common to every session.
   let allCommands = $state<SlashCommand[]>([]);
   // steer id whose slash menu is open; null = closed (only one field is focused
   // at a time, so a single set of menu state covers the whole list).
@@ -54,6 +61,7 @@
 
   onMount(async () => {
     if (!steers.loaded) await steers.load();
+    if (!repos.loaded) await repos.load();
     syncFromStore();
     getCommands("")
       .then((r) => (allCommands = r.commands))
@@ -178,6 +186,7 @@
     draft = draft.filter((s) => s.id !== id);
     if (pickerFor === id) pickerFor = null;
     if (editingId === id) editingId = null;
+    if (reposFor === id) reposFor = null;
     saved = false;
   }
   function pickEmoji(s: Steer, emoji: string | null) {
@@ -189,6 +198,35 @@
     s[key] = !s[key];
     saved = false;
   }
+  function toggleRepo(s: Steer, name: string) {
+    const cur = new SvelteSet(s.repos ?? []);
+    if (cur.has(name)) cur.delete(name);
+    else cur.add(name);
+    s.repos = cur.size ? [...cur] : undefined;
+    saved = false;
+  }
+
+  // Dismiss the repos popover on Esc + outside pointerdown, mirroring
+  // IssueFilterPopover. Deferred a tick so the click that opened it (which fires
+  // the same pointerdown) doesn't immediately close it again.
+  $effect(() => {
+    if (!reposFor) return;
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") reposFor = null;
+    }
+    function onPointerdown(e: PointerEvent) {
+      if (reposPopEl && !reposPopEl.contains(e.target as Node)) reposFor = null;
+    }
+    const tid = setTimeout(() => {
+      window.addEventListener("keydown", onKeydown);
+      window.addEventListener("pointerdown", onPointerdown);
+    }, 0);
+    return () => {
+      clearTimeout(tid);
+      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("pointerdown", onPointerdown);
+    };
+  });
 
   // A steer with both surfaces off renders nowhere (bar, issues, broadcast) — block
   // the save and point at it rather than persisting an invisible entry.
@@ -292,6 +330,18 @@
             title={m.steerseditor_scope_issues_title()}
             onclick={() => toggleScope(s, "onIssues")}>{m.steerseditor_scope_issues()}</button
           >
+          <button
+            type="button"
+            class="scope"
+            class:on={!!s.repos?.length}
+            aria-haspopup="dialog"
+            aria-expanded={reposFor === s.id}
+            title={m.steerseditor_repos_title()}
+            onclick={() => (reposFor = reposFor === s.id ? null : s.id)}
+            >{s.repos?.length
+              ? m.steerseditor_repos_count({ n: s.repos.length })
+              : m.steerseditor_repos_all()}</button
+          >
         </div>
         <button
           type="button"
@@ -315,6 +365,50 @@
               onpick={(emoji) => pickEmoji(s, emoji)}
               onclose={() => (pickerFor = null)}
             />
+          </div>
+        {/if}
+        {#if reposFor === s.id}
+          <div
+            class="repos-pop"
+            role="dialog"
+            aria-label={m.steerseditor_repos_heading()}
+            bind:this={reposPopEl}
+          >
+            <span class="rp-heading">{m.steerseditor_repos_heading()}</span>
+            {#if repos.entries.length === 0}
+              <p class="rp-empty">{m.steerseditor_repos_empty()}</p>
+            {:else}
+              <ul class="rp-list">
+                {#each repos.entries as entry (entry.name)}
+                  <li class="rp-row">
+                    <label class="rp-label">
+                      <input
+                        type="checkbox"
+                        checked={s.repos?.includes(entry.name) ?? false}
+                        onchange={() => toggleRepo(s, entry.name)}
+                      />
+                      <span>{entry.name}</span>
+                    </label>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if s.repos?.some((name) => !repos.knownNames.includes(name))}
+              <ul class="rp-list rp-unknown">
+                {#each s.repos.filter((name) => !repos.knownNames.includes(name)) as name (name)}
+                  <li class="rp-row rp-chip">
+                    <span class="rp-unknown-label">{name} — {m.steerseditor_repos_unknown()}</span>
+                    <button
+                      type="button"
+                      class="rp-remove"
+                      aria-label={m.steerseditor_repos_remove_aria()}
+                      onclick={() => toggleRepo(s, name)}>✕</button
+                    >
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <p class="rp-hint">{m.steerseditor_repos_hint()}</p>
           </div>
         {/if}
       </div>
@@ -534,6 +628,102 @@
     top: 100%;
     left: 24px;
     margin-top: 4px;
+  }
+  /* anchored, non-modal repos popover — no aria-modal, no scrim (small anchored
+     popover exemption in the design system); dismissed via the Esc/outside-click
+     $effect above rather than a backdrop. */
+  .repos-pop {
+    position: absolute;
+    z-index: 60;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    width: 220px;
+    max-width: min(220px, calc(100vw - 16px));
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--color-panel-2);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rp-heading {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .rp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .rp-row {
+    display: flex;
+    align-items: center;
+  }
+  .rp-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 4px;
+    font-size: var(--fs-lg);
+    color: var(--color-ink-bright);
+    cursor: pointer;
+  }
+  .rp-label input[type="checkbox"] {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+  }
+  .rp-empty {
+    color: var(--color-faint);
+    font-size: var(--fs-lg);
+    margin: 4px 0;
+  }
+  .rp-unknown {
+    border-top: 1px solid var(--color-line);
+    padding-top: 4px;
+  }
+  .rp-chip {
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 4px;
+  }
+  .rp-unknown-label {
+    color: var(--color-red);
+    font-size: var(--fs-lg);
+  }
+  .rp-remove {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-red);
+    cursor: pointer;
+    font: inherit;
+  }
+  .rp-hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+    border-top: 1px solid var(--color-line);
+    padding-top: 6px;
   }
   .placeholder {
     color: var(--color-faint);

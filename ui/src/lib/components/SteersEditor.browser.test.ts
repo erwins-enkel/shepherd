@@ -17,6 +17,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: SteersEditor } = await import("./SteersEditor.svelte");
 const { steers } = await import("$lib/steers.svelte");
+const { repos } = await import("$lib/repos.svelte");
 
 const steer = (p: Partial<Steer>): Steer => ({
   id: "1",
@@ -33,6 +34,7 @@ beforeEach(() => {
     steer({ id: "b", label: "Bravo", text: "do bravo" }),
   ];
   steers.loaded = true; // skip the network load on mount
+  repos.loaded = true; // skip the /api/repos network load on mount
 });
 
 afterEach(() => {

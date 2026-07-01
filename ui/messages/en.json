@@ -1920,6 +1920,8 @@
   "owed_frozen_unknown_note": "Couldn't load owed status; showing the steps from this session's PR.",
   "feat_manual_steps_post_merge_title": "Owed steps survive merge",
   "feat_manual_steps_post_merge_body": "After a PR with manual steps merges and the session archives, the steps live on in the new Owed lens — tick each off as you do it, and they persist until done (well past the Done window). Enable \"Track manual steps in an issue\" per repo to also open a GitHub tracking issue on merge, linked back to the PR.",
+  "feat_manual_steps_chip_title": "Jump from a chip to its owed steps",
+  "feat_manual_steps_chip_body": "The \"N manual step(s)\" chip on a session is now a link — click it to open the Owed lens and jump straight to that session's steps.",
   "integrated_epics_rebase_paused_cap": "Couldn't auto-rebase after repeated tries — over to you",
   "integrated_epics_rebase_paused_conflict": "Landing PR has a real conflict — over to you",
   "integrated_epics_rebase_paused_driver": "Merge driver unavailable on the server — over to you",

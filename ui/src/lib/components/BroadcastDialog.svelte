@@ -13,6 +13,10 @@
 
   let selected = new SvelteSet<string>();
   let text = $state("");
+  // Id of the steer whose pick button set the current text (null once the operator
+  // edits the field by hand). Tracked by id so the stale-clear below never wipes
+  // free-form text that merely happens to equal a bound steer's text.
+  let pickedId = $state<string | null>(null);
   let sending = $state(false);
   let result = $state<string | null>(null);
   let failed = $state(false);
@@ -47,13 +51,14 @@
 
   // If the target selection changes underneath a picked bound steer (e.g. a
   // flowagent-only steer was picked, then a non-flowagent target got added), the
-  // picked text may no longer be valid for every current target — clear it so a
-  // broadcast can't fire a steer at a session it was never scoped for.
+  // picked steer may no longer be valid for every current target — clear it so a
+  // broadcast can't fire a steer at a session it was never scoped for. Keyed by the
+  // picked id, so only a genuinely-picked steer is cleared, never matching free-form text.
   $effect(() => {
-    const avail = availableSteers;
-    const stale = steers.list.find((s) => s.text === text);
-    if (stale && !avail.includes(stale)) {
+    if (pickedId == null) return;
+    if (!availableSteers.some((s) => s.id === pickedId)) {
       text = "";
+      pickedId = null;
       disarm();
     }
   });
@@ -164,8 +169,11 @@
         <button
           type="button"
           class="pick"
-          class:on={text === s.text}
-          onclick={() => (text = s.text)}
+          class:on={pickedId === s.id}
+          onclick={() => {
+            pickedId = s.id;
+            text = s.text;
+          }}
         >
           {#if s.emoji}<span aria-hidden="true">{s.emoji}</span>{/if}
           {s.label}
@@ -174,7 +182,10 @@
     </div>
     <textarea
       bind:value={text}
-      oninput={disarm}
+      oninput={() => {
+        pickedId = null;
+        disarm();
+      }}
       rows="2"
       data-1p-ignore
       placeholder={m.broadcast_placeholder()}

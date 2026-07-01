@@ -336,6 +336,22 @@ test("PUT /api/repo-config with repo outside root → 400", async () => {
   expect(res.status).toBe(400);
 });
 
+test("PUT /api/repo-config rejects non-canonical previewStartScript", async () => {
+  const { app, store } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const res = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ previewStartScript: "/tmp/run-anything.sh" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+  const body = (await res.json()) as { error: string };
+  expect(body.error).toContain("previewStartScript");
+  expect(store.getRepoConfig(repoDir).previewStartScript).toBeNull();
+});
+
 // ── repoMode ──────────────────────────────────────────────────────────────────
 
 test("PUT /api/repo-config repoMode=lightweight persists, GET returns lightweight", async () => {

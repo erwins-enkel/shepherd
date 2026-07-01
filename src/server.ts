@@ -1228,6 +1228,12 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
   // by the service, never merged into the RepoConfig row.
   const { automationConfirmed, ...cfgPatch } = patch;
+  if (cfgPatch.previewStartScript !== undefined && cfgPatch.previewStartScript !== null) {
+    const canonicalScript = await resolvePreviewStartScriptPath(dir);
+    if (cfgPatch.previewStartScript !== canonicalScript) {
+      return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
+    }
+  }
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
   return json(r.config);
@@ -2122,8 +2128,10 @@ async function startStoredPreviewScript(
   storedScript: string | null,
   command: string | null,
 ): Promise<Response | null> {
+  const canonicalScript = await launcher.scriptPath(s.worktreePath);
+  if (storedScript === null || storedScript !== canonicalScript) return null;
   const scriptStillExists = await launcher.scriptExists(storedScript);
-  if (!scriptStillExists || storedScript === null) return null;
+  if (!scriptStillExists) return null;
   try {
     await launcher.startScript(storedScript, s.worktreePath);
     return json({
@@ -2145,7 +2153,9 @@ async function sendPreviewSetupSteer(
   cfg: RepoConfig,
   command: string | null,
 ): Promise<Response | null> {
-  const setupScriptPath = cfg.previewStartScript ?? (await launcher.scriptPath(s.worktreePath));
+  const canonicalScript = await launcher.scriptPath(s.worktreePath);
+  const setupScriptPath =
+    cfg.previewStartScript === canonicalScript ? cfg.previewStartScript : canonicalScript;
   if (setupScriptPath === null) return null;
   deps.store.setRepoConfig(s.repoPath, {
     ...cfg,

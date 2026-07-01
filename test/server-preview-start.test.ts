@@ -159,6 +159,59 @@ test("preview/start: configured local script starts without steering the agent",
   expect(calls).toEqual(["/git/shepherd/preview-start.sh @ /wt/local-script"]);
 });
 
+test("preview/start: ignores a non-canonical stored local script path", async () => {
+  const replies: { id: string; text: string }[] = [];
+  let spawned = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/non-canonical-script");
+  store.setRepoConfig("/r", {
+    ...store.getRepoConfig("/r"),
+    previewStartScript: "/tmp/run-anything.sh",
+    previewStartCommand: "bun run dev",
+  });
+
+  const app = makeApp({
+    store,
+    service: {
+      reply: (sessionId: string, text: string) => {
+        replies.push({ id: sessionId, text });
+        return true;
+      },
+      startPreview: () => {
+        throw new Error("legacy start steer must not be used");
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => {
+        throw new Error("setup steer should author the script");
+      },
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; mode: string; script: string };
+  expect(body).toMatchObject({
+    ok: true,
+    mode: "agent_setup",
+    script: "/git/shepherd/preview-start.sh",
+  });
+  expect(spawned).toBe(false);
+  expect(replies).toHaveLength(1);
+  expect(replies[0]!.text).toContain("/git/shepherd/preview-start.sh");
+  expect(replies[0]!.text).not.toContain("/tmp/run-anything.sh");
+  expect(store.getRepoConfig("/r").previewStartScript).toBe("/git/shepherd/preview-start.sh");
+});
+
 test("preview/start: missing local script sends one-time repo setup steer", async () => {
   const replies: { id: string; text: string }[] = [];
   let spawned = false;

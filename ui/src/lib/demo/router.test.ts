@@ -1,0 +1,129 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { handleApi } from "./router";
+import { demoState } from "./state";
+
+const REPO = "/demo/acme/storefront";
+const u = (path: string) => new URL(path, "http://localhost");
+
+async function get(path: string) {
+  const r = await handleApi("GET", u(path), undefined);
+  return { status: r.status, body: await r.json() };
+}
+
+beforeEach(() => demoState.reset());
+
+describe("polished GET handlers return the shape api.ts consumes", () => {
+  it("/api/me authenticates", async () => {
+    expect(await get("/api/me")).toEqual({ status: 200, body: { authenticated: true } });
+  });
+
+  it("/api/sessions returns the session array", async () => {
+    const { status, body } = await get("/api/sessions");
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+
+  it("/api/usage/limits wraps limits + projections (caller reads r.limits)", async () => {
+    const { body } = await get("/api/usage/limits");
+    expect(body.limits).toBeDefined();
+    expect(body.limits.session5h).not.toBeNull();
+    expect(Array.isArray(body.projections)).toBe(true);
+  });
+
+  it("/api/plugins wraps the array under {plugins}", async () => {
+    const { body } = await get("/api/plugins");
+    expect(Array.isArray(body.plugins)).toBe(true);
+    expect(body.plugins.length).toBeGreaterThan(0);
+  });
+
+  it("map-shaped bootstrap GETs return keyed objects", async () => {
+    for (const p of ["/api/git", "/api/activity", "/api/holds", "/api/subagents", "/api/queues"]) {
+      const { status, body } = await get(p);
+      expect(status).toBe(200);
+      expect(Object.keys(body).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("array-shaped bootstrap GETs are non-empty", async () => {
+    for (const p of ["/api/drain", "/api/automerge", "/api/epics/completed", "/api/steers"]) {
+      const { status, body } = await get(p);
+      expect(status).toBe(200);
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("inflight lens GETs return empty arrays", async () => {
+    expect((await get("/api/reviews/inflight")).body).toEqual([]);
+    expect((await get("/api/plan-gates/inflight")).body).toEqual([]);
+  });
+
+  it("/api/epics returns {epics, subIssues}; /api/epic returns one Epic", async () => {
+    const list = await get(`/api/epics?repo=${encodeURIComponent(REPO)}`);
+    expect(Array.isArray(list.body.epics)).toBe(true);
+    expect(Array.isArray(list.body.subIssues)).toBe(true);
+    const one = await get(`/api/epic?repo=${encodeURIComponent(REPO)}&parent=100`);
+    expect(one.body.parentIssueNumber).toBe(100);
+  });
+
+  it("unknown GET falls through to a benign empty object", async () => {
+    expect(await get("/api/nonexistent-thing")).toEqual({ status: 200, body: {} });
+  });
+});
+
+describe("mutation handlers call the mutator and return the caller's shape", () => {
+  it("POST reply → 200 {}", async () => {
+    const r = await handleApi("POST", u("/api/sessions/s1/reply"), { text: "go" });
+    expect(r.status).toBe(200);
+    expect(demoState.sessions().find((s) => s.id === "s1")?.status).toBe("running");
+  });
+
+  it("POST /go releases the approved plan gate → {ok:true}", async () => {
+    const r = await handleApi("POST", u("/api/sessions/s2/go"), undefined);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true });
+    expect(demoState.sessions().find((s) => s.id === "s2")?.planPhase).toBe("executing");
+  });
+
+  it("POST git/merge returns a PrStatus", async () => {
+    const r = await handleApi("POST", u("/api/sessions/s3/git/merge"), {});
+    const body = await r.json();
+    expect(body).toHaveProperty("state");
+    expect(body).toHaveProperty("checks");
+  });
+
+  it("POST epic/approve-next returns the updated Epic", async () => {
+    const r = await handleApi(
+      "POST",
+      u(`/api/epic/approve-next?repo=${encodeURIComponent(REPO)}&parent=100`),
+      undefined,
+    );
+    const body = await r.json();
+    expect(body.parentIssueNumber).toBe(100);
+  });
+
+  it("POST held/:id/spawn returns the new Session", async () => {
+    const heldId = demoState.held()[0].id;
+    const r = await handleApi("POST", u(`/api/held/${heldId}/spawn`), undefined);
+    const body = await r.json();
+    expect(body).toHaveProperty("id");
+    expect(demoState.held().length).toBe(0);
+  });
+
+  it("DELETE /api/sessions/:id archives", async () => {
+    const r = await handleApi("DELETE", u("/api/sessions/s1"), undefined);
+    expect(r.status).toBe(200);
+    expect(demoState.sessions().find((s) => s.id === "s1")).toBeUndefined();
+  });
+
+  it("unknown mutation falls through to {ok:true}", async () => {
+    const r = await handleApi("POST", u("/api/some/off-screen/thing"), undefined);
+    expect(await r.json()).toEqual({ ok: true });
+  });
+
+  it("handleApi never throws on a malformed request", async () => {
+    const r = await handleApi("GET", u("/api/sessions"), undefined);
+    expect(r.status).toBe(200);
+  });
+});

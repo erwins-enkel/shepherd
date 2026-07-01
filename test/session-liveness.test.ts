@@ -12,8 +12,8 @@ const STALL_CFG: StallConfig = { stallMs: 10_000, pendingStallMs: 20_000 };
 /** Build a `SessionLiveness` with fake herdr reads. `readImpl`/`readAsyncImpl` default
  *  to throwing (unused in most tests) — pass what a given test needs. */
 function makeLiveness(opts: {
-  read?: (term: string, mode: string) => string;
-  readAsync?: (term: string, mode: string) => Promise<string>;
+  read?: (term: string) => string;
+  readAsync?: (term: string) => Promise<string>;
   cfg?: StallConfig;
 }) {
   return new SessionLiveness({

@@ -298,8 +298,8 @@ export class StatusPoller {
     let ep = this.liveness.get(id);
     if (!ep) {
       ep = new SessionLiveness({
-        read: (term, mode) => this.herdr.read(term, mode),
-        readAsync: (term, mode) => this.herdr.readAsync(term, mode),
+        read: (term) => this.herdr.read(term, "visible"),
+        readAsync: (term) => this.herdr.readAsync(term, "visible"),
         stallCfg: () => this.stallCfg,
       });
       this.liveness.set(id, ep);

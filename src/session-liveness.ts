@@ -21,8 +21,10 @@ export interface LivenessOutcome {
 }
 
 export interface LivenessDeps {
-  read: (term: string, mode: string) => string;
-  readAsync: (term: string, mode: string) => Promise<string>;
+  /** Read the terminal's visible buffer synchronously (rare candidate confirm). */
+  read: (term: string) => string;
+  /** Read the terminal's visible buffer asynchronously (off-loop interim probe). */
+  readAsync: (term: string) => Promise<string>;
   /** A GETTER (not a value) so a future runtime stallCfg change would propagate. */
   stallCfg: () => StallConfig;
 }
@@ -101,7 +103,7 @@ export class SessionLiveness {
     if (!snap || !isStalled(snap, now, cfg)) return { verdict: "clearBroad" };
     let visible: string;
     try {
-      visible = this.deps.read(term, "visible");
+      visible = this.deps.read(term);
     } catch {
       return { verdict: "none" }; // can't assess this cycle — lastVisible stays untouched
     }
@@ -140,7 +142,7 @@ export class SessionLiveness {
     try {
       let visible: string;
       try {
-        visible = await this.deps.readAsync(term, "visible");
+        visible = await this.deps.readAsync(term);
       } catch {
         return { verdict: "none" }; // read failed: no clearStaleBlock
       }

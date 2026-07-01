@@ -36,6 +36,9 @@ export default defineConfig({
       // GitHub social icon below still appears. See src/components/SiteBacklink.astro.
       components: {
         SocialIcons: "./src/components/SiteBacklink.astro",
+        // Re-render the default Head + append Vercel Web Analytics. See
+        // src/components/Head.astro for why an override (vs the `head` config option).
+        Head: "./src/components/Head.astro",
       },
       // Generate the TypeScript API reference from the server package (../src)
       // with TypeDoc, so it CANNOT drift from source. Like syncDocs() above, this

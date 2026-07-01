@@ -1,0 +1,19 @@
+---
+// Override of Starlight's `Head` component (registered in astro.config.mjs).
+// Re-renders the default `Head` unchanged, then appends the official Vercel Web
+// Analytics component so the docs site tracks page views like the marketing site.
+//
+// Why an override rather than Starlight's `head` config option (its recommended
+// path for analytics tags): `head` accepts only raw tag definitions and cannot
+// render the `@vercel/analytics/astro` component — using it would force hardcoding
+// Vercel's internal script path (/_vercel/insights/script.js) + inline queue init,
+// which can drift. The override reuses the same official component as the marketing
+// site (single source of truth), matching the in-repo `SocialIcons` → SiteBacklink
+// override pattern. `{...Astro.props}` is forwarded so the default Head keeps every
+// SEO/meta tag it renders; `<Analytics />` is purely additive.
+import Default from "@astrojs/starlight/components/Head.astro";
+import Analytics from "@vercel/analytics/astro";
+---
+
+<Default {...Astro.props} />
+<Analytics />

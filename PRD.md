@@ -137,7 +137,7 @@ Greenfield app in `~/Work/shepherd/`. Thin orchestrator over existing infra.
 
 **Improvements over the original (explicit):**
 
-- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens Shepherd's _position_ that this is genuine interactive use (R1, unconfirmed).
+- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens Shepherd's _position_ that this is genuine interactive use (a design stance, not an official Anthropic ruling).
 - I2 Worktree-per-task → concurrent agents never collide on a checkout.
 - I3 Permission profiles roadmap (v1 = skip/auto mode per user; v2 = per-project allowlists). _(partially shipped #294: trusted/standard/autonomous profiles + auto=true gate; network egress allowlist shipped #601)_
 - I4 Real sandboxing roadmap (firejail/bwrap/nspawn) — make "live dangerously" not literal. _(partially shipped #294: bwrap filesystem/process membrane, host-derived bind set, degraded-mode banner; network egress allowlist shipped #601)_

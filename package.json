@@ -21,8 +21,8 @@
     "*.{ts,svelte}": "eslint --cache --cache-strategy content --cache-location .cache/eslint --fix"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.1.0",
-    "@commitlint/config-conventional": "^21.1.0",
+    "@commitlint/cli": "^21.2.0",
+    "@commitlint/config-conventional": "^21.2.0",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/node": "^26.0.1",
@@ -32,7 +32,7 @@
     "globals": "^17.7.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
-    "prettier": "^3.9.3",
+    "prettier": "^3.9.4",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "svelte": "^5.56.4",

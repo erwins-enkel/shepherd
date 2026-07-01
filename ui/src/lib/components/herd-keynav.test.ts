@@ -336,6 +336,14 @@ test("altComboKey maps Digit1–Digit9 to '1'–'9'", () => {
   }
 });
 
+test("altComboKey maps Tab + bracket session-switch codes", () => {
+  // Tab is direction-agnostic here (Shift resolved by the window handler);
+  // brackets match on physical e.code because macOS Option+]/[ type other glyphs.
+  expect(altComboKey("Tab")).toBe("tab");
+  expect(altComboKey("BracketRight")).toBe("]");
+  expect(altComboKey("BracketLeft")).toBe("[");
+});
+
 test("altComboKey returns null for non-combo codes", () => {
   expect(altComboKey("KeyN")).toBeNull();
   expect(altComboKey("Digit0")).toBeNull();

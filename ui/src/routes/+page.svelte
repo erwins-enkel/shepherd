@@ -1169,7 +1169,19 @@
     // in terminal flow (focus the new session's terminal); Alt from anywhere
     // else leaves focus out so plain-key navigation still chains after.
     const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
-    handleHerdKeyNav(mapped, e, fromTerminal);
+    // Session-cycle aliases, resolved to the shared next/prev (j/k) handlers:
+    //   Alt+] / Alt+Tab        → next (j)
+    //   Alt+[ / Alt+Shift+Tab  → prev (k)
+    // Resolved HERE (not as handleHerdKeyNav cases) so the plain-key path never
+    // navigates on a bare [, ] or Tab — plain Tab keeps native focus traversal.
+    // Tab is the only combo whose direction depends on Shift; the rest is shift-
+    // agnostic (Alt+Shift+J == Alt+J), and both Alt+Tab and Alt+Shift+Tab are kept
+    // out of the PTY by Viewport (altComboKey returns "tab" for both).
+    let navKey = mapped;
+    if (mapped === "]") navKey = "j";
+    else if (mapped === "[") navKey = "k";
+    else if (mapped === "tab") navKey = e.shiftKey ? "k" : "j";
+    handleHerdKeyNav(navKey, e, fromTerminal);
     return true;
   }
 

@@ -2,6 +2,23 @@ name: Bug report
 description: Report something that isn't working
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        🔒 **Found a security vulnerability?** Do **not** file it here. Report it privately via a
+        [GitHub Security advisory](https://github.com/erwins-enkel/shepherd/security/advisories/new)
+        (see [SECURITY.md](https://github.com/erwins-enkel/shepherd/blob/main/SECURITY.md)).
+
+        Please search [existing issues](https://github.com/erwins-enkel/shepherd/issues?q=is%3Aissue)
+        first — your report may already be tracked.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: This is not a security vulnerability (those go to a private advisory).
+          required: true
+        - label: I searched existing issues and this isn't a duplicate.
   - type: textarea
     id: what-happened
     attributes:
@@ -17,9 +34,16 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
+      description: A minimal, reliable reproduction — the exact steps that trigger the bug.
+      placeholder: |
+        1. …
+        2. …
+        3. See error
   - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Auto-filled by Shepherd — please leave as-is.
+      description: >-
+        Auto-filled when you report from within Shepherd. If you're filing manually, paste your
+        Shepherd version, your OS, and how you run Shepherd (e.g. the agent CLI you drive).
       render: text

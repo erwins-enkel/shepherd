@@ -1,0 +1,27 @@
+name: Documentation
+description: Report something wrong, missing, or unclear in the docs
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the docs. Please search
+        [existing issues](https://github.com/erwins-enkel/shepherd/issues?q=is%3Aissue) first.
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Which doc, page, or section? A link or file path is ideal.
+      placeholder: e.g. README.md → "ToS compliance model", or docs/sandbox-security.md
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong or missing?
+      description: Describe the inaccuracy, gap, or confusion.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: How should it read instead? Optional, but very helpful.

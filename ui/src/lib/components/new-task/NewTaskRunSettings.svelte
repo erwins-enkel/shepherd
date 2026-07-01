@@ -2,7 +2,8 @@
   import { m } from "$lib/paraglide/messages";
   import InfoTip from "../InfoTip.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { modelLabel } from "$lib/model-label";
+  import { modelOptionLabel } from "$lib/model-guidance";
+  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import {
     AGENT_PROVIDERS,
     CODEX_MODELS,
@@ -174,10 +175,11 @@
         <option value="default">{m.newtask_model_default()}</option>
         {#each provModels as mdl (mdl)}
           {#if agentProvider !== "claude" || mdl !== "fable" || fableAvailable}
-            <option value={mdl}>{modelLabel(mdl)}</option>
+            <option value={mdl}>{modelOptionLabel(agentProvider, mdl)}</option>
           {/if}
         {/each}
       </select>
+      <ModelGuidance provider={agentProvider} {model} context="task" />
       {#if agentProvider === "claude" && !fableAvailable}
         <p class="micro">{m.newtask_fable_unavailable()}</p>
       {/if}

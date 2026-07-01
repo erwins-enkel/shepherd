@@ -2,9 +2,11 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { getSettings } from "$lib/api";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import "./automation-settings/automation-fields.css";
+  import { onMount } from "svelte";
   import type { Session, SandboxProfile, DrainStatus } from "$lib/types";
 
   let {
@@ -52,6 +54,15 @@
   // Switch-pulse is per-task; only meaningful when this instance is bound to a session.
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
+  let fableAvailable = $state(true);
+
+  onMount(async () => {
+    try {
+      fableAvailable = (await getSettings()).fableAvailable;
+    } catch {
+      // Fail open: this is guidance only, and the spawn path still enforces availability.
+    }
+  });
 
   // Derived row state for the dependency-gated switches, hoisted out of the template so the
   // markup stays flat (keeps the <template> under the Tier-1 complexity bar). Manual-steps
@@ -461,7 +472,7 @@
   </div>
 </div>
 
-<AutomationRepoFields {repoPath} />
+<AutomationRepoFields {repoPath} {fableAvailable} />
 
 <!-- Clickable "ⓘ" that toggles a row's long-form explanation, and the detail
      block it reveals. Reused by every row so each function carries a thorough,

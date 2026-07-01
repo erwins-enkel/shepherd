@@ -3,6 +3,8 @@
 const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
 // First-party docs site — same-tab navigation (no target="_blank").
 const DOCS_URL = "https://docs.shepherd.run";
+// Live, in-browser demo (separate SPA) — open in a new tab.
+const DEMO_URL = "https://demo.shepherd.run";
 ---
 
 <nav class="nav" aria-label="Primary">
@@ -28,6 +30,9 @@ const DOCS_URL = "https://docs.shepherd.run";
     </a>
 
     <ul class="links">
+      <li>
+        <a href={DEMO_URL} rel="noopener noreferrer" target="_blank">Demo</a>
+      </li>
       <li><a href="#features">Features</a></li>
       <li><a href="#install">Install</a></li>
       <li><a href={DOCS_URL}>Docs</a></li>

@@ -1,0 +1,108 @@
+---
+// Live-demo callout. Invites visitors to open the fully interactive demo
+// (demo.shepherd.run) — a separate SPA running on a simulated backend, so no
+// install or infrastructure is needed. Opens in a new tab (like GitHub), a
+// deliberate departure from the first-party same-tab docs link.
+//
+// Astro scopes <style> per component, so this carries its own copy of the
+// section chrome (cf. HowItWorks) + the primary button rule (cf. Hero); there
+// is no shared recipe in global.css (tokens + reset only). Tokens only — no
+// raw hex/rgba/px literals.
+const DEMO_URL = "https://demo.shepherd.run";
+---
+
+<section class="demo" aria-labelledby="demo-h">
+  <div class="inner">
+    <p class="eyebrow">Live demo</p>
+    <h2 id="demo-h">See the herd run — no install</h2>
+    <p class="lead">
+      Open a fully interactive Shepherd dashboard right in your browser: spawn
+      sessions, watch the herd, and click through every lens. It runs on a
+      simulated backend — nothing here touches real infrastructure — so you can
+      try the whole thing before you deploy anything.
+    </p>
+    <a
+      class="btn btn-primary"
+      href={DEMO_URL}
+      rel="noopener noreferrer"
+      target="_blank">Launch the live demo →</a
+    >
+  </div>
+</section>
+
+<style>
+  .demo {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+    border-top: 1px solid var(--panel-2);
+  }
+
+  .inner {
+    max-width: 72rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.1rem;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+  }
+
+  .lead {
+    max-width: 42rem;
+    color: var(--ink-muted);
+    font-size: 1.1rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.4rem;
+    padding: 0.7rem 1.4rem;
+    border-radius: 0.6rem;
+    font-weight: 500;
+    font-size: 1rem;
+    cursor: pointer;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .btn-primary {
+    background: var(--gradient-amber-green);
+    color: var(--bg);
+    font-weight: 700;
+    box-shadow: 0 8px 24px -12px var(--green);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px -12px var(--green);
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn {
+      transition: none;
+    }
+    .btn-primary:hover {
+      transform: none;
+    }
+  }
+</style>

@@ -170,7 +170,14 @@
     min-width: var(--mobile-actionbar-hit);
   }
 
-  @media (max-width: 640px) {
+  /* Match the app's OWN mobile breakpoint verbatim (`(max-width: 768px),
+     (max-height: 600px)` — the MediaQuery in +page.svelte). In that mode the
+     ActionBar switches to `.actions.mobile` (position: fixed; bottom: 0) and the
+     desktop height-reservation (`.shell:not(.mobile)`) does NOT apply — so the
+     ribbon must lift itself clear of that fixed bar here, across the WHOLE mobile
+     band (not just ≤640px, which left an uncovered 641–768px / short-viewport gap
+     where a full-width bottom ribbon buried New Task/Backlog). */
+  @media (max-width: 768px), (max-height: 600px) {
     .blurb {
       display: none;
     }

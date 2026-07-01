@@ -2694,8 +2694,11 @@
      Reserve its height so the shell ends above it. `--demo-ribbon-h` is set ONLY
      by the demo ribbon; outside the demo it is unset, so this resolves to a plain
      `calc(100dvh - 0px)` = 100dvh and the real Shepherd layout is unchanged. Scoped
-     to `:not(.mobile)` because the mobile ActionBar is `position: fixed` and the
-     ribbon is offset above it separately — mobile must keep the full 100dvh. */
+     to `:not(.mobile)` (desktop only): in mobile mode the ActionBar is
+     `position: fixed`, so reserving shell height can't clear it — the ribbon lifts
+     itself above the fixed bar instead. Both use the SAME boundary as this `.mobile`
+     class (`(max-width: 768px), (max-height: 600px)` — the ribbon's media query
+     matches it verbatim), so they're exactly complementary with no uncovered band. */
   .shell:not(.mobile) {
     height: calc(100dvh - var(--demo-ribbon-h, 0px));
   }

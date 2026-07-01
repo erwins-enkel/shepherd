@@ -170,5 +170,5 @@ _typing into a real interactive terminal_ — that's the bar every feature must 
 
 ## License
 
-Shepherd is licensed under [Apache-2.0](./LICENSE). By submitting a contribution
-you agree it is licensed under the same terms.
+Shepherd is licensed under the [Business Source License 1.1](./LICENSE). By
+submitting a contribution you agree it is licensed under the same terms.

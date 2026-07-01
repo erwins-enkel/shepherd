@@ -4,7 +4,7 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
-  "license": "Apache-2.0",
+  "license": "BUSL-1.1",
   "scripts": {
     "test": "bun test ./test",
     "lint": "eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy",

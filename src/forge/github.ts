@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
-import { jobsFromRollup, mapCheckState, rollupChecks } from "./checks";
+import { jobsFromRollup, mapCheckState, mapStatusState, rollupChecks } from "./checks";
 import { classifyPr } from "./pr-kind";
 import {
   graphRateLimit,
@@ -11,6 +11,7 @@ import {
 } from "./rate-limit";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "./types";
 import type {
+  ChecksState,
   CiStatus,
   ForgeConfig,
   GitForge,
@@ -183,6 +184,30 @@ interface GhPr {
   headRepositoryOwner?: { login?: string };
 }
 
+interface RestPull {
+  number: number;
+  html_url?: string;
+  title?: string;
+  state?: "open" | "closed";
+  draft?: boolean;
+  created_at?: string;
+  merged_at?: string | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string | null;
+  head?: {
+    ref?: string;
+    sha?: string;
+    repo?: { owner?: { login?: string | null } | null } | null;
+  } | null;
+  base?: { ref?: string | null } | null;
+  requested_reviewers?: Array<{ login?: string | null }> | null;
+}
+
+interface RestCheckRun {
+  status?: string | null;
+  conclusion?: string | null;
+}
+
 function mapMergeable(v: string | undefined): boolean | null {
   if (v === "MERGEABLE") return true;
   if (v === "CONFLICTING") return false;
@@ -220,6 +245,13 @@ function mapMergeStateStatus(v: string | undefined): MergeStateStatus | undefine
   if (!v) return undefined;
   const lower = v.toLowerCase();
   return MERGE_STATE_VALUES.has(lower) ? (lower as MergeStateStatus) : undefined;
+}
+
+function worstChecks(states: ChecksState[]): ChecksState {
+  if (states.includes("failure")) return "failure";
+  if (states.includes("pending")) return "pending";
+  if (states.includes("success")) return "success";
+  return "none";
 }
 
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
@@ -652,8 +684,90 @@ export class GithubForge implements GitForge {
     };
   }
 
+  private async restChecksForHead(headSha?: string): Promise<ChecksState> {
+    if (!headSha) return "none";
+    const statusPath = `repos/${this.slug}/commits/${headSha}/status`;
+    const checksPath = `repos/${this.slug}/commits/${headSha}/check-runs`;
+    const [statusOut, checksOut] = await Promise.all([
+      this.run(["api", statusPath]).catch(() => null),
+      this.run(["api", checksPath]).catch(() => null),
+    ]);
+
+    const states: ChecksState[] = [];
+    if (statusOut != null) {
+      const parsed = JSON.parse(statusOut || "{}") as { state?: string | null };
+      states.push(mapStatusState(parsed.state));
+    }
+    if (checksOut != null) {
+      const parsed = JSON.parse(checksOut || "{}") as { check_runs?: RestCheckRun[] };
+      for (const run of parsed.check_runs ?? []) {
+        states.push(mapCheckState(run.status, run.conclusion));
+      }
+    }
+    return worstChecks(states);
+  }
+
+  private mapRestPull(pr: RestPull, deployConfigured: boolean, checks: ChecksState): PrStatus {
+    const state: PrStatus["state"] =
+      pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
+    const createdAt = Date.parse(pr.created_at ?? "");
+    return {
+      state,
+      number: pr.number,
+      url: pr.html_url ?? `https://github.com/${this.slug}/pull/${pr.number}`,
+      title: pr.title ?? "",
+      createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
+      mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
+      mergeStateStatus: mapMergeStateStatus(pr.mergeable_state ?? undefined),
+      isDraft: pr.draft ?? false,
+      checks,
+      headSha: pr.head?.sha,
+      baseRefName: pr.base?.ref ?? undefined,
+      requestedReviewers: (pr.requested_reviewers ?? [])
+        .map((r) => r.login ?? undefined)
+        .filter((login): login is string => !!login),
+      deployConfigured,
+    };
+  }
+
+  /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
+   *  bucket is exhausted. It intentionally returns the same PrStatus shape but
+   *  only does extra REST check/status reads for open PRs; terminal PRs already
+   *  sort correctly from the pull state alone. */
+  private async prStatusRest(headBranch: string, deployConfigured: boolean): Promise<PrStatus> {
+    const owner = this.forkOwner ?? this.slug.split("/")[0];
+    const out = await this.run([
+      "api",
+      "--method",
+      "GET",
+      `repos/${this.slug}/pulls`,
+      "-f",
+      `head=${owner}:${headBranch}`,
+      "-f",
+      "state=all",
+      "-f",
+      "sort=created",
+      "-f",
+      "direction=desc",
+      "-f",
+      `per_page=${this.forkOwner ? "30" : "1"}`,
+    ]);
+    const prs = JSON.parse(out || "[]") as RestPull[];
+    const pr = this.forkOwner
+      ? prs.find((p) => p.head?.repo?.owner?.login === this.forkOwner)
+      : prs[0];
+    if (!pr) return { state: "none", checks: "none", deployConfigured };
+    const state: PrStatus["state"] =
+      pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
+    const checks = state === "open" ? await this.restChecksForHead(pr.head?.sha) : "none";
+    return this.mapRestPull(pr, deployConfigured, checks);
+  }
+
   async prStatus(headBranch: string): Promise<PrStatus> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
+    if (graphRateLimit.blocked()) {
+      return this.prStatusRest(headBranch, deployConfigured);
+    }
     // `gh pr list --head` matches by bare branch ref name — it does NOT accept the
     // `<owner>:<branch>` qualifier (verified, gh 2.83.2: it silently returns []).
     // A bare `--head` DOES surface cross-repo (fork) PRs (verified against a real
@@ -667,20 +781,26 @@ export class GithubForge implements GitForge {
     // are `shepherd/<session>`, so this is effectively impossible. If it ever bites,
     // prStatus returns state:none and a duplicate PR could be opened — acceptable vs.
     // unbounded paging on a hot path.
-    const out = await this.run([
-      "pr",
-      "list",
-      "--repo",
-      this.slug,
-      "--head",
-      headBranch,
-      "--state",
-      "all",
-      "--json",
-      "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
-      "--limit",
-      this.forkOwner ? "30" : "1",
-    ]);
+    let out: string;
+    try {
+      out = await this.run([
+        "pr",
+        "list",
+        "--repo",
+        this.slug,
+        "--head",
+        headBranch,
+        "--state",
+        "all",
+        "--json",
+        "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
+        "--limit",
+        this.forkOwner ? "30" : "1",
+      ]);
+    } catch (err) {
+      if (isRateLimitError(err)) return this.prStatusRest(headBranch, deployConfigured);
+      throw err;
+    }
     const prs = JSON.parse(out || "[]") as GhPr[];
     const pr = this.forkOwner
       ? prs.find((p) => p.headRepositoryOwner?.login === this.forkOwner)

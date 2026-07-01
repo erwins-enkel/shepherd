@@ -323,6 +323,55 @@ test("GithubForge.prStatus: no PR → state none", async () => {
   expect(st.deployConfigured).toBe(true);
 });
 
+test("GithubForge.prStatus: GraphQL rate limit falls back to REST PR status", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "list") {
+      throw { stderr: "API rate limit exceeded for graphql resource" };
+    }
+    if (args[0] === "api" && args.includes("repos/o/r/pulls")) {
+      return JSON.stringify([
+        {
+          number: 7,
+          html_url: "https://github.com/o/r/pull/7",
+          title: "feat",
+          state: "open",
+          draft: false,
+          created_at: "2024-01-01T00:00:00Z",
+          mergeable: true,
+          mergeable_state: "clean",
+          head: { ref: "feature", sha: "abc123", repo: { owner: { login: "o" } } },
+          base: { ref: "main" },
+          requested_reviewers: [{ login: "reviewer" }],
+        },
+      ]);
+    }
+    if (args[0] === "api" && args.includes("repos/o/r/commits/abc123/status")) {
+      return JSON.stringify({ state: "success" });
+    }
+    if (args[0] === "api" && args.includes("repos/o/r/commits/abc123/check-runs")) {
+      return JSON.stringify({ check_runs: [] });
+    }
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const st = await forge.prStatus("feature");
+  expect(st).toMatchObject({
+    state: "open",
+    number: 7,
+    checks: "success",
+    mergeable: true,
+    mergeStateStatus: "clean",
+    baseRefName: "main",
+    requestedReviewers: ["reviewer"],
+  });
+  expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(true);
+  const restList = calls.find((c) => c[0] === "api" && c.includes("repos/o/r/pulls"))!;
+  expect(restList).toBeDefined();
+  expect(restList.slice(1, 3)).toEqual(["--method", "GET"]);
+});
+
 test("GithubForge.merge: invokes gh pr merge with squash + delete-branch", async () => {
   const { run, calls } = fakeRunner({});
   const forge = new GithubForge("o/r", {}, run);

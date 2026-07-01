@@ -173,8 +173,9 @@ export class PrPoller implements PrCache {
      *  autonomous merge work is in flight). When cold, the fast sweep pauses
      *  entirely and the full sweep throttles to `idleIntervalMs`. */
     private warm: () => boolean = () => true,
-    /** True while the shared GraphQL backoff is engaged — skip every sweep so we
-     *  don't burn budget against an exhausted bucket. */
+    /** True while the shared GraphQL backoff is engaged. Full sweeps still run
+     *  through the per-session path so GitHub REST fallback can keep terminal PR
+     *  state moving; GraphQL batch work and fast sweeps are paused. */
     private rateLimited: () => boolean = () => false,
     /** Coarse full-sweep cadence while cold (no warmth) — the fast sweep is paused
      *  outright, so this is the only PR refresh path when nobody's watching. */
@@ -207,7 +208,7 @@ export class PrPoller implements PrCache {
   private lastNoneRecheckAt = 0;
 
   async tick(): Promise<void> {
-    if (this.rateLimited()) return; // GraphQL bucket exhausted — don't add to the backlog
+    const graphqlLimited = this.rateLimited();
     // Cold path: nobody's watching and no autonomous merge work — throttle the full
     // sweep to the coarse idle cadence instead of every `intervalMs`.
     if (!this.warm() && Date.now() - this.lastFullSweepAt < this.idleIntervalMs) return;
@@ -218,7 +219,9 @@ export class PrPoller implements PrCache {
       const sessions = [...this.store.list({ activeOnly: true })];
       const recheckNone = Date.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = Date.now();
-      const batches = await this.buildBatches(sessions);
+      const batches = graphqlLimited
+        ? new Map<string, Map<string, PrStatus> | null>()
+        : await this.buildBatches(sessions);
       const active = new Set<string>();
       for (const s of sessions) {
         active.add(s.id);

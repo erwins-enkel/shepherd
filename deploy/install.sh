@@ -21,8 +21,9 @@
 #                     Used by the onboarding harness + local checkouts. When unset,
 #                     the repo is git-cloned/updated.
 #   SHEPHERD_REF      Git ref to clone/checkout (default: main).
-#   SHEPHERD_DIR      Install dir (default: ~/Work/shepherd — matches the systemd
-#                     unit's WorkingDirectory).
+#   SHEPHERD_DIR      Install dir (default: ~/.shepherd/app — matches the systemd
+#                     unit's WorkingDirectory). Colocated under the ~/.shepherd/
+#                     state home (db, env, logs) so the whole install is self-contained.
 #   SHEPHERD_NO_SERVICE  Passed through to provision.ts: skip the systemd unit.
 #                        Set automatically on macOS (core-only mode).
 #
@@ -36,7 +37,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/erwins-enkel/shepherd.git"
 SHEPHERD_REF="${SHEPHERD_REF:-main}"
-SHEPHERD_DIR="${SHEPHERD_DIR:-$HOME/Work/shepherd}"
+SHEPHERD_DIR="${SHEPHERD_DIR:-$HOME/.shepherd/app}"
 
 # ── colored helpers (match update.sh) ─────────────────────────────────────────
 note() { printf '\033[36m▸ %s\033[0m\n' "$*"; }

@@ -17,7 +17,7 @@ it matters.
 curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
 ```
 
-The installer provisions prerequisites, clones the repo to `~/Work/shepherd`,
+The installer provisions prerequisites, clones the repo to `~/.shepherd/app`,
 builds the UI, and on Linux installs and enables the systemd user service. It is
 **idempotent** — safe to re-run: it never clobbers an existing `~/.shepherd/`
 state dir and never force-resets a dirty checkout.
@@ -46,7 +46,7 @@ before running it. Read it first:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_DIR` | `~/Work/shepherd` | Where the repo is cloned / found |
+| `SHEPHERD_DIR` | `~/.shepherd/app` | Where the repo is cloned / found |
 | `SHEPHERD_REF` | `main` | Git ref to clone or check out |
 | `SHEPHERD_SRC` | _(none)_ | Install from a local tarball or directory instead of cloning |
 | `SHEPHERD_NO_SERVICE` | _(none)_ | Skip the systemd unit step (set automatically on macOS) |

@@ -107,23 +107,23 @@ describe("decideServicePath", () => {
 describe("templateUnit", () => {
   const unit = readFileSync("deploy/shepherd.service", "utf8");
 
-  it("default repo (~/Work/shepherd) keeps output identical to the source unit", () => {
-    // The shipped unit hardcodes %h/Work/shepherd; templating the literal value back
-    // in is a no-op — proving the default install is byte-identical to today.
+  it("default repo (~/.shepherd/app) keeps output identical to the source unit", () => {
+    // The shipped unit hardcodes %h/.shepherd/app; templating the literal value back
+    // in is a no-op — proving the default install is byte-identical.
     const home = homedir();
-    const defaultRepo = join(home, "Work", "shepherd");
+    const defaultRepo = join(home, ".shepherd", "app");
     const templated = templateUnit(unit, defaultRepo);
     expect(templated).toContain(`WorkingDirectory=${defaultRepo}`);
     // only the WorkingDirectory line changed (from %h-form to absolute)
     expect(
-      templated.replace(`WorkingDirectory=${defaultRepo}`, "WorkingDirectory=%h/Work/shepherd"),
+      templated.replace(`WorkingDirectory=${defaultRepo}`, "WorkingDirectory=%h/.shepherd/app"),
     ).toBe(unit);
   });
 
   it("custom repo retargets WorkingDirectory and leaves ExecStart/Environment alone", () => {
     const templated = templateUnit(unit, "/srv/shepherd-prod");
     expect(templated).toContain("WorkingDirectory=/srv/shepherd-prod");
-    expect(templated).not.toContain("WorkingDirectory=%h/Work/shepherd");
+    expect(templated).not.toContain("WorkingDirectory=%h/.shepherd/app");
     expect(templated).toContain("ExecStart=%h/.bun/bin/bun run src/index.ts");
     expect(templated).toContain("EnvironmentFile=-%h/.shepherd/env");
   });
@@ -254,7 +254,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
     expect(target).toContain("systemd/user/shepherd.service");
     // WorkingDirectory points at the custom checkout — proves templating, not passthrough
     expect(content).toContain(`WorkingDirectory=${repo}`);
-    expect(content).not.toContain("WorkingDirectory=%h/Work/shepherd");
+    expect(content).not.toContain("WorkingDirectory=%h/.shepherd/app");
     // everything else is untouched (ExecStart still relative + %h-based)
     expect(content).toContain("ExecStart=%h/.bun/bin/bun run src/index.ts");
   });

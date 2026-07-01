@@ -261,4 +261,38 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(onfocusresolved).not.toHaveBeenCalled();
   });
+
+  it("live record wins: a pinned frozen card is suppressed once a live record for the same session arrives (even after its nonce is handled)", async () => {
+    // Pin a frozen "cleared" card (merged, settled, loaded, no live record yet).
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const onfocusresolved = vi.fn();
+    const screen = render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+      onfocusresolved,
+    });
+    await expect.element(page.getByText(m.owed_frozen_cleared_note())).toBeInTheDocument();
+    await expect.poll(() => onfocusresolved.mock.calls.length).toBe(1);
+
+    // The page marks the nonce handled (as it does on resolution), THEN a WS refresh adds the
+    // now-live record for the same session (e.g. its PR merged during this window). `settled` is
+    // sticky, so the effect returns early at the nonce guard — the render-time guard must still
+    // suppress the frozen card so it can't co-render with (and contradict) the live card.
+    await screen.rerender({
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
+      focusNonce: 1,
+      focusHandledNonce: 1,
+      onfocusresolved,
+    });
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+
+    await expect.element(page.getByText(m.owed_frozen_cleared_note())).not.toBeInTheDocument();
+    expect(screen.container.querySelector(".ow-card--frozen")).toBeNull();
+    // the live interactive card for the session is the one that renders
+    expect(screen.container.querySelector('[data-session-id="s1"]')).not.toBeNull();
+    // the effect did not re-resolve (nonce already handled)
+    expect(onfocusresolved.mock.calls.length).toBe(1);
+  });
 });

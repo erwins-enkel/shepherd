@@ -31,6 +31,19 @@
   let pinnedFrozen = $state<OwedFocusSnapshot | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // A live record always wins over the frozen fallback. `settled` is sticky (true after the first
+  // load), so the effect's `merged && !settled` wait branch only guards the FIRST load — a click
+  // during the merge→WS-refresh window, or after a failed-then-retried load, can pin a frozen card
+  // and mark its nonce handled; when the live record later lands, the nonce guard makes the effect
+  // return early. This render-time guard suppresses the frozen card for any session that now has a
+  // live record, so the two never co-render (and a stale "no longer owed" note can't contradict the
+  // live card). #1275
+  const frozenCard = $derived.by(() => {
+    const p = pinnedFrozen;
+    if (!p) return null;
+    return records.some((r) => r.sessionId === p.sessionId) ? null : p;
+  });
+
   function startFlash(id: string) {
     if (flashTimer) clearTimeout(flashTimer);
     focusedSessionId = id;
@@ -114,32 +127,31 @@
     <span class="ow-title">{m.owed_title()}</span>
   </div>
 
-  {#if records.length === 0 && !pinnedFrozen}
+  {#if records.length === 0 && !frozenCard}
     <div class="ow-empty">{m.owed_empty()}</div>
   {:else}
     <p class="ow-note">{m.owed_note()}</p>
-    {#if pinnedFrozen}
+    {#if frozenCard}
       <section
         class="ow-card ow-card--frozen"
-        data-session-id={pinnedFrozen.sessionId}
-        class:focus={focusedSessionId === pinnedFrozen.sessionId}
+        data-session-id={frozenCard.sessionId}
+        class:focus={focusedSessionId === frozenCard.sessionId}
       >
         <header class="ow-card-head">
           <div class="ow-card-id">
-            <span class="ow-desig">{pinnedFrozen.desig}</span>
-            {#if pinnedFrozen.prNumber != null}<span class="ow-pr">#{pinnedFrozen.prNumber}</span
-              >{/if}
+            <span class="ow-desig">{frozenCard.desig}</span>
+            {#if frozenCard.prNumber != null}<span class="ow-pr">#{frozenCard.prNumber}</span>{/if}
           </div>
           <div class="ow-card-meta">
             <span class="ow-frozen-note">
-              {#if !pinnedFrozen.merged}{m.owed_frozen_pre_merge_note()}
+              {#if !frozenCard.merged}{m.owed_frozen_pre_merge_note()}
               {:else if postMergeSteps.loaded}{m.owed_frozen_cleared_note()}
               {:else}{m.owed_frozen_unknown_note()}{/if}
             </span>
           </div>
         </header>
         <ul class="ow-steps">
-          {#each pinnedFrozen.steps as step (step.id)}
+          {#each frozenCard.steps as step (step.id)}
             <li class="ow-step ow-step--frozen">
               <span class="ow-step-text">
                 {#if step.postMerge}<span class="ow-pm-badge">{m.owed_post_merge_badge()}</span

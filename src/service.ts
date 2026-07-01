@@ -829,7 +829,7 @@ export function PREVIEW_SETUP_STEER({
     prefix +
     detected +
     `Create an executable script at \`${scriptPath}\`. This file is intentionally local-only under the git common dir; do not commit it, symlink it, or add a tracked repo file unless the repo genuinely needs that for its own setup. ` +
-    `The script must be repo-specific and safe to run repeatedly from any worktree of this repo. It should cd to \`\${SHEPHERD_WORKTREE_PATH:-${worktreePath}}\`, perform any required local setup such as installing missing dependencies or preparing local services, choose a free dev-server port when the default is busy, write the chosen port to \`${worktreePath}/.shepherd-preview\`, then exec the foreground dev/test server process. ` +
+    `The script must be repo-specific and safe to run repeatedly from any worktree of this repo. It should set a runtime root variable such as \`WORKTREE_ROOT="\${SHEPHERD_WORKTREE_PATH:-${worktreePath}}"\`, cd there, perform any required local setup such as installing missing dependencies or preparing local services, choose a free dev-server port when the default is busy, write the chosen port to \`$WORKTREE_ROOT/.shepherd-preview\`, then exec the foreground dev/test server process. ` +
     `If the repo needs Docker, databases, seed data, env files, or a non-Node toolchain, encode the local steps in that script with clear failure messages. ` +
     `After creating the script, run it once in a managed/background terminal (not as a blocking foreground command), confirm the port it listens on, and then continue what you were doing.`
   );

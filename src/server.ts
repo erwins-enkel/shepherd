@@ -2106,6 +2106,7 @@ async function bindExistingPreviewServer(
   const devPort = await launcher.findDevPort(s.worktreePath);
   if (devPort === null) return null;
   const previewPort = deps.preview?.ensure?.(id, devPort) ?? null;
+  if (previewPort === null) return json({ error: "preview_slot_unavailable" }, 503);
   return json({
     ok: true,
     mode: "local",

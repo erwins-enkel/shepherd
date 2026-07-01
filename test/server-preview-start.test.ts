@@ -268,6 +268,44 @@ test("preview/start: existing dev port binds preview without spawning or steerin
   expect(steered).toBe(false);
 });
 
+test("preview/start: existing dev port with no preview slot returns an error", async () => {
+  let spawned = false;
+  let steered = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/no-slot");
+  const app = makeApp({
+    store,
+    service: {
+      startPreview: () => {
+        steered = true;
+        return true;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: {
+      snapshot: () => ({}),
+      ensure: () => null,
+    },
+    previewLauncher: {
+      findDevPort: async () => 5173,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => "/git/shepherd/preview-start.sh",
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(503);
+  const body = (await res.json()) as { error: string };
+  expect(body.error).toBe("preview_slot_unavailable");
+  expect(spawned).toBe(false);
+  expect(steered).toBe(false);
+});
+
 test("preview/start: dead pane → 404 when startPreview returns false", async () => {
   const { app, store } = harness({ startPreview: () => false }, {});
   const id = makeSession(store);

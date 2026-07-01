@@ -21,7 +21,6 @@
   import ProposedRuleCard from "./ProposedRuleCard.svelte";
   import MergeSuggestCard from "./MergeSuggestCard.svelte";
   import RetiredRuleCard from "./RetiredRuleCard.svelte";
-  import InfoTip from "../InfoTip.svelte";
 
   let {
     group,
@@ -66,10 +65,6 @@
       >
         {m.learnings_distill()}
       </button>
-      <!-- Explains both actions (distill / suggest-merges) in plain language —
-           the terms are Shepherd jargon, so a per-group info affordance sits
-           right where the actions are. -->
-      <InfoTip text={m.learnings_actions_help()} label={m.learnings_actions_help_aria()} />
     </div>
   </div>
 

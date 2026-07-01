@@ -591,7 +591,7 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
       pruneRepoWorktrees(listRepos(config.repoRoot).map((r) => r.path)).then(
         ({ pruned, failed }) => {
           console.warn(
-            `[tmp-sweep] ${phase}: fallow reap removed ${removed}, worktree prune pruned ${pruned}${failed ? `, failed ${failed}` : ""}`,
+            `[tmp-sweep] ${phase}: fallow reap removed ${removed}, worktree prune ran on ${pruned} repo(s)${failed ? `, failed ${failed}` : ""}`,
           );
         },
       ),
@@ -1876,7 +1876,7 @@ const checkBackupStaleness = async (): Promise<void> => {
     .catch((err) => console.warn("[push] backup_stale notify failed:", err));
 };
 
-const runDailySweep = () => {
+const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   if (maintenance.active) return;
   if (config.sessionHousekeepingEnabled)
     store.pruneArchivedSessions({
@@ -1944,12 +1944,14 @@ const runDailySweep = () => {
   // Reclaim session_injected_learnings rows for sessions that vanished without archive()
   // (force-removed/crashed) — archive() consumes the rest.
   store.pruneOrphanInjectedLearnings();
-  fireTmpSweep("daily");
+  // Skip on the boot-time run: fireTmpSweep("boot") already ran the fallow/worktree
+  // sweep seconds earlier, so re-running it here only duplicates the work (and the log).
+  if (!opts?.skipTmpSweep) fireTmpSweep("daily");
   // Read-only backup-staleness probe (#1080); fire-and-forget so it never blocks the sweep.
   void checkBackupStaleness();
 };
 deferredStarts.push(() => {
-  setTimeout(runDailySweep, 10_000); // once shortly after boot
+  setTimeout(() => runDailySweep({ skipTmpSweep: true }), 10_000); // once shortly after boot
   setInterval(runDailySweep, 24 * 60 * 60 * 1000);
 });
 

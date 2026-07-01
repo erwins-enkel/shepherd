@@ -37,6 +37,10 @@ fi
 # ── build ────────────────────────────────────────────────────────────────────
 note "installing deps (root + ui)"
 bun install
+# node-pty ships spawn-helper without the exec bit + Bun keeps tarball perms, so on
+# macOS posix_spawn fails ("posix_spawnp failed.") and panes stay black. Re-set it
+# after install (a silent no-op on Linux, where the forkpty path uses no helper).
+bun scripts/fix-node-pty-perms.mjs
 (cd ui && bun install)
 
 note "building UI"

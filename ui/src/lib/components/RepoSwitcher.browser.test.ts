@@ -184,6 +184,42 @@ describe("RepoSwitcher — filter rail", () => {
     expect(onpinrepo).toHaveBeenCalledWith(null);
   });
 
+  it("scrolls the chip rail back to the left after pinning a repo", async () => {
+    const onpinrepo = vi.fn();
+    render(RepoSwitcher, {
+      chips: [
+        chip({ repoPath: "/repo/alpha" }),
+        chip({ repoPath: "/repo/beta" }),
+        chip({ repoPath: "/repo/gamma" }),
+      ],
+      repoFilter: null,
+      onrepofilter: () => {},
+      onpinrepo,
+    });
+    const scroller = document.querySelector(".rs-scroller") as HTMLElement & {
+      scrollLeft: number;
+    };
+    Object.defineProperty(scroller, "scrollLeft", {
+      value: 120,
+      writable: true,
+      configurable: true,
+    });
+    const beta = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) });
+
+    beta
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+    await tick();
+    (document.querySelector(".rs-menu-item") as HTMLElement).click();
+    await tick();
+    await tick();
+
+    expect(onpinrepo).toHaveBeenCalledWith("/repo/beta");
+    expect(scroller.scrollLeft).toBe(0);
+  });
+
   it("holding a chip opens the pin menu and suppresses the filter click", async () => {
     vi.useFakeTimers();
     const onrepofilter = vi.fn();

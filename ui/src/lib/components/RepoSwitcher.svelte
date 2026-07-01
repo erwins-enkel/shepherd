@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { RepoChip } from "./queue-strip";
   import { m } from "$lib/paraglide/messages";
   import { basename } from "./learnings-drawer";
@@ -114,6 +115,13 @@
     recomputeScroll();
   }
 
+  function scrollRailToStart() {
+    const el = scroller;
+    if (!el) return;
+    el.scrollLeft = 0;
+    recomputeScroll();
+  }
+
   // Pinning is a secondary action: click keeps filtering, while right-click,
   // touch long-press, or mouse/stylus hold opens this anchored menu.
   let menu = $state<{ chip: RepoChip; x: number; y: number; opener: HTMLElement } | null>(null);
@@ -204,10 +212,13 @@
     menuPos = null;
   }
 
-  function commitPin() {
+  async function commitPin() {
     if (!menu) return;
     onpinrepo(pinnedRepo === menu.chip.repoPath ? null : menu.chip.repoPath);
     closeMenu();
+    scrollRailToStart();
+    await tick();
+    scrollRailToStart();
   }
 
   $effect(() => () => clearHold());

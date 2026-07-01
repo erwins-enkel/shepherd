@@ -114,9 +114,12 @@ export function templateUnit(unit: string, repo: string): string {
   return unit.replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${repo}`);
 }
 
-/** Final guidance follow-ups that need a human secret and are NEVER auto-run. */
-export function guidanceNextSteps(): string[] {
+/** Final guidance follow-ups that need a human secret and are NEVER auto-run.
+ *  Leads with the checkout dir so every platform (incl. Linux/systemd) shows
+ *  where install.sh landed Shepherd. */
+export function guidanceNextSteps(repo: string): string[] {
   return [
+    `Installed to: ${repo}`,
     "Shepherd will be available at http://localhost:7330",
     "",
     "A few steps need a human secret and were NOT run for you:",
@@ -130,23 +133,41 @@ export function guidanceNextSteps(): string[] {
   ];
 }
 
-const MACOS_DEGRADED_BANNER = [
-  "",
-  "════════════════════════════════════════════════════════════════════",
-  "  ⚠  macOS: running in DEGRADED mode",
-  "════════════════════════════════════════════════════════════════════",
-  "  The following Linux-only capabilities are UNAVAILABLE on macOS:",
-  "    • sandbox membrane (per-spawn credential isolation)",
-  "    • egress allowlist (autonomous netns firewall)",
-  "    • auto-drain",
-  "    • tailscale-serve previews",
-  "    • no automated install proof (the onboarding harness is Linux-only)",
-  "",
-  "  No launchd unit is installed. Start Shepherd manually with:",
-  "    bun run start",
-  "════════════════════════════════════════════════════════════════════",
-  "",
-];
+/** macOS degraded-mode banner. Takes the actual checkout dir (`repo`) so the
+ *  manual-start line is copy-pasteable — the operator otherwise has no idea
+ *  where install.sh landed Shepherd (default ~/.shepherd/app, but SHEPHERD_DIR
+ *  can retarget it). */
+export function macosDegradedBanner(repo: string): string[] {
+  return [
+    "",
+    "════════════════════════════════════════════════════════════════════",
+    "  ⚠  macOS: running in DEGRADED mode",
+    "════════════════════════════════════════════════════════════════════",
+    "  The following Linux-only capabilities are UNAVAILABLE on macOS:",
+    "    • sandbox membrane (per-spawn credential isolation)",
+    "    • egress allowlist (autonomous netns firewall)",
+    "    • auto-drain",
+    "    • tailscale-serve previews",
+    "    • no automated install proof (the onboarding harness is Linux-only)",
+    "",
+    "  No launchd unit is installed. Start Shepherd manually with:",
+    `    cd "${repo}" && bun run start`,
+    "════════════════════════════════════════════════════════════════════",
+    "",
+  ];
+}
+
+/** Manual-start hint for the Linux no-service path (SHEPHERD_NO_SERVICE): no
+ *  systemd unit was installed, so — like macOS — the operator must start
+ *  Shepherd by hand and needs to know the checkout dir. */
+export function noServiceStartHint(repo: string): string[] {
+  return [
+    "",
+    "  No systemd unit was installed (SHEPHERD_NO_SERVICE). Start Shepherd manually with:",
+    `    cd "${repo}" && bun run start`,
+    "",
+  ];
+}
 
 // ── side-effect seam ──────────────────────────────────────────────────────────
 
@@ -350,13 +371,24 @@ export function provision(opts: ProvisionOpts = {}): void {
     buildOnly(repo, run, buildEnv);
   }
 
+  printClosingGuidance(decision, repo);
+}
+
+/** Emit the closing banners + next-steps guidance. Extracted from provision() so
+ *  the manual-start branching (macOS degraded vs Linux no-service) doesn't push
+ *  provision over its complexity budget. */
+function printClosingGuidance(decision: ServiceDecision, repo: string): void {
   if (decision.degradedBanner) {
-    for (const line of MACOS_DEGRADED_BANNER) process.stdout.write(`\x1b[33m${line}\x1b[0m\n`);
+    for (const line of macosDegradedBanner(repo)) process.stdout.write(`\x1b[33m${line}\x1b[0m\n`);
+  } else if (!decision.service) {
+    // Linux no-service path (SHEPHERD_NO_SERVICE): nothing auto-starts and no
+    // degraded banner fires, so surface the manual-start command + dir here.
+    for (const line of noServiceStartHint(repo)) process.stdout.write(`\x1b[33m${line}\x1b[0m\n`);
   }
 
   // final summary + guidance
   process.stdout.write("\n");
-  for (const line of guidanceNextSteps()) process.stdout.write(`${line}\n`);
+  for (const line of guidanceNextSteps(repo)) process.stdout.write(`${line}\n`);
 }
 
 // Run when invoked directly (not when imported by tests).

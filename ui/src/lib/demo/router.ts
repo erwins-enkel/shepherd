@@ -38,6 +38,27 @@ function handleGet(path: string, url: URL): Response | null {
     // state (currently `deps`) — shape matches getMergedClearable() in api.ts exactly.
     case "/api/sessions/clear-merged":
       return json(demoState.mergedClearable());
+    // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
+    // Must precede the `/api/sessions/:id/<tail>` regexes below — "done" isn't a session id.
+    case "/api/sessions/done":
+      return json(demoState.doneSessions());
+    case "/api/repo-config": {
+      const repo = url.searchParams.get("repo") ?? "";
+      return json(demoState.repoConfig(repo));
+    }
+    case "/api/commands": {
+      const repo = url.searchParams.get("repo") ?? "";
+      return json(demoState.commands(repo));
+    }
+    case "/api/todo": {
+      const repo = url.searchParams.get("repo") ?? "";
+      return json(demoState.todo(repo));
+    }
+    // Owed lens (#Task 8): durable post-merge step records — outstanding only. Svelte's
+    // `{#each}` silently no-ops on the old `{}` fallback, so this gap never threw; it
+    // just left the lens empty even though `deps` seeds one genuinely-owed step.
+    case "/api/manual-steps/outstanding":
+      return json(demoState.outstandingManualSteps());
     case "/api/held":
       return json(demoState.held());
     case "/api/usage/limits":
@@ -128,6 +149,33 @@ function handleGet(path: string, url: URL): Response | null {
     return git ? json(git) : new Response(null, { status: 404 });
   }
 
+  // ── session-detail tabs (Task 8 sibling audit) ─────────────────────────
+  // Every GET a Viewport tab (or its always-on chrome) fires when a session is opened.
+  // Each returns a correctly-shaped, never-`{}` response — see the matching demoState
+  // getter in state.ts for the exact fallback shape per endpoint.
+  if (/^\/api\/sessions\/[^/]+\/activity$/.test(path)) {
+    return json(demoState.activityEntries(seg(path, 3)));
+  }
+  if (/^\/api\/sessions\/[^/]+\/diff$/.test(path)) {
+    return json(demoState.diff(seg(path, 3)));
+  }
+  if (/^\/api\/sessions\/[^/]+\/scratchpad$/.test(path)) {
+    // Root listing only (matches the demo's flat, non-nested scratchpad seeds); a
+    // non-root `path` query still returns a valid empty listing at that path, never {}.
+    const reqPath = url.searchParams.get("path") ?? "";
+    const root = demoState.scratchpadRoot(seg(path, 3));
+    return json(reqPath ? { path: reqPath, parent: "", entries: [] } : root);
+  }
+  if (/^\/api\/sessions\/[^/]+\/usage$/.test(path)) {
+    return json(demoState.sessionUsage(seg(path, 3)));
+  }
+  if (/^\/api\/sessions\/[^/]+\/leftovers$/.test(path)) {
+    return json(demoState.leftovers());
+  }
+  if (/^\/api\/sessions\/[^/]+\/queue$/.test(path)) {
+    return json(demoState.sessionBuildQueue(seg(path, 3)));
+  }
+
   return null;
 }
 
@@ -179,6 +227,20 @@ function handleMutation(method: string, path: string, body: unknown): Response |
   if (method === "POST" && /^\/api\/held\/[^/]+\/spawn$/.test(path)) {
     const s = demoState.spawnHeld(seg(path, 3));
     return s ? json(s) : new Response(null, { status: 404 });
+  }
+  // POST /api/manual-steps/:sessionId/steps/:stepId — tick/un-tick one owed step.
+  if (method === "POST" && /^\/api\/manual-steps\/[^/]+\/steps\/[^/]+$/.test(path)) {
+    const updated = demoState.setManualStepDone(
+      seg(path, 3),
+      seg(path, 5),
+      field<boolean>(body, "done") ?? true,
+    );
+    return updated ? json(updated) : new Response(null, { status: 404 });
+  }
+  // POST /api/manual-steps/:sessionId/dismiss — clear a whole owed record.
+  if (method === "POST" && /^\/api\/manual-steps\/[^/]+\/dismiss$/.test(path)) {
+    const updated = demoState.dismissManualSteps(seg(path, 3));
+    return updated ? json(updated) : new Response(null, { status: 404 });
   }
   return null;
 }

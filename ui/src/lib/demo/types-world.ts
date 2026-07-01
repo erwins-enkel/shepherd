@@ -32,7 +32,21 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   StarPromptStatus,
+  ActivityEntry,
+  DiffResult,
+  ScratchListing,
+  SessionUsage,
+  SlashCommand,
+  RepoConfig,
+  PostMergeSteps,
 } from "$lib/types";
+
+/** Mirrors `RepoConfigResponse` from `$lib/api` (`RepoConfig` + optimistic-automation
+ *  fields) without importing api.ts from the seed layer — keeps seed.ts import-clean. */
+export type DemoRepoConfig = RepoConfig & {
+  automationConfirmed?: boolean;
+  automationRowExists?: boolean;
+};
 
 /** The complete seeded demo world — one dataset per bootstrap/lens GET. */
 export interface DemoWorld {
@@ -45,6 +59,26 @@ export interface DemoWorld {
   holdStates: Record<string, HoldReason>;
   subagentStates: Record<string, SubagentEntry[]>;
   previewStates: Record<string, { previewPort: number | null; serve?: "ok" | "failed" }>;
+
+  // ── session-detail tabs (per-session GETs, Task 8 sibling audit) ─────────
+  /** GET /api/sessions/done (Done lens) — archived sessions, distinct from `sessions`. */
+  doneSessions: Session[];
+  /** GET /api/sessions/:id/activity (Activity tab). */
+  activityEntries: Record<string, ActivityEntry[]>;
+  /** GET /api/sessions/:id/diff (Diff tab + Activity tab's file-tree section). */
+  diffs: Record<string, DiffResult>;
+  /** GET /api/sessions/:id/scratchpad (Files tab, root listing only). */
+  scratchpad: Record<string, ScratchListing>;
+  /** GET /api/sessions/:id/usage (per-session token usage badge). */
+  sessionUsage: Record<string, SessionUsage>;
+  /** GET /api/repo-config?repo= (automation flags — gates the Build Queue panel + pill). */
+  repoConfig: Record<string, DemoRepoConfig>;
+  /** GET /api/commands?repo= (slash-command link provider). */
+  slashCommands: Record<string, SlashCommand[]>;
+  /** GET /api/todo?repo= (To-Do tab gate). */
+  todo: Record<string, { exists: boolean; content: string }>;
+  /** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records. */
+  postMergeSteps: PostMergeSteps[];
 
   // ── ambient status ─────────────────────────────────────────────────────
   usage: UsageLimitsResponse;

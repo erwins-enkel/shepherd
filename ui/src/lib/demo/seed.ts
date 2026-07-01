@@ -47,8 +47,14 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   StarPromptStatus,
+  ActivityEntry,
+  DiffResult,
+  ScratchListing,
+  SessionUsage,
+  SlashCommand,
+  PostMergeSteps,
 } from "$lib/types";
-import type { DemoWorld } from "./types-world";
+import type { DemoWorld, DemoRepoConfig } from "./types-world";
 
 const STOREFRONT = "/demo/acme/storefront";
 const API = "/demo/acme/api";
@@ -253,6 +259,75 @@ function buildSessions(): Session[] {
 }
 
 const gh = (repo: string) => repo.replace("/demo/", "https://github.com/");
+
+// ── Done lens (#Task 8): sessions ARCHIVED before this boot, distinct from the live
+// `sessions` list above. `deps` (TASK-37) is deliberately NOT duplicated here — it's
+// still live (done + one owed manual step), not yet archived, so it belongs only in
+// the main herd / Owed lens. These three are already-closed-out work so the Done lens
+// (and its recap-per-row) has real, varied content the moment it's opened.
+function buildDoneSessions(): Session[] {
+  return [
+    mkSession({
+      id: "navpills",
+      desig: "TASK-33",
+      name: "nav-active-pills",
+      repoPath: STOREFRONT,
+      branch: "shepherd/nav-active-pills",
+      prompt: "Add active-state pills to the category navigation",
+      model: "sonnet",
+      status: "archived",
+      lastState: "archived",
+      readyToMerge: true,
+      issueNumber: 130,
+      issueUrl: `${gh(STOREFRONT)}/issues/130`,
+      createdAt: NOW - 9 * HOUR,
+      updatedAt: NOW - 5 * HOUR,
+      archivedAt: NOW - 5 * HOUR,
+    }),
+    mkSession({
+      id: "ratelimit",
+      desig: "TASK-28",
+      name: "api-rate-limit",
+      repoPath: API,
+      branch: "shepherd/api-rate-limit",
+      prompt: "Add per-IP rate limiting to the public API",
+      model: "opus",
+      status: "archived",
+      lastState: "archived",
+      readyToMerge: true,
+      issueNumber: 210,
+      issueUrl: `${gh(API)}/issues/210`,
+      createdAt: NOW - 26 * HOUR,
+      updatedAt: NOW - 20 * HOUR,
+      archivedAt: NOW - 20 * HOUR,
+      manualSteps: [
+        {
+          id: "ratelimit-ms-1",
+          text: "Document the new 429 response shape in the API README",
+          postMerge: true,
+        },
+      ],
+      manualStepsAckedAt: NOW - 19 * HOUR,
+    }),
+    mkSession({
+      id: "imgopt",
+      desig: "TASK-30",
+      name: "responsive-product-images",
+      repoPath: STOREFRONT,
+      branch: "shepherd/responsive-product-images",
+      prompt: "Serve responsive srcset images on product cards",
+      model: "sonnet",
+      status: "archived",
+      lastState: "archived",
+      readyToMerge: true,
+      issueNumber: 132,
+      issueUrl: `${gh(STOREFRONT)}/issues/132`,
+      createdAt: NOW - 33 * HOUR,
+      updatedAt: NOW - 30 * HOUR,
+      archivedAt: NOW - 30 * HOUR,
+    }),
+  ];
+}
 
 function buildGitStates(): Record<string, GitState> {
   return {
@@ -576,6 +651,55 @@ function buildRecaps(): Record<string, Recap> {
       spawnedAt: NOW - 47 * MIN,
       generatedAt: NOW - 45 * MIN,
       updatedAt: NOW - 45 * MIN,
+    },
+    // ── Done lens recaps — one per archived session in buildDoneSessions() ────────
+    navpills: {
+      sessionId: "navpills",
+      state: "ready",
+      headSha: "f1a2b3c",
+      verdict: "ready",
+      headline: "Category nav now shows an active-state pill",
+      body: "Added a pill indicator that tracks the selected category via the route's active link state, with a subtle slide transition between categories. Covered by a component test for keyboard nav.",
+      openItems: [],
+      changedFiles: ["src/routes/(shop)/categories/CategoryNav.svelte", "src/lib/nav/active.ts"],
+      spawnSessionId: "recap-navpills",
+      cwd: `${STOREFRONT}/.worktrees/navpills`,
+      model: "sonnet",
+      spawnedAt: NOW - 5.5 * HOUR,
+      generatedAt: NOW - 5 * HOUR,
+      updatedAt: NOW - 5 * HOUR,
+    },
+    ratelimit: {
+      sessionId: "ratelimit",
+      state: "ready",
+      headSha: "a4b5c6d",
+      verdict: "needs_attention",
+      headline: "Per-IP rate limiting shipped; docs still owed",
+      body: "Added a token-bucket limiter in front of the public API routes (60 req/min per IP, 429 on trip) backed by the existing Redis instance. The new 429 response shape still needs a README callout for API consumers.",
+      openItems: ["Document the new 429 response shape in the API README (post-merge)"],
+      changedFiles: ["src/middleware/rateLimit.ts", "src/routes/api/index.ts"],
+      spawnSessionId: "recap-ratelimit",
+      cwd: `${API}/.worktrees/ratelimit`,
+      model: "opus",
+      spawnedAt: NOW - 20.5 * HOUR,
+      generatedAt: NOW - 20 * HOUR,
+      updatedAt: NOW - 20 * HOUR,
+    },
+    imgopt: {
+      sessionId: "imgopt",
+      state: "ready",
+      headSha: "b7c8d9e",
+      verdict: "ready",
+      headline: "Product images now serve responsive srcset variants",
+      body: "Product-card and PDP images now request a device-appropriate size via `srcset` + `sizes`, generated at build time from the existing asset pipeline. Verified against Lighthouse's LCP image-size audit.",
+      openItems: [],
+      changedFiles: ["src/lib/components/ProductImage.svelte", "src/lib/images/srcset.ts"],
+      spawnSessionId: "recap-imgopt",
+      cwd: `${STOREFRONT}/.worktrees/imgopt`,
+      model: "sonnet",
+      spawnedAt: NOW - 30.5 * HOUR,
+      generatedAt: NOW - 30 * HOUR,
+      updatedAt: NOW - 30 * HOUR,
     },
   };
 }
@@ -1073,10 +1197,304 @@ function buildHolds(): Record<string, HoldReason> {
   };
 }
 
+// ── session-detail tabs (Task 8 sibling audit) ────────────────────────────────────
+// Every GET a Viewport tab fires on open — Activity, Diff, Files, plus the always-on
+// usage badge / build-queue panel / slash-command linkifier. Richly seeded for the
+// hero (`coupon`) and its epic sibling (`checkout-child`); every OTHER live session
+// still gets a valid (if empty) response so no tab can throw on a shape mismatch.
+
+/** GET /api/sessions/:id/activity — only sessions actually doing visible work carry a
+ *  transcript; a session with no seeded entry falls back to `[]` in state.ts (never `{}`). */
+function buildActivityEntries(): Record<string, ActivityEntry[]> {
+  return {
+    coupon: [
+      {
+        ts: NOW - 6 * MIN,
+        tool: "Read",
+        summary: "src/routes/checkout/+page.svelte",
+        status: "ok",
+      },
+      {
+        ts: NOW - 5 * MIN,
+        tool: "Edit",
+        summary: "src/routes/checkout/CouponField.svelte",
+        status: "ok",
+      },
+      { ts: NOW - 4 * MIN, tool: "Bash", summary: "bun run check", status: "error" },
+      { ts: NOW - 3 * MIN, tool: "Edit", summary: "src/lib/cart/pricing.ts", status: "ok" },
+      { ts: NOW - 2 * MIN, tool: "Bash", summary: "bun test src/lib/cart", status: "ok" },
+      {
+        ts: NOW - 50 * SEC,
+        tool: "Edit",
+        summary: "src/routes/checkout/CouponField.svelte",
+        status: "ok",
+      },
+      { ts: NOW - 20 * SEC, tool: "Read", summary: "src/lib/cart/pricing.ts", status: "ok" },
+    ],
+    "checkout-child": [
+      { ts: NOW - 6 * MIN, tool: "Read", summary: "src/lib/cart/totals.ts", status: "ok" },
+      {
+        ts: NOW - 90 * SEC,
+        tool: "Edit",
+        summary: "src/routes/checkout/ShippingEstimate.svelte",
+        status: "ok",
+      },
+      { ts: NOW - 40 * SEC, tool: "Bash", summary: "bun run check", status: "ok" },
+    ],
+  };
+}
+
+/** GET /api/sessions/:id/diff — coupon's growing diff (hero, no PR yet) + a small one for
+ *  its epic-child sibling. A session with no seeded entry falls back to a valid empty
+ *  DiffResult in state.ts (base/head filled from the session, `files: []` — never `{}`). */
+function buildDiffs(): Record<string, DiffResult> {
+  return {
+    coupon: {
+      base: "main",
+      baseRef: "origin/main",
+      head: "shepherd/coupon-code-field",
+      fetchFailed: false,
+      truncated: false,
+      files: [
+        {
+          path: "src/routes/checkout/CouponField.svelte",
+          status: "added",
+          additions: 42,
+          deletions: 0,
+          binary: false,
+          hunks: [
+            {
+              header: "@@ -0,0 +1,12 @@",
+              lines: [
+                { kind: "add", content: '<script lang="ts">', newNo: 1 },
+                {
+                  kind: "add",
+                  content: "  let { onapply }: { onapply: (code: string) => void } = $props();",
+                  newNo: 2,
+                },
+                { kind: "add", content: '  let code = $state("");', newNo: 3 },
+                { kind: "add", content: "</script>", newNo: 4 },
+              ],
+            },
+          ],
+        },
+        {
+          path: "src/lib/cart/pricing.ts",
+          status: "modified",
+          additions: 18,
+          deletions: 4,
+          binary: false,
+          hunks: [
+            {
+              header: "@@ -20,8 +20,22 @@ export function computeTotal(",
+              lines: [
+                { kind: "ctx", content: "  let total = subtotal;", oldNo: 20, newNo: 20 },
+                { kind: "del", content: "  return total;", oldNo: 21 },
+                {
+                  kind: "add",
+                  content: "  if (coupon) total = applyCoupon(total, coupon);",
+                  newNo: 21,
+                },
+                { kind: "add", content: "  return total;", newNo: 22 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    "checkout-child": {
+      base: "main",
+      baseRef: "origin/main",
+      head: "shepherd/shipping-estimator",
+      fetchFailed: false,
+      truncated: false,
+      files: [
+        {
+          path: "src/routes/checkout/ShippingEstimate.svelte",
+          status: "added",
+          additions: 26,
+          deletions: 0,
+          binary: false,
+          hunks: [
+            {
+              header: "@@ -0,0 +1,8 @@",
+              lines: [
+                { kind: "add", content: '<script lang="ts">', newNo: 1 },
+                {
+                  kind: "add",
+                  content: "  let { weightKg }: { weightKg: number } = $props();",
+                  newNo: 2,
+                },
+                { kind: "add", content: "</script>", newNo: 3 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+/** GET /api/sessions/:id/scratchpad (root listing) — only sessions with
+ *  `hasScratchpadFiles: true` carry seeded entries; everyone else gets the same synthetic
+ *  empty listing the real server returns for a session with no scratchpad root yet. */
+function buildScratchpad(): Record<string, ScratchListing> {
+  return {
+    coupon: {
+      path: "",
+      parent: null,
+      entries: [
+        { name: "notes.md", type: "file", path: "notes.md" },
+        { name: "pricing-api-response.json", type: "file", path: "pricing-api-response.json" },
+      ],
+    },
+    "checkout-child": {
+      path: "",
+      parent: null,
+      entries: [{ name: "shipping-rates.json", type: "file", path: "shipping-rates.json" }],
+    },
+  };
+}
+
+/** GET /api/sessions/:id/usage — per-session token usage badge (polled while a session is
+ *  open). Only the hero has meaningfully large numbers; everyone else is a valid zeroed
+ *  record (`usage.total > 0` gates the badge, so a zero record renders nothing — safe, not empty-object). */
+function buildSessionUsage(): Record<string, SessionUsage> {
+  const zero: SessionUsage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+    messageCount: 0,
+    lastActivity: null,
+    byModel: {},
+  };
+  return {
+    coupon: {
+      input: 42_000,
+      output: 8_900,
+      cacheRead: 120_000,
+      cacheWrite: 15_000,
+      total: 185_900,
+      messageCount: 34,
+      lastActivity: NOW - 20 * SEC,
+      byModel: { opus: 185_900 },
+    },
+    "checkout-child": {
+      input: 9_500,
+      output: 2_100,
+      cacheRead: 30_000,
+      cacheWrite: 4_000,
+      total: 45_600,
+      messageCount: 11,
+      lastActivity: NOW - 40 * SEC,
+      byModel: { opus: 45_600 },
+    },
+    rounding: { ...zero },
+    authstore: { ...zero },
+    neon: { ...zero },
+    ogimg: { ...zero },
+    deps: { ...zero },
+  };
+}
+
+/** GET /api/repo-config?repo= — automation flags per repo (gates the Build Queue panel +
+ *  the GitRail automation pill). Both demo repos have automation configured + confirmed. */
+function buildRepoConfig(): Record<string, DemoRepoConfig> {
+  const base: DemoRepoConfig = {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: true,
+    autopilotEnabled: false,
+    autoDrainEnabled: true,
+    autoMergeEnabled: false,
+    buildQueueEnabled: true,
+    planGateEnabled: false,
+    draftMode: false,
+    signoffAuthority: "human",
+    sandboxProfile: "trusted",
+    defaultModel: "inherit",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    repoMode: "forge",
+    autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
+    hidden: false,
+    automationConfirmed: true,
+    automationRowExists: true,
+  };
+  return {
+    [STOREFRONT]: { ...base, autoMergeEnabled: true, maxAuto: 3 },
+    [API]: { ...base, autopilotEnabled: true, planGateEnabled: true, maxAuto: 2 },
+  };
+}
+
+/** GET /api/commands?repo= — installed slash commands (terminal link provider). Same
+ *  small, plausible set for both demo repos. */
+function buildSlashCommands(): Record<string, SlashCommand[]> {
+  const commands: SlashCommand[] = [
+    { name: "test", description: "Run the test suite", scope: "project" },
+    { name: "lint", description: "Run lint + typecheck", scope: "project" },
+  ];
+  return { [STOREFRONT]: commands, [API]: commands };
+}
+
+/** GET /api/todo?repo= — neither demo repo has a TODO.md, so the To-Do tab stays hidden;
+ *  a real `{exists:false}` beats the permissive `{}` fallback (whose `.exists` is `undefined`,
+ *  not `false`, and would leave the tab's visibility effect stuck unresolved). */
+function buildTodo(): Record<string, { exists: boolean; content: string }> {
+  return {
+    [STOREFRONT]: { exists: false, content: "" },
+    [API]: { exists: false, content: "" },
+  };
+}
+
+/** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records.
+ *  One row: `deps`'s single owed step (mirrors its `holdStates` entry + `manualSteps`
+ *  above). Svelte's `{#each}` silently no-ops on the permissive `{}` fallback
+ *  (`Array.from({})` → `[]`), so this gap never threw — it just left a showcased lens
+ *  silently empty instead of showing the one owed step the seed already promises. */
+function buildPostMergeSteps(): PostMergeSteps[] {
+  return [
+    {
+      sessionId: "deps",
+      desig: "TASK-37",
+      repoPath: STOREFRONT,
+      prNumber: 505,
+      prTitle: "TASK-37: bump dependencies + fix lint",
+      steps: [
+        {
+          id: "deps-ms-1",
+          text: "Rotate the CI dependency-cache key so the runners pick up the new lockfile",
+          postMerge: true,
+          doneAt: null,
+        },
+      ],
+      trackingIssueUrl: null,
+      trackingIssueNumber: null,
+      createdAt: NOW - 45 * MIN,
+      updatedAt: NOW - 45 * MIN,
+      clearedAt: null,
+    },
+  ];
+}
+
 /** Build a fresh, internally-consistent demo world. Pure — no shared references. */
 export function buildSeed(): DemoWorld {
   return {
     sessions: buildSessions(),
+    doneSessions: buildDoneSessions(),
+    activityEntries: buildActivityEntries(),
+    diffs: buildDiffs(),
+    scratchpad: buildScratchpad(),
+    sessionUsage: buildSessionUsage(),
+    repoConfig: buildRepoConfig(),
+    slashCommands: buildSlashCommands(),
+    todo: buildTodo(),
+    postMergeSteps: buildPostMergeSteps(),
     gitStates: buildGitStates(),
     activityStates: buildActivityStates(),
     claudeAliveStates: {

@@ -35,10 +35,17 @@ import type {
   StarPromptStatus,
   PrStatus,
   WsEvent,
+  ActivityEntry,
+  DiffResult,
+  ScratchListing,
+  SessionUsage,
+  SlashCommand,
+  Leftover,
+  PostMergeSteps,
 } from "$lib/types";
 import { bus } from "./bus";
 import { buildSeed } from "./seed";
-import type { DemoWorld } from "./types-world";
+import type { DemoWorld, DemoRepoConfig } from "./types-world";
 
 // A canonical, never-mutated seed. Every `reset()` `structuredClone`s from THIS, so
 // live mutations can never leak back into the seed and a reset always restores clean.
@@ -85,6 +92,58 @@ export const demoState = {
   subagentStates: (): Record<string, SubagentEntry[]> => world.subagentStates,
   previewStates: (): Record<string, { previewPort: number | null; serve?: "ok" | "failed" }> =>
     world.previewStates,
+
+  // ── session-detail tabs (Task 8 sibling audit) ──────────────────────────
+  /** GET /api/sessions/done — archived sessions for the Done lens. */
+  doneSessions: (): Session[] => world.doneSessions,
+  /** GET /api/sessions/:id/activity — [] (never {}) when the session has no transcript seeded. */
+  activityEntries: (id: string): ActivityEntry[] => world.activityEntries[id] ?? [],
+  /** GET /api/sessions/:id/diff — a valid empty DiffResult (never {}) for an unseeded session. */
+  diff: (id: string): DiffResult =>
+    world.diffs[id] ?? {
+      base: "main",
+      baseRef: "origin/main",
+      head: find(id)?.branch ?? null,
+      fetchFailed: false,
+      truncated: false,
+      files: [],
+    },
+  /** GET /api/sessions/:id/scratchpad (root) — mirrors the real server's synthetic empty
+   *  listing for a session whose scratchpad root doesn't exist yet. */
+  scratchpadRoot: (id: string): ScratchListing =>
+    world.scratchpad[id] ?? { path: "", parent: null, entries: [] },
+  /** GET /api/sessions/:id/usage — a zeroed (never {}) record for an unseeded session. */
+  sessionUsage: (id: string): SessionUsage =>
+    world.sessionUsage[id] ?? {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+      messageCount: 0,
+      lastActivity: null,
+      byModel: {},
+    },
+  /** GET /api/sessions/:id/leftovers — the demo never leaves real subprocesses running. */
+  leftovers: (): Leftover[] => [],
+  /** GET /api/sessions/:id/queue — the seeded queue if this session has one, else the same
+   *  empty-but-valid record the real server returns for a session with no queue yet. */
+  sessionBuildQueue: (id: string): BuildQueue =>
+    world.buildQueues[id] ?? { sessionId: id, approved: false, steps: [] },
+  /** GET /api/repo-config?repo= — automation flags; `{}` for an unrecognized repoPath (the
+   *  UI treats a missing field as its documented default, same as an unconfigured repo). */
+  repoConfig: (repoPath: string): DemoRepoConfig | Record<string, never> =>
+    world.repoConfig[repoPath] ?? {},
+  /** GET /api/commands?repo= — installed slash commands, [] for an unrecognized repoPath. */
+  commands: (repoPath: string): { commands: SlashCommand[] } => ({
+    commands: world.slashCommands[repoPath] ?? [],
+  }),
+  /** GET /api/todo?repo= — {exists:false} for an unrecognized repoPath. */
+  todo: (repoPath: string): { exists: boolean; content: string } =>
+    world.todo[repoPath] ?? { exists: false, content: "" },
+  /** GET /api/manual-steps/outstanding (Owed lens) — only still-outstanding records. */
+  outstandingManualSteps: (): PostMergeSteps[] =>
+    world.postMergeSteps.filter((r) => r.clearedAt == null),
 
   usageLimits: (): UsageLimitsResponse => world.usage,
   update: (): UpdateStatus => world.update,
@@ -332,6 +391,27 @@ export const demoState = {
     delete world.subagentStates[id];
     delete world.previewStates[id];
     emit({ event: "session:archived", data: { id } });
+  },
+
+  /** Tick / un-tick one materialized post-merge step (Owed lens checkbox). Returns the
+   *  updated record, or null if the session/step isn't found (mirrors the real 404). */
+  setManualStepDone(sessionId: string, stepId: string, done: boolean): PostMergeSteps | null {
+    const rec = world.postMergeSteps.find((r) => r.sessionId === sessionId);
+    const step = rec?.steps.find((s) => s.id === stepId);
+    if (!rec || !step) return null;
+    step.doneAt = done ? Date.now() : null;
+    rec.updatedAt = Date.now();
+    return rec;
+  },
+
+  /** Dismiss a whole post-merge record (Owed lens "clear" button) — marks it cleared so
+   *  it drops out of `outstandingManualSteps()`. Returns the updated record. */
+  dismissManualSteps(sessionId: string): PostMergeSteps | null {
+    const rec = world.postMergeSteps.find((r) => r.sessionId === sessionId);
+    if (!rec) return null;
+    rec.clearedAt = Date.now();
+    rec.updatedAt = rec.clearedAt;
+    return rec;
   },
 
   /** Archive every given id that's still merged (the server re-validates, same as

@@ -38,6 +38,10 @@ export interface RepoEntry {
   /** True when the repo is flagged hidden (RepoConfig.hidden). The New Task picker
    *  hides these by default but reveals them on name search. Absent/false ⇒ visible. */
   hidden?: boolean;
+  /** realpathSync(path) — the form session.repoPath (safeRepoDir) carries; falls back
+   *  to `path` when realpath fails. Lets the client resolve a realpath'd session repo
+   *  and a raw backlog repo to the same entry. */
+  realPath: string;
 }
 
 export interface Settings {
@@ -1515,6 +1519,9 @@ export interface Steer {
   inSteerBar: boolean;
   /** Surface as a quick-action button on backlog issues (spawns a session with this prompt + the issue). */
   onIssues: boolean;
+  /** Allowlist of repo NAMES this steer is bound to (the dir name listRepos enumerates
+   *  under repoRoot). Empty/absent = universal (shows on every repo). */
+  repos?: string[];
 }
 
 // ── git diff review panel ──────────────────────────────────────────────────

@@ -64,6 +64,7 @@
   import { displayStatus } from "$lib/display-status";
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { repos } from "$lib/repos.svelte";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
@@ -1316,6 +1317,7 @@
       .catch(() => {});
     steers.load();
     projectIcons.load();
+    repos.load();
     reviews.load();
     planGates.load();
     recaps.load();

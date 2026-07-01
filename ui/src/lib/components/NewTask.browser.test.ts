@@ -497,8 +497,18 @@ describe("NewTask research toggle", () => {
   });
 
   it("keeps Autopilot unchecked after a repo switch (touched pin survives)", async () => {
-    const repoA: RepoEntry = { name: "alpha", path: "/repo/ap-switch-a", display: "alpha" };
-    const repoB: RepoEntry = { name: "bravo", path: "/repo/ap-switch-b", display: "bravo" };
+    const repoA: RepoEntry = {
+      name: "alpha",
+      path: "/repo/ap-switch-a",
+      display: "alpha",
+      realPath: "/repo/ap-switch-a",
+    };
+    const repoB: RepoEntry = {
+      name: "bravo",
+      path: "/repo/ap-switch-b",
+      display: "bravo",
+      realPath: "/repo/ap-switch-b",
+    };
     mockListRepos.mockResolvedValue({ repos: [repoA, repoB], recentWindowDays: 30 });
     // both repos report autopilot ON
     mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
@@ -609,11 +619,17 @@ describe("NewTask repo shortcuts", () => {
   // So recentRepos order is: bravo, charlie (only 2 have positive counts).
   // Note charlie is list-index 2 but recents-index 1 — proves the digit jump
   // reads the recents ranking, not the list order.
-  const repoA: RepoEntry = { name: "alpha", path: "/repo/alpha", display: "alpha" };
+  const repoA: RepoEntry = {
+    name: "alpha",
+    path: "/repo/alpha",
+    display: "alpha",
+    realPath: "/repo/alpha",
+  };
   const repoB: RepoEntry = {
     name: "bravo",
     path: "/repo/bravo",
     display: "bravo",
+    realPath: "/repo/bravo",
     recentAgentCount: 5,
     lastUsedAt: 1000,
   };
@@ -621,6 +637,7 @@ describe("NewTask repo shortcuts", () => {
     name: "charlie",
     path: "/repo/charlie",
     display: "charlie",
+    realPath: "/repo/charlie",
     recentAgentCount: 2,
     lastUsedAt: 2000,
   };
@@ -1401,12 +1418,14 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
       name: "visible",
       path: "/repo/hh-default-visible",
       display: "visible",
+      realPath: "/repo/hh-default-visible",
       lastUsedAt: 100,
     };
     const secret: RepoEntry = {
       name: "secret",
       path: "/repo/hh-default-secret",
       display: "secret",
+      realPath: "/repo/hh-default-secret",
       lastUsedAt: 999, // most-recently-used, but hidden → must not be auto-selected
       hidden: true,
     };
@@ -1417,14 +1436,25 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
   });
 
   it("Alt+] cycle steps over a hidden repo instead of surfacing it", async () => {
-    const a: RepoEntry = { name: "aaa", path: "/repo/hh-cyc-a", display: "aaa" };
+    const a: RepoEntry = {
+      name: "aaa",
+      path: "/repo/hh-cyc-a",
+      display: "aaa",
+      realPath: "/repo/hh-cyc-a",
+    };
     const hidden: RepoEntry = {
       name: "hhh",
       path: "/repo/hh-cyc-hidden",
       display: "hhh",
+      realPath: "/repo/hh-cyc-hidden",
       hidden: true,
     };
-    const c: RepoEntry = { name: "ccc", path: "/repo/hh-cyc-c", display: "ccc" };
+    const c: RepoEntry = {
+      name: "ccc",
+      path: "/repo/hh-cyc-c",
+      display: "ccc",
+      realPath: "/repo/hh-cyc-c",
+    };
     mockListRepos.mockResolvedValue({ repos: [a, hidden, c], recentWindowDays: 30 });
     render(NewTask, { props: base({ initialRepoPath: a.path }) });
 
@@ -1439,6 +1469,7 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
       name: "secret",
       path: "/repo/hh-dig-secret",
       display: "secret",
+      realPath: "/repo/hh-dig-secret",
       recentAgentCount: 9, // would be the #1 recent if not hidden
       hidden: true,
     };
@@ -1446,9 +1477,15 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
       name: "realtop",
       path: "/repo/hh-dig-top",
       display: "realtop",
+      realPath: "/repo/hh-dig-top",
       recentAgentCount: 5,
     };
-    const other: RepoEntry = { name: "other", path: "/repo/hh-dig-other", display: "other" };
+    const other: RepoEntry = {
+      name: "other",
+      path: "/repo/hh-dig-other",
+      display: "other",
+      realPath: "/repo/hh-dig-other",
+    };
     mockListRepos.mockResolvedValue({ repos: [secret, realtop, other], recentWindowDays: 30 });
     render(NewTask, { props: base({ initialRepoPath: other.path }) });
 
@@ -1459,14 +1496,25 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
   });
 
   it("cycle from a hidden current repo enters the visible subset at its boundary", async () => {
-    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-1", display: "vis1" };
+    const vis1: RepoEntry = {
+      name: "vis1",
+      path: "/repo/hh-bnd-1",
+      display: "vis1",
+      realPath: "/repo/hh-bnd-1",
+    };
     const hiddenCur: RepoEntry = {
       name: "hcur",
       path: "/repo/hh-bnd-hidden",
       display: "hcur",
+      realPath: "/repo/hh-bnd-hidden",
       hidden: true,
     };
-    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-2", display: "vis2" };
+    const vis2: RepoEntry = {
+      name: "vis2",
+      path: "/repo/hh-bnd-2",
+      display: "vis2",
+      realPath: "/repo/hh-bnd-2",
+    };
     mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
     // Seeded selection is the hidden repo (still shown in the trigger), so cur === -1 in
     // the visible subset [vis1, vis2].
@@ -1479,14 +1527,25 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
   });
 
   it("backward cycle from a hidden current repo enters at the last visible repo", async () => {
-    const vis1: RepoEntry = { name: "vis1", path: "/repo/hh-bnd-b1", display: "vis1" };
+    const vis1: RepoEntry = {
+      name: "vis1",
+      path: "/repo/hh-bnd-b1",
+      display: "vis1",
+      realPath: "/repo/hh-bnd-b1",
+    };
     const hiddenCur: RepoEntry = {
       name: "hcur",
       path: "/repo/hh-bnd-b-hidden",
       display: "hcur",
+      realPath: "/repo/hh-bnd-b-hidden",
       hidden: true,
     };
-    const vis2: RepoEntry = { name: "vis2", path: "/repo/hh-bnd-b2", display: "vis2" };
+    const vis2: RepoEntry = {
+      name: "vis2",
+      path: "/repo/hh-bnd-b2",
+      display: "vis2",
+      realPath: "/repo/hh-bnd-b2",
+    };
     mockListRepos.mockResolvedValue({ repos: [vis1, hiddenCur, vis2], recentWindowDays: 30 });
     render(NewTask, { props: base({ initialRepoPath: hiddenCur.path }) });
 

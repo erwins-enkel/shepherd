@@ -2,6 +2,8 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { Session } from "$lib/types";
   import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
+  import { steerAppliesToRepo } from "$lib/steer-scope";
   import { broadcast as apiBroadcast } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -11,6 +13,10 @@
 
   let selected = new SvelteSet<string>();
   let text = $state("");
+  // Id of the steer whose pick button set the current text (null once the operator
+  // edits the field by hand). Tracked by id so the stale-clear below never wipes
+  // free-form text that merely happens to equal a bound steer's text.
+  let pickedId = $state<string | null>(null);
   let sending = $state(false);
   let result = $state<string | null>(null);
   let failed = $state(false);
@@ -22,11 +28,40 @@
   const allSelected = $derived(sessions.length > 0 && selected.size === sessions.length);
   const canSend = $derived(text.trim().length > 0 && selected.size > 0 && !sending);
 
+  // Currently-selected target sessions, resolved from the id set.
+  const selectedSessions = $derived(sessions.filter((s) => selected.has(s.id)));
+  // A steer-bar steer is offerable iff it's universal, or every currently-selected
+  // target's repo matches its allowlist (and there IS at least one target selected —
+  // otherwise a bound steer would show with nothing to validate it against).
+  const availableSteers = $derived(
+    steers.list.filter(
+      (s) =>
+        s.inSteerBar &&
+        (!s.repos?.length ||
+          (selectedSessions.length > 0 &&
+            selectedSessions.every((sess) => steerAppliesToRepo(s, repos.nameFor(sess.repoPath))))),
+    ),
+  );
+
   // Any change to who/what is sent invalidates the confirm — re-arm from scratch.
   function disarm() {
     clearTimeout(armTimer);
     armed = false;
   }
+
+  // If the target selection changes underneath a picked bound steer (e.g. a
+  // flowagent-only steer was picked, then a non-flowagent target got added), the
+  // picked steer may no longer be valid for every current target — clear it so a
+  // broadcast can't fire a steer at a session it was never scoped for. Keyed by the
+  // picked id, so only a genuinely-picked steer is cleared, never matching free-form text.
+  $effect(() => {
+    if (pickedId == null) return;
+    if (!availableSteers.some((s) => s.id === pickedId)) {
+      text = "";
+      pickedId = null;
+      disarm();
+    }
+  });
 
   function toggle(id: string) {
     if (selected.has(id)) selected.delete(id);
@@ -128,13 +163,17 @@
 
     <span class="micro">{m.broadcast_steer()}</span>
     <div class="picks">
-      <!-- broadcast steers running sessions, so only steer-bar-scoped entries apply -->
-      {#each steers.list.filter((s) => s.inSteerBar) as s (s.id)}
+      <!-- broadcast steers running sessions, so only steer-bar-scoped entries apply,
+           further gated so a repo-bound steer only offers when every current target matches -->
+      {#each availableSteers as s (s.id)}
         <button
           type="button"
           class="pick"
-          class:on={text === s.text}
-          onclick={() => (text = s.text)}
+          class:on={pickedId === s.id}
+          onclick={() => {
+            pickedId = s.id;
+            text = s.text;
+          }}
         >
           {#if s.emoji}<span aria-hidden="true">{s.emoji}</span>{/if}
           {s.label}
@@ -143,7 +182,10 @@
     </div>
     <textarea
       bind:value={text}
-      oninput={disarm}
+      oninput={() => {
+        pickedId = null;
+        disarm();
+      }}
       rows="2"
       data-1p-ignore
       placeholder={m.broadcast_placeholder()}

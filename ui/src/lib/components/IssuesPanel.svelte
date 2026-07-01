@@ -1,6 +1,8 @@
 <script lang="ts">
   import { listIssues, getEpics, getEpic } from "$lib/api";
   import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
+  import { steerAppliesToRepo } from "$lib/steer-scope";
   import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { filterIssues, hideOthers, hideActive, hideSubIssues } from "./issues-panel";
@@ -40,7 +42,10 @@
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
-  const issueActions = $derived(steers.list.filter((s) => s.onIssues));
+  // Also gated to steers bound to this panel's repo (or universal ones).
+  const issueActions = $derived(
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+  );
 
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);

@@ -242,6 +242,9 @@ export interface Steer {
   inSteerBar: boolean;
   /** Surface as a quick-action button on backlog issues (spawns a session with this prompt + the issue). */
   onIssues: boolean;
+  /** Allowlist of repo NAMES this steer is bound to (the dir name listRepos enumerates
+   *  under repoRoot). Empty/absent = universal (shows on every repo). */
+  repos?: string[];
 }
 
 // ── git diff review panel ──────────────────────────────────────────────────

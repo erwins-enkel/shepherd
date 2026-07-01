@@ -38,6 +38,19 @@ export interface RepoEntry {
   lastUsedAt?: number;
   /** Count of sessions (agents) run on this repo within the recent window; undefined if none. */
   recentAgentCount?: number;
+  /** realpathSync(path) — the form session.repoPath (safeRepoDir) carries; falls back
+   *  to `path` when realpath fails. Lets the client resolve a realpath'd session repo
+   *  and a raw backlog repo to the same entry. */
+  realPath: string;
+}
+
+/** realpathSync with a fallback to the raw path on throw (broken symlink / vanished entry). */
+function realpathOrRaw(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }
 
 /** Collapse the user's home directory to `~` in a display path, matching listRepos's convention. */
@@ -56,7 +69,7 @@ export function listRepos(repoRoot: string): RepoEntry[] {
   return entries
     .map((name) => {
       const p = join(repoRoot, name);
-      return { name, path: p, display: toDisplay(p) };
+      return { name, path: p, display: toDisplay(p), realPath: realpathOrRaw(p) };
     })
     .filter((e) => {
       try {
@@ -183,6 +196,7 @@ export function cloneRepo(
     name,
     path: target,
     display: toDisplay(target),
+    realPath: realpathOrRaw(target),
   };
   return { ok: true, entry };
 }
@@ -506,7 +520,12 @@ export async function createProject(
   if (!localResult.ok) return localResult;
 
   // Step 8: build RepoEntry
-  const entry: RepoEntry = { name: input.name, path: target, display: toDisplay(target) };
+  const entry: RepoEntry = {
+    name: input.name,
+    path: target,
+    display: toDisplay(target),
+    realPath: realpathOrRaw(target),
+  };
 
   // Step 9: if no remote requested, done
   if (!input.createRemote) return { ok: true, entry };
@@ -726,6 +745,11 @@ export async function forkRepo(
     return { ok: false, error: classifyForkError(e) };
   }
 
-  const entry: RepoEntry = { name: input.name, path: target, display: toDisplay(target) };
+  const entry: RepoEntry = {
+    name: input.name,
+    path: target,
+    display: toDisplay(target),
+    realPath: realpathOrRaw(target),
+  };
   return { ok: true, entry };
 }

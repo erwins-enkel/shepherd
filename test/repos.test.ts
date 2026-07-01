@@ -29,6 +29,7 @@ import {
   type GhOutRunner,
 } from "../src/repos";
 import { realpathSync } from "node:fs";
+import { safeRepoDir } from "../src/validate";
 
 let root: string;
 
@@ -100,6 +101,61 @@ test("reconcileRealPathsToRaw maps realpath keys to enumerated raw paths, passin
     expect(out.has(outside)).toBe(true);
   } finally {
     rmSync(linkRoot, { force: true });
+  }
+});
+
+// ── realPath / symlink-normalization invariant (guard against vanish-everywhere) ──
+
+test("listRepos: realPath matches realpathSync(path); symlinked repo/root still resolve to the same name", () => {
+  const outerRoot = mkdtempSync(join(tmpdir(), "shepherd-realpath-root-"));
+  const rootLink = join(tmpdir(), `shepherd-realpath-rootlink-${process.pid}`);
+  try {
+    // real repo dir under the real root
+    mkdirSync(join(outerRoot, "alpha"));
+    // symlinked repo entry: repoRoot/beta -> repoRoot/.beta-real (still inside repoRoot's
+    // realpath tree, so safeRepoDir's containment check holds — a symlink escaping the
+    // root entirely is a *rejected* case, covered separately below).
+    const betaReal = join(outerRoot, ".beta-real");
+    mkdirSync(betaReal);
+    symlinkSync(betaReal, join(outerRoot, "beta"), "dir");
+    // symlinked root: rootlink -> outerRoot
+    symlinkSync(outerRoot, rootLink, "dir");
+
+    for (const root of [outerRoot, rootLink]) {
+      const entries = listRepos(root);
+      expect(entries.map((e) => e.name).sort()).toEqual(["alpha", "beta"]);
+
+      const byName = new Map(entries.map((e) => [e.name, e]));
+      const alpha = byName.get("alpha")!;
+      const beta = byName.get("beta")!;
+
+      // path === join(root, name); realPath === realpathSync(path)
+      expect(alpha.path).toBe(join(root, "alpha"));
+      expect(alpha.realPath).toBe(realpathSync(alpha.path));
+      expect(beta.path).toBe(join(root, "beta"));
+      expect(beta.realPath).toBe(realpathSync(beta.path));
+      // beta is symlinked → realPath genuinely diverges from path
+      expect(beta.realPath).not.toBe(beta.path);
+
+      // safeRepoDir(entry.path, root) — the realpath a session would store — equals entry.realPath
+      for (const e of entries) {
+        expect(safeRepoDir(e.path, root)).toBe(e.realPath);
+      }
+
+      // client-index invariant: both `path` and `realPath` map to the SAME name
+      const index = new Map<string, string>();
+      for (const e of entries) {
+        index.set(e.path, e.name);
+        index.set(e.realPath, e.name);
+      }
+      for (const e of entries) {
+        expect(index.get(e.path)).toBe(e.name);
+        expect(index.get(e.realPath)).toBe(e.name);
+      }
+    }
+  } finally {
+    rmSync(rootLink, { force: true });
+    rmSync(outerRoot, { recursive: true, force: true });
   }
 });
 

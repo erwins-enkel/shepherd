@@ -15,8 +15,12 @@
   // actually land per current toggles; escalates if the operator types mid-review;
   // flips to a brief auto-dismissing conclusion tier. The future stage-and-apply
   // guard is out of scope — this is the signal only.
-  let { session, keystrokes, tab }: { session: Session; keystrokes: number; tab: string } =
-    $props();
+  let {
+    session,
+    keystrokes,
+    tab,
+    height = $bindable(0),
+  }: { session: Session; keystrokes: number; tab: string; height?: number } = $props();
 
   // Live in-flight flags (mutually exclusive: plan-gate = planning phase, critic =
   // post-PR, so never both at once).
@@ -150,6 +154,24 @@
   const icon = $derived(
     view.show && view.phase === "conclusion" && view.tone !== "errored" ? "✓" : "⚠",
   );
+
+  // Publish the banner's occupied height so the floating jump-to-latest button can
+  // lift clear of it (issue: scroll button obscured by this banner). The bound
+  // element mirrors the {#if} below. offsetHeight (via bind: on the element) is the
+  // true occupied height incl. the 1px border-top. We ALSO seed it synchronously
+  // here: this effect runs after DOM insertion but before paint, so the shared CSS
+  // var is already correct on the button's first painted frame — no one-frame flash
+  // under the banner, no spurious mount-time slide. bind:offsetHeight then keeps it
+  // current across reflows (e.g. an orientation change re-wrapping the text).
+  let bannerEl = $state<HTMLDivElement>();
+  $effect(() => {
+    const shown = view.show && tab === "term";
+    if (!shown) {
+      height = 0; // hidden branch: reset (the only place height is zeroed)
+      return;
+    }
+    if (bannerEl) height = bannerEl.offsetHeight; // shown: seed pre-paint; never writes 0
+  });
 </script>
 
 {#if view.show && tab === "term"}
@@ -158,6 +180,8 @@
     data-tone={view.tone}
     role="status"
     aria-live="polite"
+    bind:this={bannerEl}
+    bind:offsetHeight={height}
     use:coachTarget={"review-inflight"}
   >
     <span class="rb-icon" aria-hidden="true">{icon}</span>

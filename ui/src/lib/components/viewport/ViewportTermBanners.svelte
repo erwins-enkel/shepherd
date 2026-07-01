@@ -108,7 +108,10 @@
      sits above xterm content (z-index 2) but below the parked/resume overlays (3) */
   .scroll-bottom {
     position: absolute;
-    bottom: 12px;
+    /* Lift clear of the ReviewInFlightBanner's bottom strip when it's shown:
+       --review-banner-h (published on .vp-body) is that banner's occupied height,
+       0 when hidden — so this reduces to the resting 12px with no banner. */
+    bottom: calc(12px + var(--review-banner-h, 0px));
     right: 14px;
     z-index: 2;
     display: flex;
@@ -133,7 +136,8 @@
       background 0.12s ease,
       color 0.12s ease,
       box-shadow 0.12s ease,
-      transform 0.12s ease;
+      transform 0.12s ease,
+      bottom 0.12s ease;
     /* slide in, then pulse the amber glow twice to draw the eye; the pulse ends
        and the button rests on the steady halo set above. */
     animation:

@@ -226,6 +226,10 @@
   // ReviewInFlightBanner's client-side escalation (issue #1022). Pure UI signal,
   // independent of the server-side lastOperatorKeystrokeAt seam.
   let opKeystrokes = $state(0);
+  // occupied height (px) of the ReviewInFlightBanner while it's shown, 0 otherwise.
+  // Published as --review-banner-h on .vp-body so the floating jump-to-latest button
+  // (a sibling in ViewportTermBanners) can lift clear of the bottom banner strip.
+  let reviewBannerH = $state(0);
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
@@ -2136,7 +2140,14 @@
   {/if}
 
   <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
-  <div class="vp-body" data-swipe-page role="tabpanel" id={vpBodyId} aria-labelledby={tabId(tab)}>
+  <div
+    class="vp-body"
+    data-swipe-page
+    role="tabpanel"
+    id={vpBodyId}
+    aria-labelledby={tabId(tab)}
+    style:--review-banner-h={`${reviewBannerH}px`}
+  >
     <div class="scan" class:running={tab === "term"} aria-hidden="true"></div>
     <div
       class="term-mount"
@@ -2171,7 +2182,7 @@
     <!-- Non-blocking review-in-flight banner: bottom strip over the terminal,
          above the steer bar. Stays mounted across tab switches (state survives);
          it suppresses its own render off the term tab. (issue #1022) -->
-    <ReviewInFlightBanner {session} keystrokes={opKeystrokes} {tab} />
+    <ReviewInFlightBanner {session} keystrokes={opKeystrokes} {tab} bind:height={reviewBannerH} />
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />

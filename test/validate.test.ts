@@ -834,6 +834,32 @@ test("validateSteers rejects bad shapes", () => {
   ).toBeNull();
 });
 
+test("validateSteers repos: accepts a valid allowlist, trims + dedupes", () => {
+  const out = validateSteers([{ label: "x", text: "y", repos: ["  alpha ", "beta", "alpha"] }]);
+  expect(out).not.toBeNull();
+  expect(out![0]!.repos).toEqual(["alpha", "beta"]);
+});
+
+test("validateSteers repos: absent → field omitted (universal)", () => {
+  const out = validateSteers([{ label: "x", text: "y" }]);
+  expect(out).not.toBeNull();
+  expect(out![0]!.repos).toBeUndefined();
+});
+
+test("validateSteers repos: empty array dedupes to empty → field omitted (universal)", () => {
+  const out = validateSteers([{ label: "x", text: "y", repos: [] }]);
+  expect(out).not.toBeNull();
+  expect(out![0]!.repos).toBeUndefined();
+});
+
+test("validateSteers repos: rejects bad shapes", () => {
+  expect(validateSteers([{ label: "x", text: "y", repos: "alpha" }])).toBeNull(); // non-array
+  expect(validateSteers([{ label: "x", text: "y", repos: [1] }])).toBeNull(); // non-string entry
+  expect(validateSteers([{ label: "x", text: "y", repos: ["   "] }])).toBeNull(); // empty-after-trim
+  expect(validateSteers([{ label: "x", text: "y", repos: ["a".repeat(256)] }])).toBeNull(); // >255 chars
+  expect(validateSteers([{ label: "x", text: "y", repos: Array(41).fill("r") }])).toBeNull(); // >STEER_MAX length
+});
+
 test("validateBroadcast accepts text + ids and trims", () => {
   expect(validateBroadcast({ text: "  go ", ids: ["a", "b"] })).toEqual({
     text: "go",

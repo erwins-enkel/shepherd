@@ -3,7 +3,14 @@ import { recentRepos, RECENT_LIMIT } from "./recentRepos";
 import type { RepoEntry } from "$lib/types";
 
 function repo(name: string, recentAgentCount?: number, lastUsedAt?: number): RepoEntry {
-  return { name, path: `/repos/${name}`, display: name, recentAgentCount, lastUsedAt };
+  return {
+    name,
+    path: `/repos/${name}`,
+    display: name,
+    realPath: `/repos/${name}`,
+    recentAgentCount,
+    lastUsedAt,
+  };
 }
 
 describe("recentRepos", () => {

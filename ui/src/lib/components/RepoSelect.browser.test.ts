@@ -11,11 +11,23 @@ const noop = vi.fn();
 function makeRepos(): RepoEntry[] {
   return [
     // Two pinned repos (recentAgentCount > 0); they will occupy rows 0 and 1.
-    { name: "alpha", path: "/repos/alpha", display: "~/repos/alpha", recentAgentCount: 5 },
-    { name: "beta", path: "/repos/beta", display: "~/repos/beta", recentAgentCount: 3 },
+    {
+      name: "alpha",
+      path: "/repos/alpha",
+      display: "~/repos/alpha",
+      realPath: "/repos/alpha",
+      recentAgentCount: 5,
+    },
+    {
+      name: "beta",
+      path: "/repos/beta",
+      display: "~/repos/beta",
+      realPath: "/repos/beta",
+      recentAgentCount: 3,
+    },
     // The selected repo has NO recentAgentCount — it is main-list-only, so it
     // never appears in the pinned group. Rows 0+1 are alpha+beta; gamma is later.
-    { name: "gamma", path: "/repos/gamma", display: "~/repos/gamma" },
+    { name: "gamma", path: "/repos/gamma", display: "~/repos/gamma", realPath: "/repos/gamma" },
   ];
 }
 
@@ -95,12 +107,25 @@ describe("RepoSelect — hideHidden", () => {
   // recents group; it must be absent from BOTH the recents and the main list by default.
   function makeReposWithHidden(): RepoEntry[] {
     return [
-      { name: "alpha", path: "/repos/alpha", display: "~/repos/alpha", recentAgentCount: 5 },
-      { name: "beta", path: "/repos/beta", display: "~/repos/beta", recentAgentCount: 3 },
+      {
+        name: "alpha",
+        path: "/repos/alpha",
+        display: "~/repos/alpha",
+        realPath: "/repos/alpha",
+        recentAgentCount: 5,
+      },
+      {
+        name: "beta",
+        path: "/repos/beta",
+        display: "~/repos/beta",
+        realPath: "/repos/beta",
+        recentAgentCount: 3,
+      },
       {
         name: "secret",
         path: "/repos/secret",
         display: "~/repos/secret",
+        realPath: "/repos/secret",
         recentAgentCount: 9,
         hidden: true,
       },

@@ -784,6 +784,21 @@ function validateSteerScope(v: unknown, fallback: boolean): boolean | null {
   return typeof v === "boolean" ? v : null;
 }
 
+/** Optional steer repo-allowlist: undefined when absent; null on violation; else a
+ *  trimmed, de-duplicated, capped list of non-empty repo-name strings. */
+function validateSteerRepos(v: unknown): string[] | undefined | null {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > STEER_MAX) return null;
+  const seen = new Set<string>();
+  for (const it of v) {
+    if (typeof it !== "string") return null;
+    const name = it.trim();
+    if (name.length === 0 || name.length > 255) return null;
+    seen.add(name);
+  }
+  return seen.size === 0 ? undefined : [...seen];
+}
+
 /** Validate + normalize a single steer item. Returns null on any violation. */
 function validateSteerItem(it: unknown): Steer | null {
   if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
@@ -800,8 +815,18 @@ function validateSteerItem(it: unknown): Steer | null {
   if (emoji === null || inSteerBar === null || onIssues === null) return null;
   // both surfaces off → the steer renders nowhere; mirror the SteersEditor guard
   if (!inSteerBar && !onIssues) return null;
+  const repos = validateSteerRepos(o.repos);
+  if (repos === null) return null;
   const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
-  return { id, label, text, ...(emoji !== undefined ? { emoji } : {}), inSteerBar, onIssues };
+  return {
+    id,
+    label,
+    text,
+    ...(emoji !== undefined ? { emoji } : {}),
+    inSteerBar,
+    onIssues,
+    ...(repos !== undefined ? { repos } : {}),
+  };
 }
 
 /** Validate + normalize a PUT /api/steers payload. Returns null on any violation. */

@@ -1,11 +1,97 @@
 <script lang="ts">
-  import type { PostMergeSteps } from "$lib/types";
+  import { onDestroy, tick } from "svelte";
+  import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
   import { postMergeSteps } from "$lib/post-merge-steps.svelte";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
+  let {
+    focusSessionId = null,
+    focusSnapshot = null,
+    focusNonce = 0,
+    focusHandledNonce = 0,
+    onfocusresolved = undefined,
+  }: {
+    focusSessionId?: string | null;
+    focusSnapshot?: OwedFocusSnapshot | null;
+    focusNonce?: number;
+    focusHandledNonce?: number;
+    onfocusresolved?: (nonce: number) => void;
+  } = $props();
+
   const records = $derived(postMergeSteps.records);
+
+  // Owed-lens focus (#1275): a manual-steps chip click scrolls to + briefly highlights the target
+  // session's card, or — when it has no live outstanding record (pre-merge, cleared, dismissed, or
+  // load-failed) — pins a read-only frozen card built from the click-time snapshot so the click is
+  // never a dead end.
+  let listEl = $state<HTMLElement>();
+  let focusedSessionId = $state<string | null>(null);
+  let pinnedFrozen = $state<OwedFocusSnapshot | null>(null);
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // A live record always wins over the frozen fallback. `settled` is sticky (true after the first
+  // load), so the effect's `merged && !settled` wait branch only guards the FIRST load — a click
+  // during the merge→WS-refresh window, or after a failed-then-retried load, can pin a frozen card
+  // and mark its nonce handled; when the live record later lands, the nonce guard makes the effect
+  // return early. This render-time guard suppresses the frozen card for any session that now has a
+  // live record, so the two never co-render (and a stale "no longer owed" note can't contradict the
+  // live card). #1275
+  const frozenCard = $derived.by(() => {
+    const p = pinnedFrozen;
+    if (!p) return null;
+    return records.some((r) => r.sessionId === p.sessionId) ? null : p;
+  });
+
+  function startFlash(id: string) {
+    if (flashTimer) clearTimeout(flashTimer);
+    focusedSessionId = id;
+    flashTimer = setTimeout(() => {
+      focusedSessionId = null;
+      flashTimer = null;
+    }, 1500);
+  }
+
+  function scrollToCard(id: string) {
+    const el = listEl?.querySelector(`[data-session-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: "nearest" });
+  }
+
+  $effect(() => {
+    const nonce = focusNonce;
+    const snap = focusSnapshot;
+    // guards: nothing to do / already resolved this click
+    if (!snap || nonce === focusHandledNonce) return;
+    // focusSessionId is the parent's authoritative "what to focus" id (kept in lockstep with
+    // snap.sessionId by the page); snap otherwise only supplies the frozen-fallback payload.
+    const id = focusSessionId ?? snap.sessionId;
+
+    const live = records.find((r) => r.sessionId === id);
+    if (live) {
+      pinnedFrozen = null;
+      void tick().then(() => scrollToCard(id));
+      startFlash(id);
+      onfocusresolved?.(nonce);
+      return;
+    }
+    // no live record:
+    if (snap.merged && !postMergeSteps.settled) {
+      // load still in flight — unknown, not empty. Wait (do NOT resolve).
+      return;
+    }
+    // absence is real (pre-merge, or settled): show a frozen card
+    pinnedFrozen = snap;
+    void tick().then(() => scrollToCard(id));
+    startFlash(id);
+    onfocusresolved?.(nonce);
+  });
+
+  // Kept OUT of the focus effect above so its re-runs (e.g. a WS-driven records refresh) can't
+  // truncate a flash already in flight — this only fires once, on unmount.
+  onDestroy(() => {
+    if (flashTimer) clearTimeout(flashTimer);
+  });
 
   // Dismiss is an inline arm-then-confirm (no modal, no scrim): first click arms, second confirms;
   // the armed state self-disarms after a few seconds so a stray click can't clear a whole record.
@@ -36,18 +122,54 @@
   const doneCount = (rec: PostMergeSteps) => rec.steps.filter((s) => s.doneAt != null).length;
 </script>
 
-<div class="owed">
+<div class="owed" bind:this={listEl}>
   <div class="ow-head">
     <span class="ow-title">{m.owed_title()}</span>
   </div>
 
-  {#if records.length === 0}
+  {#if records.length === 0 && !frozenCard}
     <div class="ow-empty">{m.owed_empty()}</div>
   {:else}
     <p class="ow-note">{m.owed_note()}</p>
+    {#if frozenCard}
+      <section
+        class="ow-card ow-card--frozen"
+        data-session-id={frozenCard.sessionId}
+        class:focus={focusedSessionId === frozenCard.sessionId}
+      >
+        <header class="ow-card-head">
+          <div class="ow-card-id">
+            <span class="ow-desig">{frozenCard.desig}</span>
+            {#if frozenCard.prNumber != null}<span class="ow-pr">#{frozenCard.prNumber}</span>{/if}
+          </div>
+          <div class="ow-card-meta">
+            <span class="ow-frozen-note">
+              {#if !frozenCard.merged}{m.owed_frozen_pre_merge_note()}
+              {:else if postMergeSteps.loaded}{m.owed_frozen_cleared_note()}
+              {:else}{m.owed_frozen_unknown_note()}{/if}
+            </span>
+          </div>
+        </header>
+        <ul class="ow-steps">
+          {#each frozenCard.steps as step (step.id)}
+            <li class="ow-step ow-step--frozen">
+              <span class="ow-step-text">
+                {#if step.postMerge}<span class="ow-pm-badge">{m.owed_post_merge_badge()}</span
+                  >{/if}
+                {step.text}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
     <div class="ow-list">
       {#each records as rec (rec.sessionId)}
-        <section class="ow-card">
+        <section
+          class="ow-card"
+          data-session-id={rec.sessionId}
+          class:focus={focusedSessionId === rec.sessionId}
+        >
           <header class="ow-card-head">
             <div class="ow-card-id">
               <span class="ow-desig">{rec.desig}</span>
@@ -145,6 +267,17 @@
   .ow-card {
     padding: 12px 16px;
     border-bottom: 1px solid var(--color-line);
+  }
+  .ow-card.focus {
+    outline: 2px solid var(--status-warn);
+    outline-offset: -2px;
+  }
+  .ow-card--frozen .ow-step-text {
+    color: var(--color-muted);
+  }
+  .ow-frozen-note {
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
   }
   .ow-card-head {
     display: flex;

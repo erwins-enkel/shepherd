@@ -6,6 +6,7 @@
     Epic,
     CompletedEpic,
     HoldReason,
+    OwedFocusSnapshot,
   } from "$lib/types";
   import type { BlockState } from "$lib/triage";
   import HerdGroup from "./herd/HerdGroup.svelte";
@@ -83,6 +84,12 @@
     focusEpic = null,
     onackmigrationsepic = undefined,
     onackmanualsteps = undefined,
+    onshowowed = undefined,
+    owedFocusId = null,
+    owedFocusSnapshot = null,
+    owedFocusNonce = 0,
+    owedFocusHandledNonce = 0,
+    onfocusresolved = undefined,
     onbacklog = undefined,
   }: {
     sessions: Session[];
@@ -190,6 +197,15 @@
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
     onackmanualsteps?: (id: string) => void;
+    // manual-steps chip -> Owed lens (#1275)
+    onshowowed?: (id: string) => void;
+    // Owed-lens focus (#1275): threaded straight through to PostMergeStepsPanel (not a row prop —
+    // the panel isn't a row) so a manual-steps chip click can scroll-to + highlight its target card.
+    owedFocusId?: string | null;
+    owedFocusSnapshot?: OwedFocusSnapshot | null;
+    owedFocusNonce?: number;
+    owedFocusHandledNonce?: number;
+    onfocusresolved?: (nonce: number) => void;
     // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
     onbacklog?: () => void;
   } = $props();
@@ -323,6 +339,7 @@
     quotaKindFor,
     holdFor,
     onackmanualsteps,
+    onshowowed,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
@@ -479,7 +496,13 @@
     {:else if filter === "owed"}
       <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->
-      <PostMergeStepsPanel />
+      <PostMergeStepsPanel
+        focusSessionId={owedFocusId}
+        focusSnapshot={owedFocusSnapshot}
+        focusNonce={owedFocusNonce}
+        focusHandledNonce={owedFocusHandledNonce}
+        {onfocusresolved}
+      />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->

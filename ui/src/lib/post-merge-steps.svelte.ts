@@ -7,6 +7,10 @@ import { getOutstandingManualSteps, setManualStepDone, dismissManualSteps } from
 class PostMergeStepsStore {
   records = $state<PostMergeSteps[]>([]);
   loaded = $state(false);
+  /** True once any `load()` attempt has completed (success or failure); lets a consumer tell
+   *  in-flight (`!settled`) from finished. Invariant: `loaded === true` ⇒ success;
+   *  `settled && !loaded` ⇒ the attempt failed. */
+  settled = $state(false);
   /** In-flight guard (#1257): true while a `load()` GET is outstanding. Stops a viewport toggle (or
    *  any re-entrant caller — eager badge load, lens-open fallback, WS refresh) from firing a
    *  duplicate fetch before the first one resolves and flips `loaded`. */
@@ -22,6 +26,7 @@ class PostMergeStepsStore {
     } catch {
       /* best-effort; the next load retries */
     } finally {
+      this.settled = true;
       this.loading = false;
     }
   }

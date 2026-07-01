@@ -65,6 +65,7 @@
     quotaKind = null,
     hold = undefined,
     onackmanualsteps,
+    onshowowed,
   }: {
     session: Session;
     selected: boolean;
@@ -106,6 +107,8 @@
     hold?: HoldReason;
     // when provided, the manual-steps chip gains an "Ack" CTA that clears the auto-merge gate (#1060)
     onackmanualsteps?: (id: string) => void;
+    // when provided, the manual-steps chip becomes a button that opens the Owed lens (#1275)
+    onshowowed?: (id: string) => void;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -467,12 +470,26 @@
           : m.newtask_model_default()}</span
       >
       {#if session.manualSteps.length > 0}
-        <span
-          class="chip-manual-steps"
-          title={m.unitrow_manual_steps({ count: session.manualSteps.length })}
-        >
-          {m.unitrow_manual_steps({ count: session.manualSteps.length })}
-        </span>
+        {#if onshowowed}
+          <button
+            type="button"
+            class="chip-manual-steps chip-manual-steps--link"
+            title={m.unitrow_manual_steps_link()}
+            onclick={(e) => {
+              e.stopPropagation();
+              onshowowed?.(session.id);
+            }}
+          >
+            {m.unitrow_manual_steps({ count: session.manualSteps.length })}
+          </button>
+        {:else}
+          <span
+            class="chip-manual-steps"
+            title={m.unitrow_manual_steps({ count: session.manualSteps.length })}
+          >
+            {m.unitrow_manual_steps({ count: session.manualSteps.length })}
+          </span>
+        {/if}
         {#if hasBlockingManualSteps && onackmanualsteps}
           <button
             type="button"
@@ -896,6 +913,29 @@
     border-radius: 2px;
     color: var(--status-warn);
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+  }
+  /* chip-as-button variant (#1275) — a <button> resets font/background, so restate the base look
+     and layer on the same hover/focus treatment as .manual-steps-ack for a consistent affordance.
+     Raised above the .unit-hit overlay (same pattern as .name-icon.actionable / the preview
+     badge) so it's actually clickable. */
+  .chip-manual-steps--link {
+    position: relative;
+    z-index: 1;
+    font-family: inherit;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s,
+      background 0.12s;
+  }
+  .chip-manual-steps--link:hover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    background: color-mix(in oklab, var(--status-warn) 20%, transparent);
+  }
+  .chip-manual-steps--link:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   /* "Ack" CTA beside the manual-steps chip — warn-toned, micro, clears the auto-merge gate (#1060) */
   .manual-steps-ack {

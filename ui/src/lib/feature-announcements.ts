@@ -7,6 +7,13 @@
 // `use:coachTarget` on the anchor element. Enforced by the
 // `scripts/check-feature-catalog.sh` gate (PR-hygiene CI + pre-push).
 // See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
+//
+// FILENAME: `v<sinceVersion>-<id>.ts` — NO sequence number. Uniqueness comes
+// from the id (globally unique, enforced by the dup-id guard in
+// feature-gate.test.ts), so two concurrent PRs can never collide on a filename
+// or need to coordinate a counter. That collision-free property is the whole
+// point of one-file-per-entry; a shared monotonic prefix would reintroduce the
+// exact merge-conflict hotspot the split removed.
 
 export type FeatureAnnouncement = {
   id: string;
@@ -44,6 +51,10 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
+// Order: sinceVersion ascending (release grouping), then filename as a stable,
+// deterministic tiebreak (alphabetical by id within a release — cosmetic, since
+// computeNewEntries surfaces newest release first and only within-release order
+// is affected). No curated cross-release order to maintain.
 export const featureAnnouncements: readonly FeatureAnnouncement[] = Object.entries(modules)
   .sort(([aPath, aModule], [bPath, bModule]) => {
     const byVersion = compareSemver(aModule.default.sinceVersion, bModule.default.sinceVersion);

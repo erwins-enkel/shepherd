@@ -134,7 +134,7 @@
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   // Matches the drawer width so the fly-in starts fully off-screen.
-  const slide = { x: 520, duration: reduceMotion ? 0 : 220, opacity: 1 };
+  const slide = { x: 620, duration: reduceMotion ? 0 : 220, opacity: 1 };
 
   // Change 1: Use sortGroupsForTriage to order repos by triage priority.
   const groups = $derived(sortGroupsForTriage(mergeRepoGroups(items, injectable)));
@@ -157,18 +157,26 @@
     if (totalOverBudget === 0) overBudgetOnly = false;
   });
 
-  const displayGroups = $derived(
-    !flaggedOnly && !overBudgetOnly
-      ? groups
-      : groups.filter(
-          (g) =>
-            (flaggedOnly && flaggedCount(g.injectable) > 0) ||
-            (overBudgetOnly && isOverBudget(g.injectable)),
-        ),
-  );
-
   // Change 3: Triage summary band — repos needing attention.
   const attention = $derived(reposNeedingAttention(groups));
+
+  // The attention chips are filters, not jump links: selecting a repo scopes the
+  // drawer to that repo's learnings until the same chip is pressed again.
+  let repoOnly = $state<string | null>(null);
+  $effect(() => {
+    if (repoOnly && !attention.some((a) => a.repoPath === repoOnly)) repoOnly = null;
+  });
+
+  const displayGroups = $derived(
+    groups.filter((g) => {
+      if (repoOnly && g.repoPath !== repoOnly) return false;
+      if (!flaggedOnly && !overBudgetOnly) return true;
+      return (
+        (flaggedOnly && flaggedCount(g.injectable) > 0) ||
+        (overBudgetOnly && isOverBudget(g.injectable))
+      );
+    }),
+  );
 
   // Deep-link: when opened from a repo's status row, scroll that repo's section into
   // view. Runs once on mount (a frame later, so the fly-in has laid out the sections).
@@ -180,14 +188,8 @@
     });
   });
 
-  // Triage chip handler: reset both lens filters so the target repo is guaranteed to
-  // be in the DOM, then rAF-scroll to it (lens reset stays here; TriageBand emits onjump).
-  function jumpToRepo(repoPath: string) {
-    flaggedOnly = false;
-    overBudgetOnly = false;
-    requestAnimationFrame(() => {
-      document.getElementById(repoAnchorId(repoPath))?.scrollIntoView({ block: "start" });
-    });
+  function toggleRepoFilter(repoPath: string) {
+    repoOnly = repoOnly === repoPath ? null : repoPath;
   }
 </script>
 
@@ -270,7 +272,7 @@
   </section>
 
   <!-- Change 3: Triage summary band — stable above group list, reflects ALL attention repos -->
-  <TriageBand {attention} onjump={jumpToRepo} />
+  <TriageBand {attention} activeRepo={repoOnly} onselect={toggleRepoFilter} />
 
   <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for the
        user-global CLAUDE.md. Promote (guarded, two-step) writes the rule there; or dismiss. -->
@@ -294,7 +296,7 @@
     position: fixed;
     top: 0;
     right: 0;
-    width: min(520px, 100vw);
+    width: min(620px, 100vw);
     height: 100dvh;
     background: var(--color-panel);
     border-left: 1px solid var(--color-line-bright);

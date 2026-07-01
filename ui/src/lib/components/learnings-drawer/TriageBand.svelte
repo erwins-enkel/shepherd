@@ -7,10 +7,12 @@
 
   let {
     attention,
-    onjump,
+    activeRepo = null,
+    onselect,
   }: {
     attention: AttentionItem[];
-    onjump: (repoPath: string) => void;
+    activeRepo?: string | null;
+    onselect: (repoPath: string) => void;
   } = $props();
 </script>
 
@@ -22,8 +24,12 @@
         <button
           class="triage-chip"
           type="button"
-          aria-label={m.learnings_triage_jump_aria({ repo: basename(a.repoPath) })}
-          onclick={() => onjump(a.repoPath)}
+          class:active={activeRepo === a.repoPath}
+          aria-pressed={activeRepo === a.repoPath}
+          aria-label={activeRepo === a.repoPath
+            ? m.learnings_triage_filter_active_aria({ repo: basename(a.repoPath) })
+            : m.learnings_triage_filter_aria({ repo: basename(a.repoPath) })}
+          onclick={() => onselect(a.repoPath)}
         >
           <span class="tc-repo">{basename(a.repoPath)}</span>
           {#if a.droppedCount > 0}<span class="tc-over"
@@ -72,6 +78,10 @@
   }
   .triage-chip:hover {
     border-color: var(--color-ink-bright);
+  }
+  .triage-chip.active {
+    border-color: var(--color-amber);
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .tc-repo {
     color: var(--color-ink-bright);

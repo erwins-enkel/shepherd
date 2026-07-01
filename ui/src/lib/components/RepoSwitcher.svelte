@@ -145,10 +145,14 @@
 
   function onContextMenu(e: MouseEvent, chip: RepoChip) {
     e.preventDefault();
-    openPinMenu(chip, e.clientX, e.clientY, e.currentTarget as HTMLElement);
+    const opener = e.currentTarget as HTMLElement;
+    const r = opener.getBoundingClientRect();
+    const x = e.clientX === 0 && e.clientY === 0 ? r.left : e.clientX;
+    const y = e.clientX === 0 && e.clientY === 0 ? r.bottom : e.clientY;
+    openPinMenu(chip, x, y, opener);
   }
 
-  const HOLD_MS = 550;
+  const HOLD_MS = 500;
   const HOLD_SLOP = 10;
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
   let holdPointerId: number | null = null;
@@ -274,6 +278,7 @@
             onpointerup={onPointerEnd}
             onpointercancel={onPointerEnd}
             use:longPress={{
+              ms: HOLD_MS,
               onTrigger: (x, y) =>
                 openPinMenu(
                   chip,

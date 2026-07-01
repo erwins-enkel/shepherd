@@ -134,6 +134,34 @@ describe("RepoSwitcher — filter rail", () => {
     expect(document.querySelector(".rs-menu"), "menu closes after pin").toBeNull();
   });
 
+  it("anchors a keyboard-opened context menu to the focused chip instead of viewport origin", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    vi.spyOn(alpha, "getBoundingClientRect").mockReturnValue({
+      x: 120,
+      y: 30,
+      left: 120,
+      top: 30,
+      right: 190,
+      bottom: 58,
+      width: 70,
+      height: 28,
+      toJSON: () => ({}),
+    });
+
+    alpha.dispatchEvent(new MouseEvent("contextmenu", { clientX: 0, clientY: 0, bubbles: true }));
+    await tick();
+
+    const menu = document.querySelector(".rs-menu") as HTMLElement;
+    expect(menu, "keyboard context menu opened").not.toBeNull();
+    expect(menu.style.left).toBe("120px");
+    expect(menu.style.top).toBe("58px");
+  });
+
   it("the pin menu unpins an already-pinned repo", async () => {
     const onpinrepo = vi.fn();
     render(RepoSwitcher, {
@@ -176,7 +204,7 @@ describe("RepoSwitcher — filter rail", () => {
         bubbles: true,
       }),
     );
-    vi.advanceTimersByTime(600);
+    vi.advanceTimersByTime(500);
     await tick();
     alpha.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
     alpha.click();

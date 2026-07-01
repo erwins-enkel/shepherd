@@ -25,6 +25,7 @@ import {
   DRAFT_PR_NOTE,
   planGoSteer,
   PREVIEW_START_STEER,
+  PREVIEW_SETUP_STEER,
   buildQueueDirective,
 } from "../src/service";
 import { WorktreeRestoreError } from "../src/worktree";
@@ -3823,6 +3824,18 @@ test("composeSystemPrompt places <preview-hint-notice> after <branch-rename-noti
   expect(branchPos).toBeGreaterThan(-1);
   expect(phPos).toBeGreaterThan(branchPos);
   expect(sp).not.toContain("<build-queue>");
+});
+
+test("PREVIEW_SETUP_STEER tells reusable scripts to write the hint in the runtime worktree", () => {
+  const steer = PREVIEW_SETUP_STEER({
+    scriptPath: "/repo/.git/shepherd/preview-start.sh",
+    worktreePath: "/wt/setup",
+    command: "cd ui && bun run dev",
+    agentProvider: "codex",
+  });
+  expect(steer).toContain('WORKTREE_ROOT="${SHEPHERD_WORKTREE_PATH:-/wt/setup}"');
+  expect(steer).toContain("$WORKTREE_ROOT/.shepherd-preview");
+  expect(steer).not.toContain("/wt/setup/.shepherd-preview");
 });
 
 test("isolated spawn argv carries <preview-hint-notice> in system prompt", async () => {

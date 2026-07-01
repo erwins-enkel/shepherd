@@ -117,6 +117,8 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -140,6 +142,8 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -163,6 +167,8 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -186,6 +192,8 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -209,6 +217,8 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
 });
 
@@ -244,6 +254,8 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     hidden: false,
+    previewStartScript: null,
+    previewStartCommand: null,
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,

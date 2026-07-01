@@ -33,6 +33,8 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autoOptimizeFlagged: false,
   manualStepsIssueEnabled: false,
   hidden: false,
+  previewStartScript: null,
+  previewStartCommand: null,
   ...overrides,
 });
 

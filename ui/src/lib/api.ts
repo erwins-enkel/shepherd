@@ -1472,6 +1472,8 @@ export async function putRepoConfig(
       | "autoOptimizeFlagged"
       | "manualStepsIssueEnabled"
       | "hidden"
+      | "previewStartScript"
+      | "previewStartCommand"
     >
   > & { automationConfirmed?: boolean },
 ): Promise<RepoConfigResponse> {
@@ -1764,15 +1766,26 @@ export async function actStarPrompt(
   return r.json();
 }
 
-/** Steer the agent to start its dev-server preview.
- *  - `{ok, command}` — directive sent; the agent will start the server.
+/** Start the session's dev-server preview.
+ *  - `{ok, command, mode:"local"}` — Shepherd started the repo-local preview script.
+ *  - `{ok, command, mode:"agent_setup"}` — directive sent; the agent will create the local script.
+ *  - `{ok, command, mode:"agent"}` — legacy directive sent; the agent will start the server.
  *  - `{needCommand}` — no command auto-detected; caller must collect one and retry.
  *  - `{alreadyBound}` — a preview port is already live (benign race).
  *  Throws on 404 (unknown/dead session) or any other unexpected failure. */
 export async function startPreview(
   id: string,
   command?: string,
-): Promise<{ needCommand: true } | { alreadyBound: true } | { ok: true; command: string }> {
+): Promise<
+  | { needCommand: true }
+  | { alreadyBound: true }
+  | {
+      ok: true;
+      command: string;
+      mode?: "local" | "agent_setup" | "agent";
+      alreadyRunning?: boolean;
+    }
+> {
   const r = await fetch(`/api/sessions/${id}/preview/start`, {
     method: "POST",
     headers: JSON_HEADERS,
@@ -1783,8 +1796,23 @@ export async function startPreview(
     ok?: boolean;
     command?: string;
     error?: string;
+    mode?: "local" | "agent_setup" | "agent";
+    alreadyRunning?: boolean;
   };
-  if (r.ok) return { ok: true, command: body.command ?? "" };
+  if (r.ok) {
+    const result: {
+      ok: true;
+      command: string;
+      mode?: "local" | "agent_setup" | "agent";
+      alreadyRunning?: boolean;
+    } = {
+      ok: true,
+      command: body.command ?? "",
+    };
+    if (body.mode !== undefined) result.mode = body.mode;
+    if (body.alreadyRunning === true) result.alreadyRunning = true;
+    return result;
+  }
   if (r.status === 409 && body.error === "command_unknown") return { needCommand: true };
   if (r.status === 409 && body.error === "already_bound") return { alreadyBound: true };
   throw apiError(r.status, body, `startPreview failed: ${r.status}`);

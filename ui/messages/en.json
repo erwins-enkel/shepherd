@@ -460,7 +460,7 @@
   "viewport_preview_open_new_tab": "Open in new tab",
   "viewport_preview_setup_hint": "Blank? Ensure the preview port is reachable over Tailscale; see setup.",
   "viewport_preview_start": "Start dev server",
-  "viewport_preview_start_note": "Sends the agent-specific background-start instruction into the live terminal",
+  "viewport_preview_start_note": "Starts the repo-local preview script; if missing, asks the agent once to set it up",
   "viewport_preview_start_sent": "Preview start sent to {name} (running: {command})",
   "viewport_preview_start_failed": "Couldn't start preview; check terminal for details",
   "viewport_preview_start_confirm_working": "Confirm start (agent busy)",
@@ -2260,5 +2260,10 @@
   "prbadge_draft_toggle_failed": "Couldn't change PR state: {reason}",
   "prbadge_unknown_error": "unknown error",
   "feat_pr_badge_menu_title": "PR actions on cards",
-  "feat_pr_badge_menu_body": "Session cards now open a compact PR menu from the PR badge. Open the pull request in a new tab, or flip an open PR between Draft and Ready for Review without leaving the Herd view."
+  "feat_pr_badge_menu_body": "Session cards now open a compact PR menu from the PR badge. Open the pull request in a new tab, or flip an open PR between Draft and Ready for Review without leaving the Herd view.",
+  "viewport_preview_start_local": "Preview script started for {name} ({command})",
+  "viewport_preview_setup_sent": "Preview setup sent to {name}; future starts will use the local repo script",
+  "viewport_preview_already_running": "Dev server is already running; opening preview",
+  "feat_preview_local_script_title": "Local preview start scripts",
+  "feat_preview_local_script_body": "The Preview start button now creates and reuses a repo-local script under the repo's Git metadata. Later sessions can start the same dev server without spending agent tokens, and Shepherd reuses an already-running server instead of starting another copy."
 }

@@ -1,7 +1,7 @@
-import type { SessionStore } from "./store";
+import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { SessionService } from "./service";
-import { RestoreError } from "./service";
+import { PREVIEW_SETUP_STEER, RestoreError } from "./service";
 import { WorktreeRestoreError } from "./worktree";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
@@ -89,6 +89,13 @@ import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
+import {
+  ensurePreviewStartScript,
+  findPreviewDevPort,
+  previewScriptExists,
+  resolvePreviewStartScriptPath,
+  startPreviewScript,
+} from "./preview-launch";
 import { sessionActivity } from "./activity";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
@@ -263,6 +270,16 @@ export interface AppDeps {
    *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
+    ensure?(sessionId: string, devPort: number): number | null;
+  };
+  /** Local preview launcher. Defaults to `.git/shepherd/preview-start.sh` scripts;
+   *  injectable so route tests never spawn real dev servers. */
+  previewLauncher?: {
+    findDevPort(worktreePath: string): Promise<number | null>;
+    scriptExists(path: string | null | undefined): Promise<boolean>;
+    scriptPath(worktreePath: string): Promise<string | null>;
+    ensureScript(worktreePath: string, command: string): Promise<string | null>;
+    startScript(scriptPath: string, worktreePath: string): Promise<void>;
   };
   /** Tailscale serve registration status per session slot; absent when auto-serve is
    *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
@@ -1022,6 +1039,8 @@ type RepoCfgBody = {
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
   repoMode?: unknown;
+  previewStartScript?: unknown;
+  previewStartCommand?: unknown;
   automationConfirmed?: unknown;
 };
 
@@ -1042,6 +1061,8 @@ type RepoCfgScalars = {
   defaultModel?: string;
   egressExtraHosts?: string[];
   repoMode?: "forge" | "lightweight";
+  previewStartScript?: string | null;
+  previewStartCommand?: string | null;
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -1049,6 +1070,13 @@ type RepoCfgScalars = {
 function parseRepoEgressExtraHosts(v: unknown): unknown {
   const r = validateEgressExtraHosts(v);
   return r.ok ? r.value : { error: r.error };
+}
+
+function parseNullableString(v: unknown): string | null | { error: string } {
+  if (v === null) return null;
+  if (typeof v !== "string") return { error: "field must be a string or null" };
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 // Each non-boolean field paired with its validator. A validator returns the
@@ -1062,6 +1090,8 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["defaultModel", parseRepoDefaultModel],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
   ["repoMode", parseRepoMode],
+  ["previewStartScript", parseNullableString],
+  ["previewStartCommand", parseNullableString],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -1101,6 +1131,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoLabel?: string;
       usageCeilingPct?: number;
       repoMode?: "forge" | "lightweight";
+      previewStartScript?: string | null;
+      previewStartCommand?: string | null;
       automationConfirmed?: boolean;
     }
   | Response
@@ -1128,6 +1160,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel,
     egressExtraHosts,
     repoMode,
+    previewStartScript,
+    previewStartCommand,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -1139,12 +1173,14 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel !== undefined ||
     egressExtraHosts !== undefined ||
     repoMode !== undefined ||
+    previewStartScript !== undefined ||
+    previewStartCommand !== undefined ||
     body.automationConfirmed !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, automationConfirmed",
       },
       400,
     );
@@ -1171,6 +1207,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoLabel,
     usageCeilingPct,
     repoMode,
+    previewStartScript,
+    previewStartCommand,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }
@@ -1190,6 +1228,12 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
   // by the service, never merged into the RepoConfig row.
   const { automationConfirmed, ...cfgPatch } = patch;
+  if (cfgPatch.previewStartScript !== undefined && cfgPatch.previewStartScript !== null) {
+    const canonicalScript = await resolvePreviewStartScriptPath(dir);
+    if (cfgPatch.previewStartScript !== canonicalScript) {
+      return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
+    }
+  }
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
   return json(r.config);
@@ -2041,9 +2085,122 @@ async function handleSessionAnswerPlanQuestions({
   return json({ ok: true, delivered });
 }
 
-// POST /api/sessions/:id/preview/start — steer the agent to start its dev server.
-// Flow: already_bound? → 409. Resolve command (body.command ?? detectDevCommand). No
-// command? → 409. Steer → true → 200; false (dead pane / unknown) → 404.
+function previewLauncher(deps: AppDeps): NonNullable<AppDeps["previewLauncher"]> {
+  return {
+    findDevPort: deps.previewLauncher?.findDevPort ?? findPreviewDevPort,
+    scriptExists: deps.previewLauncher?.scriptExists ?? previewScriptExists,
+    scriptPath: deps.previewLauncher?.scriptPath ?? resolvePreviewStartScriptPath,
+    ensureScript: deps.previewLauncher?.ensureScript ?? ensurePreviewStartScript,
+    startScript: deps.previewLauncher?.startScript ?? startPreviewScript,
+  };
+}
+
+type PreviewLauncher = NonNullable<AppDeps["previewLauncher"]>;
+
+async function parsePreviewStartCommand(req: Request): Promise<string | undefined> {
+  const body = (await req.json().catch(() => null)) as { command?: unknown } | null;
+  const rawCommand = body && typeof body.command === "string" ? body.command.trim() : undefined;
+  return rawCommand || undefined;
+}
+
+async function bindExistingPreviewServer(
+  id: string,
+  s: Session,
+  deps: AppDeps,
+  launcher: PreviewLauncher,
+): Promise<Response | null> {
+  const devPort = await launcher.findDevPort(s.worktreePath);
+  if (devPort === null) return null;
+  const previewPort = deps.preview?.ensure?.(id, devPort) ?? null;
+  if (previewPort === null) return json({ error: "preview_slot_unavailable" }, 503);
+  return json({
+    ok: true,
+    mode: "local",
+    alreadyRunning: true,
+    command: "existing dev server",
+    previewPort,
+  });
+}
+
+async function startStoredPreviewScript(
+  s: Session,
+  launcher: PreviewLauncher,
+  storedScript: string | null,
+  command: string | null,
+): Promise<Response | null> {
+  const canonicalScript = await launcher.scriptPath(s.worktreePath);
+  if (storedScript === null || storedScript !== canonicalScript) return null;
+  const scriptStillExists = await launcher.scriptExists(storedScript);
+  if (!scriptStillExists) return null;
+  try {
+    await launcher.startScript(storedScript, s.worktreePath);
+    return json({
+      ok: true,
+      mode: "local",
+      command: command ?? storedScript,
+      script: storedScript,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function sendPreviewSetupSteer(
+  id: string,
+  s: Session,
+  deps: AppDeps,
+  launcher: PreviewLauncher,
+  cfg: RepoConfig,
+  command: string | null,
+): Promise<Response | null> {
+  const canonicalScript = await launcher.scriptPath(s.worktreePath);
+  const setupScriptPath =
+    cfg.previewStartScript === canonicalScript ? cfg.previewStartScript : canonicalScript;
+  if (setupScriptPath === null) return null;
+  deps.store.setRepoConfig(s.repoPath, {
+    ...cfg,
+    previewStartScript: setupScriptPath,
+    previewStartCommand: command,
+  });
+  const ok = deps.service.reply(
+    id,
+    PREVIEW_SETUP_STEER({
+      scriptPath: setupScriptPath,
+      worktreePath: s.worktreePath,
+      command,
+      agentProvider: s.agentProvider ?? "claude",
+    }),
+  );
+  return ok
+    ? json({
+        ok: true,
+        mode: "agent_setup",
+        command: command ?? "setup local preview script",
+        script: setupScriptPath,
+      })
+    : json({ error: "not found" }, 404);
+}
+
+async function sendLegacyPreviewStart(
+  id: string,
+  s: Session,
+  deps: AppDeps,
+  command: string | null,
+): Promise<Response> {
+  const resolved = command ?? (await detectDevCommand(s.worktreePath));
+  if (!resolved) return json({ error: "command_unknown" }, 409);
+  const ok = deps.service.startPreview(id, resolved);
+  return ok
+    ? json({ ok: true, mode: "agent", command: resolved })
+    : json({ error: "not found" }, 404);
+}
+
+// POST /api/sessions/:id/preview/start — start a dev-server preview.
+// Flow: already_bound? → 409. If a dev server already listens in the worktree,
+// bind the proxy immediately. Otherwise run the repo's stored local preview script
+// (`.git/shepherd/preview-start.sh`, path stored in repo_config). When the script
+// is missing, send a one-time setup steer so the agent can author repo-specific
+// local start logic instead of Shepherd guessing a generic dev command.
 async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "preview" && parts[4] === "start"))
     return null;
@@ -2060,17 +2217,34 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
 
-  const body = (await req.json().catch(() => null)) as { command?: unknown } | null;
-  const rawCommand = body && typeof body.command === "string" ? body.command.trim() : undefined;
-  const bodyCommand = rawCommand || undefined;
+  const bodyCommand = await parsePreviewStartCommand(req);
+  const launcher = previewLauncher(deps);
 
-  // 2. Resolve command: explicit body.command OR auto-detect.
-  const command = bodyCommand ?? (await detectDevCommand(s.worktreePath));
-  if (!command) return json({ error: "command_unknown" }, 409);
+  // 2. If the server is already running in this worktree but the preview proxy
+  // has not bound yet, bind it now instead of spawning anything.
+  const existingServer = await bindExistingPreviewServer(id, s, deps, launcher);
+  if (existingServer) return existingServer;
 
-  // 3. Steer the agent.
-  const ok = deps.service.startPreview(id, command);
-  return ok ? json({ ok: true, command }) : json({ error: "not found" }, 404);
+  // 3. Prefer an existing local repo script. It lives under the repo's git common
+  // dir and is recorded in repo_config, so it is shared by sessions for this repo
+  // without entering the git-tracked working tree.
+  const cfg = deps.store.getRepoConfig(s.repoPath);
+  const storedScript = cfg.previewStartScript ?? null;
+  const storedCommand = cfg.previewStartCommand ?? null;
+  const detectedCommand = bodyCommand ?? storedCommand ?? (await detectDevCommand(s.worktreePath));
+
+  const localStart = await startStoredPreviewScript(s, launcher, storedScript, detectedCommand);
+  if (localStart) return localStart;
+
+  // 4. No script yet: ask the session agent once to create a repo-specific local
+  // script at the canonical path and remember that path in repo_config. Later
+  // sessions for this repo can then start the script directly without LLM work.
+  const setupStart = await sendPreviewSetupSteer(id, s, deps, launcher, cfg, detectedCommand);
+  if (setupStart) return setupStart;
+
+  // 5. Legacy fallback: if local script setup is not possible (for example no git
+  // common dir), steer the agent exactly like previous versions did.
+  return sendLegacyPreviewStart(id, s, deps, detectedCommand);
 }
 
 // POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.

@@ -111,6 +111,254 @@ test("preview/start: success → 200 {ok, command} when command provided in body
   expect(calls).toEqual([{ id, command: "bun run dev" }]);
 });
 
+test("preview/start: configured local script starts without steering the agent", async () => {
+  const calls: string[] = [];
+  const { store } = harness(
+    {
+      startPreview: () => {
+        throw new Error("agent steer must not be used");
+      },
+    },
+    {},
+  );
+  const id = makeSession(store, "/wt/local-script");
+  store.setRepoConfig("/r", {
+    ...store.getRepoConfig("/r"),
+    previewStartScript: "/git/shepherd/preview-start.sh",
+    previewStartCommand: "bun run dev",
+  });
+
+  const localDeps: AppDeps = {
+    store,
+    service: {
+      startPreview: () => {
+        throw new Error("agent steer must not be used");
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => {
+        throw new Error("script already exists");
+      },
+      startScript: async (scriptPath, worktreePath) => {
+        calls.push(`${scriptPath} @ ${worktreePath}`);
+      },
+    },
+  };
+  const localApp = makeApp(localDeps);
+
+  const res = await localApp.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; mode: string; command: string };
+  expect(body).toMatchObject({ ok: true, mode: "local", command: "bun run dev" });
+  expect(calls).toEqual(["/git/shepherd/preview-start.sh @ /wt/local-script"]);
+});
+
+test("preview/start: ignores a non-canonical stored local script path", async () => {
+  const replies: { id: string; text: string }[] = [];
+  let spawned = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/non-canonical-script");
+  store.setRepoConfig("/r", {
+    ...store.getRepoConfig("/r"),
+    previewStartScript: "/tmp/run-anything.sh",
+    previewStartCommand: "bun run dev",
+  });
+
+  const app = makeApp({
+    store,
+    service: {
+      reply: (sessionId: string, text: string) => {
+        replies.push({ id: sessionId, text });
+        return true;
+      },
+      startPreview: () => {
+        throw new Error("legacy start steer must not be used");
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => {
+        throw new Error("setup steer should author the script");
+      },
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; mode: string; script: string };
+  expect(body).toMatchObject({
+    ok: true,
+    mode: "agent_setup",
+    script: "/git/shepherd/preview-start.sh",
+  });
+  expect(spawned).toBe(false);
+  expect(replies).toHaveLength(1);
+  expect(replies[0]!.text).toContain("/git/shepherd/preview-start.sh");
+  expect(replies[0]!.text).not.toContain("/tmp/run-anything.sh");
+  expect(store.getRepoConfig("/r").previewStartScript).toBe("/git/shepherd/preview-start.sh");
+});
+
+test("preview/start: missing local script sends one-time repo setup steer", async () => {
+  const replies: { id: string; text: string }[] = [];
+  let spawned = false;
+  let ensured = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/setup-script");
+
+  const app = makeApp({
+    store,
+    service: {
+      reply: (sessionId: string, text: string) => {
+        replies.push({ id: sessionId, text });
+        return true;
+      },
+      startPreview: () => {
+        throw new Error("legacy start steer must not be used");
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => false,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => {
+        ensured = true;
+        return "/git/shepherd/preview-start.sh";
+      },
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(
+    postJson(`/api/sessions/${id}/preview/start`, { command: "cd ui && bun run dev" }),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; mode: string; command: string; script: string };
+  expect(body).toMatchObject({
+    ok: true,
+    mode: "agent_setup",
+    command: "cd ui && bun run dev",
+    script: "/git/shepherd/preview-start.sh",
+  });
+  expect(replies).toHaveLength(1);
+  expect(replies[0]!.id).toBe(id);
+  expect(replies[0]!.text).toContain("set up this repo's local Shepherd preview script");
+  expect(replies[0]!.text).toContain("/git/shepherd/preview-start.sh");
+  expect(store.getRepoConfig("/r").previewStartScript).toBe("/git/shepherd/preview-start.sh");
+  expect(store.getRepoConfig("/r").previewStartCommand).toBe("cd ui && bun run dev");
+  expect(spawned).toBe(false);
+  expect(ensured).toBe(false);
+});
+
+test("preview/start: existing dev port binds preview without spawning or steering", async () => {
+  const ensured: { id: string; port: number }[] = [];
+  let spawned = false;
+  let steered = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/running");
+  const app = makeApp({
+    store,
+    service: {
+      startPreview: () => {
+        steered = true;
+        return true;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: {
+      snapshot: () => ({}),
+      ensure: (sessionId, devPort) => {
+        ensured.push({ id: sessionId, port: devPort });
+        return 8001;
+      },
+    },
+    previewLauncher: {
+      findDevPort: async () => 5173,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => "/git/shepherd/preview-start.sh",
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    ok: boolean;
+    mode: string;
+    alreadyRunning: boolean;
+    previewPort: number;
+  };
+  expect(body).toMatchObject({
+    ok: true,
+    mode: "local",
+    alreadyRunning: true,
+    previewPort: 8001,
+  });
+  expect(ensured).toEqual([{ id, port: 5173 }]);
+  expect(spawned).toBe(false);
+  expect(steered).toBe(false);
+});
+
+test("preview/start: existing dev port with no preview slot returns an error", async () => {
+  let spawned = false;
+  let steered = false;
+  const { store } = harness();
+  const id = makeSession(store, "/wt/no-slot");
+  const app = makeApp({
+    store,
+    service: {
+      startPreview: () => {
+        steered = true;
+        return true;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: {
+      snapshot: () => ({}),
+      ensure: () => null,
+    },
+    previewLauncher: {
+      findDevPort: async () => 5173,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => "/git/shepherd/preview-start.sh",
+      startScript: async () => {
+        spawned = true;
+      },
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(503);
+  const body = (await res.json()) as { error: string };
+  expect(body.error).toBe("preview_slot_unavailable");
+  expect(spawned).toBe(false);
+  expect(steered).toBe(false);
+});
+
 test("preview/start: dead pane → 404 when startPreview returns false", async () => {
   const { app, store } = harness({ startPreview: () => false }, {});
   const id = makeSession(store);

@@ -807,6 +807,34 @@ export function PREVIEW_START_STEER(
   );
 }
 
+export function PREVIEW_SETUP_STEER({
+  scriptPath,
+  worktreePath,
+  command,
+  agentProvider = "claude",
+}: {
+  scriptPath: string;
+  worktreePath: string;
+  command: string | null;
+  agentProvider?: "claude" | "codex";
+}): string {
+  const prefix =
+    agentProvider === "codex"
+      ? "For Codex: set up this repo's local Shepherd preview script. "
+      : "For Claude Code: set up this repo's local Shepherd preview script. ";
+  const detected = command
+    ? `Shepherd detected this likely starting point: \`${command}\`, but adjust it if this repo needs a different local test/dev environment. `
+    : "Shepherd could not confidently detect a start command, so inspect the repo first. ";
+  return (
+    prefix +
+    detected +
+    `Create an executable script at \`${scriptPath}\`. This file is intentionally local-only under the git common dir; do not commit it, symlink it, or add a tracked repo file unless the repo genuinely needs that for its own setup. ` +
+    `The script must be repo-specific and safe to run repeatedly from any worktree of this repo. It should set a runtime root variable such as \`WORKTREE_ROOT="\${SHEPHERD_WORKTREE_PATH:-${worktreePath}}"\`, cd there, perform any required local setup such as installing missing dependencies or preparing local services, choose a free dev-server port when the default is busy, write the chosen port to \`$WORKTREE_ROOT/.shepherd-preview\`, then exec the foreground dev/test server process. ` +
+    `If the repo needs Docker, databases, seed data, env files, or a non-Node toolchain, encode the local steps in that script with clear failure messages. ` +
+    `After creating the script, run it once in a managed/background terminal (not as a blocking foreground command), confirm the port it listens on, and then continue what you were doing.`
+  );
+}
+
 /** Steered into a planning session when its plan is approved and the operator hits Go (or an
  *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd.
  *  When `draftMode` is true, appends the draft-PR note so the agent opens a draft PR. */

@@ -120,9 +120,24 @@
       return;
     }
 
-    // ok: directive sent. Set pending guard.
+    if (result.mode === "local" && result.alreadyRunning) {
+      toasts.info(m.viewport_preview_already_running());
+      return;
+    }
+
+    if (result.mode === "agent_setup") {
+      setPreviewPending(session.id);
+      toasts.info(m.viewport_preview_setup_sent({ name: session.name }));
+      return;
+    }
+
+    // ok: local script started or directive sent. Set pending guard.
     setPreviewPending(session.id);
-    toasts.info(m.viewport_preview_start_sent({ name: session.name, command: result.command }));
+    toasts.info(
+      result.mode === "local"
+        ? m.viewport_preview_start_local({ name: session.name, command: result.command })
+        : m.viewport_preview_start_sent({ name: session.name, command: result.command }),
+    );
   }
 
   async function onStartPreviewClick() {

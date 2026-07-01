@@ -573,6 +573,10 @@ export interface RepoConfig {
   manualStepsIssueEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
+  /** Local, non-replicated preview start script path stored by Shepherd. */
+  previewStartScript?: string | null;
+  /** Command captured when Shepherd generated the local preview start script. */
+  previewStartCommand?: string | null;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */

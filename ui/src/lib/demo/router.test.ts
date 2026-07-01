@@ -67,6 +67,23 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
     expect(one.body.parentIssueNumber).toBe(100);
   });
 
+  it("GET /api/sessions/clear-merged returns the empty clearable shape (never throws)", async () => {
+    const { status, body } = await get("/api/sessions/clear-merged");
+    expect(status).toBe(200);
+    expect(body).toEqual({ ids: [], leftovers: 0 });
+  });
+
+  it("the rich scenario seeds seven sessions across two repos", async () => {
+    const { body } = await get("/api/sessions");
+    expect(body).toHaveLength(7);
+    expect(body.map((s: { id: string }) => s.id).sort()).toEqual(
+      ["authstore", "checkout-child", "coupon", "deps", "neon", "ogimg", "rounding"].sort(),
+    );
+    expect(new Set(body.map((s: { repoPath: string }) => s.repoPath))).toEqual(
+      new Set(["/demo/acme/storefront", "/demo/acme/api"]),
+    );
+  });
+
   it("unknown GET falls through to a benign empty object", async () => {
     expect(await get("/api/nonexistent-thing")).toEqual({ status: 200, body: {} });
   });
@@ -74,23 +91,29 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
 
 describe("mutation handlers call the mutator and return the caller's shape", () => {
   it("POST reply → 200 {}", async () => {
-    const r = await handleApi("POST", u("/api/sessions/s1/reply"), { text: "go" });
+    const r = await handleApi("POST", u("/api/sessions/coupon/reply"), { text: "go" });
     expect(r.status).toBe(200);
-    expect(demoState.sessions().find((s) => s.id === "s1")?.status).toBe("running");
+    expect(demoState.sessions().find((s) => s.id === "coupon")?.status).toBe("running");
   });
 
   it("POST /go releases the approved plan gate → {ok:true}", async () => {
-    const r = await handleApi("POST", u("/api/sessions/s2/go"), undefined);
+    const r = await handleApi("POST", u("/api/sessions/authstore/go"), undefined);
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ ok: true });
-    expect(demoState.sessions().find((s) => s.id === "s2")?.planPhase).toBe("executing");
+    expect(demoState.sessions().find((s) => s.id === "authstore")?.planPhase).toBe("executing");
   });
 
   it("POST git/merge returns a PrStatus", async () => {
-    const r = await handleApi("POST", u("/api/sessions/s3/git/merge"), {});
+    const r = await handleApi("POST", u("/api/sessions/rounding/git/merge"), {});
     const body = await r.json();
     expect(body).toHaveProperty("state");
     expect(body).toHaveProperty("checks");
+  });
+
+  it("POST /api/sessions/clear-merged returns the empty cleared shape", async () => {
+    const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: [] });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ cleared: [], leftovers: 0 });
   });
 
   it("POST epic/approve-next returns the updated Epic", async () => {
@@ -104,17 +127,18 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
   });
 
   it("POST held/:id/spawn returns the new Session", async () => {
+    const before = demoState.held().length;
     const heldId = demoState.held()[0].id;
     const r = await handleApi("POST", u(`/api/held/${heldId}/spawn`), undefined);
     const body = await r.json();
     expect(body).toHaveProperty("id");
-    expect(demoState.held().length).toBe(0);
+    expect(demoState.held().length).toBe(before - 1);
   });
 
   it("DELETE /api/sessions/:id archives", async () => {
-    const r = await handleApi("DELETE", u("/api/sessions/s1"), undefined);
+    const r = await handleApi("DELETE", u("/api/sessions/coupon"), undefined);
     expect(r.status).toBe(200);
-    expect(demoState.sessions().find((s) => s.id === "s1")).toBeUndefined();
+    expect(demoState.sessions().find((s) => s.id === "coupon")).toBeUndefined();
   });
 
   it("unknown mutation falls through to {ok:true}", async () => {

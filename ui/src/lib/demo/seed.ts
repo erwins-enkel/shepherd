@@ -3,10 +3,19 @@
 // record is typed against `$lib/types`, so `tsc` proves each shape matches what the
 // live UI consumes.
 //
-// Task 4: full scenario replaces/expands this seed. For now this is a MINIMAL but
-// internally-consistent scenario — 1 repo (`acme/storefront`), 1 epic ("Checkout
-// v2"), 3 sessions across running / planning / ready states — just enough that every
-// getter returns a non-empty, correctly-shaped value.
+// The scenario — the fictional herd the marketing demo shows off:
+//   Two repos: `acme/storefront` (SvelteKit storefront) + `acme/api` (bun API).
+//   One active epic "Checkout v2" on storefront, mid-drain.
+//   Seven sessions spanning states so every lens / badge / panel has a real subject:
+//     coupon         WORKING (hero)   live activity, subagents, growing diff, no PR yet
+//     rounding       READY            PR open, CI green, ready-to-merge
+//     authstore      PLAN GATE        plan-gate verdict awaiting the operator's Go
+//     neon           BLOCKED          autopilot question awaiting an answer
+//     ogimg          MERGING          in the merge train
+//     deps           DONE             recap + merged PR + one owed manual step
+//     checkout-child WORKING (auto)   epic child, drain-spawned
+// Session ids are STABLE + semantic — replay transcripts (Task 5) and the director
+// (Task 6) key off them.
 
 import type {
   Session,
@@ -24,6 +33,7 @@ import type {
   PlanGate,
   HerdDigest,
   UpNextSnapshot,
+  UpNextItem,
   BacklogPayload,
   Settings,
   PluginInfo,
@@ -40,23 +50,27 @@ import type {
 } from "$lib/types";
 import type { DemoWorld } from "./types-world";
 
-const REPO = "/demo/acme/storefront";
+const STOREFRONT = "/demo/acme/storefront";
+const API = "/demo/acme/api";
 const EPIC_PARENT = 100;
 
 // A fixed clock anchor so the seed is deterministic (Task 6's director advances live
-// timestamps at runtime). Offsets below are relative to this.
+// timestamps at runtime). Offsets below are relative to this — never `Date.now()`.
 const NOW = Date.UTC(2026, 5, 30, 12, 0, 0);
+const SEC = 1_000;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
 
 /** Fill a full Session from a partial, defaulting every required field. */
-function mkSession(partial: Partial<Session> & Pick<Session, "id" | "desig" | "name">): Session {
+function mkSession(
+  partial: Partial<Session> & Pick<Session, "id" | "desig" | "name" | "repoPath">,
+): Session {
   return {
     prompt: "",
-    repoPath: REPO,
     baseBranch: "main",
     branch: `shepherd/${partial.name}`,
-    worktreePath: `${REPO}/.worktrees/${partial.id}`,
+    worktreePath: `${partial.repoPath}/.worktrees/${partial.id}`,
     isolated: true,
     herdrSession: `herdr-${partial.id}`,
     herdrAgentId: `agent-${partial.id}`,
@@ -99,84 +113,247 @@ function mkSession(partial: Partial<Session> & Pick<Session, "id" | "desig" | "n
   };
 }
 
+const NEON_QUESTION =
+  "The Neon branch starts empty — should I seed it from the current Postgres dump, or start clean and let migrations rebuild it?";
+
 function buildSessions(): Session[] {
   return [
+    // ── hero: live-working coupon field, growing diff, subagents, no PR yet ──
     mkSession({
-      id: "s1",
-      desig: "TASK-01",
-      name: "checkout-api",
-      prompt: "Implement the checkout payment-intent API endpoint",
+      id: "coupon",
+      desig: "TASK-41",
+      name: "coupon-code-field",
+      repoPath: STOREFRONT,
+      branch: "shepherd/coupon-code-field",
+      prompt: "Add a coupon-code field to the checkout summary and apply the discount",
+      model: "opus",
       status: "running",
-      autopilotEnabled: true,
-      autopilotStepCount: 3,
+      autopilotEnabled: null,
       issueNumber: 101,
       lastState: "working",
-      createdAt: NOW - 3 * HOUR,
+      createdAt: NOW - 55 * MIN,
+      updatedAt: NOW - 20 * SEC,
+      hasScratchpadFiles: true,
     }),
+    // ── ready: PR open, CI green, awaiting merge ────────────────────────────
     mkSession({
-      id: "s2",
-      desig: "TASK-02",
-      name: "checkout-ui",
-      prompt: "Build the checkout summary + confirm UI",
-      status: "blocked",
-      planGateEnabled: true,
-      planPhase: "planning",
-      issueNumber: 102,
-      lastState: "blocked",
-      createdAt: NOW - 90 * MIN,
-    }),
-    mkSession({
-      id: "s3",
-      desig: "TASK-03",
-      name: "checkout-tests",
-      prompt: "Add end-to-end checkout tests",
+      id: "rounding",
+      desig: "TASK-38",
+      name: "fix-cart-rounding",
+      repoPath: STOREFRONT,
+      branch: "shepherd/fix-cart-rounding",
+      prompt: "Fix the cart-total rounding bug that drops a cent on 3-for-2 offers",
+      model: "sonnet",
       status: "idle",
       readyToMerge: true,
       issueNumber: 103,
       lastState: "idle",
-      createdAt: NOW - 4 * HOUR,
-      updatedAt: NOW - 20 * MIN,
+      createdAt: NOW - 3 * HOUR,
+      updatedAt: NOW - 25 * MIN,
+    }),
+    // ── plan gate: verdict approved, awaiting the operator's Go ──────────────
+    mkSession({
+      id: "authstore",
+      desig: "TASK-44",
+      name: "auth-session-store",
+      repoPath: API,
+      branch: "shepherd/auth-session-store",
+      prompt: "Rework the auth session store to a rotating refresh-token scheme",
+      model: "opus",
+      status: "blocked",
+      planGateEnabled: true,
+      planPhase: "planning",
+      issueNumber: 220,
+      lastState: "blocked",
+      createdAt: NOW - 40 * MIN,
+      updatedAt: NOW - 8 * MIN,
+    }),
+    // ── blocked: autopilot paused on a hand-back question ───────────────────
+    mkSession({
+      id: "neon",
+      desig: "TASK-45",
+      name: "neon-postgres",
+      repoPath: API,
+      branch: "shepherd/neon-postgres",
+      prompt: "Migrate the API's database layer to Neon serverless Postgres",
+      model: "opus",
+      status: "blocked",
+      autopilotEnabled: true,
+      autopilotStepCount: 6,
+      autopilotPaused: true,
+      autopilotQuestion: NEON_QUESTION,
+      issueNumber: 221,
+      lastState: "blocked",
+      createdAt: NOW - 70 * MIN,
+      updatedAt: NOW - 4 * MIN,
+    }),
+    // ── merging: PR selected into the merge train ───────────────────────────
+    mkSession({
+      id: "ogimg",
+      desig: "TASK-39",
+      name: "og-images",
+      repoPath: STOREFRONT,
+      branch: "shepherd/og-images",
+      prompt: "Generate dynamic OG images for product pages",
+      model: "sonnet",
+      status: "running",
+      readyToMerge: true,
+      mergingSince: NOW - 90 * SEC,
+      mergingTrainId: "ogimg",
+      mergeTrainPrs: [508],
+      autoMergeEnabled: true,
+      issueNumber: 140,
+      lastState: "merging",
+      createdAt: NOW - 5 * HOUR,
+      updatedAt: NOW - 90 * SEC,
+    }),
+    // ── done: merged, recap present, one owed post-merge manual step ────────
+    mkSession({
+      id: "deps",
+      desig: "TASK-37",
+      name: "bump-deps",
+      repoPath: STOREFRONT,
+      branch: "shepherd/bump-deps",
+      prompt: "Bump dependencies to latest and fix the resulting lint errors",
+      model: "sonnet",
+      status: "done",
+      issueNumber: 137,
+      lastState: "done",
+      createdAt: NOW - 6 * HOUR,
+      updatedAt: NOW - 45 * MIN,
+      manualSteps: [
+        {
+          id: "deps-ms-1",
+          text: "Rotate the CI dependency-cache key so the runners pick up the new lockfile",
+          postMerge: true,
+        },
+      ],
+      manualStepsAckedAt: null,
+    }),
+    // ── working (autopilot): epic child spawned by the drain ────────────────
+    mkSession({
+      id: "checkout-child",
+      desig: "TASK-42",
+      name: "shipping-estimator",
+      repoPath: STOREFRONT,
+      branch: "shepherd/shipping-estimator",
+      prompt: "Add a shipping-cost estimator to the checkout summary",
+      model: "opus",
+      status: "running",
+      autopilotEnabled: true,
+      autopilotStepCount: 2,
+      auto: true,
+      issueNumber: 102,
+      lastState: "working",
+      createdAt: NOW - 18 * MIN,
+      updatedAt: NOW - 40 * SEC,
+      hasScratchpadFiles: true,
     }),
   ];
 }
 
+const gh = (repo: string) => repo.replace("/demo/", "https://github.com/");
+
 function buildGitStates(): Record<string, GitState> {
   return {
-    s1: {
-      kind: "github",
-      state: "none",
-      checks: "none",
-      deployConfigured: false,
-    },
-    s3: {
+    // hero — still building; no PR yet.
+    coupon: { kind: "github", state: "none", checks: "none", deployConfigured: true },
+    // ready to merge — open, green, clean.
+    rounding: {
       kind: "github",
       state: "open",
-      number: 412,
-      url: "https://github.com/acme/storefront/pull/412",
-      title: "TASK-03: add end-to-end checkout tests",
-      createdAt: NOW - 40 * MIN,
+      number: 512,
+      url: `${gh(STOREFRONT)}/pull/512`,
+      title: "TASK-38: fix cart-total rounding on 3-for-2 offers",
+      createdAt: NOW - 35 * MIN,
       mergeable: true,
       checks: "success",
       mergeStateStatus: "clean",
       deployConfigured: true,
-      headSha: "9f3a1c7",
-      issueUrl: "https://github.com/acme/storefront/issues/103",
+      headSha: "a1b2c3d",
+      issueUrl: `${gh(STOREFRONT)}/issues/103`,
     },
+    // plan gate — no code yet.
+    authstore: { kind: "github", state: "none", checks: "none", deployConfigured: false },
+    // blocked on a question — no PR yet.
+    neon: { kind: "github", state: "none", checks: "none", deployConfigured: false },
+    // in the merge train — open, green, being landed now.
+    ogimg: {
+      kind: "github",
+      state: "open",
+      number: 508,
+      url: `${gh(STOREFRONT)}/pull/508`,
+      title: "TASK-39: dynamic OG images for product pages",
+      createdAt: NOW - 2 * HOUR,
+      mergeable: true,
+      checks: "success",
+      mergeStateStatus: "clean",
+      deployConfigured: true,
+      headSha: "e4f5a6b",
+      issueUrl: `${gh(STOREFRONT)}/issues/140`,
+    },
+    // done — PR merged.
+    deps: {
+      kind: "github",
+      state: "merged",
+      number: 505,
+      url: `${gh(STOREFRONT)}/pull/505`,
+      title: "TASK-37: bump dependencies + fix lint",
+      createdAt: NOW - 5 * HOUR,
+      mergeable: true,
+      checks: "success",
+      mergeStateStatus: "clean",
+      deployConfigured: true,
+      headSha: "c7d8e9f",
+      issueUrl: `${gh(STOREFRONT)}/issues/137`,
+    },
+    // epic child — building; no PR yet.
+    "checkout-child": { kind: "github", state: "none", checks: "none", deployConfigured: true },
   };
 }
 
 function buildActivityStates(): Record<string, SessionActivity> {
   return {
-    s1: {
-      lastActivityTs: NOW - 30_000,
-      summary: "edited payment-intent.ts",
-      recentTs: [NOW - 5 * MIN, NOW - 3 * MIN, NOW - 90_000, NOW - 30_000],
-      recentErrTs: [NOW - 3 * MIN],
+    coupon: {
+      lastActivityTs: NOW - 20 * SEC,
+      summary: "edited src/routes/checkout/CouponField.svelte",
+      recentTs: [NOW - 6 * MIN, NOW - 4 * MIN, NOW - 2 * MIN, NOW - 50 * SEC, NOW - 20 * SEC],
+      recentErrTs: [NOW - 4 * MIN],
     },
-    s3: {
-      lastActivityTs: NOW - 20 * MIN,
-      summary: "$ bun test",
-      recentTs: [NOW - 25 * MIN, NOW - 20 * MIN],
+    "checkout-child": {
+      lastActivityTs: NOW - 40 * SEC,
+      summary: "$ bun run check",
+      recentTs: [NOW - 3 * MIN, NOW - 90 * SEC, NOW - 40 * SEC],
+      recentErrTs: [],
+    },
+    rounding: {
+      lastActivityTs: NOW - 25 * MIN,
+      summary: "$ bun test src/lib/cart",
+      recentTs: [NOW - 32 * MIN, NOW - 28 * MIN, NOW - 25 * MIN],
+      recentErrTs: [],
+    },
+    ogimg: {
+      lastActivityTs: NOW - 90 * SEC,
+      summary: "pushed shepherd/og-images",
+      recentTs: [NOW - 6 * MIN, NOW - 3 * MIN, NOW - 90 * SEC],
+      recentErrTs: [],
+    },
+    neon: {
+      lastActivityTs: NOW - 4 * MIN,
+      summary: "asked: seed from dump or start clean?",
+      recentTs: [NOW - 12 * MIN, NOW - 7 * MIN, NOW - 4 * MIN],
+      recentErrTs: [],
+    },
+    authstore: {
+      lastActivityTs: NOW - 8 * MIN,
+      summary: "drafted refresh-token rotation plan",
+      recentTs: [NOW - 20 * MIN, NOW - 12 * MIN, NOW - 8 * MIN],
+      recentErrTs: [],
+    },
+    deps: {
+      lastActivityTs: NOW - 45 * MIN,
+      summary: "merged shepherd/bump-deps",
+      recentTs: [NOW - 55 * MIN, NOW - 48 * MIN, NOW - 45 * MIN],
       recentErrTs: [],
     },
   };
@@ -184,14 +361,23 @@ function buildActivityStates(): Record<string, SessionActivity> {
 
 function buildSubagentStates(): Record<string, SubagentEntry[]> {
   return {
-    s1: [
+    coupon: [
       {
-        agentId: "sub-s1-explore",
+        agentId: "sub-coupon-explore",
         agentType: "Explore",
-        startedAt: NOW - 8 * MIN,
-        endedAt: NOW - 6 * MIN,
+        startedAt: NOW - 10 * MIN,
+        endedAt: NOW - 7 * MIN,
       },
-      { agentId: "sub-s1-impl", agentType: "general-purpose", startedAt: NOW - 4 * MIN },
+      {
+        agentId: "sub-coupon-pricing",
+        agentType: "general-purpose",
+        startedAt: NOW - 5 * MIN,
+        endedAt: NOW - 2 * MIN,
+      },
+      { agentId: "sub-coupon-ui", agentType: "general-purpose", startedAt: NOW - 90 * SEC },
+    ],
+    "checkout-child": [
+      { agentId: "sub-child-explore", agentType: "Explore", startedAt: NOW - 6 * MIN },
     ],
   };
 }
@@ -199,68 +385,100 @@ function buildSubagentStates(): Record<string, SubagentEntry[]> {
 function buildUsage(): UsageLimitsResponse {
   return {
     limits: {
-      session5h: { pct: 42, resetAt: NOW + 2 * HOUR },
-      week: { pct: 61, resetAt: NOW + 3 * 24 * HOUR },
+      session5h: { pct: 68, resetAt: NOW + 2 * HOUR },
+      week: { pct: 74, resetAt: NOW + 3 * DAY },
       credits: null,
       stale: false,
-      calibratedAt: NOW - 10 * MIN,
+      calibratedAt: NOW - 8 * MIN,
       subscriptionOnly: false,
     },
     projections: [
-      { window: "5H", projectedPct: 58, resetAt: NOW + 2 * HOUR, burnRatePerHour: 12 },
-      { window: "WK", projectedPct: 74, resetAt: NOW + 3 * 24 * HOUR, burnRatePerHour: 40 },
+      { window: "5H", projectedPct: 82, resetAt: NOW + 2 * HOUR, burnRatePerHour: 14 },
+      { window: "WK", projectedPct: 79, resetAt: NOW + 3 * DAY, burnRatePerHour: 6 },
     ],
   };
 }
 
 function buildEpics(): Epic[] {
+  const issue = (n: number) => `${gh(STOREFRONT)}/issues/${n}`;
   return [
     {
-      repoPath: REPO,
+      repoPath: STOREFRONT,
       parentIssueNumber: EPIC_PARENT,
       parentTitle: "Checkout v2",
       source: "native",
       warnings: [],
-      run: { repoPath: REPO, parentIssueNumber: EPIC_PARENT, mode: "attended", status: "running" },
+      run: {
+        repoPath: STOREFRONT,
+        parentIssueNumber: EPIC_PARENT,
+        mode: "attended",
+        status: "running",
+      },
       children: [
         {
           number: 101,
-          title: "Payment-intent API",
-          url: "https://github.com/acme/storefront/issues/101",
+          title: "Coupon-code field at checkout",
+          url: issue(101),
           order: 0,
-          body: "Expose POST /api/checkout/intent.",
+          body: "Add a coupon-code field to the summary and apply the discount to the total.",
           blockedBy: [],
           state: "running",
-          sessionId: "s1",
+          sessionId: "coupon",
           prNumber: null,
           issueClosed: false,
           claimed: true,
         },
         {
           number: 102,
-          title: "Checkout summary UI",
-          url: "https://github.com/acme/storefront/issues/102",
+          title: "Shipping-cost estimator",
+          url: issue(102),
           order: 1,
-          body: "Render the summary + confirm screen.",
-          blockedBy: [101],
-          state: "blocked",
-          sessionId: "s2",
+          body: "Estimate shipping cost from the cart weight + destination and show it in the summary.",
+          blockedBy: [],
+          state: "running",
+          sessionId: "checkout-child",
           prNumber: null,
           issueClosed: false,
           claimed: true,
         },
         {
           number: 103,
-          title: "Checkout e2e tests",
-          url: "https://github.com/acme/storefront/issues/103",
+          title: "Cart-total rounding fix",
+          url: issue(103),
           order: 2,
-          body: "Playwright coverage for the happy path.",
-          blockedBy: [101],
+          body: "Fix the rounding bug that drops a cent on 3-for-2 offers.",
+          blockedBy: [],
           state: "in-review",
-          sessionId: "s3",
-          prNumber: 412,
+          sessionId: "rounding",
+          prNumber: 512,
           issueClosed: false,
           claimed: true,
+        },
+        {
+          number: 104,
+          title: "Saved payment methods",
+          url: issue(104),
+          order: 3,
+          body: "Let returning customers pick a stored card at checkout.",
+          blockedBy: [101],
+          state: "blocked",
+          sessionId: null,
+          prNumber: null,
+          issueClosed: false,
+          claimed: false,
+        },
+        {
+          number: 105,
+          title: "Guest checkout",
+          url: issue(105),
+          order: 4,
+          body: "Allow checkout without an account, upgrading to one on confirmation.",
+          blockedBy: [101, 102],
+          state: "blocked",
+          sessionId: null,
+          prNumber: null,
+          issueClosed: false,
+          claimed: false,
         },
       ],
     },
@@ -270,23 +488,54 @@ function buildEpics(): Epic[] {
 function buildCompletedEpics(): CompletedEpic[] {
   return [
     {
-      repoPath: REPO,
+      repoPath: STOREFRONT,
       parentIssueNumber: 88,
       parentTitle: "Cart refactor",
-      completedAt: NOW - 2 * 24 * HOUR,
+      completedAt: NOW - 2 * DAY,
       children: [
         {
           number: 81,
           title: "Cart store rewrite",
-          url: "https://github.com/acme/storefront/issues/81",
+          url: `${gh(STOREFRONT)}/issues/81`,
           prNumber: 390,
-          prUrl: "https://github.com/acme/storefront/pull/390",
-          mergedAt: NOW - 2 * 24 * HOUR,
+          prUrl: `${gh(STOREFRONT)}/pull/390`,
+          mergedAt: NOW - 2 * DAY - 2 * HOUR,
+          integrated: true,
+        },
+        {
+          number: 82,
+          title: "Cart persistence to localStorage",
+          url: `${gh(STOREFRONT)}/issues/82`,
+          prNumber: 392,
+          prUrl: `${gh(STOREFRONT)}/pull/392`,
+          mergedAt: NOW - 2 * DAY,
           integrated: true,
         },
       ],
       landingPrNumber: 395,
-      landingPrUrl: "https://github.com/acme/storefront/pull/395",
+      landingPrUrl: `${gh(STOREFRONT)}/pull/395`,
+      landingState: "merged",
+      migrationPaths: [],
+      migrationsAckedAt: null,
+    },
+    {
+      repoPath: API,
+      parentIssueNumber: 200,
+      parentTitle: "Rate limiting",
+      completedAt: NOW - 5 * DAY,
+      children: [
+        {
+          number: 201,
+          title: "Token-bucket middleware",
+          url: `${gh(API)}/issues/201`,
+          prNumber: 310,
+          prUrl: `${gh(API)}/pull/310`,
+          mergedAt: NOW - 5 * DAY,
+          integrated: true,
+        },
+      ],
+      landingPrNumber: 312,
+      landingPrUrl: `${gh(API)}/pull/312`,
       landingState: "merged",
       migrationPaths: [],
       migrationsAckedAt: null,
@@ -296,58 +545,74 @@ function buildCompletedEpics(): CompletedEpic[] {
 
 function buildRecaps(): Record<string, Recap> {
   return {
-    s3: {
-      sessionId: "s3",
+    rounding: {
+      sessionId: "rounding",
       state: "ready",
-      headSha: "9f3a1c7",
+      headSha: "a1b2c3d",
       verdict: "ready",
-      headline: "End-to-end checkout tests added",
-      body: "Added Playwright coverage for the checkout happy path and a failing-card branch.",
+      headline: "Cart-total rounding fixed for multi-buy offers",
+      body: "Switched the running total to integer cents and rounded once at the end. Added a regression test for the 3-for-2 case that previously dropped a cent.",
       openItems: [],
-      changedFiles: ["tests/checkout.spec.ts", "playwright.config.ts"],
-      spawnSessionId: "recap-s3",
-      cwd: `${REPO}/.worktrees/s3`,
-      model: "opus",
-      spawnedAt: NOW - 22 * MIN,
-      generatedAt: NOW - 20 * MIN,
-      updatedAt: NOW - 20 * MIN,
+      changedFiles: ["src/lib/cart/total.ts", "src/lib/cart/total.test.ts"],
+      spawnSessionId: "recap-rounding",
+      cwd: `${STOREFRONT}/.worktrees/rounding`,
+      model: "sonnet",
+      spawnedAt: NOW - 27 * MIN,
+      generatedAt: NOW - 25 * MIN,
+      updatedAt: NOW - 25 * MIN,
+    },
+    deps: {
+      sessionId: "deps",
+      state: "ready",
+      headSha: "c7d8e9f",
+      verdict: "needs_attention",
+      headline: "Dependencies bumped; one post-merge step is owed",
+      body: "Upgraded 34 packages to latest, regenerated the lockfile, and fixed the lint errors the new rules surfaced. The CI cache key must be rotated so runners pick up the new lockfile.",
+      openItems: ["Rotate the CI dependency-cache key (post-merge)"],
+      changedFiles: ["package.json", "bun.lockb", "eslint.config.js"],
+      spawnSessionId: "recap-deps",
+      cwd: `${STOREFRONT}/.worktrees/deps`,
+      model: "sonnet",
+      spawnedAt: NOW - 47 * MIN,
+      generatedAt: NOW - 45 * MIN,
+      updatedAt: NOW - 45 * MIN,
     },
   };
 }
 
 function buildReviews(): Record<string, ReviewVerdict> {
   return {
-    s3: {
-      sessionId: "s3",
-      headSha: "9f3a1c7",
+    rounding: {
+      sessionId: "rounding",
+      headSha: "a1b2c3d",
       decision: "commented",
-      summary: "Solid coverage; one flaky selector to tighten.",
-      body: "The happy-path spec is clear. Consider a data-testid on the confirm button.",
-      findings: ["Use a stable data-testid for the confirm button"],
+      summary: "Correct fix; one edge case worth a note.",
+      body: "Moving to integer cents is the right call and the regression test covers the reported case. Consider a comment on why the final rounding happens once, so a future refactor doesn't reintroduce per-line rounding.",
+      findings: ["Add a comment explaining the single final-rounding step"],
       addressRound: 0,
       addressCap: 3,
       finalRoundPending: false,
       finalRoundTimeoutMs: 120_000,
-      url: "https://github.com/acme/storefront/pull/412#review",
-      updatedAt: NOW - 18 * MIN,
+      url: `${gh(STOREFRONT)}/pull/512#review`,
+      updatedAt: NOW - 22 * MIN,
     },
   };
 }
 
 function buildPlanGates(): Record<string, PlanGate> {
   return {
-    s2: {
-      sessionId: "s2",
-      planHash: "plan-s2-hash-1",
+    authstore: {
+      sessionId: "authstore",
+      planHash: "authstore-plan-1",
       decision: "approved",
-      summary: "Plan approved: build summary then confirm step.",
-      body: "The two-step plan is sound. Wire the confirm CTA to the intent API from TASK-01.",
+      summary: "Plan approved: rotating refresh tokens with a short-lived access token.",
+      body: "The rotation scheme is sound. Store refresh tokens hashed, rotate on every use, and revoke the family on reuse detection. Keep the access-token TTL at 15 minutes.",
       findings: [],
       round: 1,
       cap: 3,
       approved: true,
-      plan: "1. Render order summary\n2. Add confirm CTA\n3. Call payment-intent API",
-      updatedAt: NOW - 12 * MIN,
+      plan: "1. Add a refresh_tokens table (hashed, family id)\n2. Issue short-lived access + rotating refresh on login\n3. Rotate on refresh; revoke the family on reuse\n4. Migrate existing sessions on next login",
+      updatedAt: NOW - 8 * MIN,
     },
   };
 }
@@ -356,15 +621,19 @@ function buildHerdDigest(): HerdDigest {
   return {
     dayKey: "2026-06-30",
     state: "ready",
-    overnight: "Cart refactor epic landed; checkout v2 is mid-flight across three tasks.",
-    decisions: [{ label: "Approved the checkout-ui plan gate", sessionId: "s2" }],
+    overnight:
+      "The Cart-refactor epic landed. Checkout v2 is mid-drain across three tasks, and the API is picking up an auth-store rework plus a Neon migration.",
+    decisions: [{ label: "Approved the auth-session-store plan", sessionId: "authstore" }],
     ciRework: [],
-    train: "No merge train running.",
-    focusNext: [{ label: "Review TASK-03 checkout tests PR", sessionId: "s3", pr: 412 }],
+    train: "OG-images PR #508 is in the merge train.",
+    focusNext: [
+      { label: "Answer the Neon seeding question", sessionId: "neon" },
+      { label: "Merge the cart-rounding fix", sessionId: "rounding", pr: 512 },
+    ],
     epicsToLand: [],
-    attentionFingerprint: { s2: ["plan-approved"] },
+    attentionFingerprint: { neon: ["autopilot-paused"], authstore: ["plan-approved"] },
     spawnSessionId: "digest-1",
-    cwd: REPO,
+    cwd: STOREFRONT,
     model: "opus",
     spawnedAt: NOW - 6 * HOUR,
     generatedAt: NOW - 6 * HOUR,
@@ -373,36 +642,71 @@ function buildHerdDigest(): HerdDigest {
 }
 
 function buildUpNext(): UpNextSnapshot {
+  type Kind = UpNextItem["kind"];
+  const sfItem = (number: number, title: string, body: string, kind: Kind): UpNextItem => ({
+    repoPath: STOREFRONT,
+    repoSlug: "acme/storefront",
+    repoLabel: "acme/storefront",
+    number,
+    title,
+    url: `${gh(STOREFRONT)}/issues/${number}`,
+    kind,
+    priority: false,
+    createdAt: NOW - 26 * HOUR,
+    issueRef: { number, url: `${gh(STOREFRONT)}/issues/${number}`, title, body },
+  });
+  const apiItem = (number: number, title: string, body: string, kind: Kind): UpNextItem => ({
+    repoPath: API,
+    repoSlug: "acme/api",
+    repoLabel: "acme/api",
+    number,
+    title,
+    url: `${gh(API)}/issues/${number}`,
+    kind,
+    priority: false,
+    createdAt: NOW - 30 * HOUR,
+    issueRef: { number, url: `${gh(API)}/issues/${number}`, title, body },
+  });
   return {
     generatedAt: NOW - 15 * MIN,
-    repoCount: 1,
+    repoCount: 2,
     fallback: null,
     failedRepoCount: 0,
     sections: [
       {
         kind: "repo",
-        repoPath: REPO,
+        repoPath: STOREFRONT,
         repoSlug: "acme/storefront",
         repoLabel: "acme/storefront",
+        totalCount: 2,
+        items: [
+          sfItem(
+            121,
+            "Wishlist button on product cards",
+            "Let shoppers save items to a wishlist from the grid.",
+            "feature",
+          ),
+          sfItem(
+            122,
+            "Empty-cart illustration",
+            "Show a friendly empty state when the cart has no items.",
+            "feature",
+          ),
+        ],
+      },
+      {
+        kind: "repo",
+        repoPath: API,
+        repoSlug: "acme/api",
+        repoLabel: "acme/api",
         totalCount: 1,
         items: [
-          {
-            repoPath: REPO,
-            repoSlug: "acme/storefront",
-            repoLabel: "acme/storefront",
-            number: 120,
-            title: "Add saved-payment-methods selector",
-            url: "https://github.com/acme/storefront/issues/120",
-            kind: "feature",
-            priority: false,
-            createdAt: NOW - 26 * HOUR,
-            issueRef: {
-              number: 120,
-              url: "https://github.com/acme/storefront/issues/120",
-              title: "Add saved-payment-methods selector",
-              body: "Let returning customers pick a stored card at checkout.",
-            },
-          },
+          apiItem(
+            222,
+            "Add request-id correlation header",
+            "Thread a request id through logs for tracing.",
+            "feature",
+          ),
         ],
       },
     ],
@@ -411,19 +715,33 @@ function buildUpNext(): UpNextSnapshot {
 
 function buildBacklog(): BacklogPayload {
   return {
-    pinnedPath: REPO,
-    totals: { openIssues: 6, openPRs: 1 },
+    pinnedPath: STOREFRONT,
+    totals: { openIssues: 11, openPRs: 2 },
     projects: [
       {
-        path: REPO,
+        path: STOREFRONT,
         display: "acme/storefront",
         slug: "acme/storefront",
         kind: "github",
-        lastUsedAt: NOW - 5 * MIN,
-        recentAgentCount: 3,
-        openIssues: 6,
-        openPRs: 1,
-        prKinds: { release: 0, dependabot: 0, regular: 1 },
+        lastUsedAt: NOW - 20 * SEC,
+        recentAgentCount: 5,
+        openIssues: 8,
+        openPRs: 2,
+        prKinds: { release: 0, dependabot: 0, regular: 2 },
+        workflows: 3,
+        ciStatus: "success",
+        hidden: false,
+      },
+      {
+        path: API,
+        display: "acme/api",
+        slug: "acme/api",
+        kind: "github",
+        lastUsedAt: NOW - 4 * MIN,
+        recentAgentCount: 2,
+        openIssues: 3,
+        openPRs: 0,
+        prKinds: { release: 0, dependabot: 0, regular: 0 },
         workflows: 2,
         ciStatus: "success",
         hidden: false,
@@ -434,14 +752,49 @@ function buildBacklog(): BacklogPayload {
 
 function buildBuildQueues(): Record<string, BuildQueue> {
   return {
-    s1: {
-      sessionId: "s1",
+    coupon: {
+      sessionId: "coupon",
       approved: true,
       approvalKind: "auto",
       steps: [
-        { id: "step-1", title: "Draft payment-intent route", status: "done", position: 0 },
-        { id: "step-2", title: "Wire Stripe client", status: "active", position: 1 },
-        { id: "step-3", title: "Add unit tests", status: "pending", position: 2 },
+        {
+          id: "coupon-1",
+          title: "Add the coupon input to the summary",
+          status: "done",
+          position: 0,
+        },
+        {
+          id: "coupon-2",
+          title: "Wire coupon validation to the pricing API",
+          status: "active",
+          position: 1,
+        },
+        {
+          id: "coupon-3",
+          title: "Apply the discount to the total",
+          status: "pending",
+          position: 2,
+        },
+        { id: "coupon-4", title: "Add unit + component tests", status: "pending", position: 3 },
+      ],
+    },
+    authstore: {
+      sessionId: "authstore",
+      approved: false,
+      steps: [
+        {
+          id: "auth-1",
+          title: "Add the refresh_tokens table + migration",
+          status: "pending",
+          position: 0,
+        },
+        {
+          id: "auth-2",
+          title: "Issue rotating refresh tokens on login",
+          status: "pending",
+          position: 1,
+        },
+        { id: "auth-3", title: "Revoke the token family on reuse", status: "pending", position: 2 },
       ],
     },
   };
@@ -450,14 +803,25 @@ function buildBuildQueues(): Record<string, BuildQueue> {
 function buildHeld(): HeldTask[] {
   return [
     {
-      id: "held-1",
-      repoPath: REPO,
+      id: "held-refund-flow",
+      repoPath: STOREFRONT,
       createdAt: NOW - 35 * MIN,
       input: {
-        repoPath: REPO,
+        repoPath: STOREFRONT,
         baseBranch: "main",
-        prompt: "Add refund flow to the checkout admin panel",
+        prompt: "Add a refund flow to the checkout admin panel",
         model: "opus",
+      },
+    },
+    {
+      id: "held-api-openapi",
+      repoPath: API,
+      createdAt: NOW - 22 * MIN,
+      input: {
+        repoPath: API,
+        baseBranch: "main",
+        prompt: "Generate an OpenAPI spec from the route handlers",
+        model: "sonnet",
       },
     },
   ];
@@ -465,8 +829,8 @@ function buildHeld(): HeldTask[] {
 
 function buildSettings(): Settings {
   return {
-    repoRoot: "/demo",
-    repoRootDisplay: "~/demo",
+    repoRoot: "/demo/acme",
+    repoRootDisplay: "~/acme",
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
@@ -522,6 +886,16 @@ function buildPlugins(): PluginInfo[] {
       ui: null,
       gearItem: null,
     },
+    {
+      id: "demo-slack",
+      name: "Slack notifier",
+      version: "0.7.1",
+      health: "ok",
+      lastError: null,
+      status: {},
+      ui: null,
+      gearItem: null,
+    },
   ];
 }
 
@@ -533,6 +907,7 @@ function buildDiagnostics(): DiagnosticsSnapshot {
       { id: "git", state: "ok", hintKey: "diag_git" },
       { id: "gh", state: "ok", hintKey: "diag_gh" },
       { id: "node", state: "ok", hintKey: "diag_node" },
+      { id: "bun", state: "ok", hintKey: "diag_bun" },
     ],
   };
 }
@@ -555,41 +930,69 @@ function buildSteers(): Steer[] {
       inSteerBar: true,
       onIssues: false,
     },
+    {
+      id: "steer-open-pr",
+      label: "Open PR",
+      text: "Open a pull request when the work is ready.",
+      emoji: "🚀",
+      inSteerBar: true,
+      onIssues: false,
+    },
   ];
 }
 
 function buildProjectIcons(): ProjectIcons {
-  return { [REPO]: "🛒" };
+  return { [STOREFRONT]: "🛒", [API]: "⚙️" };
 }
 
 function buildDrain(): DrainStatus[] {
   return [
     {
-      repoPath: REPO,
+      repoPath: STOREFRONT,
       enabled: true,
       paused: false,
       reason: null,
       detail: null,
-      queued: 4,
-      inFlight: 1,
+      queued: 2,
+      inFlight: 2,
       max: 3,
       epicParent: EPIC_PARENT,
+    },
+    {
+      repoPath: API,
+      enabled: true,
+      paused: false,
+      reason: null,
+      detail: null,
+      queued: 1,
+      inFlight: 2,
+      max: 2,
+      epicParent: null,
     },
   ];
 }
 
 function buildAutoMerge(): AutoMergeStatus[] {
-  return [{ repoPath: REPO, enabled: true, state: null, detail: null, sessionId: null }];
+  return [
+    {
+      repoPath: STOREFRONT,
+      enabled: true,
+      state: "merging",
+      detail: "TASK-39",
+      sessionId: "ogimg",
+    },
+    { repoPath: API, enabled: true, state: null, detail: null, sessionId: null },
+  ];
 }
 
 function buildPendingLearnings(): Learning[] {
   return [
     {
-      id: "learn-1",
-      repoPath: REPO,
-      rule: "Always add a data-testid to interactive checkout elements.",
-      rationale: "Tests kept flaking on text-based selectors.",
-      evidence: ["s3 review flagged a fragile selector"],
+      id: "learn-testid",
+      repoPath: STOREFRONT,
+      rule: "Add a stable data-testid to interactive checkout elements.",
+      rationale: "Tests kept flaking on text-based selectors during the cart work.",
+      evidence: ["rounding review flagged a fragile selector"],
       status: "proposed",
       evidenceCount: 2,
       ineffectiveCount: 0,
@@ -602,6 +1005,26 @@ function buildPendingLearnings(): Learning[] {
       createdAt: NOW - 30 * MIN,
       updatedAt: NOW - 30 * MIN,
       lastEvidenceAt: NOW - 30 * MIN,
+      promotedPrUrl: null,
+    },
+    {
+      id: "learn-migrations",
+      repoPath: API,
+      rule: "Every schema change ships with a reversible migration.",
+      rationale: "A forward-only change during the rate-limit epic blocked a rollback.",
+      evidence: ["rate-limit epic needed a manual down-migration"],
+      status: "proposed",
+      evidenceCount: 1,
+      ineffectiveCount: 0,
+      helpfulCount: 0,
+      injectedCount: 0,
+      lastUsedAt: null,
+      retiredAt: null,
+      retiredReason: null,
+      scopeGlobs: ["migrations/**"],
+      createdAt: NOW - 3 * HOUR,
+      updatedAt: NOW - 3 * HOUR,
+      lastEvidenceAt: NOW - 3 * HOUR,
       promotedPrUrl: null,
     },
   ];
@@ -643,7 +1066,10 @@ function buildStarPrompt(): StarPromptStatus {
 
 function buildHolds(): Record<string, HoldReason> {
   return {
-    s2: { code: "blocked-awaiting-input" },
+    // Autopilot paused, handing a question back to the operator.
+    neon: { code: "autopilot-paused", params: { question: NEON_QUESTION } },
+    // Done, but one post-merge manual step is still owed.
+    deps: { code: "manual-steps", params: { steps: 1 } },
   };
 }
 
@@ -653,11 +1079,23 @@ export function buildSeed(): DemoWorld {
     sessions: buildSessions(),
     gitStates: buildGitStates(),
     activityStates: buildActivityStates(),
-    claudeAliveStates: { s1: true, s2: true, s3: true },
-    workingBlockedStates: { s1: false, s2: false },
+    claudeAliveStates: {
+      coupon: true,
+      "checkout-child": true,
+      ogimg: true,
+      neon: true,
+      authstore: true,
+      rounding: false,
+      deps: false,
+    },
+    workingBlockedStates: {
+      coupon: false,
+      "checkout-child": false,
+      neon: true,
+    },
     holdStates: buildHolds(),
     subagentStates: buildSubagentStates(),
-    previewStates: { s1: { previewPort: 4173, serve: "ok" } },
+    previewStates: { coupon: { previewPort: 4173, serve: "ok" } },
 
     usage: buildUsage(),
     update: buildUpdate(),

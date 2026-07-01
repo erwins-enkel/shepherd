@@ -59,83 +59,146 @@ describe("demoState.reset() → bootstrap getters", () => {
   });
 
   it("epic getters derive from the seeded epic graph", () => {
-    const repo = demoState.sessions()[0].repoPath;
-    const epic = demoState.epic(repo, 100);
+    const epic = demoState.epic("/demo/acme/storefront", 100);
     expect(epic?.children.length).toBeGreaterThan(0);
-    const summaries = demoState.epicSummaries(repo);
+    const summaries = demoState.epicSummaries("/demo/acme/storefront");
     expect(summaries.epics[0].total).toBe(epic!.children.length);
     expect(summaries.subIssues).toContain(101);
   });
 });
 
+describe("the rich 7-session scenario is seeded coherently", () => {
+  it("all seven stable session ids are present with the expected states", () => {
+    const byId = new Map(demoState.sessions().map((s) => [s.id, s]));
+    expect([...byId.keys()].sort()).toEqual(
+      ["authstore", "checkout-child", "coupon", "deps", "neon", "ogimg", "rounding"].sort(),
+    );
+    expect(byId.get("coupon")!.status).toBe("running");
+    expect(byId.get("coupon")!.lastState).toBe("working");
+    expect(byId.get("rounding")!.status).toBe("idle");
+    expect(byId.get("rounding")!.readyToMerge).toBe(true);
+    expect(byId.get("authstore")!.planPhase).toBe("planning");
+    expect(byId.get("neon")!.status).toBe("blocked");
+    expect(byId.get("neon")!.autopilotPaused).toBe(true);
+    expect(byId.get("neon")!.autopilotQuestion).toBeTruthy();
+    expect(byId.get("ogimg")!.mergingSince).not.toBeNull();
+    expect(byId.get("deps")!.status).toBe("done");
+    expect(byId.get("deps")!.manualSteps.length).toBeGreaterThan(0);
+    expect(byId.get("checkout-child")!.autopilotEnabled).toBe(true);
+  });
+
+  it("spans two repos", () => {
+    const repos = new Set(demoState.sessions().map((s) => s.repoPath));
+    expect(repos).toEqual(new Set(["/demo/acme/storefront", "/demo/acme/api"]));
+  });
+
+  it("the Checkout v2 epic links its in-flight children to their sessions", () => {
+    const epic = demoState.epic("/demo/acme/storefront", 100)!;
+    expect(epic.parentTitle).toBe("Checkout v2");
+    const byNumber = new Map(epic.children.map((c) => [c.number, c]));
+    expect(byNumber.get(101)!.sessionId).toBe("coupon");
+    expect(byNumber.get(102)!.sessionId).toBe("checkout-child");
+    expect(byNumber.get(103)!.sessionId).toBe("rounding");
+    // A mid-drain epic keeps at least one un-started child for approveEpicNext.
+    expect(epic.children.some((c) => c.state === "blocked" || c.state === "ready")).toBe(true);
+  });
+
+  it("gitStates carry the PR states the scenario table demands", () => {
+    const git = demoState.gitStates();
+    expect(git.coupon.state).toBe("none"); // hero has no PR yet
+    expect(git.rounding.state).toBe("open"); // ready-to-merge
+    expect(git.rounding.checks).toBe("success");
+    expect(git.ogimg.state).toBe("open"); // in merge train
+    expect(git.deps.state).toBe("merged"); // done
+  });
+
+  it("holds cover the blocked question and the owed manual step", () => {
+    const holds = demoState.holdStates();
+    expect(holds.neon.code).toBe("autopilot-paused");
+    expect(holds.deps.code).toBe("manual-steps");
+  });
+
+  it("the showcased lens datasets are seeded and keyed to the scenario", () => {
+    expect(demoState.reviews().rounding).toBeDefined();
+    expect(demoState.planGates().authstore?.approved).toBe(true);
+    expect(demoState.recaps().deps).toBeDefined();
+    expect(Object.keys(demoState.buildQueues())).toContain("coupon");
+    expect(demoState.held().length).toBeGreaterThan(0);
+    expect(demoState.pendingLearnings().length).toBeGreaterThan(0);
+    expect(Object.keys(demoState.projectIcons())).toHaveLength(2);
+  });
+});
+
 describe("demoState mutators emit the correct WsEvent frames", () => {
   it("reply emits activity + hold-clear + status(running)", () => {
-    const frames = capture(() => demoState.reply("s1", "keep going"));
+    const frames = capture(() => demoState.reply("coupon", "keep going"));
     expect(events(frames)).toEqual(["session:activity", "session:hold", "session:status"]);
     const status = frames.find((f) => f.event === "session:status");
     expect(status && "status" in status.data && status.data.status).toBe("running");
   });
 
   it("setAutopilot emits session:autopilot with the new enabled flag", () => {
-    const frames = capture(() => demoState.setAutopilot("s1", false));
+    const frames = capture(() => demoState.setAutopilot("coupon", false));
     expect(events(frames)).toEqual(["session:autopilot"]);
     const f = frames[0];
     expect(f.event === "session:autopilot" && f.data.enabled).toBe(false);
   });
 
   it("releasePlanGate emits plangate(executing) + hold-clear + status", () => {
-    const frames = capture(() => demoState.releasePlanGate("s2"));
+    const frames = capture(() => demoState.releasePlanGate("authstore"));
     expect(events(frames)).toEqual(["session:plangate", "session:hold", "session:status"]);
     const pg = frames[0];
     expect(pg.event === "session:plangate" && pg.data.planPhase).toBe("executing");
-    expect(demoState.sessions().find((s) => s.id === "s2")?.planPhase).toBe("executing");
+    expect(demoState.sessions().find((s) => s.id === "authstore")?.planPhase).toBe("executing");
   });
 
   it("reviewPlan emits the reviewing latch", () => {
-    const frames = capture(() => demoState.reviewPlan("s2"));
+    const frames = capture(() => demoState.reviewPlan("authstore"));
     expect(events(frames)).toEqual(["session:plangate-reviewing"]);
   });
 
   it("mergePr emits session:merging with a since timestamp", () => {
-    const frames = capture(() => demoState.mergePr("s3"));
+    const frames = capture(() => demoState.mergePr("rounding"));
     expect(events(frames)).toEqual(["session:merging"]);
     const f = frames[0];
     expect(f.event === "session:merging" && typeof f.data.since).toBe("number");
-    expect(demoState.sessions().find((s) => s.id === "s3")?.mergingSince).not.toBeNull();
+    expect(demoState.sessions().find((s) => s.id === "rounding")?.mergingSince).not.toBeNull();
   });
 
   it("setReadyToMerge emits session:ready", () => {
-    const frames = capture(() => demoState.setReadyToMerge("s1", true));
+    const frames = capture(() => demoState.setReadyToMerge("coupon", true));
     expect(events(frames)).toEqual(["session:ready"]);
-    expect(demoState.sessions().find((s) => s.id === "s1")?.readyToMerge).toBe(true);
+    expect(demoState.sessions().find((s) => s.id === "coupon")?.readyToMerge).toBe(true);
   });
 
   it("approveEpicNext emits epic:update and advances a child", () => {
-    const repo = demoState.sessions()[0].repoPath;
+    const repo = "/demo/acme/storefront";
+    const before = demoState.epic(repo, 100)!.children.filter((c) => c.state === "running").length;
     const frames = capture(() => demoState.approveEpicNext(repo, 100));
     expect(events(frames)).toEqual(["epic:update"]);
     const running = demoState.epic(repo, 100)!.children.filter((c) => c.state === "running");
-    expect(running.length).toBeGreaterThan(1);
+    expect(running.length).toBe(before + 1);
   });
 
   it("spawnHeld emits session:new + held:changed and grows the herd", () => {
     const before = demoState.sessions().length;
+    const heldBefore = demoState.held().length;
     const heldId = demoState.held()[0].id;
     const frames = capture(() => demoState.spawnHeld(heldId));
     expect(events(frames)).toEqual(["session:new", "held:changed"]);
     expect(demoState.sessions().length).toBe(before + 1);
-    expect(demoState.held().length).toBe(0);
+    expect(demoState.held().length).toBe(heldBefore - 1);
   });
 
   it("archiveSession emits session:archived and removes the session", () => {
-    const frames = capture(() => demoState.archiveSession("s1"));
+    const frames = capture(() => demoState.archiveSession("coupon"));
     expect(events(frames)).toEqual(["session:archived"]);
-    expect(demoState.sessions().find((s) => s.id === "s1")).toBeUndefined();
+    expect(demoState.sessions().find((s) => s.id === "coupon")).toBeUndefined();
   });
 
   it("answerPlanQuestions emits activity and reports delivered", () => {
     let result: { delivered: boolean } | undefined;
-    const frames = capture(() => (result = demoState.answerPlanQuestions("s2")));
+    const frames = capture(() => (result = demoState.answerPlanQuestions("authstore")));
     expect(events(frames)).toEqual(["session:activity"]);
     expect(result?.delivered).toBe(true);
   });
@@ -145,12 +208,12 @@ describe("structuredClone isolation", () => {
   it("mutating live state never leaks into the seed across resets", () => {
     demoState.reset();
     const cleanCount = demoState.sessions().length;
-    demoState.archiveSession("s1");
+    demoState.archiveSession("coupon");
     demoState.spawnHeld(demoState.held()[0].id);
     demoState.reset();
     // A fresh reset restores the exact seeded herd — no leaked mutations.
     expect(demoState.sessions().length).toBe(cleanCount);
-    expect(demoState.sessions().find((s) => s.id === "s1")).toBeDefined();
+    expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
     expect(demoState.held().length).toBeGreaterThan(0);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { PostMergeSteps } from "$lib/types";
+import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 
 // Mock api so the store's tick/dismiss never hit the network; capture calls.
@@ -51,9 +51,24 @@ function record(p: Partial<PostMergeSteps> & { sessionId: string }): PostMergeSt
   };
 }
 
+function snapshot(p: Partial<OwedFocusSnapshot> & { sessionId: string }): OwedFocusSnapshot {
+  return {
+    desig: "TASK-09",
+    prNumber: 12,
+    steps: [
+      { id: "ms1", text: "Set FLAG=1", postMerge: false },
+      { id: "ms2", text: "rotate secret", postMerge: true },
+    ],
+    merged: true,
+    ...p,
+  };
+}
+
 describe("PostMergeStepsPanel", () => {
   beforeEach(() => {
     postMergeSteps.records = [];
+    postMergeSteps.loaded = false;
+    postMergeSteps.settled = false;
     setManualStepDone.mockClear();
     dismissManualSteps.mockClear();
   });
@@ -107,5 +122,143 @@ describe("PostMergeStepsPanel", () => {
     await expect.element(page.getByText(m.owed_dismiss_confirm())).toBeInTheDocument();
     await page.getByText(m.owed_dismiss_confirm()).click();
     expect(dismissManualSteps).toHaveBeenCalledWith("s1");
+  });
+});
+
+describe("PostMergeStepsPanel — focus (#1275)", () => {
+  beforeEach(() => {
+    postMergeSteps.records = [];
+    postMergeSteps.loaded = false;
+    postMergeSteps.settled = false;
+  });
+
+  it("live record + loaded: highlights the live card, no frozen fallback", async () => {
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const onfocusresolved = vi.fn();
+    const screen = render(PostMergeStepsPanel, {
+      focusSessionId: "s1",
+      focusSnapshot: snapshot({ sessionId: "s1" }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+      onfocusresolved,
+    });
+    await expect.poll(() => onfocusresolved.mock.calls.length).toBe(1);
+    expect(onfocusresolved).toHaveBeenCalledWith(1);
+    expect(screen.container.querySelector(".ow-card--frozen")).toBeNull();
+    await expect
+      .poll(() =>
+        screen.container.querySelector('[data-session-id="s1"]')?.classList.contains("focus"),
+      )
+      .toBe(true);
+  });
+
+  it("merged + live record NOT yet settled: waits (no frozen 'no longer owed' flash), then resolves once loaded", async () => {
+    const onfocusresolved = vi.fn();
+    const screen = render(PostMergeStepsPanel, {
+      focusSessionId: "s1",
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+      onfocusresolved,
+    });
+    // Load still in flight (loaded:false, settled:false, records empty) — must NOT render a
+    // frozen "no longer owed" card, and must NOT resolve yet.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.container.querySelector(".ow-card--frozen")).toBeNull();
+    expect(onfocusresolved).not.toHaveBeenCalled();
+
+    // Late load resolves with the live record.
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+
+    await expect.poll(() => onfocusresolved.mock.calls.length).toBe(1);
+    expect(onfocusresolved).toHaveBeenCalledWith(1);
+    expect(screen.container.querySelector(".ow-card--frozen")).toBeNull();
+  });
+
+  it("merged + cleared (settled, loaded, no live record): frozen card with the cleared note", async () => {
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+    });
+    await expect.element(page.getByText(m.owed_frozen_cleared_note())).toBeInTheDocument();
+    await expect.element(page.getByText(m.owed_frozen_unknown_note())).not.toBeInTheDocument();
+  });
+
+  it("merged + load failed (settled, NOT loaded, no live record): frozen card with the unknown note", async () => {
+    postMergeSteps.loaded = false;
+    postMergeSteps.settled = true;
+    render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+    });
+    await expect.element(page.getByText(m.owed_frozen_unknown_note())).toBeInTheDocument();
+    await expect.element(page.getByText(m.owed_frozen_cleared_note())).not.toBeInTheDocument();
+  });
+
+  it("pre-merge (snapshot.merged=false): frozen card with the pre-merge note regardless of load state", async () => {
+    render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+    });
+    await expect.element(page.getByText(m.owed_frozen_pre_merge_note())).toBeInTheDocument();
+  });
+
+  it("empty-state precedence: a pinned frozen card replaces .ow-empty, never hides behind it", async () => {
+    render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+    });
+    await expect.element(page.getByText(m.owed_frozen_pre_merge_note())).toBeInTheDocument();
+    await expect.element(page.getByText(m.owed_empty())).not.toBeInTheDocument();
+  });
+
+  it("remount guard: a lens toggle back with the same (already-handled) nonce shows no phantom frozen card", async () => {
+    const onfocusresolved = vi.fn();
+    const first = render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+      onfocusresolved,
+    });
+    await expect.poll(() => onfocusresolved.mock.calls.length).toBe(1);
+    await first.unmount();
+
+    // Simulated remount (owner's page kept handledNonce === nonce across the panel's own unmount).
+    const second = render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
+      focusNonce: 1,
+      focusHandledNonce: 1,
+      onfocusresolved,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(second.container.querySelector(".ow-card--frozen")).toBeNull();
+  });
+
+  it("nonce guard: a records refresh with an already-handled nonce does not re-resolve or re-highlight", async () => {
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const onfocusresolved = vi.fn();
+    render(PostMergeStepsPanel, {
+      focusSessionId: "s1",
+      focusSnapshot: snapshot({ sessionId: "s1" }),
+      focusNonce: 1,
+      focusHandledNonce: 1, // already handled — this focus was resolved by an earlier click
+      onfocusresolved,
+    });
+    // A WS-driven records refresh (new array identity, same content) must not re-trigger resolution.
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onfocusresolved).not.toHaveBeenCalled();
   });
 });

@@ -843,6 +843,17 @@ export interface PostMergeSteps {
   clearedAt: number | null;
 }
 
+/** Snapshot of a session's manual steps captured when its chip is clicked, so the Owed panel can
+ *  render a read-only "frozen" card when no live outstanding record exists (pre-merge, cleared,
+ *  dismissed, or load-failed). #<owed> */
+export interface OwedFocusSnapshot {
+  sessionId: string;
+  desig: string;
+  prNumber: number | null;
+  steps: ManualStep[]; // frozen from session.manualSteps at click time
+  merged: boolean; // git state === "merged" at click time
+}
+
 export interface SessionUsage {
   input: number;
   output: number;

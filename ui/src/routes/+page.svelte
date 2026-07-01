@@ -53,6 +53,7 @@
     HeldTask,
     Issue,
     IssueRef,
+    OwedFocusSnapshot,
     PullRequest,
     SandboxProfile,
     Session,
@@ -983,6 +984,14 @@
   // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
+  // Owed-lens focus (#1275): set when a manual-steps chip is clicked, so the Owed panel can
+  // scroll-to + highlight the target session's card (or render a frozen fallback). The nonce
+  // pair lets the panel (which unmounts on lens switch) tell an unhandled click from one it
+  // already resolved, surviving its own remounts.
+  let owedFocusId = $state<string | null>(null);
+  let owedFocusSnapshot = $state<OwedFocusSnapshot | null>(null);
+  let owedFocusNonce = $state(0);
+  let owedFocusHandledNonce = $state(0);
   // Panel-only lenses (rundown + owed, #1061): the rail swaps in a dedicated panel and the main
   // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
   const panelOnlyLens = $derived(
@@ -1925,12 +1934,41 @@
     }
   }
 
-  // Manual-steps chip -> Owed lens (#1275). Just a lens switch for now; scroll-to + highlight +
-  // frozen-card fallback land in a later task, which is when this id param starts being used.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- id is wired for a later task
-  function onShowOwed(_id: string) {
+  // Manual-steps chip -> Owed lens (#1275): switch lenses and snapshot the session's steps so the
+  // panel can scroll-to + highlight the live card, or fall back to a read-only frozen card when no
+  // live outstanding record exists (pre-merge, cleared, dismissed, or load-failed).
+  function onShowOwed(id: string) {
+    const s = store.sessions.find((x) => x.id === id);
+    if (s) {
+      owedFocusSnapshot = {
+        sessionId: id,
+        desig: s.desig,
+        prNumber: store.git[id]?.number ?? null,
+        steps: s.manualSteps,
+        merged: store.git[id]?.state === "merged",
+      };
+      owedFocusId = id;
+      owedFocusNonce += 1; // bump so re-clicking the same session re-fires
+    }
     herdFilter = "owed";
   }
+
+  // Reports the panel's resolution of a focus click (live scroll+flash, frozen fallback, or a
+  // still-loading wait that later resolved) so a later remount of the panel (lens toggled away and
+  // back) can tell an already-handled click from a fresh one.
+  function onOwedFocusResolved(nonce: number) {
+    owedFocusHandledNonce = nonce;
+  }
+
+  // Clear focus on leaving the Owed lens so a later return via the lens strip doesn't resurrect a
+  // stale frozen/highlight target. Nonces are left alone — a future click bumps owedFocusNonce past
+  // owedFocusHandledNonce regardless.
+  $effect(() => {
+    if (herdFilter !== "owed") {
+      owedFocusId = null;
+      owedFocusSnapshot = null;
+    }
+  });
 
   // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
   // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
@@ -2146,6 +2184,11 @@
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
+            {owedFocusId}
+            {owedFocusSnapshot}
+            {owedFocusNonce}
+            {owedFocusHandledNonce}
+            onfocusresolved={onOwedFocusResolved}
             onbacklog={() => (showBacklog = true)}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
@@ -2314,6 +2357,11 @@
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
+            {owedFocusId}
+            {owedFocusSnapshot}
+            {owedFocusNonce}
+            {owedFocusHandledNonce}
+            onfocusresolved={onOwedFocusResolved}
             onbacklog={() => (showBacklog = true)}
           />
         {/if}

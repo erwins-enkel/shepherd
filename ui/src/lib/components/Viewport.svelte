@@ -33,6 +33,7 @@
     getCommands,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
+  import { trimTrailingWhitespace } from "$lib/terminalSelection";
   import { composeKeystrokes } from "$lib/compose";
   import { findCommandLinks } from "$lib/slashLinks";
   import { shouldForwardEscape } from "$lib/terminalEscape";
@@ -1138,6 +1139,34 @@
       c.resize(term.cols, term.rows);
     };
 
+    // Selection-offset fix. xterm measures the character cell exactly once (in its
+    // CharSizeService) and maps mouse coords → (row, col) with that width, but it
+    // only re-measures on becoming visible when the prior size was *invalid*
+    // (width 0) and never on web-font load. Two conditions leave a *valid but
+    // wrong* measurement that drifts the selection by a few characters for the
+    // terminal's whole life: the mount was `display:none` at open (a non-term
+    // initial tab — the effect opens xterm regardless of the active tab), or
+    // 'JetBrains Mono' hadn't finished loading (async Google font, `display=swap`)
+    // when it was measured under the fallback metrics. Changing `fontFamily`
+    // forces CharSizeService to re-measure (it watches ["fontFamily","fontSize"]),
+    // so toggle it off/on once — the first moment the mount is both visible and
+    // the font is loaded — then refit to the corrected cell size. Latched so it
+    // runs at most once and never in the common warm case (term tab active + font
+    // cached at open), where the original measurement was already correct.
+    let disposed = false;
+    const remeasureFont = `${mobile || touch ? 11 : 12.5}px 'JetBrains Mono'`;
+    let metricsFixed = el.offsetParent !== null && (document.fonts?.check(remeasureFont) ?? true);
+    const remeasure = () => {
+      if (metricsFixed || disposed || !el || el.offsetParent === null) return; // needs visible
+      if (document.fonts && !document.fonts.check(remeasureFont)) return; // needs font loaded
+      term.options.fontFamily = "monospace"; // OptionsService dedupes equal values, so
+      term.options.fontFamily = "'JetBrains Mono', monospace"; // toggle → CharSizeService.measure()
+      refit();
+      metricsFixed = true;
+    };
+    // Font resolves while the terminal is already visible → re-measure then.
+    if (!metricsFixed) document.fonts?.ready.then(remeasure);
+
     // Shift+Enter → newline: xterm emits a bare CR for both Enter and
     // Shift+Enter, so Claude Code can't tell them apart and submits. Returning
     // false alone is insufficient — xterm then skips its own preventDefault and
@@ -1182,7 +1211,7 @@
       // the agent rather than copying; this gives users an explicit copy shortcut.
       // Read the selection before returning false — xterm hasn't cleared it yet.
       if (e.type === "keydown" && e.ctrlKey && e.shiftKey && (e.key === "C" || e.key === "c")) {
-        const sel = term.getSelection();
+        const sel = trimTrailingWhitespace(term.getSelection());
         if (sel) {
           e.preventDefault();
           navigator.clipboard?.writeText(sel)?.catch((err) => {
@@ -1270,7 +1299,7 @@
     const onDocMouseUp = () => {
       if (!selectingInTerm) return;
       selectingInTerm = false;
-      const sel = term.getSelection();
+      const sel = trimTrailingWhitespace(term.getSelection());
       if (sel) {
         navigator.clipboard?.writeText(sel)?.catch((err) => {
           console.warn("copy-on-select: clipboard write failed", err);
@@ -1292,6 +1321,21 @@
       attachImages(imgs);
     };
     el.addEventListener("paste", onPaste, true);
+
+    // Native copy (macOS Cmd+C, right-click → Copy, Ctrl+Insert) bypasses the two
+    // programmatic copy paths above: xterm binds its own `copy` handler (bubble
+    // phase, on its terminal element — a descendant of `el`) that writes the raw,
+    // untrimmed selection to the clipboard. Intercept in the capture phase on `el`
+    // so we run first, write the trimmed text, and stopImmediatePropagation() to
+    // keep xterm's handler from overwriting it. No selection → fall through.
+    const onCopy = (e: ClipboardEvent) => {
+      const sel = trimTrailingWhitespace(term.getSelection());
+      if (!sel) return;
+      e.clipboardData?.setData("text/plain", sel);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    el.addEventListener("copy", onCopy, true);
 
     // Claude Code runs as a full-screen TUI with mouse tracking on (it stays on
     // the normal buffer, keeping scrollback, but grabs the wheel): scrolling
@@ -1423,6 +1467,9 @@
     });
 
     const ro = new ResizeObserver(() => {
+      // fires on the display:none → visible flip when the term tab is shown, which
+      // is where a mount that opened hidden finally gets a valid size → re-measure
+      remeasure();
       refit();
     });
     ro.observe(el);
@@ -1489,6 +1536,7 @@
     el.addEventListener("wheel", onWheelTrack, { passive: true, capture: true });
 
     return () => {
+      disposed = true; // stops a pending document.fonts.ready remeasure after teardown
       window.removeEventListener("keydown", onWindowKeydown, true);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
@@ -1496,6 +1544,7 @@
       el?.removeEventListener("mousedown", onTermMouseDown, true);
       document.removeEventListener("mouseup", onDocMouseUp);
       el?.removeEventListener("paste", onPaste, true);
+      el?.removeEventListener("copy", onCopy, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);

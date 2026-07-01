@@ -55,7 +55,7 @@ describe("detect_os + decide (OS → mode)", () => {
     expect(r.stdout).toContain("mode: core-only");
     expect(r.stdout).toContain("NO_SERVICE=1");
     // Concise degraded notice (printed via warn → stderr); the full capability
-    // list now lives in provision.ts (MACOS_DEGRADED_BANNER), not exercised here.
+    // list now lives in provision.ts (macosDegradedBanner), not exercised here.
     const all = r.stdout + r.stderr;
     expect(all).toContain("DEGRADED");
     expect(all).toContain("core-only");

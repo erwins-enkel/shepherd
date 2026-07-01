@@ -68,7 +68,7 @@ decide() {
       MODE="core-only"
       export SHEPHERD_NO_SERVICE=1
       # The authoritative degraded-capability list lives in provision.ts
-      # (MACOS_DEGRADED_BANNER) — the layer that actually proceeds core-only and
+      # (macosDegradedBanner) — the layer that actually proceeds core-only and
       # prints it. Keep this to a one-liner so the two don't drift.
       warn "macOS detected → core-only / DEGRADED mode (no systemd unit); details below."
       ;;

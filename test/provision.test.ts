@@ -9,6 +9,8 @@ import {
   needsInstall,
   decideServicePath,
   guidanceNextSteps,
+  macosDegradedBanner,
+  noServiceStartHint,
   templateUnit,
   installPrereqs,
   ensureNodeGyp,
@@ -461,11 +463,32 @@ describe("provision — low-memory advisory wiring", () => {
 
 describe("guidanceNextSteps", () => {
   it("includes the local URL and the human-secret follow-ups", () => {
-    const steps = guidanceNextSteps().join("\n");
+    const steps = guidanceNextSteps("/home/op/.shepherd/app").join("\n");
     expect(steps).toContain("http://localhost:7330");
     expect(steps.toLowerCase()).toContain("claude");
     expect(steps).toContain("gh auth login");
     expect(steps).toContain("tailscale serve");
     expect(steps).toContain("SHEPHERD_ALLOWED_HOSTS");
+  });
+
+  it("leads with the checkout dir so the operator knows where it landed", () => {
+    const steps = guidanceNextSteps("/opt/custom/shepherd").join("\n");
+    expect(steps).toContain("Installed to: /opt/custom/shepherd");
+  });
+});
+
+describe("macosDegradedBanner", () => {
+  it("makes the manual-start line copy-pasteable with the checkout dir", () => {
+    const banner = macosDegradedBanner("/home/op/.shepherd/app").join("\n");
+    expect(banner).toContain("DEGRADED");
+    expect(banner).toContain('cd "/home/op/.shepherd/app" && bun run start');
+  });
+});
+
+describe("noServiceStartHint", () => {
+  it("gives the Linux no-service path a manual-start command with the dir", () => {
+    const hint = noServiceStartHint("/opt/custom/shepherd").join("\n");
+    expect(hint).toContain("SHEPHERD_NO_SERVICE");
+    expect(hint).toContain('cd "/opt/custom/shepherd" && bun run start');
   });
 });

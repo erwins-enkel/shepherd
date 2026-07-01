@@ -25,11 +25,14 @@ try {
   // the prebuilt helper (node-pty ships it 0644; Bun preserves tarball perms). The
   // raw stack is a black box; replace it with an actionable line pointing at the fix.
   if (String(err && err.message).includes("posix_spawn")) {
-    const helper = `node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/spawn-helper`;
+    // The helper is either the prebuilt or the source-built one, depending on the
+    // install; name both so the pointed-at path isn't misleading. The fix command
+    // handles either.
+    const arch = `${process.platform}-${process.arch}`;
     process.stderr.write(
-      `pty-attach: node-pty could not launch its spawn-helper (${helper}) — ` +
-        `likely a missing execute bit (EACCES). Fix: run \`bun scripts/fix-node-pty-perms.mjs\` ` +
-        `or re-run deploy/provision.ts, then retry.\n`,
+      `pty-attach: node-pty could not launch its spawn-helper — likely a missing ` +
+        `execute bit (EACCES) on node_modules/node-pty/{build/Release,prebuilds/${arch}}/spawn-helper. ` +
+        `Fix: run \`bun scripts/fix-node-pty-perms.mjs\` or re-run deploy/provision.ts, then retry.\n`,
     );
     process.exit(1);
   }

@@ -46,7 +46,7 @@ export function fixNodePtyPerms(nodePtyDir, platformArch, log) {
     if (!existsSync(p)) continue;
     const mode = statSync(p).mode & 0o777;
     if (mode & 0o100) continue; // owner-executable already → leave it, stay silent
-    const next = mode | 0o755;
+    const next = mode | 0o111; // restore ONLY the exec bits; keep existing r/w
     chmodSync(p, next);
     flipped.push(p);
     // Log ONLY on an actual flip, so a macOS fix is observable in the deploy log

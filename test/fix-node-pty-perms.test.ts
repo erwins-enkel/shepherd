@@ -60,6 +60,13 @@ test("also fixes a source-built build/Release helper", () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("restores only the exec bits, without broadening read/write (0600 → 0711)", () => {
+  const [dir, helper] = fakeTree("darwin-arm64", 0o600);
+  fixNodePtyPerms(dir, "darwin-arm64");
+  expect(modeOf(helper)).toBe(0o711); // exec added; group/other r/w NOT granted
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("absent tree → no throw, nothing flipped, silent (Linux no-op)", () => {
   const dir = mkdtempSync(join(tmpdir(), "node-pty-perms-"));
   const logs: string[] = [];

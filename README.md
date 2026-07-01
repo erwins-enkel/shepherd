@@ -50,14 +50,10 @@ headless or scripted invocation.
 If a feature can't be done by typing into a real terminal, it doesn't ship. See `PRD.md` for the
 full rationale.
 
-Operators who need a clearly-compliant path — or who cannot accept the R1 ambiguity around
-keystroke-puppeting of interactive sessions — can opt into **API-key auth (footing B)** in Settings
+Operators who prefer a clearly-compliant path can opt into **API-key auth** in Settings
 → Session. In this mode Shepherd still drives genuine interactive `claude` sessions (NOT `claude -p`
 / Agent SDK); only the auth changes from subscription OAuth to a metered Anthropic API key under the
-Commercial Terms, which explicitly exempts automated use from the §3 bot/script prohibition and is
-no-train-by-default. This closes both the R1 ambiguity and the R5 training-exposure. See
-[`docs/research/tos-position-and-auth-paths.md`](docs/research/tos-position-and-auth-paths.md) for
-the full evaluation.
+Commercial Terms, which explicitly permits automated use and is no-train-by-default.
 
 ## Your `/commands` come with you
 

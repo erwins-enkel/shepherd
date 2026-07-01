@@ -23,30 +23,30 @@ when done, not when read.
 - [ ] **Enable the free security features** (all currently disabled). Settings → Code
       security: **secret scanning**, **push protection**, **Dependabot alerts**. Push
       protection is the safety net against a future accidental secret commit.
-- [ ] **Add a `SECURITY.md`** vulnerability-disclosure policy. Important for a tool that
-      executes agent code and puppets sessions; today there's only `docs/sandbox-security.md`.
-- [ ] **Fix the required-check bypass.** `ci.yml`, `pr-hygiene.yml`, `pr-title.yml` skip
-      their gate jobs when `startsWith(github.head_ref, 'release-please--')`. `head_ref`
-      is the fork-controlled branch name, so a fork PR branched `release-please--x` skips
-      **all** CI while still reporting the required checks as satisfied (skipped == passing).
-      Gate the skip on the release-bot **identity**, not the branch name.
-- [ ] **DECISION — candid internal docs go world-readable.** The ToS risk-assessment and
-      launch-strategy notes under `docs/research/` (`tos-position-and-auth-paths.md`,
-      `claude-anthropic-tos-compliance-audit.md`, `claude-swap-integration.md`,
-      `effort-maturity-and-open-source-launch.md`) read as internal legal/strategy
-      self-assessment and go further than the measured README framing. Consciously decide:
-      publish as-is / soften / move to a private repo. No secrets — this is editorial.
+- [x] **Add a `SECURITY.md`** vulnerability-disclosure policy — added in this PR (points at
+      GitHub Private Vulnerability Reporting; enabling that feature is a settings step below).
+- [x] **Fix the required-check bypass.** `ci.yml`, `pr-hygiene.yml`, `pr-title.yml` skipped
+      their gate jobs on `startsWith(github.head_ref, 'release-please--')` — a fork-controlled
+      branch name, so a fork PR branched `release-please--x` skipped **all** CI while still
+      reporting the required checks satisfied (skipped == passing). Fixed in this PR: the skip
+      now also requires the release-bot **identity**, which a fork can't spoof.
+- [x] **Candid internal research docs removed.** Seven `docs/research/` notes (the ToS-position,
+      compliance-audit, account-integration and launch-strategy cluster, plus three borderline
+      spikes) are deleted from the tree in this PR, and their inbound links + the sharper ToS
+      framing in `README.md` / `PRD.md` / `PRODUCT.md` / `docs/sandbox-security.md` are softened
+      to the design-stance level. **Operator step:** run the history scrub (`git filter-repo`)
+      per the runbook so the files leave git history too, then force-push — do this **while
+      still private**. See the PR description for the exact commands.
 
 ## 🟡 Medium — soon after flip
 
 - [ ] **DECISION — forking.** `allow_forking` is currently `false`, which blocks all
       outside PRs. Enable it if you want real external contribution (and only after the
       runner teardown above).
-- [ ] **Add `permissions: { contents: read }`** to `pr-hygiene.yml` (only workflow with no
-      top-level permissions block — inherits the broad repo-default token).
-- [ ] **SHA-pin third-party actions** — `oven-sh/setup-bun`, `googleapis/release-please-action`,
-      `actions/create-github-app-token` (currently mutable major tags; the release action
-      runs with write scope near the App private key).
+- [x] **Add `permissions: { contents: read }`** to `pr-hygiene.yml` — done in this PR.
+- [x] **SHA-pin third-party actions** — `oven-sh/setup-bun`, `googleapis/release-please-action`,
+      `actions/create-github-app-token` pinned to commit SHAs (with version comments) in this PR.
+      First-party `actions/checkout` + `actions/cache` left on major tags (Dependabot-managed).
 - [ ] **Tighten PR-merge gating.** The `main` ruleset requires **0** approving reviews,
       Actions **can approve PRs**, and there's no `CODEOWNERS`. Consider ≥1 required review
       for outside contributions and disabling Actions PR approval.

@@ -2,7 +2,7 @@
 
 **Summary.** When you start a session with **Codex** (as TASK-433 did) it sees only the MCP servers in `~/.codex/config.toml`; when you start with **Claude** it sees only the servers in `~/.claude` + the repo's `.mcp.json`. Shepherd treats the two CLIs as **interchangeable runtimes** (diagnostics requires _at least one_ to exist — `src/diagnostics.ts:266-299`) but does **nothing** to keep their MCP toolsets in parity — each CLI reads its own native config and Shepherd passes it through untouched. So a server you configured once "on the Claude side" is invisible the moment you flip a task to Codex, and you only find out mid-run ("merkt dann dass der MCP fehlt"). This doc maps why that happens, then proposes a small **MCP-parity** automation modeled on the two patterns Shepherd already has for exactly this shape of problem — the **diagnostics/remediation** service and the **distiller** learnings flywheel — so an MCP configured "here" can be surfaced (and optionally bridged) "there".
 
-> Engineering design exploration evaluated **2026-06-29**, companion to [`claude-swap-integration.md`](./claude-swap-integration.md) (the other "make the two runtimes interchangeable" thread). A capability map and recommendation, not a committed plan.
+> Engineering design exploration evaluated **2026-06-29** — a capability map and recommendation for making the two runtimes interchangeable, not a committed plan.
 
 ---
 

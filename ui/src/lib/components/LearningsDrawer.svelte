@@ -266,6 +266,7 @@
     <div class="about-body" id="learnings-about" hidden={!aboutOpen}>
       <p>{m.learnings_about_lead()} <strong>{m.learnings_about_scope()}</strong></p>
       <p>{m.learnings_about_flow()}</p>
+      <p>{m.learnings_actions_help()}</p>
       <!-- Change 8: Budget explainer line -->
       <p>{m.learnings_about_budget()}</p>
     </div>

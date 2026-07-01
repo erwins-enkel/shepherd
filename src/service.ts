@@ -522,10 +522,11 @@ const SINGLE_PR_INVARIANT =
 /**
  * Agent-facing notice (#1257) that tells a PR-authoring agent to DECLARE manual operator steps in the
  * PR body via the carriers `parseManualSteps()` (src/manual-steps.ts) understands, so the #1061
- * post-merge pipeline + the Owed lens get a live data source. Rides every CODE spawn (suppressed for
- * research) — Claude gets it via composeSystemPrompt, Codex inline via buildCodexSpawnArgv (Codex has
- * no --append-system-prompt). Not user-facing chrome (an instruction to the agent), so no i18n — same
- * precedent as SINGLE_PR_INVARIANT / AUTOPILOT_DIRECTIVE.
+ * post-merge pipeline + the Owed lens get a live data source. Claude gets it via composeSystemPrompt
+ * on code spawns (suppressed for research). Codex has no --append-system-prompt, so it would be
+ * visible inline; for Codex we only append it when the session is effectively in autopilot, keeping
+ * attended Codex starts aligned with the Claude Code New Task flow. Not user-facing chrome (an
+ * instruction to the agent), so no i18n — same precedent as SINGLE_PR_INVARIANT / AUTOPILOT_DIRECTIVE.
  *
  * IMPORTANT — the embedded fenced example is the SOURCE OF TRUTH for the carrier syntax and is pinned
  * to the parser by a unit test (`parseManualSteps(MANUAL_STEPS_NOTICE)` in test/manual-steps.test.ts).
@@ -1712,11 +1713,10 @@ export class SessionService {
   ): string[] {
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     if (model) argv.push("--model", model);
-    // Codex has no --append-system-prompt, so the blocks Claude gets via composeSystemPrompt must
-    // ride inline on the prompt. The autopilot directive is gated by the caller on
-    // !research && isolated && effectiveAutopilot; the manual-steps notice (#1257) is gated only on
-    // !research (its single-pr-invariant equivalent — every code spawn, autopilot or not). See the
-    // buildCodexSpawnArgv call site.
+    // Codex has no --append-system-prompt, so extra blocks ride inline on the prompt. For attended
+    // sessions that would visibly turn the operator's prompt into PR workflow guidance, unlike the
+    // Claude Code New Task flow. The caller therefore gates both autopilot and PR/manual-steps text
+    // on the same effective-autopilot predicate.
     let prompt = promptArg;
     if (autopilotActive)
       prompt += `\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
@@ -1924,6 +1924,14 @@ export class SessionService {
         ? "trusted"
         : this.researchSafeProfileOverride(spawnInput, repoConfig, sessionId);
     const baseUrl = this.resolveSpawnBaseUrl(profileOverride, spawnInput.repoPath);
+    const codexAutopilotActive =
+      agentProvider === "codex" &&
+      !spawnInput.research &&
+      wt.isolated &&
+      effectiveAutopilot(
+        { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
+        repoConfig.autopilotEnabled,
+      );
     const argv =
       agentProvider === "codex"
         ? this.buildCodexSpawnArgv(
@@ -1935,15 +1943,10 @@ export class SessionService {
             // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
             // (which replaces the autopilot directive) and non-isolated (which autopilot
             // stands down on — see eligible()).
-            !spawnInput.research &&
-              wt.isolated &&
-              effectiveAutopilot(
-                { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
-                repoConfig.autopilotEnabled,
-              ),
-            // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
-            // research — its single-pr-invariant equivalent, independent of the autopilot gate.
-            !spawnInput.research,
+            codexAutopilotActive,
+            // Codex cannot hide this in a system prompt; keep attended starts free of PR/body
+            // instructions and attach the manual-steps contract only for autonomous PR-bound runs.
+            codexAutopilotActive,
           )
         : this.buildSpawnArgv(
             spawnInput,

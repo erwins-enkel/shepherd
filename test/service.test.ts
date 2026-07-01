@@ -175,9 +175,8 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     autopilotEnabled: false,
   });
 
-  // The fixed flags + model are exact; the prompt (last arg) now carries the #1257 manual-steps
-  // notice appended inline (every codex CODE spawn), so it starts with the user prompt rather than
-  // equalling it. Autopilot is off here → no autopilot directive.
+  // Autopilot is off here, so Codex gets the attended New Task shape: just the operator prompt,
+  // with no inline PR/manual-steps workflow guidance.
   expect(calls.start.argv.slice(0, 5)).toEqual([
     "codex",
     "--no-alt-screen",
@@ -186,9 +185,9 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     "gpt-5.5",
   ]);
   const codexPrompt = calls.start.argv[5] as string;
-  expect(codexPrompt.startsWith("flatten it")).toBe(true);
+  expect(codexPrompt).toBe("flatten it");
   expect(codexPrompt).not.toContain("<autopilot-directive>");
-  expect(codexPrompt).toContain("<manual-steps-notice>");
+  expect(codexPrompt).not.toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
   expect(s.claudeSessionId).toBe("");
@@ -217,8 +216,8 @@ test("createSession: codex drops a carried Claude model and uses provider defaul
   ]);
   expect(calls.start.argv).not.toContain("--model");
   const codexPrompt = calls.start.argv[3] as string;
-  expect(codexPrompt.startsWith("flatten it")).toBe(true);
-  expect(codexPrompt).toContain("<manual-steps-notice>");
+  expect(codexPrompt).toBe("flatten it");
+  expect(codexPrompt).not.toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBeNull();
   expect(store.get(s.id)?.model).toBeNull();
@@ -236,6 +235,7 @@ test("createSession: codex + isolated + autopilotEnabled=true → directive inje
     autopilotEnabled: true,
   });
   expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(hasManualNotice(calls.start.argv)).toBe(true);
   expect(store.get(s.id)?.autopilotEnabled).toBe(true);
 });
 
@@ -253,6 +253,7 @@ test("createSession: codex + NON-isolated + autopilotEnabled=true → NO directi
   // Persistence honors the override; the directive is gated on isolation (eligibility/badge
   // surface the non-isolated stand-down).
   expect(hasDirective(calls.start.argv)).toBe(false);
+  expect(hasManualNotice(calls.start.argv)).toBe(false);
   expect(store.get(s.id)?.autopilotEnabled).toBe(true);
 });
 
@@ -271,6 +272,7 @@ test("createSession: codex + isolated + inherited-default ON (null override) →
     // autopilotEnabled omitted → null → inherits repo default ON
   });
   expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(hasManualNotice(calls.start.argv)).toBe(true);
   expect(store.get(s.id)?.autopilotEnabled).toBe(null);
 });
 
@@ -286,6 +288,7 @@ test("createSession: codex + NON-isolated + inherited-default ON (null override)
     images: [],
   });
   expect(hasDirective(calls.start.argv)).toBe(false);
+  expect(hasManualNotice(calls.start.argv)).toBe(false);
   expect(store.get(s.id)?.autopilotEnabled).toBe(null);
 });
 
@@ -304,10 +307,9 @@ test("createSession: codex + isolated + research + repo-default ON → NO direct
   expect(hasDirective(calls.start.argv)).toBe(false);
 });
 
-// #1257: the manual-steps notice rides every codex CODE spawn (gated only on !research — its
-// single-pr-invariant equivalent), independent of the autopilot/isolation gate, and is suppressed
-// for a research spawn (which opens no code PR).
-test("createSession: codex code spawn carries the manual-steps notice, even with autopilot off", async () => {
+// #1257 + attended Codex parity: Codex cannot hide this in --append-system-prompt, so attended
+// Codex spawns omit the inline PR/manual-steps block; effective autopilot spawns still carry it.
+test("createSession: codex attended code spawn omits the manual-steps notice when autopilot is off", async () => {
   const { service, calls } = codexHarness(true);
   await service.create({
     repoPath: "/repo",
@@ -318,7 +320,7 @@ test("createSession: codex code spawn carries the manual-steps notice, even with
     images: [],
     autopilotEnabled: false,
   });
-  expect(hasManualNotice(calls.start.argv)).toBe(true);
+  expect(hasManualNotice(calls.start.argv)).toBe(false);
   expect(hasDirective(calls.start.argv)).toBe(false);
 });
 

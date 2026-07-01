@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
@@ -79,6 +79,7 @@ import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
+import { contractViolationGate, planPhaseViolationPaths } from "./plan-gate";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
  *  its completion-tracker entry waits this long for a poller-gated late merge to
@@ -814,6 +815,16 @@ const PLAN_GO_STEER_BASE =
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {
   return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
+}
+
+function readPlanFile(worktreePath: string): string | null {
+  const p = join(worktreePath, ".shepherd-plan.md");
+  if (!existsSync(p)) return null;
+  try {
+    return readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1704,6 +1715,8 @@ export class SessionService {
     model: string | null,
     autopilotActive: boolean,
     manualStepsNotice: boolean,
+    planGateOn: boolean,
+    systemPrompt: string,
   ): string[] {
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     if (model) argv.push("--model", model);
@@ -1712,10 +1725,27 @@ export class SessionService {
     // !research && isolated && effectiveAutopilot; the manual-steps notice (#1257) is gated only on
     // !research (its single-pr-invariant equivalent — every code spawn, autopilot or not). See the
     // buildCodexSpawnArgv call site.
-    let prompt = promptArg;
-    if (autopilotActive)
+    let prompt = planGateOn
+      ? [
+          "<codex-plan-gate-contract>",
+          "Codex has no Shepherd system-prompt launch hook in this path, so treat this entire initial prompt as a binding system contract.",
+          "You are in Shepherd's pre-execution PLAN GATE.",
+          "Do not write, edit, delete, stage, commit, or otherwise modify product code during planning.",
+          "The only files you may create or update before approval are `.shepherd-plan.md` and, when useful, `.shepherd-plan-blocks.json`.",
+          "First inspect the codebase enough to plan confidently, then write `.shepherd-plan.md` at the repository root.",
+          "After writing or revising the plan, stop and wait for Shepherd review and explicit approval before implementation.",
+          "</codex-plan-gate-contract>",
+          "",
+          systemPrompt,
+          "",
+          "<task>",
+          promptArg,
+          "</task>",
+        ].join("\n")
+      : promptArg;
+    if (!planGateOn && autopilotActive)
       prompt += `\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
-    if (manualStepsNotice)
+    if (!planGateOn && manualStepsNotice)
       prompt += `\n\n<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`;
     argv.push(prompt);
     return argv;
@@ -1911,8 +1941,7 @@ export class SessionService {
     }
 
     const repoConfig = this.deps.store.getRepoConfig(spawnInput.repoPath);
-    const planGateOn =
-      agentProvider === "claude" ? this.resolvePlanGateOn(spawnInput, repoConfig) : false;
+    const planGateOn = this.resolvePlanGateOn(spawnInput, repoConfig);
     const trim = await this.trimFor(spawnInput.auto);
     const profileOverride =
       agentProvider === "codex"
@@ -1921,25 +1950,40 @@ export class SessionService {
     const baseUrl = this.resolveSpawnBaseUrl(profileOverride, spawnInput.repoPath);
     const argv =
       agentProvider === "codex"
-        ? this.buildCodexSpawnArgv(
-            promptArg,
-            spawnInput.model,
-            // Deliberate divergence from Claude (which gates its directive on the repo
-            // default only, see buildSpawnArgv): Codex uses effectiveAutopilot so the
-            // headline case (repo default OFF + per-session toggle ON) gets the directive.
-            // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
-            // (which replaces the autopilot directive) and non-isolated (which autopilot
-            // stands down on — see eligible()).
-            !spawnInput.research &&
-              wt.isolated &&
-              effectiveAutopilot(
-                { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
-                repoConfig.autopilotEnabled,
-              ),
-            // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
-            // research — its single-pr-invariant equivalent, independent of the autopilot gate.
-            !spawnInput.research,
-          )
+        ? (() => {
+            const houseRules = this.recordInjectedHouseRules(sessionId, spawnInput);
+            const planGate = planGateOn ? (spawnInput.auto ? "auto" : "interactive") : undefined;
+            const systemPrompt = composeSystemPrompt(houseRules, false, {
+              research: spawnInput.research,
+              planGate,
+              buildQueue: null,
+              previewHint: wt.isolated,
+              draftMode: repoConfig.draftMode,
+              trimmed: false,
+            });
+            return this.buildCodexSpawnArgv(
+              promptArg,
+              spawnInput.model,
+              // Deliberate divergence from Claude (which gates its directive on the repo
+              // default only, see buildSpawnArgv): Codex uses effectiveAutopilot so the
+              // headline case (repo default OFF + per-session toggle ON) gets the directive.
+              // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
+              // (which replaces the autopilot directive) and non-isolated (which autopilot
+              // stands down on — see eligible()).
+              !planGateOn &&
+                !spawnInput.research &&
+                wt.isolated &&
+                effectiveAutopilot(
+                  { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
+                  repoConfig.autopilotEnabled,
+                ),
+              // Manual-steps notice (#1257): rides every Codex code spawn, suppressed only for
+              // research — its single-pr-invariant equivalent, independent of the autopilot gate.
+              !spawnInput.research,
+              planGateOn,
+              systemPrompt,
+            );
+          })()
         : this.buildSpawnArgv(
             spawnInput,
             claudeSessionId,
@@ -2006,7 +2050,7 @@ export class SessionService {
         model: spawnInput.model,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
-        planGateEnabled: agentProvider === "claude" ? (spawnInput.planGateEnabled ?? null) : false,
+        planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,
@@ -2982,6 +3026,7 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
+    if (this.applyPlanContractViolationIfPresent(s)) return false;
     this.#enterExecution(id);
     const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
     this.reply(id, planGoSteer(draftMode));
@@ -3007,7 +3052,35 @@ export class SessionService {
   advanceToExecutionOnPr(id: string): boolean {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
+    if (this.applyPlanContractViolationIfPresent(s)) return false;
     this.#enterExecution(id);
+    return true;
+  }
+
+  private applyPlanContractViolationIfPresent(session: Session): boolean {
+    const changed = planPhaseViolationPaths(session.worktreePath);
+    if (changed.length === 0) return false;
+
+    const prior = this.deps.store.getPlanGate(session.id);
+    const plan = prior?.plan ?? readPlanFile(session.worktreePath) ?? "";
+    const gate = contractViolationGate({
+      sessionId: session.id,
+      planHash: prior?.planHash ?? createHash("sha256").update(plan).digest("hex"),
+      plan,
+      blocks: prior?.blocks ?? [],
+      changed,
+      cap: prior?.cap ?? config.planReviewCyclesCap,
+      now: Date.now(),
+    });
+    this.deps.store.putPlanGate(gate);
+    this.deps.events?.emit("session:plangate", { id: session.id, gate });
+    this.deps.store.addSignal({
+      repoPath: session.repoPath,
+      sessionId: session.id,
+      kind: "stall",
+      payload:
+        "plan gate contract violated during planning — product code changed before plan approval",
+    });
     return true;
   }
 

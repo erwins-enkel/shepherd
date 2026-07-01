@@ -113,6 +113,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "get"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "completeReviewerSpawnNoUsage"
     | "listReviewerSpawns"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
@@ -149,6 +150,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
   baseSha?: (repoPath: string, base: string) => string;
+  /** default: git diff/cached/untracked names from the live worktree. */
+  changedPaths?: (worktreePath: string) => string[];
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
@@ -188,6 +191,7 @@ export class PlanGateService {
   private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
+  private changedPaths: (worktreePath: string) => string[];
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
@@ -204,6 +208,7 @@ export class PlanGateService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultBaseSha;
+    this.changedPaths = deps.changedPaths ?? defaultChangedPaths;
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
@@ -222,6 +227,12 @@ export class PlanGateService {
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
     if (!plan) return "skipped"; // no plan written yet → nothing to review
+    const violation = this.planPhaseViolation(session.worktreePath);
+    if (violation.length) {
+      const planHash = await PlanGateService.hashPlan(plan);
+      this.applyContractViolation(session, plan, planHash, violation);
+      return "error";
+    }
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
     // considers would otherwise both clear the guards above and double-spawn (orphaning the
     // first run's worktree + terminal). With the claim here, the second bails on the guard.
@@ -369,6 +380,41 @@ export class PlanGateService {
     return "started";
   }
 
+  private planPhaseViolation(worktreePath: string): string[] {
+    try {
+      return planPhaseViolationPaths(worktreePath, this.changedPaths);
+    } catch (err) {
+      console.warn(`[plan-gate] changed-path scan failed for ${worktreePath}:`, err);
+      return [];
+    }
+  }
+
+  private applyContractViolation(
+    session: Session,
+    plan: string,
+    planHash: string,
+    changed: string[],
+  ): void {
+    const gate = contractViolationGate({
+      sessionId: session.id,
+      planHash,
+      plan,
+      blocks: this.readPlanBlocks(session.worktreePath),
+      changed,
+      cap: this.cap,
+      now: this.now(),
+    });
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(session.id, gate);
+    this.deps.store.addSignal({
+      repoPath: session.repoPath,
+      sessionId: session.id,
+      kind: "stall",
+      payload:
+        "plan gate contract violated during planning — product code changed before plan approval",
+    });
+  }
+
   /** Re-adopt plan reviews that were in flight when the server last stopped. The `inflight`
    *  map is in-memory only, so a restart mid-review used to orphan the reviewer forever: its
    *  verdict was never read, the gate never advanced, and the planning agent sat idle waiting
@@ -479,6 +525,7 @@ export class PlanGateService {
       try {
         const usage = await this.readUsage(f.worktreePath, f.reviewerSessionId);
         if (usage) this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
+        else this.deps.store.completeReviewerSpawnNoUsage(f.reviewerSessionId, this.now());
       } catch (err) {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }
@@ -842,6 +889,73 @@ function defaultReadVerdict(worktreePath: string): RawPlanVerdict | null {
   } catch {
     return null; // partial write; try again next tick
   }
+}
+
+function isAllowedPlanningPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  return normalized === PLAN_FILE || normalized === PLAN_BLOCKS_FILE;
+}
+
+export function planPhaseViolationPaths(
+  worktreePath: string,
+  changedPaths: (worktreePath: string) => string[] = defaultChangedPaths,
+): string[] {
+  return changedPaths(worktreePath).filter((p) => !isAllowedPlanningPath(p));
+}
+
+export function contractViolationGate(args: {
+  sessionId: string;
+  planHash: string;
+  plan: string;
+  blocks: VisualBlock[];
+  changed: string[];
+  cap: number;
+  now: number;
+}): PlanGate {
+  const sample = args.changed.slice(0, 5).join(", ");
+  const extra = args.changed.length > 5 ? `, +${args.changed.length - 5} more` : "";
+  return {
+    sessionId: args.sessionId,
+    planHash: args.planHash,
+    decision: "error",
+    summary: "Plan gate contract violated",
+    body:
+      "The planning session changed files outside the plan artifacts before approval. " +
+      `Changed product files: ${sample}${extra}`,
+    findings: [
+      "Revert product-code changes made during planning, revise only `.shepherd-plan.md` and optional `.shepherd-plan-blocks.json`, then request review again.",
+    ],
+    round: 0,
+    cap: args.cap,
+    approved: false,
+    plan: args.plan,
+    blocks: args.blocks,
+    updatedAt: args.now,
+  };
+}
+
+function defaultChangedPaths(worktreePath: string): string[] {
+  const out = new Set<string>();
+  const collect = (args: string[]): void => {
+    try {
+      const raw = execFileSync("git", args, {
+        cwd: worktreePath,
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+      for (const line of raw.split("\n")) {
+        const p = line.trim();
+        if (p) out.add(p);
+      }
+    } catch {
+      // Treat scan failure as "unknown" rather than blocking every plan gate on a transient git issue.
+    }
+  };
+  collect(["diff", "--name-only"]);
+  collect(["diff", "--cached", "--name-only"]);
+  collect(["ls-files", "--others", "--exclude-standard"]);
+  return [...out];
 }
 
 /** Resolve the base branch's SHA for the disposable worktree. Prefer the freshest `origin/<base>`,

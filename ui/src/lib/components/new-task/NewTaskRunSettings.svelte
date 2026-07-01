@@ -75,13 +75,13 @@
     <label class="plan-gate" use:coachTarget={"plan-gate"}>
       <input
         type="checkbox"
-        checked={agentProvider === "codex" ? false : planGate}
+        checked={planGate}
         onchange={(e) => {
           planGate = e.currentTarget.checked;
           onPlanGateTouched();
           if (planGate) research = false;
         }}
-        disabled={planGateLoading || agentProvider === "codex"}
+        disabled={planGateLoading}
       />
       <span class="pg-label">{m.newtask_plan_gate_label()}</span>
     </label>
@@ -207,6 +207,15 @@
       {#if holdLikely}
         <p>{m.newtask_agent_provider_codex_suggested_for_hold()}</p>
       {/if}
+      <p class="provider-note-line">
+        <span>{m.newtask_agent_provider_codex_plan_gate_limited()}</span>
+        <InfoTip
+          text={m.newtask_agent_provider_codex_plan_gate_limited_tip()}
+          label={m.newtask_info_aria({
+            topic: m.newtask_agent_provider_codex_plan_gate_limited(),
+          })}
+        />
+      </p>
       <p>{m.newtask_agent_provider_codex_note()}</p>
     </div>
   {/if}
@@ -280,6 +289,11 @@
   }
   .provider-callout p + p {
     margin-top: 5px;
+  }
+  .provider-note-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .opts-row {
     display: flex;

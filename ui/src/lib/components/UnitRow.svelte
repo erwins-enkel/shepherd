@@ -90,7 +90,7 @@
     // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
     // opens the new-task composer pre-filled from this session (cross-repo relaunch)
     onrelaunchElsewhere?: (id: string) => void;
-    // when provided, the CardMenu gains "Start as variant…" / "Replace with…" items that open
+    // when provided, the CardMenu gains "Start as variant…" / "Continue with…" items that open
     // the provider/model picker anchored at the passed coords (comparison experiments)
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;

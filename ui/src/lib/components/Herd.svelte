@@ -124,7 +124,7 @@
     onrelaunch?: (id: string) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
-    // when provided, each row's CardMenu gains "Start as variant…" / "Replace with…" items
+    // when provided, each row's CardMenu gains "Start as variant…" / "Continue with…" items
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     // when provided, each experiment group header gains a "Compare" action

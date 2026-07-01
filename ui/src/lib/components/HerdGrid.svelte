@@ -34,7 +34,7 @@
     onrelaunch?: (id: string) => void;
     // when provided, each tile's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
-    // when provided, each tile's CardMenu gains "Start as variant…" / "Replace with…" items
+    // when provided, each tile's CardMenu gains "Start as variant…" / "Continue with…" items
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     issueActionsUnset?: boolean;

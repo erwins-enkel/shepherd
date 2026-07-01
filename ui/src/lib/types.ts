@@ -1437,7 +1437,7 @@ export interface RelaunchOverrides {
   repoPath?: string;
   baseBranch?: string;
   prompt?: string;
-  /** Agent CLI override; absent → keep the original's provider (drives "Replace with…"). */
+  /** Agent CLI override; absent → keep the original's provider. */
   agentProvider?: AgentProvider;
   model?: string | null;
   planGateEnabled?: boolean | null;

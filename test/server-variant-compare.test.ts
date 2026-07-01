@@ -164,7 +164,7 @@ test("replace: updates the existing session and emits no new/archive events", as
   expect(body.session.worktreePath).toBe("/same-wt");
   expect(h.calls.replaceAgent[0]).toEqual({
     id: "orig",
-    choice: { agentProvider: "codex", model: "gpt-5.5" },
+    choice: { agentProvider: "codex", model: "gpt-5.5", handoffMode: "resume" },
   });
   expect(h.emitted.map((e) => e.event)).toEqual(["session:status"]);
   expect(h.emitted[0]?.data).toMatchObject({
@@ -178,6 +178,15 @@ test("replace: updates the existing session and emits no new/archive events", as
 test("replace: 400 on an invalid model/provider pair", async () => {
   const h = harness({});
   const res = await h.app.fetch(replaceReq("orig", { agentProvider: "claude", model: "gpt-5.5" }));
+  expect(res.status).toBe(400);
+  expect(h.calls.replaceAgent).toHaveLength(0);
+});
+
+test("replace: 400 on an invalid handoff mode", async () => {
+  const h = harness({});
+  const res = await h.app.fetch(
+    replaceReq("orig", { agentProvider: "codex", model: "gpt-5.5", handoffMode: "start" }),
+  );
   expect(res.status).toBe(400);
   expect(h.calls.replaceAgent).toHaveLength(0);
 });

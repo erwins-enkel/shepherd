@@ -1746,7 +1746,7 @@
   }
 
   // ── Comparison experiments ───────────────────────────────────────────────────
-  // A card's "Start as variant…" / "Replace with…" menu item and an experiment group's
+  // A card's "Start as variant…" / "Continue with…" menu item and an experiment group's
   // "Compare" button all open the SAME anchored provider/model picker; the chosen pair drives
   // the matching API call. Variants/comparison spawns appear live via session:new; the original
   // joins the group live via session:experiment.

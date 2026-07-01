@@ -30,6 +30,7 @@ export function expandHome(p: string): string {
 type Ok = { ok: true; value: CreateSessionInput };
 type Err = { ok: false; error: string };
 type Result = Ok | Err;
+export type HandoffMode = "resume" | "summarize";
 
 const err = (error: string): Err => ({ ok: false, error });
 
@@ -108,6 +109,12 @@ function validateModel(value: unknown, agentProvider?: AgentProvider): Field<str
   return err("unknown model");
 }
 
+function validateHandoffMode(value: unknown): Field<HandoffMode> {
+  if (value == null) return field("resume");
+  if (value === "resume" || value === "summarize") return field(value);
+  return err("handoffMode must be one of: resume, summarize");
+}
+
 /**
  * Validate a `{ agentProvider?, model? }` body for the variant / comparison spawn endpoints.
  * `agentProvider` is optional (absent → caller falls back to the original's / config default);
@@ -126,6 +133,27 @@ export function validateModelChoice(
   const model = validateModel(obj.model, provider.value);
   if (!model.ok) return model;
   return { ok: true, value: { agentProvider: provider.value, model: model.value } };
+}
+
+/** Validate the in-place continuation payload for `/api/sessions/:id/replace`. */
+export function validateReplaceAgentChoice(body: unknown):
+  | {
+      ok: true;
+      value: { agentProvider?: AgentProvider; model: string | null; handoffMode: HandoffMode };
+    }
+  | { ok: false; error: string } {
+  const obj = body == null ? {} : (body as Record<string, unknown>);
+  if (typeof obj !== "object" || Array.isArray(obj)) return err("body must be a non-null object");
+  const provider = validateAgentProvider(obj.agentProvider);
+  if (!provider.ok) return provider;
+  const model = validateModel(obj.model, provider.value);
+  if (!model.ok) return model;
+  const handoffMode = validateHandoffMode(obj.handoffMode);
+  if (!handoffMode.ok) return handoffMode;
+  return {
+    ok: true,
+    value: { agentProvider: provider.value, model: model.value, handoffMode: handoffMode.value },
+  };
 }
 
 /** repoPath — required non-empty string, confined to repoRoot, existing directory. */

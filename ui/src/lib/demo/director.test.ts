@@ -184,6 +184,58 @@ describe("director mutation reactions", () => {
     term.unsub();
   });
 
+  it("reply resuming a held session (neon) keeps ticking via ambient, not just the burst", () => {
+    director.start();
+    const { frames, unsub } = collectBus();
+    const term = collectPty("neon");
+
+    demoState.reply("neon", "use option B — keep the read replica");
+    vi.advanceTimersByTime(3_000); // let the one-shot burst + settle fire
+
+    const activityAfterBurst = idsOf(frames, "session:activity").filter(
+      (id) => id === "neon",
+    ).length;
+    const bytesAfterBurst = term.bytes.length;
+    expect(activityAfterBurst).toBeGreaterThan(0);
+    expect(bytesAfterBurst).toBeGreaterThan(0);
+
+    // Advance well past the burst window — an ambient loop (not a one-shot) keeps
+    // emitting session:activity + PTY bytes for neon.
+    vi.advanceTimersByTime(15_000);
+    const activityLater = idsOf(frames, "session:activity").filter((id) => id === "neon").length;
+    expect(activityLater).toBeGreaterThan(activityAfterBurst);
+    expect(term.bytes.length).toBeGreaterThan(bytesAfterBurst);
+
+    unsub();
+    term.unsub();
+  });
+
+  it("answering plan questions on a PLANNING session (authstore) skips the code-editing burst and ambient", () => {
+    director.start();
+    const { frames, unsub } = collectBus();
+    const term = collectPty("authstore");
+
+    demoState.answerPlanQuestions("authstore");
+    vi.advanceTimersByTime(15_000);
+
+    // No code-editing terminal lines — the plan-answer reaction is not the steer burst.
+    expect(term.bytes.some((b) => b.includes("apply.ts"))).toBe(false);
+    expect(term.bytes.some((b) => b.includes("folding that into the current change"))).toBe(false);
+
+    // Not treated as "working" — no ambient loop spun up for authstore.
+    const activityCount = idsOf(frames, "session:activity").filter(
+      (id) => id === "authstore",
+    ).length;
+    vi.advanceTimersByTime(15_000);
+    const activityCountLater = idsOf(frames, "session:activity").filter(
+      (id) => id === "authstore",
+    ).length;
+    expect(activityCountLater).toBe(activityCount);
+
+    unsub();
+    term.unsub();
+  });
+
   it("epic advance → spawns the next child session and drives it", () => {
     director.start();
     const { frames, unsub } = collectBus();

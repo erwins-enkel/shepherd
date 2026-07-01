@@ -100,11 +100,17 @@ function intervalFor(id: string): number {
   return 3000 + (h % 5) * 350; // 3.0s–4.4s
 }
 
+/** Shared predicate for "actively WORKING" — reused by `workingIds()` and by
+ *  `reactSteer` to decide whether a reply-resumed session needs ambient liveness. */
+function isWorking(s: { status: string; lastState: string }): boolean {
+  return s.status === "running" && s.lastState === "working";
+}
+
 /** Ids of sessions that are actively WORKING in the CURRENT (post-seed/reset) world. */
 function workingIds(): string[] {
   return demoState
     .sessions()
-    .filter((s) => s.status === "running" && s.lastState === "working")
+    .filter(isWorking)
     .map((s) => s.id);
 }
 
@@ -188,8 +194,18 @@ function reactPlanGate(id: string): void {
   }, 1600);
 }
 
-/** steer/reply → after a beat the agent acknowledges, pushes a few lines, then settles. */
+/** steer/reply → after a beat the agent acknowledges, pushes a few lines, then settles
+ *  (and, if the reply resumed a held session into WORKING, keeps it ticking via ambient).
+ *  A plan-question answer (`answerPlanQuestions`) routes through the same
+ *  `session:activity` frame but the session is still PLANNING, not working — that gets
+ *  a short plan-appropriate acknowledgment instead of a code-editing burst. */
 function reactSteer(id: string): void {
+  const session = demoState.sessions().find((s) => s.id === id);
+  if (session?.planPhase === "planning") {
+    pushBurst(id, [`● Noted — folding the answer into the plan.${NL}`], 600);
+    return;
+  }
+
   pushBurst(
     id,
     [
@@ -213,6 +229,10 @@ function reactSteer(id: string): void {
         },
       },
     });
+    // A reply can resume a held/paused session (e.g. `neon`) straight to working —
+    // pick it up in the ambient set so the heartbeat/terminal keep ticking past the
+    // burst. Idempotent, so an already-ambient session (e.g. `coupon`) is unaffected.
+    if (workingIds().includes(id)) startAmbient(id);
   }, 2200);
 }
 

@@ -27,6 +27,7 @@
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
+  import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
   import {
     AGENT_PROVIDERS,
     MODELS,
@@ -43,6 +44,7 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
+  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -268,12 +270,16 @@
     const cli = roleCli[role];
     return cli === "claude" || cli === "codex" ? MODELS_BY_PROVIDER[cli] : [];
   }
-  // Client-side mirror of the server's resolveRoleEnvironment, for the "effective →" hint only:
-  // returns a "CLI · Model" label. inherit → global provider+model; "default"/"auto" → provider
-  // default; fable substitutes when off; a model not in the CLI's list clamps to the default.
-  function effectiveEnvLabel(role: RoleBase): string {
+  // Client-side mirror of the server's resolveRoleEnvironment for the effective line and
+  // model guidance. inherit → global provider+model; "default"/"auto" → provider default;
+  // fable substitutes when off; a model not in the CLI's list clamps to the default.
+  function resolvedRoleEnv(role: RoleBase): {
+    provider: AgentProvider;
+    model: string;
+    label: string;
+  } {
     const cli = roleCli[role];
-    let provider: string;
+    let provider: AgentProvider;
     let token: string;
     if (cli === "claude" || cli === "codex") {
       provider = cli;
@@ -283,15 +289,28 @@
       provider = defaultAgentProvider;
       token = defaultModel; // "auto" | "default" | <alias>
     }
+    let model: string;
     let modelLbl: string;
     if (token === "auto" || token === "default") {
+      model = "default";
       modelLbl = m.settings_role_model_effective_provider_default();
     } else {
-      let s = token;
-      if (s === "fable" && !fableAvailable) s = "opus[1m]";
-      modelLbl = modelLabel(s);
+      model = modelGuidanceAlias(token, fableAvailable);
+      modelLbl = modelLabel(model);
     }
-    return `${providerLabel(provider)} · ${modelLbl}`;
+    return { provider, model, label: `${providerLabel(provider)} · ${modelLbl}` };
+  }
+  function effectiveEnvLabel(role: RoleBase): string {
+    return resolvedRoleEnv(role).label;
+  }
+  function roleGuidanceProvider(role: RoleBase): AgentProvider {
+    return resolvedRoleEnv(role).provider;
+  }
+  function roleGuidanceModel(role: RoleBase): string {
+    return resolvedRoleEnv(role).model;
+  }
+  function roleGuidanceContext(role: RoleBase): "role" | "classifier" {
+    return ROLE_CLASSIFIERS.includes(role) ? "classifier" : "role";
   }
 
   async function saveRoleCli(role: RoleBase) {
@@ -1008,9 +1027,14 @@
             <option value="auto">{m.settings_default_model_auto()}</option>
             <option value="default">{m.newtask_model_default()}</option>
             {#each MODELS as mdl (mdl)}
-              <option value={mdl}>{modelLabel(mdl)}</option>
+              <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
             {/each}
           </select>
+          <ModelGuidance
+            provider="claude"
+            model={modelGuidanceAlias(defaultModel, fableAvailable)}
+            context="default"
+          />
           {#if isPremiumModel}
             <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
           {/if}
@@ -1113,7 +1137,7 @@
               >
                 <option value="default">{m.newtask_model_default()}</option>
                 {#each roleModelOptions(role) as mdl (mdl)}
-                  <option value={mdl}>{modelLabel(mdl)}</option>
+                  <option value={mdl}>{modelOptionLabel(roleGuidanceProvider(role), mdl)}</option>
                 {/each}
               </select>
             {/if}
@@ -1121,6 +1145,11 @@
           <p class="hint role-eff">
             {m.settings_role_model_effective({ model: effectiveEnvLabel(role) })}
           </p>
+          <ModelGuidance
+            provider={roleGuidanceProvider(role)}
+            model={roleGuidanceModel(role)}
+            context={roleGuidanceContext(role)}
+          />
         </div>
       {/snippet}
 
@@ -1356,9 +1385,14 @@
           <!-- Concrete aliases only: "auto"/"default" resolve to null (no --model) via
                drainSpawnModel, which would make the downgrade a silent no-op. -->
           {#each MODELS as mdl (mdl)}
-            <option value={mdl}>{modelLabel(mdl)}</option>
+            <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
           {/each}
         </select>
+        <ModelGuidance
+          provider="claude"
+          model={modelGuidanceAlias(usageDowngradeModel, fableAvailable)}
+          context="downgrade"
+        />
       </div>
       <div class="rc">
         <span class="micro">{m.settings_fable_available_label()}</span>

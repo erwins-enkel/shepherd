@@ -3,14 +3,17 @@
   import { repoConfig } from "$lib/reviews.svelte";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
   import { MODELS } from "$lib/types";
-  import { modelLabel } from "$lib/model-label";
+  import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
+  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import type { RepoRoles } from "$lib/types";
   import "./automation-fields.css";
 
   let {
     repoPath,
+    fableAvailable,
   }: {
     repoPath: string;
+    fableAvailable: boolean;
   } = $props();
 
   // Repo responsibilities (.shepherd/roles.json): who reviews, who merges. Loaded
@@ -75,6 +78,9 @@
       rolesError = String((e as Error)?.message ?? e);
     }
   }
+
+  const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
+  const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
 </script>
 
 <!-- Default model: a repo-wide override of the global default (Settings → Session).
@@ -86,7 +92,7 @@
     <select
       class="afield-num model-select"
       aria-label={m.automation_default_model_label()}
-      value={repoConfig.defaultModelFor(repoPath)}
+      value={defaultModel}
       onchange={(e) =>
         repoConfig.setDefaultModel(repoPath, (e.currentTarget as HTMLSelectElement).value)}
     >
@@ -94,10 +100,13 @@
       <option value="auto">{m.settings_default_model_auto()}</option>
       <option value="default">{m.newtask_model_default()}</option>
       {#each MODELS as mdl (mdl)}
-        <option value={mdl}>{modelLabel(mdl)}</option>
+        <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
       {/each}
     </select>
   </label>
+  <div class="drain-model-guidance">
+    <ModelGuidance provider="claude" model={guidanceModel} context="repo" />
+  </div>
   <div class="signoff-note">{m.automation_default_model_hint()}</div>
 </div>
 
@@ -201,6 +210,9 @@
   .signoff-note {
     font-size: var(--fs-meta);
     color: var(--color-faint);
+    padding: 0 12px 6px;
+  }
+  .drain-model-guidance {
     padding: 0 12px 6px;
   }
 </style>

@@ -288,6 +288,10 @@
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
   const newTaskInitialModel = $derived(composeModel ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
+  // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
+  const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
+  const onboardingRepoRootDisplay = $derived(settings?.repoRootDisplay ?? null);
+  const onboardingSettingsLoaded = $derived(settings !== null);
   const newTaskHeldProviders = $derived(new Set<AgentProvider>(holdLikely ? ["claude"] : []));
   const newTaskDefaultAgentProvider = $derived(
     capacitySuggestedProvider(
@@ -416,9 +420,9 @@
     onretry={ononboardingretry}
     ondismiss={ononboardingdismiss}
     blocking={onboardingBlocking}
-    repoRoot={settings?.repoRoot ?? null}
-    repoRootDisplay={settings?.repoRootDisplay ?? null}
-    settingsLoaded={settings !== null}
+    repoRoot={onboardingRepoRoot}
+    repoRootDisplay={onboardingRepoRootDisplay}
+    settingsLoaded={onboardingSettingsLoaded}
     onpicked={ononboardingpicked}
   />
 {/if}

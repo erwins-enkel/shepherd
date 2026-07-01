@@ -3291,6 +3291,25 @@ async function githubRateLimitResponse(deps: AppDeps): Promise<Response> {
   }
 }
 
+// POST /api/usage/refresh — re-scrape usage and return the fresh limits. Extracted from
+// handleUsageLimits so the multi-route dispatcher stays lean and this spawn-triggering path
+// (blocked while first-run pending) is a single focused unit.
+async function handleUsageRefresh(deps: Ctx["deps"]): Promise<Response> {
+  const b = firstRunBlock();
+  if (b) return b;
+  // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
+  const { limits, scraped } = deps.refreshUsage
+    ? await deps.refreshUsage()
+    : { limits: deps.usageLimits.limits(Date.now()), scraped: true };
+  // Fail closed: a refresh that didn't actually re-scrape (probe failed, or skipped) must NOT
+  // look like success — return non-OK so the client surfaces its retry state instead of silently
+  // keeping the stale numbers. Subscription-only attempts no scrape, so it never trips.
+  if (!scraped && !limits.subscriptionOnly) {
+    return json({ error: "usage refresh did not re-scrape", code: "refresh_stale" }, 503);
+  }
+  return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
+}
+
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (
     req.method === "POST" &&
@@ -3298,19 +3317,7 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
     parts[1] === "usage" &&
     parts[2] === "refresh"
   ) {
-    const b = firstRunBlock();
-    if (b) return b;
-    // No live calibrator (tests): fall back to the current snapshot, treated as a successful read.
-    const { limits, scraped } = deps.refreshUsage
-      ? await deps.refreshUsage()
-      : { limits: deps.usageLimits.limits(Date.now()), scraped: true };
-    // Fail closed: a refresh that didn't actually re-scrape (probe failed, or skipped) must NOT
-    // look like success — return non-OK so the client surfaces its retry state instead of silently
-    // keeping the stale numbers. Subscription-only attempts no scrape, so it never trips.
-    if (!scraped && !limits.subscriptionOnly) {
-      return json({ error: "usage refresh did not re-scrape", code: "refresh_stale" }, 503);
-    }
-    return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
+    return handleUsageRefresh(deps);
   }
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "usage" && parts[2] === "limits") {
     const now = Date.now();

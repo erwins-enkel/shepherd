@@ -210,6 +210,7 @@
   function closeMenu() {
     menu = null;
     menuPos = null;
+    holdFired = false;
   }
 
   async function commitPin() {

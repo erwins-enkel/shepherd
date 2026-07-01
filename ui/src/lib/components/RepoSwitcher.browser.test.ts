@@ -250,6 +250,38 @@ describe("RepoSwitcher — filter rail", () => {
     expect(onrepofilter).not.toHaveBeenCalled();
   });
 
+  it("does not suppress the next chip click after dismissing a held-open pin menu", async () => {
+    vi.useFakeTimers();
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: null,
+      onrepofilter,
+    });
+    const alpha = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) });
+    const beta = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) });
+
+    alpha.element().dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        clientX: 40,
+        clientY: 40,
+        bubbles: true,
+      }),
+    );
+    vi.advanceTimersByTime(500);
+    await tick();
+    alpha.element().dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    await beta.click();
+
+    expect(document.querySelector(".rs-menu"), "menu closed by Escape").toBeNull();
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta");
+  });
+
   it("a paused repo shows the ● marker AND announces via the live region", async () => {
     const pausedChip = chip({
       repoPath: "/repo/alpha",

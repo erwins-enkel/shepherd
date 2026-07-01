@@ -57,7 +57,11 @@
     // via the `components: { SocialIcons: "./src/components/SiteBacklink.astro" }`
     // string path in astro.config.mjs, not a static import — so fallow reports it as
     // an unused file (same string-path-root class as custom.css above).
-    "docs-site/src/components/SiteBacklink.astro"
+    "docs-site/src/components/SiteBacklink.astro",
+    // Head overrides Starlight's `Head` slot to append Vercel Web Analytics. Loaded
+    // via the `components: { Head: "./src/components/Head.astro" }` string path in
+    // astro.config.mjs — same string-path-root class as SiteBacklink above.
+    "docs-site/src/components/Head.astro"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

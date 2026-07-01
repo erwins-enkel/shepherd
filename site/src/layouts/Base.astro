@@ -1,5 +1,6 @@
 ---
 import { Font } from "astro:assets";
+import Analytics from "@vercel/analytics/astro";
 import "../styles/global.css";
 
 interface Props {
@@ -56,6 +57,11 @@ const {
     -->
     <Font cssVariable="--font-space-grotesk" preload={[{ weight: 400 }]} />
     <Font cssVariable="--font-jetbrains-mono" preload={[{ weight: 400 }]} />
+
+    <!-- Vercel Web Analytics: injects the client script that loads
+         /_vercel/insights/script.js (served once Web Analytics is enabled for the
+         project). Component-only path — no @astrojs/vercel adapter needed for static. -->
+    <Analytics />
   </head>
   <body>
     <slot />

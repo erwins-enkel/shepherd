@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
 import type { HerdStore } from "$lib/store.svelte";
+import type { AgentProvider, DiagnosticsSnapshot } from "$lib/types";
 
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
 // Keep every other $lib/api export real (AppOverlays imports many for the
@@ -119,6 +120,53 @@ function baseProps(): Props {
     onstarresolve: vi.fn(),
   };
 }
+
+function diagnostics(states: Record<AgentProvider, "ok" | "optional">): DiagnosticsSnapshot {
+  return {
+    checks: [
+      { id: "claude", state: states.claude, hintKey: "x" },
+      { id: "codex", state: states.codex, hintKey: "x" },
+    ],
+    generatedAt: 0,
+    overall: "ok",
+  };
+}
+
+describe("AppOverlays — NewTask provider capacity default", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("preselects Codex when Claude would be held and both coding CLIs are ready", async () => {
+    const props = baseProps();
+    props.showNew = true;
+    props.holdLikely = true;
+    props.settings = { defaultAgentProvider: "claude", fableAvailable: true } as Props["settings"];
+    props.store = {
+      diagnostics: diagnostics({ claude: "ok", codex: "ok" }),
+    } as unknown as HerdStore;
+
+    render(AppOverlays, props);
+
+    await expect
+      .poll(() => document.querySelector<HTMLSelectElement>("#nt-agent-provider")?.value)
+      .toBe("codex");
+  });
+
+  it("keeps Claude when the Codex CLI is not ready", async () => {
+    const props = baseProps();
+    props.showNew = true;
+    props.holdLikely = true;
+    props.settings = { defaultAgentProvider: "claude", fableAvailable: true } as Props["settings"];
+    props.store = {
+      diagnostics: diagnostics({ claude: "ok", codex: "optional" }),
+    } as unknown as HerdStore;
+
+    render(AppOverlays, props);
+
+    await expect
+      .poll(() => document.querySelector<HTMLSelectElement>("#nt-agent-provider")?.value)
+      .toBe("claude");
+  });
+});
 
 // Regression guard for the #855 +page → AppOverlays extraction: the
 // NewTask↔Clone↔Fork↔NewProject handoff wiring now flows through AppOverlays

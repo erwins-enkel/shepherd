@@ -4,6 +4,7 @@
   import { displayStatus } from "$lib/display-status";
   import { learnings } from "$lib/learnings.svelte";
   import { toasts } from "$lib/toasts.svelte";
+  import { capacitySuggestedProvider } from "$lib/provider-capacity";
   import { basename } from "$lib/components/learnings-drawer";
   import {
     approveLearning,
@@ -279,6 +280,14 @@
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
   const newTaskInitialModel = $derived(composeModel ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
+  const newTaskHeldProviders = $derived(new Set<AgentProvider>(holdLikely ? ["claude"] : []));
+  const newTaskDefaultAgentProvider = $derived(
+    capacitySuggestedProvider(
+      settings?.defaultAgentProvider ?? "claude",
+      store.diagnostics,
+      newTaskHeldProviders,
+    ),
+  );
 </script>
 
 {#if showLearnings}
@@ -428,7 +437,7 @@
     initialAutopilot={composeAutopilot}
     initialSandboxProfile={composeSandbox}
     initialResearch={composeResearch}
-    defaultAgentProvider={settings?.defaultAgentProvider}
+    defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}

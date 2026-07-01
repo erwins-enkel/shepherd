@@ -165,10 +165,9 @@
   let autopilot = $state(initialAutopilot ?? false);
   // svelte-ignore state_referenced_locally
   let autopilotTouched = $state(initialAutopilot != null);
-  // Seeds once from the operator's explicit default-CLI setting. A usage hold no
-  // longer auto-switches this to Codex — that silently overrode an explicit choice.
-  // When held, Claude stays selected and the dual Hold-for-reset / Submit-anyway
-  // buttons below offer the handoff; Codex remains one manual pick away.
+  // Seeds once from the overlay-resolved default CLI. The overlay may route a fresh
+  // task to a ready alternate provider when the configured default would hit a
+  // usage hold; explicit relaunch/edit-held seeds still win and preserve the task.
   // svelte-ignore state_referenced_locally
   let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.

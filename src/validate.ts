@@ -799,32 +799,49 @@ function validateSteerRepos(v: unknown): string[] | undefined | null {
   return seen.size === 0 ? undefined : [...seen];
 }
 
-/** Validate + normalize a single steer item. Returns null on any violation. */
-function validateSteerItem(it: unknown): Steer | null {
-  if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
-  const o = it as Record<string, unknown>;
+/** Validate a steer's required label + text strings. Returns null on any violation. */
+function validateSteerLabelText(
+  o: Record<string, unknown>,
+): { label: string; text: string } | null {
   if (typeof o.label !== "string" || typeof o.text !== "string") return null;
   const label = o.label.trim();
   const text = o.text.trim();
   if (label.length === 0 || label.length > STEER_LABEL_MAX) return null;
   if (text.length === 0 || text.length > STEER_TEXT_MAX) return null;
-  const emoji = validateSteerEmoji(o.emoji);
-  // legacy payloads predate the surfaces: they were steer-bar-only chips
+  return { label, text };
+}
+
+/** Validate a steer's surface flags + the "must render somewhere" guard. Null on violation.
+ *  Legacy payloads predate the surfaces: they were steer-bar-only chips. */
+function validateSteerSurfaces(
+  o: Record<string, unknown>,
+): { inSteerBar: boolean; onIssues: boolean } | null {
   const inSteerBar = validateSteerScope(o.inSteerBar, true);
   const onIssues = validateSteerScope(o.onIssues, false);
-  if (emoji === null || inSteerBar === null || onIssues === null) return null;
+  if (inSteerBar === null || onIssues === null) return null;
   // both surfaces off → the steer renders nowhere; mirror the SteersEditor guard
   if (!inSteerBar && !onIssues) return null;
+  return { inSteerBar, onIssues };
+}
+
+/** Validate + normalize a single steer item. Returns null on any violation. */
+function validateSteerItem(it: unknown): Steer | null {
+  if (it === null || typeof it !== "object" || Array.isArray(it)) return null;
+  const o = it as Record<string, unknown>;
+  const labelText = validateSteerLabelText(o);
+  const surfaces = validateSteerSurfaces(o);
+  if (labelText === null || surfaces === null) return null;
+  const emoji = validateSteerEmoji(o.emoji);
   const repos = validateSteerRepos(o.repos);
-  if (repos === null) return null;
+  if (emoji === null || repos === null) return null;
   const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
   return {
     id,
-    label,
-    text,
+    label: labelText.label,
+    text: labelText.text,
     ...(emoji !== undefined ? { emoji } : {}),
-    inSteerBar,
-    onIssues,
+    inSteerBar: surfaces.inSteerBar,
+    onIssues: surfaces.onIssues,
     ...(repos !== undefined ? { repos } : {}),
   };
 }

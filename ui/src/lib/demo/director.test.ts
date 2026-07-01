@@ -236,6 +236,34 @@ describe("director mutation reactions", () => {
     term.unsub();
   });
 
+  it("reply to a plan-flagged session (authstore) resumes ambient — planPhase doesn't silence it", () => {
+    // reply() sets status running + lastState working WITHOUT clearing planPhase; the
+    // steer reaction must treat it as working (burst + ambient), not take the quiet
+    // plan-answer branch and leave it working-but-silent.
+    director.start();
+    const { frames, unsub } = collectBus();
+    const term = collectPty("authstore");
+
+    demoState.reply("authstore", "go with the token-rotation approach");
+    vi.advanceTimersByTime(3_000); // one-shot burst + settle
+    const activityAfterBurst = idsOf(frames, "session:activity").filter(
+      (id) => id === "authstore",
+    ).length;
+    expect(activityAfterBurst).toBeGreaterThan(0);
+    const bytesAfterBurst = term.bytes.length;
+
+    // Past the burst window, an ambient loop keeps authstore ticking.
+    vi.advanceTimersByTime(15_000);
+    const activityLater = idsOf(frames, "session:activity").filter(
+      (id) => id === "authstore",
+    ).length;
+    expect(activityLater).toBeGreaterThan(activityAfterBurst);
+    expect(term.bytes.length).toBeGreaterThan(bytesAfterBurst);
+
+    unsub();
+    term.unsub();
+  });
+
   it("epic advance → spawns the next child session and drives it", () => {
     director.start();
     const { frames, unsub } = collectBus();

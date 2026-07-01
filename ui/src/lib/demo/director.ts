@@ -201,7 +201,12 @@ function reactPlanGate(id: string): void {
  *  a short plan-appropriate acknowledgment instead of a code-editing burst. */
 function reactSteer(id: string): void {
   const session = demoState.sessions().find((s) => s.id === id);
-  if (session?.planPhase === "planning") {
+  // Plan-question answer: still PLANNING and not yet working (`answerPlanQuestions`
+  // touches neither status nor lastState) → a short plan-appropriate ack, no code burst.
+  // A `reply` to the SAME plan-gate session resumes it to working (status running +
+  // lastState working) without clearing planPhase, so gate on `!isWorking` — otherwise
+  // it would take the plan branch and never start ambient, going working-but-silent.
+  if (session && !isWorking(session) && session.planPhase === "planning") {
     pushBurst(id, [`● Noted — folding the answer into the plan.${NL}`], 600);
     return;
   }

@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.40.0](https://github.com/erwins-enkel/shepherd/compare/v1.39.1...v1.40.0) (2026-07-01)
+
+
+### Features
+
+* optimize first-run experience (herdr fail-fast + repo-root gate + onboarding picker) ([#1313](https://github.com/erwins-enkel/shepherd/issues/1313)) ([3343c08](https://github.com/erwins-enkel/shepherd/commit/3343c08de33767d34dd3d1ad9dd4b0eab23a0353))
+
+
+### Bug Fixes
+
+* **install:** show install dir in first-run output so operator can cd to start ([#1314](https://github.com/erwins-enkel/shepherd/issues/1314)) ([5af60a3](https://github.com/erwins-enkel/shepherd/commit/5af60a3ce2e79a93157f008ad2b762cb6f21fe32))
+* **viewport:** lift jump-to-latest button clear of review-in-flight banner ([#1311](https://github.com/erwins-enkel/shepherd/issues/1311)) ([57df1f4](https://github.com/erwins-enkel/shepherd/commit/57df1f47fc36bcfa0f74d518f37f851dc6226341))
+
+
+### Documentation
+
+* **issue-templates:** enrich for public contributors + add docs & PR templates ([#1309](https://github.com/erwins-enkel/shepherd/issues/1309)) ([c7e5352](https://github.com/erwins-enkel/shepherd/commit/c7e5352061babd8ff9740949019d3bd322093673))
+
 ## [1.39.1](https://github.com/erwins-enkel/shepherd/compare/v1.39.0...v1.39.1) (2026-07-01)
 
 

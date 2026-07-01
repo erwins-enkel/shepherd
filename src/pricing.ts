@@ -44,6 +44,9 @@ const warned = new Set<string>();
 
 function weightsFor(model: string): ModelWeights {
   for (const { match, w } of TABLE) if (match.test(model)) return w;
+  // Sentinel ids like "<synthetic>" (synthetic/interrupt messages) carry no real pricing —
+  // use the default weights silently instead of warning once per sentinel.
+  if (/^<.+>$/.test(model)) return DEFAULT;
   if (!warned.has(model)) {
     warned.add(model);
     console.warn(`[usage] unknown model "${model}" — using default limit weights`);

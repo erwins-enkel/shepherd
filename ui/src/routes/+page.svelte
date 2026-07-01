@@ -1337,7 +1337,10 @@
         // seeding lastSeenVersion below would otherwise make this gate false on
         // the same load. markSeen("onboarding") on dismiss keeps it from
         // reappearing on later loads (lastSeenVersion is no longer null then).
-        if (!featureDiscovery.isSeen("onboarding")) showOnboarding = true;
+        // The demo is a hosted marketing build with no local environment, so the
+        // "we checked your environment" onboarding checklist is meaningless there —
+        // skip it so visitors land straight in the seeded herd.
+        if (!__DEMO__ && !featureDiscovery.isSeen("onboarding")) showOnboarding = true;
         // Fresh install: seed baseline so future updates can diff against it.
         featureDiscovery.lastSeenVersion = version;
       } else {

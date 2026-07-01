@@ -80,6 +80,9 @@ function supported(): boolean {
 
 /** Register the service worker (idempotent). Safe to call on every mount. */
 export async function registerSW(): Promise<void> {
+  // Demo mode never registers a SW — a stale cached demo build must not be served
+  // to a returning visitor (install.ts also unregisters any existing SW).
+  if (__DEMO__) return;
   if (!supported()) return;
   try {
     await navigator.serviceWorker.register("/sw.js", { scope: "/" });
@@ -89,6 +92,8 @@ export async function registerSW(): Promise<void> {
 }
 
 export async function pushState(): Promise<PushStatus> {
+  // Demo mode never registers a SW and must not touch serviceWorker.ready.
+  if (__DEMO__) return { supported: false, permission: "unsupported", subscribed: false };
   if (!supported()) return { supported: false, permission: "unsupported", subscribed: false };
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
@@ -96,6 +101,8 @@ export async function pushState(): Promise<PushStatus> {
 }
 
 export async function enablePush(): Promise<boolean> {
+  // Demo mode has no push backend and must not touch serviceWorker.ready.
+  if (__DEMO__) return false;
   if (!supported()) return false;
   const perm =
     Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
@@ -119,6 +126,8 @@ export async function enablePush(): Promise<boolean> {
 }
 
 export async function disablePush(): Promise<void> {
+  // Demo mode has no push backend and must not touch serviceWorker.ready.
+  if (__DEMO__) return;
   if (!supported()) return;
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();

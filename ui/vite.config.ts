@@ -51,6 +51,7 @@ export default defineConfig({
     __GIT_SHA__: JSON.stringify(gitSha()),
     __APP_VERSION__: JSON.stringify(appVersion()),
     __RELEASE_DATES__: JSON.stringify(releaseDates()),
+    __DEMO__: JSON.stringify(process.env.SHEPHERD_DEMO === "1"),
   },
   plugins: [
     paraglideVitePlugin({

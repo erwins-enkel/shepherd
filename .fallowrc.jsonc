@@ -139,7 +139,18 @@
       "**/ui/src/lib/types.ts",
       // Test files legitimately repeat small arrange/setup blocks; deduping
       // them hurts readability. Already excluded from complexity scoring.
-      "**/*.test.ts"
+      "**/*.test.ts",
+      // DemoRibbon.svelte's only clone-flagged content is the `.gbtn` recipe
+      // (lines ~103-130): the repo's established design-system convention is
+      // that every component copies this recipe verbatim into its own scoped
+      // <style> block (15 pre-existing instances — DoneRecapPanel, GitRail,
+      // Login, Onboarding, RecommendDialog, design-system/+page, etc.) rather
+      // than sharing a stylesheet. fallow's duplication ignore is file-scoped,
+      // not line-scoped, but this file has no other duplicated content, so
+      // ignoring the file is equivalent to ignoring just that block. Do NOT
+      // extract a shared stylesheet here — that's a 15-file change, out of
+      // scope for the demo work that introduced this 16th instance.
+      "**/ui/src/lib/demo/DemoRibbon.svelte"
     ]
   },
 

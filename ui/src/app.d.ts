@@ -5,6 +5,7 @@ declare global {
   const __GIT_SHA__: string;
   const __APP_VERSION__: string;
   const __RELEASE_DATES__: Record<string, string>;
+  const __DEMO__: boolean;
 
   namespace App {
     // interface Error {}

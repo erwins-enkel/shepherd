@@ -253,6 +253,91 @@ test("POST git/redeploy → 400 when no deployWorkflow configured", async () => 
   expect(res.status).toBe(400);
 });
 
+test("POST git/ready promotes a draft PR and emits refreshed git state", async () => {
+  let isDraft = true;
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+        isDraft,
+      }) as PrStatus,
+    markReady: async (n) => {
+      f.log.push(`ready:${n}`);
+      isDraft = false;
+    },
+  });
+  const deps = makeDeps(f);
+  const app = makeApp(deps);
+
+  const res = await app.fetch(post("/api/sessions/s1/git/ready"));
+
+  expect(res.status).toBe(200);
+  expect(f.log).toContain("ready:5");
+  expect(await res.json()).toMatchObject({ state: "open", number: 5, isDraft: false });
+  expect(deps.cacheWrites).toContain("s1");
+  expect(deps.emitted.find((e) => e.event === "session:git")?.data).toMatchObject({
+    id: "s1",
+    git: { isDraft: false },
+  });
+});
+
+test("POST git/draft converts a ready PR back to draft", async () => {
+  let isDraft = false;
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+        isDraft,
+      }) as PrStatus,
+    convertToDraft: async (n) => {
+      f.log.push(`draft:${n}`);
+      isDraft = true;
+    },
+  });
+  const app = makeApp(makeDeps(f));
+
+  const res = await app.fetch(post("/api/sessions/s1/git/draft"));
+
+  expect(res.status).toBe(200);
+  expect(f.log).toContain("draft:5");
+  expect(await res.json()).toMatchObject({ state: "open", number: 5, isDraft: true });
+});
+
+test("POST git/draft → 400 when host cannot change draft state", async () => {
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+        isDraft: false,
+      }) as PrStatus,
+  });
+  const app = makeApp(makeDeps(f));
+
+  const res = await app.fetch(post("/api/sessions/s1/git/draft"));
+
+  expect(res.status).toBe(400);
+});
+
+test("POST git/ready → 409 when there is no open PR", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({ state: "none", checks: "none", deployConfigured: true }) as PrStatus,
+  });
+  const app = makeApp(makeDeps(f));
+
+  const res = await app.fetch(post("/api/sessions/s1/git/ready"));
+
+  expect(res.status).toBe(409);
+});
+
 test("GET /api/git returns the prCache snapshot", async () => {
   const deps = makeDeps(fakeForge());
   const app = makeApp(deps);

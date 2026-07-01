@@ -1,14 +1,21 @@
 import { FakeWebSocket } from "../fake-socket";
+import { playTranscript } from "./replay";
+import { transcriptFor } from "./transcripts";
+import { ptyStream } from "./stream";
 
-// Fake WebSocket for the `/pty/:id?cols&rows` terminal attach. For Task 2 it only
-// proves the transport: on (async) open it pushes a short dim placeholder line so
-// xterm isn't blank. The authored transcript replay engine is Task 5 and will take
-// over the post-open stream (see the seam below).
+// Fake WebSocket for the `/pty/:id?cols&rows` terminal attach. On (async) open it
+// (a) replays the authored transcript for `sessionId` as timed byte-string frames
+// so xterm repaints a believable session, and (b) subscribes to `ptyStream` so the
+// Task 6 director's ambient live bytes for this id reach the terminal during/after
+// the replay. On close it cancels the replay and unsubscribes — no leaks, no
+// emit-after-close. A fresh attach (pty.ts reconnects with a new PtySocket) simply
+// replays again, which is the correct "repaint on re-attach".
 export class PtySocket extends FakeWebSocket {
   readonly sessionId: string;
   readonly cols: number;
   readonly rows: number;
-  #timers: ReturnType<typeof setTimeout>[] = [];
+  #cancelReplay: (() => void) | null = null;
+  #unsub: (() => void) | null = null;
 
   constructor(url: string) {
     super(url);
@@ -19,24 +26,16 @@ export class PtySocket extends FakeWebSocket {
   }
 
   protected onOpened(): void {
-    // Dim placeholder so the terminal repaints on attach instead of sitting blank.
-    this.emitMessage(`\x1b[2mattaching to demo session ${this.sessionId}…\x1b[0m\r\n`);
-    // Task 5: replay engine attaches here — stream the authored transcript for
-    // `this.sessionId` as timed byte-string frames via `this.pushBytes(...)`.
-  }
-
-  /** Emit terminal bytes to xterm — used by the Task 5 replay engine. */
-  protected pushBytes(bytes: string): void {
-    this.emitMessage(bytes);
-  }
-
-  /** Track a replay timer so it's cleared on close (no orphaned loops). */
-  protected track(id: ReturnType<typeof setTimeout>): void {
-    this.#timers.push(id);
+    // (a) replay the authored scrollback / working session for this id.
+    this.#cancelReplay = playTranscript(transcriptFor(this.sessionId), (b) => this.emitMessage(b));
+    // (b) live director bytes (Task 6) → this terminal, during and after the replay.
+    this.#unsub = ptyStream.subscribe(this.sessionId, (b) => this.emitMessage(b));
   }
 
   protected onTeardown(): void {
-    for (const id of this.#timers) clearTimeout(id);
-    this.#timers = [];
+    this.#cancelReplay?.();
+    this.#cancelReplay = null;
+    this.#unsub?.();
+    this.#unsub = null;
   }
 }

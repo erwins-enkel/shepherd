@@ -27,13 +27,14 @@ describe("demo transport ↔ real callers", () => {
     dispose();
   });
 
-  it("connectPty() reaches OPEN and delivers the placeholder frame", async () => {
+  it("connectPty() reaches OPEN and delivers replayed transcript bytes", async () => {
     let data = "";
     const conn = connectPty("demo-session", 80, 24, (bytes) => {
       data += bytes;
     });
-    await tick();
-    expect(data.length).toBeGreaterThan(0); // placeholder byte-string arrived after open
+    await tick(); // open (microtask) → replay schedules the first frame
+    await tick(); // first frame's timer fires → bytes arrive
+    expect(data.length).toBeGreaterThan(0); // replayed byte-string arrived after open
     conn.close();
   });
 });

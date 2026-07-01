@@ -146,8 +146,9 @@ with nothing to grant:
 git archive --format=tar.gz -o shepherd.tar.gz HEAD
 # send shepherd.tar.gz to the tester (install.sh lives inside it at deploy/install.sh)
 
-# tester — extract deploy/install.sh from the tarball (or receive it alongside), then:
-SHEPHERD_SRC=~/shepherd.tar.gz bash install.sh
+# tester — extract just the installer, then run it against the tarball:
+tar -xzf ~/shepherd.tar.gz deploy/install.sh
+SHEPHERD_SRC=~/shepherd.tar.gz bash deploy/install.sh
 ```
 
 `git archive` ships tracked files only; that's sufficient, since the installer runs `bun install`
@@ -161,15 +162,16 @@ just this repo** is enough (no collaborator membership; revocable):
 
 ```bash
 # tester — with `gh auth login` done, fetch the source archive for a tag:
-gh release download v1.4.0 --archive=tar.gz -R erwins-enkel/shepherd
-# → shepherd-1.4.0.tar.gz
+gh release download v1.4.0 --archive=tar.gz -R erwins-enkel/shepherd   # → shepherd-1.4.0.tar.gz
 
 # …or with a bare PAT, straight from the API (302s to a signed codeload URL):
 curl -fL -H "Authorization: Bearer $GH_TOKEN" \
-  https://api.github.com/repos/erwins-enkel/shepherd/tarball/v1.4.0 -o shepherd.tar.gz
+  https://api.github.com/repos/erwins-enkel/shepherd/tarball/v1.4.0 -o shepherd-1.4.0.tar.gz
 
-# then, same as the air-gapped path:
-SHEPHERD_SRC=~/shepherd.tar.gz bash install.sh   # install.sh is inside the tarball at deploy/
+# GitHub archives nest everything under a top-level dir — strip it and install from
+# the extracted directory (SHEPHERD_SRC accepts a directory as well as a tarball):
+mkdir -p ~/shepherd-src && tar -xzf shepherd-1.4.0.tar.gz --strip-components=1 -C ~/shepherd-src
+SHEPHERD_SRC=~/shepherd-src bash ~/shepherd-src/deploy/install.sh
 ```
 
 Note there is **no anonymous URL** for private-repo archives or release assets — the token is

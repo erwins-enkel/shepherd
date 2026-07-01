@@ -12,5 +12,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Auto-filled by Shepherd — please leave as-is.
+      description: >-
+        Auto-filled when you report from within Shepherd. If you're filing manually, paste your
+        Shepherd version, your OS, and how you run Shepherd (e.g. the agent CLI you drive).
       render: text

@@ -2,6 +2,18 @@ name: Feature request
 description: Suggest an idea or improvement
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search [existing issues](https://github.com/erwins-enkel/shepherd/issues?q=is%3Aissue)
+        first. For open-ended ideas or questions, consider
+        [Discussions](https://github.com/erwins-enkel/shepherd/discussions) instead.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and discussions for this idea.
   - type: textarea
     id: problem
     attributes:
@@ -14,8 +26,15 @@ body:
     attributes:
       label: Proposed solution
   - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you've weighed, and why they fall short.
+  - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Auto-filled by Shepherd — please leave as-is.
+      description: >-
+        Auto-filled when you report from within Shepherd. If you're filing manually, paste your
+        Shepherd version, your OS, and how you run Shepherd (e.g. the agent CLI you drive).
       render: text

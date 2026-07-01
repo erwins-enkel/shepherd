@@ -188,9 +188,9 @@ describe("buildUpNextRepos", () => {
 
   test("(a) local and non-forge repos are excluded", () => {
     const repos = [
-      { name: "a", path: "/r/a", display: "/r/a" },
-      { name: "b", path: "/r/b", display: "/r/b" },
-      { name: "c", path: "/r/c", display: "/r/c" },
+      { name: "a", path: "/r/a", display: "/r/a", realPath: "/r/a" },
+      { name: "b", path: "/r/b", display: "/r/b", realPath: "/r/b" },
+      { name: "c", path: "/r/c", display: "/r/c", realPath: "/r/c" },
     ];
     // repo a → null forge, repo b → local forge, repo c → github forge
     const resolveForge = (p: string) => {
@@ -204,8 +204,8 @@ describe("buildUpNextRepos", () => {
 
   test("(b) a hidden repo (raw path in hiddenRealPaths) is excluded", () => {
     const repos = [
-      { name: "a", path: "/r/a", display: "/r/a" },
-      { name: "b", path: "/r/b", display: "/r/b" },
+      { name: "a", path: "/r/a", display: "/r/a", realPath: "/r/a" },
+      { name: "b", path: "/r/b", display: "/r/b", realPath: "/r/b" },
     ];
     const result = buildUpNextRepos({
       repos,
@@ -241,7 +241,9 @@ describe("buildUpNextRepos", () => {
   });
 
   test("(d) survivors carry exact repoPath / repoSlug / repoLabel", () => {
-    const repos = [{ name: "myrepo", path: "/r/myrepo", display: "~/myrepo" }];
+    const repos = [
+      { name: "myrepo", path: "/r/myrepo", display: "~/myrepo", realPath: "/r/myrepo" },
+    ];
     const myForge = fakeForge({ kind: "github", slug: "acme/myrepo" });
     const result = buildUpNextRepos({
       repos,

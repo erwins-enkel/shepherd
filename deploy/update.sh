@@ -37,6 +37,10 @@ fi
 # ── build ────────────────────────────────────────────────────────────────────
 note "installing deps (root + ui)"
 bun install
+# node-pty ships spawn-helper without the exec bit + Bun keeps tarball perms, so on
+# macOS posix_spawn fails ("posix_spawnp failed.") and panes stay black. Re-set it
+# after install (a silent no-op on Linux, where the forkpty path uses no helper).
+bun scripts/fix-node-pty-perms.mjs
 (cd ui && bun install)
 
 note "building UI"
@@ -88,8 +92,18 @@ else
 fi
 
 # ── restart ───────────────────────────────────────────────────────────────────
-note "restarting $UNIT"
-systemctl --user restart "$UNIT"
+# macOS / core-only has no systemd user manager: there is no unit to restart, and a
+# bare `systemctl --user restart` would abort under `set -e` (killing the deploy
+# after the build already succeeded). Gate it on the same probe the backup block
+# uses; where there's no systemd, tell the operator to (re)start manually and exit
+# clean — the build + node-pty helper fix above have already been applied.
+if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  note "restarting $UNIT"
+  systemctl --user restart "$UNIT"
+else
+  warn "no systemd user manager — not restarting; (re)start Shepherd manually: cd \"$REPO\" && bun run start"
+  exit 0
+fi
 
 # ── health check ───────────────────────────────────────────────────────────────
 # Hit the PUBLIC liveness route, not /api/sessions: single-operator auth (#1079/#1081) gates

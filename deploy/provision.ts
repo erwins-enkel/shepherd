@@ -341,6 +341,10 @@ export function installService(
 export function buildOnly(repo: string, run: Runner, buildEnv: NodeJS.ProcessEnv): void {
   log("installing deps (root + ui)");
   run("bash", ["-c", `cd "${repo}" && bun install`], { env: buildEnv });
+  // node-pty ships spawn-helper without the exec bit and Bun preserves tarball perms,
+  // so on macOS posix_spawn fails ("posix_spawnp failed.") and every pane stays black.
+  // Re-set it right after the root install; a silent no-op off macOS. See the script.
+  run("bash", ["-c", `cd "${repo}" && bun scripts/fix-node-pty-perms.mjs`], { env: buildEnv });
   run("bash", ["-c", `cd "${repo}/ui" && bun install`], { env: buildEnv });
   log("building UI");
   run("bash", ["-c", `cd "${repo}/ui" && bun run build`], { env: buildEnv });

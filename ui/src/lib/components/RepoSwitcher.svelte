@@ -332,8 +332,9 @@
     style="left:{menuPos?.left ?? menu.x}px;top:{menuPos?.top ?? menu.y}px"
   >
     <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={commitPin}>
-      <span class="rs-menu-icon" aria-hidden="true">{menuPinned ? "⌫" : "⌖"}</span
-      >{menuPinned ? m.repo_chip_unpin() : m.repo_chip_pin()}
+      <span class="rs-menu-icon" aria-hidden="true">{menuPinned ? "⌫" : "⌖"}</span>{menuPinned
+        ? m.repo_chip_unpin()
+        : m.repo_chip_pin()}
     </button>
   </div>
 {/if}

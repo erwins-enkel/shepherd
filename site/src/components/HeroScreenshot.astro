@@ -9,8 +9,9 @@
 // wordmark + herd counts), so the frame only adds browser/OS chrome (the three
 // dots) — no app controls are duplicated.
 //
-// Image is the LCP element: eager load, no lazy, and explicit intrinsic
-// width/height (1094x936) so the browser reserves the box and there is no CLS.
+// Image is the LCP element: eager load, no lazy, fetchpriority="high" to pull
+// it forward in the request queue, and explicit intrinsic width/height
+// (1094x936) so the browser reserves the box and there is no CLS.
 const DEMO_URL = "https://demo.shepherd.run";
 ---
 
@@ -30,6 +31,7 @@ const DEMO_URL = "https://demo.shepherd.run";
     src="/app-screenshot.webp"
     width="1094"
     height="936"
+    fetchpriority="high"
     decoding="async"
     alt="Shepherd's mission-control overview: a herd of coding-agent sessions grouped under an epic, each with a status (in preview, sandboxed, in review, ready) and elapsed time."
   />

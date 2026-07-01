@@ -1634,7 +1634,7 @@
   "learnings_merge_now_started": "Looking for rules to merge in {repo}…",
   "learnings_merge_applied": "Rules consolidated",
   "learnings_merge_failed": "Couldn't merge rules",
-  "learnings_actions_help": "The repo buttons start manual maintenance runs: “Distill now” scans recent sessions for signals and proposes new rules without waiting for the schedule; “Suggest merges” looks for near-duplicate rules and groups them so you can fold each group into one rule while keeping its track record.",
+  "learnings_actions_help": "The repo buttons start manual maintenance runs: “Suggest merges” looks for near-duplicate rules and groups them so you can fold each group into one rule while keeping its track record; “Distill now” scans recent sessions for signals and proposes new rules without waiting for the schedule.",
   "learnings_recur_heading": "Recurring across repos",
   "learnings_recur_lead": "These rules appear in several repos — consider adding one to your global CLAUDE.md.",
   "learnings_recur_repos": "In {count} repos: {repos}",

@@ -1634,7 +1634,7 @@
   "learnings_merge_now_started": "Suche nach zusammenführbaren Regeln in {repo}…",
   "learnings_merge_applied": "Regeln zusammengeführt",
   "learnings_merge_failed": "Regeln konnten nicht zusammengeführt werden",
-  "learnings_actions_help": "Die Repo-Buttons starten manuelle Wartungsläufe: „Jetzt destillieren“ wertet jüngste Sessions auf Signale aus und schlägt neue Regeln vor, ohne auf den Zeitplan zu warten; „Zusammenführungen vorschlagen“ sucht nahezu doppelte Regeln und gruppiert sie, damit du jede Gruppe zu einer Regel zusammenfassen kannst, deren Bilanz erhalten bleibt.",
+  "learnings_actions_help": "Die Repo-Buttons starten manuelle Wartungsläufe: „Zusammenführungen vorschlagen“ sucht nahezu doppelte Regeln und gruppiert sie, damit du jede Gruppe zu einer Regel zusammenfassen kannst, deren Bilanz erhalten bleibt; „Jetzt destillieren“ wertet jüngste Sessions auf Signale aus und schlägt neue Regeln vor, ohne auf den Zeitplan zu warten.",
   "learnings_recur_heading": "Wiederkehrend über Repos hinweg",
   "learnings_recur_lead": "Diese Regeln treten in mehreren Repos auf — erwäge, eine davon in deine globale CLAUDE.md aufzunehmen.",
   "learnings_recur_repos": "In {count} Repos: {repos}",

@@ -51,10 +51,7 @@
 
   function containsPoint(rect: DOMRect, x: number, y: number, pad = 0) {
     return (
-      x >= rect.left - pad &&
-      x <= rect.right + pad &&
-      y >= rect.top - pad &&
-      y <= rect.bottom + pad
+      x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
     );
   }
 

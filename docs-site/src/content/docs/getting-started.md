@@ -73,6 +73,12 @@ you'll get a login screen. Set the password with `SHEPHERD_PASSWORD` (in
 log **once** on first boot (`systemctl --user status shepherd` / `journalctl
 --user -u shepherd`). Log out from **Settings → Session**.
 
+On a brand-new install the HUD then opens on a **blocking first-run step** that
+asks you to choose a **workspace folder** before anything else runs. Shepherd
+only looks for repositories inside this folder, and its background work (polling,
+drain, task spawning) stays paused until you pick one — you can change it later
+in **Settings**. Set `SHEPHERD_REPO_ROOT` before first boot to skip the picker.
+
 **Settings → DIAGNOSE** surfaces any remaining gaps with one-click fixes.
 
 ## From-clone / development path

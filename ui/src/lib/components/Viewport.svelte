@@ -1187,10 +1187,13 @@
         c.send("\n");
         return false;
       }
-      // Alt+J/K/G/arrows/1-9: session-switch combos must work *while the terminal
-      // owns the keyboard* — that's the whole point of the modifier. Suppress them
-      // from the PTY here (altComboKey is the same code→key map the window
-      // shortcut handler acts on, so the two sides can't drift). Like Shift+Enter
+      // Alt+J/K/G/arrows/1-9 + Alt+Tab/Alt+Shift+Tab + Alt+]/Alt+[: session-switch
+      // combos must work *while the terminal owns the keyboard* — that's the whole
+      // point of the modifier. Suppress them from the PTY here (altComboKey is the
+      // same code→key map the window shortcut handler acts on, so the two sides
+      // can't drift). This branch is Shift-agnostic, so BOTH Alt+Tab and
+      // Alt+Shift+Tab are suppressed (their direction is resolved window-side, not
+      // here). Like Shift+Enter
       // above, returning false alone only stops xterm's own keydown handling — the
       // browser's follow-up keypress would still make xterm emit the Meta/ESC-
       // prefixed bytes — so e.preventDefault() is required for NO bytes to reach

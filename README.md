@@ -131,6 +131,67 @@ before running it. Read the script first:
 | `SHEPHERD_SRC`        | _(none)_          | Install from a local tarball or directory instead of cloning (used by the onboarding harness) |
 | `SHEPHERD_NO_SERVICE` | _(none)_          | Skip the systemd unit step (set automatically on macOS)                                       |
 
+### Private repo & external testers
+
+Shepherd's GitHub repo is private, so the `curl|bash` one-liner above does **not** work for someone
+without repo access — both the raw `install.sh` URL and the `git clone` it performs need
+authentication. Three ways to get an external tester running:
+
+**Air-gapped tarball (no GitHub access needed).** The installer can land the source from a local
+tarball via `SHEPHERD_SRC` instead of cloning — the fastest way to hand the code to a first tester
+with nothing to grant:
+
+```bash
+# maintainer — build a source tarball from the current checkout:
+git archive --format=tar.gz -o shepherd.tar.gz HEAD
+# send shepherd.tar.gz to the tester (install.sh lives inside it at deploy/install.sh)
+
+# tester — extract just the installer, then run it against the tarball:
+tar -xzf ~/shepherd.tar.gz deploy/install.sh
+SHEPHERD_SRC=~/shepherd.tar.gz bash deploy/install.sh
+```
+
+`git archive` ships tracked files only; that's sufficient, since the installer runs `bun install`
+and builds from source. Trade-off: no in-place updates — each new build is a fresh tarball.
+
+**Release tarball (self-serve, versioned).** Every merge of the release-please PR cuts a tagged
+GitHub release, and GitHub auto-generates a source tarball for each tag — so there's nothing to
+`git archive` or upload. The tester downloads the tag they want and feeds it to `SHEPHERD_SRC`. This
+is a **private** repo, so the download needs a token — but a **fine-grained, read-only PAT scoped to
+just this repo** is enough (no collaborator membership; revocable):
+
+```bash
+# tester — with `gh auth login` done, fetch the source archive for a tag:
+gh release download v1.4.0 --archive=tar.gz -R erwins-enkel/shepherd   # → shepherd-1.4.0.tar.gz
+
+# …or with a bare PAT, straight from the API (302s to a signed codeload URL):
+curl -fL -H "Authorization: Bearer $GH_TOKEN" \
+  https://api.github.com/repos/erwins-enkel/shepherd/tarball/v1.4.0 -o shepherd-1.4.0.tar.gz
+
+# GitHub archives nest everything under a top-level dir — strip it and install from
+# the extracted directory (SHEPHERD_SRC accepts a directory as well as a tarball):
+mkdir -p ~/shepherd-src && tar -xzf shepherd-1.4.0.tar.gz --strip-components=1 -C ~/shepherd-src
+SHEPHERD_SRC=~/shepherd-src bash ~/shepherd-src/deploy/install.sh
+```
+
+Note there is **no anonymous URL** for private-repo archives or release assets — the token is
+unavoidable, but a scoped read-only PAT is far less than write access. Testers self-serve any
+tagged version and re-download to update.
+
+**Repo collaborator (sustainable, allows updates).** Grant read access, then the tester
+authenticates once and clones directly (the public one-liner still won't work — the raw URL is
+private), running the local script:
+
+```bash
+gh auth login                                      # or a read-only PAT in the git credential helper
+gh repo clone erwins-enkel/shepherd ~/Work/shepherd
+bash ~/Work/shepherd/deploy/install.sh
+```
+
+This keeps them on `main` with `update.sh` / `git pull` for ongoing updates. Either way, full
+support is Linux + systemd (see the [OS matrix](#os-matrix) above) — put testers on Linux to
+exercise the real sandbox membrane.
+
 ### Finish setup
 
 The installer never runs commands that need a human secret. After it completes, log in:

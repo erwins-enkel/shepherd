@@ -83,15 +83,15 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ### Responses
 
-| Status | Meaning                                                                                                                                                |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                  |
-| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                      |
-| `400`  | Validation failed — body `{ error }`                                                                                                                   |
-| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer) |
-| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                              |
+| Status | Meaning                                                                                                                                                                                                                  |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                                                                                    |
+| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                                                                                        |
+| `400`  | Validation failed — body `{ error }`                                                                                                                                                                                     |
+| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer)                                                                   |
+| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                                                                                                |
 | `409`  | First-run gate pending — a fresh install whose repo root hasn't been picked yet; body `{ error: "first_run_pending" }`. Pick a workspace folder in the HUD (or start the server with `SHEPHERD_REPO_ROOT` set) and retry |
-| `415`  | Missing/incorrect `Content-Type`                                                                                                                       |
+| `415`  | Missing/incorrect `Content-Type`                                                                                                                                                                                         |
 
 ## Usage-aware hold gate
 

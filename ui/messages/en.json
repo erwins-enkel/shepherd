@@ -2265,5 +2265,11 @@
   "viewport_preview_setup_sent": "Preview setup sent to {name}; future starts will use the local repo script",
   "viewport_preview_already_running": "Dev server is already running; opening preview",
   "feat_preview_local_script_title": "Local preview start scripts",
-  "feat_preview_local_script_body": "The Preview start button now creates and reuses a repo-local script under the repo's Git metadata. Later sessions can start the same dev server without spending agent tokens, and Shepherd reuses an already-running server instead of starting another copy."
+  "feat_preview_local_script_body": "The Preview start button now creates and reuses a repo-local script under the repo's Git metadata. Later sessions can start the same dev server without spending agent tokens, and Shepherd reuses an already-running server instead of starting another copy.",
+  "repo_chip_pinned_aria": "Pinned",
+  "repo_chip_menu_label": "Repo actions for {repo}",
+  "repo_chip_pin": "Pin repo",
+  "repo_chip_unpin": "Unpin repo",
+  "feat_repo_chip_pin_title": "Pin a repo chip",
+  "feat_repo_chip_pin_body": "Right-click or hold a repo chip to pin that repo at the left edge of the herd filter. Pinning keeps the normal click-to-filter behavior and stays on this device."
 }

@@ -223,6 +223,26 @@
   // card's inline repo emoji; null = all repos. Only narrows the herd list views —
   // selection and global counts stay whole.
   let repoFilter = $state<string | null>(null);
+  const PINNED_REPO_KEY = "shepherd:repo-switcher-pinned";
+  // Local display preference for the herd repo switcher. A pinned repo keeps its
+  // normal filter behavior but sorts to the first chip slot whenever it is live.
+  let pinnedRepo = $state<string | null>(null);
+  onMount(() => {
+    try {
+      pinnedRepo = localStorage.getItem(PINNED_REPO_KEY) || null;
+    } catch {
+      // private mode / blocked storage: pinning stays in-memory for this page
+    }
+  });
+  function setPinnedRepo(repoPath: string | null) {
+    pinnedRepo = repoPath;
+    try {
+      if (repoPath) localStorage.setItem(PINNED_REPO_KEY, repoPath);
+      else localStorage.removeItem(PINNED_REPO_KEY);
+    } catch {
+      // ignore: best-effort local preference
+    }
+  }
   // Latches set by selectNewSession when the herd filter follows a just-started task
   // onto its repo. That session isn't in the store yet (it arrives via WS), so two
   // effects below need coordinating until it does. Both are plain `let` (NON-reactive):
@@ -2132,8 +2152,10 @@
       <RepoSwitcher
         chips={repoChips}
         {repoFilter}
+        {pinnedRepo}
         mobile={mobile.current}
         onrepofilter={(repoPath) => (repoFilter = repoPath)}
+        onpinrepo={setPinnedRepo}
       />
       <QueueStrip autoMerge={store.autoMerge} />
     </header>

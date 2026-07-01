@@ -122,6 +122,8 @@ export function guidanceNextSteps(): string[] {
     "A few steps need a human secret and were NOT run for you:",
     "  • Log into Claude:   claude   (then sign in with your Max/Pro subscription)",
     "  • GitHub auth:       gh auth login",
+    "  • PATH (macOS):      herdr/claude live in ~/.local/bin — ensure it's on PATH:",
+    '                       export PATH="$HOME/.local/bin:$PATH"',
     "  • Remote access:     tailscale serve --bg 7330",
     "                       then add the tailnet hostname to SHEPHERD_ALLOWED_HOSTS",
     "                       (in ~/.shepherd/env or deploy/shepherd.service)",

@@ -112,11 +112,11 @@ before running it. Read the script first:
 
 ### OS matrix
 
-| OS                                        | Mode                 | Notes                                                                                                                                                                                                                                           |
-| ----------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux (systemd + unprivileged userns)** | Full                 | The only fully supported target. Includes the sandbox membrane, egress allowlist, auto-drain, tailscale-serve previews, and the systemd user unit. The automated install-proof gate (`install-e2e`) runs here.                                  |
-| **macOS**                                 | Core-only / degraded | Installs prereqs, clones, and builds the UI. Prints a loud degraded banner. **No** sandbox membrane, egress allowlist, auto-drain, or tailscale-serve previews. **No systemd unit** — run `bun run start` manually. No automated install proof. |
-| **Windows**                               | Not supported        | The installer refuses and routes you to **WSL2** (a Linux distro under Windows Subsystem for Linux).                                                                                                                                            |
+| OS                                        | Mode                 | Notes                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Linux (systemd + unprivileged userns)** | Full                 | The only fully supported target. Includes the sandbox membrane, egress allowlist, auto-drain, tailscale-serve previews, and the systemd user unit. The automated install-proof gate (`install-e2e`) runs here.                                                                                                                                                                       |
+| **macOS**                                 | Core-only / degraded | Installs prereqs, clones, and builds the UI. Prints a loud degraded banner. **No** sandbox membrane, egress allowlist, auto-drain, or tailscale-serve previews. **No systemd unit** — run `bun run start` manually. No automated install proof. The `herdr`/`claude` installers drop binaries in `~/.local/bin` — make sure it's on your `PATH` (see [Requirements](#requirements)). |
+| **Windows**                               | Not supported        | The installer refuses and routes you to **WSL2** (a Linux distro under Windows Subsystem for Linux).                                                                                                                                                                                                                                                                                 |
 
 ### Environment knobs
 
@@ -209,6 +209,8 @@ For the from-clone / development path, see [Quick start](#quick-start) below.
 
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — manages the interactive `claude` panes (owns the PTYs)
+  - On macOS, `herdr.dev/install.sh` installs to `~/.local/bin` by default — add it to your shell
+    profile before `bun run start`: `export PATH="$HOME/.local/bin:$PATH"`
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

@@ -157,6 +157,7 @@
   }
   .card {
     position: relative;
+    box-sizing: border-box;
     width: min(520px, 100%);
     max-height: 80dvh;
     display: flex;
@@ -165,6 +166,7 @@
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     padding: 18px 18px 16px;
+    overflow-x: clip;
     box-shadow: inset 0 0 30px -16px var(--color-amber);
   }
   .bracket::before,
@@ -176,14 +178,14 @@
     border: 1px solid var(--color-line-bright);
   }
   .bracket::before {
-    top: -1px;
-    left: -1px;
+    top: 0;
+    left: 0;
     border-right: 0;
     border-bottom: 0;
   }
   .bracket::after {
-    bottom: -1px;
-    right: -1px;
+    bottom: 0;
+    right: 0;
     border-left: 0;
     border-top: 0;
   }
@@ -315,7 +317,9 @@
     color: var(--color-muted);
   }
   .log {
+    flex: 1 1 96px;
     margin: 0;
+    min-height: 96px;
     max-height: 200px;
     overflow: auto;
     padding: 8px 10px;

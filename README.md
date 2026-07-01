@@ -135,7 +135,7 @@ before running it. Read the script first:
 
 Shepherd's GitHub repo is private, so the `curl|bash` one-liner above does **not** work for someone
 without repo access — both the raw `install.sh` URL and the `git clone` it performs need
-authentication. Two ways to get an external tester running:
+authentication. Three ways to get an external tester running:
 
 **Air-gapped tarball (no GitHub access needed).** The installer can land the source from a local
 tarball via `SHEPHERD_SRC` instead of cloning — the fastest way to hand the code to a first tester
@@ -152,6 +152,29 @@ SHEPHERD_SRC=~/shepherd.tar.gz bash install.sh
 
 `git archive` ships tracked files only; that's sufficient, since the installer runs `bun install`
 and builds from source. Trade-off: no in-place updates — each new build is a fresh tarball.
+
+**Release tarball (self-serve, versioned).** Every merge of the release-please PR cuts a tagged
+GitHub release, and GitHub auto-generates a source tarball for each tag — so there's nothing to
+`git archive` or upload. The tester downloads the tag they want and feeds it to `SHEPHERD_SRC`. This
+is a **private** repo, so the download needs a token — but a **fine-grained, read-only PAT scoped to
+just this repo** is enough (no collaborator membership; revocable):
+
+```bash
+# tester — with `gh auth login` done, fetch the source archive for a tag:
+gh release download v1.4.0 --archive=tar.gz -R erwins-enkel/shepherd
+# → shepherd-1.4.0.tar.gz
+
+# …or with a bare PAT, straight from the API (302s to a signed codeload URL):
+curl -fL -H "Authorization: Bearer $GH_TOKEN" \
+  https://api.github.com/repos/erwins-enkel/shepherd/tarball/v1.4.0 -o shepherd.tar.gz
+
+# then, same as the air-gapped path:
+SHEPHERD_SRC=~/shepherd.tar.gz bash install.sh   # install.sh is inside the tarball at deploy/
+```
+
+Note there is **no anonymous URL** for private-repo archives or release assets — the token is
+unavoidable, but a scoped read-only PAT is far less than write access. Testers self-serve any
+tagged version and re-download to update.
 
 **Repo collaborator (sustainable, allows updates).** Grant read access, then the tester
 authenticates once and clones directly (the public one-liner still won't work — the raw URL is

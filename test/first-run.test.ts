@@ -1,9 +1,17 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { firstRun } from "../src/first-run";
 
 // firstRun is a shared module singleton — reset it before every test so runs don't leak
 // pending state or registered callbacks into each other.
 beforeEach(() => {
+  firstRun.pending = false;
+  firstRun.onResolve(() => {});
+});
+
+// Also clear state AFTER each test so the last test here (which registers a throwing
+// callback) can't leave it parked on the singleton for later test files — otherwise a
+// cross-file resolve() would fire it and print caught-warning noise.
+afterEach(() => {
   firstRun.pending = false;
   firstRun.onResolve(() => {});
 });

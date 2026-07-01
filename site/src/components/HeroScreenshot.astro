@@ -1,0 +1,96 @@
+---
+// Hero visual: a real screenshot of Shepherd's mission-control overview,
+// captured from the live demo (demo.shepherd.run), framed in a browser-style
+// window (rounded panel + traffic-light titlebar + drop shadow) and linked to
+// the demo. Replaces the older hand-built CSS mock, which didn't match the
+// real product.
+//
+// The captured image already includes the app's OWN header (the SHEPHERD
+// wordmark + herd counts), so the frame only adds browser/OS chrome (the three
+// dots) — no app controls are duplicated.
+//
+// Image is the LCP element: eager load, no lazy, and explicit intrinsic
+// width/height (1094x936) so the browser reserves the box and there is no CLS.
+const DEMO_URL = "https://demo.shepherd.run";
+---
+
+<a
+  class="frame"
+  href={DEMO_URL}
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label="Open the live Shepherd demo"
+>
+  <span class="titlebar" aria-hidden="true">
+    <span class="dots">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </span>
+  </span>
+  <img
+    src="/app-screenshot.webp"
+    width="1094"
+    height="936"
+    decoding="async"
+    alt="Shepherd's mission-control overview: a herd of coding-agent sessions grouped under an epic, each with a status (in preview, sandboxed, in review, ready) and elapsed time."
+  />
+</a>
+
+<style>
+  .frame {
+    display: block;
+    width: 100%;
+    max-width: 40rem;
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.85rem;
+    box-shadow: 0 24px 60px -28px color-mix(in srgb, var(--bg) 75%, transparent);
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .frame:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 30px 70px -28px color-mix(in srgb, var(--bg) 65%, transparent);
+  }
+
+  .frame:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.7rem;
+    background: var(--panel-2);
+  }
+
+  .dots {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--ink-dim);
+  }
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .frame {
+      transition: none;
+    }
+    .frame:hover {
+      transform: none;
+    }
+  }
+</style>

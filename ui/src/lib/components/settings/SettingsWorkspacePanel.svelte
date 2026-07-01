@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { listDirs, putSettings } from "$lib/api";
+  import { putSettings } from "$lib/api";
+  import DirPicker from "$lib/components/DirPicker.svelte";
   import { type DirListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
@@ -22,32 +23,10 @@
 
   // the persisted root (display form), authoritative from the parent
   const currentRoot = $derived(repoRootDisplay ?? "");
+  // the directory DirPicker is currently browsing — the save candidate
   let listing = $state<DirListing | null>(null);
-  let loading = $state(false);
   let saving = $state(false);
   let error = $state<string | null>(null);
-
-  async function browse(path?: string) {
-    loading = true;
-    error = null;
-    try {
-      listing = await listDirs(path);
-    } catch (e) {
-      error = e instanceof Error ? e.message : "failed to list directory";
-    } finally {
-      loading = false;
-    }
-  }
-
-  // Browse once the parent's settings load settles: into repoRoot on success,
-  // or the default dir if it failed (repoRoot stays null). Guarded so a later
-  // prop change can't re-trigger the initial listing.
-  let browsed = false;
-  $effect(() => {
-    if (browsed || !settingsLoaded) return;
-    browsed = true;
-    void browse(repoRoot ?? undefined);
-  });
 
   const isCurrent = $derived(
     listing != null && currentRoot !== "" && listing.display === currentRoot,
@@ -75,34 +54,7 @@
   <code>{currentRoot || "—"}</code>
 </div>
 
-<span class="micro path-label">{m.settings_browse_label()}</span>
-<div class="crumbs">
-  <button
-    type="button"
-    class="up"
-    disabled={!listing?.parent || loading}
-    onclick={() => listing?.parent && browse(listing.parent)}
-    title={m.settings_up_level()}
-  >
-    ↑
-  </button>
-  <code class="here">{listing?.display ?? "…"}</code>
-</div>
-
-<div class="list">
-  {#if loading}
-    <div class="placeholder">{m.settings_loading()}</div>
-  {:else if listing && listing.entries.length === 0}
-    <div class="placeholder">{m.settings_no_subfolders()}</div>
-  {:else if listing}
-    {#each listing.entries as e (e.path)}
-      <button type="button" class="row" onclick={() => browse(e.path)}>
-        <span class="ico">▸</span><span class="nm">{e.name}</span>
-        <span class="chev">›</span>
-      </button>
-    {/each}
-  {/if}
-</div>
+<DirPicker initialPath={repoRoot} ready={settingsLoaded} bind:listing />
 
 {#if error}<div class="err">{error}</div>{/if}
 
@@ -142,81 +94,6 @@
     font-size: var(--fs-base);
     word-break: break-all;
   }
-  .path-label {
-    margin-top: 4px;
-  }
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .up {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-lg);
-    line-height: 1;
-    padding: 5px 9px;
-    border-radius: 2px;
-    cursor: pointer;
-  }
-  .up:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  .here {
-    color: var(--color-ink-bright);
-    font-size: var(--fs-base);
-    word-break: break-all;
-  }
-  .list {
-    border: 1px solid var(--color-line);
-    background: var(--color-inset);
-    border-radius: 2px;
-    max-height: 280px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  .placeholder {
-    padding: 14px 12px;
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--color-line);
-    color: var(--color-ink-bright);
-    font: inherit;
-    font-size: var(--fs-base);
-    text-align: left;
-    padding: 9px 11px;
-    cursor: pointer;
-  }
-  .row:last-child {
-    border-bottom: 0;
-  }
-  .row:hover {
-    background: var(--color-panel);
-  }
-  .ico {
-    opacity: 0.85;
-  }
-  .nm {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .chev {
-    color: var(--color-faint);
-  }
   .err {
     color: var(--color-red);
     font-size: var(--fs-meta);
@@ -241,14 +118,6 @@
   }
 
   @media (max-width: 768px) {
-    /* Lift the list cap on mobile: the list flexes to fill the bounded panel
-       and stays the single scroll region (button pinned below), instead of a
-       capped list nested inside a separately-scrolling panel. */
-    .list {
-      max-height: none;
-    }
-    .row,
-    .up,
     .run {
       min-height: 44px;
     }

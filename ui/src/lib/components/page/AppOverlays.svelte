@@ -88,9 +88,11 @@
     oncodexupdateconfirm,
     oncodexupdateclose,
     showOnboarding,
+    onboardingBlocking = false,
     diagnosticsLoadFailed,
     ononboardingretry,
     ononboardingdismiss,
+    ononboardingpicked,
     showWhatsNew,
     whatsNewEntries,
     onwhatsnewdismiss,
@@ -188,9 +190,15 @@
     oncodexupdateconfirm: () => void;
     oncodexupdateclose: () => void;
     showOnboarding: boolean;
+    /** True on a genuine server-reported first run (`settings.firstRunPending`) — forces the
+     *  Onboarding surface into its required-pick, non-dismissible mode. */
+    onboardingBlocking?: boolean;
     diagnosticsLoadFailed: boolean;
     ononboardingretry: () => void;
     ononboardingdismiss: () => void;
+    /** Fires once the operator's folder pick persists in blocking mode, so the parent can clear
+     *  the gate (`showOnboarding = false`). */
+    ononboardingpicked: (root: string) => void;
     showWhatsNew: boolean;
     whatsNewEntries: FeatureAnnouncement[];
     onwhatsnewdismiss: () => void;
@@ -407,6 +415,11 @@
     failed={diagnosticsLoadFailed}
     onretry={ononboardingretry}
     ondismiss={ononboardingdismiss}
+    blocking={onboardingBlocking}
+    repoRoot={settings?.repoRoot ?? null}
+    repoRootDisplay={settings?.repoRootDisplay ?? null}
+    settingsLoaded={settings !== null}
+    onpicked={ononboardingpicked}
   />
 {/if}
 

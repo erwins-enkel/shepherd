@@ -955,6 +955,8 @@ function buildSettings(): Settings {
   return {
     repoRoot: "/demo/acme",
     repoRootDisplay: "~/acme",
+    // The hosted demo is a seeded, always-configured environment — never first-run.
+    firstRunPending: false,
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",

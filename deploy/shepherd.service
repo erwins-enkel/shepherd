@@ -10,6 +10,9 @@ WorkingDirectory=%h/.shepherd/app
 ExecStart=%h/.bun/bin/bun run src/index.ts
 Restart=on-failure
 RestartSec=2
+# 78 (EX_CONFIG) = herdr preflight failed: binary missing on PATH. A human must install
+# herdr — restarting won't fix it, so don't crash-loop on this exit code.
+RestartPreventExitStatus=78
 
 # herdr lives in ~/.local/bin; bun in ~/.bun/bin — make both resolvable
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin

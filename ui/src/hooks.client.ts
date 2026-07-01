@@ -1,4 +1,5 @@
 import { installDemoBackend } from "$lib/demo/install";
+import { director } from "$lib/demo/director";
 
 // Demo build seam. `__DEMO__` is a Vite `define` — `false` for normal builds
 // (the whole branch + import dead-code-eliminates) and `true` only for
@@ -6,4 +7,7 @@ import { installDemoBackend } from "$lib/demo/install";
 // are installed before any api call or store connect runs.
 if (__DEMO__) {
   installDemoBackend();
+  // Ambient liveness + mutation reactions. Kept OUT of installDemoBackend() so unit
+  // tests can install the fake backend without spinning up the director's timers.
+  director.start();
 }

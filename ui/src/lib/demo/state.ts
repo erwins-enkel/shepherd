@@ -222,6 +222,57 @@ export const demoState = {
     return git ?? { state: "open", checks: "success", deployConfigured: false };
   },
 
+  /** Land a merging PR (director follow-up to {@link mergePr}): flip git → merged,
+   *  clear the merging latch, mark the session done, and confirm the train landed. */
+  landMerge(id: string): void {
+    const s = find(id);
+    const git = world.gitStates[id];
+    if (git) git.state = "merged";
+    if (s) {
+      s.mergingSince = null;
+      s.mergingTrainId = null;
+      s.status = "done";
+      s.lastState = "done";
+      s.readyToMerge = true;
+    }
+    if (git) emit({ event: "session:git", data: { id, git } });
+    emit({ event: "session:status", data: { id, status: "done" } });
+    if (s) emit({ event: "mergetrain:landed", data: { repoPath: s.repoPath } });
+  },
+
+  /** Spawn a session for the epic child the director just advanced to "running"
+   *  (director follow-up to {@link approveEpicNext}). Emits `session:new`. */
+  spawnEpicChild(repoPath: string, parent: number): Session | null {
+    const epic = world.epics.find((e) => e.repoPath === repoPath && e.parentIssueNumber === parent);
+    if (!epic) return null;
+    const child = epic.children.find((c) => c.state === "running" && c.sessionId === null);
+    if (!child) return null;
+    const sid = `epic-${child.number}`;
+    const session: Session = {
+      ...world.sessions[0],
+      id: sid,
+      desig: `TASK-${child.number}`,
+      name: child.title,
+      prompt: child.body,
+      repoPath,
+      branch: `shepherd/epic-${child.number}`,
+      worktreePath: `${repoPath}/.worktrees/${sid}`,
+      status: "running",
+      lastState: "working",
+      readyToMerge: false,
+      mergingSince: null,
+      mergingTrainId: null,
+      autopilotEnabled: null,
+      planPhase: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    child.sessionId = sid;
+    world.sessions = [...world.sessions, session];
+    emit({ event: "session:new", data: session });
+    return session;
+  },
+
   /** Set the operator "ready to merge / parked" flag. */
   setReadyToMerge(id: string, ready: boolean): void {
     const s = find(id);

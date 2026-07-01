@@ -180,11 +180,21 @@ if (savedRoot) {
   const clamped = validateRoot(savedRoot, config.rootCeiling);
   if (clamped) config.repoRoot = clamped;
 }
+// An env-configured install (SHEPHERD_REPO_ROOT set at boot) is established by definition — stamp
+// the gate resolved once so it can NEVER re-show the onboarding pick. Without this, an install
+// that only ever supplied its root via the env var on a fresh DB is never marked resolved (the
+// run-once migration sees no pre-existing markers, and the env root isn't persisted); a later
+// boot that drops the env var would flip `firstRun.pending` true again and re-block an already
+// established install. Idempotent — skipped once the flag exists.
+if (process.env.SHEPHERD_REPO_ROOT && !store.getSetting("firstRunResolved")) {
+  store.setSetting("firstRunResolved", "1");
+}
 // First-run gate (#): a fresh install with no repo root yet must serve the onboarding UI but
 // start NOTHING that polls/reaps/prunes/spawns until a root is picked. The run-once store
 // migration (SessionStore#migrateFirstRunMarker) already stamped `firstRunResolved` for any
-// pre-existing install, so this is a pure settings read. server.ts flips it via firstRun.resolve()
-// on the first root-pick, which runs the deferred background starter registered below.
+// pre-existing install (and the env-root stamp just above covers SHEPHERD_REPO_ROOT installs), so
+// this is a pure settings read. server.ts flips it via firstRun.resolve() on the first root-pick,
+// which runs the deferred background starter registered below.
 firstRun.pending =
   !process.env.SHEPHERD_REPO_ROOT &&
   !store.getSetting("repoRoot") &&

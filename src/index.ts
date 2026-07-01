@@ -116,7 +116,9 @@ import { HookIngest } from "./hooks-ingest";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { startLoopLagSampler, logRemainingOnLoopBlockers } from "./instrument";
+import { startLoopLagSampler, logRemainingOnLoopBlockers, execFileSync } from "./instrument";
+import { firstRun } from "./first-run";
+import { preflightHerdr } from "./preflight";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
@@ -157,6 +159,16 @@ const execFileAsync = promisify(execFile);
 startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
 logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync calls
 
+// Fail fast with one actionable banner (and exit 78) when the `herdr` binary is not
+// resolvable — nothing in Shepherd works without it. Runs BEFORE the store/auth and any
+// herdr call. Present-but-broken fails open (see preflight.ts). Injected deps keep it testable.
+preflightHerdr({
+  runVersion: () =>
+    execFileSync(config.herdrBin, ["--version"], { encoding: "utf8", timeout: 10_000 }),
+  log: (m) => console.error(m),
+  exit: process.exit,
+});
+
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
@@ -168,6 +180,15 @@ if (savedRoot) {
   const clamped = validateRoot(savedRoot, config.rootCeiling);
   if (clamped) config.repoRoot = clamped;
 }
+// First-run gate (#): a fresh install with no repo root yet must serve the onboarding UI but
+// start NOTHING that polls/reaps/prunes/spawns until a root is picked. The run-once store
+// migration (SessionStore#migrateFirstRunMarker) already stamped `firstRunResolved` for any
+// pre-existing install, so this is a pure settings read. server.ts flips it via firstRun.resolve()
+// on the first root-pick, which runs the deferred background starter registered below.
+firstRun.pending =
+  !process.env.SHEPHERD_REPO_ROOT &&
+  !store.getSetting("repoRoot") &&
+  !store.getSetting("firstRunResolved");
 // a UI-chosen Remote Control auto-start preference (persisted) overrides the
 // env default; absent → keep the config default. Stored as "1"/"0".
 const savedRc = store.getSetting("remoteControlAtStartup");
@@ -293,15 +314,20 @@ if (savedUdm !== null) config.usageDowngradeModel = savedUdm;
 // printed ONCE with a CHANGE-THIS banner. No agent token is provisioned — spawned agents reach
 // the server through the loopback ingress listener (serveAgentIngress), which is exempt from this
 // gate; config.token stays an optional operator CLI/curl bearer.
+// Hoisted so the consolidated CHANGE-THIS credentials banner can fire LAST (after serve() is
+// listening), not mid-boot. When a password was generated this holds it; null otherwise.
+let generatedPassword: string | null;
 {
   const auth = await bootstrapAuth({
     store,
     envPassword: config.password,
     envCookieSecret: config.cookieSecret,
-    log: (m) => console.log(m),
+    // NOTE: no `log` — bootstrapAuth's internal banner is suppressed so the generated password is
+    // emitted exactly once by the consolidated banner at the end of boot (below).
   });
   config.passwordHash = auth.passwordHash;
   config.cookieSecret = auth.cookieSecret;
+  generatedPassword = auth.generatedPassword;
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────
@@ -342,8 +368,21 @@ if (savedUdm !== null) config.usageDowngradeModel = savedUdm;
   }
 }
 
+// Background subsystems are collected here and only started once a repo root is picked
+// (first-run gate). Nothing in this list runs while firstRun.pending — each site below wraps its
+// original statement in `deferredStarts.push(() => { … })`; the closure captures the same variables
+// by reference and runs later, so registration order = original order and every referenced const
+// exists by the time startBackground() runs. On an already-onboarded boot startBackground() runs at
+// the end of boot; on a first-run boot it's registered via firstRun.onResolve and fires on root-pick.
+const deferredStarts: Array<() => void> = [];
+function startBackground(): void {
+  for (const start of deferredStarts) start();
+}
+
 // drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL
-sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+deferredStarts.push(() => {
+  sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+});
 const herdr = new HerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();
@@ -495,16 +534,20 @@ const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsagePr
   new CodexUsageProvider(),
 ]);
 
-reconcile(store, herdr);
+deferredStarts.push(() => {
+  reconcile(store, herdr);
+});
 
 // Reconcile orphaned per-session egress temp dirs (config + dns.log) from sessions
 // whose teardown removal was missed across a crash/restart. Live sessions' dirs are
 // preserved. Best-effort — never throws.
-try {
-  service.sweepEgressTmp();
-} catch (err) {
-  console.warn("[egress] startup temp-dir sweep failed:", err);
-}
+deferredStarts.push(() => {
+  try {
+    service.sweepEgressTmp();
+  } catch (err) {
+    console.warn("[egress] startup temp-dir sweep failed:", err);
+  }
+});
 
 // Ensure the disk-backed compile-cache dir exists so spawns can point NODE_COMPILE_CACHE
 // at it (keeps the V8 compile cache off the /tmp tmpfs).
@@ -553,7 +596,9 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
     .catch((err) => console.warn(`[tmp-sweep] ${phase} orphan reap failed:`, err));
 };
 
-fireTmpSweep("boot");
+deferredStarts.push(() => {
+  fireTmpSweep("boot");
+});
 
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The
 // teardown paths close these at the source; this sweep is the safety net for husks
@@ -577,9 +622,11 @@ const sweepOrphanTabs = () => {
 };
 // Boot + a confirming pass @45s so pre-existing husks clear despite the two-sweep debounce,
 // then hourly.
-setTimeout(sweepOrphanTabs, 5_000);
-setTimeout(sweepOrphanTabs, 45_000);
-setInterval(sweepOrphanTabs, 60 * 60 * 1000);
+deferredStarts.push(() => {
+  setTimeout(sweepOrphanTabs, 5_000);
+  setTimeout(sweepOrphanTabs, 45_000);
+  setInterval(sweepOrphanTabs, 60 * 60 * 1000);
+});
 
 const tailscaleServe = new TailscaleServeService({
   base: config.previewPortBase,
@@ -693,10 +740,12 @@ if (config.hooksIngest) {
 // enqueued after poller.start(), so awaiting only risks stalling boot up to count×5s
 // (16 ports × 5s timeout ≈ 80s) when tailscaled is unresponsive. Reconcile swallows its
 // own per-port failures; the .catch is a belt-and-suspenders guard on the queue chain.
-void tailscaleServe
-  .reconcileStartup()
-  .catch((err) => console.warn("[tailscale-serve] startup reconcile failed:", err));
-poller.start();
+deferredStarts.push(() => {
+  void tailscaleServe
+    .reconcileStartup()
+    .catch((err) => console.warn("[tailscale-serve] startup reconcile failed:", err));
+  poller.start();
+});
 
 // background Web Push: turn F3 state events into notifications for subscribed devices.
 // Suppress while any window is actively in use — clients report focus/visibility
@@ -711,6 +760,7 @@ const presence = new Presence(() => {
   if (presenceCatchUp) clearTimeout(presenceCatchUp);
   presenceCatchUp = setTimeout(() => {
     presenceCatchUp = null;
+    if (firstRun.pending) return; // no background ticks until a root is picked
     void prPoller.fastTick();
     void backlogPoller.tick();
   }, 1_500);
@@ -766,8 +816,10 @@ const prPoller = new PrPoller(
   undefined, // noneRecheckMs (default)
   openPrSnapshot, // shared per-repo open-PR snapshot cache (PRs tab reuses the poller's fetch)
 );
-setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
-prPoller.start();
+deferredStarts.push(() => {
+  setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
+  prPoller.start();
+});
 // when an agent settles (finished a turn / paused) it has most likely just run
 // `gh pr create`; poll that one session right away so the badge shows the PR
 // number within seconds instead of on the next full sweep.
@@ -861,7 +913,9 @@ events.subscribe((event, data) => {
 // train that died without ever emitting session:archived, at the
 // TRAIN_TRACKER_MAX_MS liveness ceiling. There is no per-PR "rejected" signal —
 // an accepted cosmetic trade-off, fine while held-back PRs are rare.
-setInterval(() => service.sweepStaleMerging(), 60_000);
+deferredStarts.push(() => {
+  setInterval(() => service.sweepStaleMerging(), 60_000);
+});
 
 // Hourly: delete local shepherd/* branches whose PR has merged. The merge train
 // squash-merges, so the at-archive ancestry prune (worktree.ts) never catches
@@ -876,8 +930,10 @@ setInterval(() => service.sweepStaleMerging(), 60_000);
 const branchPruner = new BranchPruner(store, resolveForge, () =>
   listRepos(config.repoRoot).map((r) => r.path),
 );
-setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
-branchPruner.start();
+deferredStarts.push(() => {
+  setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
+  branchPruner.start();
+});
 
 // PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in, default-off
 // (config.docAgentEnabled / SHEPHERD_DOC_AGENT). Manual trigger only; the boot orphan-sweep +
@@ -903,7 +959,9 @@ if (config.docAgentEnabled) {
   // docs-update-* branches with no PR. Best-effort (not awaited): the per-repo `starting` claim is
   // the load-bearing double-spawn guard, and a merged trigger lost during this brief reconcile
   // window is recovered by the nightly catch-all. Works even if the herdr daemon also restarted.
-  void docAgent.reapOrphans().catch((err) => console.warn("[doc-agent] reapOrphans:", err));
+  deferredStarts.push(() => {
+    void docAgent.reapOrphans().catch((err) => console.warn("[doc-agent] reapOrphans:", err));
+  });
 }
 
 const reviewService = new ReviewService({
@@ -952,7 +1010,9 @@ const standaloneCritic = new StandalonePrCriticService({
         .map((s) => s.branch!),
     ),
 });
-standaloneCritic.reapOrphans(); // issue #1136: close orphaned pr-critic tabs left by a prior lifetime
+deferredStarts.push(() => {
+  standaloneCritic.reapOrphans(); // issue #1136: close orphaned pr-critic tabs left by a prior lifetime
+});
 
 // Pre-execution plan gate (#348): the planning-phase twin of the PR critic. An
 // adversarial reviewer reads the agent's `.shepherd-plan.md` BEFORE it writes code;
@@ -1068,16 +1128,18 @@ const reKickReapedReview = (id: string) => {
     prPoller.pollSession(id);
   }
 };
-void planGate
-  .adoptOrphans()
-  .then(() => planGate.gcStaleReviewWorktrees())
-  .then(() => reviewService.reapOrphans())
-  .then((ids) => {
-    for (const id of ids) reKickReapedReview(id);
-  })
-  .then(() => sweepStaleReviewWorktrees())
-  .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
-setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
+deferredStarts.push(() => {
+  void planGate
+    .adoptOrphans()
+    .then(() => planGate.gcStaleReviewWorktrees())
+    .then(() => reviewService.reapOrphans())
+    .then((ids) => {
+      for (const id of ids) reKickReapedReview(id);
+    })
+    .then(() => sweepStaleReviewWorktrees())
+    .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
+  setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
+});
 
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
@@ -1093,7 +1155,9 @@ const readyNotifier = new ReadyNotifier({
   notify: (input) => push.notify(input),
   reducedMode: () => config.reducedPushMode,
 });
-readyNotifier.start();
+deferredStarts.push(() => {
+  readyNotifier.start();
+});
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
 events.subscribe((event, data) => {
   if (event !== "session:git") return;
@@ -1180,47 +1244,51 @@ events.subscribe((event, data) => {
     .onMerged(s, git.number ?? null, git.title ?? "")
     .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
-setInterval(() => {
-  if (maintenance.active) return;
-  void reviewService.tick();
-  void planGate.tick();
-  void standaloneCritic.tick();
-  void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
-  void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
-  void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
-  void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
-  if (config.docAgentEnabled) {
-    void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
-    void docAgent
-      .sweepNightly()
-      .catch((err) => console.warn("[doc-agent] nightly sweep failed:", err)); // cadence: once/day/repo, spawn only when base advanced
-    void docAgent
-      .sweepReadyPrs()
-      .catch((err) => console.warn("[doc-agent] sweepReadyPrs failed:", err)); // pre-merge: re-target docs onto an open code PR (settled-idle)
-  }
-  try {
-    buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
-  } catch (err) {
-    console.warn("[build-queue] reminder sweep failed:", err);
-  }
-}, 15_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    void reviewService.tick();
+    void planGate.tick();
+    void standaloneCritic.tick();
+    void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
+    void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
+    void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
+    void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
+    if (config.docAgentEnabled) {
+      void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
+      void docAgent
+        .sweepNightly()
+        .catch((err) => console.warn("[doc-agent] nightly sweep failed:", err)); // cadence: once/day/repo, spawn only when base advanced
+      void docAgent
+        .sweepReadyPrs()
+        .catch((err) => console.warn("[doc-agent] sweepReadyPrs failed:", err)); // pre-merge: re-target docs onto an open code PR (settled-idle)
+    }
+    try {
+      buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
+    } catch (err) {
+      console.warn("[build-queue] reminder sweep failed:", err);
+    }
+  }, 15_000);
+});
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far
 // heavier than reading verdict files, so it polls coarsely while verdicts still finalize
 // promptly on the shared 15s tick.
 let lastCriticSweepAt = 0;
 const criticIdleIntervalMs = 300_000;
-setInterval(() => {
-  if (maintenance.active) return;
-  if (graphRateLimit.blocked()) return; // GraphQL bucket exhausted — skip the heavy enumeration
-  const now = Date.now();
-  // Cold path: no dashboard + no autonomous work → throttle the per-repo PR
-  // enumeration to the coarse idle cadence (the cheap 15s verdict-finalize tick
-  // above is untouched, so verdicts still settle promptly).
-  if (!warm() && now - lastCriticSweepAt < criticIdleIntervalMs) return;
-  lastCriticSweepAt = now;
-  void standaloneCritic.sweep();
-}, 60_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    if (graphRateLimit.blocked()) return; // GraphQL bucket exhausted — skip the heavy enumeration
+    const now = Date.now();
+    // Cold path: no dashboard + no autonomous work → throttle the per-repo PR
+    // enumeration to the coarse idle cadence (the cheap 15s verdict-finalize tick
+    // above is untouched, so verdicts still settle promptly).
+    if (!warm() && now - lastCriticSweepAt < criticIdleIntervalMs) return;
+    lastCriticSweepAt = now;
+    void standaloneCritic.sweep();
+  }, 60_000);
+});
 // archived sessions: reap any in-flight critic + drop the verdict, and reap any
 // in-flight plan reviewer + drop its gate (forget() does both).
 events.subscribe((event, data) => {
@@ -1431,10 +1499,12 @@ events.subscribe((event, data) => {
   }
 });
 // Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).
-setInterval(() => {
-  if (maintenance.active) return;
-  void drain.tick().catch((err) => console.warn("[drain] tick:", err));
-}, 30_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    void drain.tick().catch((err) => console.warn("[drain] tick:", err));
+  }, 30_000);
+});
 
 const autoMerge = new AutoMergeService({
   store,
@@ -1480,17 +1550,21 @@ events.subscribe((event, data) => {
     void autoMerge.onStatus(id).catch((err) => console.warn("[automerge] onStatus:", err));
   }
 });
-setInterval(() => {
-  if (maintenance.active) return;
-  void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
-}, 30_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
+  }, 30_000);
+});
 // Re-engage idle full-auto sessions stuck on an open+red PR. A timer is the one trigger that
 // re-fires on an UNCHANGED red head (the PR poller emits no `session:git` without a state change),
 // so this owns the sustained re-engagement that onGit/considerCi structurally cannot deliver.
-setInterval(() => {
-  if (maintenance.active) return;
-  void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
-}, 30_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
+  }, 30_000);
+});
 
 // Herd Rundown: a once-daily synthesized "what needs a human right now?" digest across the
 // whole live herd. All inputs are injected accessors over the same in-memory caches the rest
@@ -1656,10 +1730,12 @@ events.subscribe((event, data) => {
       .catch((err) => console.warn("[draft-reconcile] onStatus:", err));
   }
 });
-setInterval(() => {
-  if (maintenance.active) return;
-  void draftReconcile.tick().catch((err) => console.warn("[draft-reconcile] tick:", err));
-}, 30_000);
+deferredStarts.push(() => {
+  setInterval(() => {
+    if (maintenance.active) return;
+    void draftReconcile.tick().catch((err) => console.warn("[draft-reconcile] tick:", err));
+  }, 30_000);
+});
 // Note: draftreconcile:status is forwarded to websocket clients automatically via
 // the EventHub subscribe in server.ts (ws.data.kind === "events" path), just as
 // automerge:status is — no additional forwarding needed.
@@ -1673,11 +1749,13 @@ const distiller = new DistillerService({
   scratch: defaultScratch,
   onChange: () => learningsSvc.emitPending(),
 });
-distiller.reapOrphans(); // issue #1135: close orphaned __distill__ tabs left by a prior lifetime
-setInterval(() => {
-  if (maintenance.active) return;
-  void distiller.tick();
-}, 30_000);
+deferredStarts.push(() => {
+  distiller.reapOrphans(); // issue #1135: close orphaned __distill__ tabs left by a prior lifetime
+  setInterval(() => {
+    if (maintenance.active) return;
+    void distiller.tick();
+  }, 30_000);
+});
 const promoter = new Promoter({ store, worktree, resolveForge });
 const optimizer = new OptimizerService({
   store,
@@ -1686,11 +1764,13 @@ const optimizer = new OptimizerService({
   promoter,
   onChange: () => learningsSvc.emitPending(),
 });
-optimizer.reapOrphans(); // issue #1135: close orphaned __optimize__ tabs left by a prior lifetime
-setInterval(() => {
-  if (maintenance.active) return;
-  void optimizer.tick();
-}, 30_000);
+deferredStarts.push(() => {
+  optimizer.reapOrphans(); // issue #1135: close orphaned __optimize__ tabs left by a prior lifetime
+  setInterval(() => {
+    if (maintenance.active) return;
+    void optimizer.tick();
+  }, 30_000);
+});
 // Phase 4: background merge-suggestion pass (off the hot path). consider/considerCrossRepo
 // run from the daily sweep (synchronous, non-blocking — they enqueue a detached spawn);
 // the 30s tick reaps finished/timed-out runs.
@@ -1700,20 +1780,24 @@ const mergeSuggest = new MergeSuggestionService({
   scratch: defaultMergeScratch,
   onChange: () => learningsSvc.emitPending(),
 });
-mergeSuggest.reapOrphans(); // issue #1135: close orphaned __merge__ tabs left by a prior lifetime
-setInterval(() => {
-  if (maintenance.active) return;
-  void mergeSuggest.tick();
-}, 30_000);
+deferredStarts.push(() => {
+  mergeSuggest.reapOrphans(); // issue #1135: close orphaned __merge__ tabs left by a prior lifetime
+  setInterval(() => {
+    if (maintenance.active) return;
+    void mergeSuggest.tick();
+  }, 30_000);
+});
 // Issue #1136: the synchronous block-and-clean helpers (namer / autopilot / verify-key) stop their
 // spawn in a `finally`, so they leave NO husk on a CLEAN exit — but a server restart mid-poll skips
 // that finally, orphaning an interactive `claude` that idles at the prompt forever (the husk-only
 // reaper spares it as a live non-shell proc). They track no inflight and none is running at this
 // synchronous boot point, so an empty owned set is correct: close every prior-lifetime orphan by
 // label prefix. Space-prefixed / multi-word labels can't collide with an `[a-z0-9-]` session slug.
-reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
-reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
-reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
+deferredStarts.push(() => {
+  reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
+  reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
+  reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
+});
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
 // with enough recent signal.
@@ -1849,8 +1933,10 @@ const runDailySweep = () => {
   // Read-only backup-staleness probe (#1080); fire-and-forget so it never blocks the sweep.
   void checkBackupStaleness();
 };
-setTimeout(runDailySweep, 10_000); // once shortly after boot
-setInterval(runDailySweep, 24 * 60 * 60 * 1000);
+deferredStarts.push(() => {
+  setTimeout(runDailySweep, 10_000); // once shortly after boot
+  setInterval(runDailySweep, 24 * 60 * 60 * 1000);
+});
 
 // recompute live limit % from local JSONL ~every 30s; push to clients
 attachUsagePush(events, store, push);
@@ -1859,27 +1945,29 @@ attachCreditsPush(events, store, push);
 // 30s tick fires; without this a second tick re-reads the not-yet-removed head task and
 // double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
 let releasingHeld = false;
-setInterval(async () => {
-  await accountIndex.refresh(Date.now());
-  events.emit("usage:limits", usageLimits.limits(Date.now()));
-  if (releasingHeld) return; // prior release still draining — skip this tick's release
-  releasingHeld = true;
-  try {
-    await releaseHeldTasks(
-      { store, service, usageLimits, events, resolveForge },
-      {
-        enabled: config.usageHoldEnabled,
-        holdPct: config.usageHoldPct,
-        autoRelease: config.usageHoldAutoRelease,
-      },
-      Date.now(),
-    );
-  } catch (e) {
-    console.warn("[held] release failed:", e);
-  } finally {
-    releasingHeld = false;
-  }
-}, 30_000);
+deferredStarts.push(() => {
+  setInterval(async () => {
+    await accountIndex.refresh(Date.now());
+    events.emit("usage:limits", usageLimits.limits(Date.now()));
+    if (releasingHeld) return; // prior release still draining — skip this tick's release
+    releasingHeld = true;
+    try {
+      await releaseHeldTasks(
+        { store, service, usageLimits, events, resolveForge },
+        {
+          enabled: config.usageHoldEnabled,
+          holdPct: config.usageHoldPct,
+          autoRelease: config.usageHoldAutoRelease,
+        },
+        Date.now(),
+      );
+    } catch (e) {
+      console.warn("[held] release failed:", e);
+    } finally {
+      releasingHeld = false;
+    }
+  }, 30_000);
+});
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`.
 // The `/usage` probe is a single ephemeral agent, so concurrent calls must never double-spawn it.
@@ -2035,8 +2123,10 @@ const backlogPoller = new BacklogPoller(
   // there are no clients. (A reconnect fires the debounced presence catch-up.)
   () => presence.hasClients() && !graphRateLimit.blocked(),
 );
-setTimeout(() => void backlogPoller.tick(), 3_000);
-backlogPoller.start();
+deferredStarts.push(() => {
+  setTimeout(() => void backlogPoller.tick(), 3_000);
+  backlogPoller.start();
+});
 
 // Up Next (#1169): cross-repo ranked queue of un-started work. In-memory snapshot kept warm
 // by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
@@ -2056,7 +2146,9 @@ const upNext = new UpNextService({
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: (snapshot) => events.emit("upnext:snapshot", { snapshot }),
 });
-upNext.start();
+deferredStarts.push(() => {
+  upNext.start();
+});
 
 const appDeps: AppDeps = {
   store,
@@ -2199,7 +2291,9 @@ console.log(`shepherd core on http://localhost:${server.port}`);
 
 // One-time gap-fill of pre-existing archived sessions into session_usage (#965).
 // Fire-and-forget: async JSONL reads yield the event loop; never awaited at boot.
-void runSessionUsageBackfill(store);
+deferredStarts.push(() => {
+  void runSessionUsageBackfill(store);
+});
 
 // Restricted agent-ingress listener: the autonomous netns's ONLY reachable control-plane surface.
 // Bound to loopback on an ephemeral port; slirp maps the netns's 10.0.2.2 → host 127.0.0.1. Started
@@ -2208,6 +2302,12 @@ void runSessionUsageBackfill(store);
 const agentIngress = serveAgentIngress(appDeps, config.agentIngressPort);
 agentIngressState.port = agentIngress.port;
 console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
+
+// First-run gate: on an already-onboarded boot, start every deferred background subsystem now.
+// On a fresh install (firstRun.pending) stay inert — the server serves only the onboarding UI —
+// and register startBackground to fire off-thread when server.ts resolves the first root-pick.
+if (firstRun.pending) firstRun.onResolve(startBackground);
+else startBackground();
 
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
@@ -2226,3 +2326,18 @@ process.on("SIGTERM", () => {
   standaloneCritic.stopAll();
   process.exit(0);
 });
+
+// Consolidated operator-credentials banner — emitted LAST (after both listeners are up) so it's
+// the final, prominent boot output instead of scrolling away mid-boot. Fires only when this boot
+// GENERATED a password (no SHEPHERD_PASSWORD and no persisted hash); shows it exactly once.
+if (generatedPassword) {
+  console.log(
+    "\n" +
+      "  ┌──────────────────────────────────────────────────────────────────────┐\n" +
+      "  │  SHEPHERD: no password configured — generated a random one (below).    │\n" +
+      "  │  CHANGE THIS: set SHEPHERD_PASSWORD in ~/.shepherd/env and restart.     │\n" +
+      "  └──────────────────────────────────────────────────────────────────────┘\n" +
+      `  Open:  http://localhost:${config.port}\n` +
+      `  Operator password (shown ONCE): ${generatedPassword}\n`,
+  );
+}

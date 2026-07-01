@@ -3,6 +3,7 @@
   import { Terminal, type IBufferLine, type IBufferCell } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { WebLinksAddon } from "@xterm/addon-web-links";
+  import { WebglAddon } from "@xterm/addon-webgl";
   import type {
     DrainStatus,
     GitState,
@@ -1053,6 +1054,26 @@
     );
     term.open(el);
     fit.fit();
+
+    // WebGL renderer. The default DOM renderer flows text with a per-glyph
+    // letter-spacing derived from a fractional cell width; at a non-integer
+    // fontSize (12.5) on a HiDPI display (devicePixelRatio 2) xterm's glyph
+    // measurement and its computed cell width disagree by half a device pixel,
+    // so the rendered text drifts ~0.25px/char off the hit-test grid and the
+    // selection lands a few characters short by the end of a long line. The
+    // WebGL renderer rasterizes each glyph into its exact grid cell (no flowed
+    // text, no letter-spacing), so text, the selection overlay and mouse
+    // hit-testing all share one grid. Loaded after open() as the addon requires.
+    // Guarded: if WebGL is unavailable (context creation throws, or is lost and
+    // unrecoverable) we dispose it and fall back to the DOM renderer rather than
+    // leaving the terminal blank.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (err) {
+      console.warn("webgl renderer unavailable; using DOM renderer", err);
+    }
 
     // assign the local first; reading the `conn` $state back inside this effect
     // would make the effect depend on a value it writes → infinite update loop

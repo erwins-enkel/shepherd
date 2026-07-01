@@ -21,8 +21,9 @@ jobs:
     name: pr title
     # release-please's generated title ("chore(main): release X.Y.Z") is already
     # conventional and its branch is bot-maintained — skip to match ci.yml /
-    # pr-hygiene.yml, which guard off the same head_ref prefix.
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # pr-hygiene.yml, which guard off the same head_ref prefix AND the release-bot
+    # identity (branch-name-only was a fork-spoofable required-check skip).
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     # Runner toggle for the closed-source phase (see ci.yml): CI_RUNNER=self-hosted
     # uses the local runner; unset falls back to ubuntu-latest.
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -30,7 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
       - name: Install (root)

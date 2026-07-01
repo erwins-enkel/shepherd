@@ -11,15 +11,23 @@ const DEMO_URL = "https://demo.shepherd.run";
 ---
 
 <section class="hero">
-  <div class="copy">
-    <p class="prerelease" role="status">
-      <span class="pulse" aria-hidden="true"></span>
-      <span>
-        <strong>Public release in a few days.</strong> The GitHub repo and the one-line
-        installer below aren’t live yet — they go public at launch.
-      </span>
-    </p>
+  <!--
+    DOM source order is content/mobile order: banner → copy → install → visual.
+    grid-template-areas reorders these VISUALLY per breakpoint, but tab and
+    screen-reader order follow this DOM order (WCAG 2.4.3 / 1.3.2). The
+    install-vs-screenshot order flips between breakpoints, so we author the
+    logical/mobile-matching sequence and let the desktop screenshot (a
+    supplementary demo link) trail in DOM.
+  -->
+  <p class="prerelease" role="status">
+    <span class="pulse" aria-hidden="true"></span>
+    <span>
+      <strong>Public release in a few days.</strong> The GitHub repo and the one-line
+      installer below aren’t live yet — they go public at launch.
+    </span>
+  </p>
 
+  <div class="copy">
     <h1 class="headline">
       Run a herd of real coding agents
       <span class="emph">ship only what survives review.</span>
@@ -48,7 +56,9 @@ const DEMO_URL = "https://demo.shepherd.run";
       >
       <a class="btn btn-ghost" href={DOCS_URL}>Read the docs</a>
     </div>
+  </div>
 
+  <div class="install-slot">
     <InstallBlock />
   </div>
 
@@ -61,7 +71,12 @@ const DEMO_URL = "https://demo.shepherd.run";
   .hero {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 2.5rem;
+    grid-template-areas:
+      "banner"
+      "copy"
+      "install"
+      "visual";
+    row-gap: 2rem;
     align-items: center;
     max-width: 72rem;
     margin: 0 auto;
@@ -69,17 +84,22 @@ const DEMO_URL = "https://demo.shepherd.run";
   }
 
   .copy {
+    grid-area: copy;
+    align-self: start;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
   }
 
+  .install-slot {
+    grid-area: install;
+  }
+
   .prerelease {
-    display: inline-flex;
+    grid-area: banner;
+    display: flex;
     align-items: center;
     gap: 0.6rem;
-    align-self: flex-start;
-    max-width: 38rem;
     padding: 0.6rem 0.9rem;
     border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
     border-radius: 0.6rem;
@@ -191,13 +211,19 @@ const DEMO_URL = "https://demo.shepherd.run";
   }
 
   .visual {
+    grid-area: visual;
     width: 100%;
   }
 
   @media (min-width: 900px) {
     .hero {
       grid-template-columns: 1.05fr 0.95fr;
-      gap: 3.5rem;
+      grid-template-areas:
+        "banner  banner"
+        "copy    visual"
+        "install install";
+      column-gap: 3.5rem;
+      row-gap: 2rem;
     }
   }
 

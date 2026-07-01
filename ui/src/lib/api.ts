@@ -763,13 +763,16 @@ export async function relaunchSession(
   throw new ApiError(r.status, base.message, body?.code);
 }
 
-/** Provider/model choice for a variant or comparison spawn (absent provider → server default). */
+export type HandoffMode = "resume" | "summarize";
+
+/** Provider/model choice for variant, comparison, or in-place continuation actions. */
 export interface VariantChoice {
   agentProvider?: AgentProvider;
   model: string | null;
+  handoffMode?: HandoffMode;
 }
 
-/** Replace the agent CLI/model in-place, keeping the same Shepherd session + worktree. */
+/** Continue the session with another agent CLI/model, keeping the same Shepherd session + worktree. */
 export async function replaceSessionAgent(id: string, choice: VariantChoice): Promise<Session> {
   const { session } = await postJson<{ session: Session }>(
     `/api/sessions/${id}/replace`,

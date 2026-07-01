@@ -33,7 +33,7 @@
     // when provided, a one-click "Relaunch elsewhere" item appears below Relaunch —
     // no two-step arm (the composer dialog + explicit submit is the confirmation)
     onrelaunchElsewhere?: () => void;
-    // when provided, "Start as variant…" / "Replace with…" items appear — each opens the
+    // when provided, "Start as variant…" / "Continue with…" items appear — each opens the
     // provider/model picker (its explicit confirm is the confirmation, so no two-step arm here)
     onvariant?: () => void;
     onreplace?: () => void;

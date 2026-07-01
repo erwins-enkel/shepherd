@@ -3,9 +3,16 @@
   import { modelLabel } from "$lib/model-label";
   import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider } from "$lib/types";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
+  import type { HandoffMode } from "$lib/api";
+
+  type Choice = {
+    agentProvider: AgentProvider;
+    model: string | null;
+    handoffMode?: HandoffMode;
+  };
 
   // Small anchored, non-blocking popover for picking an agent provider + model — used to
-  // start a comparison VARIANT, REPLACE a session, or spawn a COMPARISON run. Per the design
+  // start a comparison VARIANT, continue a session with another CLI, or spawn a COMPARISON run. Per the design
   // system's popover rule it gets NO scrim/blur: it dismisses on outside-click, Esc or scroll.
   // Only configured/available choices are offered (fable hidden when unavailable), mirroring
   // NewTaskRunSettings' availability logic so a spawn never fails opaquely.
@@ -17,6 +24,7 @@
     fableAvailable,
     initialProvider,
     initialModel = "default",
+    handoff = false,
     opener,
     onconfirm,
     onclose,
@@ -29,8 +37,10 @@
     initialProvider: AgentProvider;
     /** Seed model alias ("default" = provider default). Reset if not available for the provider. */
     initialModel?: string;
+    /** Show the in-place continuation handoff mode picker. */
+    handoff?: boolean;
     opener?: HTMLElement;
-    onconfirm: (choice: { agentProvider: AgentProvider; model: string | null }) => void;
+    onconfirm: (choice: Choice) => void;
     onclose: () => void;
   } = $props();
 
@@ -38,6 +48,7 @@
   let agentProvider = $state<AgentProvider>(initialProvider);
   // svelte-ignore state_referenced_locally
   let model = $state<string>(initialModel);
+  let handoffMode = $state<HandoffMode>("resume");
 
   const provModels = $derived(providerModels(agentProvider));
 
@@ -49,7 +60,11 @@
   });
 
   function confirm() {
-    onconfirm({ agentProvider, model: model === "default" ? null : model });
+    onconfirm({
+      agentProvider,
+      model: model === "default" ? null : model,
+      ...(handoff ? { handoffMode } : {}),
+    });
   }
 
   let el = $state<HTMLDivElement>();
@@ -91,11 +106,15 @@
 <div
   bind:this={el}
   class="mcp"
+  class:handoff
   role="dialog"
   aria-label={title}
   style="left:{pos?.left ?? x}px;top:{pos?.top ?? y}px"
 >
   <p class="mcp-title">{title}</p>
+  {#if handoff}
+    <p class="mcp-note">{m.experiment_continue_scope()}</p>
+  {/if}
 
   <div class="mcp-field">
     <label class="micro" for="mcp-provider">{m.newtask_agent_provider_label()}</label>
@@ -120,6 +139,26 @@
     </select>
   </div>
 
+  {#if handoff}
+    <fieldset class="mcp-field mcp-handoff">
+      <legend class="micro">{m.experiment_continue_handoff_label()}</legend>
+      <label class="mode">
+        <input type="radio" bind:group={handoffMode} value="resume" />
+        <span>
+          <strong>{m.experiment_continue_mode_resume()}</strong>
+          <small>{m.experiment_continue_mode_resume_hint()}</small>
+        </span>
+      </label>
+      <label class="mode">
+        <input type="radio" bind:group={handoffMode} value="summarize" />
+        <span>
+          <strong>{m.experiment_continue_mode_summarize()}</strong>
+          <small>{m.experiment_continue_mode_summarize_hint()}</small>
+        </span>
+      </label>
+    </fieldset>
+  {/if}
+
   <div class="mcp-actions">
     <button class="gbtn" type="button" onclick={onclose}>{m.common_cancel()}</button>
     <button class="gbtn primary" type="button" onclick={confirm}>{confirmLabel}</button>
@@ -142,15 +181,29 @@
     flex-direction: column;
     gap: 10px;
   }
+  .mcp.handoff {
+    width: 340px;
+  }
   .mcp-title {
     margin: 0;
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
   }
+  .mcp-note {
+    margin: -2px 0 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+  }
   .mcp-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+  fieldset.mcp-field {
+    margin: 0;
+    padding: 0;
+    border: 0;
   }
   .micro {
     font-size: var(--fs-meta);
@@ -174,6 +227,42 @@
   select:focus {
     outline: none;
     border-color: var(--color-line-bright);
+  }
+  .mcp-handoff {
+    gap: 7px;
+  }
+  .mode {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    align-items: start;
+    padding: 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-inset);
+    cursor: pointer;
+  }
+  .mode:hover {
+    border-color: var(--color-line-bright);
+  }
+  .mode input {
+    margin: 2px 0 0;
+    accent-color: var(--color-amber);
+  }
+  .mode strong,
+  .mode small {
+    display: block;
+  }
+  .mode strong {
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    font-weight: 600;
+  }
+  .mode small {
+    margin-top: 3px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
   }
   .mcp-actions {
     display: flex;

@@ -4815,6 +4815,41 @@ test("replaceAgent keeps the old agent registered if replacement spawn fails", a
   expect(calls.stopped).toEqual([]);
 });
 
+test("replaceAgent can start with a summary-first handoff prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, {
+    prompt: "Implement the billing export and open a PR.",
+    agentProvider: "claude",
+  });
+
+  await service.replaceAgent(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    handoffMode: "summarize",
+  });
+
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).toContain("Continue this Shepherd session in the current worktree");
+  expect(promptArg).toContain("Then reply with a concise TLDR");
+  expect(promptArg).toContain("After the TLDR, stop and wait");
+  expect(promptArg).toContain("<original-task>");
+  expect(promptArg).toContain("Implement the billing export and open a PR.");
+  expect(promptArg).toContain("</original-task>");
+});
+
+test("replaceAgent defaults to continuing the original task prompt", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, { prompt: "Keep implementing the dashboard." });
+
+  await service.replaceAgent(orig.id, { agentProvider: "codex", model: null });
+
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).toContain("Keep implementing the dashboard.");
+  expect(promptArg).not.toContain("Then reply with a concise TLDR");
+});
+
 test("replaceAgent re-attaches existing uploads without copying them back into the same worktree", async () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "replace-root-"));

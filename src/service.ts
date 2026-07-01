@@ -42,7 +42,7 @@ import type { PreviewService } from "./preview";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
-import { MAX_IMAGES } from "./validate";
+import { MAX_IMAGES, type HandoffMode } from "./validate";
 import {
   resolveProfile,
   detectBackend as detectSandboxBackend,
@@ -1083,6 +1083,29 @@ export function composeIssueCommentsBlock(issueNumber: number, comments: IssueCo
     );
   lines.push(...rendered.slice(firstKeptIdx));
   return lines.join("\n\n");
+}
+
+function composeHandoffSummaryPrompt(originalPrompt: string): string {
+  return [
+    "Continue this Shepherd session in the current worktree, but do not change files yet.",
+    "",
+    "First orient yourself from the repository state, git status, available session context, and the original task below.",
+    "Then reply with a concise TLDR for the operator.",
+    "",
+    "Include:",
+    "- Current goal",
+    "- Visible worktree state and important changed files",
+    "- What appears already done",
+    "- Open questions, risks, or blockers",
+    "- Recommended next instruction",
+    "",
+    "After the TLDR, stop and wait for the operator's next instruction.",
+    "Do not edit files, run formatters, commit, push, open a PR, or continue implementation until the operator explicitly tells you to continue.",
+    "",
+    "<original-task>",
+    originalPrompt,
+    "</original-task>",
+  ].join("\n");
 }
 
 export class SessionService {
@@ -2175,13 +2198,13 @@ export class SessionService {
   }
 
   /**
-   * Replace the live agent process for an existing Shepherd session without creating a new
-   * worktree or session row. Used by "Replace with…" when the operator wants the same task and
+   * Continue an existing Shepherd session with a fresh agent process without creating a new
+   * worktree or session row. Used by "Continue with…" when the operator wants the same task and
    * same checked-out worktree to continue under a different CLI/model (e.g. Claude → Codex).
    */
   async replaceAgent(
     id: string,
-    opts: { agentProvider?: AgentProvider; model: string | null },
+    opts: { agentProvider?: AgentProvider; model: string | null; handoffMode?: HandoffMode },
   ): Promise<Session> {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived")
@@ -2199,7 +2222,7 @@ export class SessionService {
     const input: CreateSessionInput = {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
-      prompt: s.prompt,
+      prompt: opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
       agentProvider,
       model,
       images: [],

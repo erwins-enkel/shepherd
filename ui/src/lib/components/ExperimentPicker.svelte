@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import type { AgentProvider } from "$lib/types";
-  import { startVariant, startComparison, replaceSessionAgent } from "$lib/api";
+  import { startVariant, startComparison, replaceSessionAgent, type HandoffMode } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
 
@@ -55,13 +55,17 @@
 
   async function runReplace(
     id: string,
-    choice: { agentProvider: AgentProvider; model: string | null },
+    choice: { agentProvider: AgentProvider; model: string | null; handoffMode?: HandoffMode },
   ) {
     const session = await replaceSessionAgent(id, choice);
     onselect(session.id);
   }
 
-  async function onconfirm(choice: { agentProvider: AgentProvider; model: string | null }) {
+  async function onconfirm(choice: {
+    agentProvider: AgentProvider;
+    model: string | null;
+    handoffMode?: HandoffMode;
+  }) {
     const p = picker;
     picker = null;
     if (!p) return;
@@ -84,6 +88,7 @@
     {fableAvailable}
     initialProvider={view.provider}
     initialModel={view.initialModel}
+    handoff={picker.mode === "replace"}
     {onconfirm}
     onclose={() => (picker = null)}
   />

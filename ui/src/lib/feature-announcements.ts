@@ -1838,7 +1838,7 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     bodyKey: "feat_steer_context_menu_body",
   },
   {
-    // No targetId: "Start as variant…" / "Replace with…" live in a card's context menu and the
+    // No targetId: "Start as variant…" / "Continue with…" live in a card's context menu and the
     // "Compare" button only mounts on an experiment group's header (present only once variants
     // exist), so there's no always-present anchor — surface via the What's-New drawer only.
     // 1.38.0 is the latest released tag, so this ships in 1.39.0.
@@ -1921,5 +1921,13 @@ export const featureAnnouncements: readonly FeatureAnnouncement[] = [
     sinceVersion: "1.39.0",
     titleKey: "feat_session_switch_tab_title",
     bodyKey: "feat_session_switch_tab_body",
+  },
+  {
+    // No targetId: the action lives in each session card's context menu, and the handoff picker is
+    // mounted only after opening it. Surface via the What's-New drawer only.
+    id: "continue-with-handoff",
+    sinceVersion: "1.39.0",
+    titleKey: "feat_continue_with_handoff_title",
+    bodyKey: "feat_continue_with_handoff_body",
   },
 ];

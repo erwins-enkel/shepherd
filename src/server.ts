@@ -24,6 +24,7 @@ import {
   validateCreate,
   validateRelaunchOverrides,
   validateModelChoice,
+  validateReplaceAgentChoice,
   validateCloneUrl,
   validateForkTarget,
   validateNewProject,
@@ -2555,7 +2556,7 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
     if (!original) return json({ error: "not found" }, 404);
     if (original.status === "archived") return json({ error: "already archived" }, 409);
 
-    const choice = await parseModelChoice(req);
+    const choice = await parseReplaceAgentChoice(req);
     if (!choice.ok) return choice.res;
 
     let session: Session;
@@ -2590,6 +2591,10 @@ async function guardInFlight(
 }
 
 type ModelChoice = Extract<ReturnType<typeof validateModelChoice>, { ok: true }>["value"];
+type ReplaceAgentChoice = Extract<
+  ReturnType<typeof validateReplaceAgentChoice>,
+  { ok: true }
+>["value"];
 
 // Parse + validate a `{ agentProvider?, model? }` body for the variant/compare routes.
 async function parseModelChoice(
@@ -2597,6 +2602,16 @@ async function parseModelChoice(
 ): Promise<{ ok: true; value: ModelChoice } | { ok: false; res: Response }> {
   const body = (await req.json().catch(() => null)) as unknown;
   const choice = validateModelChoice(body);
+  return choice.ok
+    ? { ok: true, value: choice.value }
+    : { ok: false, res: json({ error: choice.error }, 400) };
+}
+
+async function parseReplaceAgentChoice(
+  req: Request,
+): Promise<{ ok: true; value: ReplaceAgentChoice } | { ok: false; res: Response }> {
+  const body = (await req.json().catch(() => null)) as unknown;
+  const choice = validateReplaceAgentChoice(body);
   return choice.ok
     ? { ok: true, value: choice.value }
     : { ok: false, res: json({ error: choice.error }, 400) };

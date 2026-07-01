@@ -18,13 +18,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.7.0",
+    "@crxjs/vite-plugin": "^2.7.1",
     "@eslint/js": "^10.0.1",
     "@inlang/paraglide-js": "^2.20.2",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.3.2",
     "@tsconfig/svelte": "^5.0.4",
-    "@types/chrome": "^0.2.0",
+    "@types/chrome": "^0.2.2",
     "eslint": "^10.6.0",
     "eslint-plugin-svelte": "^3.20.0",
     "globals": "^17.7.0",

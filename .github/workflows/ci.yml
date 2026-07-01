@@ -25,11 +25,16 @@ jobs:
     # CI keeps the whole-repo checks. Keep the fallow version in sync across both.
     # Don't run the full suite on release-please's generated PR: it only bumps the
     # version + CHANGELOG, so verify is wasted minutes. That PR DOES trigger this
-    # workflow (event=pull_request, actor=github-actions[bot]) — see release-please.yml.
-    # head_ref is empty on push-to-main, so main still runs. NB: this only skips the
-    # JOB once the run starts; GitHub's separate "awaiting approval" gate on bot PRs
-    # is a repo Actions setting, not something a workflow file can control.
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # workflow — see release-please.yml. Skip ONLY when BOTH the head branch carries
+    # the release-please prefix AND the PR author is the release bot (the App token
+    # `shepherd-release-please[bot]`, or the legacy `github-actions[bot]` fallback).
+    # Public-repo hardening: gating on the branch name ALONE let any fork PR named
+    # `release-please--*` skip every required check — and a skipped required job
+    # reports "skipped", which the branch ruleset counts as passing. A fork author
+    # can spoof the branch name but not the bot identity. head_ref is empty on
+    # push-to-main, so main still runs. NB: this only skips the JOB once the run
+    # starts; GitHub's separate bot-PR "awaiting approval" gate is a repo setting.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
     # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes
@@ -43,7 +48,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -165,8 +170,9 @@ jobs:
   docs-site:
     name: docs-site
     # Skip release-please's generated PR (version/CHANGELOG bump only), mirroring
-    # the `verify` job's guard. head_ref is empty on push-to-main, so main runs.
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # the `verify` job's branch+bot-identity guard above (branch-name-only was a
+    # fork-spoofable check-skip). head_ref is empty on push-to-main, so main runs.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     # Same self-hosted runner toggle as `verify`: set repo var CI_RUNNER to
     # 'self-hosted' to use the local runner; unset falls back to ubuntu-latest.
     # MUST be deleted before the repo goes public.
@@ -176,7 +182,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 

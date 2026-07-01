@@ -2,36 +2,30 @@
 
 > Self-hosted mission control for **interactive** Claude Code — and opinionated about how
 > agent-built software ships. Spawn, watch, and steer a herd of real `claude` sessions live in
-> the browser/mobile — designed to keep subscription use ToS-clean (Shepherd's position, not a
-> settled guarantee — see [audit R1](docs/research/claude-anthropic-tos-compliance-audit.md)),
-> with best-practice guardrails built in, on your own server.
+> the browser/mobile — designed around interactive-only subscription use as a good-faith
+> compliance stance, with best-practice guardrails built in, on your own server.
 
-Derived from Creator Magic's "Shepherd" demo (yt: hXWwqPgexZU), re-architected for our stack
-(kanban-api · herdr · gitea · searxng · Hermes). Clean-room; we can do better.
+Inspired by a Creator Magic YouTube proof-of-concept (yt: hXWwqPgexZU), re-architected for our
+stack (kanban-api · herdr · gitea · searxng · Hermes) as an independent clean-room implementation.
 
 ---
 
 ## 1. Why (thesis)
 
-Anthropic's 2026 crackdown killed **programmatic** subscription use — Agent SDK and `claude -p`
-cut off **2026-06-15**. **Shepherd's position** (a good-faith reading, **not confirmed by
-Anthropic**) is that **interactive terminal use was NOT banned**: Shepherd drives genuine
-interactive `claude` sessions and only _observes/steers_ them, which it argues keeps subscription
-usage in the white zone. Black zone = token hijack, impersonation, 3rd-party clients, programmatic
-SDK, team farming. This reading is the open question in audit **R1** — whether keystroke-puppeting
-of interactive sessions for automated work is permitted is **unresolved by any primary Anthropic
-clause** (see the [ToS compliance audit](docs/research/claude-anthropic-tos-compliance-audit.md)
-and the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md)).
+Programmatic subscription use — Agent SDK and `claude -p` — is the path Shepherd deliberately
+avoids. **Shepherd's position** (a good-faith reading, **not an official Anthropic ruling**) is
+that genuine interactive terminal use is a different, acceptable footing: Shepherd drives real
+interactive `claude` sessions and only _observes/steers_ them, rather than driving them
+programmatically. It does not do token hijacking, impersonation, third-party-client access, or
+multi-user farming.
 
-**Corollary (the real prize):** Hermes today executes via `claude -p` — exactly the restricted
-path on a sub. Shepherd's interactive-session substrate aims to be the **intended compliant
-execution path** (per the position above, pending R1's resolution) for the whole ecosystem, not
-just a dashboard.
+**Corollary:** Hermes today executes via `claude -p`. Shepherd's interactive-session substrate
+aims to be a compliant execution path (per the position above) for the whole ecosystem, not just
+a dashboard.
 
-**For operators who cannot accept the R1 ambiguity**, an API-key footing (B) is available as a
-shipped opt-in (v1.30.0, Settings → Session): still genuinely interactive, auth via Commercial
-Terms API key — the clearly-compliant, no-train-by-default path. See the
-[auth-path evaluation](docs/research/tos-position-and-auth-paths.md).
+**For operators who prefer a clearly-compliant footing**, API-key auth is available as a shipped
+opt-in (v1.30.0, Settings → Session): still genuinely interactive, auth via a Commercial Terms
+API key — the no-train-by-default path.
 
 ## 2. Goals / Non-goals
 
@@ -51,22 +45,18 @@ Terms API key — the clearly-compliant, no-train-by-default path. See the
 **Non-goals (v1)**
 
 - No multi-user / team farming (ToS). Single operator, bring-your-own-Claude (sub).
-- No Agent SDK, no `claude -p` on a sub **by default** — but see the
-  [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) (audit R1): **API-key auth
-  (footing B) is shipped as of v1.30.0** (Settings → Session → Auth Mode) as an opt-in for
-  operators who need a clearly-compliant path. Sessions remain genuinely interactive even in api-key
-  mode; only the auth channel changes (subscription OAuth → Commercial Terms API key, no-train-by-default,
-  R1 ambiguity resolved). Footing (C) — Agent SDK credit — remains out of scope; it reopens the
-  interactive-substrate thesis.
+- No Agent SDK, no `claude -p` on a sub **by default** — but **API-key auth is shipped as of
+  v1.30.0** (Settings → Session → Auth Mode) as an opt-in for operators who prefer a
+  clearly-compliant path. Sessions remain genuinely interactive even in api-key mode; only the
+  auth channel changes (subscription OAuth → Commercial Terms API key, no-train-by-default).
+  Agent SDK credit remains out of scope; it reopens the interactive-substrate thesis.
 - No cloud orchestration.
 
 ## 3. ToS compliance model (hard constraint)
 
-> **Position, not settled compliance.** The interactive-puppeting model below is Shepherd's
-> good-faith reading, **not confirmed by Anthropic**; audit **R1** is open pending Anthropic
-> confirmation (see the [ToS compliance audit](docs/research/claude-anthropic-tos-compliance-audit.md)
-> and the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md)). The table states
-> _how_ Shepherd operates; it does not assert the model is adjudicated-compliant.
+> **Position, not settled compliance.** The interactive-session model below is Shepherd's
+> good-faith reading, **not an official Anthropic ruling**. The table states _how_ Shepherd
+> operates; it does not assert the model is adjudicated-compliant.
 
 | Requirement                            | Mechanism                                                                                                                         |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,8 +66,8 @@ Terms API key — the clearly-compliant, no-train-by-default path. See the
 | Auth = the operator's own login        | Default: `claude` uses operator's Max/Pro subscription (OAuth); opt-in: API-key mode uses operator's Commercial Terms key instead |
 
 As a design default under this position, if a feature can't be done by _typing into a real
-terminal_, it doesn't ship — but this is Shepherd's posture, not adjudicated compliance (R1 open;
-see the [auth-path evaluation](docs/research/tos-position-and-auth-paths.md) for opt-in footings).
+terminal_, it doesn't ship — but this is Shepherd's posture, not adjudicated compliance. Operators
+who prefer a clearly-compliant footing can use the opt-in API-key auth mode.
 
 ## 4. Users
 
@@ -147,7 +137,7 @@ Greenfield app in `~/Work/shepherd/`. Thin orchestrator over existing infra.
 
 **Improvements over the original (explicit):**
 
-- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens Shepherd's _position_ that this is genuine interactive use (R1, unconfirmed).
+- I1 Real bidirectional PTY (not hook-echo-only) — also strengthens Shepherd's _position_ that this is genuine interactive use (a design stance, not an official Anthropic ruling).
 - I2 Worktree-per-task → concurrent agents never collide on a checkout.
 - I3 Permission profiles roadmap (v1 = skip/auto mode per user; v2 = per-project allowlists). _(partially shipped #294: trusted/standard/autonomous profiles + auto=true gate; network egress allowlist shipped #601)_
 - I4 Real sandboxing roadmap (firejail/bwrap/nspawn) — make "live dangerously" not literal. _(partially shipped #294: bwrap filesystem/process membrane, host-derived bind set, degraded-mode banner; network egress allowlist shipped #601)_

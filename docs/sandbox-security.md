@@ -1,8 +1,7 @@
 # Sandbox security posture — accepted residuals
 
-Internal developer/operator reference (like the
-[ToS-compliance audit](research/claude-anthropic-tos-compliance-audit.md), added
-by PR #646). Exempt from i18n and the feature catalog — not app chrome.
+Internal developer/operator reference. Exempt from i18n and the feature catalog —
+not app chrome.
 
 Shepherd wraps each spawned `claude` agent in a bubblewrap (`bwrap`)
 filesystem/process **membrane** with three profiles: `trusted` (no sandbox, the
@@ -92,7 +91,5 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
 
 ## See also
 
-- `docs/research/claude-anthropic-tos-compliance-audit.md` — the full audit
-  (added by PR #646; may not be merged at time of writing).
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
   `src/transient-agent-argv.ts`.

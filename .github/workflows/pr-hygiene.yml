@@ -7,15 +7,23 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: these jobs only read git + run local check scripts. Without an
+# explicit block the token inherits the repo/org default (write-all unless the repo
+# default is set to read-only) — pin it here rather than rely on that default.
+permissions:
+  contents: read
+
 jobs:
   branch-hygiene:
     name: branch hygiene
     # Branch-hygiene is moot on release-please's generated PR — it's a clean,
     # auto-maintained branch off main — and that PR DOES trigger this workflow
-    # (see release-please.yml), so guard the job off for it. Non-release PRs run
-    # as normal: their head_ref doesn't start with `release-please--`. This does
-    # NOT touch GitHub's separate bot-PR "awaiting approval" gate (a repo setting).
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    # (see release-please.yml), so guard the job off for it. Skip ONLY when the head
+    # branch carries the release-please prefix AND the PR author is the release bot;
+    # gating on the branch name alone let a fork PR named `release-please--*` skip
+    # this required check (skipped == passing to the ruleset). Non-release PRs run as
+    # normal. This does NOT touch GitHub's separate bot-PR "awaiting approval" gate.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
     # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
     # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes

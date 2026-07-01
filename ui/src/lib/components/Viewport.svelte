@@ -2181,6 +2181,7 @@
   {#if tab === "term"}
     <SteerBar
       focusedId={session.id}
+      repoPath={session.repoPath}
       onbroadcast={() => onbroadcast?.()}
       onretry={() => onretry?.()}
       {retryHaltedCount}

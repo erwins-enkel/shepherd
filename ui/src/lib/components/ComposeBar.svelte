@@ -9,6 +9,8 @@
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
+  import { steerAppliesToRepo } from "$lib/steer-scope";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
   // Android autocomplete / suggestions / double-space-period resolve natively
@@ -44,6 +46,13 @@
   let slashQuery = $state("");
   let slashIndex = $state(0);
   const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+
+  // Steer chips ignore inSteerBar by design (every steer shows here), but still
+  // gate on repo binding — universal steers always show, bound ones only for a
+  // matching repo.
+  const availableSteers = $derived(
+    steers.list.filter((s) => steerAppliesToRepo(s, repos.nameFor(repoPath))),
+  );
 
   // Load the slash-command list for this session's repo (its own
   // .claude/commands + .claude/skills layer on top of the global/user ones).
@@ -381,9 +390,9 @@
         />
       {/if}
     </div>
-    {#if steers.list.length > 0}
+    {#if availableSteers.length > 0}
       <div class="steers">
-        {#each steers.list as s (s.id)}
+        {#each availableSteers as s (s.id)}
           <button
             type="button"
             class="steer-chip"

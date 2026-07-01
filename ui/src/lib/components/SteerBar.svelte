@@ -1,5 +1,7 @@
 <script lang="ts">
   import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
+  import { steerAppliesToRepo } from "$lib/steer-scope";
   import { replySession } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { fitLabels } from "$lib/fit-labels";
@@ -9,6 +11,7 @@
 
   let {
     focusedId,
+    repoPath,
     onbroadcast,
     onretry,
     retryHaltedCount = 0,
@@ -16,6 +19,7 @@
     onedit,
   }: {
     focusedId: string;
+    repoPath: string;
     onbroadcast: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
@@ -24,7 +28,10 @@
   } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
-  const chips = $derived(steers.list.filter((s) => s.inSteerBar));
+  // Also gated to steers bound to this session's repo (or universal ones).
+  const chips = $derived(
+    steers.list.filter((s) => s.inSteerBar && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+  );
 
   // One-time coachmark: the steer chips are tap-to-send and the leading ⌁ broadcast chip
   // broadcasts to many sessions — neither affordance is obvious on first sight.

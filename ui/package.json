@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:demo": "SHEPHERD_DEMO=1 vite dev",
     "build": "vite build",
+    "build:demo": "SHEPHERD_DEMO=1 vite build",
     "preview": "vite preview",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "prepare": "svelte-kit sync || echo '' && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",

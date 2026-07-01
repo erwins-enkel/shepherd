@@ -1,6 +1,7 @@
 node_modules/
 .svelte-kit/
 build/
+build-demo/
 dist/
 .env
 .env.*

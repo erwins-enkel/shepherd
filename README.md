@@ -623,5 +623,6 @@ Shepherd is **source-available**, not open source. You may read, modify, and mak
 non-production use freely, and production use is permitted **except** offering
 Shepherd to third parties as a competing hosted or embedded commercial service
 (see the Additional Use Grant in [`LICENSE`](./LICENSE)). Each version converts to
-the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) on its Change
-Date (**2030-07-01**). For other arrangements, contact Erwins Enkel GmbH.
+the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) **four years
+after that version is published** (its Change Date). For other arrangements,
+contact Erwins Enkel GmbH.

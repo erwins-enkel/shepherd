@@ -5,6 +5,9 @@ import FocusMock from "./FocusMock.astro";
 const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
 // First-party docs site — same-tab navigation (no target="_blank").
 const DOCS_URL = "https://docs.shepherd.run";
+// Live, in-browser demo (separate SPA, simulated backend) — open in a new tab
+// so the marketing site stays put behind it.
+const DEMO_URL = "https://demo.shepherd.run";
 ---
 
 <section class="hero">
@@ -30,7 +33,13 @@ const DOCS_URL = "https://docs.shepherd.run";
     </p>
 
     <div class="ctas">
-      <a class="btn btn-primary" href="#install">Install</a>
+      <a
+        class="btn btn-primary"
+        href={DEMO_URL}
+        rel="noopener noreferrer"
+        target="_blank">Try the live demo</a
+      >
+      <a class="btn btn-ghost" href="#install">Install</a>
       <a
         class="btn btn-ghost"
         href={GITHUB_URL}

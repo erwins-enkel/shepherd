@@ -2689,6 +2689,16 @@
     height: 100dvh;
     box-sizing: border-box;
   }
+  /* Demo-only: the marketing ribbon (demo/DemoRibbon.svelte) is fixed to the
+     viewport bottom and would overlay the desktop bottom bar (New Task etc.).
+     Reserve its height so the shell ends above it. `--demo-ribbon-h` is set ONLY
+     by the demo ribbon; outside the demo it is unset, so this resolves to a plain
+     `calc(100dvh - 0px)` = 100dvh and the real Shepherd layout is unchanged. Scoped
+     to `:not(.mobile)` because the mobile ActionBar is `position: fixed` and the
+     ribbon is offset above it separately — mobile must keep the full 100dvh. */
+  .shell:not(.mobile) {
+    height: calc(100dvh - var(--demo-ribbon-h, 0px));
+  }
   .grid {
     display: grid;
     /* session picker stays compact; terminal absorbs all extra width */

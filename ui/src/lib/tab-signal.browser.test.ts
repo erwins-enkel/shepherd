@@ -87,3 +87,45 @@ test("dispose restores title/favicon and clears the badge", () => {
   expect(link.href).toContain("/favicon.svg");
   expect(clearBadge).toHaveBeenCalled();
 });
+
+test("glyph ticker ON: compact grouped title, urgent-first, zero groups omitted", () => {
+  const signal = createTabSignal();
+  signal.update({
+    count: 3,
+    severity: "red",
+    attended: false,
+    ticker: true,
+    ci: 1,
+    blocked: 0,
+    ready: 2,
+    running: 4,
+  });
+  flush();
+  // ⚠ ci, ✋ blocked(omitted, 0), ✓ ready, ▶ running — order urgent-first
+  expect(document.title).toBe("⚠1 ✓2 ▶4 Shepherd");
+});
+
+test("glyph ticker ON but all groups zero → plain base title", () => {
+  const signal = createTabSignal();
+  signal.update({ count: 0, severity: "none", attended: false, ticker: true });
+  flush();
+  expect(document.title).toBe("Shepherd");
+});
+
+test("progress ring: PNG favicon when count 0 + ringFraction set, no title change", () => {
+  const signal = createTabSignal();
+  signal.update({ count: 0, severity: "none", attended: false, ringFraction: 0.5 });
+  flush();
+  expect(link.href.startsWith("data:image/png")).toBe(true);
+  expect(document.title).toBe("Shepherd");
+});
+
+test("severity dot wins over the progress ring when count > 0", () => {
+  const signal = createTabSignal();
+  // both a live count and a ring fraction present → dot path, badge set
+  signal.update({ count: 2, severity: "amber", attended: false, ringFraction: 0.9 });
+  flush();
+  expect(link.href.startsWith("data:image/png")).toBe(true);
+  expect(setBadge).toHaveBeenLastCalledWith(2);
+  expect(document.title).toBe("(2) Shepherd");
+});

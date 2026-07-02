@@ -125,6 +125,28 @@ function groundColor(): string {
   return v && !v.startsWith("var(") ? v : "#0a0d0c";
 }
 
+/** Resolve the progress-ring color (muted: in-progress but not urgent); safe fallback. */
+function resolveMuted(): string {
+  const cs = getComputedStyle(document.documentElement);
+  for (const name of ["--color-muted", "--muted"]) {
+    const v = cs.getPropertyValue(name).trim();
+    if (v && !v.startsWith("var(")) return v;
+  }
+  return "#7c8c86";
+}
+
+type UpdatePayload = {
+  count: number;
+  severity: Severity;
+  attended: boolean;
+  ticker?: boolean;
+  ci?: number;
+  blocked?: number;
+  ready?: number;
+  running?: number;
+  ringFraction?: number | null;
+};
+
 class TabSignal {
   #announcement = $state("");
   /** Localized aria-live string, mirrored into a polite region by +page.svelte. */
@@ -141,7 +163,7 @@ class TabSignal {
 
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #flourishTimer: ReturnType<typeof setTimeout> | null = null;
-  #next: { count: number; severity: Severity; attended: boolean } | null = null;
+  #next: UpdatePayload | null = null;
   #lastCount = 0;
 
   #lazyInit() {
@@ -162,7 +184,7 @@ class TabSignal {
   }
 
   /** Debounced entry point, driven by the root $effect. */
-  update(next: { count: number; severity: Severity; attended: boolean }) {
+  update(next: UpdatePayload) {
     this.#next = next;
     if (this.#debounceTimer) clearTimeout(this.#debounceTimer);
     this.#debounceTimer = setTimeout(() => {
@@ -171,7 +193,18 @@ class TabSignal {
     }, DEBOUNCE_MS);
   }
 
-  #apply({ count, severity, attended }: { count: number; severity: Severity; attended: boolean }) {
+  #apply(p: UpdatePayload) {
+    const {
+      count,
+      severity,
+      attended,
+      ticker = false,
+      ci = 0,
+      blocked = 0,
+      ready = 0,
+      running = 0,
+      ringFraction = null,
+    } = p;
     this.#lazyInit();
     this.#announce(count);
 
@@ -188,8 +221,10 @@ class TabSignal {
       return;
     }
 
-    // Background tier.
-    this.#setTitle(count > 0 ? `(${count}) ${this.#baseTitle}` : this.#baseTitle);
+    // Background tier — title.
+    if (ticker) this.#setTitle(this.#tickerTitle(ci, blocked, ready, running));
+    else this.#setTitle(count > 0 ? `(${count}) ${this.#baseTitle}` : this.#baseTitle);
+
     if (count > 0) this.#setBadge(count);
     else this.#clearBadge();
 
@@ -198,8 +233,11 @@ class TabSignal {
       return;
     }
     if (this.#flourishTimer) return; // an in-progress flourish owns the favicon
-    if (severity === "none") this.#restoreFavicon();
-    else this.#setFavicon(this.#renderDot(severity));
+
+    // Favicon precedence: severity dot › progress ring › restore.
+    if (severity !== "none") this.#setFavicon(this.#renderDot(severity));
+    else if (ringFraction != null) this.#setFavicon(this.#renderRing(ringFraction));
+    else this.#restoreFavicon();
   }
 
   #announce(count: number) {
@@ -209,6 +247,16 @@ class TabSignal {
 
   #setTitle(title: string) {
     if (document.title !== title) document.title = title;
+  }
+
+  /** Compact grouped title: ⚠ci ✋blocked ✓ready ▶running (non-zero groups only). */
+  #tickerTitle(ci: number, blocked: number, ready: number, running: number): string {
+    const groups: string[] = [];
+    if (ci) groups.push(`⚠${ci}`);
+    if (blocked) groups.push(`✋${blocked}`);
+    if (ready) groups.push(`✓${ready}`);
+    if (running) groups.push(`▶${running}`);
+    return groups.length ? `${groups.join(" ")} ${this.#baseTitle}` : this.#baseTitle;
   }
 
   #setBadge(n: number) {
@@ -247,8 +295,10 @@ class TabSignal {
       this.#flourishTimer = null;
       // Restore to whatever the latest state warrants (may have changed since drain).
       const n = this.#next;
-      if (!n || n.attended || n.severity === "none") this.#restoreFavicon();
-      else this.#setFavicon(this.#renderDot(n.severity));
+      if (!n || n.attended) return this.#restoreFavicon();
+      if (n.severity !== "none") return this.#setFavicon(this.#renderDot(n.severity));
+      if (n.ringFraction != null) return this.#setFavicon(this.#renderRing(n.ringFraction));
+      this.#restoreFavicon();
     }, FLOURISH_MS);
   }
 
@@ -283,6 +333,31 @@ class TabSignal {
   #renderDot(sev: Severity): string {
     const [canvas, ctx, size] = this.#canvas();
     if (sev !== "none") this.#corner(ctx, size, size * 0.28, resolveColor(sev));
+    return canvas.toDataURL("image/png");
+  }
+
+  /** Base mark + a coarse progress arc (clockwise from 12 o'clock). */
+  #renderRing(fraction: number): string {
+    const [canvas, ctx, size] = this.#canvas();
+    const f = Math.max(0, Math.min(1, fraction));
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.4;
+    const w = Math.max(1, size * 0.12);
+    const start = -Math.PI / 2;
+    // faint full track for contrast on any favicon ground
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = groundColor();
+    ctx.lineWidth = w + size * 0.06;
+    ctx.stroke();
+    // progress arc
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, start, start + f * Math.PI * 2);
+    ctx.strokeStyle = resolveMuted();
+    ctx.lineWidth = w;
+    ctx.lineCap = "round";
+    ctx.stroke();
     return canvas.toDataURL("image/png");
   }
 

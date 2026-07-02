@@ -27,22 +27,25 @@ const formGate = (answeredQuestionKeys: string[] = []): PlanGate =>
   }) as unknown as PlanGate;
 
 test("no sessions → count 0, severity none", () => {
-  expect(deriveTabState([], {}, {})).toEqual({ count: 0, severity: "none" });
+  expect(deriveTabState([], {}, {})).toMatchObject({ count: 0, severity: "none" });
 });
 
 test("blocked session counts as amber", () => {
-  expect(deriveTabState([sess("s1", "blocked")], {}, {})).toEqual({ count: 1, severity: "amber" });
+  expect(deriveTabState([sess("s1", "blocked")], {}, {})).toMatchObject({
+    count: 1,
+    severity: "amber",
+  });
 });
 
 test("working-blocked session (mid-turn) is excluded — renders as running", () => {
-  expect(deriveTabState([sess("s1", "blocked")], {}, { s1: true })).toEqual({
+  expect(deriveTabState([sess("s1", "blocked")], {}, { s1: true })).toMatchObject({
     count: 0,
     severity: "none",
   });
 });
 
 test("ci-red (git.checks === failure) counts as red", () => {
-  expect(deriveTabState([sess("s1", "running")], { s1: git("failure") }, {})).toEqual({
+  expect(deriveTabState([sess("s1", "running")], { s1: git("failure") }, {})).toMatchObject({
     count: 1,
     severity: "red",
   });
@@ -51,21 +54,23 @@ test("ci-red (git.checks === failure) counts as red", () => {
 test("blocked + CI-red on one session reads red, not amber (no primary-hold masking)", () => {
   // The whole point of reading git.checks directly rather than the primary-only
   // store.holds: a blocked session that is ALSO CI-red must surface red.
-  expect(deriveTabState([sess("s1", "blocked")], { s1: git("failure") }, {})).toEqual({
+  expect(deriveTabState([sess("s1", "blocked")], { s1: git("failure") }, {})).toMatchObject({
     count: 1,
     severity: "red",
   });
 });
 
 test("ready-to-merge counts as green", () => {
-  expect(deriveTabState([sess("s1", "done", true)], {}, {})).toEqual({
+  expect(deriveTabState([sess("s1", "done", true)], {}, {})).toMatchObject({
     count: 1,
     severity: "green",
   });
 });
 
 test("ready-to-merge handed to a merger is excluded (awaiting-merge, not ready)", () => {
-  expect(deriveTabState([sess("s1", "done", true)], { s1: git("success", "merger") }, {})).toEqual({
+  expect(
+    deriveTabState([sess("s1", "done", true)], { s1: git("success", "merger") }, {}),
+  ).toMatchObject({
     count: 0,
     severity: "none",
   });
@@ -74,25 +79,64 @@ test("ready-to-merge handed to a merger is excluded (awaiting-merge, not ready)"
 test("ready-to-merge handed to a reviewer still counts as green", () => {
   expect(
     deriveTabState([sess("s1", "done", true)], { s1: git("success", "reviewer") }, {}),
-  ).toEqual({ count: 1, severity: "green" });
+  ).toMatchObject({ count: 1, severity: "green" });
 });
 
 test("critic-rework / plain running sessions are not counted", () => {
   // deriveTabState never inspects review verdicts, so an agent-turn session
   // (e.g. critic-rework) with no blocked/ci-red/ready signal produces nothing.
-  expect(deriveTabState([sess("s1", "running")], {}, {})).toEqual({ count: 0, severity: "none" });
+  expect(deriveTabState([sess("s1", "running")], {}, {})).toMatchObject({
+    count: 0,
+    severity: "none",
+  });
 });
 
 test("severity precedence across sessions: red > amber > green; count is distinct sessions", () => {
   const sessions = [sess("green", "done", true), sess("amber", "blocked"), sess("red", "running")];
   const g = { red: git("failure") };
-  expect(deriveTabState(sessions, g, {})).toEqual({ count: 3, severity: "red" });
+  expect(deriveTabState(sessions, g, {})).toMatchObject({ count: 3, severity: "red" });
 });
 
 test("non-failure CI does not count", () => {
   const sessions = [sess("s1", "running"), sess("s2", "idle")];
   const g = { s1: git("success"), s2: git("pending") };
-  expect(deriveTabState(sessions, g, {})).toEqual({ count: 0, severity: "none" });
+  expect(deriveTabState(sessions, g, {})).toMatchObject({ count: 0, severity: "none" });
+});
+
+test("tallies split by severity; running counted independently", () => {
+  const sessions = [
+    sess("green", "done", true), // ready
+    sess("amber", "blocked"), // blocked
+    sess("red", "running"), // ci-red
+    sess("run", "running"), // plain running (not in count)
+  ];
+  const g = { red: git("failure") };
+  expect(deriveTabState(sessions, g, {})).toEqual({
+    count: 3,
+    severity: "red",
+    ci: 1,
+    blocked: 1,
+    ready: 1,
+    running: 2, // "red" (running+failure) and "run" both render running
+  });
+});
+
+test("empty herd → all tallies zero", () => {
+  expect(deriveTabState([], {}, {})).toEqual({
+    count: 0,
+    severity: "none",
+    ci: 0,
+    blocked: 0,
+    ready: 0,
+    running: 0,
+  });
+});
+
+test("ci+blocked+ready === count invariant on a mixed herd", () => {
+  const sessions = [sess("a", "blocked"), sess("b", "done", true), sess("c", "running")];
+  const g = { c: git("failure") };
+  const s = deriveTabState(sessions, g, {});
+  expect(s.ci + s.blocked + s.ready).toBe(s.count);
 });
 
 // ── plan-question: unanswered plan-gate question awaiting the operator (#1332) ──

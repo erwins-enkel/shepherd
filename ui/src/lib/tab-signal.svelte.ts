@@ -19,6 +19,12 @@ export interface TabState {
   count: number;
   /** Highest severity across those sessions (red › amber › green › none). */
   severity: Severity;
+  /** Per-rule tallies for the glyph-ticker title (ci+blocked+ready === count). */
+  ci: number;
+  blocked: number;
+  ready: number;
+  /** Sessions rendering as running (displayStatus), independent of `count`. */
+  running: number;
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { none: 0, green: 1, amber: 2, red: 3 };
@@ -61,7 +67,8 @@ function sessionSeverity(
   return "none";
 }
 
-/** Pure: derive the tab count + highest severity from the store's session/git/plan-gate state. */
+/** Pure: derive the tab count + highest severity + per-rule tallies from the store's
+ *  session/git/plan-gate state. */
 export function deriveTabState(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -70,13 +77,21 @@ export function deriveTabState(
 ): TabState {
   let count = 0;
   let severity: Severity = "none";
+  let ci = 0;
+  let blocked = 0;
+  let ready = 0;
+  let running = 0;
   for (const s of sessions) {
+    if (displayStatus(s, workingBlocked) === "running") running++;
     const sev = sessionSeverity(s, git[s.id], workingBlocked, planGates[s.id]);
     if (sev === "none") continue;
     count++;
+    if (sev === "red") ci++;
+    else if (sev === "amber") blocked++;
+    else if (sev === "green") ready++;
     if (SEVERITY_RANK[sev] > SEVERITY_RANK[severity]) severity = sev;
   }
-  return { count, severity };
+  return { count, severity, ci, blocked, ready, running };
 }
 
 // ── side-effecting controller ────────────────────────────────────────────────

@@ -1919,6 +1919,7 @@
   "owed_main_hint": "Offene Schritte nach dem Merge werden im Herd-Panel links angezeigt.",
   "owed_title": "Offene Schritte nach dem Merge",
   "owed_empty": "Keine offenen Schritte nach dem Merge — alles erledigt.",
+  "owed_repo_filter_empty": "Keine offenen Schritte nach dem Merge für {repo}.",
   "owed_note": "Dies sind alle manuellen Schritte, die die gemergten PRs deklariert haben. P2 erfasst die Bestätigung, nicht die Erledigung einzelner Schritte — daher erscheinen auch vor dem Merge bereits erledigte Schritte hier. Hake sie ab, um sie zu entfernen.",
   "owed_steps_count": "{done} von {total} erledigt",
   "owed_merged_ago": "vor {ago} gemergt",

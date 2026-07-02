@@ -94,6 +94,30 @@ describe("PostMergeStepsPanel", () => {
       .toBeInTheDocument();
   });
 
+  it("repo filter scopes the card list to the active repo path", async () => {
+    postMergeSteps.records = [
+      record({ sessionId: "s1", desig: "TASK-IN", repoPath: "/repo/shepherd" }),
+      record({ sessionId: "s2", desig: "TASK-OUT", repoPath: "/repo/other" }),
+    ];
+    render(PostMergeStepsPanel, { repoFilter: "/repo/shepherd" });
+    await expect.element(page.getByText("TASK-IN")).toBeInTheDocument();
+    await expect.element(page.getByText("TASK-OUT")).not.toBeInTheDocument();
+  });
+
+  it("repo filter with no matching records shows the repo-scoped empty copy, not the generic one", async () => {
+    postMergeSteps.records = [record({ sessionId: "s2", repoPath: "/repo/other" })];
+    render(PostMergeStepsPanel, { repoFilter: "/repo/shepherd" });
+    await expect
+      .element(page.getByText(m.owed_repo_filter_empty({ repo: "shepherd" })))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(m.owed_empty())).not.toBeInTheDocument();
+  });
+
+  it("no repo filter (null) lists every record and uses the generic empty copy", async () => {
+    render(PostMergeStepsPanel, { repoFilter: null });
+    await expect.element(page.getByText(m.owed_empty())).toBeInTheDocument();
+  });
+
   it("renders the tracking-issue link when present", async () => {
     postMergeSteps.records = [
       record({ sessionId: "s1", trackingIssueUrl: "https://example.test/issues/9" }),
@@ -260,6 +284,40 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.records = [record({ sessionId: "s1" })];
     await new Promise((r) => setTimeout(r, 50));
     expect(onfocusresolved).not.toHaveBeenCalled();
+  });
+
+  it("focus with a repo filter active: a chip-click focus on a session in the filtered repo still resolves to its live card (invariant survives filtering)", async () => {
+    // In practice onShowOwed fires from a herd row that is already repo-filtered, so the focused
+    // session's repo always matches the active filter. A decoy record in another repo proves the
+    // list IS filtered while the focus still resolves to the live card in the filtered repo.
+    postMergeSteps.records = [
+      record({ sessionId: "s1", desig: "TASK-77", repoPath: "/repo/shepherd" }),
+      record({ sessionId: "s2", desig: "TASK-OUT", repoPath: "/repo/other" }),
+    ];
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const onfocusresolved = vi.fn();
+    const screen = render(PostMergeStepsPanel, {
+      repoFilter: "/repo/shepherd",
+      focusSessionId: "s1",
+      focusSnapshot: snapshot({ sessionId: "s1" }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+      onfocusresolved,
+    });
+    // The #1275 "live record always wins / never a dead end" invariant survives filtering:
+    // focus resolves to the live card (not a frozen fallback), and it renders + flashes.
+    await expect.poll(() => onfocusresolved.mock.calls.length).toBe(1);
+    expect(onfocusresolved).toHaveBeenCalledWith(1);
+    expect(screen.container.querySelector(".ow-card--frozen")).toBeNull();
+    await expect
+      .poll(() =>
+        screen.container.querySelector('[data-session-id="s1"]')?.classList.contains("focus"),
+      )
+      .toBe(true);
+    await expect.element(page.getByText("TASK-77")).toBeInTheDocument();
+    // the decoy from the other repo stays filtered out of the list
+    await expect.element(page.getByText("TASK-OUT")).not.toBeInTheDocument();
   });
 
   it("live record wins: a pinned frozen card is suppressed once a live record for the same session arrives (even after its nonce is handled)", async () => {

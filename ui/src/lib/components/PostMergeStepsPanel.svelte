@@ -1,18 +1,23 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
-  import { postMergeSteps } from "$lib/post-merge-steps.svelte";
+  import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
+  import { basename } from "$lib/components/learnings-drawer";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
   let {
+    repoFilter = null,
     focusSessionId = null,
     focusSnapshot = null,
     focusNonce = 0,
     focusHandledNonce = 0,
     onfocusresolved = undefined,
   }: {
+    /** Active repo chip filter (full repo path; null = all repos). Scopes the visible card list
+     *  and empty state — but NOT the focus/frozen-card resolution, which must see every repo. */
+    repoFilter?: string | null;
     focusSessionId?: string | null;
     focusSnapshot?: OwedFocusSnapshot | null;
     focusNonce?: number;
@@ -20,7 +25,12 @@
     onfocusresolved?: (nonce: number) => void;
   } = $props();
 
+  // Unfiltered store — the source of truth for focus/frozen-card resolution (the #1275
+  // "live record always wins / never a dead end" invariant must see records across ALL repos).
   const records = $derived(postMergeSteps.records);
+  // Repo-scoped view (#owed) — used ONLY by the card-list render and the empty gate. A null
+  // repoFilter passes records through unchanged.
+  const shownRecords = $derived(owedRecordsForRepo(records, repoFilter));
 
   // Owed-lens focus (#1275): a manual-steps chip click scrolls to + briefly highlights the target
   // session's card, or — when it has no live outstanding record (pre-merge, cleared, dismissed, or
@@ -127,8 +137,12 @@
     <span class="ow-title">{m.owed_title()}</span>
   </div>
 
-  {#if records.length === 0 && !frozenCard}
-    <div class="ow-empty">{m.owed_empty()}</div>
+  {#if shownRecords.length === 0 && !frozenCard}
+    <div class="ow-empty">
+      {#if repoFilter}{m.owed_repo_filter_empty({
+          repo: basename(repoFilter),
+        })}{:else}{m.owed_empty()}{/if}
+    </div>
   {:else}
     <p class="ow-note">{m.owed_note()}</p>
     {#if frozenCard}
@@ -164,7 +178,7 @@
       </section>
     {/if}
     <div class="ow-list">
-      {#each records as rec (rec.sessionId)}
+      {#each shownRecords as rec (rec.sessionId)}
         <section
           class="ow-card"
           data-session-id={rec.sessionId}

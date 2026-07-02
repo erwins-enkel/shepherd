@@ -1,6 +1,18 @@
 import type { PostMergeSteps } from "./types";
 import { getOutstandingManualSteps, setManualStepDone, dismissManualSteps } from "./api";
 
+/** Scope owed records to the active repo chip filter (#owed): `repoFilter` is the full repo
+ *  path, `null` = all repos (unfiltered). Pure so both the Owed lens count badge (Herd.svelte)
+ *  and the panel list (PostMergeStepsPanel) share one filter and can't drift. Mirrors every
+ *  sibling consumer's `repoPath === repoFilter` client-side scope (UpNextPanel, herdSessions). */
+export function owedRecordsForRepo(
+  records: PostMergeSteps[],
+  repoFilter: string | null,
+): PostMergeSteps[] {
+  if (repoFilter == null) return records;
+  return records.filter((r) => r.repoPath === repoFilter);
+}
+
 /** Lazy client store of durable post-merge steps still owed across merged sessions (#1061),
  *  populated when the Owed lens opens and refreshed on the `post-merge-steps:changed` WS event
  *  (wired in store.svelte.ts). Independent of the 48h Done window — owed steps persist until done. */

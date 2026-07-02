@@ -4,7 +4,8 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import Herd from "./Herd.svelte";
 import { reviews, planGates } from "$lib/reviews.svelte";
-import type { Session, GitState, Epic, EpicChild } from "$lib/types";
+import { postMergeSteps } from "$lib/post-merge-steps.svelte";
+import type { Session, GitState, Epic, EpicChild, PostMergeSteps } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -357,6 +358,68 @@ describe("Herd Done filter", () => {
       doneList: [],
     });
     await expect.element(page.getByText("No finished sessions yet.")).toBeInTheDocument();
+  });
+});
+
+describe("Herd owed lens respects the repo filter (#owed)", () => {
+  const owedRecord = (sessionId: string, desig: string, repoPath: string): PostMergeSteps => ({
+    sessionId,
+    desig,
+    repoPath,
+    prNumber: 1,
+    prTitle: "t",
+    steps: [{ id: "ms1", text: "do it", postMerge: false, doneAt: null }],
+    trackingIssueUrl: null,
+    trackingIssueNumber: null,
+    createdAt: 0,
+    updatedAt: 0,
+    clearedAt: null,
+  });
+
+  afterEach(() => {
+    postMergeSteps.records = [];
+  });
+
+  it("scopes the panel list AND the lens-strip badge count to repoFilter (real Herd→panel wiring)", async () => {
+    postMergeSteps.records = [
+      owedRecord("s1", "TASK-IN", "/repo/shepherd"),
+      owedRecord("s2", "TASK-OUT", "/repo/other"),
+      owedRecord("s3", "TASK-IN2", "/repo/shepherd"),
+    ];
+    const screen = render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      filter: "owed" as const,
+      repoFilter: "/repo/shepherd",
+    });
+    // panel list: only the active repo's records render
+    await expect.element(page.getByText("TASK-IN", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("TASK-IN2", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("TASK-OUT", { exact: true })).not.toBeInTheDocument();
+    // badge count reflects the filtered set (2 of the 3 records), proving Herd's owedCount is scoped
+    await expect
+      .poll(() => screen.container.querySelector(".owed-badge")?.textContent?.trim())
+      .toBe("2");
+  });
+
+  it("unfiltered (repoFilter null) lists every record and the badge shows the total", async () => {
+    postMergeSteps.records = [
+      owedRecord("s1", "TASK-IN", "/repo/shepherd"),
+      owedRecord("s2", "TASK-OUT", "/repo/other"),
+    ];
+    const screen = render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      filter: "owed" as const,
+      repoFilter: null,
+    });
+    await expect.element(page.getByText("TASK-IN")).toBeInTheDocument();
+    await expect.element(page.getByText("TASK-OUT")).toBeInTheDocument();
+    await expect
+      .poll(() => screen.container.querySelector(".owed-badge")?.textContent?.trim())
+      .toBe("2");
   });
 });
 

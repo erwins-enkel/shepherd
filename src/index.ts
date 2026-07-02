@@ -60,6 +60,7 @@ import { CodexUpdateService } from "./codex-update";
 import { DiagnosticsService } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
+import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -893,6 +894,10 @@ events.subscribe((event, data) => {
   manualStepsHeadSeen.set(id, headSha);
   void detectAndPersistManualSteps(id, git.number);
 });
+
+// Anonymous product telemetry: emit `pr_opened` the first time a session's tracked PR
+// transitions to open (see src/pr-opened-telemetry.ts for the transition/dedup design).
+wirePrOpenedTelemetry({ events, store, telemetry });
 
 // Drive tailscale serve mappings: register when a preview port binds, unregister
 // on teardown. Listens on session:preview (NOT session:preview-serve to avoid

@@ -79,6 +79,7 @@
   import Herd from "$lib/components/Herd.svelte";
   import {
     railOrder,
+    isCommandBarChord,
     cycleId,
     nthId,
     nextNeedsYouTarget,
@@ -209,6 +210,9 @@
   // auto-select it. Sticky until the next backlog close (the view applies it once).
   let backlogSelectPath = $state<string | null>(null);
   let showBroadcast = $state(false);
+  // Cmd/Ctrl+K quick-switcher over sessions/repos/lenses (#1334). Opened from
+  // onShortcut before the modifier/typing bails so it fires even over the terminal.
+  let showCommandBar = $state(false);
   let showRetry = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
@@ -1216,7 +1220,8 @@
       showUpdate ||
       showHerdrUpdate ||
       showCodexUpdate ||
-      showWhatsNew
+      showWhatsNew ||
+      showCommandBar
     );
   }
 
@@ -1262,6 +1267,15 @@
     // through sessions; and stand down during IME composition.
     if (e.repeat || e.isComposing) return;
     if (anyOverlayOpen()) return;
+    // Cmd/Ctrl+K → command bar. Handled BEFORE the modifier + isTyping bails so it
+    // fires even while an input or the terminal owns the keyboard (Viewport's custom
+    // key handler suppresses the same combo from reaching the PTY). Plain K falls
+    // through to keynav untouched.
+    if (isCommandBarChord(e)) {
+      e.preventDefault();
+      showCommandBar = true;
+      return;
+    }
     if (handleAltCombo(e)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTyping(e.target)) return;
@@ -2703,6 +2717,31 @@
   onnewprojectdone={onNewProjectDone}
   {showBroadcast}
   onbroadcastclose={() => (showBroadcast = false)}
+  {showCommandBar}
+  oncommandbarclose={() => (showCommandBar = false)}
+  oncommandbarsession={(id) => {
+    showCommandBar = false;
+    showBacklog = false;
+    herdFilter = "all";
+    selectUnit(id);
+  }}
+  oncommandbarrepo={(path) => {
+    showCommandBar = false;
+    showBacklog = true;
+    // Payload-before-path ordering per finishBacklogAdd: BacklogView's select effect
+    // fires once per value, so the repo must be in the payload when the path is set.
+    getBacklog()
+      .then((p) => {
+        backlog = p;
+        backlogSelectPath = path;
+      })
+      .catch(() => {});
+  }}
+  oncommandbarlens={(lens) => {
+    showCommandBar = false;
+    showBacklog = false;
+    herdFilter = lens;
+  }}
   {showRetry}
   onretryclose={() => (showRetry = false)}
   {clearMergedSessions}

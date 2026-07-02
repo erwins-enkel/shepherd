@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HerdFilter } from "$lib/components/herd-partition";
+  import { lensGlyph } from "$lib/components/herd/lens-glyphs";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
@@ -61,7 +62,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">↑</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.next}</span>
     <span class="lb">{m.herd_seg_next()}</span>
   </button>
   <button
@@ -75,7 +76,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">▦</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.all}</span>
     <span class="lb">{m.herd_seg_all()}</span>
   </button>
   <button
@@ -89,7 +90,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">▤</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.ready}</span>
     <span class="lb">{m.herd_seg_ready()}</span>
   </button>
   <button
@@ -104,7 +105,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">✓</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.done}</span>
     <span class="lb">{m.herd_seg_done()}</span>
   </button>
   <button
@@ -119,7 +120,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">☰</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.rundown}</span>
     <span class="lb">{m.herd_seg_rundown()}</span>
   </button>
   <button
@@ -134,7 +135,7 @@
       onstatusfilter?.(null);
     }}
   >
-    <span class="ic" aria-hidden="true">☑</span>
+    <span class="ic" aria-hidden="true">{lensGlyph.owed}</span>
     <span class="lb">{m.herd_seg_owed()}</span>
     {#if owedCount > 0}
       <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}

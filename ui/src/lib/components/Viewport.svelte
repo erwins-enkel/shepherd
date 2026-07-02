@@ -38,7 +38,7 @@
   import { composeKeystrokes } from "$lib/compose";
   import { findCommandLinks } from "$lib/slashLinks";
   import { shouldForwardEscape } from "$lib/terminalEscape";
-  import { altComboKey } from "./herd-keynav";
+  import { altComboKey, isCommandBarChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
@@ -1232,6 +1232,15 @@
         !e.metaKey &&
         altComboKey(e.code) !== null
       ) {
+        e.preventDefault();
+        return false;
+      }
+      // Cmd/Ctrl+K: opens the command bar (#1334). xterm would otherwise forward the
+      // control byte 0x0B (Ctrl+K = kill-line) to the agent. preventDefault stops that
+      // byte; returning false stops xterm's own handling. preventDefault does NOT stop
+      // propagation, so the keydown still bubbles to the window, where +page.svelte's
+      // onShortcut opens the bar — same split as the Alt combos above.
+      if (e.type === "keydown" && isCommandBarChord(e)) {
         e.preventDefault();
         return false;
       }

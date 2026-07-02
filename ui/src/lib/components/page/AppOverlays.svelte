@@ -45,6 +45,8 @@
   import NewProject from "$lib/components/NewProject.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
+  import CommandBar from "$lib/components/CommandBar.svelte";
+  import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
@@ -145,6 +147,11 @@
     // session-action dialogs
     showBroadcast,
     onbroadcastclose,
+    showCommandBar,
+    oncommandbarclose,
+    oncommandbarsession,
+    oncommandbarrepo,
+    oncommandbarlens,
     showRetry,
     onretryclose,
     clearMergedSessions,
@@ -253,6 +260,11 @@
     ) => void;
     showBroadcast: boolean;
     onbroadcastclose: () => void;
+    showCommandBar: boolean;
+    oncommandbarclose: () => void;
+    oncommandbarsession: (id: string) => void;
+    oncommandbarrepo: (path: string) => void;
+    oncommandbarlens: (lens: HerdFilter) => void;
     showRetry: boolean;
     onretryclose: () => void;
     clearMergedSessions: Session[] | null;
@@ -513,6 +525,17 @@
 
 {#if showBroadcast}
   <BroadcastDialog sessions={store.sessions} onclose={onbroadcastclose} />
+{/if}
+
+{#if showCommandBar}
+  <CommandBar
+    sessions={store.sessions}
+    workingBlocked={store.workingBlocked}
+    onselectsession={oncommandbarsession}
+    onselectrepo={oncommandbarrepo}
+    onselectlens={oncommandbarlens}
+    onclose={oncommandbarclose}
+  />
 {/if}
 
 {#if showRetry}

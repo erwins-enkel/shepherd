@@ -126,3 +126,12 @@ export function nextNeedsYouTarget(
   const key = groupOf.get(id);
   return { id, expand: key != null && collapsed.has(key) ? key : null };
 }
+
+/** The command-bar chord: Cmd/Ctrl+K with no other modifier held. Shared by
+ *  +page's onShortcut (which opens the bar) and Viewport's PTY key handler (which
+ *  suppresses the byte) so the trigger and its suppression can't drift — and so the
+ *  boolean test lives in ONE tested place instead of inflating both hot handlers'
+ *  complexity. */
+export function isCommandBarChord(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
+}

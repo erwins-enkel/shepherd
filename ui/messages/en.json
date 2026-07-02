@@ -2329,5 +2329,14 @@
   "gloss_telemetry_term": "telemetry",
   "gloss_telemetry_def": "Automatic collection of anonymous usage and diagnostic data from software, sent back to its developers to guide improvements.",
   "feat_anonymous_telemetry_title": "Optional anonymous usage telemetry",
-  "feat_anonymous_telemetry_body": "Shepherd can now send anonymous, privacy-first usage data (OS, version, feature usage — never code or personal data) to help prioritise the roadmap. It's off until you opt in, respects DO_NOT_TRACK, and can be toggled any time in Settings."
+  "feat_anonymous_telemetry_body": "Shepherd can now send anonymous, privacy-first usage data (OS, version, feature usage — never code or personal data) to help prioritise the roadmap. It's off until you opt in, respects DO_NOT_TRACK, and can be toggled any time in Settings.",
+  "commandbar_title": "Command bar",
+  "commandbar_placeholder": "Jump to a session, repository, or lens…",
+  "commandbar_group_sessions": "Sessions",
+  "commandbar_group_repos": "Repositories",
+  "commandbar_group_lenses": "Lenses",
+  "commandbar_repo_affordance": "Repository",
+  "commandbar_no_matches": "No matches",
+  "feat_command_bar_title": "Command bar — jump to anything with ⌘K",
+  "feat_command_bar_body": "Press ⌘K (macOS) or Ctrl+K (Windows/Linux) — even while the terminal is focused — to open a quick-switcher. Type to filter across your sessions, repositories, and herd lenses, then hit Enter to jump straight there."
 }

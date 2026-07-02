@@ -43,6 +43,7 @@ function makeDeps(
   const defaultLimits: UsageLimits = {
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: null,
     stale: false,
     calibratedAt: null,

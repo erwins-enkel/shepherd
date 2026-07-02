@@ -16,6 +16,9 @@ import {
   type CapStore,
   type CreditSnapshot,
   type CreditStore,
+  type ModelWeekSnapshot,
+  type ModelWeekStore,
+  MODEL_WEEK_STALE_MS,
   type UsageProbe,
   type UsageProviderSource,
 } from "../src/usage-limits";
@@ -111,6 +114,57 @@ test("parseUsageFrame: model-scoped weekly gauges never override the account cap
     "Current week (all models)\n 40% used\nResets Jun 11 at 11pm (x)\n" +
     "Current week (Sonnet only)\n 2% used\nResets Jun 11 at 11pm (x)";
   expect(parseUsageFrame(raw, NOW).week?.pct).toBe(40);
+});
+
+// ── per-model weekly passthrough (Fable) ─────────────────────────────────────
+
+// Fixture is screenshot-derived (Claude Code /usage, screenshot 3): a genuine ANSI capture
+// with the Fable gauge wasn't available; ANSI robustness is already covered by usage-frame.txt,
+// and the parser runs on ANSI-stripped/collapsed text — so the collapsed shape is what matters.
+// The Fable line renders "0% used" (carries `used`) with NO Resets clause.
+test("parseUsageFrame: surfaces the Fable weekly gauge as a per-model passthrough", () => {
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame-fable.txt"), "utf8");
+  const p = parseUsageFrame(raw, NOW);
+  // exactly one per-model entry (dedup below covers the multi-redraw case)
+  expect(p.perModelWeek).toHaveLength(1);
+  const fable = p.perModelWeek[0]!;
+  expect(fable.model).toBe("fable");
+  expect(fable.pct).toBe(0);
+  expect(fable.resetLabel).toBeNull(); // Fable line carried no Resets
+  expect(fable.resetAt).toBeNull();
+  // the account windows are untouched — "all models" stays WK, Fable does not steal it
+  expect(p.week?.pct).toBe(11);
+  expect(p.session5h?.pct).toBe(29);
+});
+
+test("parseUsageFrame: dedups the per-model gauge across partial redraws (last-wins, prefer reset)", () => {
+  // three redraws of the same Fable section: a reset-less partial, then a fuller one WITH a
+  // reset label, then another reset-less partial. Exactly one entry; the reset-labelled read wins.
+  const raw =
+    "Current week (Fable)\n 3% used\n" +
+    "\x1b[2JCurrent week (Fable)\n 7% used\nResets Jul 2, 11pm (x)\n" +
+    "\x1b[2JCurrent week (Fable)\n 9% used";
+  const p = parseUsageFrame(raw, NOW);
+  expect(p.perModelWeek).toHaveLength(1);
+  expect(p.perModelWeek[0]!.pct).toBe(7); // the render carrying a reset label
+  expect(p.perModelWeek[0]!.resetLabel).toBe("Jul2,11pm");
+});
+
+test("parseUsageFrame: a mid-redraw partial pct never overrides the finished account window", () => {
+  // The shared parseSegment stays STRICT for session5h/week: a bare `2%` before the finished
+  // `29%used` must not be read as the value. Guards the partial-frame protection when the
+  // lenient (per-model) path is added.
+  const raw = "Current session\n 2%\n 29% used\nResets 9:30pm (x)";
+  expect(parseUsageFrame(raw, NOW).session5h?.pct).toBe(29);
+});
+
+test("parseUsageFrame: the per-model lenient path prefers %used but falls back to a bare pct", () => {
+  // a Fable gauge that never rendered the word `used` (bare `4%`) is still surfaced...
+  const bare = "Current week (Fable)\n 4%";
+  expect(parseUsageFrame(bare, NOW).perModelWeek[0]?.pct).toBe(4);
+  // ...but when a finished `%used` is present, it wins over an earlier bare partial.
+  const finished = "Current week (Fable)\n 2%\n 8% used";
+  expect(parseUsageFrame(finished, NOW).perModelWeek[0]?.pct).toBe(8);
 });
 
 // ── usage credits (paid overage) ─────────────────────────────────────────────
@@ -253,6 +307,16 @@ class MemCredits implements CreditStore {
   }
 }
 
+class MemModelWeek implements ModelWeekStore {
+  rows = new Map<string, ModelWeekSnapshot>();
+  getModelWeekSnapshots(): ModelWeekSnapshot[] {
+    return [...this.rows.values()];
+  }
+  putModelWeekSnapshot(row: ModelWeekSnapshot): void {
+    this.rows.set(row.model, row);
+  }
+}
+
 class StubProbe implements UsageProbe {
   constructor(private raw: string | null) {}
   async scrape(): Promise<string | null> {
@@ -386,9 +450,14 @@ test("limits keeps Claude usage when an extra provider throws", () => {
       throw new Error("provider unavailable");
     },
   };
-  const svc = new UsageLimitsService(fakeIndex(50), caps, new StubProbe(null), new MemCredits(), [
-    throwingProvider,
-  ]);
+  const svc = new UsageLimitsService(
+    fakeIndex(50),
+    caps,
+    new StubProbe(null),
+    new MemCredits(),
+    new MemModelWeek(),
+    [throwingProvider],
+  );
 
   const l = svc.limits(NOW);
 
@@ -509,6 +578,7 @@ test("limits returns null credits when nothing has been persisted", () => {
 const mkLimits = (weekPct: number | null): UsageLimits => ({
   session5h: null,
   week: weekPct === null ? null : { pct: weekPct, resetAt: NOW },
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: NOW,
@@ -529,6 +599,67 @@ test("calibrateDelay: week pct below threshold stays daily", () => {
 
 test("calibrateDelay: null week window stays daily", () => {
   expect(calibrateDelay(mkLimits(null))).toBe(CALIBRATE_INTERVAL_MS);
+});
+
+// ── per-model weekly passthrough: calibrate persist + live passthrough ────────
+
+test("calibrate persists the parsed per-model gauge and limits() surfaces it fresh", async () => {
+  const raw = readFileSync(join(import.meta.dir, "fixtures", "usage-frame-fable.txt"), "utf8");
+  const store = new MemModelWeek();
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+    store,
+  );
+  await svc.calibrate(NOW);
+  expect(store.getModelWeekSnapshots()).toHaveLength(1);
+  const w = svc.limits(NOW).perModelWeek;
+  expect(w).toHaveLength(1);
+  expect(w[0]!.model).toBe("fable");
+  expect(w[0]!.pct).toBe(0);
+  expect(w[0]!.resetAt).toBeNull();
+  expect(w[0]!.stale).toBe(false);
+});
+
+test("per-model passthrough: reads stale past MODEL_WEEK_STALE_MS (not credits' 1h)", () => {
+  const store = new MemModelWeek();
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+    store,
+  );
+  // scraped 2h ago: a 1h credits-style stale would flip; the 48h model-week window must not.
+  store.putModelWeekSnapshot({
+    model: "fable",
+    pct: 5,
+    resetAt: null,
+    scrapedAt: NOW - 2 * 3600_000,
+  });
+  expect(svc.limits(NOW).perModelWeek[0]!.stale).toBe(false);
+  // just past the model-week window → stale
+  const old = svc.limits(NOW + MODEL_WEEK_STALE_MS + 1);
+  expect(old.perModelWeek[0]!.stale).toBe(true);
+});
+
+test("per-model passthrough: post-reset guard drops a rolled-over snapshot, keeps a null-reset one", () => {
+  const store = new MemModelWeek();
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(null),
+    new MemCredits(),
+    store,
+  );
+  // resetAt already in the past → dropped (meaningless until re-scraped)
+  store.putModelWeekSnapshot({ model: "sonnet", pct: 80, resetAt: NOW - 1000, scrapedAt: NOW });
+  // no reset label (null) → can't be known to have rolled over → passes through
+  store.putModelWeekSnapshot({ model: "fable", pct: 4, resetAt: null, scrapedAt: NOW });
+  const w = svc.limits(NOW).perModelWeek;
+  expect(w.map((x) => x.model)).toEqual(["fable"]);
 });
 
 // ── api-key mode: subscription-only flag + probe never spawned ───────────────

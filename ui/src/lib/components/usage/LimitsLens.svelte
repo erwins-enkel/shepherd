@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { UsageLimits, UsageProjection, UsageHistoryResponse } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { gaugeList, gaugeColor } from "$lib/components/usage-gauges";
+  import { gaugeList, gaugeColor, modelWeekList } from "$lib/components/usage-gauges";
   import { formatResetIn } from "$lib/format";
   import { formatUnits } from "./format";
   import Sparkline from "./Sparkline.svelte";
+  import ModelWeekGauge from "./ModelWeekGauge.svelte";
   import UsageHistoryPanel from "./UsageHistoryPanel.svelte";
 
   const {
@@ -22,6 +23,9 @@
 
   const nowMs = $derived(Date.now());
   const gauges = $derived(gaugeList(limits));
+  // Per-model weekly passthrough sub-limits (e.g. Fable) — rendered as their own bars below the
+  // calibrated 5H/WK windows. Kept out of `gaugeList` (no cap-inversion, no projection/sparkline).
+  const perModel = $derived(modelWeekList(limits));
 
   let showHistory = $state(false);
 
@@ -60,7 +64,7 @@
 </script>
 
 <div class="limits-lens panel">
-  {#if gauges.length === 0}
+  {#if gauges.length === 0 && perModel.length === 0}
     <p class="no-data">{m.usage_limits_no_data()}</p>
   {:else}
     {#each gauges as gauge (gauge.label)}
@@ -124,6 +128,14 @@
         </div>
       </div>
     {/each}
+
+    {#if perModel.length > 0}
+      <div class="model-week-block">
+        {#each perModel as entry (entry.model)}
+          <ModelWeekGauge {entry} {nowMs} />
+        {/each}
+      </div>
+    {/if}
 
     {#if hasHistory}
       <div class="history-toggle-row">
@@ -258,6 +270,12 @@
   .spark-row {
     display: flex;
     align-items: center;
+  }
+
+  .model-week-block {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
 
   .history-toggle-row {

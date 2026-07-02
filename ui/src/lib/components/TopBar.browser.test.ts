@@ -76,6 +76,7 @@ const allBadges = {
 const fullLimits: UsageLimits = {
   session5h: { pct: 88, resetAt: 1_700_003_600_000 },
   week: { pct: 64, resetAt: 1_700_600_000_000 },
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: 1_700_000_000_000,
@@ -1284,6 +1285,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     return {
       session5h: { pct: 88, resetAt: 1_700_003_600_000 },
       week: { pct: 64, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
       stale: false,
       calibratedAt: 1_700_000_000_000,
       subscriptionOnly: false,
@@ -1332,6 +1334,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     return {
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: null,

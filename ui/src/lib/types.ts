@@ -935,9 +935,24 @@ export interface CreditWindow {
   /** True when the snapshot is older than 1h (credits is scrape-fresh-only). */
   stale: boolean;
 }
+/**
+ * Live per-model weekly sub-limit ("Current week (Fable)") — a passthrough of the last /usage
+ * scrape, keyed by model. Not recomputed from JSONL, so it carries its own `stale`/`scrapedAt`
+ * and a nullable `resetAt` (the gauge may render without a reset label).
+ */
+export interface ModelWeekWindow {
+  /** Lowercase model slug, e.g. "fable" (proper-noun display name derived in the UI). */
+  model: string;
+  pct: number;
+  resetAt: number | null;
+  scrapedAt: number;
+  stale: boolean;
+}
 export interface UsageLimits {
   session5h: LimitWindow | null;
   week: LimitWindow | null;
+  /** Per-model weekly sub-limits (passthrough). Empty when none rendered. */
+  perModelWeek: ModelWeekWindow[];
   /** Paid extra-credit overage; null when extra usage is off or post-reset. */
   credits: CreditWindow | null;
   stale: boolean;
@@ -953,6 +968,7 @@ export type UsageProviderSnapshot =
       kind: "limits";
       session5h: LimitWindow | null;
       week: LimitWindow | null;
+      perModelWeek: ModelWeekWindow[];
       credits: CreditWindow | null;
       stale: boolean;
       calibratedAt: number | null;

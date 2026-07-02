@@ -2,6 +2,7 @@
   import type { Gauge, GaugeKey } from "../usage-gauges";
   import type {
     CreditWindow,
+    ModelWeekWindow,
     UpdateStatus,
     DiagnosticState,
     UsageProviderSnapshot,
@@ -10,6 +11,7 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
   import { gaugeColor } from "../usage-gauges";
   import { formatResetIn, formatReset, formatTokenLabel } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
@@ -37,6 +39,7 @@
 
   let {
     gauges,
+    perModel,
     credits,
     codexUsage,
     subscriptionOnly,
@@ -77,6 +80,7 @@
     onPluginItem,
   }: {
     gauges: Gauge[];
+    perModel: ModelWeekWindow[];
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     subscriptionOnly: boolean;
@@ -203,6 +207,11 @@
                   abs: formatReset(g.w.resetAt, nowMs),
                 })}
               </div>
+            </div>
+          {/each}
+          {#each perModel as entry (entry.model)}
+            <div class="sheet-gauge-row">
+              <ModelWeekGauge {entry} {nowMs} />
             </div>
           {/each}
           <CreditDetail

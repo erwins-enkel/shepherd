@@ -64,6 +64,7 @@ function makeDeps(resolveForge?: (dir: string) => GitForge | null): AppDeps {
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,

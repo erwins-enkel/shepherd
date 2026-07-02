@@ -12,6 +12,7 @@ const PARENT = 327;
 const NO_USAGE: UsageLimitsType = {
   session5h: null,
   week: null,
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: null,

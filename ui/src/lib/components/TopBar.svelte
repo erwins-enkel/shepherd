@@ -12,6 +12,7 @@
     codexTokenUsage,
     gaugeList,
     hotterGauge,
+    modelWeekList,
     overspending,
     type GaugeKey,
   } from "./usage-gauges";
@@ -266,6 +267,8 @@
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
+  // Per-model weekly passthrough sub-limits (e.g. Fable) — their own bars, never in gaugeList/hotter.
+  const perModel = $derived(modelWeekList(limits));
   // api-key auth mode: subscription usage windows carry no data. Fail closed —
   // render an explicit note instead of empty/zero meters.
   const subscriptionOnly = $derived(limits?.subscriptionOnly === true);
@@ -724,6 +727,7 @@
         stale={limits?.stale ?? false}
         {hotter}
         {gauges}
+        {perModel}
         {credits}
         {codexUsage}
         {overspend}
@@ -799,6 +803,7 @@
 {#if menuOpen && mobile}
   <TopBarMobileSheet
     {gauges}
+    {perModel}
     {credits}
     {codexUsage}
     {subscriptionOnly}

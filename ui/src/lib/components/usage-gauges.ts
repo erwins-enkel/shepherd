@@ -1,4 +1,4 @@
-import type { UsageLimits, LimitWindow, UsageProviderSnapshot } from "../types";
+import type { UsageLimits, LimitWindow, ModelWeekWindow, UsageProviderSnapshot } from "../types";
 
 export type GaugeKey = "5H" | "WK";
 
@@ -25,12 +25,28 @@ export function providerSnapshots(limits: UsageLimits | null): UsageProviderSnap
       kind: "limits",
       session5h: limits.session5h,
       week: limits.week,
+      perModelWeek: limits.perModelWeek ?? [],
       credits: limits.credits,
       stale: limits.stale,
       calibratedAt: limits.calibratedAt,
       subscriptionOnly: limits.subscriptionOnly,
     },
   ];
+}
+
+/**
+ * Per-model weekly passthrough sub-limits (e.g. "Current week (Fable)") for display as their own
+ * bars. Deliberately SEPARATE from `gaugeList`/`hotterGauge` — these are passthroughs with a
+ * nullable resetAt and their own staleness, and must never become the compact layout's "hottest"
+ * gauge.
+ */
+export function modelWeekList(limits: UsageLimits | null): ModelWeekWindow[] {
+  return limits?.perModelWeek ?? [];
+}
+
+/** Proper-noun display name for a model slug (e.g. "fable" → "Fable"). Not translated. */
+export function modelDisplayName(slug: string): string {
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
 export function codexTokenUsage(

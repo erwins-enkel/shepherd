@@ -11,6 +11,7 @@ function limitsFixture(): UsageLimits {
   return {
     session5h: { pct: 38, resetAt: BASE + 2.5 * H },
     week: { pct: 22, resetAt: BASE + 58 * H },
+    perModelWeek: [],
     credits: null,
     stale: false,
     calibratedAt: BASE - 5 * 60_000,
@@ -174,10 +175,26 @@ describe("LimitsLens", () => {
     expect(document.querySelectorAll(".spark-row svg").length).toBe(2);
   });
 
+  it("renders a per-model passthrough bar (Fable) separate from the 5H/WK meters", async () => {
+    const limits = limitsFixture();
+    limits.perModelWeek = [
+      { model: "fable", pct: 7, resetAt: null, scrapedAt: BASE, stale: false },
+    ];
+    render(LimitsLens, { limits, projections: projectionsFixture() });
+
+    // Its own block, NOT a 5H/WK meter-track (those stay at 2)
+    expect(document.querySelectorAll(".meter-track").length, "5H/WK meters unchanged").toBe(2);
+    const mwBar = document.querySelector(".model-week-block .mw-bar");
+    expect(mwBar, "Fable passthrough bar present").not.toBeNull();
+    await expect.element(page.getByText("Weekly window (Fable)")).toBeInTheDocument();
+    await expect.element(page.getByText("7%")).toBeInTheDocument();
+  });
+
   it("renders 'no data' message when limits are empty", async () => {
     const emptyLimits = {
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: null,

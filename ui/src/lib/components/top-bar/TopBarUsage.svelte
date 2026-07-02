@@ -1,6 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import type { CreditWindow } from "$lib/types";
+  import type { CreditWindow, ModelWeekWindow } from "$lib/types";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
   import { gaugeColor, type GaugeKey } from "../usage-gauges";
@@ -14,6 +14,7 @@
     stale,
     hotter,
     gauges,
+    perModel,
     credits,
     codexUsage,
     overspend,
@@ -34,6 +35,7 @@
     stale: boolean;
     hotter: Gauge | null;
     gauges: Gauge[];
+    perModel: ModelWeekWindow[];
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     overspend: boolean;
@@ -124,6 +126,7 @@
           desktop={false}
           {stale}
           {gauges}
+          {perModel}
           {credits}
           {codexUsage}
           {creditFill}
@@ -189,6 +192,7 @@
         desktop={true}
         {stale}
         {gauges}
+        {perModel}
         {credits}
         {codexUsage}
         {creditFill}

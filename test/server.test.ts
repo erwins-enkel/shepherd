@@ -56,6 +56,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,
@@ -80,6 +81,7 @@ test("GET /api/usage/limits returns limits + projections", async () => {
     limits: {
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,
@@ -93,6 +95,7 @@ test("POST /api/usage/refresh calls refreshUsage and returns its fresh limits", 
   const fresh = {
     session5h: { pct: 80, resetAt: 123 },
     week: { pct: 95, resetAt: 456 },
+    perModelWeek: [],
     credits: {
       pct: 12,
       spent: 6,
@@ -125,6 +128,7 @@ test("POST /api/usage/refresh fails closed (503) when the probe did not re-scrap
   const fresh = {
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: {
       pct: 0,
       spent: 79.16,
@@ -153,6 +157,7 @@ test("POST /api/usage/refresh stays 200 for subscription-only even when scraped:
   const fresh = {
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: null,
     stale: true,
     calibratedAt: null,
@@ -173,6 +178,7 @@ test("POST /api/usage/refresh without refreshUsage falls back to current limits 
   expect(await res.json()).toEqual({
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: null,
     stale: true,
     calibratedAt: null,
@@ -303,6 +309,7 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,
@@ -1365,6 +1372,7 @@ function clearMergedHarness() {
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,
@@ -1943,6 +1951,7 @@ function harnessWithPreviewStop({
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,

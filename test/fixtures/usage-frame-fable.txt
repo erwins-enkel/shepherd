@@ -1,0 +1,25 @@
+Settings  Status   Config   Usage Stats
+Session
+
+Total cost:            $107.61
+Total duration (API):  1h 31m 43s
+Total duration (wall): 3d 2h 51m
+Total code changes:    1174 lines added, 476 lines removed
+Usage by model:
+    claude-haiku-4-5:  8.5k input, 32.8k output, 4.4m cache read, 152.0k cache write
+    claude-opus-4-8:   47.4k input, 307.6k output, 139.6m cache read, 2.9m cache write
+
+Current session
+▐█                                                29% used
+Resets 4:50pm (Europe/Berlin)
+
+Current week (all models)
+▐█                                                11% used
+Resets Jul 2, 11pm (Europe/Berlin)
+
+Current week (Fable)
+                                                  0% used
+
+What's contributing to your limits usage?
+Approximate, based on local sessions on this machine — does not include other dev
+Last 24h · these are independent characteristics of your usage, not a breakdown

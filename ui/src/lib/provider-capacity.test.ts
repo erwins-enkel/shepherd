@@ -10,6 +10,7 @@ function limits(session5hPct: number | null, weekPct: number | null): UsageLimit
   return {
     session5h: session5hPct === null ? null : { pct: session5hPct, resetAt: 0 },
     week: weekPct === null ? null : { pct: weekPct, resetAt: 0 },
+    perModelWeek: [],
     credits: null,
     stale: false,
     calibratedAt: 0,

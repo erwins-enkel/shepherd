@@ -173,7 +173,15 @@ a deploy-time env value; both are first-class.
 
 - Persistent anonymous install ID for accurate unique counts, or none?
   (recommended: **none** — max anonymity, approximate counts)
-- Confirm v1 event set (`app_launched`, `session_created`, `epic_drained`,
-  `pr_opened`) — right four, or adjust?
+- ~~Confirm v1 event set (`app_launched`, `session_created`, `epic_drained`,
+  `pr_opened`) — right four, or adjust?~~ **RESOLVED (issue #1329):** the four-event
+  set is ratified. Wiring decisions: `session_created` fires at the
+  `SessionService.create()` choke point for every session; `epic_drained` at the
+  drain's running→idle completion edge; `pr_opened` on a session's non-open→open PR
+  transition (session PRs only — epic landing PRs are covered by `epic_drained`).
+  Props are a primitive allowlist — `session_created`:
+  `{ agentProvider, autopilot, research, planGate, fromIssue }`, `epic_drained`:
+  `{ childCount }`, `pr_opened`: `{ agentProvider, isDraft }` — with **no `model`**
+  (a `--model` value can be arbitrary free-form text).
 - Data scope confirm: **health + feature usage** (the assumed default while you
   were away) — keep, or narrow to health-only / widen to include errors?

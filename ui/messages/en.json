@@ -2368,5 +2368,7 @@
   "topbar_search": "Search",
   "topbar_search_aria": "Search or run a command",
   "feat_command_bar_search_field_title": "Search from the top bar",
-  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar."
+  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar.",
+  "feat_command_bar_jump_title": "Jump to command-bar results with Alt",
+  "feat_command_bar_jump_body": "Hold Alt with the command bar open to reveal number hints (1–9, then 0) on the first ten results, then press the digit to jump straight to it."
 }

@@ -11,6 +11,7 @@
   import { DOCS_PAGES } from "$lib/docs-manifest";
   import type { Command } from "$lib/command-registry";
   import { fuzzyScore } from "$lib/fuzzy";
+  import { jumpDigitIndex } from "$lib/components/herd-keynav";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -80,6 +81,13 @@
   let activeIdx = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);
+  // True while Alt is held — reveals the digit jump-hints on the first ten rows. Alt is the
+  // browser-viable substitute for the requested Cmd/Ctrl+digit (which the browser reserves for
+  // tab-switch / reset-zoom). Tracked off keyboard/blur events since the DOM can't be polled
+  // for modifier state; window blur resets it so a held Alt can't get stuck when the user
+  // switches apps mid-hold. Only the first ten rows (oid 0–9) get a hint.
+  let altHeld = $state(false);
+  const HINT_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
   const q = $derived(filter.trim().toLowerCase());
 
@@ -310,7 +318,35 @@
       // Escape is handled by use:dialog (focus-trap + onclose).
     }
   }
+
+  // Reveal/hide the digit hints as Alt is pressed/released, AND run the Alt+digit jump — both
+  // at window scope so reveal and action cover the same focus states: the jump fires no matter
+  // which element inside the focus-trapped dialog holds focus (search field, a row, or the ✕
+  // button), matching the window-scoped hint reveal. The combo is always preventDefault-ed
+  // (suppressing the macOS Option-glyph) even with no row to jump to; activation is
+  // Enter-equivalent only when options[jump] exists. Safe globally while the bar is open:
+  // +page's own Alt+1-9 session-switch bails on anyOverlayOpen() (which includes the command
+  // bar), so there is no double action. keydown/keyup both carry the live modifier via
+  // getModifierState; window blur resets it so a held Alt can't stick when focus leaves the tab.
+  function onWindowKeydown(e: KeyboardEvent) {
+    altHeld = e.getModifierState("Alt");
+    const jump = jumpDigitIndex(e);
+    if (jump !== null) {
+      e.preventDefault();
+      const row = options[jump];
+      if (row) selectOption(row);
+    }
+  }
+  function onWindowKeyup(e: KeyboardEvent) {
+    altHeld = e.getModifierState("Alt");
+  }
 </script>
+
+<svelte:window
+  onkeydown={onWindowKeydown}
+  onkeyup={onWindowKeyup}
+  onblur={() => (altHeld = false)}
+/>
 
 <!-- Primary text with fuzzy-matched chars wrapped in <mark> for highlighting. Shared by the
      fuzzy-matched navigation rows (session / repo / lens); the split runs concatenate back to
@@ -372,6 +408,7 @@
             class:kbd-active={row.oid === activeIdx}
             role="option"
             aria-selected={row.oid === activeIdx}
+            aria-keyshortcuts={row.oid < 10 ? `Alt+${HINT_LABELS[row.oid]}` : undefined}
             tabindex="-1"
             onclick={(e) => selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey)}
             onkeydown={(e) => {
@@ -408,6 +445,11 @@
               <span class="cb-ic" aria-hidden="true">📄</span>
               <b class="cb-primary">{row.title}</b>
               <span class="cb-sub">{m.commandbar_docs_affordance()}</span>
+            {/if}
+            <!-- Digit jump-hint, first ten rows only, revealed while Alt is held. Decorative
+                 (aria-hidden) — the shortcut is exposed to AT via the row's aria-keyshortcuts. -->
+            {#if row.oid < 10 && altHeld}
+              <kbd class="cb-kbd" aria-hidden="true">{HINT_LABELS[row.oid]}</kbd>
             {/if}
           </li>
         {/each}
@@ -564,6 +606,31 @@
     color: var(--color-muted);
     font-size: var(--fs-meta);
     white-space: nowrap;
+  }
+
+  /* Digit jump-hint badge — pinned to the row's trailing edge, after the .cb-hint cue when
+     both are present. --fs-meta is below the 16px body floor, the same precedented exception as
+     .cb-sub: this is a keyboard-shortcut affordance (and aria-hidden), not body copy. Uses the
+     :last-child margin-left:auto so a row with BOTH a .cb-hint and a badge doesn't split the
+     free space across two auto margins. Token-only per the design system. */
+  .cb-kbd {
+    flex-shrink: 0;
+    font: inherit;
+    font-size: var(--fs-meta);
+    line-height: 1;
+    color: var(--color-muted);
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 3px 7px;
+    min-width: 1.5em;
+    text-align: center;
+  }
+  /* Only push off free space when the badge is the first trailing element — i.e. no .cb-hint
+     already claimed the auto-margin (session / lens / doc rows). On a repo row the .cb-hint
+     owns margin-left:auto and the badge just follows it flush. */
+  .cb-kbd:not(.cb-hint + .cb-kbd) {
+    margin-left: auto;
   }
 
   .cb-empty {

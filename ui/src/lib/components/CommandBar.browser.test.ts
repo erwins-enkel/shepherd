@@ -437,3 +437,102 @@ describe("CommandBar — All lens", () => {
     expect(onselectlens).toHaveBeenCalledWith("all");
   });
 });
+
+describe("CommandBar — Alt+digit quick-jump", () => {
+  // Seeded open state = eleven selectable rows; only the first ten (oid 0–9) get a digit badge:
+  //   0 s2 "newer" · 1 s1 "older" · 2 beta · 3 alpha · 4 gamma · 5 all · 6 next · 7 ready ·
+  //   8 done · 9 rundown · (10 owed — beyond the tenth, no badge)
+  it("reveals digit hints on the first ten rows only while Alt is held", async () => {
+    renderBar();
+    await page.getByRole("combobox").click();
+    expect(document.querySelectorAll(".cb-kbd")).toHaveLength(0);
+
+    await userEvent.keyboard("{Alt>}");
+    await vi.waitFor(() =>
+      expect([...document.querySelectorAll(".cb-kbd")].map((b) => b.textContent)).toEqual([
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "0",
+      ]),
+    );
+    await userEvent.keyboard("{/Alt}");
+    await vi.waitFor(() => expect(document.querySelectorAll(".cb-kbd")).toHaveLength(0));
+  });
+
+  it("Alt+1 opens the most-recent session via onselectsession", async () => {
+    const { onselectsession } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{Alt>}1{/Alt}");
+    expect(onselectsession).toHaveBeenCalledWith("s2");
+  });
+
+  it("Alt+3 jumps to the first repo via onselectrepo", async () => {
+    const { onselectrepo, onselectsession } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{Alt>}3{/Alt}");
+    expect(onselectrepo).toHaveBeenCalledWith("/repos/beta");
+    expect(onselectsession).not.toHaveBeenCalled();
+  });
+
+  it("Alt+0 jumps to the tenth row (rundown lens) via onselectlens", async () => {
+    const { onselectlens } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{Alt>}0{/Alt}");
+    expect(onselectlens).toHaveBeenCalledWith("rundown");
+  });
+
+  it("jumps regardless of focused element — e.g. Alt+1 from the ✕ button", async () => {
+    // Reveal is window-scoped, so the jump is too: it must fire even when focus is on a
+    // non-input element inside the dialog (here the close button), not only the search field.
+    const { onselectsession, onclose } = renderBar();
+    const closeBtn = document.querySelector("button.x") as HTMLButtonElement;
+    closeBtn.focus();
+    closeBtn.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Digit1",
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(onselectsession).toHaveBeenCalledWith("s2");
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it("on an empty result set, Alt+digit is preventDefaulted and fires nothing", async () => {
+    // With no rows, the combo must still be swallowed so no macOS Option-glyph leaks into the
+    // field. A manual dispatch lets us read defaultPrevented directly.
+    const { onselectlens, onselectsession, onselectrepo } = renderBar();
+    await page.getByRole("combobox").fill("zzzznomatch");
+    await expect.element(page.getByText(m.commandbar_no_matches())).toBeVisible();
+    const input = document.querySelector(".cb-input") as HTMLInputElement;
+    const ev = new KeyboardEvent("keydown", {
+      code: "Digit5",
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onselectlens).not.toHaveBeenCalled();
+    expect(onselectsession).not.toHaveBeenCalled();
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
+  it("exposes each shortcut to assistive tech via aria-keyshortcuts", async () => {
+    renderBar();
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    const rows = [...document.querySelectorAll(".cb-row")];
+    expect(rows[0].getAttribute("aria-keyshortcuts")).toBe("Alt+1");
+    expect(rows[9].getAttribute("aria-keyshortcuts")).toBe("Alt+0");
+    // The eleventh row is past the tenth — no shortcut, no badge.
+    expect(rows[10].getAttribute("aria-keyshortcuts")).toBeNull();
+  });
+});

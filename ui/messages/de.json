@@ -2368,5 +2368,7 @@
   "topbar_search": "Suchen",
   "topbar_search_aria": "Suchen oder Befehl ausführen",
   "feat_command_bar_search_field_title": "Suche in der oberen Leiste",
-  "feat_command_bar_search_field_body": "Die Befehlsleiste hat jetzt ein Suchfeld in der oberen Leiste mit einem ⌘K / Strg-K-Kürzel. Dokumentation und Erkenntnisse sind dorthin umgezogen — durchsuche die Dokumente und öffne Erkenntnisse direkt aus der Leiste."
+  "feat_command_bar_search_field_body": "Die Befehlsleiste hat jetzt ein Suchfeld in der oberen Leiste mit einem ⌘K / Strg-K-Kürzel. Dokumentation und Erkenntnisse sind dorthin umgezogen — durchsuche die Dokumente und öffne Erkenntnisse direkt aus der Leiste.",
+  "feat_command_bar_jump_title": "Mit Alt zu Befehlsleisten-Ergebnissen springen",
+  "feat_command_bar_jump_body": "Halte bei geöffneter Befehlsleiste Alt gedrückt, um Ziffernhinweise (1–9, dann 0) auf den ersten zehn Ergebnissen einzublenden, und drücke dann die Ziffer, um direkt dorthin zu springen."
 }

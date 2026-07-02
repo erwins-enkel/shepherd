@@ -65,5 +65,25 @@ const {
   </head>
   <body>
     <slot />
+
+    <script>
+      import { track } from "@vercel/analytics";
+
+      // Discrete custom events for the marketing CTAs. Anonymous by design:
+      // event name + a coarse `location` (hero/nav/footer) only — never PII.
+      // Delegated at the document so Nav/Hero/Footer links share one handler
+      // (no per-component script); track() is fire-and-forget (uses a beacon),
+      // so it never blocks the anchor's navigation. Custom events require the
+      // project's Vercel team to be on Pro+ (Hobby silently drops them).
+      document.addEventListener("click", (event) => {
+        const el = (event.target as Element | null)?.closest<HTMLElement>(
+          "[data-track]",
+        );
+        const name = el?.dataset.track;
+        if (!name) return;
+        const location = el.dataset.trackLocation;
+        track(name, location ? { location } : undefined);
+      });
+    </script>
   </body>
 </html>

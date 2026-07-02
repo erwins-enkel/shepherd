@@ -133,7 +133,7 @@ The glyph string itself (`⚠2 ✋1 …`) is data-shaped (counts + fixed symbols
 
 ## Feature discovery
 
-Existing entry `entries/v1.41.0-tab-signaling.ts` already announces the ambient tab feature. This PR extends the same feature; per the "one entry per shipped user-facing feature" rule, the compact-title toggle is a user-facing addition — add one fragment `entries/v1.42.0-tab-glyph-title.ts` (or bump to the release version at build time) announcing the compact glyph title + where to toggle it. Confirm the release version during implementation.
+Existing entry `entries/v1.41.0-tab-signaling.ts` already announces the ambient tab feature. This PR extends the same feature; per the "one entry per shipped user-facing feature" rule, the compact-title toggle is a user-facing addition — add one fragment `entries/v1.41.0-tab-glyph-title.ts` (or bump to the release version at build time) announcing the compact glyph title + where to toggle it. Confirm the release version during implementation.
 
 ## Files touched
 

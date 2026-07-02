@@ -12,7 +12,7 @@
 
 - **Design tokens only** — severity/ring colors via `var(--color-*)` resolved to hex at paint time through the existing guarded var-chain (`resolveColor`/`groundColor`); ring uses `--color-muted` → `--muted` → `#7c8c86`. Never a raw literal in markup/CSS.
 - **i18n parity** — every new user-facing string added to BOTH `ui/messages/en.json` and `ui/messages/de.json`, snake_case, component-prefixed (`settings_tab_ticker_*`). `cd ui && bun run check:i18n` must pass.
-- **Feature catalog** — this ships user-facing UX; add exactly one `ui/src/lib/feature-announcements/entries/v1.42.0-tab-glyph-title.ts` fragment in this PR.
+- **Feature catalog** — this ships user-facing UX; add exactly one `ui/src/lib/feature-announcements/entries/v1.41.0-tab-glyph-title.ts` fragment in this PR.
 - **The glyph string itself** (`⚠2 ✋1 ✓3 ▶4`) is data-shaped (fixed symbols + counts), assembled in code — NOT a translated message, same rationale as the numeric `(N)`.
 - **Ticker glyph order** is most-urgent-first: `⚠` ci-red › `✋` blocked › `✓` ready › `▶` running; zero-count groups omitted.
 - **Ring gating** — the ring favicon paints only when backgrounded AND `count === 0` AND the selected session `displayStatus === "running"` AND its build queue has steps; the severity dot always wins when `count > 0`.
@@ -641,7 +641,7 @@ git commit -m "feat(ui): compact-tab-title toggle in device settings"
 ### Task 6: Feature-announcement entry + full verification
 
 **Files:**
-- Create: `ui/src/lib/feature-announcements/entries/v1.42.0-tab-glyph-title.ts`
+- Create: `ui/src/lib/feature-announcements/entries/v1.41.0-tab-glyph-title.ts`
 - Modify: `ui/messages/en.json`, `ui/messages/de.json` (announcement keys)
 
 **Interfaces:**
@@ -666,14 +666,14 @@ git commit -m "feat(ui): compact-tab-title toggle in device settings"
 
 - [ ] **Step 2: Create the entry fragment**
 
-`ui/src/lib/feature-announcements/entries/v1.42.0-tab-glyph-title.ts`:
+`ui/src/lib/feature-announcements/entries/v1.41.0-tab-glyph-title.ts`:
 
 ```ts
 import type { FeatureAnnouncement } from "../../feature-announcements";
 
 const entry = {
   id: "tab-glyph-title",
-  sinceVersion: "1.42.0",
+  sinceVersion: "1.41.0",
   titleKey: "feat_tab_glyph_title_title",
   bodyKey: "feat_tab_glyph_title_body",
 } satisfies FeatureAnnouncement;
@@ -700,7 +700,7 @@ Expected: catalog check passes (a `feat(...)` touching UI now has a matching ent
 - [ ] **Step 4: Commit**
 
 ```bash
-git add ui/src/lib/feature-announcements/entries/v1.42.0-tab-glyph-title.ts ui/messages/en.json ui/messages/de.json
+git add ui/src/lib/feature-announcements/entries/v1.41.0-tab-glyph-title.ts ui/messages/en.json ui/messages/de.json
 git commit -m "feat(ui): announce compact tab title + progress ring in feature catalog"
 ```
 

@@ -41,6 +41,9 @@ test("emits a POST with correct host/App-Key/body when enabled", async () => {
   expect(ev.props).toEqual({ arch: "arm64" });
   expect(typeof ev.systemProps.osName).toBe("string");
   expect(ev.systemProps.sdkVersion).toBe("shepherd-telemetry@1");
+  expect(typeof ev.systemProps.arch).toBe("string");
+  expect(ev.systemProps.arch).toBe(process.arch);
+  expect((ev.systemProps.arch as string).length).toBeGreaterThan(0);
 });
 
 test("no-op when consent not granted", async () => {

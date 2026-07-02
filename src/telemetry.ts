@@ -88,6 +88,7 @@ export class TelemetryService {
       isDebug: false,
       osName: osName(),
       osVersion: os.release(),
+      arch: process.arch,
       locale: process.env.LANG ?? "unknown",
       appVersion: (pkg as { version: string }).version,
       engineName: process.versions.bun ? "bun" : "node",

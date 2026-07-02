@@ -445,7 +445,7 @@ export const config = {
   // hard-disables telemetry and suppresses the first-run consent prompt.
   aptabaseAppKey: process.env.SHEPHERD_APTABASE_APP_KEY ?? "A-EU-2837516646",
   aptabaseHostOverride: process.env.SHEPHERD_APTABASE_HOST ?? null,
-  doNotTrack: process.env.DO_NOT_TRACK === "1",
+  doNotTrack: ((v) => v === "1" || v?.toLowerCase() === "true")(process.env.DO_NOT_TRACK),
   // Persisted consent (DB row overrides this env seed at boot; see index.ts).
   telemetryConsent: normalizeTelemetryConsent(process.env.SHEPHERD_TELEMETRY_CONSENT) ?? "unset",
   // Apple/iOS rejects pushes whose VAPID subject is a non-routable URL (e.g.

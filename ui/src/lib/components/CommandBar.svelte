@@ -296,16 +296,6 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    // Alt+digit quick-jump — handled BEFORE the empty-list guard so the combo is always
-    // swallowed (preventDefault), suppressing the macOS Option-glyph even when there is no
-    // row to jump to. Activates options[i] (Enter-equivalent) only when that row exists.
-    const jump = jumpDigitIndex(e);
-    if (jump !== null) {
-      e.preventDefault();
-      const row = options[jump];
-      if (row) selectOption(row);
-      return;
-    }
     if (options.length === 0) return;
     switch (e.key) {
       case "ArrowDown":
@@ -329,15 +319,34 @@
     }
   }
 
-  // Reveal/hide the digit hints as Alt is pressed/released. keydown & keyup both carry the
-  // live modifier state via getModifierState, so a single handler covers both edges (including
-  // the case where Alt is pressed with the search field focused).
-  function syncAltHeld(e: KeyboardEvent) {
+  // Reveal/hide the digit hints as Alt is pressed/released, AND run the Alt+digit jump — both
+  // at window scope so reveal and action cover the same focus states: the jump fires no matter
+  // which element inside the focus-trapped dialog holds focus (search field, a row, or the ✕
+  // button), matching the window-scoped hint reveal. The combo is always preventDefault-ed
+  // (suppressing the macOS Option-glyph) even with no row to jump to; activation is
+  // Enter-equivalent only when options[jump] exists. Safe globally while the bar is open:
+  // +page's own Alt+1-9 session-switch bails on anyOverlayOpen() (which includes the command
+  // bar), so there is no double action. keydown/keyup both carry the live modifier via
+  // getModifierState; window blur resets it so a held Alt can't stick when focus leaves the tab.
+  function onWindowKeydown(e: KeyboardEvent) {
+    altHeld = e.getModifierState("Alt");
+    const jump = jumpDigitIndex(e);
+    if (jump !== null) {
+      e.preventDefault();
+      const row = options[jump];
+      if (row) selectOption(row);
+    }
+  }
+  function onWindowKeyup(e: KeyboardEvent) {
     altHeld = e.getModifierState("Alt");
   }
 </script>
 
-<svelte:window onkeydown={syncAltHeld} onkeyup={syncAltHeld} onblur={() => (altHeld = false)} />
+<svelte:window
+  onkeydown={onWindowKeydown}
+  onkeyup={onWindowKeyup}
+  onblur={() => (altHeld = false)}
+/>
 
 <!-- Primary text with fuzzy-matched chars wrapped in <mark> for highlighting. Shared by the
      fuzzy-matched navigation rows (session / repo / lens); the split runs concatenate back to

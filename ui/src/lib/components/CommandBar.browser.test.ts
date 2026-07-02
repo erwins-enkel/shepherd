@@ -488,6 +488,24 @@ describe("CommandBar — Alt+digit quick-jump", () => {
     expect(onselectlens).toHaveBeenCalledWith("rundown");
   });
 
+  it("jumps regardless of focused element — e.g. Alt+1 from the ✕ button", async () => {
+    // Reveal is window-scoped, so the jump is too: it must fire even when focus is on a
+    // non-input element inside the dialog (here the close button), not only the search field.
+    const { onselectsession, onclose } = renderBar();
+    const closeBtn = document.querySelector("button.x") as HTMLButtonElement;
+    closeBtn.focus();
+    closeBtn.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Digit1",
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(onselectsession).toHaveBeenCalledWith("s2");
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
   it("on an empty result set, Alt+digit is preventDefaulted and fires nothing", async () => {
     // With no rows, the combo must still be swallowed so no macOS Option-glyph leaks into the
     // field. A manual dispatch lets us read defaultPrevented directly.

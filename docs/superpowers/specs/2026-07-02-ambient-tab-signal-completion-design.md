@@ -16,7 +16,7 @@ This spec builds exactly those three. Out of scope (unchanged): master kill-swit
 ## Design decisions (settled)
 
 1. **Progress ring tracks the selected session's build queue.** `ringFraction = doneSteps / totalSteps` of the currently-selected session, shown only when the tab is backgrounded AND that session's `displayStatus === "running"` AND nothing needs the operator (`count === 0`). The severity dot always wins when `count > 0`.
-2. **Glyph-ticker format:** `⚠{ci} ▶{running} ✋{blocked} ✓{ready} Shepherd` when ON + backgrounded + any group > 0. Zero-count groups omitted. Order: severity-then-running (`⚠` ci-red, `✋` blocked, `✓` ready, `▶` running). When ON but all groups zero → plain `Shepherd`. Attended tab still forces plain `Shepherd`.
+2. **Glyph-ticker format:** `⚠{ci} ✋{blocked} ✓{ready} ▶{running} Shepherd` when ON + backgrounded + any group > 0. Zero-count groups omitted. Order is most-urgent-first (`⚠` ci-red › `✋` blocked › `✓` ready › `▶` running) so a right-truncated title keeps the important glyph, matching the original front-paren rationale. When ON but all groups zero → plain `Shepherd`. Attended tab still forces plain `Shepherd`.
 3. **One toggle only:** "Compact glyph title", per-device, `localStorage`, default OFF. No master switch, no quiet-mode.
 4. **Ring color:** `--color-muted` (in-progress-but-not-urgent reads muted; anything urgent shows the dot instead).
 

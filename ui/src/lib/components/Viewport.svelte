@@ -40,7 +40,7 @@
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey, isCommandBarChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
-  import { isScrolledAwayFromBottom } from "$lib/scrollAffordance";
+  import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -312,6 +312,10 @@
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
   // buffer switch, and a jump-to-bottom.
   let scrollDepth = 0;
+  // Agent-owned top jumps move a remote TUI whose real position xterm cannot
+  // observe. Until the user explicitly jumps back down (or the terminal resets),
+  // do not let local wheel/touch bookkeeping claim we verified the bottom.
+  let agentTopJumpNeedsExplicitBottom = false;
   // agent-owned regime only: new output landed while the reader was scrolled up
   // (any amount). xterm's viewport stays pinned there, so a sub-threshold nudge
   // followed by fresh agent output — common while the pane is backgrounded —
@@ -901,6 +905,19 @@
   const agentOwnsScroll = (term: Terminal): boolean =>
     term.buffer.active.type === "alternate" || term.modes.mouseTrackingMode !== "none";
 
+  function clearAgentScrollState() {
+    scrollDepth = 0;
+    contentBelowScroll = false;
+    agentTopJumpNeedsExplicitBottom = false;
+  }
+
+  function trackAgentScrollDelta(deltaY: number) {
+    scrollDepth = Math.max(0, scrollDepth - deltaY);
+    if (agentTopJumpNeedsExplicitBottom) {
+      scrollDepth = Math.max(scrollDepth, SCROLL_UP_PX + 1);
+    }
+  }
+
   function scrollToBottom() {
     const term = termRef;
     if (!term) return;
@@ -912,8 +929,7 @@
     } else {
       term.scrollToBottom();
     }
-    scrollDepth = 0;
-    contentBelowScroll = false;
+    clearAgentScrollState();
     scrolledUp = false;
   }
 
@@ -925,6 +941,10 @@
       // documented top shortcut is Ctrl+Home; PageUp spam is a defensive fallback
       // for renderer/terminal combinations that ignore that CSI variant.
       conn?.send("\x1b[1;5H" + "\x1b[5~".repeat(500));
+      agentTopJumpNeedsExplicitBottom = true;
+      scrollDepth = Math.max(scrollDepth, SCROLL_UP_PX + 1);
+      contentBelowScroll = true;
+      scrolledUp = true;
     } else {
       term.scrollToTop();
     }
@@ -1030,8 +1050,7 @@
     if (!el) return;
     parked = false; // fresh attach for this unit
     scrolledUp = false; // fresh terminal starts pinned to the bottom
-    scrollDepth = 0;
-    contentBelowScroll = false;
+    clearAgentScrollState();
     notesKey = null; // no prompt scraped yet on this fresh terminal
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
@@ -1423,7 +1442,7 @@
     // jump-to-bottom affordance and forward the wheel to xterm's screen.
     const dispatchScroll = (dy: number) => {
       if (agentOwnsScroll(term)) {
-        scrollDepth = Math.max(0, scrollDepth - dy);
+        trackAgentScrollDelta(dy);
       }
       recomputeScrolled();
       const target = el!.querySelector<HTMLElement>(".xterm-screen") ?? el!;
@@ -1529,7 +1548,7 @@
     // arrival matters are documented in `isScrolledAwayFromBottom`.
     const recomputeScrolled = () => {
       const b = term.buffer.active;
-      if (scrollDepth === 0) contentBelowScroll = false; // back at the bottom → re-arm
+      if (scrollDepth === 0) contentBelowScroll = false; // verified bottom → re-arm
       scrolledUp = isScrolledAwayFromBottom({
         agentOwnsScroll: agentOwnsScroll(term),
         scrollDepth,
@@ -1539,7 +1558,7 @@
     };
     const scrollSub = term.onScroll(recomputeScrolled);
     const bufSub = term.buffer.onBufferChange(() => {
-      scrollDepth = 0;
+      clearAgentScrollState();
       recomputeScrolled();
     });
     // When the agent owns the scroll xterm's viewport never moves, so onScroll
@@ -1580,7 +1599,7 @@
     // >0 = toward latest.
     const onWheelTrack = (e: WheelEvent) => {
       if (!e.isTrusted || !agentOwnsScroll(term)) return;
-      scrollDepth = Math.max(0, scrollDepth - e.deltaY);
+      trackAgentScrollDelta(e.deltaY);
       recomputeScrolled();
     };
     el.addEventListener("wheel", onWheelTrack, { passive: true, capture: true });

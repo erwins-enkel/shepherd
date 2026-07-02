@@ -7,6 +7,7 @@ import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
 import {
   assertUnitActive,
+  bootExpectingPreflightExit,
   bootShepherd,
   HARNESS_TOKEN,
   probeDiagnostics,
@@ -17,6 +18,7 @@ import { assertDetection } from "./assert";
 import { buildGapReport, gateGapScenarios, statusDescription } from "./report";
 import { reportToGitHub, publishStatus } from "./issue";
 import { remediationsFor } from "../../src/remediations";
+import { HERDR_MISSING_EXIT_CODE, HERDR_MISSING_MARKER } from "../../src/preflight";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 import type { DiagnosticsSnapshot } from "../../src/types";
 
@@ -172,6 +174,60 @@ async function runInstallLifecycleE2E(
   };
 }
 
+/** Fail-fast PREFLIGHT flow (`herdr-missing`). Since #1313 a missing herdr prints
+ *  the banner and exits 78 BEFORE the HTTP server binds, so the standard boot+probe
+ *  detection path can't run. The baseline installs a herdr STUB; the seed removes
+ *  it, restoring the real fail-fast. We:
+ *   1. boot in the foreground and assert exit 78 + the banner marker (detection);
+ *   2. apply the REAL verbatim herdr remediation (via the production REMEDIATIONS
+ *      map — a full synthetic snapshot, so remediationsFor resolves the install);
+ *   3. re-boot normally (herdr now present) and assert the herdr check is `ok`.
+ *  Throws fail-closed at each step — a failure is caught by runScenario as a gating
+ *  BOOT CRASH, which is correct: a preflight that didn't fire, or a remediation that
+ *  didn't heal, is a real regression, not something to swallow. */
+async function runHerdrPreflightE2E(
+  driver: IncusDriver,
+  scenario: Scenario,
+  base: ScenarioBase,
+  tarball: string,
+): Promise<ScenarioResult> {
+  await seedInstance(driver, scenario, tarball);
+
+  // Detection: with herdr removed, boot must fail-fast with the banner + exit 78.
+  // ONLY exit 78 passes — timeout's 124 (or any other code) means it did NOT
+  // fail-fast, i.e. a real regression to surface.
+  const boot = await bootExpectingPreflightExit(driver, scenario.id);
+  if (boot.code !== HERDR_MISSING_EXIT_CODE || !boot.output.includes(HERDR_MISSING_MARKER)) {
+    throw new Error(
+      `${scenario.id}: expected herdr fail-fast (exit ${HERDR_MISSING_EXIT_CODE} + banner), ` +
+        `got exit ${boot.code}:\n${boot.output.slice(-800)}`,
+    );
+  }
+
+  // Apply the real verbatim remediation. remediationsFor iterates snapshot.checks,
+  // so this MUST be a full DiagnosticsSnapshot (a bare check object → no checks →
+  // [] → silent no-op). This resolves diagnostics_hint_herdr_missing → the real
+  // herdr install from src/remediations.ts (no hardcoded copy).
+  const synthetic: DiagnosticsSnapshot = {
+    checks: [{ id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_missing" }],
+    generatedAt: 0,
+    overall: "error",
+  };
+  if (!(await applyVerbatim(driver, scenario.id, synthetic))) {
+    throw new Error(`${scenario.id}: verbatim herdr remediation failed`);
+  }
+
+  // Re-boot normally (herdr now present) and confirm the check recovered to ok.
+  await bootShepherd(driver, scenario.id);
+  const after = await probeDiagnostics(driver, scenario.id);
+  return {
+    ...base,
+    detection: { scenarioId: scenario.id, detected: true, misses: [] },
+    appliedVia: "verbatim",
+    reachedGreen: after.checks.find((c) => c.id === "herdr")?.state === "ok",
+  };
+}
+
 /** Pick + run the standard-path remediation: detection-only (by design or
  *  agent-incompatible), verbatim, or agent. Returns the chosen `appliedVia` and
  *  whether this was a detection-only (no-apply) run. */
@@ -215,6 +271,8 @@ export async function runScenario(
     if (scenario.serviceLifecycle)
       return await runInstallLifecycleE2E(driver, scenario, base, tarball);
     if (scenario.installE2E) return await runInstallE2E(driver, scenario, base, tarball);
+    if (scenario.preflightFailFast)
+      return await runHerdrPreflightE2E(driver, scenario, base, tarball);
 
     await seedInstance(driver, scenario, tarball);
     await bootShepherd(driver, scenario.id);

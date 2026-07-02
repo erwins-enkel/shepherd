@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { HERDR_MISSING_EXIT_CODE, isBinaryMissingError, preflightHerdr } from "../src/preflight";
+import {
+  HERDR_MISSING_EXIT_CODE,
+  HERDR_MISSING_MARKER,
+  isBinaryMissingError,
+  preflightHerdr,
+} from "../src/preflight";
 
 // ── isBinaryMissingError ─────────────────────────────────────────────────────
 
@@ -66,6 +71,26 @@ test("preflightHerdr: missing binary → logs one banner and exits 78", () => {
   expect(logs).toHaveLength(1);
   expect(logs[0]).toContain("herdr not found on PATH");
   expect(logs[0]).toContain("https://herdr.dev/install.sh");
+});
+
+test("emitted banner contains the exported HERDR_MISSING_MARKER (no drift for out-of-tree matchers)", () => {
+  const logs: string[] = [];
+  const { exit } = fakeExit();
+
+  expect(() =>
+    preflightHerdr({
+      runVersion: () => {
+        throw { code: "ENOENT" };
+      },
+      log: (msg) => logs.push(msg),
+      exit,
+    }),
+  ).toThrow(ExitSentinel);
+
+  // The onboarding harness's fail-fast probe matches on this exported constant, so
+  // the banner MUST keep containing it verbatim.
+  expect(HERDR_MISSING_MARKER).toBe("herdr not found on PATH");
+  expect(logs[0]).toContain(HERDR_MISSING_MARKER);
 });
 
 test("preflightHerdr: success → neither log nor exit called", () => {

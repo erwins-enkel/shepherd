@@ -37,6 +37,13 @@ export interface Scenario {
    *  scenario.seed and only pushes the tarball + install.sh; run.ts runs the
    *  installer, boots, probes, and compares the snapshot against `expect`. */
   installE2E?: true;
+  /** Fail-fast PREFLIGHT scenario (`herdr-missing`). Since #1313 a missing herdr
+   *  makes Shepherd print an actionable banner and exit 78 BEFORE the HTTP server
+   *  binds, so the boot+probe detection path can't run. Instead the runner boots in
+   *  the foreground, asserts the banner + exit code (detection), applies the real
+   *  verbatim herdr remediation, then re-boots normally and asserts `herdr:ok`
+   *  (green). Stays `structured` / gate-eligible — it tests the real new UX. */
+  preflightFailFast?: true;
   /** Real systemd-unit LIFECYCLE path. Implies the `installE2E` bare-host seeding
    *  and the same INSTALL-GAP reporting/gate classification, but additionally
    *  exercises the full service lifecycle the plain `install-e2e` deliberately

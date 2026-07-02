@@ -30,9 +30,36 @@ function ensureToolchain(): string {
   );
 }
 
+/** Write a network-free `herdr` STUB onto PATH so Shepherd's boot preflight
+ *  (`herdr --version`) passes without a live `herdr.dev` fetch. Since #1313 a
+ *  missing herdr fail-fasts (exit 78) BEFORE the HTTP server binds, so the 6
+ *  non-herdr scenarios — which don't test herdr — just need preflight satisfied.
+ *
+ *  The stub emits a single VALID JSON line for EVERY invocation. This is
+ *  load-bearing, not decorative:
+ *   - diagnostics' `herdrProbe` extracts a semver via `SEMVER_RE` from the output,
+ *     so the JSON's `99.99.99` (≥ HERDR_MIN_VERSION) reads `ok`;
+ *   - on-loop `HerdrDriver.list()/tabs()/panes()` do an UNGUARDED `JSON.parse` then
+ *     `parsed?.result?.… ?? []`. A plain-text `herdr 99.99.99` would throw a
+ *     SyntaxError every tick (a different throw than the pre-#1313 ENOENT), so valid
+ *     JSON is required — it parses cleanly to `[]` and never throws.
+ *  A final `test -x` makes it a CHECKED step (fail-closes the baseline). */
+function herdrStub(): string {
+  return (
+    'mkdir -p "$HOME/.local/bin"\n' +
+    "cat > \"$HOME/.local/bin/herdr\" <<'HERDR_STUB'\n" +
+    "#!/bin/sh\n" +
+    'echo \'{"version":"99.99.99"}\'\n' +
+    "HERDR_STUB\n" +
+    'chmod +x "$HOME/.local/bin/herdr"\n' +
+    'test -x "$HOME/.local/bin/herdr"'
+  );
+}
+
 /** Commands that turn a fresh instance into a bootable-Shepherd baseline: bun
- *  runtime + the pushed working-tree build + deps + the claude CLI (agent path).
- *  Defects are layered AFTER this so degraded Shepherd can still boot. */
+ *  runtime + the pushed working-tree build + deps + the claude CLI (agent path) +
+ *  a herdr stub that satisfies the boot preflight (#1313). Defects are layered
+ *  AFTER this so degraded Shepherd can still boot. */
 function baselineCommands(): string[] {
   return [
     ensurePkg("curl"),
@@ -60,6 +87,9 @@ function baselineCommands(): string[] {
     `cd ${SHEPHERD_DIR} && ~/.bun/bin/bun install`,
     // claude CLI for the agent apply path; harmless if a scenario removes it later.
     "curl -fsSL https://claude.ai/install.sh | bash || true",
+    // herdr stub so the boot preflight (#1313) passes with zero network; the
+    // herdr-missing scenario removes it in its seed to exercise the real fail-fast.
+    herdrStub(),
   ];
 }
 

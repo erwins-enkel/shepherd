@@ -2341,5 +2341,11 @@
   "commandbar_repo_affordance": "Repository",
   "commandbar_no_matches": "Keine Treffer",
   "feat_command_bar_title": "Befehlsleiste — mit ⌘K zu allem springen",
-  "feat_command_bar_body": "Drücke ⌘K (macOS) oder Strg+K (Windows/Linux) — auch bei fokussiertem Terminal — um einen Schnellumschalter zu öffnen. Tippe, um deine Sessions, Repositories und Herden-Ansichten zu filtern, und springe mit Enter direkt dorthin."
+  "feat_command_bar_body": "Drücke ⌘K (macOS) oder Strg+K (Windows/Linux) — auch bei fokussiertem Terminal — um einen Schnellumschalter zu öffnen. Tippe, um deine Sessions, Repositories und Herden-Ansichten zu filtern, und springe mit Enter direkt dorthin.",
+  "settings_tab_ticker_title": "Kompakter Tab-Titel",
+  "settings_tab_ticker_hint": "Zeigt im Hintergrund-Tab gruppierte Symbolzähler (⚠ CI fehlgeschlagen · ✋ blockiert · ✓ bereit · ▶ läuft) statt einer einzelnen Zahl. Standardmäßig aus.",
+  "settings_tab_ticker_on": "Kompakter Tab-Titel an",
+  "settings_tab_ticker_off": "Kompakter Tab-Titel aus",
+  "feat_tab_glyph_title_title": "Kompakter Tab-Titel",
+  "feat_tab_glyph_title_body": "Aktiviere einen dichteren Hintergrund-Tab-Titel, der nach Symbol gruppiert, was deine Aufmerksamkeit braucht — ⚠ CI fehlgeschlagen, ✋ blockiert, ✓ bereit, ▶ läuft — plus einen Fortschrittsring im Favicon der beobachteten Sitzung. Aktivierbar unter Einstellungen → Gerät."
 }

@@ -3,6 +3,7 @@
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
+  import { tabTicker } from "$lib/tab-ticker.svelte";
   import {
     listSessions,
     createSession,
@@ -135,13 +136,23 @@
   // region below mirrors changes for screen readers. Disposed on unmount.
   const tabSignal = createTabSignal();
   $effect(() => {
-    const { count, severity } = deriveTabState(
-      store.sessions,
-      store.git,
-      store.workingBlocked,
-      planGates.map,
-    );
-    tabSignal.update({ count, severity, attended: store.attended });
+    const st = deriveTabState(store.sessions, store.git, store.workingBlocked, planGates.map);
+    // Progress ring: selected session's build-queue completion, but ONLY when it is
+    // running and nothing needs the operator (the severity dot always wins).
+    const sel = selected;
+    const q = sel ? store.buildQueues[sel.id] : undefined;
+    let ringFraction: number | null = null;
+    if (
+      sel &&
+      st.count === 0 &&
+      displayStatus(sel, store.workingBlocked) === "running" &&
+      q &&
+      q.steps.length > 0
+    ) {
+      const done = q.steps.filter((s) => s.status === "done" || s.status === "skipped").length;
+      ringFraction = done / q.steps.length;
+    }
+    tabSignal.update({ ...st, attended: store.attended, ticker: tabTicker.enabled, ringFraction });
   });
   $effect(() => () => tabSignal.dispose());
 

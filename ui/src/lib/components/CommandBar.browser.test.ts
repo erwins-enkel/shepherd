@@ -5,6 +5,7 @@ import "../../app.css";
 import CommandBar from "./CommandBar.svelte";
 import { m } from "$lib/paraglide/messages";
 import { repos } from "$lib/repos.svelte";
+import type { Command } from "$lib/command-registry";
 import type { RepoEntry, Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -92,6 +93,7 @@ function renderBar(overrides: Partial<Parameters<typeof CommandBar>[1]> = {}) {
   render(CommandBar, {
     sessions: seedSessions(),
     workingBlocked: {},
+    commands: [],
     onselectsession,
     onselectrepo,
     onselectlens,
@@ -171,5 +173,72 @@ describe("CommandBar — dismissal", () => {
     const { onclose } = renderBar();
     await page.getByRole("button", { name: m.common_close() }).click();
     expect(onclose).toHaveBeenCalled();
+  });
+});
+
+function seedCommands(run = vi.fn()): { commands: Command[]; run: ReturnType<typeof vi.fn> } {
+  const commands: Command[] = [
+    { id: "broadcast", label: () => "Broadcast", run },
+    // keyword-only match: label has no "cost", but the synonyms do.
+    { id: "usage", label: () => "Usage", keywords: () => "cost spend tokens", run: vi.fn() },
+  ];
+  return { commands, run };
+}
+
+describe("CommandBar — Commands group", () => {
+  it("renders a Commands group and filters on label AND keyword synonyms", async () => {
+    const { commands } = seedCommands();
+    renderBar({ commands });
+    await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
+    // "cost" matches the Usage command only via its keywords (not its label).
+    await page.getByRole("combobox").fill("cost");
+    const opts = page.getByRole("option");
+    await expect.element(opts.first()).toHaveTextContent("Usage");
+    expect(opts.elements()).toHaveLength(1);
+  });
+
+  it("selecting a command runs it and closes the bar", async () => {
+    const { commands, run } = seedCommands();
+    const { onclose } = renderBar({ commands });
+    await page.getByRole("option", { name: /Broadcast/ }).click();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("CommandBar — Docs group", () => {
+  it("matches a non-title query via the keyword haystack", async () => {
+    renderBar();
+    // "sandbox" appears in doc keywords (Configuration / Security), never a title.
+    await page.getByRole("combobox").fill("sandbox");
+    await expect.element(page.getByText(m.commandbar_group_docs())).toBeVisible();
+    await expect
+      .element(
+        page.getByRole("option", { name: new RegExp(m.commandbar_docs_affordance()) }).first(),
+      )
+      .toBeVisible();
+  });
+
+  it("selecting a doc opens it in a new tab and closes the bar", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    const { onclose } = renderBar();
+    await page.getByRole("combobox").fill("getting started");
+    await page.getByRole("option", { name: /Getting started/ }).click();
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://docs.shepherd.run/getting-started/",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(onclose).toHaveBeenCalledTimes(1);
+    openSpy.mockRestore();
+  });
+});
+
+describe("CommandBar — All lens", () => {
+  it("includes the All lens and selecting it fires onselectlens('all')", async () => {
+    const { onselectlens } = renderBar();
+    await page.getByRole("combobox").fill(m.herd_seg_all());
+    await page.getByRole("option", { name: new RegExp(m.herd_seg_all()) }).click();
+    expect(onselectlens).toHaveBeenCalledWith("all");
   });
 });

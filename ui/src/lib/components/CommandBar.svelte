@@ -7,11 +7,15 @@
   import { statusLabel } from "$lib/format";
   import { dialog } from "$lib/a11yDialog";
   import { lensGlyph } from "$lib/components/herd/lens-glyphs";
+  import { DOCS_URL } from "$lib/build-info";
+  import { DOCS_PAGES } from "$lib/docs-manifest";
+  import type { Command } from "$lib/command-registry";
   import { m } from "$lib/paraglide/messages";
 
   let {
     sessions,
     workingBlocked,
+    commands,
     onselectsession,
     onselectrepo,
     onselectlens,
@@ -19,11 +23,16 @@
   }: {
     sessions: Session[];
     workingBlocked: Record<string, boolean>;
+    commands: Command[];
     onselectsession: (id: string) => void;
     onselectrepo: (path: string) => void;
     onselectlens: (lens: HerdFilter) => void;
     onclose: () => void;
   } = $props();
+
+  // Docs open externally (docs.shepherd.run) in a new tab. DOCS_URL carries a trailing
+  // slash and manifest paths a leading one — strip one so the join never doubles up.
+  const docUrl = (path: string) => DOCS_URL.replace(/\/$/, "") + path;
 
   // Row unions the three navigation targets. `oid` (assigned when the flat option
   // list is built) is a row's index within the SELECTABLE-only sequence — group
@@ -38,7 +47,9 @@
         status: string;
       }
     | { kind: "repo"; path: string; name: string; display: string }
-    | { kind: "lens"; lens: HerdFilter; label: string; icon: string };
+    | { kind: "lens"; lens: HerdFilter; label: string; icon: string }
+    | { kind: "command"; id: string; label: string; run: () => void }
+    | { kind: "doc"; title: string; url: string };
   type OptRow = Row & { oid: number };
 
   let filter = $state("");
@@ -48,10 +59,11 @@
 
   const q = $derived(filter.trim().toLowerCase());
 
-  // Fixed five-lens set — the issue deliberately excludes the default "all" view.
-  // Labels reuse the `herd_seg_*` keys and glyphs come from the shared lensGlyph map,
-  // so both dimensions stay single-sourced with the HerdLensStrip and can't drift.
+  // The six herd lenses, "all" included (the default all-sessions view). Labels reuse the
+  // `herd_seg_*` keys and glyphs come from the shared lensGlyph map, so both dimensions stay
+  // single-sourced with the HerdLensStrip and can't drift.
   const LENSES: { id: HerdFilter; label: () => string }[] = [
+    { id: "all", label: () => m.herd_seg_all() },
     { id: "next", label: () => m.herd_seg_next() },
     { id: "ready", label: () => m.herd_seg_ready() },
     { id: "done", label: () => m.herd_seg_done() },
@@ -94,6 +106,22 @@
     })),
   );
 
+  // Commands match on label + optional localized keyword synonyms; docs on their title +
+  // the generated keyword haystack (description + headings), so non-title queries resolve.
+  const commandRows = $derived<Row[]>(
+    commands
+      .filter((c) => (c.label() + " " + (c.keywords?.() ?? "")).toLowerCase().includes(q))
+      .map((c) => ({ kind: "command", id: c.id, label: c.label(), run: c.run })),
+  );
+
+  const docRows = $derived<Row[]>(
+    DOCS_PAGES.filter((d) => (d.title.toLowerCase() + " " + d.keywords).includes(q)).map((d) => ({
+      kind: "doc",
+      title: d.title,
+      url: docUrl(d.path),
+    })),
+  );
+
   // Non-empty groups, each row tagged with its global selectable index (`oid`).
   // Headers are rendered separately and carry no oid — so ArrowUp/Down (which walk
   // oids) and Enter (which acts on options[activeIdx]) can never land on one.
@@ -108,6 +136,8 @@
       build("sessions", m.commandbar_group_sessions(), sessionRows),
       build("repos", m.commandbar_group_repos(), repoRows),
       build("lenses", m.commandbar_group_lenses(), lensRows),
+      build("commands", m.commandbar_group_commands(), commandRows),
+      build("docs", m.commandbar_group_docs(), docRows),
     ].filter((g) => g.rows.length > 0);
   });
 
@@ -125,17 +155,33 @@
   });
 
   function stableKey(row: OptRow): string {
-    return row.kind === "session"
-      ? "s:" + row.id
-      : row.kind === "repo"
-        ? "r:" + row.path
-        : "l:" + row.lens;
+    switch (row.kind) {
+      case "session":
+        return "s:" + row.id;
+      case "repo":
+        return "r:" + row.path;
+      case "lens":
+        return "l:" + row.lens;
+      case "command":
+        return "c:" + row.id;
+      case "doc":
+        return "d:" + row.url;
+    }
   }
 
   function selectOption(row: OptRow) {
     if (row.kind === "session") onselectsession(row.id);
     else if (row.kind === "repo") onselectrepo(row.path);
-    else onselectlens(row.lens);
+    else if (row.kind === "lens") onselectlens(row.lens);
+    else if (row.kind === "command") {
+      // run() mutates page state (opens an overlay / jumps); the bar closes itself since
+      // firing the verb doesn't flip showCommandBar the way the navigation callbacks do.
+      row.run();
+      onclose();
+    } else {
+      window.open(row.url, "_blank", "noopener,noreferrer");
+      onclose();
+    }
   }
 
   function scrollActiveIntoView() {
@@ -239,9 +285,16 @@
               <span class="cb-ic" aria-hidden="true">{projectIcons.iconFor(row.path) ?? "▣"}</span>
               <b class="cb-primary">{row.name}</b>
               <span class="cb-sub">{row.display} · {m.commandbar_repo_affordance()}</span>
-            {:else}
+            {:else if row.kind === "lens"}
               <span class="cb-ic" aria-hidden="true">{row.icon}</span>
               <b class="cb-primary">{row.label}</b>
+            {:else if row.kind === "command"}
+              <span class="cb-ic" aria-hidden="true">⌘</span>
+              <b class="cb-primary">{row.label}</b>
+            {:else}
+              <span class="cb-ic" aria-hidden="true">📄</span>
+              <b class="cb-primary">{row.title}</b>
+              <span class="cb-sub">{m.commandbar_docs_affordance()}</span>
             {/if}
           </li>
         {/each}

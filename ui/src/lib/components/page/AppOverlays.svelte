@@ -46,6 +46,7 @@
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
   import CommandBar from "$lib/components/CommandBar.svelte";
+  import type { Command } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
@@ -148,6 +149,7 @@
     showBroadcast,
     onbroadcastclose,
     showCommandBar,
+    commandBarCommands,
     oncommandbarclose,
     oncommandbarsession,
     oncommandbarrepo,
@@ -261,6 +263,7 @@
     showBroadcast: boolean;
     onbroadcastclose: () => void;
     showCommandBar: boolean;
+    commandBarCommands: Command[];
     oncommandbarclose: () => void;
     oncommandbarsession: (id: string) => void;
     oncommandbarrepo: (path: string) => void;
@@ -531,6 +534,7 @@
   <CommandBar
     sessions={store.sessions}
     workingBlocked={store.workingBlocked}
+    commands={commandBarCommands}
     onselectsession={oncommandbarsession}
     onselectrepo={oncommandbarrepo}
     onselectlens={oncommandbarlens}

@@ -14,6 +14,8 @@
     "check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "gen:docs": "bun run scripts/gen-docs-manifest.ts",
+    "check:docs-manifest": "bun run scripts/gen-docs-manifest.ts --check",
     "test": "vitest run",
     "test:node": "vitest run --project node",
     "test:browser": "vitest run --project browser",

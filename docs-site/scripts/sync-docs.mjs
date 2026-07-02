@@ -37,7 +37,11 @@ const GITHUB_DOCS_BASE = `${GITHUB_BLOB_BASE}docs/`;
 //   src      — file name within srcDir.
 //   dest     — path within the Starlight docs collection (src/content/docs/).
 //   linkBase — GitHub blob base its relative links rewrite against (see above).
-const PAGES = [
+//   title/description — frontmatter written for the page.
+// Exported so ui/scripts/gen-docs-manifest.ts derives the command bar's Docs manifest
+// from the SAME source of truth for these build-time-generated (git-ignored) pages,
+// rather than globbing the filesystem (which is non-deterministic across dev/CI).
+export const PAGES = [
   {
     srcDir: "docs",
     src: "plugins.md",

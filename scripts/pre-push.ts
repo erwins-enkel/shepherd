@@ -547,6 +547,12 @@ function buildLanes(
       { label: "svelte-check", cmd: "bun", args: ["run", "check"], cwd: ui },
       { label: "i18n parity", cmd: "bun", args: ["run", "check:i18n"], cwd: ui },
       {
+        label: "docs manifest freshness",
+        cmd: "bun",
+        args: ["run", "check:docs-manifest"],
+        cwd: ui,
+      },
+      {
         label: "playwright chromium (idempotent)",
         cmd: "bunx",
         args: ["playwright", "install", "chromium"],

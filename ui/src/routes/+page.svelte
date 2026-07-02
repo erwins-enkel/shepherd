@@ -2774,6 +2774,15 @@
       })
       .catch(() => {});
   }}
+  oncommandbarfilterrepo={(path) => {
+    // Secondary repo action: scope the herd to this repo (same state the RepoSwitcher
+    // chips drive). Close the bar + backlog so the filtered session list is visible;
+    // the repoFilter effect re-targets selection onto a session in the repo. Only fired
+    // for repos with a live session, so shouldClearRepoFilter won't immediately null it.
+    showCommandBar = false;
+    showBacklog = false;
+    repoFilter = path;
+  }}
   oncommandbarlens={(lens) => {
     showCommandBar = false;
     showBacklog = false;

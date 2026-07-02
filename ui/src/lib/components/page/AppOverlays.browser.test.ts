@@ -100,6 +100,7 @@ function baseProps(): Props {
     oncommandbarclose: vi.fn(),
     oncommandbarsession: vi.fn(),
     oncommandbarrepo: vi.fn(),
+    oncommandbarfilterrepo: vi.fn(),
     oncommandbarlens: vi.fn(),
     showRetry: false,
     onretryclose: vi.fn(),

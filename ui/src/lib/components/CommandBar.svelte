@@ -19,6 +19,7 @@
     commands,
     onselectsession,
     onselectrepo,
+    onfilterrepo,
     onselectlens,
     onclose,
   }: {
@@ -27,6 +28,7 @@
     commands: Command[];
     onselectsession: (id: string) => void;
     onselectrepo: (path: string) => void;
+    onfilterrepo: (path: string) => void;
     onselectlens: (lens: HerdFilter) => void;
     onclose: () => void;
   } = $props();
@@ -53,7 +55,18 @@
         // match — drives the "matches description" affordance so the row isn't unexplained.
         promptMatch: boolean;
       }
-    | { kind: "repo"; path: string; name: string; display: string; hl: number[] }
+    | {
+        kind: "repo";
+        // `path` is the raw entry path (backlog is keyed on it); `realPath` is the
+        // realpath'd form that session.repoPath / the herd repoFilter use — they differ
+        // for a symlinked repo root, so the filter action keys on realPath, backlog on path.
+        path: string;
+        realPath: string;
+        name: string;
+        display: string;
+        hl: number[];
+        hasLiveSession: boolean;
+      }
     | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[] }
     | { kind: "command"; id: string; label: string; run: () => void }
     | { kind: "doc"; title: string; url: string };
@@ -112,6 +125,14 @@
       })),
   );
 
+  // A repo can be filtered onto the session list only if it has a live (non-archived)
+  // session — same liveness rule as repoChipRows. Filtering a session-less repo would be
+  // auto-cleared by the page (shouldClearRepoFilter) and strand an empty herd, so the
+  // secondary action + its hint are gated on this. Keyed on session.repoPath (the
+  // realpath'd form), so the repo lookup below must compare r.realPath, not r.path.
+  const liveRepoPaths = $derived(
+    new Set(sessions.filter((s) => s.status !== "archived").map((s) => s.repoPath)),
+  );
   const repoRows = $derived<Row[]>(
     repos.entries
       .map((r) => ({ r, res: fuzzyScore(q, r.name + " " + r.display) }))
@@ -120,9 +141,11 @@
       .map(({ r, res }) => ({
         kind: "repo",
         path: r.path,
+        realPath: r.realPath,
         name: r.name,
         display: r.display,
         hl: res!.positions.filter((p) => p < r.name.length),
+        hasLiveSession: liveRepoPaths.has(r.realPath),
       })),
   );
 
@@ -232,10 +255,18 @@
     return out;
   }
 
-  function selectOption(row: OptRow) {
+  // `secondary` (a modifier held with Enter/click) picks a row's secondary verb. Today
+  // only repo rows have one — filter the session list to that repo — and only when it has
+  // a live session; every other row (and a session-less repo) ignores the modifier and
+  // runs its primary action.
+  function selectOption(row: OptRow, secondary = false) {
     if (row.kind === "session") onselectsession(row.id);
-    else if (row.kind === "repo") onselectrepo(row.path);
-    else if (row.kind === "lens") onselectlens(row.lens);
+    else if (row.kind === "repo") {
+      // Filter keys on realPath (matches session.repoPath / herd repoFilter); backlog
+      // keys on the raw path.
+      if (secondary && row.hasLiveSession) onfilterrepo(row.realPath);
+      else onselectrepo(row.path);
+    } else if (row.kind === "lens") onselectlens(row.lens);
     else if (row.kind === "command") {
       // run() mutates page state (opens an overlay / jumps); the bar closes itself since
       // firing the verb doesn't flip showCommandBar the way the navigation callbacks do.
@@ -268,7 +299,8 @@
       case "Enter": {
         e.preventDefault();
         const row = options[activeIdx];
-        if (row) selectOption(row);
+        // Shift / Cmd / Ctrl + Enter fires the row's secondary action (repo → filter).
+        if (row) selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey);
         break;
       }
       // Escape is handled by use:dialog (focus-trap + onclose).
@@ -337,9 +369,10 @@
             role="option"
             aria-selected={row.oid === activeIdx}
             tabindex="-1"
-            onclick={() => selectOption(row)}
+            onclick={(e) => selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey)}
             onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") selectOption(row);
+              if (e.key === "Enter") selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey);
+              else if (e.key === " ") selectOption(row);
             }}
           >
             {#if row.kind === "session"}
@@ -356,6 +389,11 @@
               <span class="cb-ic" aria-hidden="true">{projectIcons.iconFor(row.path) ?? "▣"}</span>
               <b class="cb-primary">{@render primary(row.name, row.hl)}</b>
               <span class="cb-sub">{row.display} · {m.commandbar_repo_affordance()}</span>
+              {#if row.hasLiveSession}
+                <!-- Secondary-action hint. Separate non-shrinking element so a long
+                     display path truncates .cb-sub, never this discoverability cue. -->
+                <span class="cb-hint">{m.commandbar_repo_filter_affordance()}</span>
+              {/if}
             {:else if row.kind === "lens"}
               <span class="cb-ic" aria-hidden="true">{row.icon}</span>
               <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
@@ -512,6 +550,16 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+
+  /* Secondary-action cue, pinned to the row's right edge and never clipped —
+     margin-left:auto pushes it right, flex-shrink:0 protects it when .cb-sub truncates. */
+  .cb-hint {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    white-space: nowrap;
   }
 
   .cb-empty {

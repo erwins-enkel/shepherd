@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { TelemetryService, resolveAptabaseHost, type PostEventFn } from "../src/telemetry";
+import {
+  TelemetryService,
+  resolveAptabaseHost,
+  normalizeLocale,
+  type PostEventFn,
+} from "../src/telemetry";
 
 const sync = (fn: () => void) => fn();
 
@@ -19,6 +24,36 @@ function svc(over: Partial<ConstructorParameters<typeof TelemetryService>[0]> = 
   });
   return { s, calls };
 }
+
+test("normalizeLocale strips encoding, normalizes, caps at 10 (Aptabase's Locale limit)", () => {
+  // glibc LANG forms Aptabase rejects verbatim (encoding suffix + underscore + >10 chars)
+  expect(normalizeLocale("en_US.UTF-8")).toBe("en-US");
+  expect(normalizeLocale("de_DE.UTF-8")).toBe("de-DE");
+  // already-clean tags pass through
+  expect(normalizeLocale("en-US")).toBe("en-US");
+  // unset / empty fall back
+  expect(normalizeLocale(undefined)).toBe("en");
+  expect(normalizeLocale("")).toBe("en");
+  // never exceeds Aptabase's 10-char cap, even for a long tag
+  const long = normalizeLocale("ca_ES_valencia_extra.UTF-8");
+  expect(long.length).toBeLessThanOrEqual(10);
+});
+
+test("emitted systemProps.locale is <=10 chars for a glibc LANG", async () => {
+  const prev = process.env.LANG;
+  process.env.LANG = "en_US.UTF-8";
+  try {
+    const { s, calls } = svc();
+    s.event("app_launched");
+    await s.flush();
+    const locale = calls[0]!.batch[0].systemProps.locale as string;
+    expect(locale).toBe("en-US");
+    expect(locale.length).toBeLessThanOrEqual(10);
+  } finally {
+    if (prev === undefined) delete process.env.LANG;
+    else process.env.LANG = prev;
+  }
+});
 
 test("resolveAptabaseHost derives region host, requires override for SH", () => {
   expect(resolveAptabaseHost("A-US-x", null)).toBe("https://us.aptabase.com");

@@ -12,7 +12,8 @@ import {
   pickRepoSwitchTarget,
   queueOpenable,
   repoChipRows,
-  shouldClearRepoFilter,
+  nextRepoFilter,
+  staleFilterRepos,
   shouldFollowFilterToRepo,
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
@@ -387,35 +388,42 @@ describe("chipRailVisible", () => {
   function chip(repoPath: string): RepoChip {
     return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
   }
+  const none: ReadonlySet<string> = new Set();
 
   it("false for empty array", () => {
-    expect(chipRailVisible([], null)).toBe(false);
+    expect(chipRailVisible([], none)).toBe(false);
   });
 
   it("false for 1 chip", () => {
-    expect(chipRailVisible([chip("/repos/a")], null)).toBe(false);
+    expect(chipRailVisible([chip("/repos/a")], none)).toBe(false);
   });
 
   it("true for 2 chips", () => {
-    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b")], null)).toBe(true);
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b")], none)).toBe(true);
   });
 
   it("true for 3+ chips", () => {
-    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b"), chip("/repos/c")], null)).toBe(
+    expect(chipRailVisible([chip("/repos/a"), chip("/repos/b"), chip("/repos/c")], none)).toBe(
       true,
     );
   });
 
   it("true for 1 chip when filter matches that chip (lone-repo filter stays visible)", () => {
-    expect(chipRailVisible([chip("/repos/a")], "/repos/a")).toBe(true);
+    expect(chipRailVisible([chip("/repos/a")], new Set(["/repos/a"]))).toBe(true);
   });
 
   it("false for 1 chip when filter is a different repo (filter on repo with no chip)", () => {
-    expect(chipRailVisible([chip("/repos/a")], "/repos/b")).toBe(false);
+    expect(chipRailVisible([chip("/repos/a")], new Set(["/repos/b"]))).toBe(false);
   });
 
   it("false for empty array with an active filter", () => {
-    expect(chipRailVisible([], "/repos/a")).toBe(false);
+    expect(chipRailVisible([], new Set(["/repos/a"]))).toBe(false);
+  });
+
+  it("true when a multi-selection includes a live chip", () => {
+    expect(
+      chipRailVisible([chip("/repos/a"), chip("/repos/b")], new Set(["/repos/a", "/repos/b"])),
+    ).toBe(true);
   });
 });
 
@@ -445,51 +453,101 @@ describe("chipHasTelemetry", () => {
   });
 });
 
-// ─── shouldClearRepoFilter ────────────────────────────────────────────────────
+// ─── nextRepoFilter ───────────────────────────────────────────────────────────
 
-describe("shouldClearRepoFilter", () => {
+describe("nextRepoFilter", () => {
+  it("plain click on empty selects that one repo", () => {
+    expect([...nextRepoFilter(new Set(), "/repos/a", false)]).toEqual(["/repos/a"]);
+  });
+
+  it("plain click collapses a multi-selection to just the clicked repo", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a", "/repos/b"]), "/repos/c", false)]).toEqual([
+      "/repos/c",
+    ]);
+  });
+
+  it("plain click on the sole selected repo clears the filter (toggle-off)", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a"]), "/repos/a", false)]).toEqual([]);
+  });
+
+  it("plain click on one of several selected resets to that one (not a toggle-off)", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a", "/repos/b"]), "/repos/a", false)]).toEqual([
+      "/repos/a",
+    ]);
+  });
+
+  it("Shift+click adds a repo to the selection", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a"]), "/repos/b", true)].sort()).toEqual([
+      "/repos/a",
+      "/repos/b",
+    ]);
+  });
+
+  it("Shift+click removes an already-selected repo", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a", "/repos/b"]), "/repos/a", true)]).toEqual([
+      "/repos/b",
+    ]);
+  });
+
+  it("Shift+click removing the last repo yields the empty (all-repos) set", () => {
+    expect([...nextRepoFilter(new Set(["/repos/a"]), "/repos/a", true)]).toEqual([]);
+  });
+
+  it("does not mutate the input set", () => {
+    const current = new Set(["/repos/a"]);
+    nextRepoFilter(current, "/repos/b", true);
+    expect([...current]).toEqual(["/repos/a"]);
+  });
+});
+
+// ─── staleFilterRepos ─────────────────────────────────────────────────────────
+
+describe("staleFilterRepos", () => {
   function chip(repoPath: string): RepoChip {
     return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
   }
 
-  it("false when no filter is active (null)", () => {
-    expect(shouldClearRepoFilter(null, [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  it("empty when no filter is active", () => {
+    expect(staleFilterRepos(new Set(), [chip("/repos/a"), chip("/repos/b")])).toEqual([]);
   });
 
-  it("false when the filtered repo is among a ≥2-chip rail", () => {
-    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a"), chip("/repos/b")])).toBe(false);
+  it("empty when every selected repo still has a chip", () => {
+    expect(
+      staleFilterRepos(new Set(["/repos/a", "/repos/b"]), [chip("/repos/a"), chip("/repos/b")]),
+    ).toEqual([]);
   });
 
-  it("TRUE when the filtered repo is absent from a ≥2-chip rail", () => {
-    expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a"), chip("/repos/b")])).toBe(true);
+  it("returns ONLY the vanished repos, not the whole set", () => {
+    expect(
+      staleFilterRepos(new Set(["/repos/a", "/repos/x"]), [chip("/repos/a"), chip("/repos/b")]),
+    ).toEqual(["/repos/x"]);
   });
 
-  it("false when filtered repo is the lone live repo — keeps the filter while its session is alive", () => {
-    expect(shouldClearRepoFilter("/repos/a", [chip("/repos/a")])).toBe(false);
-  });
-
-  it("TRUE when filtered repo is absent from a 1-chip rail — its session is gone", () => {
-    expect(shouldClearRepoFilter("/repos/x", [chip("/repos/a")])).toBe(true);
-  });
-
-  it("TRUE when no chips remain (all sessions ended)", () => {
-    expect(shouldClearRepoFilter("/repos/a", [])).toBe(true);
+  it("returns all selected when no chips remain", () => {
+    expect(staleFilterRepos(new Set(["/repos/a", "/repos/b"]), []).sort()).toEqual([
+      "/repos/a",
+      "/repos/b",
+    ]);
   });
 });
 
 // ─── shouldFollowFilterToRepo ─────────────────────────────────────────────────
 
 describe("shouldFollowFilterToRepo", () => {
-  it("false when no filter is active (null) — 'all repos' already shows the task", () => {
-    expect(shouldFollowFilterToRepo(null, "/repos/a")).toBe(false);
+  it("false when no filter is active (empty) — 'all repos' already shows the task", () => {
+    expect(shouldFollowFilterToRepo(new Set(), "/repos/a")).toBe(false);
   });
 
-  it("false when the filter already points at the new task's repo", () => {
-    expect(shouldFollowFilterToRepo("/repos/a", "/repos/a")).toBe(false);
+  it("false when the filter already covers the new task's repo", () => {
+    expect(shouldFollowFilterToRepo(new Set(["/repos/a"]), "/repos/a")).toBe(false);
   });
 
-  it("TRUE when the filter is pinned to a different repo — would hide the new task", () => {
-    expect(shouldFollowFilterToRepo("/repos/a", "/repos/b")).toBe(true);
+  it("false when a multi-selection already includes the new task's repo", () => {
+    expect(shouldFollowFilterToRepo(new Set(["/repos/a", "/repos/b"]), "/repos/b")).toBe(false);
+  });
+
+  it("TRUE when the active filter does not include the new task's repo — would hide it", () => {
+    expect(shouldFollowFilterToRepo(new Set(["/repos/a"]), "/repos/b")).toBe(true);
   });
 });
 

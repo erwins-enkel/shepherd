@@ -17,12 +17,13 @@
     mobile = false,
   }: {
     chips: RepoChip[];
-    // active repo full path, or null when showing every repo
-    repoFilter: string | null;
+    // selected repo full paths; empty = showing every repo. Shift+click combines several.
+    repoFilter: ReadonlySet<string>;
     // locally pinned repo, shown first when its live chip exists
     pinnedRepo?: string | null;
-    // toggle the herd filter for a repo; null clears it
-    onrepofilter: (repoPath: string | null) => void;
+    // apply the herd filter for a repo; `additive` (Shift held) toggles it into the selection,
+    // a plain click resets to just this repo (or clears it when already the sole selection)
+    onrepofilter: (repoPath: string, additive: boolean) => void;
     // pin or unpin a repo in the switcher; null clears the pin
     onpinrepo?: (repoPath: string | null) => void;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
@@ -44,10 +45,11 @@
   // Lone-repo telemetry: one repo with no active filter, carrying drain telemetry.
   // (When that lone repo IS the active filter, the rail shows instead — see railVisible.)
   const loneChip = $derived(chips.length === 1 && chipHasTelemetry(chips[0]) ? chips[0] : null);
-  // The active chip whose detail line shows below the rail — only when it has telemetry.
+  // The active chip whose detail line shows below the rail — only when exactly one repo is
+  // selected and it has telemetry. A multi-selection shows no single-repo detail band.
   const activeChip = $derived(
-    railVisible && repoFilter
-      ? (chips.find((c) => c.repoPath === repoFilter && chipHasTelemetry(c)) ?? null)
+    railVisible && repoFilter.size === 1
+      ? (chips.find((c) => repoFilter.has(c.repoPath) && chipHasTelemetry(c)) ?? null)
       : null,
   );
 
@@ -199,12 +201,14 @@
     if (holdFired) e.preventDefault();
   }
 
-  function onChipClick(chip: RepoChip, active: boolean) {
+  function onChipClick(e: MouseEvent, chip: RepoChip) {
     if (holdFired) {
       holdFired = false;
       return;
     }
-    onrepofilter(active ? null : chip.repoPath);
+    // Shift (mouse or keyboard Enter/Space) → additively toggle this repo into the selection;
+    // a plain click resets to just this repo (the page's nextRepoFilter handles the details).
+    onrepofilter(chip.repoPath, e.shiftKey);
   }
 
   function closeMenu() {
@@ -275,7 +279,7 @@
            count (which the scroller's own resize does not). -->
       <div class="rs-track" bind:this={track}>
         {#each shownChips as chip (chip.repoPath)}
-          {@const active = repoFilter === chip.repoPath}
+          {@const active = repoFilter.has(chip.repoPath)}
           {@const pinned = pinnedRepo === chip.repoPath}
           <button
             type="button"
@@ -301,7 +305,7 @@
                     document.body,
                 ),
             }}
-            onclick={() => onChipClick(chip, active)}
+            onclick={(e) => onChipClick(e, chip)}
           >
             <span class="rs-glyph" aria-hidden="true"
               >{projectIcons.iconFor(chip.repoPath) ?? "▣"}</span

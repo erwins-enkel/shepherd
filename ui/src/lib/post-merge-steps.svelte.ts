@@ -1,16 +1,17 @@
 import type { PostMergeSteps } from "./types";
 import { getOutstandingManualSteps, setManualStepDone, dismissManualSteps } from "./api";
 
-/** Scope owed records to the active repo chip filter (#owed): `repoFilter` is the full repo
- *  path, `null` = all repos (unfiltered). Pure so both the Owed lens count badge (Herd.svelte)
- *  and the panel list (PostMergeStepsPanel) share one filter and can't drift. Mirrors every
- *  sibling consumer's `repoPath === repoFilter` client-side scope (UpNextPanel, herdSessions). */
+/** Scope owed records to the active repo chip filter (#owed): `repoFilter` is the set of
+ *  selected repo paths, empty = all repos (unfiltered). Pure so both the Owed lens count badge
+ *  (Herd.svelte) and the panel list (PostMergeStepsPanel) share one filter and can't drift.
+ *  Mirrors every sibling consumer's `repoFilter.has(repoPath)` client-side scope (UpNextPanel,
+ *  herdSessions). */
 export function owedRecordsForRepo(
   records: PostMergeSteps[],
-  repoFilter: string | null,
+  repoFilter: ReadonlySet<string>,
 ): PostMergeSteps[] {
-  if (repoFilter == null) return records;
-  return records.filter((r) => r.repoPath === repoFilter);
+  if (repoFilter.size === 0) return records;
+  return records.filter((r) => repoFilter.has(r.repoPath));
 }
 
 /** Lazy client store of durable post-merge steps still owed across merged sessions (#1061),

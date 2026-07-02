@@ -105,9 +105,10 @@
   import {
     firstCurateRepo,
     globalLearningsCounts,
+    nextRepoFilter,
     pickRepoSwitchTarget,
     repoChipRows,
-    shouldClearRepoFilter,
+    staleFilterRepos,
     shouldFollowFilterToRepo,
   } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
@@ -273,10 +274,25 @@
   // approve, this carries the first over-budget ("curate") repoPath so the drawer scrolls
   // to the matching section; null = opened globally with proposals to review.
   let learningsRepo = $state<string | null>(null);
-  // Herd repo filter (full repo path), toggled from a RepoSwitcher chip or from a
-  // card's inline repo emoji; null = all repos. Only narrows the herd list views —
-  // selection and global counts stay whole.
-  let repoFilter = $state<string | null>(null);
+  // Herd repo filter: set of full repo paths, toggled from RepoSwitcher chips (Shift+click
+  // combines several) or a card's inline repo emoji; empty = all repos. Only narrows the herd
+  // list views — selection and global counts stay whole. A SvelteSet is already reactive, so it
+  // is a `const` mutated in place (never reassigned) via the helpers below.
+  const repoFilter = new SvelteSet<string>();
+  // The single active repo when exactly one is selected, else null. Drives the single-repo
+  // behaviors (selection re-target, new-task follow, composer prefill) so a multi-selection
+  // never yanks selection or prefills a repo.
+  const activeRepo = $derived(repoFilter.size === 1 ? [...repoFilter][0]! : null);
+  // Reconcile the filter set in place (mutation, not reassignment — SvelteSet is reactive).
+  function replaceRepoFilter(paths: Iterable<string>) {
+    const next = new Set(paths);
+    for (const p of [...repoFilter]) if (!next.has(p)) repoFilter.delete(p);
+    for (const p of next) repoFilter.add(p);
+  }
+  // Chip / inline-emoji click: additively toggle (Shift) or reset-to-single (plain click).
+  function applyRepoFilter(repoPath: string, additive: boolean) {
+    replaceRepoFilter(nextRepoFilter(repoFilter, repoPath, additive));
+  }
   const PINNED_REPO_KEY = "shepherd:repo-switcher-pinned";
   // Local display preference for the herd repo switcher. A pinned repo keeps its
   // normal filter behavior but sorts to the first chip slot whenever it is live.
@@ -314,37 +330,39 @@
     repoChipRows(store.sessions, store.drain, learnings.items, learnings.injectable),
   );
   const learningsCounts = $derived(globalLearningsCounts(learnings.items, learnings.injectable));
-  // Clear the filter only when its repo has no live session left (no chip) —
-  // a filter on a vanished repo would strand an empty view.
+  // Prune only the selected repos whose last live session has ended (no chip) — a filter on a
+  // vanished repo would strand it in the set. Removes exactly the stale members, keeping the rest.
   $effect(() => {
     // Release the follow latch once the just-started task's session has arrived (its
     // chip now exists). repoChips is reactive, so its WS-driven change re-runs this.
     if (followingRepo !== null && repoChips.some((c) => c.repoPath === followingRepo)) {
       followingRepo = null;
     }
-    // A just-followed repo has no chip until its session arrives — that gap is expected,
-    // not a vanished repo, so don't auto-clear the filter we just set onto it. Scoped to
-    // repoFilter === followingRepo so a *different* active filter still auto-clears normally.
-    if (repoFilter !== null && repoFilter === followingRepo) return;
-    if (shouldClearRepoFilter(repoFilter, repoChips)) repoFilter = null;
+    // A just-followed repo has no chip until its session arrives — that gap is expected, not a
+    // vanished repo, so don't prune the repo we just followed onto. Any OTHER stale member is
+    // still pruned normally.
+    for (const stale of staleFilterRepos(repoFilter, repoChips)) {
+      if (stale !== followingRepo) repoFilter.delete(stale);
+    }
   });
   // Picking a repo chip narrows the herd list to that repo — but the terminal would
   // otherwise keep showing whatever session was selected before, which now lives in a
   // different repo than the visible list. Re-target selection onto the chosen repo
-  // (waiting-on-you session first, then first active, then any). Tracks ONLY repoFilter
-  // (everything else is untracked) so it fires on a chip switch, never on a later
-  // session/block update that would yank the user off their session.
+  // (waiting-on-you session first, then first active, then any). Tracks ONLY activeRepo
+  // (everything else is untracked) so it fires on a single-repo chip switch, never on a
+  // later session/block update. Keyed on activeRepo (null unless exactly one repo is
+  // selected) so shift-adding a 2nd repo to a multi-selection keeps the current selection.
   $effect(() => {
-    const rf = repoFilter;
+    const rf = activeRepo;
     // Consume the one-shot suppression FIRST — before any early return — so it can't
-    // leak (if the auto-clear effect nulled the filter this same flush, an early
+    // leak (if the prune effect emptied the filter this same flush, an early
     // `rf == null` return would otherwise strand the flag true and suppress the next
     // legitimate repo-chip re-target). selectNewSession already pointed selection at a
     // just-started session in `rf` (not in the store yet — it arrives via WS), so when
     // set this skips the one re-target that would grab a *different* existing session.
     const skipFollow = followingNewSession;
     followingNewSession = false;
-    if (rf == null) return; // "all repos" view keeps selection whole
+    if (rf == null) return; // "all repos" or a multi-selection keeps selection whole
     if (skipFollow) return;
     untrack(() => {
       const target = pickRepoSwitchTarget(
@@ -365,8 +383,8 @@
   // the herd head are the way out instead.
   let statusFilter = $state<"running" | "idle" | "blocked" | null>(null);
   const herdSessions = $derived.by(() => {
-    const byRepo = repoFilter
-      ? store.sessions.filter((s) => s.repoPath === repoFilter)
+    const byRepo = repoFilter.size
+      ? store.sessions.filter((s) => repoFilter.has(s.repoPath))
       : store.sessions;
     // displayStatus, not raw status: a working-while-blocked session belongs under
     // the "running" filter (the tallies count it there), never under "blocked".
@@ -374,12 +392,19 @@
       ? byRepo.filter((s) => displayStatus(s, store.workingBlocked) === statusFilter)
       : byRepo;
   });
-  // basename of the active filter for the herd's empty-state copy; null when unfiltered
-  const repoFilterName = $derived(repoFilter ? basename(repoFilter) : null);
+  // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
+  // the basename for a single repo, "N repos" for a multi-selection.
+  const repoFilterName = $derived(
+    repoFilter.size === 0
+      ? null
+      : repoFilter.size === 1
+        ? basename([...repoFilter][0]!)
+        : m.repo_filter_multi_name({ count: repoFilter.size }),
+  );
   // completed epics scoped to the active repo filter (mirrors herdSessions' repo scope)
   const completedEpicsShown = $derived(
-    repoFilter
-      ? store.completedEpics.filter((e) => e.repoPath === repoFilter)
+    repoFilter.size
+      ? store.completedEpics.filter((e) => repoFilter.has(e.repoPath))
       : store.completedEpics,
   );
 
@@ -601,17 +626,19 @@
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
 
   // Select a freshly-started session and follow the herd's repo filter onto its repo.
-  // A new task lands in `repoPath`; if the filter is pinned to a *different* repo the
-  // task would be hidden behind that stale filter (the user just launched it but can't
-  // see it). null filter = "all repos" already shows it, so leave that view whole.
+  // A new task lands in `repoPath`; if the active filter does NOT include that repo the
+  // task would be hidden behind the stale filter (the user just launched it but can't see
+  // it). An empty filter = "all repos" already shows it, so leave that view whole. When a
+  // multi-selection would hide the new task, collapse the filter to just its repo so the
+  // task is visible and selection lands on it (matches the single-repo follow behavior).
   // Shared by every create/relaunch path so the behaviour can't drift between them.
-  // Arms both follow latches (declared near repoFilter) so the auto-clear and re-target
+  // Arms both follow latches (declared near repoFilter) so the prune and re-target
   // effects coordinate until the new session arrives via WS.
   function selectNewSession(id: string, repoPath: string) {
     if (shouldFollowFilterToRepo(repoFilter, repoPath)) {
       followingRepo = repoPath;
       followingNewSession = true;
-      repoFilter = repoPath;
+      replaceRepoFilter([repoPath]);
     }
     selectedId = id;
   }
@@ -2280,7 +2307,7 @@
         {repoFilter}
         {pinnedRepo}
         mobile={mobile.current}
-        onrepofilter={(repoPath) => (repoFilter = repoPath)}
+        onrepofilter={applyRepoFilter}
         onpinrepo={setPinnedRepo}
       />
       <QueueStrip autoMerge={store.autoMerge} />
@@ -2298,7 +2325,7 @@
             sessions={herdSessions}
             filteredRepo={repoFilterName}
             {repoFilter}
-            onrepofilter={(repoPath) => (repoFilter = repoPath)}
+            onrepofilter={applyRepoFilter}
             {statusFilter}
             onstatusfilter={(s) => (statusFilter = s)}
             {selectedId}
@@ -2473,7 +2500,7 @@
             sessions={herdSessions}
             filteredRepo={repoFilterName}
             {repoFilter}
-            onrepofilter={(repoPath) => (repoFilter = repoPath)}
+            onrepofilter={applyRepoFilter}
             {statusFilter}
             onstatusfilter={(s) => (statusFilter = s)}
             {selectedId}
@@ -2681,7 +2708,7 @@
   relaunchOriginal={relaunchOriginalId !== null}
   editHeld={editHeldId !== null}
   {composeRepoPath}
-  {repoFilter}
+  repoFilter={activeRepo}
   {composeBaseBranch}
   {composeIssue}
   {relaunchIssueNumber}
@@ -2806,13 +2833,15 @@
       .catch(() => {});
   }}
   oncommandbarfilterrepo={(path) => {
-    // Secondary repo action: scope the herd to this repo (same state the RepoSwitcher
-    // chips drive). Close the bar + backlog so the filtered session list is visible;
-    // the repoFilter effect re-targets selection onto a session in the repo. Only fired
-    // for repos with a live session, so shouldClearRepoFilter won't immediately null it.
+    // Secondary repo action: scope the herd to this repo alone (same state the RepoSwitcher
+    // chips drive). Set the single-repo set DIRECTLY (not via nextRepoFilter, whose
+    // clear-when-sole branch would toggle it off if the bar re-scopes the already-selected
+    // repo). Close the bar + backlog so the filtered session list is visible; the re-target
+    // effect then jumps selection onto a session in the repo. Only fired for repos with a
+    // live session, so the prune effect won't immediately drop it.
     showCommandBar = false;
     showBacklog = false;
-    repoFilter = path;
+    replaceRepoFilter([path]);
   }}
   oncommandbarlens={(lens) => {
     showCommandBar = false;

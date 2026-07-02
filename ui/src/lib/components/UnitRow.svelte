@@ -59,7 +59,7 @@
     onrelaunchElsewhere,
     onvariant,
     onreplace,
-    repoFilter = null,
+    repoFilter = undefined,
     onrepofilter,
     workingBlocked = {},
     quotaKind = null,
@@ -94,11 +94,12 @@
     // the provider/model picker anchored at the passed coords (comparison experiments)
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
-    // active page-level repo filter (full repoPath); drives the icon's pressed state
-    repoFilter?: string | null;
-    // when provided, clicking the inline repo emoji toggles the repo filter:
-    // a path sets it, null clears (same contract as QueueStrip's band toggle)
-    onrepofilter?: (repoPath: string | null) => void;
+    // active page-level repo filter (selected repo paths); drives the icon's pressed state
+    repoFilter?: ReadonlySet<string>;
+    // when provided, clicking the inline repo emoji scopes the herd to this repo. Always a
+    // plain (non-additive) select — reset to this one repo (Shift multi-select lives on the
+    // RepoSwitcher pills, not the card emoji).
+    onrepofilter?: (repoPath: string, additive: boolean) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
     // quota block kind for this session; non-null surfaces the quota badge
@@ -126,9 +127,11 @@
     session.manualStepsAckedAt == null && session.manualSteps.some((s) => !s.postMerge),
   );
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
-  const repoFiltered = $derived(repoFilter === session.repoPath);
+  const repoFiltered = $derived(repoFilter?.has(session.repoPath) ?? false);
   function toggleRepoFilter() {
-    onrepofilter?.(repoFiltered ? null : session.repoPath);
+    // Non-additive: a plain click resets the filter to this repo (or clears it when this repo
+    // is already the sole selection — handled by the page's nextRepoFilter).
+    onrepofilter?.(session.repoPath, false);
   }
 
   const swipe = $derived(!!ondecommission && coarse.current);

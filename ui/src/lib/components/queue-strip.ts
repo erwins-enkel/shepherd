@@ -78,11 +78,36 @@ export function repoChipRows(
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
+/** Shared frozen empty repo filter — the default for every `repoFilter?: ReadonlySet<string>`
+ *  prop. Frozen + read-only-typed so no consumer can mutate a shared instance. */
+export const EMPTY_REPO_FILTER: ReadonlySet<string> = Object.freeze(new Set<string>());
+
+/** Next herd repo filter after clicking a chip. `additive` (Shift held) toggles `repoPath`
+ *  in/out of the current multi-selection; a plain click resets to just `repoPath`, or clears
+ *  the filter when `repoPath` is already the sole selection (preserving the toggle-off gesture).
+ *  Pure — returns a fresh Set; the page wraps it in a SvelteSet to assign. */
+export function nextRepoFilter(
+  current: ReadonlySet<string>,
+  repoPath: string,
+  additive: boolean,
+): Set<string> {
+  if (additive) {
+    const next = new Set(current);
+    if (next.has(repoPath)) next.delete(repoPath);
+    else next.add(repoPath);
+    return next;
+  }
+  if (current.size === 1 && current.has(repoPath)) return new Set();
+  return new Set([repoPath]);
+}
+
 /** The chip rail renders when ≥2 repos have a live session (real filtering need), OR when
- *  an active filter's repo still has a live chip — so a lone-repo filter stays visible
- *  and can be toggled off, even after all other repos leave the herd. */
-export function chipRailVisible(chips: RepoChip[], repoFilter: string | null): boolean {
-  return chips.length >= 2 || (repoFilter !== null && chips.some((c) => c.repoPath === repoFilter));
+ *  a still-live selected repo remains — so a filter stays visible and can be toggled off,
+ *  even after all other repos leave the herd. */
+export function chipRailVisible(chips: RepoChip[], repoFilter: ReadonlySet<string>): boolean {
+  return (
+    chips.length >= 2 || (repoFilter.size > 0 && chips.some((c) => repoFilter.has(c.repoPath)))
+  );
 }
 
 /** Whether a chip carries drain telemetry worth showing on its own detail line.
@@ -92,18 +117,24 @@ export function chipHasTelemetry(chip: RepoChip): boolean {
   return chip.drain !== null;
 }
 
-/** Whether an active repo filter should be cleared because its repo no longer has any live
- *  session (no chip) — a filter on a vanished repo would strand an empty view. */
-export function shouldClearRepoFilter(repoFilter: string | null, chips: RepoChip[]): boolean {
-  return repoFilter !== null && !chips.some((c) => c.repoPath === repoFilter);
+/** Selected repos that no longer have any live session (no chip) — a filter on a vanished
+ *  repo would strand it in the set, so the page prunes exactly these (not the whole set). */
+export function staleFilterRepos(repoFilter: ReadonlySet<string>, chips: RepoChip[]): string[] {
+  if (repoFilter.size === 0) return [];
+  const live = new Set(chips.map((c) => c.repoPath));
+  return [...repoFilter].filter((path) => !live.has(path));
 }
 
 /** Whether the herd's repo filter should follow a just-started task onto its repo.
- *  A new task lands in `repoPath`; if the filter is pinned to a *different* repo the
- *  task would be hidden behind that stale filter — so follow it. A null filter ("all
- *  repos") already shows the task, and a filter already on `repoPath` needs no change. */
-export function shouldFollowFilterToRepo(repoFilter: string | null, repoPath: string): boolean {
-  return repoFilter !== null && repoFilter !== repoPath;
+ *  A new task lands in `repoPath`; if a filter is active but does NOT include that repo the
+ *  task would be hidden behind the stale filter — so follow it (reset to that repo). An empty
+ *  filter ("all repos") already shows the task, and a filter already covering `repoPath`
+ *  needs no change. */
+export function shouldFollowFilterToRepo(
+  repoFilter: ReadonlySet<string>,
+  repoPath: string,
+): boolean {
+  return repoFilter.size > 0 && !repoFilter.has(repoPath);
 }
 
 /**

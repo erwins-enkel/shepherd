@@ -95,7 +95,7 @@ describe("UpNextPanel repo filter", () => {
   });
 
   it("scopes sections and priority items to the active repo filter", async () => {
-    render(UpNextPanel, { repoFilter: "~/projects/homeassistant" });
+    render(UpNextPanel, { repoFilter: new Set(["~/projects/homeassistant"]) });
     // homeassistant repo section + its priority item remain
     await expect.element(page.getByText("#2")).toBeInTheDocument();
     await expect.element(page.getByText("#1")).toBeInTheDocument();
@@ -105,7 +105,10 @@ describe("UpNextPanel repo filter", () => {
   });
 
   it("shows a repo-scoped empty note when the filtered repo has nothing queued", async () => {
-    render(UpNextPanel, { repoFilter: "~/projects/does-not-exist" });
+    render(UpNextPanel, {
+      repoFilter: new Set(["~/projects/does-not-exist"]),
+      filteredRepo: "does-not-exist",
+    });
     await expect
       .element(page.getByText(m.upnext_repo_filter_empty({ repo: "does-not-exist" })))
       .toBeInTheDocument();

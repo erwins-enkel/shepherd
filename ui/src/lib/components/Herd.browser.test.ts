@@ -391,7 +391,7 @@ describe("Herd owed lens respects the repo filter (#owed)", () => {
       sessions: [],
       git: {},
       filter: "owed" as const,
-      repoFilter: "/repo/shepherd",
+      repoFilter: new Set(["/repo/shepherd"]),
     });
     // panel list: only the active repo's records render
     await expect.element(page.getByText("TASK-IN", { exact: true })).toBeInTheDocument();
@@ -403,7 +403,7 @@ describe("Herd owed lens respects the repo filter (#owed)", () => {
       .toBe("2");
   });
 
-  it("unfiltered (repoFilter null) lists every record and the badge shows the total", async () => {
+  it("unfiltered (empty repoFilter) lists every record and the badge shows the total", async () => {
     postMergeSteps.records = [
       owedRecord("s1", "TASK-IN", "/repo/shepherd"),
       owedRecord("s2", "TASK-OUT", "/repo/other"),
@@ -413,7 +413,7 @@ describe("Herd owed lens respects the repo filter (#owed)", () => {
       sessions: [],
       git: {},
       filter: "owed" as const,
-      repoFilter: null,
+      repoFilter: new Set<string>(),
     });
     await expect.element(page.getByText("TASK-IN")).toBeInTheDocument();
     await expect.element(page.getByText("TASK-OUT")).toBeInTheDocument();

@@ -97,6 +97,27 @@ export function altComboKey(code: string): string | null {
   return null;
 }
 
+/** Command-bar quick-jump: maps an `Alt`+digit KeyboardEvent to the 0-based index of the
+ *  result row to activate, or null when the event is not a bare `Alt`+`Digit` combo.
+ *
+ *  `Digit1`–`Digit9` → 0–8 and `Digit0` → 9 (the tenth row), so the on-screen hints read
+ *  1…9,0. Strict single-Alt — Ctrl/Meta/Shift must all be absent — so it never collides with
+ *  the Cmd/Ctrl+K open chord or any Shift-modified combo. Matches on physical `e.code`, not
+ *  `e.key`, because macOS Option+1 emits "¡" (and other layouts vary).
+ *
+ *  `Numpad0`–`Numpad9` are deliberately NOT accepted — the same reason altComboKey drops them:
+ *  `Alt`+Numpad is the Windows alt-code text-input method, and `e.code` reports Numpad*
+ *  regardless of NumLock, so accepting them would shadow OS alt-code entry. Cmd/Ctrl+digit was
+ *  the originally-requested chord but is impossible in a browser (1–9 switch tabs, 0 resets
+ *  zoom, all non-cancellable), so `Alt` is the single-modifier substitute. */
+export function jumpDigitIndex(e: KeyboardEvent): number | null {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+  const m = /^Digit([0-9])$/.exec(e.code);
+  if (!m) return null;
+  const d = Number(m[1]);
+  return d === 0 ? 9 : d - 1;
+}
+
 /** Next blocked session after `currentId` in `blockedIds` (oldest-first, the
  *  NEEDS-YOU set), wrapping around; cycles among several, skips the current one.
  *  Null when none are blocked or the only blocked session is already selected. */

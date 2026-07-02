@@ -6,6 +6,7 @@ import {
   nextNeedsYou,
   nextNeedsYouTarget,
   altComboKey,
+  jumpDigitIndex,
 } from "./herd-keynav";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
@@ -350,4 +351,59 @@ test("altComboKey returns null for non-combo codes", () => {
   expect(altComboKey("Numpad1")).toBeNull();
   expect(altComboKey("Escape")).toBeNull();
   expect(altComboKey("")).toBeNull();
+});
+
+// jumpDigitIndex — command-bar Alt+digit → 0-based result index
+
+function altDigit(
+  code: string,
+  mods: Partial<Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">> = {},
+): KeyboardEvent {
+  // Only the fields jumpDigitIndex reads; `key` intentionally differs from `code` to prove
+  // the helper keys off physical `e.code` (macOS Option+1 emits "¡", not "1").
+  return {
+    code,
+    key: code === "Digit1" ? "¡" : code,
+    altKey: true,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...mods,
+  } as KeyboardEvent;
+}
+
+test("jumpDigitIndex maps Alt+Digit1–9 to indices 0–8", () => {
+  for (let n = 1; n <= 9; n++) {
+    expect(jumpDigitIndex(altDigit(`Digit${n}`))).toBe(n - 1);
+  }
+});
+
+test("jumpDigitIndex maps Alt+Digit0 to index 9 (the tenth row)", () => {
+  expect(jumpDigitIndex(altDigit("Digit0"))).toBe(9);
+});
+
+test("jumpDigitIndex keys off physical e.code, not e.key (macOS Option glyph)", () => {
+  // Alt+1 on a US Mac layout reports key "¡" but code "Digit1".
+  const e = altDigit("Digit1");
+  expect(e.key).toBe("¡");
+  expect(jumpDigitIndex(e)).toBe(0);
+});
+
+test("jumpDigitIndex rejects Numpad digits (Windows alt-code input method)", () => {
+  for (let n = 0; n <= 9; n++) {
+    expect(jumpDigitIndex(altDigit(`Numpad${n}`))).toBeNull();
+  }
+});
+
+test("jumpDigitIndex requires Alt with no other modifier", () => {
+  expect(jumpDigitIndex(altDigit("Digit1", { altKey: false }))).toBeNull();
+  expect(jumpDigitIndex(altDigit("Digit1", { ctrlKey: true }))).toBeNull();
+  expect(jumpDigitIndex(altDigit("Digit1", { metaKey: true }))).toBeNull();
+  expect(jumpDigitIndex(altDigit("Digit1", { shiftKey: true }))).toBeNull();
+});
+
+test("jumpDigitIndex returns null for non-digit codes", () => {
+  expect(jumpDigitIndex(altDigit("KeyA"))).toBeNull();
+  expect(jumpDigitIndex(altDigit("Enter"))).toBeNull();
+  expect(jumpDigitIndex(altDigit("Minus"))).toBeNull();
 });

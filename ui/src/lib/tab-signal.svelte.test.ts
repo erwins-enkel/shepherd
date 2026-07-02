@@ -142,14 +142,19 @@ test("ci+blocked+ready === count invariant on a mixed herd", () => {
 // ── plan-question: unanswered plan-gate question awaiting the operator (#1332) ──
 
 test("planning session with an unanswered plan question counts as amber", () => {
+  // A plan-question is amber, so it folds into the `blocked` tally → the ✋ glyph.
   expect(deriveTabState([planningSess("s1")], {}, {}, { s1: formGate() })).toEqual({
     count: 1,
     severity: "amber",
+    ci: 0,
+    blocked: 1,
+    ready: 0,
+    running: 1,
   });
 });
 
 test("plan question answered → not counted", () => {
-  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: formGate(["qf1 q1"]) })).toEqual({
+  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: formGate(["qf1 q1"]) })).toMatchObject({
     count: 0,
     severity: "none",
   });
@@ -162,13 +167,16 @@ test("unanswered plan question but not in planning phase → excluded (no execut
     readyToMerge: false,
     planPhase: "executing",
   } as unknown as Session;
-  expect(deriveTabState([s], {}, {}, { s1: formGate() })).toEqual({ count: 0, severity: "none" });
+  expect(deriveTabState([s], {}, {}, { s1: formGate() })).toMatchObject({
+    count: 0,
+    severity: "none",
+  });
 });
 
 test("ci-red beats a co-occurring unanswered plan question (red, not amber)", () => {
   expect(
     deriveTabState([planningSess("s1")], { s1: git("failure") }, {}, { s1: formGate() }),
-  ).toEqual({ count: 1, severity: "red" });
+  ).toMatchObject({ count: 1, severity: "red" });
 });
 
 test("multi-question form with only one answered still counts (partial → pending)", () => {
@@ -185,7 +193,7 @@ test("multi-question form with only one answered still counts (partial → pendi
     ],
     answeredQuestionKeys: ["qf1 q1"],
   } as unknown as PlanGate;
-  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: gate })).toEqual({
+  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: gate })).toMatchObject({
     count: 1,
     severity: "amber",
   });

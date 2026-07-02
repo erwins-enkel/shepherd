@@ -52,11 +52,13 @@ export function buildLandingPrTitle(parentNumber: number, parentTitle: string): 
   return `${FALLBACK_TYPE}: ${cleaned} ${epicTag}`;
 }
 
-/** Sanitize a child title for a single Markdown table cell: escape pipes (a raw `|` would
- *  add a spurious column and corrupt the row) and collapse any newlines to spaces (a row
- *  must stay single-line). Minimal — only the two characters that break a table row. */
+/** Sanitize a child title for a single Markdown table cell: collapse newlines to spaces (a
+ *  row must stay single-line), then escape backslashes BEFORE pipes so a title like `a\|b`
+ *  can't defeat the pipe-escape (escaping `|` first would leave a preceding `\` unescaped,
+ *  rendering as escaped-backslash + a bare delimiter and adding a spurious column). Minimal
+ *  — only what breaks a table row. */
 function cellSafe(title: string): string {
-  return title.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+  return title.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 export function buildLandingPrBody(input: {

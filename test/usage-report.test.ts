@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { HEADERS, rowCells, totalsCells, type ReportRow } from "../scripts/usage-report";
+import { HEADERS, rowCells, totalsCells, mdCell, type ReportRow } from "../scripts/usage-report";
 
 const ROW: ReportRow = {
   desig: "TASK-001",
@@ -29,6 +29,14 @@ const ROW: ReportRow = {
   satTags: "db×1",
   reviewMultiplier: 0.4,
 };
+
+test("mdCell escapes backslash before pipe and collapses newlines", () => {
+  expect(mdCell("a | b")).toBe("a \\| b");
+  // `a\|b`: escaping only `|` would leave the `\` unescaped (escaped-backslash + bare
+  // delimiter → spurious column). Escaping `\` first yields `a\\\|b` — one intact cell.
+  expect(mdCell("a\\|b")).toBe("a\\\\\\|b");
+  expect(mdCell("line1\nline2")).toBe("line1 line2");
+});
 
 test("rowCells length matches HEADERS", () => {
   expect(rowCells(ROW).length).toBe(HEADERS.length);

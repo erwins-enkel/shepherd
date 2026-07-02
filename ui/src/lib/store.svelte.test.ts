@@ -1088,6 +1088,20 @@ test("doc-agent:done outcome=pr with null url fires toast without action", () =>
   expect(t?.actionLabel).toBeUndefined();
 });
 
+test("doc-agent:done outcome=pr with a non-http(s) url fires toast without action (CodeQL #3)", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.docAgentEnabled = true;
+  s.apply({
+    event: "doc-agent:done",
+    // A dangerous scheme must never be wired into window.open.
+    data: { repoPath: "/repos/da-pr-evil", url: "javascript:alert(1)", outcome: "pr" },
+  });
+  const t = toasts.items.find((x) => x.key === "doc-agent-done:/repos/da-pr-evil");
+  expect(t).toBeDefined();
+  expect(t?.actionLabel).toBeUndefined();
+});
+
 test("doc-agent:done outcome=observe fires keyed toast", () => {
   toasts.items = [];
   const s = new HerdStore();

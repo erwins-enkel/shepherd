@@ -1288,12 +1288,12 @@ async function setRepoRoles(
     if (!forge) throw new Error("no forge configured for repo");
     writeRepoRoles(dir, next, await forge.defaultBranch());
   } catch (e) {
-    // Push rejected (protected branch / no-ff / auth) or no forge — surface it so
-    // the dialog can tell the user instead of silently dropping the change.
-    return json(
-      { roles: readRepoRoles(dir), me, pushError: String((e as Error)?.message ?? e) },
-      502,
-    );
+    // Push rejected (protected branch / no-ff / auth) or no forge. Log the detail
+    // server-side; return a generic, non-error-derived message so raw error/stack text
+    // never reaches the client (CodeQL js/stack-trace-exposure #14). The dialog still
+    // shows its localized "roles push failed" message alongside this.
+    console.error("[repo-roles] role push failed:", e);
+    return json({ roles: readRepoRoles(dir), me, pushError: "push rejected" }, 502);
   }
   repushHandoff(deps, dir, me);
   return json({ roles: next, me });
@@ -5766,8 +5766,10 @@ async function resolveLandTarget(
   try {
     pr = await forge.prStatus(branch);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: json({ error: msg }, 502) };
+    // Log the forge error server-side; return a generic message so raw error/stack text
+    // never reaches the client (CodeQL js/stack-trace-exposure #14).
+    console.error("[epic-land] landing PR status check failed:", err);
+    return { error: json({ error: "landing PR status check failed" }, 502) };
   }
 
   if (!computeLandingReady(pr, repoHasNoCiCached(forge.kind, dir)))
@@ -5800,8 +5802,10 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
     // branch state, not method availability), making the CTA fire a doomed merge there.
     await forge.merge(row.landingPrNumber!, { method: forge.mergeMethod, deleteBranch: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return json({ error: msg }, 502);
+    // Log the merge error server-side; return a generic message so raw error/stack text
+    // never reaches the client (CodeQL js/stack-trace-exposure #14).
+    console.error("[epic-land] landing merge failed:", err);
+    return json({ error: "landing merge failed" }, 502);
   }
 
   deps.store.setEpicLandingPr(dir, parent, {

@@ -1,6 +1,10 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { annotateHandoff, computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
-import type { GitState, PrStatus } from "../src/forge/types";
+import type { GitForge, GitState, PrStatus } from "../src/forge/types";
+import { makeApp, type AppDeps } from "../src/server";
+import { config } from "../src/config";
 
 const approved: PrStatus["latestReview"] = { state: "approved", author: "scoop", submittedAt: 1 };
 
@@ -124,4 +128,39 @@ test("normalizeLogin trims, drops a leading @, empties to null", () => {
   expect(normalizeLogin("  @scoop ")).toBe("scoop");
   expect(normalizeLogin("")).toBeNull();
   expect(normalizeLogin(42)).toBeNull();
+});
+
+test("PUT /api/repo-roles: push failure → 502 generic pushError, raw error not leaked (CodeQL #14)", async () => {
+  const dir = mkdtempSync(join(config.repoRoot, "shepherd-roles-test-"));
+  try {
+    const forge = {
+      currentUser: async () => "me",
+      // The push fails with a message that carries a sensitive-looking internal detail.
+      defaultBranch: async () => {
+        throw new Error("remote rejected: protected branch at git@secret-host:22");
+      },
+    } as unknown as GitForge;
+    const deps: AppDeps = {
+      store: {} as never,
+      service: {} as never,
+      events: { emit: () => {} } as never,
+      usageLimits: { limits: () => ({}) } as never,
+      resolveForge: () => forge,
+    };
+    const app = makeApp(deps);
+    const res = await app.fetch(
+      new Request(`http://x/api/repo-roles?repo=${encodeURIComponent(dir)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewer: "alice" }),
+      }),
+    );
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.pushError).toBe("push rejected");
+    // Raw error/stack text must never reach the client.
+    expect(JSON.stringify(body)).not.toContain("secret-host");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

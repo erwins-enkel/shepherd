@@ -139,7 +139,7 @@
 
   // A repo can be filtered onto the session list only if it has a live (non-archived)
   // session — same liveness rule as repoChipRows. Filtering a session-less repo would be
-  // auto-cleared by the page (shouldClearRepoFilter) and strand an empty herd, so the
+  // pruned by the page (staleFilterRepos) and strand an empty herd, so the
   // secondary action + its hint are gated on this. Keyed on session.repoPath (the
   // realpath'd form), so the repo lookup below must compare r.realPath, not r.path.
   const liveRepoPaths = $derived(

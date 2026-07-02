@@ -391,6 +391,12 @@ function buildLanes(
         cwd: repoRoot,
       },
       { label: "glossary", cmd: "node", args: ["scripts/check-glossary.mjs"], cwd: repoRoot },
+      {
+        label: "announcement versions",
+        cmd: "node",
+        args: ["scripts/check-announcement-versions.mjs"],
+        cwd: repoRoot,
+      },
     ],
   });
 

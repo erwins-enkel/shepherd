@@ -43,3 +43,5 @@ jobs:
         run: bash scripts/check-generated-docs.sh
       - name: Glossary referential integrity (terms ↔ keys ↔ markers)
         run: node scripts/check-glossary.mjs
+      - name: Announcement versions (new entry ⇒ unreleased version)
+        run: node scripts/check-announcement-versions.mjs

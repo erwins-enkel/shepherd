@@ -134,6 +134,28 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 | `SHEPHERD_DOC_AGENT_MODEL` | `default` | Model for the doc-agent spawn: `default` follows the global default model, or pin a `<model alias>`. Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
+## Anonymous usage telemetry
+
+Off until you opt in. Shepherd can emit **anonymous, privacy-first** usage
+telemetry (OS, version, arch, locale, engine, and which features are used — never
+code, file paths, repo names, or personal data) to an [Aptabase](https://aptabase.com)
+endpoint, to help prioritise the roadmap. It is server-side and best-effort: a
+failed send is dropped silently and never surfaces to the operator.
+
+Nothing is sent unless **all** of these hold: consent is `granted`, `DO_NOT_TRACK`
+is unset, and an App-Key is configured (so the ingestion host resolves). Consent
+defaults to `unset`, which surfaces a one-time first-run prompt in the HUD; the
+per-operator consent state is persisted in the SQLite `settings` table and is also
+toggleable any time from the Settings panel. The env vars below seed a fresh DB
+(`SHEPHERD_TELEMETRY_CONSENT`) or override the endpoint.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_APTABASE_APP_KEY` | `A-EU-2837516646` (Shepherd's public Aptabase Cloud EU key) | Master enable. An Aptabase App-Key is write-only and safe to ship in the client (like a GA measurement ID), so the default lets ordinary installs report **once the operator opts in**. Forks/self-hosters override with their own key, or set it **blank to disable** telemetry entirely |
+| `SHEPHERD_APTABASE_HOST` | _(derived from the App-Key region)_ | Ingestion host override for self-hosted Aptabase. When unset, the host is derived from the App-Key region prefix: `A-EU-…` → `https://eu.aptabase.com`, `A-US-…` → `https://us.aptabase.com`. A self-hosted (`A-SH-…`) or unknown-region key **requires** this override, else telemetry no-ops |
+| `DO_NOT_TRACK` | _(unset)_ | The [console DNT standard](https://consoledonottrack.com). Truthy (`1`/`true`) **hard-disables** telemetry **and** suppresses the first-run consent prompt, regardless of the persisted consent state |
+| `SHEPHERD_TELEMETRY_CONSENT` | `unset` | Seeds the persisted consent for a fresh DB: `unset` (prompt on first run), `granted`, or `denied`. A UI-set consent in the DB overrides this env seed at boot; unrecognised values are ignored |
+
 ## Per-agent sandbox / permission profiles
 
 Shepherd can wrap each spawned `claude` process in an OS-level filesystem/process

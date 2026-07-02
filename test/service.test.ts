@@ -186,6 +186,63 @@ test("createSession: does NOT emit session_created when create() rolls back (spa
   expect(events.filter((e) => e.name === "session_created")).toHaveLength(0);
 });
 
+test("createSession: session_created props map each to its own source (distinct-value permutation)", async () => {
+  const store = new SessionStore(":memory:");
+  const events: { name: string; props: any }[] = [];
+  const telemetry = { event: (name: string, props: any) => events.push({ name, props }) };
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-flatten",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({
+        worktreePath: "/wt/repo-flatten",
+        branch: "shepherd/repo-flatten",
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({
+        terminalId: "term_z",
+        cwd: "/wt/repo-flatten",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+    telemetry,
+  });
+
+  // Distinct permutation so a boolean-mapping swap can't hide: autopilot on, plan-gate on,
+  // attached to an issue, research OFF (research true would force plan-gate false).
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    model: null,
+    images: [],
+    autopilotEnabled: true,
+    planGateEnabled: true,
+    research: false,
+    issueRef: { number: 42, url: "https://x/42", title: "t", body: "b" },
+  });
+
+  const created = events.filter((e) => e.name === "session_created");
+  expect(created).toHaveLength(1);
+  expect(created[0]!.props).toEqual({
+    agentProvider: "claude",
+    autopilot: true,
+    research: false,
+    planGate: true,
+    fromIssue: true,
+  });
+});
+
 // Build a SessionService whose worktree.create yields the given `isolated`, capturing the
 // spawned argv. Used by the codex-autopilot directive tests below.
 function codexHarness(isolated: boolean) {

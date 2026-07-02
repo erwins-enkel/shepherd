@@ -113,14 +113,19 @@ test("glyph ticker ON but all groups zero → plain base title", () => {
 });
 
 test("progress ring: PNG favicon when count 0 + ringFraction set, no title change", () => {
+  const strokeSpy = vi.spyOn(CanvasRenderingContext2D.prototype, "stroke");
   const signal = createTabSignal();
   signal.update({ count: 0, severity: "none", attended: false, ringFraction: 0.5 });
   flush();
   expect(link.href.startsWith("data:image/png")).toBe(true);
   expect(document.title).toBe("Shepherd");
+  // the ring path strokes arcs (unlike the dot path, which only fills)
+  expect(strokeSpy).toHaveBeenCalled();
+  strokeSpy.mockRestore();
 });
 
 test("severity dot wins over the progress ring when count > 0", () => {
+  const strokeSpy = vi.spyOn(CanvasRenderingContext2D.prototype, "stroke");
   const signal = createTabSignal();
   // both a live count and a ring fraction present → dot path, badge set
   signal.update({ count: 2, severity: "amber", attended: false, ringFraction: 0.9 });
@@ -128,4 +133,7 @@ test("severity dot wins over the progress ring when count > 0", () => {
   expect(link.href.startsWith("data:image/png")).toBe(true);
   expect(setBadge).toHaveBeenLastCalledWith(2);
   expect(document.title).toBe("(2) Shepherd");
+  // the dot path only fills a corner disc; if the ring were drawn instead, it would stroke
+  expect(strokeSpy).not.toHaveBeenCalled();
+  strokeSpy.mockRestore();
 });

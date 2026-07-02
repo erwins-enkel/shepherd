@@ -481,6 +481,7 @@ export class GithubForge implements GitForge {
   private mapGhPrToPullRequest(
     p: GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> },
     defaultBranch: string | null,
+    awaitingApprovalShas: ReadonlySet<string> = new Set(),
   ): PullRequest {
     const ts = Date.parse(p.createdAt ?? "");
     const author = p.author?.login ?? "";
@@ -503,7 +504,53 @@ export class GithubForge implements GitForge {
           : undefined,
       headSha: p.headRefOid,
       headRefName: p.headRefName,
+      // Undefined (not false) when not awaiting, matching the "absent ⇒ false"
+      // convention the field documents and keeping it out of golden equality checks.
+      awaitingWorkflowApproval:
+        (!!p.headRefOid && awaitingApprovalShas.has(p.headRefOid)) || undefined,
     };
+  }
+
+  /** Head SHAs of workflow runs on this repo awaiting manual approval to run
+   *  (`gh run list --status action_required`). GitHub does not create the check
+   *  runs for such a workflow until it is approved, so this state is invisible to a
+   *  PR's `statusCheckRollup` — the run list is the only source. A run's `headSha`
+   *  equals the PR's `headRefOid`, so callers flag a PR by set membership.
+   *
+   *  Scope: only the `action_required` flavor (fork/outside-contributor & Actions
+   *  bot). Deployment-environment protection gates surface as `status=waiting` with
+   *  a different representation and are intentionally NOT fetched here (a second
+   *  REST call), to keep this to one extra REST-bucket request per snapshot.
+   *
+   *  Fail-quiet: any error or unparseable output degrades to an empty set (no flag),
+   *  so the caller's snapshot never fails on this leg. */
+  private async awaitingApprovalShas(): Promise<Set<string>> {
+    let out: string;
+    try {
+      out = await this.run([
+        "run",
+        "list",
+        "--repo",
+        this.slug,
+        "--status",
+        "action_required",
+        "--limit",
+        "100",
+        "--json",
+        "headSha",
+      ]);
+    } catch {
+      return new Set();
+    }
+    let raw: Array<{ headSha?: string | null }>;
+    try {
+      raw = JSON.parse(out || "[]") as Array<{ headSha?: string | null }>;
+    } catch {
+      return new Set();
+    }
+    const shas = new Set<string>();
+    for (const r of raw) if (r.headSha) shas.add(r.headSha);
+    return shas;
   }
 
   async listPullRequests(): Promise<PullRequest[]> {
@@ -813,7 +860,10 @@ export class GithubForge implements GitForge {
    *  consumers need, so a single query feeds the PRs-tab rows and the pr-poller batch. */
   async listOpenPrSnapshot(): Promise<OpenPrSnapshot> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
-    const [out, def] = await Promise.all([
+    // The awaiting-approval leg carries its own fail-quiet fallback (empty set), so a
+    // run-list failure degrades to "no flag" instead of rejecting the whole snapshot
+    // (which would empty the PRs tab AND break the poller's statuses batch).
+    const [out, def, awaitingShas] = await Promise.all([
       this.run([
         "pr",
         "list",
@@ -827,6 +877,7 @@ export class GithubForge implements GitForge {
         "200",
       ]),
       this.defaultBranch().catch(() => null),
+      this.awaitingApprovalShas(),
     ]);
 
     const prs = JSON.parse(out || "[]") as Array<
@@ -841,7 +892,7 @@ export class GithubForge implements GitForge {
     }
 
     // Build PRs-tab rows (newest-first as gh returns).
-    const pullRequests = prs.map((p) => this.mapGhPrToPullRequest(p, def));
+    const pullRequests = prs.map((p) => this.mapGhPrToPullRequest(p, def, awaitingShas));
 
     // Build headRefName-keyed statuses with deterministic fork-collision dedup.
     // The expectedOwner-owned entry always wins regardless of array order; if no

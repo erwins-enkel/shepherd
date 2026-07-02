@@ -1767,3 +1767,44 @@ test("listOpenPrStatuses delegates to listOpenPrSnapshot: same output via wrappe
   const statuses = await forge.listOpenPrStatuses!();
   expect(statuses).toEqual(EXPECTED_STATUSES);
 });
+
+test("listOpenPrSnapshot: flags PRs whose head is awaiting workflow approval", async () => {
+  const { run, calls } = fakeRunner({
+    "pr list": JSON.stringify(SNAPSHOT_NODES),
+    // Awaiting-approval run whose headSha matches PR #1's headRefOid (aaa111).
+    "run list": JSON.stringify([{ headSha: "aaa111" }]),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  // The action_required run-list call is actually issued (real wiring, not stubbed).
+  const runListCall = calls.find((c) => c[0] === "run" && c[1] === "list");
+  expect(runListCall).toBeDefined();
+  expect(runListCall).toContain("action_required");
+  // The head-SHA match flags PR #1; the non-matching PR #2 stays unflagged.
+  const [alpha, beta] = snap.prs;
+  expect(alpha!.awaitingWorkflowApproval).toBe(true);
+  expect(beta!.awaitingWorkflowApproval).toBeFalsy();
+});
+
+test("listOpenPrSnapshot: run-list failure degrades to no-flag without emptying prs/statuses", async () => {
+  // The awaiting-approval leg throws; the snapshot must still return full prs +
+  // statuses (a rejection here would empty the PRs tab AND break the poller batch).
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "run" && args[1] === "list") throw new Error("boom");
+    if (args[0] === "pr" && args[1] === "list") return JSON.stringify(SNAPSHOT_NODES);
+    return "";
+  };
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.prs.length).toBe(2);
+  expect(snap.statuses.size).toBe(2);
+  expect(snap.prs.every((p) => !p.awaitingWorkflowApproval)).toBe(true);
+});
+
+test("listOpenPrSnapshot: unparseable run-list output degrades to no-flag", async () => {
+  const { run } = fakeRunner({
+    "pr list": JSON.stringify(SNAPSHOT_NODES),
+    "run list": "not json",
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.prs.length).toBe(2);
+  expect(snap.prs.every((p) => !p.awaitingWorkflowApproval)).toBe(true);
+});

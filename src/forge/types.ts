@@ -151,6 +151,11 @@ export interface PullRequest {
   headSha?: string;
   /** Head branch name; used to skip PRs already managed by a live session. */
   headRefName?: string;
+  /** True when a GitHub Actions workflow run on this PR's head is awaiting manual
+   *  approval to run (`conclusion=action_required` — the fork/outside-contributor &
+   *  Actions-bot flavor; deployment-environment `waiting` gates are NOT detected).
+   *  Display-only: does not affect merge gating. Absent ⇒ treat as false. */
+  awaitingWorkflowApproval?: boolean;
 }
 
 export interface PrStatus {

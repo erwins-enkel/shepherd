@@ -154,7 +154,13 @@
       // ignoring the file is equivalent to ignoring just that block. Do NOT
       // extract a shared stylesheet here — that's a 15-file change, out of
       // scope for the demo work that introduced this 16th instance.
-      "**/ui/src/lib/demo/DemoRibbon.svelte"
+      "**/ui/src/lib/demo/DemoRibbon.svelte",
+      // TelemetryConsent.svelte's only clone-flagged content is the same `.gbtn`
+      // recipe (lines ~88-114) — same verbatim-copy design-system convention as
+      // DemoRibbon above, just a newer instance of it. No other duplicated
+      // content in this file, so ignoring the file is equivalent to ignoring
+      // just that block.
+      "**/ui/src/lib/components/TelemetryConsent.svelte"
     ]
   },
 

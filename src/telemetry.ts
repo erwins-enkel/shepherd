@@ -59,6 +59,18 @@ function osName(): string {
   }
 }
 
+/**
+ * Normalize a glibc `LANG` value (e.g. "en_US.UTF-8") to a short BCP-47-style tag
+ * Aptabase accepts. Aptabase's `SystemProps.Locale` field is capped at 10 chars and
+ * rejects the whole event with HTTP 400 otherwise — and because the flush is
+ * best-effort (errors swallowed), a too-long locale silently drops every event.
+ * Strip the ".<encoding>" suffix, turn "_" into "-", cap at 10, fall back to "en".
+ */
+export function normalizeLocale(lang: string | undefined): string {
+  const tag = ((lang ?? "").split(".")[0] ?? "").replace(/_/g, "-").trim();
+  return tag ? tag.slice(0, 10) : "en";
+}
+
 export class TelemetryService {
   private readonly appKey: string | null;
   private readonly host: string | null;
@@ -90,7 +102,7 @@ export class TelemetryService {
       osName: osName(),
       osVersion: os.release(),
       arch: process.arch,
-      locale: process.env.LANG ?? "unknown",
+      locale: normalizeLocale(process.env.LANG),
       appVersion: (pkg as { version: string }).version,
       engineName: process.versions.bun ? "bun" : "node",
       engineVersion: process.versions.bun ?? process.versions.node,

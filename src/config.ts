@@ -433,12 +433,17 @@ export const config = {
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
   // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
-  // Master enable: absent App-Key ⇒ telemetry is a hard no-op (forks, CI, dev
-  // send nothing). SHEPHERD_APTABASE_HOST overrides the ingestion host for
-  // self-hosted instances; when unset the host is derived from the App-Key
+  // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
+  // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship
+  // in the client (like a GA measurement ID), so it's embedded here so ordinary
+  // installs can report once the operator opts in. Nothing sends without consent
+  // (telemetryConsent defaults "unset" → the first-run prompt) and DO_NOT_TRACK.
+  // Forks/self-hosters override via SHEPHERD_APTABASE_APP_KEY (set it to their own
+  // key, or blank to disable). SHEPHERD_APTABASE_HOST overrides the ingestion host
+  // for self-hosted instances; when unset the host is derived from the App-Key
   // region (see resolveAptabaseHost). DO_NOT_TRACK (consoledonottrack.com)
   // hard-disables telemetry and suppresses the first-run consent prompt.
-  aptabaseAppKey: process.env.SHEPHERD_APTABASE_APP_KEY ?? null,
+  aptabaseAppKey: process.env.SHEPHERD_APTABASE_APP_KEY ?? "A-EU-2837516646",
   aptabaseHostOverride: process.env.SHEPHERD_APTABASE_HOST ?? null,
   doNotTrack: process.env.DO_NOT_TRACK === "1",
   // Persisted consent (DB row overrides this env seed at boot; see index.ts).

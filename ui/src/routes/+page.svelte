@@ -87,6 +87,7 @@
     altComboKey,
   } from "$lib/components/herd-keynav";
   import { groupSessionsByEpic } from "$lib/components/epic-grouping";
+  import { buildCommands } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import {
     collectReadyPrs,
@@ -1502,6 +1503,25 @@
   // tick could stutter, freezing every elapsed clock. A $derived only propagates
   // on the empty↔non-empty flip, so the interval is made once.
   const hasSessions = $derived(store.sessions.length > 0);
+
+  // Command bar v2 verbs. Availability flags mirror the same gates the on-screen
+  // affordances use (Broadcast needs sessions; Retry mirrors SteerBar's retryReady chip;
+  // the needs-you jump needs another waiting session), so the bar never offers a verb the
+  // UI itself would hide. buildCommands filters out the unavailable ones.
+  const commandBarCommands = $derived(
+    buildCommands({
+      onNewTask: () => (showNew = true),
+      onBroadcast: () => (showBroadcast = true),
+      onSettings: () => (showSettings = true),
+      onUsage: () => (showUsage = true),
+      onRetry: () => (showRetry = true),
+      onNextNeedsYou: () => selectNextNeedsYou(),
+      hasSessions,
+      retryReady,
+      otherNeedsYouCount: otherNeedsYou.length,
+    }),
+  );
+
   $effect(() => {
     if (!hasSessions) return;
     nowMs = Date.now(); // refresh on the empty→non-empty flip so the first frame isn't up to 1s stale
@@ -2734,6 +2754,7 @@
   {showBroadcast}
   onbroadcastclose={() => (showBroadcast = false)}
   {showCommandBar}
+  {commandBarCommands}
   oncommandbarclose={() => (showCommandBar = false)}
   oncommandbarsession={(id) => {
     showCommandBar = false;

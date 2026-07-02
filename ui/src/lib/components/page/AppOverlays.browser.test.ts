@@ -96,6 +96,7 @@ function baseProps(): Props {
     showBroadcast: false,
     onbroadcastclose: vi.fn(),
     showCommandBar: false,
+    commandBarCommands: [],
     oncommandbarclose: vi.fn(),
     oncommandbarsession: vi.fn(),
     oncommandbarrepo: vi.fn(),
@@ -217,5 +218,22 @@ describe("AppOverlays — NewTask repo-picker handoffs", () => {
     expect(props.onnewnewproject).toHaveBeenCalledOnce();
     expect(props.onnewclone).not.toHaveBeenCalled();
     expect(props.onnewfork).not.toHaveBeenCalled();
+  });
+});
+
+// #1338: AppOverlays must forward commandBarCommands into the CommandBar it renders —
+// otherwise the page's registry would build verbs that never reach the bar (vacuous).
+describe("AppOverlays — command bar wiring", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("passes commandBarCommands through to the rendered CommandBar", async () => {
+    const props = baseProps();
+    props.store = { sessions: [], workingBlocked: {} } as unknown as HerdStore;
+    props.showCommandBar = true;
+    props.commandBarCommands = [{ id: "probe", label: () => "Probe verb", run: vi.fn() }];
+    render(AppOverlays, props);
+    // Commands are query-gated, so type to reveal the forwarded verb.
+    await page.getByRole("combobox").fill("probe");
+    await expect.element(page.getByRole("option", { name: /Probe verb/ })).toBeVisible();
   });
 });

@@ -110,6 +110,9 @@ jobs:
           (cd ui && bun run check:i18n)
           (cd extension && bun run check:i18n)
 
+      - name: Docs manifest freshness (command bar Docs group)
+        run: cd ui && bun run check:docs-manifest
+
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.

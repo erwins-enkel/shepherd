@@ -201,6 +201,12 @@ tailscale serve --bg 7330
 # then add the tailnet hostname to SHEPHERD_ALLOWED_HOSTS (in ~/.shepherd/env or deploy/shepherd.service)
 ```
 
+The HUD is gated by a **single-operator password**. Set it with `SHEPHERD_PASSWORD`
+in `~/.shepherd/env`, or use the strong password Shepherd auto-generates on first
+boot and prints to the server log **once** (`systemctl --user status shepherd` /
+`journalctl --user -u shepherd`). Browser sessions use this password login;
+machine clients can use `SHEPHERD_TOKEN` instead.
+
 Settings → DIAGNOSE surfaces any remaining gaps with one-click fixes.
 
 For the from-clone / development path, see [Quick start](#quick-start) below.
@@ -229,8 +235,10 @@ bun run start
 # → shepherd core on http://localhost:7330
 ```
 
-Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set `SHEPHERD_ALLOWED_HOSTS` to
-include the public hostname (see below).
+Open <http://localhost:7330>. The first load shows the single-operator password
+screen; set `SHEPHERD_PASSWORD`, or use the auto-generated password printed once
+in the server log. To expose it (e.g. via Tailscale), set
+`SHEPHERD_ALLOWED_HOSTS` to include the public hostname (see below).
 
 ## Configuration
 
@@ -244,7 +252,9 @@ All via environment variables (`src/config.ts`):
 | `SHEPHERD_DB`                      | `~/.shepherd/shepherd.db`       | SQLite session store path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `SHEPHERD_REPO_ROOT`               | `~` (home)                      | Repos must live under this root (spawn is confined to it)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `SHEPHERD_ALLOWED_HOSTS`           | `localhost,127.0.0.1,::1,[::1]` | Comma-separated origin hostnames allowed for writes + WS (CSRF/CSWSH guard)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `SHEPHERD_TOKEN`                   | _(none)_                        | When set, require `Authorization: Bearer <token>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `SHEPHERD_PASSWORD`                | _(auto-generated)_              | Single-operator login password. When set, it is authoritative and re-seeded into the persisted password hash every boot. Unset → Shepherd reuses the persisted hash, or on first boot generates a strong password, stores its hash, and prints the password to the server log **once**. Browser operators exchange it for a signed session cookie.                                                                                                                                                                                                                                                                                                     |
+| `SHEPHERD_COOKIE_SECRET`           | _(generated + persisted)_       | HMAC secret that signs the browser session cookie. Set it to keep sessions stable across DB resets; rotating it invalidates every outstanding browser session.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SHEPHERD_TOKEN`                   | _(none)_                        | Optional bearer for CLI/curl/machine clients. When set, `Authorization: Bearer <token>` is accepted as an alternative to the browser session cookie; spawned agents use the loopback ingress instead.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `HERDR_BIN`                        | `herdr`                         | Path to the herdr binary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `HERDR_SESSION`                    | `default`                       | herdr session name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `SHEPHERD_FORGES`                  | `~/.shepherd/forges.json`       | Path to the git-host config (see [Git host integration](#git-host-integration))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -394,7 +404,10 @@ tailscale serve --bg 7330        # → https://<host>.<tailnet>.ts.net proxies t
 ```
 
 Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the Tailscale name).
-Access control is **tailnet membership** — there is no app-level password.
+Access control is layered: the trusted proxy/tailnet admits the device, then Shepherd requires the
+single-operator password and stores browser access in a signed session cookie. Set
+`SHEPHERD_PASSWORD` in `~/.shepherd/env`, or use the first-boot generated password from the server
+log; machine clients can use `SHEPHERD_TOKEN` as a bearer alternative.
 
 ### Host tuning — tmpfs inodes
 
@@ -474,9 +487,10 @@ guard explicitly rejects any request origin whose port falls in the preview rang
 hostname is allowlisted — closing the blind-mutation vector. The preview `<iframe>` is sandboxed
 `allow-same-origin allow-scripts …` (everything the app needs to run) but withholds every
 `allow-top-navigation*` token, so untrusted agent JS can't redirect the operator's HUD tab.
-Residual: cookies are host-scoped
-(shared across ports on one host), which is acceptable because the HUD has no cookie auth. Full
-per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel/shepherd/issues/398).
+Residual: cookies are host-scoped (shared across ports on one host), so a same-host preview can make
+the browser attach the HUD session cookie to requests. The cookie is `HttpOnly`/`SameSite=Strict` and
+the HUD rejects preview-range origins for writes, but full per-origin cookie isolation is tracked in
+[#398](https://github.com/erwins-enkel/shepherd/issues/398).
 
 **Caveats:**
 

@@ -16,7 +16,7 @@
 - **The glyph string itself** (`⚠2 ✋1 ✓3 ▶4`) is data-shaped (fixed symbols + counts), assembled in code — NOT a translated message, same rationale as the numeric `(N)`.
 - **Ticker glyph order** is most-urgent-first: `⚠` ci-red › `✋` blocked › `✓` ready › `▶` running; zero-count groups omitted.
 - **Ring gating** — the ring favicon paints only when backgrounded AND `count === 0` AND the selected session `displayStatus === "running"` AND its build queue has steps; the severity dot always wins when `count > 0`.
-- **Checks before PR** — from `ui/`: `bun install` (fresh worktree), `bun run check`, `bun run check:i18n`, `bun test`. Fix failures before committing.
+- **Checks before PR** — from `ui/`: `bun install` (fresh worktree), `bun run check`, `bun run check:i18n`, `bun run test`. Fix failures before committing.
 - **Branch hygiene** — one feature branch off latest `origin/main`, linear, no merge commits.
 
 ---
@@ -485,7 +485,7 @@ this.#flourishTimer = setTimeout(() => {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ui && bun test` (runs unit + browser projects)
+Run: `cd ui && bun run test` (runs unit + browser projects)
 Expected: PASS — new ticker/ring tests green, all prior tab-signal tests still green.
 
 - [ ] **Step 5: Commit**
@@ -686,7 +686,7 @@ export default entry;
 Run, from `ui/`:
 
 ```bash
-cd ui && bun run check:i18n && bun run check && bun test
+cd ui && bun run check:i18n && bun run check && bun run test
 ```
 
 Expected: all PASS. Then run the repo hygiene/feature-catalog gate if available locally:
@@ -724,7 +724,7 @@ Expected: linear, no merge commits; rebase clean (or resolve the union-merge cat
 - [ ] **Step 2: Final full check across touched halves (UI only here)**
 
 ```bash
-cd ui && bun install && bun run check && bun run check:i18n && bun test
+cd ui && bun install && bun run check && bun run check:i18n && bun run test
 ```
 
 Expected: all PASS.
@@ -746,7 +746,7 @@ Ring color is muted (`--color-muted`) so in-progress reads calm; anything urgent
 No functional overlap: #1332 owns the #803 plan-gate/critic-question tier (server work), which this PR does NOT touch. The ring + glyph-ticker built here are the "bonus / separate follow-ups if pursued" bullets in #1332's body (no dedicated issue existed) — **this PR resolves those two bullets**. Shared seam: both edit `deriveTabState`/`TabState`, but with disjoint fields; this lands first, #1332 rebases.
 
 ## Verification
-- `cd ui && bun run check && bun run check:i18n && bun test` all green.
+- `cd ui && bun run check && bun run check:i18n && bun run test` all green.
 - New unit tests: `deriveTabState` tallies + invariant. New browser tests: ticker title formatting, ring favicon swap, dot-wins-over-ring precedence. New persistence test for `tabTicker`.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

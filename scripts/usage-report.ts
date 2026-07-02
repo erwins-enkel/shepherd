@@ -828,8 +828,10 @@ function renderMarkdownTable(rows: string[][]): string {
   const body = rows.map((r) => `| ${r.map(mdCell).join(" | ")} |`);
   return [head, sep, ...body].join("\n");
 }
-function mdCell(s: string): string {
-  return s.replace(/\|/g, "\\|");
+export function mdCell(s: string): string {
+  // Order matters: normalize newlines (a raw newline splits the row), then escape backslashes
+  // BEFORE pipes so the `\` we add for each `|` isn't itself doubled. Mirrors epic-landing's cellSafe.
+  return s.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 function renderPlainTable(rows: string[][]): string {

@@ -39,6 +39,18 @@ import { m } from "$lib/paraglide/messages";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 
+/** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
+ *  (or other-scheme) value would be an open-redirect / script-execution vector
+ *  (CodeQL js/client-side-unvalidated-url-redirection #3). */
+function isSafeHttpUrl(raw: string): boolean {
+  try {
+    const { protocol } = new URL(raw);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export class HerdStore {
   sessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
@@ -544,13 +556,16 @@ export class HerdStore {
     const key = `doc-agent-done:${ev.data.repoPath}`;
     if (ev.data.outcome === "pr") {
       const url = ev.data.url;
+      // Only wire the "view PR" action for a validated http(s) URL — never open an
+      // unvalidated event-carried value (CodeQL js/client-side-unvalidated-url-redirection #3).
+      const safeUrl = url != null && isSafeHttpUrl(url) ? url : null;
       toasts.info(m.docagent_toast_pr_opened({ repo }), {
         key,
-        ...(url != null
+        ...(safeUrl != null
           ? {
               action: {
                 label: m.docagent_toast_view_pr(),
-                run: () => window.open(url, "_blank", "noopener"),
+                run: () => window.open(safeUrl, "_blank", "noopener"),
               },
             }
           : {}),

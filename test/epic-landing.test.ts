@@ -105,6 +105,18 @@ describe("buildLandingPrBody", () => {
     expect(cells).toEqual(["#70", "a \\| b", "#700"]);
   });
 
+  it("escapes a backslash before a pipe so the pipe-escape can't be defeated", () => {
+    // `a\|b`: escaping only `|` would yield `a\\|b` = escaped-backslash + a BARE delimiter,
+    // adding a spurious column. Escaping `\` first yields `a\\\|b` — one real cell.
+    const children = [{ number: 71, title: "a\\|b", prNumber: 710, prUrl: null }];
+    const body = buildLandingPrBody({ ...base, children });
+    const row = body.split("\n").find((l) => l.startsWith("| #71"))!;
+    const segments = row.split(/(?<!\\)\|/);
+    expect(segments.length).toBe(5); // still exactly 3 cells (no injected column)
+    const cells = segments.slice(1, -1).map((s) => s.trim());
+    expect(cells).toEqual(["#71", "a\\\\\\|b", "#710"]);
+  });
+
   it("collapses newlines in a child title to keep the row single-line", () => {
     const children = [{ number: 80, title: "line1\nline2", prNumber: 800, prUrl: null }];
     const body = buildLandingPrBody({ ...base, children });

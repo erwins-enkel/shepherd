@@ -258,8 +258,8 @@ describe("POST /api/epics/completed/land", () => {
     expect(mergeCalls).toHaveLength(0);
   });
 
-  test("prStatus throws → 502", async () => {
-    const { forge } = makeForge({ prStatusThrows: new Error("network failure") });
+  test("prStatus throws → 502 with a generic message, not the raw error (CodeQL #14)", async () => {
+    const { forge } = makeForge({ prStatusThrows: new Error("network failure at 10.0.0.5:6443") });
     const { app, store } = landHarness(() => forge);
     seedCompletedEpic(store, repoDir, 42, "open", 77);
     store.getOrInitEpicIntegrationBranch(repoDir, 42, "epic/42-my-epic");
@@ -272,11 +272,14 @@ describe("POST /api/epics/completed/land", () => {
     );
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toMatch(/network failure/);
+    expect(body.error).toBe("landing PR status check failed");
+    expect(body.error).not.toContain("10.0.0.5"); // raw error/stack never leaks to the client
   });
 
-  test("forge.merge throws → 502", async () => {
-    const { forge } = makeForge({ mergeThrows: new Error("merge commits disabled") });
+  test("forge.merge throws → 502 with a generic message, not the raw error (CodeQL #14)", async () => {
+    const { forge } = makeForge({
+      mergeThrows: new Error("merge commits disabled at /srv/secret"),
+    });
     const { app, store } = landHarness(() => forge);
     seedCompletedEpic(store, repoDir, 42, "open", 77);
     store.getOrInitEpicIntegrationBranch(repoDir, 42, "epic/42-my-epic");
@@ -289,7 +292,8 @@ describe("POST /api/epics/completed/land", () => {
     );
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toMatch(/merge commits disabled/);
+    expect(body.error).toBe("landing merge failed");
+    expect(body.error).not.toContain("/srv/secret"); // raw error/stack never leaks to the client
   });
 
   test("happy path: forge.merge called with the host mergeMethod + deleteBranch, setEpicLandingPr state merged, epic:completed emitted, 200 ok", async () => {

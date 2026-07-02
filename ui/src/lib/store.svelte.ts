@@ -55,6 +55,12 @@ export class HerdStore {
   sessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
+  /** True when THIS tab is focused+visible (the "attended" tier of the attention
+   *  ladder — same `active()` notion connect() reports for push suppression). The
+   *  ambient tab-signal (tab-signal.svelte.ts) suppresses its title/favicon/badge
+   *  while attended and shows them only when the tab is backgrounded. Set on every
+   *  presence edge in connect(); false during SSR. */
+  attended = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
@@ -776,6 +782,14 @@ export class HerdStore {
         ws.send(JSON.stringify({ type: "presence", active: active() }));
       }
     };
+    // Mirror the same focus/visibility read into reactive state for the ambient
+    // tab-signal. Set DIRECTLY in each presence handler below (not only here or in
+    // wake()): on a become-visible-with-dead-socket edge onVisible→wake()→open()
+    // defers presence to ws.onopen, and pageshow only wakes when persisted, so
+    // routing attended through reportPresence/wake alone would let it lag.
+    const syncAttended = () => {
+      this.attended = active();
+    };
     const open = () => {
       // Drop the previous socket's handlers before replacing it so a superseded
       // socket's late onclose can't schedule a second, parallel reconnect.
@@ -827,16 +841,29 @@ export class HerdStore {
       if (ws && ws.readyState === WebSocket.OPEN) reportPresence();
       else open(); // CONNECTING/CLOSING/CLOSED/none — resume the stream now
     };
-    const onVisible = () => (document.visibilityState === "visible" ? wake() : reportPresence());
+    const onVisible = () => {
+      syncAttended();
+      return document.visibilityState === "visible" ? wake() : reportPresence();
+    };
+    const onFocus = () => {
+      syncAttended();
+      reportPresence();
+    };
+    const onBlur = () => {
+      syncAttended();
+      reportPresence();
+    };
     const onPageShow = (e: PageTransitionEvent) => {
+      syncAttended();
       if (e.persisted) wake();
     };
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisible);
-      window.addEventListener("focus", reportPresence);
-      window.addEventListener("blur", reportPresence);
+      window.addEventListener("focus", onFocus);
+      window.addEventListener("blur", onBlur);
       window.addEventListener("pageshow", onPageShow);
     }
+    syncAttended(); // correct initial value before the first open()
     open();
     return () => {
       stopped = true;
@@ -846,8 +873,8 @@ export class HerdStore {
       }
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", onVisible);
-        window.removeEventListener("focus", reportPresence);
-        window.removeEventListener("blur", reportPresence);
+        window.removeEventListener("focus", onFocus);
+        window.removeEventListener("blur", onBlur);
         window.removeEventListener("pageshow", onPageShow);
       }
       ws?.close();

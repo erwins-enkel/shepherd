@@ -4,6 +4,7 @@
 // fan-out shape (mapBounded, ~6 concurrent) and the REAL epic pipeline (drain.buildEpic +
 // selectEpicCandidates) so epic readiness gates on store session/integration/claim/PR facts,
 // never on raw listIssues (which lacks them and would mis-gate).
+import { realpathSync } from "node:fs";
 import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
@@ -68,10 +69,26 @@ export interface UpNextDeps {
   now?: () => number;
   concurrency?: number;
   intervalMs?: number;
+  /** Backoff (ms) between post-start recompute attempts; first is immediate. See
+   *  `recomputeUntilCleared`. Injectable so tests can drive the loop with tiny delays. */
+  postStartRetryDelaysMs?: number[];
+  /** realpath resolver, injectable for tests. Used only to reconcile started-item paths
+   *  (safeRepoDir/realpath space) against snapshot paths (raw listRepos space). */
+  realpath?: (p: string) => string;
+}
+
+/** A just-started item, keyed for the post-start membership check. `repoPath` is in
+ *  safeRepoDir/realpath space (as `handleUpNextStart` produces via `safeRepoDir`). */
+export interface PostStartRef {
+  repoPath: string;
+  issueNumber: number;
 }
 
 const DEFAULT_CONCURRENCY = 6;
 const DEFAULT_INTERVAL_MS = 15 * 60_000;
+/** Immediate first attempt (claim writes have already settled by the caller), then two
+ *  retries covering GitHub read-after-write lag; ~10s worst case, vs the 15-min interval. */
+const DEFAULT_POST_START_RETRY_DELAYS = [0, 3_000, 7_000];
 
 /** Spawn items strictly one-at-a-time (never overlapping). WorktreeMgr.create() uses
  *  synchronous `git worktree add` and is NOT parallel-safe per repo — concurrent spawns
@@ -93,11 +110,15 @@ export class UpNextService {
   private readonly now: () => number;
   private readonly concurrency: number;
   private readonly intervalMs: number;
+  private readonly postStartRetryDelays: number[];
+  private readonly realpath: (p: string) => string;
 
   constructor(private deps: UpNextDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
     this.intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS;
+    this.postStartRetryDelays = deps.postStartRetryDelaysMs ?? DEFAULT_POST_START_RETRY_DELAYS;
+    this.realpath = deps.realpath ?? realpathSync;
   }
 
   snapshot(): UpNextSnapshot | null {
@@ -130,6 +151,63 @@ export class UpNextService {
       console.warn("[up-next] onChange:", err);
     }
     return snap;
+  }
+
+  /** A recompute guaranteed to START after this call. `refresh` is single-flight, so a bare
+   *  call could join a compute that began BEFORE a just-written claim label landed (a 15-min
+   *  tick or a GET-triggered refresh) and cache that stale snapshot. We await any in-flight
+   *  compute first, then start a fresh one — which also makes our push land AFTER the stale
+   *  one, so a pre-existing compute can't re-show a cleared item. */
+  private async recompute(): Promise<UpNextSnapshot> {
+    if (this.inFlight) await this.inFlight.catch(() => {});
+    return this.refresh();
+  }
+
+  /** Does the snapshot still list any of the just-started items? Reconciles path-space:
+   *  `started` carry safeRepoDir/realpath paths, while snapshot items carry raw
+   *  join(repoRoot,name) paths (see buildUpNextRepos). Under a symlinked repoRoot these
+   *  differ, so we map real→raw via the current repo set (mirrors reconcileRealPathsToRaw)
+   *  and match on (raw repoPath, issue number) — number alone collides across repos. */
+  private stillPresent(snap: UpNextSnapshot, started: readonly PostStartRef[]): boolean {
+    const rawByReal = new Map<string, string>();
+    for (const r of this.deps.listForgeRepos()) {
+      try {
+        rawByReal.set(this.realpath(r.repoPath), r.repoPath);
+      } catch {
+        // vanished/broken path — can't be reconciled, skip it
+      }
+    }
+    const wanted = started.map((s) => ({
+      repoPath: rawByReal.get(s.repoPath) ?? s.repoPath,
+      number: s.issueNumber,
+    }));
+    return snap.sections.some((sec) =>
+      sec.items.some((it) =>
+        wanted.some((w) => w.repoPath === it.repoPath && w.number === it.issueRef.number),
+      ),
+    );
+  }
+
+  /** Recompute (guaranteed-fresh) until none of `started` appear in the snapshot — their
+   *  claim labels have landed and propagated — or the bounded attempts run out (then the
+   *  15-min interval loop is the backstop). Fixes the post-start staleness where an immediate
+   *  refresh re-read issues before the fire-and-forget `shepherd:active` label landed and
+   *  re-surfaced the just-started item. Backgrounded by the caller — never blocks the response. */
+  async recomputeUntilCleared(started: readonly PostStartRef[]): Promise<void> {
+    if (started.length === 0) return;
+    for (let i = 0; i < this.postStartRetryDelays.length; i++) {
+      const delay = this.postStartRetryDelays[i]!;
+      if (delay > 0) await new Promise<void>((r) => setTimeout(r, delay).unref?.());
+      try {
+        const snap = await this.recompute();
+        if (!this.stillPresent(snap, started)) return;
+      } catch (err) {
+        // A transient compute failure (e.g. a briefly-locked store dep) must NOT abort the
+        // remaining attempts — retrying past a hiccup is the whole point. Log and try again;
+        // the 15-min interval loop backstops if every attempt fails.
+        console.warn("[up-next] post-start recompute attempt failed:", err);
+      }
+    }
   }
 
   private async resolveRepo(

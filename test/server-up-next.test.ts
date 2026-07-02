@@ -37,6 +37,7 @@ function harness(
   const store = new SessionStore(":memory:");
   const createCalls: Array<{ at: number; repoPath: string; number: number | undefined }> = [];
   const labelCalls: number[] = [];
+  const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
   let refreshCalls = 0;
   let n = 0;
   const deps: AppDeps = {
@@ -64,10 +65,19 @@ function harness(
         refreshCalls++;
         return SNAP;
       },
+      recomputeUntilCleared: async (started) => {
+        recomputeCalls.push(started.map((s) => ({ ...s })));
+      },
       hiddenRepoPathsRaw: opts.hiddenRepoPathsRaw ?? (() => new Set<string>()),
     },
   };
-  return { app: makeApp(deps), createCalls, labelCalls, refreshCalls: () => refreshCalls };
+  return {
+    app: makeApp(deps),
+    createCalls,
+    labelCalls,
+    refreshCalls: () => refreshCalls,
+    recomputeCalls,
+  };
 }
 
 const startReq = (items: unknown) =>
@@ -110,10 +120,22 @@ test("POST /api/up-next/start spawns one session and stamps the claim", async ()
   expect(body.errors).toHaveLength(0);
   expect(createCalls).toHaveLength(1);
   expect(createCalls[0]!.number).toBe(7);
-  // claim is stamped asynchronously (setTimeout 0 inside claimLinkedIssue's caller is not used
-  // here — we call it directly), so it should have recorded #7.
+  // claim is stamped asynchronously, so it should have recorded #7.
   await new Promise((r) => setTimeout(r, 5));
   expect(labelCalls).toContain(7);
+});
+
+test("POST /api/up-next/start recomputes the lens via recomputeUntilCleared (not an immediate refresh)", async () => {
+  const { app, refreshCalls, recomputeCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }]),
+  );
+  expect(res.status).toBe(201);
+  // The recompute is backgrounded behind the claim-settle race — let it run.
+  await new Promise((r) => setTimeout(r, 20));
+  expect(refreshCalls()).toBe(0); // no stale immediate refresh
+  expect(recomputeCalls).toHaveLength(1);
+  expect(recomputeCalls[0]).toEqual([{ repoPath: repoDir, issueNumber: 7 }]);
 });
 
 test("POST /api/up-next/start serializes multiple spawns (no overlap)", async () => {

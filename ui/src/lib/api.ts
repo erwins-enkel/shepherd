@@ -473,6 +473,11 @@ export const putSessionHousekeeping = (
 ): Promise<{ sessionHousekeepingEnabled: boolean }> =>
   patchSettings({ sessionHousekeepingEnabled: enabled });
 
+// Set anonymous-telemetry consent ("granted" | "denied"). Server persists + live-applies.
+export const putTelemetryConsent = (
+  consent: "granted" | "denied",
+): Promise<{ telemetryConsent: string }> => patchSettings({ telemetryConsent: consent });
+
 // Persist the global PR review-cycles cap (max PR-critic auto-address rounds). The
 // server clamps the value into its valid range and returns the stored value.
 export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: number }> =>

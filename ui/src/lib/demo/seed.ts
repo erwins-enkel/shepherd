@@ -995,6 +995,8 @@ function buildSettings(): Settings {
     tuiFullscreen: false,
     tuiDisableMouse: false,
     reducedPushMode: false,
+    telemetryConsent: "unset",
+    telemetryAvailable: true,
     docAgentEnabled: false,
     docAgentAct: false,
   };

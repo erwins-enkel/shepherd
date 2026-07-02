@@ -381,6 +381,24 @@ describe("CommandBar — Commands group", () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(onclose).toHaveBeenCalledTimes(1);
   });
+
+  it("surfaces a learnings-style command via its keyword synonyms and runs it on activation", async () => {
+    const run = vi.fn();
+    const commands: Command[] = [
+      { id: "learnings", label: () => "Learnings", keywords: () => "insights", run },
+    ];
+    const { onclose } = renderBar({ commands });
+    // "learn" matches the label; the row surfaces in the Commands group.
+    await page.getByRole("combobox").fill("learn");
+    await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
+    const opts = page.getByRole("option");
+    await expect.element(opts.first()).toHaveTextContent("Learnings");
+    expect(opts.elements()).toHaveLength(1);
+
+    await page.getByRole("option", { name: /Learnings/ }).click();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("CommandBar — Docs group", () => {

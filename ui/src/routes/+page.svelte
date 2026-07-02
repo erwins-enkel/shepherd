@@ -2260,11 +2260,7 @@
         onwhatsnew={() => (showWhatsNew = true)}
         learnings={learningsCounts.proposed}
         learningsCurate={learningsCounts.curate}
-        onlearnings={() => {
-          learningsRepo =
-            learningsCounts.proposed > 0 ? null : firstCurateRepo(learnings.injectable);
-          showLearnings = true;
-        }}
+        onlearnings={openLearnings}
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
@@ -2277,6 +2273,7 @@
         onedithheld={onEditHeld}
         pluginItems={pluginGearItems}
         onpluginitem={handlePluginGearItem}
+        oncommandbar={() => (showCommandBar = true)}
       />
       <RepoSwitcher
         chips={repoChips}

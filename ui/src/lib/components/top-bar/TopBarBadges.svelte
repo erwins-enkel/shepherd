@@ -23,13 +23,6 @@
     onwhatsnew,
     diagnosticsOverall,
     ondiagnose,
-    learningsPresent,
-    learnings,
-    learningsCurate,
-    learningsTip,
-    learningsLabel,
-    learningsCount,
-    onlearnings,
   }: {
     compactBadges: boolean;
     updateAvailable: boolean;
@@ -45,13 +38,6 @@
     onwhatsnew: (() => void) | undefined;
     diagnosticsOverall: DiagnosticState;
     ondiagnose: (() => void) | undefined;
-    learningsPresent: boolean;
-    learnings: number;
-    learningsCurate: number;
-    learningsTip: string;
-    learningsLabel: string;
-    learningsCount: number;
-    onlearnings: (() => void) | undefined;
   } = $props();
 </script>
 
@@ -182,25 +168,6 @@
     use:coachTarget={"diagnostics"}
   >
     <span class="health-dot" aria-hidden="true"></span>
-  </button>
-{/if}
-<!-- ✦ LEARNINGS: global entry point to review proposed house rules across all repos.
-     Desktop-only badge (mobile folds into the gear bottom sheet). Stays off status
-     hues — ✦ is neutral chrome, not an attention state (Four-Light Rule). -->
-{#if learningsPresent}
-  <button
-    class="learnings-btn"
-    class:compact={compactBadges}
-    type="button"
-    onclick={() => onlearnings?.()}
-    title={learningsTip}
-    aria-label={learnings > 0
-      ? m.learnings_open_aria({ count: learnings })
-      : m.learnings_open_curate_aria({ count: learningsCurate })}
-  >
-    <span class="learn-glyph" aria-hidden="true">✦</span>
-    {#if !compactBadges}<span class="learn-label">{learningsLabel}</span>{/if}
-    <span class="learn-n">{learningsCount}</span>
   </button>
 {/if}
 
@@ -342,50 +309,6 @@
   .health-pip.alert .health-dot {
     background: var(--color-red);
   }
-  .learnings-btn {
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: var(--topbar-ctl-h);
-    line-height: 1;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    padding: 0 10px;
-    border-radius: 2px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .learnings-btn:hover {
-    color: var(--color-ink);
-    border-color: var(--color-ink);
-  }
-  .learnings-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-ink);
-  }
-  .learn-glyph {
-    font-size: var(--fs-lg);
-    line-height: 1;
-  }
-  /* Compact: icon-only, ≥44px tap target. */
-  .learnings-btn.compact {
-    justify-content: center;
-    min-width: 44px;
-    padding: 0 10px;
-    letter-spacing: 0;
-  }
-  .learn-n {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
 
   /* Coarse pointers (touch, any layout width): secondary icon buttons need ≥44px hit area.
      The 44px floor lives here (not unconditionally) so on a fine-pointer desktop these
@@ -393,8 +316,7 @@
   @media (pointer: coarse) {
     .update-badge,
     .whatsnew-badge,
-    .whatsnew-dot-btn,
-    .learnings-btn {
+    .whatsnew-dot-btn {
       min-height: 44px;
       min-width: 44px;
     }

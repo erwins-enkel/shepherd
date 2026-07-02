@@ -1923,6 +1923,7 @@
   "owed_main_hint": "Owed post-merge steps are shown in the herd panel on the left.",
   "owed_title": "Post-merge steps owed",
   "owed_empty": "No post-merge steps owed — you're all caught up.",
+  "owed_repo_filter_empty": "No post-merge steps owed for {repo}.",
   "owed_note": "These are every manual step the merged PRs declared. P2 tracks acknowledgement, not per-step completion, so steps you already did before merge appear here too — tick them to clear them.",
   "owed_steps_count": "{done} of {total} done",
   "owed_merged_ago": "merged {ago} ago",

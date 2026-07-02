@@ -28,12 +28,7 @@
   import { displayStatus } from "$lib/display-status";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { postMergeSteps } from "$lib/post-merge-steps.svelte";
-
-  // Outstanding owed records (#1257) — drives the OWED lens count badge. The container reads the
-  // shared store; HerdLensStrip stays a pure prop-driven component. Loaded in +page.svelte (desktop
-  // eager load); 0 until then, which simply hides the badge.
-  const owedCount = $derived(postMergeSteps.records.length);
+  import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
 
   let {
     sessions,
@@ -209,6 +204,13 @@
     // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
     onbacklog?: () => void;
   } = $props();
+
+  // Outstanding owed records (#1257) — drives the OWED lens count badge. Scoped to the active repo
+  // chip filter (#owed) so the badge reflects the filtered list, matching the rest of the repo-scoped
+  // herd view. Shares owedRecordsForRepo with PostMergeStepsPanel so count and list can't drift. The
+  // container reads the shared store; HerdLensStrip stays a pure prop-driven component. Loaded in
+  // +page.svelte (desktop eager load); 0 until then, which simply hides the badge.
+  const owedCount = $derived(owedRecordsForRepo(postMergeSteps.records, repoFilter).length);
 
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
   // the reviewer is actively working the session, so it is NOT awaiting the operator.
@@ -497,6 +499,7 @@
       <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->
       <PostMergeStepsPanel
+        {repoFilter}
         focusSessionId={owedFocusId}
         focusSnapshot={owedFocusSnapshot}
         focusNonce={owedFocusNonce}

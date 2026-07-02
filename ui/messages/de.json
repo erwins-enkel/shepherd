@@ -1324,7 +1324,6 @@
   "feat_readiness_install_commands_body": "Die Readiness-Empfehlung listet jetzt die exakten Installationsbefehle für den Paketmanager deines Repos auf, sodass jede fehlende Schutzregel ohne Nachschlagen übernommen werden kann.",
   "topbar_menu_docs": "README & Doku",
   "topbar_docs": "Dokumentation",
-  "topbar_docs_aria": "Dokumentation öffnen",
   "feat_docs_link_title": "Doku-Link in der Topbar",
   "feat_docs_link_body": "Ein Link zur Shepherd-Dokumentation sitzt jetzt in der Topbar neben dem Zahnrad und im Zahnrad-Menü — so ist die Doku von überall nur einen Klick entfernt.",
   "feat_mobile_menu_docs_title": "Doku & Version im Mobil-Menü",
@@ -1473,8 +1472,6 @@
   "newtask_upstream_diverged": "Von origin abgewichen ({behind} hinter, {ahead} voraus) — Aufgabe startet von lokal {base}",
   "feat_base_freshen_title": "Basis-Branch wird vom Upstream aktualisiert",
   "feat_base_freshen_body": "Neue Aufgaben starten jetzt vom neuesten Upstream-Stand des Basis-Branches — Shepherd holt und spult beim Start vor (fast-forward), sodass du Upstream-Änderungen nach Abschluss nicht mehr von Hand einpflegen musst. Der New-Task-Dialog weist darauf hin, wenn deine Basis zurückliegt oder von origin abgewichen ist.",
-  "topbar_learnings_tip": "Vorgeschlagene Hausregeln über alle deine Repos prüfen",
-  "topbar_learnings_curate_tip": "Bereits genehmigte Regeln, die nicht ins Injektions-Budget passen — kürze einige, damit die übrigen neue Agents erreichen",
   "buildqueue_collapse_aria": "Build-Queue einklappen",
   "buildqueue_expand_aria": "Build-Queue ausklappen",
   "feat_build_queue_collapse_title": "Build-Queue einklappen",
@@ -2365,5 +2362,11 @@
   "commandbar_prompt_match": "passt zur Beschreibung",
   "commandbar_repo_filter_affordance": "⇧↵ filtern",
   "feat_command_bar_repo_filter_title": "Sitzungen aus der Befehlsleiste filtern",
-  "feat_command_bar_repo_filter_body": "Wähle in der Befehlsleiste ein Repository aus und drücke dann ⇧↵ (oder ⌘/Strg+↵), um die Sitzungsliste auf die aktiven Sitzungen dieses Repos zu filtern. Mit einfachem ↵ öffnest du weiterhin sein Backlog."
+  "feat_command_bar_repo_filter_body": "Wähle in der Befehlsleiste ein Repository aus und drücke dann ⇧↵ (oder ⌘/Strg+↵), um die Sitzungsliste auf die aktiven Sitzungen dieses Repos zu filtern. Mit einfachem ↵ öffnest du weiterhin sein Backlog.",
+  "commandbar_cmd_learnings": "Erkenntnisse",
+  "commandbar_cmd_learnings_kw": "erkenntnisse einblicke regeln lektionen vorschläge",
+  "topbar_search": "Suchen",
+  "topbar_search_aria": "Suchen oder Befehl ausführen",
+  "feat_command_bar_search_field_title": "Suche in der oberen Leiste",
+  "feat_command_bar_search_field_body": "Die Befehlsleiste hat jetzt ein Suchfeld in der oberen Leiste mit einem ⌘K / Strg-K-Kürzel. Dokumentation und Erkenntnisse sind dorthin umgezogen — durchsuche die Dokumente und öffne Erkenntnisse direkt aus der Leiste."
 }

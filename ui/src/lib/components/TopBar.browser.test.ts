@@ -252,7 +252,10 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()
 // stale measuring frame remains queued. Bounded so a genuinely oscillating bar can't
 // hang the test.
 async function drainFrames(bar: HTMLElement, maxFrames = 20) {
-  const read = () => bar.querySelector(".learnings-btn")?.classList.contains("compact");
+  // .search (TopBarSearch) always renders on desktop/touch-desktop (unlike the old
+  // learnings badge, which was conditional on learnings/learningsCurate > 0), so it's
+  // a reliable universal signal for "has the measured-compaction pass settled".
+  const read = () => bar.querySelector(".search")?.classList.contains("compact");
   let prev = read();
   let stable = 0;
   for (let i = 0; i < maxFrames && stable < 2; i++) {
@@ -329,48 +332,24 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     return hud!;
   }
 
-  it("narrow fold (800): lone learnings overflows full-label → compacts to fit, gear hittable", async () => {
-    // Full-label intrinsic (clock already dropped) ≈ 840 > 800, so the old count rule
-    // overflowed here; the measured path compacts the chip to fit.
-    const hud = await renderTD(800, { learnings: 87 });
-    await waitNoOverflow(hud);
-    await drainFrames(hud);
-    const btn = hud.querySelector<HTMLElement>(".learnings-btn");
-    expect(btn, "learnings chip present").not.toBeNull();
-    expect(btn!.classList.contains("compact"), "lone learnings compacts to fit the fold").toBe(
-      true,
-    );
-    expect(hud.querySelector(".learnings-btn .learn-label"), "full label dropped").toBeNull();
-    assertControlsHittable(hud);
-  });
-
-  it("wide tablet (1366): lone learnings FITS → stays full-label (measurement does not over-compact)", async () => {
-    // Full-with-clock intrinsic ≈ 928 < 1366, so it must stay full: label kept, clock
-    // shown — the no-over-fire direction of the ungated measurement.
-    const hud = await renderTD(1366, { learnings: 87 });
-    await nextFrame();
-    await nextFrame();
-    await drainFrames(hud);
-    assertNoOverflow(hud);
-    const btn = hud.querySelector<HTMLElement>(".learnings-btn");
-    expect(btn!.classList.contains("compact"), "not compacted when it fits").toBe(false);
-    expect(hud.querySelector(".learnings-btn .learn-label"), "full label kept").not.toBeNull();
-    expect(
-      hud.querySelector(".clock")!.classList.contains("no-time"),
-      "clock shown when it fits",
-    ).toBe(false);
-    assertControlsHittable(hud);
-  });
-
   it("wide tablet (1366): two badges keep full labels (old count-floor over-compaction is gone)", async () => {
-    const hud = await renderTD(1366, { learnings: 2, update: { behind: 3 } as UpdateStatus });
+    const hud = await renderTD(1366, {
+      update: { behind: 3 } as UpdateStatus,
+      herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+    });
     await nextFrame();
     await nextFrame();
     await drainFrames(hud);
     assertNoOverflow(hud);
-    const learnings = hud.querySelector<HTMLElement>(".learnings-btn");
-    expect(learnings!.classList.contains("compact"), "learnings full at wide tablet").toBe(false);
+    expect(
+      hud.querySelector(".search")!.classList.contains("compact"),
+      "search full at wide tablet",
+    ).toBe(false);
     expect(hud.querySelector(".update-badge .up-label"), "update full label kept").not.toBeNull();
+    expect(
+      hud.querySelector(".update-badge.herdr .up-label"),
+      "herdr full label kept",
+    ).not.toBeNull();
     assertControlsHittable(hud);
   });
 
@@ -385,15 +364,16 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     // compacts) so the invariant can't pass vacuously.
     // Widths start at 800 (proven to fit once compacted, in CI + local) and span up to a
     // wide tablet; the exact compact↔full transition is font-dependent, but coupling must
-    // hold at every width regardless.
+    // hold at every width regardless. `.search` (TopBarSearch, always rendered) is the
+    // labels-compacted signal — it replaces the old lone-learnings-badge chip.
     const states: { width: number; clockDropped: boolean; labelsCompact: boolean }[] = [];
     for (const width of [800, 880, 960, 1100, 1250, 1366]) {
-      const hud = await renderTD(width, { learnings: 87 });
+      const hud = await renderTD(width, { update: { behind: 87 } as UpdateStatus });
       await waitNoOverflow(hud);
       await drainFrames(hud);
       const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
       const labelsCompact = hud
-        .querySelector<HTMLElement>(".learnings-btn")!
+        .querySelector<HTMLElement>(".search")!
         .classList.contains("compact");
       expect(clockDropped, `coupled at ${width}px (clock vs labels)`).toBe(labelsCompact);
       assertControlsHittable(hud);
@@ -409,18 +389,22 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     ).toBe(true);
   });
 
-  it("tallies COLLAPSE under measured overflow and stay FULL when there's room (held + learnings + gauges)", async () => {
+  it("tallies COLLAPSE under measured overflow and stay FULL when there's room (held + update + gauges)", async () => {
     // The reported bug: on an unfolded fold the right-side cluster compacts but the tallies
     // (HERD/BUSY/IDLE/BLOCKED) stay full-label off-`mobile`, so the bar still overflows and
     // clips the gear. The fix extends compaction to the tallies on touch. Asserted as the
     // same coupling invariant the test above uses — but for the TALLIES — over a width sweep,
     // so it's robust to the CI monospace fallback's font metrics (the exact transition width
-    // varies). Content mirrors the screenshot: held badge + learnings + several sessions
-    // (non-zero tallies) + both usage gauges. `learnings` is present so `drainFrames` (which
-    // keys off `.learnings-btn`) actually waits for the measurement to settle.
+    // varies). Content mirrors the screenshot: held badge + an update badge + several sessions
+    // (non-zero tallies) + both usage gauges. The update badge is present so `drainFrames`
+    // (which keys off `.search`, always rendered) still has settled compaction to observe.
     const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
     for (const width of [800, 920, 1040, 1200, 1400, 1600]) {
-      const hud = await renderTD(width, { ...sessionsProp(4), heldCount: 3, learnings: 2 });
+      const hud = await renderTD(width, {
+        ...sessionsProp(4),
+        heldCount: 3,
+        update: { behind: 2 } as UpdateStatus,
+      });
       await waitNoOverflow(hud);
       await drainFrames(hud);
       const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
@@ -456,12 +440,12 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
   // Settle the rAF first (the measurement might briefly flip), then assert it stays
   // non-compact. Plus a no-gauge variant. Both keep full labels AND fit 1436.
   //
-  // Asserts: (a) the learnings + update badges are present and showing their FULL
-  // labels (learnings not in .compact form; the update badge still rendering its
-  // .up-label word), (b) no overflow, (c) all controls hittable - catching a future
-  // left-cluster or gap change that silently overflows the non-compact desktop path.
-  // (Sub-1436px desktop windows have less usable width and DO compact — covered by
-  // the narrow-desktop scenarios above.)
+  // Asserts: (a) the update + herdr-update badges and the search pill are present and
+  // showing their FULL labels (search not in .compact form; the update badge still
+  // rendering its .up-label word), (b) no overflow, (c) all controls hittable -
+  // catching a future left-cluster or gap change that silently overflows the
+  // non-compact desktop path. (Sub-1436px desktop windows have less usable width and
+  // DO compact — covered by the narrow-desktop scenarios above.)
   const cases: Array<{ limits: UsageLimits | null; desc: string }> = [
     { limits: fullLimits, desc: "usable cap with gauges (worst-case chrome)" },
     { limits: null, desc: "usable cap no gauges" },
@@ -476,8 +460,9 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
         connected: true,
         mobile: false,
         touch: false,
-        // Two full-label badges (learnings + update).
-        learnings: 2,
+        // One full-label badge (update) — the always-on search pill now occupies a
+        // fixed 180px baseline the old scenario (learnings + update) didn't carry, so
+        // the widest-still-fits case at the true usable cap is one badge, not two.
         update: { behind: 3 } as UpdateStatus,
         limits,
         ...sessionsProp(0),
@@ -490,12 +475,12 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
       await nextFrame();
       await nextFrame();
 
-      // Full-label: both badges present and NOT in compact (icon/count) form.
+      // Full-label: both badges present and the search pill NOT in compact (icon-only) form.
       const update = hud!.querySelector<HTMLElement>(".update-badge");
-      const learnings = hud!.querySelector<HTMLElement>(".learnings-btn");
+      const search = hud!.querySelector<HTMLElement>(".search");
       expect(update, "update badge present").not.toBeNull();
-      expect(learnings, "learnings badge present").not.toBeNull();
-      expect(learnings!.classList.contains("compact"), "learnings NOT compact").toBe(false);
+      expect(search, "search pill present").not.toBeNull();
+      expect(search!.classList.contains("compact"), "search pill NOT compact").toBe(false);
       // The full word label renders inside the update badge (compact form omits it).
       const upLabel = update!.querySelector<HTMLElement>(".up-label");
       expect(upLabel, "update full label present").not.toBeNull();
@@ -503,7 +488,7 @@ describe("TopBar — wide desktop keeps full labels (measurement does NOT over-c
         m.topbar_update_badge(),
       );
       expect(update!.getBoundingClientRect().width, "update has width").toBeGreaterThan(0);
-      expect(learnings!.getBoundingClientRect().width, "learnings has width").toBeGreaterThan(0);
+      expect(search!.getBoundingClientRect().width, "search has width").toBeGreaterThan(0);
 
       // Must still not overflow despite showing full labels.
       assertNoOverflow(hud!);
@@ -536,8 +521,8 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
       connected: true,
       mobile: false,
       touch: false,
-      // Widest 2-badge full-label chrome + both gauges (~1354px): fits 1436, overflows 1236.
-      learnings: 2,
+      // One full-label badge + both gauges + the always-on search pill: fits 1436,
+      // overflows 1236.
       update: { behind: 3 } as UpdateStatus,
       limits: fullLimits,
       ...sessionsProp(0),
@@ -549,7 +534,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
     await waitNoOverflow(hud!);
     await drainFrames(hud!);
     expect(
-      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
+      hud!.querySelector(".search")?.classList.contains("compact"),
       "full (not compact) at 1436",
     ).toBe(false);
 
@@ -559,7 +544,7 @@ describe("TopBar — pure resize decides from cached full width (no flicker)", (
     document.body.style.width = "1236px";
     await drainFrames(hud!);
     expect(
-      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
+      hud!.querySelector(".search")?.classList.contains("compact"),
       "compacts after wide→narrow resize (cached-width path)",
     ).toBe(true);
     assertNoOverflow(hud!);
@@ -610,14 +595,13 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
     }
     globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
     try {
-      // Widest 2-badge desktop chrome, but limits START null: ~1113px of full-label
-      // content fits the ~1250px window → no gauges, desktopCompact=false.
+      // Widest available desktop chrome via the harness, but limits START null: the
+      // full-label content fits the ~1250px window → no gauges, desktopCompact=false.
       const { component } = render(TopBarLimitsHarness, {
         nowMs: 1_700_000_000_000,
         connected: true,
         mobile: false,
         touch: false,
-        learnings: 2,
         update: { behind: 3 } as UpdateStatus,
         ...sessionsProp(0),
       });
@@ -633,7 +617,7 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
       await drainFrames(hud!);
       expect(hud!.querySelector(".gauges"), "no gauges before limits arrive").toBeNull();
       expect(
-        hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
+        hud!.querySelector(".search")?.classList.contains("compact"),
         "not compacted before gauges arrive",
       ).toBe(false);
 
@@ -681,8 +665,11 @@ describe("TopBar — fine-pointer desktop tallies ALSO collapse under measured o
 
   it("narrow desktop window collapses the tallies to fit; wide keeps full labels (no over-compaction)", async () => {
     const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
-    for (const width of [960, 1150, 1350, 1500, 1650]) {
-      const hud = await renderDesktopBar(width, { heldCount: 3, learnings: 2 });
+    for (const width of [1000, 1150, 1350, 1500, 1650]) {
+      const hud = await renderDesktopBar(width, {
+        heldCount: 3,
+        update: { behind: 2 } as UpdateStatus,
+      });
       await waitNoOverflow(hud);
       await drainFrames(hud);
       const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
@@ -726,12 +713,14 @@ describe("TopBar — async held-task arrival re-measures (touch-desktop reactivi
   // Mutation check (verified): removing `held` from badgeCount (top-bar-layout.ts) OR from
   // the `chrome` object (TopBar.svelte) makes this FAIL — with the RO stubbed nothing
   // re-measures on held arrival, the bar stays full-tally and overflows. Restoring it passes.
-  it("touch-desktop 880 — a task is held after mount, bar re-compacts the tallies to fit", async () => {
-    // 880 is the window where the held badge is the deciding factor: held=0 fits with FULL
+  it("touch-desktop 1050 — a task is held after mount, bar re-compacts the tallies to fit", async () => {
+    // 1050 is the window where the held badge is the deciding factor: held=0 fits with FULL
     // tallies; held=3 overflows and only fits once the tallies collapse (probed). Wider and
     // held fits without compaction; narrower and the bar is already compact before held.
-    await page.viewport(880, 900);
-    document.body.style.width = "880px";
+    // (Widened from the pre-search-pill 880 baseline: the always-on TopBarSearch pill adds
+    // fixed width to every touch-desktop render, shifting the deciding width upward.)
+    await page.viewport(1050, 900);
+    document.body.style.width = "1050px";
 
     const RealResizeObserver = globalThis.ResizeObserver;
     class NoopResizeObserver {
@@ -1260,21 +1249,11 @@ describe("TopBar — idle gear opens Settings directly", () => {
       .not.toBeInTheDocument();
   });
 
-  it("desktop: a standalone documentation link sits in the bar regardless of herd state", async () => {
-    await page.viewport(1280, 900);
-    document.body.style.width = "1280px";
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.desktop,
-      sessions: sessions(0), // idle herd → no gear menu, but the bar link is still there
-    });
-    const docs = page.getByRole("link", { name: m.topbar_docs_aria() });
-    await expect.element(docs).toBeInTheDocument();
-    await expect.element(docs).toHaveAttribute("href", DOCS_URL);
-  });
-
-  it("desktop compact + idle herd: docs folds away from the bar but the gear menu carries it", async () => {
+  it("desktop compact + idle herd: the gear opens a menu (not Settings directly), carrying Documentation", async () => {
+    // The standalone bar docs link and the learnings badge are both gone (moved into
+    // the command bar via the search pill) — this now just guards that measured
+    // overflow still forces menu mode on an idle herd, keeping the gear's own
+    // Documentation entry reachable.
     await page.viewport(1236, 900);
     document.body.style.width = "1236px";
     render(TopBar, {
@@ -1288,16 +1267,10 @@ describe("TopBar — idle gear opens Settings directly", () => {
     const hud = document.querySelector<HTMLElement>(".hud");
     await waitNoOverflow(hud!);
     await drainFrames(hud!);
-    // measured overflow → the standalone bar docs link folds away with the labels/clock…
     expect(
-      hud!.querySelector(".learnings-btn")?.classList.contains("compact"),
+      hud!.querySelector(".search")?.classList.contains("compact"),
       "bar is compacted at 1236 with full chrome",
     ).toBe(true);
-    await expect
-      .element(page.getByRole("link", { name: m.topbar_docs_aria() }))
-      .not.toBeInTheDocument();
-    // …but the gear now opens a menu (not Settings directly) that still carries Documentation,
-    // so the docs stay reachable in the compact + idle state.
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     const docs = page.getByRole("menuitem", { name: m.topbar_docs() });
     await expect.element(docs).toBeInTheDocument();
@@ -1724,12 +1697,13 @@ describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnO
   });
 });
 
-describe("TopBar — global learnings button", () => {
+describe("TopBar — search pill replaces the docs link + learnings badge on desktop", () => {
   const idleSession = [{ id: "d1", status: "done" }] as unknown as Session[];
 
-  it("desktop, proposed: shows learnings button with correct aria-label and calls onlearnings", async () => {
+  it("desktop: renders the search pill and calls oncommandbar; no learnings badge even with learnings pending", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
+    const oncommandbar = vi.fn();
     const onlearnings = vi.fn();
     render(TopBar, {
       nowMs: 1_700_000_000_000,
@@ -1737,48 +1711,27 @@ describe("TopBar — global learnings button", () => {
       ...FLAGS.desktop,
       sessions: idleSession,
       learnings: 3,
-      onlearnings,
-    });
-    const btn = page.getByRole("button", { name: m.learnings_open_aria({ count: 3 }) });
-    await expect.element(btn).toBeVisible();
-    await btn.click();
-    expect(onlearnings).toHaveBeenCalledTimes(1);
-  });
-
-  it("desktop, none: no learnings button when learnings=0 and learningsCurate=0", async () => {
-    await page.viewport(1280, 900);
-    document.body.style.width = "1280px";
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.desktop,
-      sessions: idleSession,
-      learnings: 0,
-      learningsCurate: 0,
-    });
-    const hud = document.querySelector<HTMLElement>(".hud");
-    expect(hud, "TopBar .hud mounted").not.toBeNull();
-    expect(hud!.querySelector(".learnings-btn"), "no learnings button when none").toBeNull();
-  });
-
-  it("desktop, curate-only: shows button with curate aria-label and calls onlearnings", async () => {
-    await page.viewport(1280, 900);
-    document.body.style.width = "1280px";
-    const onlearnings = vi.fn();
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.desktop,
-      sessions: idleSession,
-      learnings: 0,
       learningsCurate: 2,
       onlearnings,
+      oncommandbar,
     });
-    const btn = page.getByRole("button", { name: m.learnings_open_curate_aria({ count: 2 }) });
-    await expect.element(btn).toBeVisible();
-    await btn.click();
-    expect(onlearnings).toHaveBeenCalledTimes(1);
+    const search = page.getByRole("button", { name: m.topbar_search_aria() });
+    await expect.element(search).toBeVisible();
+    await search.click();
+    expect(oncommandbar).toHaveBeenCalledTimes(1);
+
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    expect(
+      hud!.querySelector(".learnings-btn"),
+      "no learnings badge on desktop — Learnings now lives in the command bar",
+    ).toBeNull();
+    expect(onlearnings).not.toHaveBeenCalled();
   });
+});
+
+describe("TopBar — mobile learnings sheet row", () => {
+  const idleSession = [{ id: "d1", status: "done" }] as unknown as Session[];
 
   it("mobile sheet: learnings row appears after opening gear sheet and calls onlearnings", async () => {
     await page.viewport(390, 800);
@@ -1799,69 +1752,6 @@ describe("TopBar — global learnings button", () => {
     await expect.element(learningsBtn).toBeInTheDocument();
     await learningsBtn.click();
     expect(onlearnings).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("TopBar — learnings chip label switches between proposed and curate-only mode", () => {
-  // At 1436px wide desktop, the chip is NOT compacted (confirmed by the
-  // "wide desktop keeps full labels" suite), so .learn-label renders.
-  const desktopBase = {
-    nowMs: 1_700_000_000_000,
-    connected: true,
-    ...FLAGS.desktop,
-    ...sessionsProp(0),
-    limits: null as UsageLimits | null,
-  };
-
-  it("curate-only: chip reads TRIM with curate tooltip and curate aria-label", async () => {
-    await page.viewport(1436, 900);
-    document.body.style.width = "1436px";
-    render(TopBar, { ...desktopBase, learnings: 0, learningsCurate: 5 });
-
-    await nextFrame();
-    await nextFrame();
-
-    const btn = document.querySelector<HTMLElement>(".learnings-btn");
-    expect(btn, ".learnings-btn rendered").not.toBeNull();
-
-    const label = btn!.querySelector<HTMLElement>(".learn-label");
-    expect(label, ".learn-label rendered (not compacted at 1436px)").not.toBeNull();
-    expect(label!.textContent, "chip label is TRIM in curate-only mode").toBe(
-      m.learnings_trim_title(),
-    );
-
-    const countEl = btn!.querySelector<HTMLElement>(".learn-n");
-    expect(countEl, ".learn-n rendered").not.toBeNull();
-    expect(countEl!.textContent, "chip count is curate count").toBe("5");
-
-    expect(btn!.getAttribute("title"), "tooltip is curate tip").toBe(
-      m.topbar_learnings_curate_tip(),
-    );
-    expect(btn!.getAttribute("aria-label"), "aria-label is curate aria").toBe(
-      m.learnings_open_curate_aria({ count: 5 }),
-    );
-  });
-
-  it("proposed: chip reads LEARNINGS with proposed aria-label", async () => {
-    await page.viewport(1436, 900);
-    document.body.style.width = "1436px";
-    render(TopBar, { ...desktopBase, learnings: 5, learningsCurate: 0 });
-
-    await nextFrame();
-    await nextFrame();
-
-    const btn = document.querySelector<HTMLElement>(".learnings-btn");
-    expect(btn, ".learnings-btn rendered").not.toBeNull();
-
-    const label = btn!.querySelector<HTMLElement>(".learn-label");
-    expect(label, ".learn-label rendered (not compacted at 1436px)").not.toBeNull();
-    expect(label!.textContent, "chip label is LEARNINGS in proposed mode").toBe(
-      m.learnings_title(),
-    );
-
-    expect(btn!.getAttribute("aria-label"), "aria-label is proposed aria").toBe(
-      m.learnings_open_aria({ count: 5 }),
-    );
   });
 });
 

@@ -9,9 +9,11 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onUsage: vi.fn(),
     onRetry: vi.fn(),
     onNextNeedsYou: vi.fn(),
+    onLearnings: vi.fn(),
     hasSessions: true,
     retryReady: true,
     otherNeedsYouCount: 1,
+    hasLearnings: true,
     ...overrides,
   };
 }
@@ -25,6 +27,7 @@ describe("buildCommands — availability", () => {
       "broadcast",
       "settings",
       "usage",
+      "learnings",
       "retry",
       "next-needs-you",
     ]);
@@ -42,8 +45,14 @@ describe("buildCommands — availability", () => {
     expect(ids(ctx({ otherNeedsYouCount: 0 }))).not.toContain("next-needs-you");
   });
 
+  it("hides Learnings unless hasLearnings", () => {
+    expect(ids(ctx({ hasLearnings: false }))).not.toContain("learnings");
+  });
+
   it("always offers New task, Settings and Usage", () => {
-    const bare = ids(ctx({ hasSessions: false, retryReady: false, otherNeedsYouCount: 0 }));
+    const bare = ids(
+      ctx({ hasSessions: false, retryReady: false, otherNeedsYouCount: 0, hasLearnings: false }),
+    );
     expect(bare).toEqual(["new-task", "settings", "usage"]);
   });
 });
@@ -56,12 +65,14 @@ describe("buildCommands — run() wiring", () => {
     byId["broadcast"].run();
     byId["settings"].run();
     byId["usage"].run();
+    byId["learnings"].run();
     byId["retry"].run();
     byId["next-needs-you"].run();
     expect(c.onNewTask).toHaveBeenCalledOnce();
     expect(c.onBroadcast).toHaveBeenCalledOnce();
     expect(c.onSettings).toHaveBeenCalledOnce();
     expect(c.onUsage).toHaveBeenCalledOnce();
+    expect(c.onLearnings).toHaveBeenCalledOnce();
     expect(c.onRetry).toHaveBeenCalledOnce();
     expect(c.onNextNeedsYou).toHaveBeenCalledOnce();
   });

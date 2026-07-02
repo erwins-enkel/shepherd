@@ -25,8 +25,6 @@
   } from "$lib/api";
   import type { AgentProvider, HeldTask } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { DOCS_URL } from "$lib/build-info";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { modeOf, badgeCount } from "./top-bar-layout";
@@ -34,6 +32,7 @@
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
   import TopBarBadges from "./top-bar/TopBarBadges.svelte";
+  import TopBarSearch from "./top-bar/TopBarSearch.svelte";
   import TopBarGear from "./top-bar/TopBarGear.svelte";
   import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
 
@@ -69,6 +68,7 @@
     onedithheld,
     pluginItems = [],
     onpluginitem,
+    oncommandbar,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -111,6 +111,8 @@
     pluginItems?: { id: string; label: string; icon?: string }[];
     /** Called when a plugin item is selected from the gear menu. */
     onpluginitem?: (id: string) => void;
+    /** Opens the command bar (search-pill click). */
+    oncommandbar?: () => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -137,15 +139,11 @@
   // Badge shows proposed count when any proposed, else the curate count
   const learningsCount = $derived(learnings > 0 ? learnings : learningsCurate);
   const learningsLabel = $derived(learnings > 0 ? m.learnings_title() : m.learnings_trim_title());
-  const learningsTip = $derived(
-    learnings > 0 ? m.topbar_learnings_tip() : m.topbar_learnings_curate_tip(),
-  );
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
     codexUpdateAvailable,
     whatsNew,
-    learnings: learnings + learningsCurate,
     // held arrives async via the held:changed WS event; counting it here makes the
     // measure effect's `void badgeCount(chrome)` read re-fire on its arrival.
     held: heldCount,
@@ -537,9 +535,9 @@
   // contrast controls, which must be reachable with an idle herd. On desktop those
   // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
   // opens Settings directly; only a haltable herd turns it into a menu button — EXCEPT
-  // under measured overflow (compactBadges), where the standalone docs link folds away,
-  // so the gear must open the menu (which carries Documentation + Settings) to keep the
-  // docs reachable even with an idle herd in that compact state.
+  // under measured overflow (compactBadges), where the gear opens the menu (which
+  // carries Documentation + Settings) even with an idle herd, so those stay reachable
+  // once the bar has crowded down to icons.
   // Plugin items also force menu mode: their actions live in the menu, not the gear click.
   const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges || pluginItems.length > 0);
   // Mobile only: every gear-area signal collapses into ONE dot, colored by the
@@ -625,8 +623,8 @@
       disarmHalt();
       return;
     }
-    // Under measured overflow the gear is a menu button even with an idle herd (it hosts
-    // the folded-away docs link), so keep the menu open here too — just drop armed state.
+    // Under measured overflow the gear is a menu button even with an idle herd, so keep
+    // the menu open here too — just drop armed state.
     if (compactBadges) {
       disarmHalt();
       return;
@@ -760,50 +758,21 @@
         {onwhatsnew}
         {diagnosticsOverall}
         {ondiagnose}
-        {learningsPresent}
-        {learnings}
-        {learningsCurate}
-        {learningsTip}
-        {learningsLabel}
-        {learningsCount}
-        {onlearnings}
       />{/if}
+    {#if !mobile}
+      <TopBarSearch compact={compactBadges} oncommandbar={() => oncommandbar?.()} />
+    {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
          the Settings entry. The pip differs by platform:
          • Desktop keeps the dedicated halt-pip — the only at-rest cue that there's a
            herd to halt: amber while agents simply work (matches the working colour),
            escalating to red only when something is blocked. Other signals (update,
-           health, what's-new, learnings) live in their own labelled badges.
+           health, what's-new) live in their own labelled badges.
          • Mobile folds those badges into the gear's bottom sheet, so the gear carries
            a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
            signal — red > orange > yellow > blue. Red still means "needs you",
            consistent with the rest of the bar. -->
-    {#if !mobile && !compactBadges}
-      <!-- Standing docs entry: the gear dropdown only appears with a haltable herd
-           (an idle desktop gear opens Settings directly), so the documentation link also
-           needs a home in the bar. It folds away under measured overflow alongside the
-           collapsing labels/clock; mobile reaches it via the gear bottom sheet instead. -->
-      <a
-        class="docs-link tip"
-        href={DOCS_URL}
-        target="_blank"
-        rel="external noreferrer noopener"
-        data-tip={m.topbar_docs()}
-        aria-label={m.topbar_docs_aria()}
-        use:coachTarget={"docs-link"}
-      >
-        <svg class="docs-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M4 4.5C6 3.6 9.5 3.6 12 5C14.5 3.6 18 3.6 20 4.5V19C18 18.1 14.5 18.1 12 19.5C9.5 18.1 6 18.1 4 19V4.5Z M12 5V19.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </a>
-    {/if}
     <TopBarGear
       {mobile}
       {haltable}
@@ -941,29 +910,6 @@
   /* credit-gauge.* rules moved to top-bar/CreditGauge.svelte (#855) */
   /* credit-detail.* rules moved to top-bar/CreditDetail.svelte (#855) */
   /* update-badge, up-dot, up-n, update-pulse moved to top-bar/TopBarBadges.svelte (#855) */
-  /* Standalone docs link: a quiet icon button matching the gear's at-rest muted ink,
-     going amber on hover/focus. Coarse-pointer 44px floor handled in the shared block. */
-  .docs-link {
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: var(--topbar-ctl-h);
-    line-height: 1;
-    color: var(--color-muted);
-    padding: 0 8px;
-    flex-shrink: 0;
-  }
-  .docs-link:hover,
-  .docs-link:focus-visible {
-    color: var(--color-amber);
-    outline: none;
-  }
-  .docs-icon {
-    width: var(--fs-xl);
-    height: var(--fs-xl);
-    display: block;
-  }
   .clock {
     color: var(--color-ink-bright);
     letter-spacing: 0.16em;
@@ -1032,18 +978,10 @@
   /* .hud.mobile .gear moved to top-bar/TopBarGear.svelte as .gear.mobile (#855) */
   /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,
      so .hud.mobile .gauge-btn can never match — verified dead (#855). */
-  /* Coarse pointers (touch, any layout width): the secondary icon buttons are
-     tuned tight for a cursor on desktop. Give them a ≥44px hit area on touch
-     without enlarging glyphs — padding/min-size only. Applies regardless of the
-     mobile-width class so coarse-pointer tablets/foldables in desktop layout
-     also clear the 44px guideline. Desktop (pointer: fine) sizing is untouched. */
-  @media (pointer: coarse) {
-    /* .gear/.menu-item moved to TopBarGear; .update-badge/.learnings-btn moved to TopBarBadges */
-    .docs-link {
-      min-height: 44px;
-      min-width: 44px;
-    }
-  }
+  /* Coarse-pointer 44px floor for the secondary icon buttons (.gear/.menu-item,
+     .update-badge/.learnings-btn) moved to TopBarGear / TopBarBadges — the
+     standalone docs link that owned the last rule here was removed (search field
+     replaces it) and TopBarSearch carries its own coarse-pointer floor. */
 
   /* Desktop-only hover tooltips — never shown on touch / mobile devices. */
   @media (hover: hover) and (pointer: fine) {

@@ -1324,7 +1324,6 @@
   "feat_readiness_install_commands_body": "The Readiness prescription now lists the exact install commands for your repo's package manager, so each missing guardrail can be adopted without looking the steps up.",
   "topbar_menu_docs": "README & docs",
   "topbar_docs": "Documentation",
-  "topbar_docs_aria": "Open documentation",
   "feat_docs_link_title": "Documentation link in the top bar",
   "feat_docs_link_body": "A link to the Shepherd documentation now sits in the top bar next to the gear, and inside the gear menu — so the docs are one click away from anywhere.",
   "feat_mobile_menu_docs_title": "Docs & version in the mobile menu",
@@ -1473,8 +1472,6 @@
   "newtask_upstream_diverged": "Diverged from origin ({behind} behind, {ahead} ahead) — task will start from local {base}",
   "feat_base_freshen_title": "Base branch freshens from upstream",
   "feat_base_freshen_body": "New tasks now start from the latest upstream tip of the base branch — Shepherd fetches and fast-forwards at launch, so you no longer fold in upstream changes by hand when the task is done. The New Task dialog flags when your base is behind or has diverged from origin.",
-  "topbar_learnings_tip": "Review proposed house rules across all your repos",
-  "topbar_learnings_curate_tip": "Already-approved rules that don't fit the injection budget — trim some so the rest reach new agents",
   "buildqueue_collapse_aria": "Collapse build queue",
   "buildqueue_expand_aria": "Expand build queue",
   "feat_build_queue_collapse_title": "Collapse the build queue",
@@ -2365,5 +2362,11 @@
   "commandbar_prompt_match": "matches description",
   "commandbar_repo_filter_affordance": "⇧↵ filter",
   "feat_command_bar_repo_filter_title": "Filter sessions from the command bar",
-  "feat_command_bar_repo_filter_body": "Pick a repository in the command bar, then press ⇧↵ (or ⌘/Ctrl+↵) to filter the session list to that repo's active sessions. Plain ↵ still opens its backlog."
+  "feat_command_bar_repo_filter_body": "Pick a repository in the command bar, then press ⇧↵ (or ⌘/Ctrl+↵) to filter the session list to that repo's active sessions. Plain ↵ still opens its backlog.",
+  "commandbar_cmd_learnings": "Learnings",
+  "commandbar_cmd_learnings_kw": "learnings insights rules lessons proposals",
+  "topbar_search": "Search",
+  "topbar_search_aria": "Search or run a command",
+  "feat_command_bar_search_field_title": "Search from the top bar",
+  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar."
 }

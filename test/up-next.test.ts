@@ -152,6 +152,73 @@ describe("UpNextService.refresh", () => {
         .sort(),
     ).toEqual([1]);
   });
+
+  test("threads forge.currentUser as viewer → filters standalone issues assigned to others (#824)", async () => {
+    const s = svc({
+      resolveForge: () =>
+        fakeForge({
+          currentUser: async () => "me",
+          issues: [issue(1), issue(2, { assignees: ["me"] }), issue(3, { assignees: ["other"] })],
+        }),
+    });
+    const snap = await s.refresh();
+    const items = snap.sections.find((x) => x.kind === "repo")!.items;
+    // #3 (assigned solely to "other") is filtered out; unassigned #1 and mine #2 remain.
+    expect(items.map((i) => i.number)).toEqual([1, 2]);
+  });
+
+  test("no currentUser → viewer null → fails open (others' issues still shown)", async () => {
+    const s = svc({
+      resolveForge: () => fakeForge({ issues: [issue(1), issue(2, { assignees: ["other"] })] }), // no currentUser
+    });
+    const snap = await s.refresh();
+    const items = snap.sections.find((x) => x.kind === "repo")!.items;
+    expect(items.map((i) => i.number)).toEqual([1, 2]);
+  });
+
+  test("threads epic parent assignees → hides epic unit whose parent is assigned to others (#824)", async () => {
+    const epic: Epic = {
+      repoPath: "/r/a",
+      parentIssueNumber: 100,
+      parentTitle: "epic",
+      source: "native",
+      run: { repoPath: "/r/a", parentIssueNumber: 100, mode: "auto", status: "idle" } as EpicRun,
+      warnings: [],
+      children: [
+        {
+          number: 2,
+          title: "child-2",
+          url: "https://x/2",
+          order: 0,
+          body: "b2",
+          blockedBy: [],
+          state: "ready",
+          sessionId: null,
+          prNumber: null,
+          issueClosed: false,
+          integrationMerged: false,
+          claimed: false,
+        },
+      ],
+    };
+    const s = svc({
+      resolveForge: () =>
+        fakeForge({
+          currentUser: async () => "me",
+          issues: [
+            issue(1),
+            issue(2),
+            issue(100, { assignees: ["other"], body: "```epic-dag\n#2\n```" }),
+          ],
+        }),
+      buildEpic: async () => epic,
+    });
+    const snap = await s.refresh();
+    const items = snap.sections.find((x) => x.kind === "repo")!.items;
+    // Parent #100 assigned solely to "other" → epic unit suppressed; only standalone #1 remains.
+    expect(items.filter((i) => i.kind === "epic")).toHaveLength(0);
+    expect(items.map((i) => i.number)).toEqual([1]);
+  });
 });
 
 describe("UpNextService.recomputeUntilCleared", () => {

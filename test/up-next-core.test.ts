@@ -31,6 +31,7 @@ function repo(over: Partial<RepoInput> = {}): RepoInput {
     repoSlug: "o/a",
     repoLabel: "a",
     lastUsedAt: 0,
+    viewer: null,
     openIssues: [],
     epics: [],
     subIssueNumbers: [],
@@ -46,6 +47,7 @@ function epic(over: Partial<EpicUnitInput> = {}): EpicUnitInput {
     parentUrl: "https://x/100",
     parentCreatedAt: 100,
     parentLabels: [],
+    parentAssignees: [],
     memberNumbers: [],
     candidate: null,
     ...over,
@@ -110,6 +112,58 @@ describe("exclusions", () => {
   test("fully-excluded repo emits no section", () => {
     const r = [repo({ openIssues: [issue(1, { labels: ["shepherd:active"] })] })];
     expect(repoSection(r, "/r/a")).toBeUndefined();
+  });
+});
+
+describe("assignee filter — mine & unassigned (#824)", () => {
+  test("standalone: keeps unassigned & mine, drops assigned-solely-to-others", () => {
+    const r = [
+      repo({
+        viewer: "me",
+        openIssues: [
+          issue(1), // unassigned → keep
+          issue(2, { assignees: ["me"] }), // mine → keep
+          issue(3, { assignees: ["other"] }), // solely others → drop
+          issue(4, { assignees: ["other", "me"] }), // mine + others → keep
+        ],
+      }),
+    ];
+    expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([1, 2, 4]);
+  });
+  test("standalone: viewer null fails open (no assignee filtering)", () => {
+    const r = [
+      repo({
+        viewer: null,
+        openIssues: [issue(1, { assignees: ["other"] }), issue(2, { assignees: ["a", "b"] })],
+      }),
+    ];
+    expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([1, 2]);
+  });
+  test("epic unit: filtered by PARENT assignees, not the candidate child", () => {
+    // Parent assigned solely to "other" → unit hidden even though the candidate child carries
+    // no assignees (the child is synthesized with assignees:[]).
+    const r = [
+      repo({
+        viewer: "me",
+        epics: [epic({ parentAssignees: ["other"], memberNumbers: [2], candidate: issue(2) })],
+      }),
+    ];
+    expect(repoSection(r, "/r/a")).toBeUndefined();
+  });
+  test("epic unit: parent unassigned / mine surfaces; viewer null keeps it", () => {
+    const mkRepo = (viewer: string | null, parentAssignees: string[]) =>
+      repo({
+        viewer,
+        epics: [epic({ parentAssignees, memberNumbers: [2], candidate: issue(2) })],
+      });
+    for (const r of [
+      mkRepo("me", []), // parent unassigned → keep
+      mkRepo("me", ["me"]), // parent mine → keep
+      mkRepo(null, ["other"]), // unknown "me" → fail open → keep
+    ]) {
+      const items = repoSection([r], "/r/a")!.items;
+      expect(items.filter((i) => i.kind === "epic")).toHaveLength(1);
+    }
   });
 });
 

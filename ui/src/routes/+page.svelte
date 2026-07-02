@@ -2774,15 +2774,20 @@
   {showCommandBar}
   {commandBarCommands}
   commandBarInitialFilter={demoCommandFilter}
-  oncommandbarclose={() => (showCommandBar = false)}
+  oncommandbarclose={() => {
+    showCommandBar = false;
+    demoCommandFilter = "";
+  }}
   oncommandbarsession={(id) => {
     showCommandBar = false;
+    demoCommandFilter = "";
     showBacklog = false;
     herdFilter = "all";
     selectUnit(id);
   }}
   oncommandbarrepo={(path) => {
     showCommandBar = false;
+    demoCommandFilter = "";
     showBacklog = true;
     // Payload-before-path ordering per finishBacklogAdd: BacklogView's select effect
     // fires once per value, so the repo must be in the payload when the path is set.
@@ -2804,6 +2809,7 @@
   }}
   oncommandbarlens={(lens) => {
     showCommandBar = false;
+    demoCommandFilter = "";
     showBacklog = false;
     herdFilter = lens;
   }}

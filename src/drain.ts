@@ -3,6 +3,7 @@ import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/t
 import type { CreateSessionInput, Session } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
+import type { TelemetryService } from "./telemetry";
 import { settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
 import {
@@ -169,6 +170,9 @@ export interface DrainDeps {
   emitEpicCompleted?: (epic: CompletedEpic) => void;
   /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
   emitSessionNew?: (s: Session) => void;
+  /** Anonymous product telemetry. `event()` no-ops unless consent is granted (src/telemetry.ts),
+   *  so no call-site gating is needed. Absent in tests that don't assert emission. */
+  telemetry?: Pick<TelemetryService, "event">;
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
@@ -633,6 +637,7 @@ export class DrainService {
       // Emit a final epic:update reflecting the completed/idle state before
       // the next buildState sees idle and stops emitting epicParent.
       this.emitEpicIfChanged(repoPath, { ...epic, run: completedRun });
+      this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
       return true;
     } else {
       this.emitEpicIfChanged(repoPath, epic);

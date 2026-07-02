@@ -1478,6 +1478,7 @@ const drain = new DrainService({
   // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
   // session:status (idle/done) push and the /api/sessions list enrichment.
   emitSessionNew: (s) => events.emit("session:new", { ...s, hasScratchpadFiles: false }),
+  telemetry,
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,
 });

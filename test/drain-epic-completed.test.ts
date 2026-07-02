@@ -81,6 +81,7 @@ interface Harness {
   store: SessionStore;
   drain: DrainService;
   completedEmits: CompletedEpic[];
+  telemetryEvents: { name: string; props: any }[];
 }
 
 function makeHarness(opts: HarnessOpts): Harness {
@@ -121,6 +122,7 @@ function makeHarness(opts: HarnessOpts): Harness {
 
   const forge = fakeForge(opts.subIssues, opts.listBlockedByImpl);
   const completedEmits: CompletedEpic[] = [];
+  const telemetryEvents: { name: string; props: any }[] = [];
 
   const service = {
     create: async () => {
@@ -141,10 +143,11 @@ function makeHarness(opts: HarnessOpts): Harness {
     dropPrCache: () => {},
     emitEpic: () => {},
     emitEpicCompleted: (e) => completedEmits.push(e),
+    telemetry: { event: (name, props) => telemetryEvents.push({ name, props }) },
     rebaseCap: 5,
   });
 
-  return { store, drain, completedEmits };
+  return { store, drain, completedEmits, telemetryEvents };
 }
 
 describe("epic auto-complete → record before idle flip (#635)", () => {
@@ -186,6 +189,18 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
     expect(h.store.getEpicRun(REPO)?.status).toBe("running"); // NOT idle
     expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
     expect(h.completedEmits).toHaveLength(0);
+    expect(h.telemetryEvents.filter((e) => e.name === "epic_drained")).toHaveLength(0);
+  });
+
+  test("fires epic_drained exactly once on completion with childCount", async () => {
+    const h = makeHarness({ subIssues: [sub(320, true), sub(321, true)] });
+
+    await h.drain.pump(REPO);
+
+    const drained = h.telemetryEvents.filter((e) => e.name === "epic_drained");
+    expect(drained).toHaveLength(1);
+    expect(drained[0]!.props).toEqual({ childCount: 2 });
+    expect(typeof drained[0]!.props.childCount).toBe("number");
   });
 
   test("not all merged: no record, run stays running", async () => {

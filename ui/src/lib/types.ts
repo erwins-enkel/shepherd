@@ -220,6 +220,7 @@ export type HoldCode =
   | "quota-error"
   | "quota-plan"
   | "plan-rework"
+  | "plan-question"
   | "critic-rework"
   | "ci-red"
   | "awaiting-merge"
@@ -359,6 +360,10 @@ export interface PlanGate {
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
   blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored); absent → flat markdown
+  // Answered question-form questions, keyed `${blockId} ${questionId}` (#1332). Mirrors the
+  // server field; absent ⇒ treated as []. Drives the "unanswered plan question" amber tab
+  // signal via planQuestionsUnanswered in tab-signal.svelte.ts.
+  answeredQuestionKeys?: string[];
   updatedAt: number;
 }
 

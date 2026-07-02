@@ -311,6 +311,7 @@ type PlanGateRow = {
   plan: string | null;
   updatedAt: number;
   blocks: string;
+  answeredQuestionKeys: string | null;
 };
 
 /** SQLite row shape for the recaps table. */
@@ -791,10 +792,16 @@ export class SessionStore implements CapStore, CreditStore {
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL,
-      blocks TEXT NOT NULL DEFAULT '[]')`);
+      blocks TEXT NOT NULL DEFAULT '[]',
+      answeredQuestionKeys TEXT NOT NULL DEFAULT '[]')`);
     const planGateCols = this.db.query(`PRAGMA table_info(plan_gates)`).all() as { name: string }[];
     if (!planGateCols.some((c) => c.name === "blocks")) {
       this.db.run(`ALTER TABLE plan_gates ADD COLUMN blocks TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!planGateCols.some((c) => c.name === "answeredQuestionKeys")) {
+      this.db.run(
+        `ALTER TABLE plan_gates ADD COLUMN answeredQuestionKeys TEXT NOT NULL DEFAULT '[]'`,
+      );
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
       sessionId TEXT PRIMARY KEY,
@@ -2219,6 +2226,14 @@ export class SessionStore implements CapStore, CreditStore {
     } catch {
       blocks = [];
     }
+    let answeredQuestionKeys: string[] = [];
+    try {
+      const parsed = JSON.parse(r.answeredQuestionKeys ?? "[]");
+      if (Array.isArray(parsed))
+        answeredQuestionKeys = parsed.filter((x): x is string => typeof x === "string");
+    } catch {
+      answeredQuestionKeys = [];
+    }
     return {
       sessionId: r.sessionId,
       planHash: r.planHash ?? "",
@@ -2232,13 +2247,14 @@ export class SessionStore implements CapStore, CreditStore {
       plan: r.plan ?? "",
       updatedAt: r.updatedAt,
       blocks,
+      answeredQuestionKeys,
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -2247,12 +2263,13 @@ export class SessionStore implements CapStore, CreditStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
-         plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks`,
+         plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks,
+         answeredQuestionKeys=excluded.answeredQuestionKeys`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -2266,6 +2283,7 @@ export class SessionStore implements CapStore, CreditStore {
         g.plan ?? "",
         g.updatedAt,
         JSON.stringify(g.blocks ?? []),
+        JSON.stringify(g.answeredQuestionKeys ?? []),
       ],
     );
   }
@@ -2277,7 +2295,7 @@ export class SessionStore implements CapStore, CreditStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};

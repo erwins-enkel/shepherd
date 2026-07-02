@@ -596,6 +596,10 @@ export class PlanGateService {
       approved: resolved === "approved",
       plan: f.plan,
       blocks: f.blocks,
+      // Fresh gate for this planHash — no questions answered yet. buildGate runs once per
+      // planHash (consider() dedups identical plans), so a revised plan resets the pending
+      // signal; the answer route appends resolved keys onto the persisted gate (#1332).
+      answeredQuestionKeys: [],
       updatedAt: this.now(),
     };
   }
@@ -689,8 +693,12 @@ export interface RawAnswer {
 }
 
 /** A validated answer keyed to a real persisted question. `selected` holds resolved option
- *  labels (single: 1, multi: 0+); `text` is present only for freeform. */
+ *  labels (single: 1, multi: 0+); `text` is present only for freeform. `blockId`/`questionId`
+ *  identify the answered question — the answer route derives durable answered-keys from THESE
+ *  (the same resolution pass), so a dropped invalid answer never records a key (#1332). */
 export interface ResolvedAnswer {
+  blockId: string;
+  questionId: string;
   prompt: string;
   kind: QuestionKind;
   selected: string[];
@@ -713,7 +721,8 @@ export function resolvePlanAnswers(blocks: VisualBlock[], answers: RawAnswer[]):
     const q = byKey.get(`${a.blockId} ${a.questionId}`);
     if (!q) continue;
     const resolved = resolveOne(q, a);
-    if (resolved) out.push(resolved);
+    // Key derives from a resolved answer only — a dropped invalid/blank answer never records.
+    if (resolved) out.push({ blockId: a.blockId, questionId: a.questionId, ...resolved });
   }
   return out;
 }
@@ -749,7 +758,10 @@ function resolveOptionLabels(indices: unknown, options: string[]): string[] {
 /** Resolve a single raw answer against its question, fail-closed. null = drop. Per kind:
  *   single = exactly one in-range index; multi = in-range indices (empty kept as "none selected");
  *   freeform = trimmed non-empty text. */
-function resolveOne(q: IndexedQuestion, a: RawAnswer): ResolvedAnswer | null {
+function resolveOne(
+  q: IndexedQuestion,
+  a: RawAnswer,
+): Omit<ResolvedAnswer, "blockId" | "questionId"> | null {
   if (q.kind === "freeform") {
     const text = typeof a.text === "string" ? a.text.trim() : "";
     return text ? { prompt: q.prompt, kind: "freeform", selected: [], text } : null;

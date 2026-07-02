@@ -52,6 +52,7 @@ export type SignalCode =
   | "halted-usage"
   | "blocked-decision"
   | "plan-rework"
+  | "plan-question"
   | "critic-rework"
   | "ci-red"
   | "manual-steps"
@@ -70,6 +71,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "halted-error": 1,
   "blocked-decision": 1,
   "plan-rework": 1,
+  "plan-question": 1,
   "critic-rework": 1,
   "ci-red": 1,
   "manual-steps": 1,
@@ -100,6 +102,23 @@ export interface ClassifyCaches {
   /** Epoch ms the usage window resets — used ONLY by explainHold for the halted-usage
    *  param; classifyAttention ignores it. */
   resetAt?: number;
+}
+
+/** True when `gate` has ≥1 question-form question whose `${blockId} ${questionId}` key is not
+ *  in `answeredQuestionKeys` — i.e. an operator answer is still pending (#1332). Pure and
+ *  self-contained (no plan-gate import — keeps this module I/O-free). The attention rule ANDs
+ *  this with `planPhase === "planning"`. Mirrored in the UI's tab-signal.svelte.ts and
+ *  drift-locked by test/fixtures/plan-question-parity.json. */
+export function planQuestionsUnanswered(gate: PlanGate | null | undefined): boolean {
+  if (!gate?.blocks?.length) return false;
+  const answered = new Set(gate.answeredQuestionKeys ?? []);
+  for (const b of gate.blocks) {
+    if (b.type !== "question-form") continue;
+    for (const q of b.questions) {
+      if (!answered.has(`${b.id} ${q.id}`)) return true;
+    }
+  }
+  return false;
 }
 
 /** Ordered (signal, predicate) rules. classifyAttention pushes each signal whose predicate
@@ -136,6 +155,16 @@ const ATTENTION_RULES: Array<{
       s.manualStepsAckedAt == null &&
       c.git?.state === "open" &&
       s.manualSteps.some((st) => !st.postMerge),
+  },
+  // plan-question: an AUTO plan gate carries question-form questions the operator hasn't
+  // answered yet, still in the planning phase (#1332 / #803). LAST in the Tier-1 block (like
+  // manual-steps) so a co-occurring, genuinely-more-urgent signal — notably plan-rework, whose
+  // round/cap copy is more actionable — stays the PRIMARY hold line; plan-question becomes
+  // primary only when it is the sole Tier-1 signal. Guarded on planning so it never leaks into
+  // execution (an approved AUTO plan auto-releases and the questions go moot).
+  {
+    signal: "plan-question",
+    when: (s, c) => s.planPhase === "planning" && planQuestionsUnanswered(c.gate),
   },
   // Tier 2: HIGH — needs a look soon, not yet a hard stop.
   { signal: "halted-usage", when: (s) => s.haltReason === "usage_limit" },
@@ -202,6 +231,7 @@ const SIGNAL_TO_HOLD: Record<
       ? { code: "plan-rework", params }
       : { code: "plan-rework" };
   },
+  "plan-question": () => ({ code: "plan-question" }),
   "critic-rework": (_session, caches) => {
     const count = caches.review?.findings?.length;
     return count !== undefined

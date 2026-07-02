@@ -1,12 +1,30 @@
 import { test, expect } from "vitest";
-import { deriveTabState } from "./tab-signal.svelte";
-import type { Session, GitState, SessionStatus, ChecksState } from "./types";
+import { readFileSync } from "node:fs";
+import { deriveTabState, planQuestionsUnanswered } from "./tab-signal.svelte";
+import type { Session, GitState, SessionStatus, ChecksState, PlanGate } from "./types";
 
 const sess = (id: string, status: SessionStatus, readyToMerge = false): Session =>
   ({ id, status, readyToMerge }) as unknown as Session;
 
 const git = (checks: ChecksState, handoff?: "reviewer" | "merger"): GitState =>
   ({ checks, handoff }) as unknown as GitState;
+
+/** A planning-phase session (plan-question is guarded on planPhase === "planning"). */
+const planningSess = (id: string): Session =>
+  ({ id, status: "running", readyToMerge: false, planPhase: "planning" }) as unknown as Session;
+
+/** A plan gate carrying one unanswered question-form question, unless keys are supplied. */
+const formGate = (answeredQuestionKeys: string[] = []): PlanGate =>
+  ({
+    blocks: [
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "Which?", kind: "single", options: ["a", "b"] }],
+      },
+    ],
+    answeredQuestionKeys,
+  }) as unknown as PlanGate;
 
 test("no sessions → count 0, severity none", () => {
   expect(deriveTabState([], {}, {})).toEqual({ count: 0, severity: "none" });
@@ -75,4 +93,73 @@ test("non-failure CI does not count", () => {
   const sessions = [sess("s1", "running"), sess("s2", "idle")];
   const g = { s1: git("success"), s2: git("pending") };
   expect(deriveTabState(sessions, g, {})).toEqual({ count: 0, severity: "none" });
+});
+
+// ── plan-question: unanswered plan-gate question awaiting the operator (#1332) ──
+
+test("planning session with an unanswered plan question counts as amber", () => {
+  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: formGate() })).toEqual({
+    count: 1,
+    severity: "amber",
+  });
+});
+
+test("plan question answered → not counted", () => {
+  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: formGate(["qf1 q1"]) })).toEqual({
+    count: 0,
+    severity: "none",
+  });
+});
+
+test("unanswered plan question but not in planning phase → excluded (no execution leak)", () => {
+  const s = {
+    id: "s1",
+    status: "running",
+    readyToMerge: false,
+    planPhase: "executing",
+  } as unknown as Session;
+  expect(deriveTabState([s], {}, {}, { s1: formGate() })).toEqual({ count: 0, severity: "none" });
+});
+
+test("ci-red beats a co-occurring unanswered plan question (red, not amber)", () => {
+  expect(
+    deriveTabState([planningSess("s1")], { s1: git("failure") }, {}, { s1: formGate() }),
+  ).toEqual({ count: 1, severity: "red" });
+});
+
+test("multi-question form with only one answered still counts (partial → pending)", () => {
+  const gate = {
+    blocks: [
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          { id: "q1", prompt: "Which?", kind: "single", options: ["a", "b"] },
+          { id: "q2", prompt: "Notes?", kind: "freeform" },
+        ],
+      },
+    ],
+    answeredQuestionKeys: ["qf1 q1"],
+  } as unknown as PlanGate;
+  expect(deriveTabState([planningSess("s1")], {}, {}, { s1: gate })).toEqual({
+    count: 1,
+    severity: "amber",
+  });
+});
+
+test("planQuestionsUnanswered matches the shared parity fixtures (client ↔ server drift lock)", () => {
+  // Same fixtures asserted by the server's test/rundown-core.test.ts against its implementation;
+  // any drift between the two predicates fails one suite. Mirrors the MERGE_MARK_BACKSTOP_MS lock.
+  const cases = JSON.parse(
+    readFileSync(
+      new URL("../../../test/fixtures/plan-question-parity.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Array<{ name: string; gate: Partial<PlanGate>; expected: boolean }>;
+  for (const c of cases) {
+    expect({ name: c.name, r: planQuestionsUnanswered(c.gate as PlanGate) }).toEqual({
+      name: c.name,
+      r: c.expected,
+    });
+  }
 });

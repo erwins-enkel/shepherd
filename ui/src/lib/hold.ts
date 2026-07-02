@@ -28,6 +28,7 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
   "quota-plan": () => m.hold_quota_plan(),
   "plan-rework": ({ params: p = {} }) =>
     m.hold_plan_rework({ round: p.round ?? 0, cap: p.cap ?? 0 }),
+  "plan-question": () => m.hold_plan_question(),
   "critic-rework": ({ params: p = {} }) => m.hold_critic_rework({ findings: p.findings ?? 0 }),
   "ci-red": () => m.hold_ci_red(),
   "awaiting-merge": () => m.hold_awaiting_merge(),

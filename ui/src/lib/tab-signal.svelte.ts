@@ -8,7 +8,7 @@
 // hold. createTabSignal() owns the side effects (title / <link rel=icon> canvas
 // swap / setAppBadge / aria-live) and is driven by one $effect in +page.svelte.
 
-import type { Session, GitState } from "./types";
+import type { Session, GitState, PlanGate } from "./types";
 import { displayStatus } from "./display-status";
 import { m } from "$lib/paraglide/messages";
 
@@ -23,34 +23,55 @@ export interface TabState {
 
 const SEVERITY_RANK: Record<Severity, number> = { none: 0, green: 1, amber: 2, red: 3 };
 
+/** True when `gate` has ≥1 question-form question whose `${blockId} ${questionId}` key is not
+ *  in `answeredQuestionKeys` — an operator answer is still pending (#1332).
+ *  DRIFT: keep in sync with planQuestionsUnanswered in src/rundown-core.ts; both are
+ *  drift-locked by test/fixtures/plan-question-parity.json. */
+export function planQuestionsUnanswered(gate: PlanGate | undefined): boolean {
+  if (!gate?.blocks?.length) return false;
+  // Plain-array membership (not a Set) — the forms are tiny and .svelte.ts bans mutable Set.
+  const answered = gate.answeredQuestionKeys ?? [];
+  for (const b of gate.blocks) {
+    if (b.type !== "question-form") continue;
+    for (const q of b.questions) {
+      if (!answered.includes(`${b.id} ${q.id}`)) return true;
+    }
+  }
+  return false;
+}
+
 /** Severity for a single session, or "none" when it needs no operator action.
- *  Mirrors the three in-scope ATTENTION_RULES using their exact inputs:
- *   - ci-red     → git.checks === "failure"            (rundown-core.ts:126)
- *   - blocked    → displayStatus === "blocked"          (blocked-decision, :116)
- *   - ready      → readyToMerge && handoff !== "merger" (ready-merge, :149-151)
+ *  Mirrors the in-scope ATTENTION_RULES using their exact inputs:
+ *   - ci-red        → git.checks === "failure"                       (rundown-core.ts)
+ *   - blocked       → displayStatus === "blocked"                    (blocked-decision)
+ *   - plan-question → planPhase === "planning" && unanswered qs      (#1332)
+ *   - ready         → readyToMerge && handoff !== "merger"           (ready-merge)
  *  Read git.checks directly (not holds) so ci-red is never masked by a co-signal;
  *  read displayStatus so a working-blocked session (mid-turn) is excluded. */
 function sessionSeverity(
   s: Session,
   git: GitState | undefined,
   workingBlocked: Record<string, boolean>,
+  gate: PlanGate | undefined,
 ): Severity {
   if (git?.checks === "failure") return "red";
   if (displayStatus(s, workingBlocked) === "blocked") return "amber";
+  if (s.planPhase === "planning" && planQuestionsUnanswered(gate)) return "amber";
   if (s.readyToMerge && git?.handoff !== "merger") return "green";
   return "none";
 }
 
-/** Pure: derive the tab count + highest severity from the store's session/git state. */
+/** Pure: derive the tab count + highest severity from the store's session/git/plan-gate state. */
 export function deriveTabState(
   sessions: Session[],
   git: Record<string, GitState>,
   workingBlocked: Record<string, boolean>,
+  planGates: Record<string, PlanGate> = {},
 ): TabState {
   let count = 0;
   let severity: Severity = "none";
   for (const s of sessions) {
-    const sev = sessionSeverity(s, git[s.id], workingBlocked);
+    const sev = sessionSeverity(s, git[s.id], workingBlocked, planGates[s.id]);
     if (sev === "none") continue;
     count++;
     if (SEVERITY_RANK[sev] > SEVERITY_RANK[severity]) severity = sev;

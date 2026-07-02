@@ -1,0 +1,111 @@
+[
+  {
+    "name": "no blocks → not pending",
+    "gate": { "blocks": [], "answeredQuestionKeys": [] },
+    "expected": false
+  },
+  {
+    "name": "blocks without a question-form → not pending",
+    "gate": {
+      "blocks": [{ "type": "rich-text", "id": "rt", "markdown": "no questions" }],
+      "answeredQuestionKeys": []
+    },
+    "expected": false
+  },
+  {
+    "name": "unanswered single question → pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "qf1",
+          "questions": [{ "id": "q1", "prompt": "Which?", "kind": "single", "options": ["a", "b"] }]
+        }
+      ],
+      "answeredQuestionKeys": []
+    },
+    "expected": true
+  },
+  {
+    "name": "the only question is answered → not pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "qf1",
+          "questions": [{ "id": "q1", "prompt": "Which?", "kind": "single", "options": ["a", "b"] }]
+        }
+      ],
+      "answeredQuestionKeys": ["qf1 q1"]
+    },
+    "expected": false
+  },
+  {
+    "name": "one of two questions in a block answered → still pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "qf1",
+          "questions": [
+            { "id": "q1", "prompt": "Which?", "kind": "single", "options": ["a", "b"] },
+            { "id": "q2", "prompt": "Notes?", "kind": "freeform" }
+          ]
+        }
+      ],
+      "answeredQuestionKeys": ["qf1 q1"]
+    },
+    "expected": true
+  },
+  {
+    "name": "two blocks, only the first answered → still pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "a",
+          "questions": [{ "id": "q", "prompt": "A?", "kind": "single", "options": ["x", "y"] }]
+        },
+        {
+          "type": "question-form",
+          "id": "b",
+          "questions": [{ "id": "q", "prompt": "B?", "kind": "single", "options": ["x", "y"] }]
+        }
+      ],
+      "answeredQuestionKeys": ["a q"]
+    },
+    "expected": true
+  },
+  {
+    "name": "two blocks, both answered → not pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "a",
+          "questions": [{ "id": "q", "prompt": "A?", "kind": "single", "options": ["x", "y"] }]
+        },
+        {
+          "type": "question-form",
+          "id": "b",
+          "questions": [{ "id": "q", "prompt": "B?", "kind": "single", "options": ["x", "y"] }]
+        }
+      ],
+      "answeredQuestionKeys": ["a q", "b q"]
+    },
+    "expected": false
+  },
+  {
+    "name": "missing answeredQuestionKeys (undefined) with a question → pending",
+    "gate": {
+      "blocks": [
+        {
+          "type": "question-form",
+          "id": "qf1",
+          "questions": [{ "id": "q1", "prompt": "Which?", "kind": "single", "options": ["a", "b"] }]
+        }
+      ]
+    },
+    "expected": true
+  }
+]

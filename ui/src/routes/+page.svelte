@@ -135,7 +135,12 @@
   // region below mirrors changes for screen readers. Disposed on unmount.
   const tabSignal = createTabSignal();
   $effect(() => {
-    const { count, severity } = deriveTabState(store.sessions, store.git, store.workingBlocked);
+    const { count, severity } = deriveTabState(
+      store.sessions,
+      store.git,
+      store.workingBlocked,
+      planGates.map,
+    );
     tabSignal.update({ count, severity, attended: store.attended });
   });
   $effect(() => () => tabSignal.dispose());

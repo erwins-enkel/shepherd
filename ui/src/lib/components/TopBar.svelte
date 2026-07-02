@@ -497,9 +497,10 @@
   });
   $effect(() => {
     // Close the popover when there's nothing left to show. Both desktop and touch drive
-    // popoverOpen now, so the only force-close is "no usage windows AND no credits" (a non-empty
-    // `gauges` implies `hotter`, so this also covers the touch collapse case).
-    if (!gauges.length && !credits && !codexUsage) popoverOpen = false;
+    // popoverOpen now, so the only force-close is "no usage windows AND no credits AND no
+    // per-model bar" (a non-empty `gauges` implies `hotter`, so this also covers the touch
+    // collapse case). Keep `perModel` here or a Fable-only snapshot would force-close its own popover.
+    if (!gauges.length && !credits && !codexUsage && !perModel.length) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click

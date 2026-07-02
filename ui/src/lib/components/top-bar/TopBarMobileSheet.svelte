@@ -182,7 +182,7 @@
     <div class="sheet-sep"></div>
 
     <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
-    {#if gauges.length || credits || subscriptionOnly || codexUsage}
+    {#if gauges.length || perModel.length || credits || subscriptionOnly || codexUsage}
       <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
       {#if subscriptionOnly && !codexUsage}
         <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>

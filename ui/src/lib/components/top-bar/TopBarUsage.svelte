@@ -3,7 +3,7 @@
   import type { CreditWindow, ModelWeekWindow } from "$lib/types";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
-  import { gaugeColor, type GaugeKey } from "../usage-gauges";
+  import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CreditGauge from "./CreditGauge.svelte";
   import TopBarUsagePopover from "./TopBarUsagePopover.svelte";
@@ -57,15 +57,20 @@
   // OR when there are no usage windows at all (credits-only state — otherwise the toggle is blank).
   const capped = $derived(gauges.some((g) => g.w.pct >= 100));
   const showCreditsInline = $derived((capped || gauges.length === 0) && !!credits);
+  // Per-model passthrough (e.g. Fable) as a collapse/inline fallback trigger: when it is the ONLY
+  // usage signal (no calibrated 5H/WK gauge, no credits/codex), the section would otherwise render
+  // no affordance and the Fable bar in the popover couldn't be opened.
+  const perModelHot = $derived(perModel.length ? perModel[0]! : null);
 </script>
 
 {#if subscriptionOnly && !codexUsage}
   <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
 {:else if touch}
-  {#if hotter || credits || codexUsage}
+  {#if hotter || credits || codexUsage || perModelHot}
     <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
-         only signal); tap for the full breakdown. The collapsed button carries an
-         alert state while extra credits are being spent. -->
+         only signal, or a per-model bar when Fable is the only signal); tap for the
+         full breakdown. The collapsed button carries an alert state while extra
+         credits are being spent. -->
     <div class="gauge-wrap" bind:this={gaugeWrap}>
       {#if hotter}
         <button
@@ -91,7 +96,7 @@
           >
           <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
         </button>
-      {:else}
+      {:else if credits || codexUsage}
         <!-- credits-only or codex-only: no usage windows scraped, but another provider has data -->
         <button
           class="gauge gauge-btn"
@@ -120,6 +125,30 @@
             >
           {/if}
         </button>
+      {:else if perModelHot}
+        <!-- per-model-only (e.g. Fable): the sole usage signal — collapse to its bar so the
+             popover (with the full per-model breakdown) can be opened. -->
+        <button
+          class="gauge gauge-btn"
+          class:stale={perModelHot.stale}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={popoverOpen}
+          aria-label={`${m.usage_limits_window_week_model({
+            model: modelDisplayName(perModelHot.model),
+          })} · ${perModelHot.pct}%`}
+          onclick={() => (popoverOpen = !popoverOpen)}
+        >
+          <span class="g-label micro">{modelDisplayName(perModelHot.model)}</span>
+          <span class="g-bar"
+            ><span
+              class="g-fill"
+              style="transform:scaleX({Math.min(Math.max(perModelHot.pct, 0), 100) /
+                100});background:{gaugeColor(perModelHot.pct)}"
+            ></span></span
+          >
+          <span class="g-pct" style="color:{gaugeColor(perModelHot.pct)}">{perModelHot.pct}%</span>
+        </button>
       {/if}
       {#if popoverOpen}
         <TopBarUsagePopover
@@ -146,7 +175,7 @@
       {/if}
     </div>
   {/if}
-{:else if gauges.length || credits || codexUsage}
+{:else if gauges.length || credits || codexUsage || perModelHot}
   <!-- Desktop: the inline cluster is a click toggle (not hover) so the popover stays open while
        you move into it to reach REFRESH. Dismiss on Esc / outside-click is shared with the touch
        path (popoverOpen + gaugeWrap, handled in TopBar.svelte). -->
@@ -170,7 +199,7 @@
             <span class="g-label micro">{m.agent_provider_codex()}</span>
             <span class="g-pct credit-amount">{formatTokenLabel(codexUsage.totalTokens)}</span>
           </span>
-        {:else}
+        {:else if gauges.length}
           {#each gauges as g (g.label)}
             <span class="gauge">
               <span class="g-label micro">{g.label}</span>
@@ -184,6 +213,21 @@
               <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
             </span>
           {/each}
+        {:else if perModelHot}
+          <!-- per-model-only (e.g. Fable): the sole usage signal — inline its bar so the toggle
+               isn't blank and its popover breakdown can be opened. -->
+          <span class="gauge">
+            <span class="g-label micro">{modelDisplayName(perModelHot.model)}</span>
+            <span class="g-bar"
+              ><span
+                class="g-fill"
+                style="transform:scaleX({Math.min(Math.max(perModelHot.pct, 0), 100) /
+                  100});background:{gaugeColor(perModelHot.pct)}"
+              ></span></span
+            >
+            <span class="g-pct" style="color:{gaugeColor(perModelHot.pct)}">{perModelHot.pct}%</span
+            >
+          </span>
         {/if}
       </span>
     </button>

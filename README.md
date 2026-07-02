@@ -404,7 +404,10 @@ tailscale serve --bg 7330        # → https://<host>.<tailnet>.ts.net proxies t
 ```
 
 Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the Tailscale name).
-Access control is **tailnet membership** — there is no app-level password.
+Access control is layered: the trusted proxy/tailnet admits the device, then Shepherd requires the
+single-operator password and stores browser access in a signed session cookie. Set
+`SHEPHERD_PASSWORD` in `~/.shepherd/env`, or use the first-boot generated password from the server
+log; machine clients can use `SHEPHERD_TOKEN` as a bearer alternative.
 
 ### Host tuning — tmpfs inodes
 
@@ -484,9 +487,10 @@ guard explicitly rejects any request origin whose port falls in the preview rang
 hostname is allowlisted — closing the blind-mutation vector. The preview `<iframe>` is sandboxed
 `allow-same-origin allow-scripts …` (everything the app needs to run) but withholds every
 `allow-top-navigation*` token, so untrusted agent JS can't redirect the operator's HUD tab.
-Residual: cookies are host-scoped
-(shared across ports on one host), which is acceptable because the HUD has no cookie auth. Full
-per-origin cookie isolation is tracked in [#398](https://github.com/erwins-enkel/shepherd/issues/398).
+Residual: cookies are host-scoped (shared across ports on one host), so a same-host preview can make
+the browser attach the HUD session cookie to requests. The cookie is `HttpOnly`/`SameSite=Strict` and
+the HUD rejects preview-range origins for writes, but full per-origin cookie isolation is tracked in
+[#398](https://github.com/erwins-enkel/shepherd/issues/398).
 
 **Caveats:**
 

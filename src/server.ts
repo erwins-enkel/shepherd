@@ -209,6 +209,11 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
+   *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
+   *  so the many test `makeDeps()` builders need no change; wired to the real
+   *  TelemetryService in index.ts. */
+  telemetry?: import("./telemetry").TelemetryService;
   /** Memo slots (#1092) for the learnings + repo-config deep modules. Optional so the
    *  many test `makeDeps()` builders need no change; routes never read these directly —
    *  they go through the total `learnings(deps)` / `repoConfig(deps)` accessors below,

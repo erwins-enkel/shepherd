@@ -58,6 +58,8 @@ import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService } from "./codex-update";
 import { DiagnosticsService } from "./diagnostics";
+import { TelemetryService } from "./telemetry";
+import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -277,6 +279,12 @@ const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
   const v = normalizeAuthModeSetting(savedAm);
   if (v !== null) config.authMode = v;
+}
+// a UI-set telemetry consent (persisted) overrides the env seed; absent or unrecognised → keep default.
+const savedTc = store.getSetting("telemetryConsent");
+if (savedTc !== null) {
+  const v = normalizeTelemetryConsent(savedTc);
+  if (v !== null) config.telemetryConsent = v;
 }
 // restore the apiKeyHelper path if the file still exists on disk; self-heal if it was deleted.
 const savedHelperPath = store.getSetting("authApiKeyHelperPath");
@@ -535,6 +543,14 @@ const service = new SessionService({
 // total accessors return these when injected via appDeps.
 const learningsSvc = new LearningsService(store, events);
 const repoConfigSvc = new RepoConfigService(store);
+
+// Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
+// granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
+const telemetry = new TelemetryService({
+  appKey: config.aptabaseAppKey,
+  hostOverride: config.aptabaseHostOverride,
+  enabled: () => config.telemetryConsent === "granted" && !config.doNotTrack,
+});
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -2172,6 +2188,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   service,
+  telemetry,
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,
   events,
@@ -2325,6 +2342,9 @@ console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 // First-run gate: on an already-onboarded boot, start every deferred background subsystem now.
 // On a fresh install (firstRun.pending) stay inert — the server serves only the onboarding UI —
 // and register startBackground to fire off-thread when server.ts resolves the first root-pick.
+deferredStarts.push(() => {
+  telemetry.event("app_launched");
+});
 if (firstRun.pending) firstRun.onResolve(startBackground);
 else startBackground();
 

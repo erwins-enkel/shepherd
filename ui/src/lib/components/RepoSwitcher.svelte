@@ -136,8 +136,14 @@
 
   function chipAria(chip: RepoChip, active: boolean, pinned: boolean): string {
     const repo = repoLabel(chip);
+    // With a multi-repo selection every selected chip is active, and a plain click collapses to
+    // just this repo (not "show all") — so it needs a distinct label from the sole-selection one.
+    const activeLabel =
+      repoFilter.size > 1
+        ? m.repo_filter_active_multi_aria({ repo })
+        : m.repo_filter_active_aria({ repo });
     return [
-      active ? m.repo_filter_active_aria({ repo }) : m.repo_filter_apply_aria({ repo }),
+      active ? activeLabel : m.repo_filter_apply_aria({ repo }),
       chip.insights > 0 || chip.curate > 0
         ? m.repo_chip_learnings_aria({ count: chip.insights > 0 ? chip.insights : chip.curate })
         : "",

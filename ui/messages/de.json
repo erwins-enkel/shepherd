@@ -137,6 +137,7 @@
   "automation_plan_gate_task_executing": "Dieser Task: Plan genehmigt (Ausführung)",
   "repo_filter_apply_aria": "Herde auf Agenten von {repo} filtern",
   "repo_filter_active_aria": "Nur Agenten von {repo}; klicken, um alle Repos anzuzeigen",
+  "repo_filter_active_multi_aria": "{repo} unter den gefilterten Repos; klicken, um nur Agenten von {repo} anzuzeigen, oder Umschalt-klicken, um es zu entfernen",
   "repo_chip_learnings_aria": "{count} Learnings zu prüfen",
   "repo_switcher_label": "Herde nach Repo filtern",
   "repo_filter_multi_name": "{count} Repos",

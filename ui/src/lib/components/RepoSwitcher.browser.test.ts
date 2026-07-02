@@ -113,6 +113,20 @@ describe("RepoSwitcher — filter rail", () => {
     expect(onrepofilter).toHaveBeenCalledWith("/repo/alpha", false);
   });
 
+  it("with a multi-repo selection, a selected chip uses the multi-select aria label (not the sole-selection one)", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set(["/repo/alpha", "/repo/beta"]),
+      onrepofilter: () => {},
+    });
+    // plain click collapses to just this repo, so the label must NOT promise "show all repos"
+    await expect
+      .element(
+        page.getByRole("button", { name: m.repo_filter_active_multi_aria({ repo: "alpha" }) }),
+      )
+      .toBeVisible();
+  });
+
   it("sorts the pinned repo to the first chip slot and marks it for assistive tech", async () => {
     const { container } = render(RepoSwitcher, {
       chips: [

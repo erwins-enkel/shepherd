@@ -137,6 +137,7 @@
   "automation_plan_gate_task_executing": "This task: plan approved (executing)",
   "repo_filter_apply_aria": "Filter the herd to {repo} agents only",
   "repo_filter_active_aria": "Showing {repo} agents only; click to show all repos",
+  "repo_filter_active_multi_aria": "Showing {repo} among the filtered repos; click to show {repo} agents only, or Shift-click to remove it",
   "repo_chip_learnings_aria": "{count} learnings to review",
   "repo_switcher_label": "Filter the herd by repo",
   "repo_filter_multi_name": "{count} repos",

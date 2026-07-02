@@ -317,9 +317,9 @@
   // onto its repo. That session isn't in the store yet (it arrives via WS), so two
   // effects below need coordinating until it does. Both are plain `let` (NON-reactive):
   // reading/clearing them inside an effect must not feed back into reactivity.
-  //   • followingRepo — the followed repo path; holds the auto-clear effect off that
-  //     repo until its chip appears (else shouldClearRepoFilter, seeing no chip yet,
-  //     would immediately null the filter we just set). Released once the chip lands.
+  //   • followingRepo — the followed repo path; holds the prune effect off that
+  //     repo until its chip appears (else staleFilterRepos, seeing no chip yet,
+  //     would immediately drop the repo we just set). Released once the chip lands.
   //   • followingNewSession — one-shot; suppresses the repo-switch re-target for the
   //     single filter change selectNewSession makes (selection is already on the new task).
   let followingRepo: string | null = null;

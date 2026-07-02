@@ -2256,6 +2256,7 @@ const appDeps: AppDeps = {
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),
+    recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
     hiddenRepoPathsRaw: () =>
       reconcileRealPathsToRaw(store.hiddenRepoPaths(), listRepos(config.repoRoot)),
   },

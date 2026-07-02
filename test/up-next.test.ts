@@ -154,6 +154,120 @@ describe("UpNextService.refresh", () => {
   });
 });
 
+describe("UpNextService.recomputeUntilCleared", () => {
+  test("(a) clears after one compute when the started issue is absent", async () => {
+    let computes = 0;
+    const s = svc({
+      resolveForge: () => fakeForge({ issues: [issue(2)] }),
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1, 1],
+    });
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]);
+    expect(computes).toBe(1); // #1 not in the snapshot → done on attempt 1
+  });
+
+  test("(b) retries then succeeds once the label lands", async () => {
+    let calls = 0;
+    let computes = 0;
+    const s = svc({
+      // #1 present on the first read (label not landed), gone afterwards.
+      resolveForge: () =>
+        fakeForge({ listIssues: async () => (++calls === 1 ? [issue(1), issue(2)] : [issue(2)]) }),
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1, 1],
+    });
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]);
+    expect(computes).toBe(2); // attempt 1 still shows #1, attempt 2 cleared
+  });
+
+  test("(c) bounded — gives up after the configured attempts if it never clears", async () => {
+    let computes = 0;
+    const s = svc({
+      resolveForge: () => fakeForge({ issues: [issue(1), issue(2)] }), // #1 always present
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1, 1],
+    });
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]);
+    expect(computes).toBe(3); // exactly delays.length attempts, then stop (15-min loop backstops)
+  });
+
+  test("(d) non-coalescing — starts a fresh compute after an in-flight one", async () => {
+    let computes = 0;
+    const s = svc({
+      // Slow read so the initial refresh() is still in flight when recomputeUntilCleared runs.
+      resolveForge: () =>
+        fakeForge({
+          listIssues: async () => {
+            await new Promise((r) => setTimeout(r, 10));
+            return [issue(2)];
+          },
+        }),
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0],
+    });
+    const inflight = s.refresh(); // compute #1 begins (single-flight, in flight)
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]); // must not join #1
+    await inflight;
+    expect(computes).toBe(2); // joined would be 1; a fresh post-call compute makes it 2
+  });
+
+  test("(e) reconciles realpath (started) vs raw (snapshot) path-space under a symlinked root", async () => {
+    let computes = 0;
+    const s = svc({
+      // Snapshot items carry the RAW listRepos path…
+      listForgeRepos: () => [{ repoPath: "/raw/a", repoSlug: "o/a", repoLabel: "a" }],
+      resolveForge: () => fakeForge({ issues: [issue(1)] }),
+      // …while realpath maps that raw path to a DIFFERENT real path (symlinked repoRoot).
+      realpath: (p) => (p === "/raw/a" ? "/real/a" : p),
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1],
+    });
+    // The started ref is in realpath space (as safeRepoDir produces). Naive equality against
+    // the raw snapshot path would miss it and wrongly clear on attempt 1; reconciliation must
+    // detect it as present and retry (both attempts still show #1 → 2 computes).
+    await s.recomputeUntilCleared([{ repoPath: "/real/a", issueNumber: 1 }]);
+    expect(computes).toBe(2);
+  });
+
+  test("(e-control) identity path-space (raw == real) also matches", async () => {
+    let computes = 0;
+    const s = svc({
+      listForgeRepos: () => [{ repoPath: "/raw/a", repoSlug: "o/a", repoLabel: "a" }],
+      resolveForge: () => fakeForge({ issues: [issue(1)] }),
+      realpath: (p) => p, // no symlink
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1],
+    });
+    await s.recomputeUntilCleared([{ repoPath: "/raw/a", issueNumber: 1 }]);
+    expect(computes).toBe(2); // present both attempts
+  });
+
+  test("(g) a transient compute throw does not abort the remaining retries", async () => {
+    let lastUsedCalls = 0;
+    let computes = 0;
+    const s = svc({
+      // Throw on the first compute (simulates a briefly-locked store dep), succeed after.
+      lastUsedByRepo: () => {
+        if (++lastUsedCalls === 1) throw new Error("db locked");
+        return {};
+      },
+      resolveForge: () => fakeForge({ issues: [issue(2)] }), // #1 absent once compute succeeds
+      onChange: () => computes++,
+      postStartRetryDelaysMs: [0, 1, 1],
+    });
+    // Must not reject; attempt 1 throws (caught) → attempt 2 computes and clears.
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]);
+    expect(computes).toBe(1); // onChange fires only on the successful compute
+  });
+
+  test("(f) no started refs → no compute", async () => {
+    let computes = 0;
+    const s = svc({ onChange: () => computes++, postStartRetryDelaysMs: [0, 1] });
+    await s.recomputeUntilCleared([]);
+    expect(computes).toBe(0);
+  });
+});
+
 describe("startSerially", () => {
   test("never overlaps spawns (max concurrency 1)", async () => {
     let active = 0;

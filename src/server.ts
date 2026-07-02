@@ -361,6 +361,12 @@ export interface AppDeps {
   upNext?: {
     snapshot(): UpNextSnapshot | null;
     refresh(): Promise<UpNextSnapshot>;
+    /** Recompute (guaranteed-fresh, verify-and-retry) until the just-started items drop from
+     *  the lens — i.e. their `shepherd:active` claim labels have landed. Backgrounded by the
+     *  caller so it never blocks the start response. */
+    recomputeUntilCleared(
+      started: readonly { repoPath: string; issueNumber: number }[],
+    ): Promise<void>;
     /** Raw-path-space hidden set (reconciled), applied at read time for instant freshness. */
     hiddenRepoPathsRaw(): Set<string>;
   };
@@ -858,6 +864,11 @@ interface UpNextStartItem {
   issueRef: { number: number; url: string; title: string; body: string };
 }
 
+/** Cap on how long the backgrounded post-start recompute waits for the claim label writes
+ *  to settle before recomputing anyway — a hung `gh` must not stall it (verify-and-retry and
+ *  the 15-min interval loop still backstop). */
+const CLAIM_SETTLE_TIMEOUT_MS = 8_000;
+
 /** Validate the POST /api/up-next/start body into safe, repo-scoped start items. */
 function parseUpNextStartItems(body: unknown): UpNextStartItem[] | null {
   const itemsRaw = (body as { items?: unknown } | null)?.items;
@@ -896,6 +907,8 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
 
   const created: Session[] = [];
   const errors: { number: number; error: string }[] = [];
+  const claims: Promise<void>[] = [];
+  const startedRefs: { repoPath: string; issueNumber: number }[] = [];
   // Strictly serial — concurrent `git worktree add` on the same repo would contend.
   await startSerially(items, async (it) => {
     const forge = deps.resolveForge?.(it.dir) ?? null;
@@ -923,7 +936,10 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       created.push(s);
       deps.events.emit("session:new", s);
       // Stamp the drain claim so the board reflects it's being worked (mirrors New Task).
-      void claimLinkedIssue(forge, it.issueRef.number);
+      // Keep the handle so the post-start recompute can wait for the label write to land
+      // before re-reading issues — an immediate refresh re-surfaces the just-started item.
+      claims.push(claimLinkedIssue(forge, it.issueRef.number));
+      startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
     } catch (e) {
       errors.push({
         number: it.issueRef.number,
@@ -932,9 +948,20 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
     }
   });
 
-  // Drop the just-started items from the lens promptly.
-  if (deps.upNext)
-    void deps.upNext.refresh().catch((err) => console.warn("[up-next] post-start:", err));
+  // Drop the just-started items from the lens promptly. Backgrounded (never blocks this
+  // response, which already paid for the serial worktree creates): wait for the claim label
+  // writes to return — behind a timeout guard so a hung `gh` can't stall it — then
+  // verify-and-retry recompute until the items clear (handles read-after-write lag).
+  if (deps.upNext && startedRefs.length > 0) {
+    const up = deps.upNext;
+    void (async () => {
+      await Promise.race([
+        Promise.allSettled(claims),
+        new Promise<void>((r) => setTimeout(r, CLAIM_SETTLE_TIMEOUT_MS).unref?.()),
+      ]);
+      await up.recomputeUntilCleared(startedRefs);
+    })().catch((err) => console.warn("[up-next] post-start:", err));
+  }
   return json({ created, errors }, created.length > 0 ? 201 : 502);
 }
 

@@ -2327,7 +2327,7 @@
   "settings_telemetry_unavailable": "Deaktiviert durch DO_NOT_TRACK oder auf diesem Server nicht konfiguriert.",
   "settings_telemetry_save_failed": "Telemetrie-Einstellung konnte nicht gespeichert werden.",
   "gloss_telemetry_term": "Telemetrie",
-  "gloss_telemetry_def": "Automatische Erfassung anonymer Nutzungs- und Diagnosedaten einer Software, die an ihre Entwickler zurückgesendet werden, um Verbesserungen zu steuern.",
+  "gloss_telemetry_def": "Automatische Erfassung anonymer Nutzungs- und Diagnosedaten einer Software, die an ihre Entwickler zurückgesendet werden, um die Weiterentwicklung zu steuern.",
   "feat_anonymous_telemetry_title": "Optionale anonyme Nutzungstelemetrie",
-  "feat_anonymous_telemetry_body": "Shepherd kann jetzt anonyme, datenschutzfreundliche Nutzungsdaten senden (Betriebssystem, Version, genutzte Funktionen – nie Code oder persönliche Daten), um die Roadmap zu priorisieren. Standardmäßig aus, bis du zustimmst, respektiert DO_NOT_TRACK und lässt sich jederzeit in den Einstellungen umschalten."
+  "feat_anonymous_telemetry_body": "Shepherd kann jetzt anonyme, datenschutzfreundliche Nutzungsdaten senden (Betriebssystem, Version, genutzte Funktionen – nie Code oder persönliche Daten), um die Roadmap zu priorisieren. Sie ist standardmäßig aus, bis du zustimmst, respektiert DO_NOT_TRACK und lässt sich jederzeit in den Einstellungen umschalten."
 }

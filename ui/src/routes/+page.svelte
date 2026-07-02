@@ -112,6 +112,7 @@
   import ExperimentPicker from "$lib/components/ExperimentPicker.svelte";
   import type { ExperimentPickerState } from "$lib/components/ExperimentPicker.svelte";
   import FeedbackDialog from "$lib/components/FeedbackDialog.svelte";
+  import TelemetryConsent from "$lib/components/TelemetryConsent.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
   import { toasts } from "$lib/toasts.svelte";
@@ -447,6 +448,11 @@
   // this same load — so we latch "was fresh" before seeding and gate on that +
   // the persisted seen-set (markSeen("onboarding") keeps it from reappearing).
   let showOnboarding = $state(false);
+  // First-run telemetry consent prompt — shown once, after onboarding resolves, when the
+  // server reports telemetry is available but the operator hasn't answered yet. See
+  // loadSettings() for the gating and the render site near AppOverlays for the
+  // onboardingBlocking guard (never stack over the blocking repo-pick modal).
+  let showTelemetryConsent = $state(false);
   // True only when the diagnostics seed fetch failed and no snapshot has arrived
   // yet (HTTP or the WS push) — lets the onboarding checklist show a retry instead
   // of a permanent "Loading…".
@@ -522,6 +528,7 @@
   // reports first-run-pending (see loadSettings()). Once the pick persists, handleOnboardingPicked
   // re-loads settings and this flips false on its own.
   const onboardingBlocking = $derived(settings?.firstRunPending ?? false);
+  const showTelemetryConsentModal = $derived(showTelemetryConsent && !onboardingBlocking);
   // The blocking picker resolved server-side (putSettings persisted a root): close the gate and
   // re-pull settings so repoRoot/repoRootDisplay/firstRunPending are all fresh.
   function handleOnboardingPicked() {
@@ -598,6 +605,17 @@
         // required-pick onboarding gate — force it open even if the localStorage feature-discovery
         // "seen" latch would otherwise keep the (non-blocking) checklist from reappearing.
         if (s.firstRunPending) showOnboarding = true;
+        // Ask for telemetry consent once the operator has onboarded and telemetry can run.
+        // Skip in the hosted demo: its PUT /api/settings is a no-op stub, so a shown modal
+        // could never be dismissed (same __DEMO__ guard as the onboarding-checklist gate).
+        if (
+          !__DEMO__ &&
+          s.telemetryAvailable &&
+          s.telemetryConsent === "unset" &&
+          !s.firstRunPending
+        ) {
+          showTelemetryConsent = true;
+        }
         // One-shot: loadSettings() also re-fires on tab return, so the eligibility
         // flag is consumed and `seen` re-checked here — a dismissed (or already-seen)
         // arrival must never reappear. See resolveFableArrival.
@@ -2712,6 +2730,14 @@
   ontrainclose={() => (pendingTrain = null)}
   ontrainconfirm={confirmTrain}
   onstarresolve={(s) => (store.starPrompt = s)}
+/>
+
+<TelemetryConsent
+  show={showTelemetryConsentModal}
+  onresolved={() => {
+    showTelemetryConsent = false;
+    loadSettings();
+  }}
 />
 
 <FeedbackDialog />

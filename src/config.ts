@@ -9,6 +9,7 @@ import {
 } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
+import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
@@ -431,6 +432,22 @@ export const config = {
   // are unset; provide them via env to pin a stable key pair across DB resets.
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
+  // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
+  // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
+  // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship
+  // in the client (like a GA measurement ID), so it's embedded here so ordinary
+  // installs can report once the operator opts in. Nothing sends without consent
+  // (telemetryConsent defaults "unset" → the first-run prompt) and DO_NOT_TRACK.
+  // Forks/self-hosters override via SHEPHERD_APTABASE_APP_KEY (set it to their own
+  // key, or blank to disable). SHEPHERD_APTABASE_HOST overrides the ingestion host
+  // for self-hosted instances; when unset the host is derived from the App-Key
+  // region (see resolveAptabaseHost). DO_NOT_TRACK (consoledonottrack.com)
+  // hard-disables telemetry and suppresses the first-run consent prompt.
+  aptabaseAppKey: process.env.SHEPHERD_APTABASE_APP_KEY ?? "A-EU-2837516646",
+  aptabaseHostOverride: process.env.SHEPHERD_APTABASE_HOST ?? null,
+  doNotTrack: ((v) => v === "1" || v?.toLowerCase() === "true")(process.env.DO_NOT_TRACK),
+  // Persisted consent (DB row overrides this env seed at boot; see index.ts).
+  telemetryConsent: normalizeTelemetryConsent(process.env.SHEPHERD_TELEMETRY_CONSENT) ?? "unset",
   // Apple/iOS rejects pushes whose VAPID subject is a non-routable URL (e.g.
   // `mailto:shepherd@localhost`) with HTTP 403 BadJwtToken. Default to a valid
   // https URL; override with SHEPHERD_VAPID_SUBJECT (any valid https:/mailto: URL).

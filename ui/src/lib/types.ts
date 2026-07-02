@@ -126,6 +126,10 @@ export interface Settings {
   tuiDisableMouse: boolean;
   /** Global reduced-notifications mode: when on, only the ready-after-5s push (+ usage/credit alerts) is sent. */
   reducedPushMode: boolean;
+  /** Anonymous usage-telemetry consent. "unset" until the operator answers the first-run prompt. */
+  telemetryConsent: "unset" | "granted" | "denied";
+  /** True when telemetry can run (App-Key configured AND DO_NOT_TRACK unset) — gates the prompt + toggle. */
+  telemetryAvailable: boolean;
   /** Whether the PR-gated doc agent feature is enabled. */
   docAgentEnabled: boolean;
   /** Whether the doc agent runs in observe-only mode (no PR opened). */

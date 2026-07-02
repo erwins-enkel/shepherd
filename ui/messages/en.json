@@ -2315,5 +2315,19 @@
   "tab_attention_count": "Sessions needing your attention: {count}",
   "tab_attention_none": "No sessions need your attention",
   "feat_tab_signaling_title": "Your browser tab now signals the herd",
-  "feat_tab_signaling_body": "When Shepherd is open in a background tab, the tab title shows a count of sessions needing you, and the favicon takes on a severity color — red for failing CI, amber for blocked, green for ready to merge. A brief check mark appears when the herd drains. Installed as an app, it also updates the app badge."
+  "feat_tab_signaling_body": "When Shepherd is open in a background tab, the tab title shows a count of sessions needing you, and the favicon takes on a severity color — red for failing CI, amber for blocked, green for ready to merge. A brief check mark appears when the herd drains. Installed as an app, it also updates the app badge.",
+  "telemetry_consent_title": "Help improve Shepherd?",
+  "telemetry_consent_body": "Shepherd can send anonymous usage [[telemetry|telemetry]] — your OS, version, and which features are used. No code, file paths, repo names, or personal data ever leave your machine. You can change this any time in Settings.",
+  "telemetry_consent_accept": "Share anonymous usage",
+  "telemetry_consent_decline": "No thanks",
+  "settings_telemetry_title": "Anonymous usage telemetry",
+  "settings_telemetry_hint": "Send anonymous, aggregate usage data (OS, version, feature usage) to help prioritise Shepherd's roadmap. No code or personal data.",
+  "settings_telemetry_on": "On",
+  "settings_telemetry_off": "Off",
+  "settings_telemetry_unavailable": "Disabled by DO_NOT_TRACK or not configured on this server.",
+  "settings_telemetry_save_failed": "Couldn't save the telemetry setting.",
+  "gloss_telemetry_term": "telemetry",
+  "gloss_telemetry_def": "Automatic collection of anonymous usage and diagnostic data from software, sent back to its developers to guide improvements.",
+  "feat_anonymous_telemetry_title": "Optional anonymous usage telemetry",
+  "feat_anonymous_telemetry_body": "Shepherd can now send anonymous, privacy-first usage data (OS, version, feature usage — never code or personal data) to help prioritise the roadmap. It's off until you opt in, respects DO_NOT_TRACK, and can be toggled any time in Settings."
 }

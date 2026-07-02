@@ -20,6 +20,8 @@ import {
   PLAN_REVIEW_CYCLES_MAX,
   USAGE_HISTORY_RETENTION_MS,
 } from "./config";
+import { normalizeTelemetryConsent } from "./telemetry-consent";
+import { resolveAptabaseHost } from "./telemetry";
 import {
   validateCreate,
   validateRelaunchOverrides,
@@ -209,6 +211,11 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
+   *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
+   *  so the many test `makeDeps()` builders need no change; wired to the real
+   *  TelemetryService in index.ts. */
+  telemetry?: import("./telemetry").TelemetryService;
   /** Memo slots (#1092) for the learnings + repo-config deep modules. Optional so the
    *  many test `makeDeps()` builders need no change; routes never read these directly —
    *  they go through the total `learnings(deps)` / `repoConfig(deps)` accessors below,
@@ -3824,6 +3831,12 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // doc-agent soak flags (read-only; env-driven; no PUT patch).
       docAgentEnabled: config.docAgentEnabled,
       docAgentAct: config.docAgentAct,
+      telemetryConsent: config.telemetryConsent,
+      // The UI shows the consent prompt / toggle only when telemetry can actually
+      // run: an App-Key is configured (host resolvable) AND DO_NOT_TRACK is unset.
+      telemetryAvailable:
+        !config.doNotTrack &&
+        resolveAptabaseHost(config.aptabaseAppKey, config.aptabaseHostOverride) !== null,
     });
   }
   if (req.method === "PUT") {
@@ -3874,6 +3887,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["fableAvailable", putFableAvailable],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
+  ["telemetryConsent", putTelemetryConsent],
 ];
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
@@ -3992,6 +4006,22 @@ function putAuthMode(value: unknown, deps: Ctx["deps"]): Response {
   config.authMode = v; // live: next spawn picks it up
   deps.store.setSetting("authMode", v); // persist across restarts
   return json({ authMode: config.authMode, hasApiKey: config.authApiKeyHelperPath !== null });
+}
+
+// Consent is the only persisted telemetry state. Granting for the first time emits
+// app_launched immediately so the very first opt-in records an install without waiting
+// for the next boot. Denying/ungranting is silent. DO_NOT_TRACK still hard-gates emission
+// downstream (TelemetryService.enabled), so a granted consent under DNT sends nothing.
+function putTelemetryConsent(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeTelemetryConsent(value);
+  if (v === null || v === "unset") {
+    return json({ error: "telemetryConsent must be 'granted' or 'denied'" }, 400);
+  }
+  const wasGranted = config.telemetryConsent === "granted";
+  config.telemetryConsent = v; // live: gate re-reads this
+  deps.store.setSetting("telemetryConsent", v); // persist across restarts
+  if (v === "granted" && !wasGranted) deps.telemetry?.event("app_launched");
+  return json({ telemetryConsent: config.telemetryConsent });
 }
 
 function putAnthropicApiKey(value: unknown, deps: Ctx["deps"]): Response {

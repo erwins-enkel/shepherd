@@ -90,6 +90,8 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     tuiFullscreen: false,
     tuiDisableMouse: false,
     reducedPushMode: false,
+    telemetryConsent: "unset",
+    telemetryAvailable: true,
     docAgentEnabled: false,
     docAgentAct: true,
     ...over,

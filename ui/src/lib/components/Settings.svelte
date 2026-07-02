@@ -23,6 +23,7 @@
     putReducedPushMode,
     putTuiFullscreen,
     putTuiDisableMouse,
+    putTelemetryConsent,
     logout,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
@@ -166,6 +167,9 @@
 
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
+  let telemetryOn = $state(false);
+  let telemetryAvailable = $state(false);
+  let telemetryBusy = $state(false);
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
   let hkBusy = $state(false);
   let retentionDays = $state(30); // display-only, from the settings payload
@@ -715,6 +719,24 @@
     }
   }
 
+  async function toggleTelemetry() {
+    if (telemetryBusy) return;
+    telemetryBusy = true;
+    const next = !telemetryOn;
+    try {
+      const r = await putTelemetryConsent(next ? "granted" : "denied");
+      telemetryOn = r.telemetryConsent === "granted";
+    } catch {
+      toasts.info(m.settings_telemetry_save_failed(), {
+        key: "telemetry-consent",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      telemetryBusy = false;
+    }
+  }
+
   async function saveUsageHoldPct() {
     if (usageHoldPctBusy) return;
     usageHoldPctBusy = true;
@@ -874,6 +896,8 @@
       tuiFullscreen = s.tuiFullscreen;
       tuiDisableMouse = s.tuiDisableMouse;
       reducedPushMode = s.reducedPushMode;
+      telemetryOn = s.telemetryConsent === "granted";
+      telemetryAvailable = s.telemetryAvailable;
       repoRoot = s.repoRoot;
       repoRootDisplay = s.repoRootDisplay;
     } catch {
@@ -1232,6 +1256,27 @@
             >{housekeeping ? m.settings_housekeeping_on() : m.settings_housekeeping_off()}</span
           >
         </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_telemetry_title()}</span>
+        <p class="hint">{m.settings_telemetry_hint()}</p>
+        {#if telemetryAvailable}
+          <button
+            type="button"
+            class="toggle"
+            role="switch"
+            aria-checked={telemetryOn}
+            disabled={telemetryBusy}
+            onclick={toggleTelemetry}
+          >
+            <span class="track" class:on={telemetryOn}><span class="knob"></span></span>
+            <span class="state"
+              >{telemetryOn ? m.settings_telemetry_on() : m.settings_telemetry_off()}</span
+            >
+          </button>
+        {:else}
+          <p class="hint">{m.settings_telemetry_unavailable()}</p>
+        {/if}
       </div>
       <div class="rc">
         <span class="micro">{m.settings_pr_review_cycles_title()}</span>

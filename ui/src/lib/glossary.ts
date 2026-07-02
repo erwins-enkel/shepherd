@@ -90,6 +90,16 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_satellite_pass_term",
     bodyKey: "gloss_satellite_pass_def",
   },
+  {
+    id: "telemetry",
+    kind: "external",
+    termKey: "gloss_telemetry_term",
+    bodyKey: "gloss_telemetry_def",
+    wikipedia: {
+      en: "Telemetry#Software",
+      de: "Telemetrie_(Software)",
+    },
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

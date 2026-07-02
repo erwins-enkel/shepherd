@@ -2315,5 +2315,19 @@
   "tab_attention_count": "Sitzungen, die deine Aufmerksamkeit brauchen: {count}",
   "tab_attention_none": "Keine Sitzungen brauchen deine Aufmerksamkeit",
   "feat_tab_signaling_title": "Dein Browser-Tab signalisiert jetzt die Herde",
-  "feat_tab_signaling_body": "Wenn Shepherd in einem Hintergrund-Tab geöffnet ist, zeigt der Tab-Titel die Anzahl der Sitzungen, die dich brauchen, und das Favicon nimmt eine Signalfarbe an — Rot für fehlgeschlagene CI, Bernstein für blockiert, Grün für merge-bereit. Ein kurzes Häkchen erscheint, wenn die Herde abgearbeitet ist. Als App installiert, wird zusätzlich das App-Badge aktualisiert."
+  "feat_tab_signaling_body": "Wenn Shepherd in einem Hintergrund-Tab geöffnet ist, zeigt der Tab-Titel die Anzahl der Sitzungen, die dich brauchen, und das Favicon nimmt eine Signalfarbe an — Rot für fehlgeschlagene CI, Bernstein für blockiert, Grün für merge-bereit. Ein kurzes Häkchen erscheint, wenn die Herde abgearbeitet ist. Als App installiert, wird zusätzlich das App-Badge aktualisiert.",
+  "telemetry_consent_title": "Shepherd verbessern helfen?",
+  "telemetry_consent_body": "Shepherd kann anonyme Nutzungsdaten senden – sogenannte [[telemetry|Telemetrie]]: dein Betriebssystem, deine Version und welche Funktionen du nutzt. Kein Code, keine Dateipfade, Repo-Namen oder persönlichen Daten verlassen jemals deinen Rechner. Du kannst das jederzeit in den Einstellungen ändern.",
+  "telemetry_consent_accept": "Anonyme Nutzung teilen",
+  "telemetry_consent_decline": "Nein, danke",
+  "settings_telemetry_title": "Anonyme Nutzungstelemetrie",
+  "settings_telemetry_hint": "Sende anonyme, aggregierte Nutzungsdaten (Betriebssystem, Version, genutzte Funktionen), um die Roadmap von Shepherd zu priorisieren. Kein Code, keine persönlichen Daten.",
+  "settings_telemetry_on": "An",
+  "settings_telemetry_off": "Aus",
+  "settings_telemetry_unavailable": "Deaktiviert durch DO_NOT_TRACK oder auf diesem Server nicht konfiguriert.",
+  "settings_telemetry_save_failed": "Telemetrie-Einstellung konnte nicht gespeichert werden.",
+  "gloss_telemetry_term": "Telemetrie",
+  "gloss_telemetry_def": "Automatische Erfassung anonymer Nutzungs- und Diagnosedaten einer Software, die an ihre Entwickler zurückgesendet werden, um die Weiterentwicklung zu steuern.",
+  "feat_anonymous_telemetry_title": "Optionale anonyme Nutzungstelemetrie",
+  "feat_anonymous_telemetry_body": "Shepherd kann jetzt anonyme, datenschutzfreundliche Nutzungsdaten senden (Betriebssystem, Version, genutzte Funktionen – nie Code oder persönliche Daten), um die Roadmap zu priorisieren. Sie ist standardmäßig aus, bis du zustimmst, respektiert DO_NOT_TRACK und lässt sich jederzeit in den Einstellungen umschalten."
 }

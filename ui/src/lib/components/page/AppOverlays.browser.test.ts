@@ -232,6 +232,8 @@ describe("AppOverlays — command bar wiring", () => {
     props.showCommandBar = true;
     props.commandBarCommands = [{ id: "probe", label: () => "Probe verb", run: vi.fn() }];
     render(AppOverlays, props);
+    // Commands are query-gated, so type to reveal the forwarded verb.
+    await page.getByRole("combobox").fill("probe");
     await expect.element(page.getByRole("option", { name: /Probe verb/ })).toBeVisible();
   });
 });

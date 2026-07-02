@@ -106,20 +106,25 @@
     })),
   );
 
+  // Commands + Docs are search-driven, so they stay hidden until the user types: with an
+  // empty query every command (≤6) and doc (~14) would match and flood the bar on open,
+  // burying the recency-ordered sessions/repos/lenses that make it a quick-switcher.
   // Commands match on label + optional localized keyword synonyms; docs on their title +
   // the generated keyword haystack (description + headings), so non-title queries resolve.
   const commandRows = $derived<Row[]>(
-    commands
-      .filter((c) => (c.label() + " " + (c.keywords?.() ?? "")).toLowerCase().includes(q))
-      .map((c) => ({ kind: "command", id: c.id, label: c.label(), run: c.run })),
+    q === ""
+      ? []
+      : commands
+          .filter((c) => (c.label() + " " + (c.keywords?.() ?? "")).toLowerCase().includes(q))
+          .map((c) => ({ kind: "command", id: c.id, label: c.label(), run: c.run })),
   );
 
   const docRows = $derived<Row[]>(
-    DOCS_PAGES.filter((d) => (d.title.toLowerCase() + " " + d.keywords).includes(q)).map((d) => ({
-      kind: "doc",
-      title: d.title,
-      url: docUrl(d.path),
-    })),
+    q === ""
+      ? []
+      : DOCS_PAGES.filter((d) => (d.title.toLowerCase() + " " + d.keywords).includes(q)).map(
+          (d) => ({ kind: "doc", title: d.title, url: docUrl(d.path) }),
+        ),
   );
 
   // Non-empty groups, each row tagged with its global selectable index (`oid`).

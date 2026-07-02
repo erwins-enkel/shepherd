@@ -189,17 +189,31 @@ describe("CommandBar — Commands group", () => {
   it("renders a Commands group and filters on label AND keyword synonyms", async () => {
     const { commands } = seedCommands();
     renderBar({ commands });
-    await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     // "cost" matches the Usage command only via its keywords (not its label).
     await page.getByRole("combobox").fill("cost");
+    await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     const opts = page.getByRole("option");
     await expect.element(opts.first()).toHaveTextContent("Usage");
     expect(opts.elements()).toHaveLength(1);
   });
 
+  it("hides Commands and Docs until a query is typed (no flood on open)", async () => {
+    const { commands } = seedCommands();
+    renderBar({ commands });
+    // Open state: only the navigation groups show; no Commands/Docs headers or rows.
+    await expect.element(page.getByText(m.commandbar_group_sessions())).toBeVisible();
+    expect(page.getByText(m.commandbar_group_commands()).elements()).toHaveLength(0);
+    expect(page.getByText(m.commandbar_group_docs()).elements()).toHaveLength(0);
+    // No doc affordance row is present at rest either.
+    expect(
+      page.getByRole("option", { name: new RegExp(m.commandbar_docs_affordance()) }).elements(),
+    ).toHaveLength(0);
+  });
+
   it("selecting a command runs it and closes the bar", async () => {
     const { commands, run } = seedCommands();
     const { onclose } = renderBar({ commands });
+    await page.getByRole("combobox").fill("broadcast");
     await page.getByRole("option", { name: /Broadcast/ }).click();
     expect(run).toHaveBeenCalledTimes(1);
     expect(onclose).toHaveBeenCalledTimes(1);

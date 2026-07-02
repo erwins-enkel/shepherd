@@ -1,4 +1,5 @@
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import pkg from "../package.json" with { type: "json" };
 
 export type TelemetryEventName = "app_launched" | "session_created" | "epic_drained" | "pr_opened";
@@ -76,7 +77,7 @@ export class TelemetryService {
     this.postEvent = deps.postEvent ?? defaultPost;
     this.now = deps.now ?? (() => Date.now());
     this.schedule = deps.schedule ?? ((fn) => void setTimeout(fn, 200));
-    this.sessionId = crypto.randomUUID();
+    this.sessionId = randomUUID();
   }
 
   private ready(): boolean {

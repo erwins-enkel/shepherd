@@ -138,6 +138,10 @@ export class UpNextService {
   ): Promise<RepoInput | "fetch_failed" | null> {
     const forge = this.deps.resolveForge(r.repoPath);
     if (!forge) return null; // forge vanished mid-compute → benign skip, not a fetch failure
+    // The operator's own login on this forge, for the "mine & unassigned" filter (#824). Cached
+    // per-forge (`gh api user`), so ~free after the first call. null when the host can't resolve
+    // it (local/un-authed/no identity API) → the core fails open and filters nothing.
+    const viewer = (await forge.currentUser?.().catch(() => null)) ?? null;
     let openIssues: Awaited<ReturnType<GitForge["listIssues"]>>;
     try {
       openIssues = await forge.listIssues();
@@ -158,6 +162,7 @@ export class UpNextService {
       repoSlug: r.repoSlug,
       repoLabel: r.repoLabel,
       lastUsedAt: lastUsed[r.repoPath] ?? null,
+      viewer,
       openIssues,
       epics,
       subIssueNumbers: summaries.subIssueNumbers,
@@ -190,6 +195,7 @@ export class UpNextService {
         parentUrl: parent.url,
         parentCreatedAt: parent.createdAt,
         parentLabels: parent.labels,
+        parentAssignees: parent.assignees,
         memberNumbers: epic.children.map((c) => c.number),
         candidate: selectEpicCandidates(epic.children)[0] ?? null,
       });

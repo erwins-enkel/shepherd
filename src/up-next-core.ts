@@ -63,6 +63,10 @@ export interface EpicUnitInput {
   parentUrl: string;
   parentCreatedAt: number;
   parentLabels: string[];
+  /** The epic parent's assignees. The unit is filtered by these (#824) — the candidate child
+   *  is synthesized with `assignees: []`, so the parent is the assignee-bearing issue (matching
+   *  what the Backlog hides). */
+  parentAssignees: string[];
   /** All epic member issue numbers — removed from the flat per-repo list (dedup). */
   memberNumbers: number[];
   /** selectEpicCandidates()[0], or null when no child is actionable (suppress the unit). */
@@ -74,6 +78,10 @@ export interface RepoInput {
   repoSlug: string | null;
   repoLabel: string;
   lastUsedAt: number | null;
+  /** The operator's own login on this repo's forge (`forge.currentUser()`), or null when it
+   *  can't be resolved (local forge / un-authed / no identity API). Drives the "mine &
+   *  unassigned" filter (#824); null fails open (no assignee filtering — show everything). */
+  viewer: string | null;
   openIssues: Issue[];
   epics: EpicUnitInput[];
   /** All native sub-issue numbers in the repo (from listSubIssueSummaries). Removed from the
@@ -117,6 +125,15 @@ function classifyKind(labelSet: Set<string>): "bug" | "feature" {
   return intersects(labelSet, BUG_LABELS) ? "bug" : "feature";
 }
 
+/** The "mine & unassigned" predicate (#824): true when the issue is assigned to at least one
+ *  person and the viewer is NOT among them (i.e. assigned solely to others → hide). Fails open
+ *  when `viewer` is null (unknown "me"): unassigned and mine-assigned always pass. Mirrors the
+ *  Backlog's `hideOthers` (ui/src/lib/components/issues-panel.ts). */
+function isAssignedToOthers(assignees: string[], viewer: string | null): boolean {
+  if (viewer == null) return false;
+  return assignees.length > 0 && !assignees.includes(viewer);
+}
+
 /** Standalone-issue exclusions applied before ranking. Epic membership + PR-linkage are
  *  handled by the caller (they need cross-issue context). */
 function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
@@ -130,6 +147,7 @@ function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
 function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): UpNextItem | null {
   const labelSet = lc(issue.labels);
   if (isExcludedIssue(issue, labelSet)) return null;
+  if (isAssignedToOthers(issue.assignees, repo.viewer)) return null; // #824 mine & unassigned
   if (linkedSet.has(issue.number)) return null; // best-effort secondary
   return {
     repoPath: repo.repoPath,
@@ -153,6 +171,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
   const parentLabelSet = lc(e.parentLabels);
   if (hasLabel(parentLabelSet, ACTIVE_LABEL)) return null;
   if (intersects(parentLabelSet, EXCLUDE_LABELS)) return null;
+  if (isAssignedToOthers(e.parentAssignees, repo.viewer)) return null; // #824 (keyed on parent)
   if (linkedSet.has(c.number)) return null; // the child already has a PR in flight
   return {
     repoPath: repo.repoPath,

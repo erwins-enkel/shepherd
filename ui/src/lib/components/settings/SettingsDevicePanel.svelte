@@ -10,6 +10,7 @@
     type PushCategories,
   } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { tabTicker } from "$lib/tab-ticker.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -122,6 +123,22 @@
     <span class="track" class:on={theme.colorblind}><span class="knob"></span></span>
     <span class="state"
       >{theme.colorblind ? m.settings_colorblind_on() : m.settings_colorblind_off()}</span
+    >
+  </button>
+</div>
+<div class="rc">
+  <span class="micro">{m.settings_tab_ticker_title()}</span>
+  <p class="hint">{m.settings_tab_ticker_hint()}</p>
+  <button
+    type="button"
+    class="toggle"
+    role="switch"
+    aria-checked={tabTicker.enabled}
+    onclick={() => tabTicker.toggle()}
+  >
+    <span class="track" class:on={tabTicker.enabled}><span class="knob"></span></span>
+    <span class="state"
+      >{tabTicker.enabled ? m.settings_tab_ticker_on() : m.settings_tab_ticker_off()}</span
     >
   </button>
 </div>

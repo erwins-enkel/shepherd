@@ -3835,6 +3835,9 @@ test("PREVIEW_SETUP_STEER tells reusable scripts to write the hint in the runtim
   });
   expect(steer).toContain('WORKTREE_ROOT="${SHEPHERD_WORKTREE_PATH:-/wt/setup}"');
   expect(steer).toContain("$WORKTREE_ROOT/.shepherd-preview");
+  expect(steer).toContain("Do not run `tailscale serve` from this script");
+  expect(steer).toContain("Shepherd's preview sweep detects the port");
+  expect(steer).toContain("SHEPHERD_PREVIEW_AUTO_SERVE");
   expect(steer).not.toContain("/wt/setup/.shepherd-preview");
 });
 

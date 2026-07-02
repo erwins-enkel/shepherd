@@ -33,27 +33,78 @@
 
 - [ ] **Step 1: Write the failing test**
 
-Create `ui/src/lib/tab-ticker.svelte.test.ts` (mirrors `build-queue-collapse.svelte.test.ts`):
+Create `ui/src/lib/tab-ticker.svelte.test.ts`. **Node vitest has no `localStorage`** and the singleton's `read()` runs at import time — so stub `localStorage` BEFORE importing the module, exactly like `build-queue-collapse.svelte.test.ts`:
 
 ```ts
-import { test, expect, beforeEach } from "vitest";
-import { readTabTicker } from "./tab-ticker.svelte";
+import { describe, it, expect, beforeEach } from "vitest";
 
-beforeEach(() => localStorage.clear());
+// Stub localStorage before importing the module so the singleton's read() call
+// at init doesn't touch a real or missing localStorage.
+const store: Record<string, string> = {};
+const localStorageMock = {
+  getItem: (key: string) => store[key] ?? null,
+  setItem: (key: string, value: string) => {
+    store[key] = value;
+  },
+  removeItem: (key: string) => {
+    delete store[key];
+  },
+  clear: () => {
+    for (const k of Object.keys(store)) delete store[k];
+  },
+};
+// @ts-expect-error stubbing global
+globalThis.localStorage = localStorageMock;
 
-test("defaults to OFF when unset", () => {
-  expect(readTabTicker()).toBe(false);
+import { tabTicker, readTabTicker } from "./tab-ticker.svelte";
+
+const KEY = "shepherd:tab-glyph-ticker";
+
+beforeEach(() => {
+  localStorageMock.clear();
+  tabTicker.set(false); // reset singleton
+  localStorageMock.clear(); // clear the reset's side-effect write
 });
 
-test("reads ON when the flag is '1'", () => {
-  localStorage.setItem("shepherd:tab-glyph-ticker", "1");
-  expect(readTabTicker()).toBe(true);
+describe("tabTicker store", () => {
+  it("defaults to OFF (false) when localStorage is empty", () => {
+    expect(tabTicker.enabled).toBe(false);
+  });
+
+  it("read() returns true when the key is '1'", () => {
+    store[KEY] = "1";
+    expect(readTabTicker()).toBe(true);
+  });
+
+  it("read() returns false when the key is absent", () => {
+    expect(readTabTicker()).toBe(false);
+  });
+
+  it("set(true) writes '1' and flips enabled", () => {
+    tabTicker.set(true);
+    expect(store[KEY]).toBe("1");
+    expect(tabTicker.enabled).toBe(true);
+  });
+
+  it("set(false) removes the key", () => {
+    store[KEY] = "1";
+    tabTicker.set(false);
+    expect(store[KEY]).toBeUndefined();
+  });
+
+  it("toggle flips the value", () => {
+    expect(tabTicker.enabled).toBe(false);
+    tabTicker.toggle();
+    expect(tabTicker.enabled).toBe(true);
+    tabTicker.toggle();
+    expect(tabTicker.enabled).toBe(false);
+  });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ui && bun run test:unit -- tab-ticker` (or `bunx vitest run src/lib/tab-ticker.svelte.test.ts`)
+Run: `cd ui && bunx vitest run src/lib/tab-ticker.svelte.test.ts`
 Expected: FAIL — cannot resolve `./tab-ticker.svelte`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -96,7 +147,7 @@ export { read as readTabTicker };
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd ui && bunx vitest run src/lib/tab-ticker.svelte.test.ts`
-Expected: PASS (2 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 

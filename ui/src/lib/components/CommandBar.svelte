@@ -6,6 +6,7 @@
   import { displayStatus } from "$lib/display-status";
   import { statusLabel } from "$lib/format";
   import { dialog } from "$lib/a11yDialog";
+  import { lensGlyph } from "$lib/components/herd/lens-glyphs";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -48,13 +49,14 @@
   const q = $derived(filter.trim().toLowerCase());
 
   // Fixed five-lens set — the issue deliberately excludes the default "all" view.
-  // Labels + glyphs reuse the herd lens strip so the palette can't drift from it.
-  const LENSES: { id: HerdFilter; label: () => string; icon: string }[] = [
-    { id: "next", label: () => m.herd_seg_next(), icon: "↑" },
-    { id: "ready", label: () => m.herd_seg_ready(), icon: "▤" },
-    { id: "done", label: () => m.herd_seg_done(), icon: "✓" },
-    { id: "rundown", label: () => m.herd_seg_rundown(), icon: "☰" },
-    { id: "owed", label: () => m.herd_seg_owed(), icon: "☑" },
+  // Labels reuse the `herd_seg_*` keys and glyphs come from the shared lensGlyph map,
+  // so both dimensions stay single-sourced with the HerdLensStrip and can't drift.
+  const LENSES: { id: HerdFilter; label: () => string }[] = [
+    { id: "next", label: () => m.herd_seg_next() },
+    { id: "ready", label: () => m.herd_seg_ready() },
+    { id: "done", label: () => m.herd_seg_done() },
+    { id: "rundown", label: () => m.herd_seg_rundown() },
+    { id: "owed", label: () => m.herd_seg_owed() },
   ];
 
   // Recency-first, per group (see plan: updatedAt / lastUsedAt are the last-activity
@@ -88,7 +90,7 @@
       kind: "lens",
       lens: l.id,
       label: l.label(),
-      icon: l.icon,
+      icon: lensGlyph[l.id],
     })),
   );
 

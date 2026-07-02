@@ -16,8 +16,8 @@
     onrelaunchElsewhere?: (id: string) => void;
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
-    repoFilter: string | null;
-    onrepofilter?: (repoPath: string | null) => void;
+    repoFilter: ReadonlySet<string>;
+    onrepofilter?: (repoPath: string, additive: boolean) => void;
     workingBlocked: Record<string, boolean>;
     quotaKindFor: (id: string) => "rework" | "review" | "error" | "plan" | null;
     // returns the hold reason for a session, or undefined if none

@@ -49,18 +49,24 @@ test("failed load flips settled but not loaded", async () => {
   expect(postMergeSteps.loaded).toBe(false);
 });
 
-test("owedRecordsForRepo: null filter returns records unchanged (same ref)", () => {
+test("owedRecordsForRepo: empty filter returns records unchanged (same ref)", () => {
   const records = [rec("a", "/repo/x"), rec("b", "/repo/y")];
-  expect(owedRecordsForRepo(records, null)).toBe(records);
+  expect(owedRecordsForRepo(records, new Set<string>())).toBe(records);
 });
 
 test("owedRecordsForRepo: keeps only records matching the active repo path", () => {
   const records = [rec("a", "/repo/x"), rec("b", "/repo/y"), rec("c", "/repo/x")];
-  const out = owedRecordsForRepo(records, "/repo/x");
+  const out = owedRecordsForRepo(records, new Set(["/repo/x"]));
+  expect(out.map((r) => r.sessionId)).toEqual(["a", "c"]);
+});
+
+test("owedRecordsForRepo: keeps records across a multi-repo selection", () => {
+  const records = [rec("a", "/repo/x"), rec("b", "/repo/y"), rec("c", "/repo/z")];
+  const out = owedRecordsForRepo(records, new Set(["/repo/x", "/repo/z"]));
   expect(out.map((r) => r.sessionId)).toEqual(["a", "c"]);
 });
 
 test("owedRecordsForRepo: no match yields empty list", () => {
   const records = [rec("a", "/repo/x")];
-  expect(owedRecordsForRepo(records, "/repo/z")).toEqual([]);
+  expect(owedRecordsForRepo(records, new Set(["/repo/z"]))).toEqual([]);
 });

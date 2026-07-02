@@ -99,22 +99,25 @@ describe("PostMergeStepsPanel", () => {
       record({ sessionId: "s1", desig: "TASK-IN", repoPath: "/repo/shepherd" }),
       record({ sessionId: "s2", desig: "TASK-OUT", repoPath: "/repo/other" }),
     ];
-    render(PostMergeStepsPanel, { repoFilter: "/repo/shepherd" });
+    render(PostMergeStepsPanel, { repoFilter: new Set(["/repo/shepherd"]) });
     await expect.element(page.getByText("TASK-IN")).toBeInTheDocument();
     await expect.element(page.getByText("TASK-OUT")).not.toBeInTheDocument();
   });
 
   it("repo filter with no matching records shows the repo-scoped empty copy, not the generic one", async () => {
     postMergeSteps.records = [record({ sessionId: "s2", repoPath: "/repo/other" })];
-    render(PostMergeStepsPanel, { repoFilter: "/repo/shepherd" });
+    render(PostMergeStepsPanel, {
+      repoFilter: new Set(["/repo/shepherd"]),
+      filteredRepo: "shepherd",
+    });
     await expect
       .element(page.getByText(m.owed_repo_filter_empty({ repo: "shepherd" })))
       .toBeInTheDocument();
     await expect.element(page.getByText(m.owed_empty())).not.toBeInTheDocument();
   });
 
-  it("no repo filter (null) lists every record and uses the generic empty copy", async () => {
-    render(PostMergeStepsPanel, { repoFilter: null });
+  it("no repo filter (empty) lists every record and uses the generic empty copy", async () => {
+    render(PostMergeStepsPanel, { repoFilter: new Set<string>() });
     await expect.element(page.getByText(m.owed_empty())).toBeInTheDocument();
   });
 
@@ -298,7 +301,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.settled = true;
     const onfocusresolved = vi.fn();
     const screen = render(PostMergeStepsPanel, {
-      repoFilter: "/repo/shepherd",
+      repoFilter: new Set(["/repo/shepherd"]),
       focusSessionId: "s1",
       focusSnapshot: snapshot({ sessionId: "s1" }),
       focusNonce: 1,

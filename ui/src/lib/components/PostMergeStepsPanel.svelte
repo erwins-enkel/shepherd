@@ -2,22 +2,25 @@
   import { onDestroy, tick } from "svelte";
   import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
   import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
-  import { basename } from "$lib/components/learnings-drawer";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { EMPTY_REPO_FILTER } from "./queue-strip";
 
   let {
-    repoFilter = null,
+    repoFilter = EMPTY_REPO_FILTER,
+    filteredRepo = null,
     focusSessionId = null,
     focusSnapshot = null,
     focusNonce = 0,
     focusHandledNonce = 0,
     onfocusresolved = undefined,
   }: {
-    /** Active repo chip filter (full repo path; null = all repos). Scopes the visible card list
-     *  and empty state — but NOT the focus/frozen-card resolution, which must see every repo. */
-    repoFilter?: string | null;
+    /** Active repo chip filter (selected repo paths; empty = all repos). Scopes the visible card
+     *  list and empty state — but NOT the focus/frozen-card resolution, which must see every repo. */
+    repoFilter?: ReadonlySet<string>;
+    /** Pre-computed filter display name ("N repos" for a multi-selection) for the empty state. */
+    filteredRepo?: string | null;
     focusSessionId?: string | null;
     focusSnapshot?: OwedFocusSnapshot | null;
     focusNonce?: number;
@@ -28,7 +31,7 @@
   // Unfiltered store — the source of truth for focus/frozen-card resolution (the #1275
   // "live record always wins / never a dead end" invariant must see records across ALL repos).
   const records = $derived(postMergeSteps.records);
-  // Repo-scoped view (#owed) — used ONLY by the card-list render and the empty gate. A null
+  // Repo-scoped view (#owed) — used ONLY by the card-list render and the empty gate. An empty
   // repoFilter passes records through unchanged.
   const shownRecords = $derived(owedRecordsForRepo(records, repoFilter));
 
@@ -139,8 +142,8 @@
 
   {#if shownRecords.length === 0 && !frozenCard}
     <div class="ow-empty">
-      {#if repoFilter}{m.owed_repo_filter_empty({
-          repo: basename(repoFilter),
+      {#if filteredRepo}{m.owed_repo_filter_empty({
+          repo: filteredRepo,
         })}{:else}{m.owed_empty()}{/if}
     </div>
   {:else}

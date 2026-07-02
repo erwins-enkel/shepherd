@@ -49,7 +49,7 @@ describe("RepoSwitcher — filter rail", () => {
   it("renders the rail with a chip per repo (≥2 chips) and no leading 'all' chip", async () => {
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha", count: 2 }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     await expect.element(page.getByRole("group", { name: m.repo_switcher_label() })).toBeVisible();
@@ -61,27 +61,70 @@ describe("RepoSwitcher — filter rail", () => {
       .toBeVisible();
   });
 
-  it("clicking a repo chip calls onrepofilter with its full path", async () => {
-    let filtered: string | null | undefined;
+  it("plain-clicking a repo chip reports its full path with additive=false", async () => {
+    const onrepofilter = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
-      onrepofilter: (p: string | null) => (filtered = p),
+      repoFilter: new Set<string>(),
+      onrepofilter,
     });
     await page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) }).click();
-    expect(filtered).toBe("/repo/beta");
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta", false);
   });
 
-  it("clicking the active repo chip clears the filter (null)", async () => {
-    let filtered: string | null | undefined = "unset";
+  it("Shift-clicking a repo chip reports it with additive=true (combo select)", async () => {
+    const onrepofilter = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: "/repo/alpha",
-      onrepofilter: (p: string | null) => (filtered = p),
+      repoFilter: new Set(["/repo/alpha"]),
+      onrepofilter,
+    });
+    const beta = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) });
+    beta.element().dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta", true);
+  });
+
+  it("keyboard Shift+Enter on a focused chip performs an additive toggle", async () => {
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set(["/repo/alpha"]),
+      onrepofilter,
+    });
+    const beta = page
+      .getByRole("button", { name: m.repo_filter_apply_aria({ repo: "beta" }) })
+      .element() as HTMLButtonElement;
+    beta.focus();
+    // Enter/Space activation on a button surfaces as a click event carrying the modifier state;
+    // a real keyboard Shift+Enter dispatches a click with shiftKey=true.
+    beta.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta", true);
+  });
+
+  it("clicking the active repo chip reports it with additive=false (page clears the sole selection)", async () => {
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set(["/repo/alpha"]),
+      onrepofilter,
     });
     // active chip carries the "showing X only — click to show all" aria label
     await page.getByRole("button", { name: m.repo_filter_active_aria({ repo: "alpha" }) }).click();
-    expect(filtered).toBe(null);
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/alpha", false);
+  });
+
+  it("with a multi-repo selection, a selected chip uses the multi-select aria label (not the sole-selection one)", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set(["/repo/alpha", "/repo/beta"]),
+      onrepofilter: () => {},
+    });
+    // plain click collapses to just this repo, so the label must NOT promise "show all repos"
+    await expect
+      .element(
+        page.getByRole("button", { name: m.repo_filter_active_multi_aria({ repo: "alpha" }) }),
+      )
+      .toBeVisible();
   });
 
   it("sorts the pinned repo to the first chip slot and marks it for assistive tech", async () => {
@@ -91,7 +134,7 @@ describe("RepoSwitcher — filter rail", () => {
         chip({ repoPath: "/repo/beta" }),
         chip({ repoPath: "/repo/gamma" }),
       ],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       pinnedRepo: "/repo/beta",
       onrepofilter: () => {},
     });
@@ -113,7 +156,7 @@ describe("RepoSwitcher — filter rail", () => {
     const onpinrepo = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter,
       onpinrepo,
     });
@@ -137,7 +180,7 @@ describe("RepoSwitcher — filter rail", () => {
   it("anchors a keyboard-opened context menu to the focused chip instead of viewport origin", async () => {
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     const alpha = document.querySelector(".rs-chip") as HTMLElement;
@@ -166,7 +209,7 @@ describe("RepoSwitcher — filter rail", () => {
     const onpinrepo = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       pinnedRepo: "/repo/alpha",
       onrepofilter: () => {},
       onpinrepo,
@@ -192,7 +235,7 @@ describe("RepoSwitcher — filter rail", () => {
         chip({ repoPath: "/repo/beta" }),
         chip({ repoPath: "/repo/gamma" }),
       ],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
       onpinrepo,
     });
@@ -225,7 +268,7 @@ describe("RepoSwitcher — filter rail", () => {
     const onrepofilter = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter,
     });
     const alpha = document.querySelector(".rs-chip") as HTMLElement;
@@ -255,7 +298,7 @@ describe("RepoSwitcher — filter rail", () => {
     const onrepofilter = vi.fn();
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter,
     });
     const alpha = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) });
@@ -279,7 +322,7 @@ describe("RepoSwitcher — filter rail", () => {
     await beta.click();
 
     expect(document.querySelector(".rs-menu"), "menu closed by Escape").toBeNull();
-    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta");
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/beta", false);
   });
 
   it("a paused repo shows the ● marker AND announces via the live region", async () => {
@@ -289,7 +332,7 @@ describe("RepoSwitcher — filter rail", () => {
     });
     const { container } = render(RepoSwitcher, {
       chips: [pausedChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     // the marker glyph
@@ -305,7 +348,7 @@ describe("RepoSwitcher — filter rail", () => {
     const learnChip = chip({ repoPath: "/repo/alpha", insights: 3 });
     const { container } = render(RepoSwitcher, {
       chips: [learnChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     // display-only marker on the chip: ✦ glyph + the insights count
@@ -325,7 +368,7 @@ describe("RepoSwitcher — filter rail", () => {
     const curateChip = chip({ repoPath: "/repo/alpha", insights: 0, curate: 2 });
     const { container } = render(RepoSwitcher, {
       chips: [curateChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
@@ -342,7 +385,7 @@ describe("RepoSwitcher — filter rail", () => {
   it("a chip with no learnings shows no ✦ marker and a plain aria-label", async () => {
     const { container } = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     expect(container.querySelector(".rs-learn-mark"), "no ✦ marker").toBeNull();
@@ -355,7 +398,7 @@ describe("RepoSwitcher — filter rail", () => {
     const learnChip = chip({ repoPath: "/repo/alpha", insights: 31 });
     const { container } = render(RepoSwitcher, {
       chips: [learnChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: "/repo/alpha",
+      repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
     });
     // the active chip keeps its decorative ✦ mark (no dedicated bar to dup with anymore)
@@ -374,7 +417,7 @@ describe("RepoSwitcher — filter rail", () => {
         chip({ repoPath: "/repo/alpha", insights: 5 }),
         chip({ repoPath: "/repo/beta", insights: 9 }),
       ],
-      repoFilter: "/repo/beta",
+      repoFilter: new Set(["/repo/beta"]),
       onrepofilter: () => {},
     });
     // both alpha (inactive) AND beta (active) now carry marks — no active-chip suppression
@@ -387,7 +430,7 @@ describe("RepoSwitcher — filter rail", () => {
   it("the active filter chip carries no underline text-decoration", async () => {
     const { container } = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
-      repoFilter: "/repo/alpha",
+      repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
     });
     const activeChip = container.querySelector<HTMLElement>(".rs-chip.active");
@@ -406,7 +449,7 @@ describe("RepoSwitcher — filter rail", () => {
     // filter on the bare repo: no detail line
     const bareRender = render(RepoSwitcher, {
       chips: [withTele, bare],
-      repoFilter: "/repo/beta",
+      repoFilter: new Set(["/repo/beta"]),
       onrepofilter: () => {},
     });
     expect(
@@ -418,7 +461,7 @@ describe("RepoSwitcher — filter rail", () => {
     // filter on the telemetry repo: detail line shows its inflight count
     const teleRender = render(RepoSwitcher, {
       chips: [withTele, bare],
-      repoFilter: "/repo/alpha",
+      repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
     });
     expect(
@@ -436,7 +479,7 @@ describe("RepoSwitcher — filter rail", () => {
           drain: drain({ repoPath: "/repo/solo", inFlight: 2, max: 4 }),
         }),
       ],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     // telemetry shows, but there is no filter rail
@@ -447,7 +490,7 @@ describe("RepoSwitcher — filter rail", () => {
   it("<2 chips and no telemetry renders no chips (only the empty live region)", async () => {
     const { container } = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo" })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     expect(container.querySelector(".rs-scroller"), "no filter rail").toBeNull();
@@ -461,7 +504,7 @@ describe("RepoSwitcher — filter rail", () => {
     // insights-only
     const insightsRender = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 5 })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     expect(insightsRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
@@ -471,7 +514,7 @@ describe("RepoSwitcher — filter rail", () => {
     // curate-only
     const curateRender = render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 0, curate: 3 })],
-      repoFilter: null,
+      repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
     expect(curateRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
@@ -490,7 +533,7 @@ describe("RepoSwitcher — filter rail", () => {
         }),
         chip({ repoPath: "/repo/beta" }),
       ],
-      repoFilter: "/repo/alpha",
+      repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
     });
     await page

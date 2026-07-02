@@ -29,6 +29,7 @@
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
   import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
+  import { EMPTY_REPO_FILTER } from "./queue-strip";
 
   let {
     sessions,
@@ -58,7 +59,7 @@
     onsettings = undefined,
     flow = false,
     filteredRepo = null,
-    repoFilter = null,
+    repoFilter = EMPTY_REPO_FILTER,
     onrepofilter = undefined,
     filter = $bindable("all"),
     statusFilter = null,
@@ -140,10 +141,10 @@
     // list is empty, show a neutral "no agents for this repo" note instead of the
     // first-run EmptyHerd nudge. null = unfiltered.
     filteredRepo?: string | null;
-    // full repoPath of the active repo filter — drives each row's inline-emoji
-    // pressed state; threaded with onrepofilter so the emoji toggles the filter
-    repoFilter?: string | null;
-    onrepofilter?: (repoPath: string | null) => void;
+    // selected repo paths (empty = all) — drives each row's inline-emoji pressed state;
+    // threaded with onrepofilter so the emoji sets the filter
+    repoFilter?: ReadonlySet<string>;
+    onrepofilter?: (repoPath: string, additive: boolean) => void;
     // the all/ready list filter — bindable so the page-level keyboard navigation
     // can mirror exactly what the rail shows (herd-keynav's railOrder takes it)
     filter?: HerdFilter;
@@ -491,7 +492,7 @@
   <div class="units" class:flow>
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
-      <UpNextPanel {onbacklog} {repoFilter} />
+      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} />
     {:else if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
@@ -500,6 +501,7 @@
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->
       <PostMergeStepsPanel
         {repoFilter}
+        {filteredRepo}
         focusSessionId={owedFocusId}
         focusSnapshot={owedFocusSnapshot}
         focusNonce={owedFocusNonce}

@@ -159,38 +159,40 @@ describe("UnitRow preview badge", () => {
 
 describe("UnitRow inline repo emoji filter", () => {
   // The emoji's title carries the repo name (hover reveal); match it precisely.
-  it("clicking the emoji sets the repo filter without selecting the row", async () => {
+  it("clicking the emoji scopes the filter to this repo (non-additive) without selecting the row", async () => {
     projectIcons.apply({ "/repo/a": "🐑" });
-    let filtered: string | null | undefined;
+    const onrepofilter = vi.fn();
     let selects = 0;
     render(UnitRow, {
       session: session({ id: "f1" }),
       selected: false,
       nowMs: Date.now(),
       onselect: () => selects++,
-      repoFilter: null,
-      onrepofilter: (p: string | null) => (filtered = p),
+      repoFilter: new Set<string>(),
+      onrepofilter,
     });
     await page.getByTitle("a", { exact: true }).click();
-    expect(filtered).toBe("/repo/a");
+    // the card emoji is always a plain (non-additive) select — Shift multi-select lives on the pills
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/a", false);
     expect(selects).toBe(0);
   });
 
-  it("clicking the emoji again (filter active) clears the filter", async () => {
+  it("shows the emoji as pressed when this repo is in the active filter", async () => {
     projectIcons.apply({ "/repo/a": "🐑" });
-    let filtered: string | null | undefined;
+    const onrepofilter = vi.fn();
     render(UnitRow, {
       session: session({ id: "f2" }),
       selected: false,
       nowMs: Date.now(),
       onselect: () => {},
-      repoFilter: "/repo/a",
-      onrepofilter: (p: string | null) => (filtered = p),
+      repoFilter: new Set(["/repo/a"]),
+      onrepofilter,
     });
     const icon = page.getByTitle("a", { exact: true });
     await expect.element(icon).toHaveAttribute("aria-pressed", "true");
     await icon.click();
-    expect(filtered).toBe(null);
+    // clicking still reports (path, false) — the page's nextRepoFilter clears the sole selection
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/a", false);
   });
 
   it("renders a non-interactive emoji when no onrepofilter is wired", async () => {

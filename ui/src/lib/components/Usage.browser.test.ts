@@ -13,6 +13,7 @@ const H = 3_600_000;
 const inlineLimits: UsageLimits = {
   session5h: { pct: 38, resetAt: BASE + 2.5 * H },
   week: { pct: 22, resetAt: BASE + 58 * H },
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: BASE - 5 * 60_000,
@@ -23,6 +24,7 @@ const inlineLimits: UsageLimits = {
       kind: "limits",
       session5h: { pct: 38, resetAt: BASE + 2.5 * H },
       week: { pct: 22, resetAt: BASE + 58 * H },
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: BASE - 5 * 60_000,

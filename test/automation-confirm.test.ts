@@ -203,6 +203,7 @@ function makeDeps(): AppDeps {
     limits: () => ({
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: true,
       calibratedAt: null,

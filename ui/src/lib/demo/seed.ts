@@ -462,6 +462,7 @@ function buildUsage(): UsageLimitsResponse {
     limits: {
       session5h: { pct: 68, resetAt: NOW + 2 * HOUR },
       week: { pct: 74, resetAt: NOW + 3 * DAY },
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: NOW - 8 * MIN,

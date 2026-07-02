@@ -35,7 +35,15 @@ import type {
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
-import type { CapRow, CapStore, CreditSnapshot, CreditStore, WindowKey } from "./usage-limits";
+import type {
+  CapRow,
+  CapStore,
+  CreditSnapshot,
+  CreditStore,
+  ModelWeekSnapshot,
+  ModelWeekStore,
+  WindowKey,
+} from "./usage-limits";
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
@@ -677,7 +685,7 @@ export function resolveStepId(ids: string[], idOrPrefix: string): StepIdResoluti
   return { ok: false, reason: "not-found" };
 }
 
-export class SessionStore implements CapStore, CreditStore {
+export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
   constructor(path: string) {
     this.db = new Database(path);
@@ -718,6 +726,11 @@ export class SessionStore implements CapStore, CreditStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_credit (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       spent REAL NOT NULL, cap REAL NOT NULL, currency TEXT NOT NULL,
+      pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
+    // Per-model weekly passthrough sub-limits (e.g. "Current week (Fable)"): one row per model,
+    // keyed by model — so surfacing another model's sub-limit later needs no schema migration.
+    this.db.run(`CREATE TABLE IF NOT EXISTS usage_model_week (
+      model TEXT PRIMARY KEY,
       pct INTEGER NOT NULL, resetAt INTEGER, scrapedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS usage_caps_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2065,6 +2078,20 @@ export class SessionStore implements CapStore, CreditStore {
         [row.spent, row.cap, row.currency, row.pct, row.resetAt, row.scrapedAt],
       );
     })();
+  }
+
+  getModelWeekSnapshots(): ModelWeekSnapshot[] {
+    return this.db
+      .query(`SELECT model, pct, resetAt, scrapedAt FROM usage_model_week`)
+      .all() as ModelWeekSnapshot[];
+  }
+
+  putModelWeekSnapshot(row: ModelWeekSnapshot): void {
+    this.db.run(
+      `INSERT INTO usage_model_week (model, pct, resetAt, scrapedAt) VALUES (?, ?, ?, ?)
+       ON CONFLICT(model) DO UPDATE SET pct=excluded.pct, resetAt=excluded.resetAt, scrapedAt=excluded.scrapedAt`,
+      [row.model, row.pct, row.resetAt, row.scrapedAt],
+    );
   }
 
   getCapsHistory(sinceTs: number): CapRow[] {

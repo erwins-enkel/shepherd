@@ -16,6 +16,7 @@ function limits(over: Partial<UsageLimits>): UsageLimits {
   return {
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: null,
     stale: false,
     calibratedAt: null,
@@ -60,6 +61,7 @@ describe("providerSnapshots", () => {
         kind: "limits",
         session5h: w(10),
         week: w(20),
+        perModelWeek: [],
         credits: null,
         stale: false,
         calibratedAt: null,
@@ -76,6 +78,7 @@ describe("providerSnapshots", () => {
           kind: "limits",
           session5h: null,
           week: null,
+          perModelWeek: [],
           credits: null,
           stale: false,
           calibratedAt: null,

@@ -563,9 +563,14 @@ const buildQueueReminder = new BuildQueueReminderService({
 
 const accountIndex = new AccountUsageIndex();
 const usageRollup = new SessionUsageRollup();
-const usageLimits = new UsageLimitsService(accountIndex, store, new HerdrUsageProbe(herdr), store, [
-  new CodexUsageProvider(),
-]);
+const usageLimits = new UsageLimitsService(
+  accountIndex,
+  store,
+  new HerdrUsageProbe(herdr),
+  store,
+  store,
+  [new CodexUsageProvider()],
+);
 
 deferredStarts.push(() => {
   reconcile(store, herdr);

@@ -283,6 +283,7 @@ export class StatusPoller {
       limits: () => ({
         session5h: null,
         week: null,
+        perModelWeek: [],
         credits: null,
         stale: false,
         calibratedAt: null,

@@ -57,6 +57,7 @@ function limits(session5hPct: number | null, weekPct: number | null): UsageLimit
   return {
     session5h: session5hPct !== null ? { pct: session5hPct, resetAt: 0 } : null,
     week: weekPct !== null ? { pct: weekPct, resetAt: 0 } : null,
+    perModelWeek: [],
     credits: null,
     stale: false,
     calibratedAt: Date.now(),
@@ -156,6 +157,7 @@ test("classifyHalt: user-only mention on the UNCALIBRATED degrade path is NOT a 
   const uncalibrated: UsageLimits = {
     session5h: null,
     week: null,
+    perModelWeek: [],
     credits: null,
     stale: true,
     calibratedAt: null,

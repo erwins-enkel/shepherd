@@ -76,6 +76,7 @@ const allBadges = {
 const fullLimits: UsageLimits = {
   session5h: { pct: 88, resetAt: 1_700_003_600_000 },
   week: { pct: 64, resetAt: 1_700_600_000_000 },
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: 1_700_000_000_000,
@@ -1284,6 +1285,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     return {
       session5h: { pct: 88, resetAt: 1_700_003_600_000 },
       week: { pct: 64, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
       stale: false,
       calibratedAt: 1_700_000_000_000,
       subscriptionOnly: false,
@@ -1332,6 +1334,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     return {
       session5h: null,
       week: null,
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: null,
@@ -1390,6 +1393,44 @@ describe("TopBar — CR extra-credit gauge", () => {
     const cr = toggle!.querySelector<HTMLElement>(".credit-gauge");
     expect(cr, "credits-only toggle renders the CR amount (not blank)").not.toBeNull();
     expect(toggle!.textContent ?? "", "toggle is named by the CR amount").toContain("€0.29");
+  });
+
+  // Per-model-only: no calibrated 5H/WK, no credits/codex — only a Fable passthrough bar. The
+  // usage section must still render an openable affordance (regression for the missing gate).
+  function perModelOnly(): UsageLimits {
+    return {
+      session5h: null,
+      week: null,
+      perModelWeek: [
+        { model: "fable", pct: 7, resetAt: null, scrapedAt: 1_700_000_000_000, stale: false },
+      ],
+      credits: null,
+      stale: false,
+      calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
+    };
+  }
+
+  it("per-model-only (desktop): inline toggle isn't blank and opens the Fable popover bar", async () => {
+    const hud = await renderDesktop(perModelOnly());
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "toggle present in per-model-only state").not.toBeNull();
+    expect(toggle!.textContent ?? "", "inline shows the Fable pct, not blank").toContain("7%");
+    toggle!.click();
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop, "popover opens").not.toBeNull();
+    expect(pop!.querySelector(".mw-bar"), "Fable passthrough bar in popover").not.toBeNull();
+  });
+
+  it("per-model-only (touch): collapsed button isn't blank and opens the popover", async () => {
+    const hud = await renderTouch(perModelOnly());
+    const btn = hud.querySelector<HTMLButtonElement>(".gauge-btn");
+    expect(btn, "collapsed button present in per-model-only state").not.toBeNull();
+    expect(btn!.textContent ?? "", "collapsed button shows the Fable pct").toContain("7%");
+    btn!.click();
+    await nextFrame();
+    expect(hud.querySelector(".gauge-pop"), "popover opens on tap").not.toBeNull();
   });
 
   it("does NOT render the CR gauge inline when credits is null", async () => {

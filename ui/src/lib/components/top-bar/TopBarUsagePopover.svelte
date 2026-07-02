@@ -2,16 +2,18 @@
   import { dialog } from "$lib/a11yDialog";
   import { formatResetIn, formatReset } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
-  import type { CreditWindow, UsageProviderSnapshot } from "$lib/types";
+  import type { CreditWindow, ModelWeekWindow, UsageProviderSnapshot } from "$lib/types";
   import { gaugeColor, type GaugeKey } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CodexTokenDetail from "./CodexTokenDetail.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
 
   let {
     desktop,
     stale,
     gauges,
+    perModel,
     credits,
     codexUsage,
     creditFill,
@@ -28,6 +30,7 @@
     desktop: boolean;
     stale: boolean;
     gauges: Gauge[];
+    perModel: ModelWeekWindow[];
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     creditFill: number;
@@ -80,6 +83,11 @@
         </div>
       </div>
     {/each}
+    {#each perModel as entry (entry.model)}
+      <div class="gp-window">
+        <ModelWeekGauge {entry} {nowMs} />
+      </div>
+    {/each}
     {#if credits}
       <div class="gp-window">
         <CreditDetail
@@ -112,6 +120,11 @@
           rel: formatResetIn(g.w.resetAt, nowMs),
           abs: formatReset(g.w.resetAt, nowMs),
         })}
+      </div>
+    {/each}
+    {#each perModel as entry (entry.model)}
+      <div class="gauge-pop-row-model">
+        <ModelWeekGauge {entry} {nowMs} />
       </div>
     {/each}
     <CreditDetail
@@ -180,6 +193,9 @@
   }
   .gauge-pop-reset:last-child {
     margin-bottom: 0;
+  }
+  .gauge-pop-row-model {
+    margin-bottom: 6px;
   }
   .gauge-pop-link {
     appearance: none;

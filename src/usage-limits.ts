@@ -37,6 +37,10 @@ export interface ScrapedWindow {
   resetAt: number | null;
   resetLabel: string | null;
 }
+/** A model-scoped weekly gauge ("Current week (Fable)") — a passthrough sub-limit keyed by model. */
+export interface ScrapedModelWindow extends ScrapedWindow {
+  model: string;
+}
 /** The "Usage credits" panel: paid pay-as-you-go overage spend against a monthly budget. */
 export interface ScrapedCredit {
   pct: number;
@@ -49,6 +53,7 @@ export interface ScrapedCredit {
 export interface ScrapedUsage {
   session5h: ScrapedWindow | null;
   week: ScrapedWindow | null;
+  perModelWeek: ScrapedModelWindow[];
   credits: ScrapedCredit | null;
 }
 
@@ -133,15 +138,28 @@ const ANSI_OSC = new RegExp(ESC + "\\][^" + BEL + "]*" + BEL, "g");
 // and could absorb a trailing panel's "% used" when its own gauge line never rendered.
 const SECTION_TRAILER = /Esctocancel|Usagecredits|What'scontributing/i;
 
-/** Which window a section belongs to; null for model-scoped weekly gauges ("Sonnet only"). */
-function segmentKey(seg: string): WindowKey | null {
+/**
+ * Which window a section belongs to. `session5h`/`week` are the calibrated account windows.
+ * A `{ model }` result is a per-model weekly passthrough sub-limit we surface (currently only
+ * Fable). Other model-scoped gauges ("Sonnet only"/"Opus only") stay `null` (dropped) — they
+ * would otherwise override the account weekly cap.
+ */
+function segmentKey(seg: string): WindowKey | { model: string } | null {
   if (!/^Currentweek/i.test(seg)) return "session5h";
+  // Prefix match (not exact `(Fable)`) so a possible `(Fable only)` render still classifies.
+  if (/^Currentweek\(Fable/i.test(seg)) return { model: "fable" };
   return /^Currentweek\((?!allmodels\))/i.test(seg) ? null : "week";
 }
 
-/** Read pct + reset label out of one section's text; null while the pct hasn't rendered. */
-function parseSegment(seg: string, now: number): ScrapedWindow | null {
-  const pctM = seg.match(/(\d+)%used/i);
+/**
+ * Read pct + reset label out of one section's text; null while the pct hasn't rendered.
+ * `lenient` (only per-model passthrough segments) tolerates a pct without the literal `used`,
+ * but STRICT-FIRST: it prefers a finished `N%used` and only falls back to a bare `N%` when no
+ * `%used` exists in the segment — so a mid-redraw partial (`2%` before `29%used`) can never be
+ * read as the value. The shared strict path (session5h/week) is unchanged.
+ */
+function parseSegment(seg: string, now: number, lenient = false): ScrapedWindow | null {
+  const pctM = seg.match(/(\d+)%used/i) ?? (lenient ? seg.match(/(\d+)%/i) : null);
   if (!pctM) return null;
   const label = seg.match(/Resets(.*?)\(/i)?.[1] ?? null;
   return {
@@ -194,26 +212,55 @@ export function parseCredits(collapsed: string, now: number): ScrapedCredit | nu
   return null;
 }
 
-/** Extract the two limit windows from a (possibly multi-frame, ANSI-laden) `/usage` capture. */
+/**
+ * Later segments are newer renders, so keep the last reading per window — but never let a
+ * reset-less partial replace a render that already carries a reset label.
+ */
+function preferReset(prior: ScrapedWindow | null | undefined, next: ScrapedWindow): boolean {
+  return !prior || !!next.resetLabel || !prior.resetLabel;
+}
+
+/** Fold one section (already sliced from the capture) into the accumulating windows. */
+function absorbSegment(
+  rawSeg: string,
+  now: number,
+  best: ScrapedUsage,
+  models: Map<string, ScrapedModelWindow>,
+): void {
+  let seg = rawSeg;
+  const trailer = seg.search(SECTION_TRAILER);
+  if (trailer >= 0) seg = seg.slice(0, trailer);
+  const key = segmentKey(seg);
+  if (!key) return;
+  if (typeof key === "object") {
+    const w = parseSegment(seg, now, true); // per-model: tolerate a pct without `used`
+    if (w && preferReset(models.get(key.model), w)) models.set(key.model, { ...w, ...key });
+    return;
+  }
+  const w = parseSegment(seg, now);
+  if (w && preferReset(best[key], w)) best[key] = w;
+}
+
+/** Extract the limit windows from a (possibly multi-frame, ANSI-laden) `/usage` capture. */
 export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   const noAnsi = raw.replace(ANSI_CSI, "").replace(ANSI_OSC, "");
   const c = noAnsi.replace(/\s+/g, ""); // collapse all whitespace; TUI render is unreliable
   // The capture holds many partial redraws of the same panel. Cut it at every section anchor
   // so a window's pct/reset can only be read from its OWN section — a truncated redraw must
-  // not let one window steal the next section's (or the next frame's) values.
+  // not let one window steal the next section's (or the next frame's) values. Per-model gauges
+  // are deduped by model slug (Map upsert) so partial redraws don't emit one bar per redraw.
   const anchors = [...c.matchAll(/Currentsession|Currentweek/gi)];
-  const best: ScrapedUsage = { session5h: null, week: null, credits: parseCredits(c, now) };
+  const best: ScrapedUsage = {
+    session5h: null,
+    week: null,
+    perModelWeek: [],
+    credits: parseCredits(c, now),
+  };
+  const models = new Map<string, ScrapedModelWindow>();
   for (let i = 0; i < anchors.length; i++) {
-    let seg = c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length);
-    const trailer = seg.search(SECTION_TRAILER);
-    if (trailer >= 0) seg = seg.slice(0, trailer);
-    const key = segmentKey(seg);
-    const w = key ? parseSegment(seg, now) : null;
-    if (!key || !w) continue;
-    // later segments are newer renders — keep the last reading per window, but never let
-    // a reset-less partial replace one that carries a reset label
-    if (!best[key] || w.resetLabel || !best[key].resetLabel) best[key] = w;
+    absorbSegment(c.slice(anchors[i]!.index, anchors[i + 1]?.index ?? c.length), now, best, models);
   }
+  best.perModelWeek = [...models.values()];
   return best;
 }
 
@@ -239,9 +286,19 @@ export interface CreditWindow {
   scrapedAt: number;
   stale: boolean; // derived from scrapedAt age (NOT the cap-based 2-week stale flag)
 }
+/** Live per-model weekly sub-limit ("Current week (Fable)") — a direct passthrough of the
+ *  last scrape, keyed by model. Not recomputed from JSONL. */
+export interface ModelWeekWindow {
+  model: string;
+  pct: number;
+  resetAt: number | null;
+  scrapedAt: number;
+  stale: boolean; // derived from scrapedAt age against MODEL_WEEK_STALE_MS
+}
 export interface UsageLimits {
   session5h: LimitWindow | null;
   week: LimitWindow | null;
+  perModelWeek: ModelWeekWindow[];
   credits: CreditWindow | null;
   stale: boolean;
   calibratedAt: number | null;
@@ -264,6 +321,7 @@ export type UsageProviderSnapshot =
       kind: "limits";
       session5h: LimitWindow | null;
       week: LimitWindow | null;
+      perModelWeek: ModelWeekWindow[];
       credits: CreditWindow | null;
       stale: boolean;
       calibratedAt: number | null;
@@ -287,6 +345,11 @@ export interface UsageProviderSource {
 // 1h, unlike the 2-week cap stale that tolerates JSONL-recomputed windows drifting.
 const CREDIT_STALE_MS = 60 * 60 * 1000;
 
+// Per-model weekly passthrough is scrape-fresh-only too, but — unlike credits — it isn't put on
+// the near-cap 15-min watch cadence, so a 1h stale would flip it "stale" within an hour of every
+// daily calibration. Tie it to the calibration cadence, tolerant of one missed daily run.
+export const MODEL_WEEK_STALE_MS = 2 * CALIBRATE_INTERVAL_MS;
+
 export interface CapStore {
   getCaps(): CapRow[];
   putCap(row: CapRow): void;
@@ -305,6 +368,19 @@ export interface CreditSnapshot {
 export interface CreditStore {
   getCreditSnapshot(): CreditSnapshot | null; // null when nothing persisted yet
   putCreditSnapshot(row: CreditSnapshot): void; // single-row: upsert, latest wins
+}
+
+/** Latest persisted per-model weekly passthrough snapshot — one row per model, upsert. */
+export interface ModelWeekSnapshot {
+  model: string;
+  pct: number;
+  resetAt: number | null; // weekly reset epoch (ms); null if the gauge carried no reset label
+  scrapedAt: number;
+}
+
+export interface ModelWeekStore {
+  getModelWeekSnapshots(): ModelWeekSnapshot[]; // empty when nothing persisted yet
+  putModelWeekSnapshot(row: ModelWeekSnapshot): void; // keyed by model: upsert, latest wins
 }
 
 /** A source of raw `/usage` text. Returns null on failure (spawn/parse/timeout). */
@@ -331,6 +407,12 @@ export class UsageLimitsService {
     private caps: CapStore,
     private probe: UsageProbe,
     private creditStore: CreditStore,
+    // No-op default: callers that don't exercise per-model passthrough (most tests) keep working;
+    // production passes the persistent store.
+    private modelWeekStore: ModelWeekStore = {
+      getModelWeekSnapshots: () => [],
+      putModelWeekSnapshot: () => {},
+    },
     private providerSources: UsageProviderSource[] = [],
   ) {}
 
@@ -359,6 +441,7 @@ export class UsageLimitsService {
       if (this.calibrateWindow(key, parsed[key], prior.get(key), now)) any = true;
     }
     if (this.persistCredit(parsed, now)) any = true;
+    if (this.persistModelWeek(parsed, now)) any = true;
     return any;
   }
 
@@ -415,6 +498,25 @@ export class UsageLimitsService {
     return true;
   }
 
+  /**
+   * Per-model weekly sub-limits are a direct passthrough — persist each rendered gauge verbatim,
+   * one row per model. A missing gauge leaves any prior snapshot untouched (never fabricate).
+   * Returns true when at least one was persisted.
+   */
+  private persistModelWeek(parsed: ScrapedUsage, now: number): boolean {
+    let any = false;
+    for (const w of parsed.perModelWeek) {
+      this.modelWeekStore.putModelWeekSnapshot({
+        model: w.model,
+        pct: w.pct,
+        resetAt: w.resetAt,
+        scrapedAt: now,
+      });
+      any = true;
+    }
+    return any;
+  }
+
   /** Current live limits, recomputed from local JSONL against the calibrated caps. */
   limits(now: number): UsageLimits {
     const rows = new Map(this.caps.getCaps().map((r) => [r.window, r]));
@@ -447,12 +549,26 @@ export class UsageLimitsService {
         stale: now - snap.scrapedAt > CREDIT_STALE_MS,
       };
     }
+    // Per-model weekly passthrough: emit every stored snapshot, with the same post-reset guard as
+    // credits (a snapshot past its weekly reset is meaningless until re-scraped; a null resetAt —
+    // the gauge carried no reset label — can't be known to have rolled over, so it passes through).
+    const perModelWeek: ModelWeekWindow[] = this.modelWeekStore
+      .getModelWeekSnapshots()
+      .filter((s) => !(s.resetAt != null && s.resetAt <= now))
+      .map((s) => ({
+        model: s.model,
+        pct: s.pct,
+        resetAt: s.resetAt,
+        scrapedAt: s.scrapedAt,
+        stale: now - s.scrapedAt > MODEL_WEEK_STALE_MS,
+      }));
     const subscriptionOnly = isApiKeyMode();
     const claude: UsageProviderSnapshot = {
       provider: "claude",
       kind: "limits",
       session5h,
       week,
+      perModelWeek,
       credits,
       stale,
       calibratedAt,
@@ -469,7 +585,16 @@ export class UsageLimitsService {
         }
       }),
     ];
-    return { session5h, week, credits, stale, calibratedAt, subscriptionOnly, providers };
+    return {
+      session5h,
+      week,
+      perModelWeek,
+      credits,
+      stale,
+      calibratedAt,
+      subscriptionOnly,
+      providers,
+    };
   }
 
   /** Burn-rate projections: projected % at window reset, based on a trailing lookback window. */

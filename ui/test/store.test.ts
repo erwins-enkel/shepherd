@@ -69,6 +69,7 @@ test("applies usage:limits", () => {
     data: {
       session5h: { pct: 12, resetAt: 1000 },
       week: { pct: 40, resetAt: 2000 },
+      perModelWeek: [],
       credits: null,
       stale: false,
       calibratedAt: 5,

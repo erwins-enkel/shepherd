@@ -12,6 +12,7 @@
     codexTokenUsage,
     gaugeList,
     hotterGauge,
+    modelWeekList,
     overspending,
     type GaugeKey,
   } from "./usage-gauges";
@@ -266,6 +267,8 @@
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(gaugeList(limits));
   const hotter = $derived(hotterGauge(limits));
+  // Per-model weekly passthrough sub-limits (e.g. Fable) — their own bars, never in gaugeList/hotter.
+  const perModel = $derived(modelWeekList(limits));
   // api-key auth mode: subscription usage windows carry no data. Fail closed —
   // render an explicit note instead of empty/zero meters.
   const subscriptionOnly = $derived(limits?.subscriptionOnly === true);
@@ -494,9 +497,10 @@
   });
   $effect(() => {
     // Close the popover when there's nothing left to show. Both desktop and touch drive
-    // popoverOpen now, so the only force-close is "no usage windows AND no credits" (a non-empty
-    // `gauges` implies `hotter`, so this also covers the touch collapse case).
-    if (!gauges.length && !credits && !codexUsage) popoverOpen = false;
+    // popoverOpen now, so the only force-close is "no usage windows AND no credits AND no
+    // per-model bar" (a non-empty `gauges` implies `hotter`, so this also covers the touch
+    // collapse case). Keep `perModel` here or a Fable-only snapshot would force-close its own popover.
+    if (!gauges.length && !credits && !codexUsage && !perModel.length) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -724,6 +728,7 @@
         stale={limits?.stale ?? false}
         {hotter}
         {gauges}
+        {perModel}
         {credits}
         {codexUsage}
         {overspend}
@@ -799,6 +804,7 @@
 {#if menuOpen && mobile}
   <TopBarMobileSheet
     {gauges}
+    {perModel}
     {credits}
     {codexUsage}
     {subscriptionOnly}

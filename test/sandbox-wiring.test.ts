@@ -561,6 +561,7 @@ test("egressWatcher NOT called for trusted spawn (no egress)", async () => {
 const NO_USAGE: UsageLimits = {
   session5h: null,
   week: null,
+  perModelWeek: [],
   credits: null,
   stale: false,
   calibratedAt: null,

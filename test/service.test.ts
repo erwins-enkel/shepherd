@@ -97,6 +97,95 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
 });
 
+test("createSession: emits session_created telemetry exactly once with primitive-only props", async () => {
+  const store = new SessionStore(":memory:");
+  const events: { name: string; props: any }[] = [];
+  const telemetry = { event: (name: string, props: any) => events.push({ name, props }) };
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-flatten",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({
+        worktreePath: "/wt/repo-flatten",
+        branch: "shepherd/repo-flatten",
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({
+        terminalId: "term_z",
+        cwd: "/wt/repo-flatten",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+    telemetry,
+  });
+
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    model: null,
+    images: [],
+  });
+
+  const created = events.filter((e) => e.name === "session_created");
+  expect(created).toHaveLength(1);
+  expect(created[0]!.props).toEqual({
+    agentProvider: "claude",
+    autopilot: false,
+    research: false,
+    planGate: false,
+    fromIssue: false,
+  });
+  for (const v of Object.values(created[0]!.props)) {
+    expect(["string", "number", "boolean"]).toContain(typeof v);
+  }
+});
+
+test("createSession: does NOT emit session_created when create() rolls back (spawn failure)", async () => {
+  const store = new SessionStore(":memory:");
+  const events: { name: string; props: any }[] = [];
+  const telemetry = { event: (name: string, props: any) => events.push({ name, props }) };
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => {
+        throw new Error("herdr start failed");
+      },
+      list: () => [],
+    } as any,
+    telemetry,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    }),
+  ).rejects.toThrow(/herdr start failed/);
+
+  expect(events.filter((e) => e.name === "session_created")).toHaveLength(0);
+});
+
 // Build a SessionService whose worktree.create yields the given `isolated`, capturing the
 // spawned argv. Used by the codex-autopilot directive tests below.
 function codexHarness(isolated: boolean) {

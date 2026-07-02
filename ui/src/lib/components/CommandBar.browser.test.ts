@@ -118,13 +118,17 @@ describe("CommandBar — grouping & recency", () => {
     await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
   });
 
-  it("filters by substring across sessions, repos and lenses", async () => {
+  it("filters fuzzily across sessions, repos and lenses", async () => {
     renderBar();
-    // "rundown" matches only the lens (no session/repo carries that text).
+    // "rundown" surfaces the rundown lens; no seeded session/repo carries that text, so the
+    // Sessions and Repositories groups drop out entirely. (Docs match by keyword and are out
+    // of scope here — asserted separately in the Docs group tests.)
     await page.getByRole("combobox").fill("rundown");
-    const opts = page.getByRole("option");
-    await expect.element(opts.first()).toHaveTextContent(m.herd_seg_rundown());
-    expect(opts.elements()).toHaveLength(1);
+    await expect
+      .element(page.getByRole("option", { name: new RegExp(m.herd_seg_rundown()) }))
+      .toBeVisible();
+    expect(page.getByText(m.commandbar_group_sessions()).elements()).toHaveLength(0);
+    expect(page.getByText(m.commandbar_group_repos()).elements()).toHaveLength(0);
   });
 
   it("shows the empty state when nothing matches", async () => {
@@ -132,6 +136,50 @@ describe("CommandBar — grouping & recency", () => {
     await page.getByRole("combobox").fill("zzzznomatch");
     await expect.element(page.getByText(m.commandbar_no_matches())).toBeVisible();
     expect(page.getByRole("option").elements()).toHaveLength(0);
+  });
+});
+
+describe("CommandBar — fuzzy matching", () => {
+  it("matches a non-contiguous subsequence", async () => {
+    renderBar();
+    // "nwr" is a subsequence of "newer" (n·e·w·e·r) — which a substring filter would miss —
+    // but not of "older", so the fuzzy matcher surfaces the former and drops the latter.
+    await page.getByRole("combobox").fill("nwr");
+    await expect.element(page.getByRole("option", { name: /newer/ })).toBeVisible();
+    expect(page.getByRole("option", { name: /older/ }).elements()).toHaveLength(0);
+  });
+
+  it("ranks the best match first, ahead of a more-recent weaker match", async () => {
+    // "deploy" is a whole-word prefix of d1 but starts mid-word in the more-recent d2 —
+    // the higher-scoring d1 must win despite d2's larger updatedAt.
+    const { onselectsession } = renderBar({
+      sessions: [
+        session({ id: "d1", name: "deploy", updatedAt: 10 }),
+        session({ id: "d2", name: "redeploy", updatedAt: 99 }),
+      ],
+    });
+    await page.getByRole("combobox").fill("deploy");
+    await userEvent.keyboard("{Enter}");
+    expect(onselectsession).toHaveBeenCalledWith("d1");
+  });
+
+  it("surfaces a session matched only by its prompt, with a 'matches description' affordance", async () => {
+    renderBar({
+      sessions: [session({ id: "p1", name: "zeta", prompt: "implement oauth login flow" })],
+    });
+    // "oauth" is absent from the title/desig/repo but present in the prompt (description).
+    await page.getByRole("combobox").fill("oauth");
+    await expect.element(page.getByRole("option", { name: /zeta/ })).toBeVisible();
+    await expect.element(page.getByText(m.commandbar_prompt_match())).toBeVisible();
+  });
+
+  it("highlights matched characters without altering the option's accessible name", async () => {
+    renderBar();
+    await page.getByRole("combobox").fill("nw");
+    // Matched letters are wrapped for highlighting…
+    expect(document.querySelectorAll("mark.cb-hl").length).toBeGreaterThan(0);
+    // …yet the option still reads as the full, untouched title.
+    await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
   });
 });
 

@@ -2341,7 +2341,7 @@
   "commandbar_repo_affordance": "Repository",
   "commandbar_no_matches": "Keine Treffer",
   "feat_command_bar_title": "Befehlsleiste — mit ⌘K zu allem springen",
-  "feat_command_bar_body": "Drücke ⌘K (macOS) oder Strg+K (Windows/Linux) — auch bei fokussiertem Terminal — um einen Schnellumschalter zu öffnen. Tippe, um deine Sessions, Repositories und Herden-Ansichten zu filtern, und springe mit Enter direkt dorthin.",
+  "feat_command_bar_body": "Drücke ⌘K (macOS) oder Strg+K (Windows/Linux) — auch bei fokussiertem Terminal — um einen Schnellumschalter zu öffnen. Tippe, um deine Sessions, Repositories und Herden-Ansichten unscharf zu durchsuchen — passende Buchstaben werden hervorgehoben, und Sessions werden auch anhand ihrer Beschreibung gefunden — und springe mit Enter direkt dorthin.",
   "settings_tab_ticker_title": "Kompakter Tab-Titel",
   "settings_tab_ticker_hint": "Zeigt im Hintergrund-Tab gruppierte Symbolzähler (⚠ CI fehlgeschlagen · ✋ blockiert · ✓ bereit · ▶ läuft) statt einer einzelnen Zahl. Standardmäßig aus.",
   "settings_tab_ticker_on": "Kompakter Tab-Titel an",
@@ -2361,5 +2361,6 @@
   "commandbar_cmd_next_needs_you": "Zur nächsten Session springen, die dich braucht",
   "commandbar_cmd_next_needs_you_kw": "wartend blockiert aufmerksamkeit",
   "feat_command_bar_v2_title": "Befehlsleiste führt jetzt Befehle aus und durchsucht die Doku",
-  "feat_command_bar_v2_body": "⌘K/Strg+K kann mehr als nur zwischen Sessions springen. Eine Gruppe „Befehle“ führt Verben aus — Neue Aufgabe, Broadcast, Einstellungen, Nutzung, Erneut versuchen, Zur nächsten Session springen, die dich braucht — und eine Gruppe „Doku“ durchsucht die Dokumentation und öffnet die Seite in einem neuen Tab. Tippe einfach, was du tun möchtest."
+  "feat_command_bar_v2_body": "⌘K/Strg+K kann mehr als nur zwischen Sessions springen. Eine Gruppe „Befehle“ führt Verben aus — Neue Aufgabe, Broadcast, Einstellungen, Nutzung, Erneut versuchen, Zur nächsten Session springen, die dich braucht — und eine Gruppe „Doku“ durchsucht die Dokumentation und öffnet die Seite in einem neuen Tab. Tippe einfach, was du tun möchtest.",
+  "commandbar_prompt_match": "passt zur Beschreibung"
 }

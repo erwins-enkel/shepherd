@@ -917,6 +917,19 @@
     scrolledUp = false;
   }
 
+  function scrollToTop() {
+    const term = termRef;
+    if (!term) return;
+    if (agentOwnsScroll(term)) {
+      // Claude owns the visible scroll in fullscreen/mouse-tracking mode. Its
+      // documented top shortcut is Ctrl+Home; PageUp spam is a defensive fallback
+      // for renderer/terminal combinations that ignore that CSI variant.
+      conn?.send("\x1b[1;5H" + "\x1b[5~".repeat(500));
+    } else {
+      term.scrollToTop();
+    }
+  }
+
   // bring a finished session back: ask the server to respawn the provider resume in
   // the worktree, then bump the epoch so the terminal effect rebuilds and attaches
   // to the fresh agent (the old PtyConn stopped for good on the ended-close).
@@ -2183,6 +2196,7 @@
       {resuming}
       {resumeFailed}
       {resumable}
+      {scrollToTop}
       {scrollToBottom}
       {takeover}
       {reattach}

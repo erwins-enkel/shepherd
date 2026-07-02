@@ -2377,5 +2377,8 @@
   "feat_command_bar_search_field_title": "Suche in der oberen Leiste",
   "feat_command_bar_search_field_body": "Die Befehlsleiste hat jetzt ein Suchfeld in der oberen Leiste mit einem ⌘K / Strg-K-Kürzel. Dokumentation und Erkenntnisse sind dorthin umgezogen — durchsuche die Dokumente und öffne Erkenntnisse direkt aus der Leiste.",
   "feat_command_bar_jump_title": "Mit Alt zu Befehlsleisten-Ergebnissen springen",
-  "feat_command_bar_jump_body": "Halte bei geöffneter Befehlsleiste Alt gedrückt, um Ziffernhinweise (1–9, dann 0) auf den ersten zehn Ergebnissen einzublenden, und drücke dann die Ziffer, um direkt dorthin zu springen."
+  "feat_command_bar_jump_body": "Halte bei geöffneter Befehlsleiste Alt gedrückt, um Ziffernhinweise (1–9, dann 0) auf den ersten zehn Ergebnissen einzublenden, und drücke dann die Ziffer, um direkt dorthin zu springen.",
+  "viewport_scroll_to_top": "Zum Anfang der Session springen",
+  "feat_scroll_to_session_start_title": "Zum Session-Anfang springen",
+  "feat_scroll_to_session_start_body": "Wenn du ältere Terminal-Ausgabe liest, zeigt die schwebende Scroll-Schaltfläche jetzt zusätzlich einen ↑-Button für den Anfang der Session neben dem bestehenden ↓-Sprung zurück zum aktuellen Prompt."
 }

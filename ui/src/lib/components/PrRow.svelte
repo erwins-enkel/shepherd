@@ -164,6 +164,13 @@
       {#if inTrain}
         <span class="badge merging" title={m.prrow_in_train_title()}>{m.status_merging()}</span>
       {/if}
+      {#if pr.awaitingWorkflowApproval}
+        <span
+          class="needs-approval"
+          title={m.prrow_awaiting_approval_title()}
+          aria-label={m.prrow_awaiting_approval_title()}>{m.prrow_awaiting_approval()}</span
+        >
+      {/if}
       {#if pr.checks !== "none"}
         {#if hasJobs}
           <button
@@ -495,6 +502,20 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-red);
+  }
+
+  /* A workflow run on this PR's head is awaiting manual approval to run — an
+     operator must approve it on GitHub. Amber: the action/attention accent, since
+     it's an actionable-but-not-broken state (never a status green/red). */
+  .needs-approval {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
   }
 
   /* In-train badge — mirrors the session-list MERGING badge (UnitRow): the one

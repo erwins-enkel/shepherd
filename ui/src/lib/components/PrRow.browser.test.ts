@@ -73,3 +73,26 @@ describe("PrRow target branch chip", () => {
     expect(document.body.querySelector(".target-branch")).toBeNull();
   });
 });
+
+describe("PrRow awaiting-approval chip", () => {
+  it("renders the needs-approval chip when awaitingWorkflowApproval is set", async () => {
+    render(PrRow, {
+      repoPath: "/repo/a",
+      pr: pr({ awaitingWorkflowApproval: true }),
+      onreview: () => {},
+      onmerged: () => {},
+    });
+    await expect.element(page.getByText(m.prrow_awaiting_approval())).toBeInTheDocument();
+    expect(document.body.querySelector(".needs-approval")).not.toBeNull();
+  });
+
+  it("renders no needs-approval chip when the flag is unset", () => {
+    render(PrRow, {
+      repoPath: "/repo/a",
+      pr: pr(),
+      onreview: () => {},
+      onmerged: () => {},
+    });
+    expect(document.body.querySelector(".needs-approval")).toBeNull();
+  });
+});

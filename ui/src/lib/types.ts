@@ -304,6 +304,11 @@ export interface PullRequest {
    *  rely on it to read a PR's actual target; it exists solely to surface
    *  non-default (stacked) PRs in the backlog PRs tab. */
   nonDefaultBase?: string;
+  /** True when a GitHub Actions workflow run on this PR's head is awaiting manual
+   *  approval to run (the fork/outside-contributor & Actions-bot `action_required`
+   *  flavor; deployment-environment `waiting` gates are not detected). Drives the
+   *  PRs-tab "needs approval" chip. Display-only. Absent ⇒ false. */
+  awaitingWorkflowApproval?: boolean;
 }
 
 /** Result of fast-forwarding a repo's local default-branch checkout after a merge

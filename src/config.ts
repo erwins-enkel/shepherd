@@ -9,6 +9,7 @@ import {
 } from "./default-model";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
+import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
@@ -431,6 +432,17 @@ export const config = {
   // are unset; provide them via env to pin a stable key pair across DB resets.
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
+  // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
+  // Master enable: absent App-Key ⇒ telemetry is a hard no-op (forks, CI, dev
+  // send nothing). SHEPHERD_APTABASE_HOST overrides the ingestion host for
+  // self-hosted instances; when unset the host is derived from the App-Key
+  // region (see resolveAptabaseHost). DO_NOT_TRACK (consoledonottrack.com)
+  // hard-disables telemetry and suppresses the first-run consent prompt.
+  aptabaseAppKey: process.env.SHEPHERD_APTABASE_APP_KEY ?? null,
+  aptabaseHostOverride: process.env.SHEPHERD_APTABASE_HOST ?? null,
+  doNotTrack: process.env.DO_NOT_TRACK === "1",
+  // Persisted consent (DB row overrides this env seed at boot; see index.ts).
+  telemetryConsent: normalizeTelemetryConsent(process.env.SHEPHERD_TELEMETRY_CONSENT) ?? "unset",
   // Apple/iOS rejects pushes whose VAPID subject is a non-routable URL (e.g.
   // `mailto:shepherd@localhost`) with HTTP 403 BadJwtToken. Default to a valid
   // https URL; override with SHEPHERD_VAPID_SUBJECT (any valid https:/mailto: URL).

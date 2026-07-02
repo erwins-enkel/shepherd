@@ -306,6 +306,24 @@ describe("CommandBar — repo secondary action (filter)", () => {
   });
 });
 
+describe("CommandBar — demo showcase seeding", () => {
+  it("initialFilter seeds the input and filters the options (demo showcase invariant)", async () => {
+    // "newer" matches only session s2's name — nothing else in the fixture data.
+    renderBar({ initialFilter: "newer" });
+    await expect.element(page.getByRole("combobox")).toHaveValue("newer");
+    const opts = page.getByRole("option");
+    expect(opts.elements()).toHaveLength(1);
+    await expect.element(opts.first()).toHaveTextContent("newer");
+  });
+
+  it("without initialFilter the filter stays empty (inert by default)", async () => {
+    renderBar();
+    await expect.element(page.getByRole("combobox")).toHaveValue("");
+    // All rows present — unfiltered.
+    expect(page.getByRole("option").elements().length).toBeGreaterThan(1);
+  });
+});
+
 describe("CommandBar — dismissal", () => {
   it("Escape closes", async () => {
     const { onclose } = renderBar();

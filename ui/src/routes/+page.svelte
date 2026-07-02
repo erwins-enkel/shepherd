@@ -127,6 +127,9 @@
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
+  // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
+  // builds along with every other __DEMO__-guarded reference below.
+  import { commandBarShowcase } from "$lib/demo/showcase";
 
   const store = new HerdStore();
 
@@ -230,6 +233,21 @@
   // Cmd/Ctrl+K quick-switcher over sessions/repos/lenses (#1334). Opened from
   // onShortcut before the modifier/typing bails so it fires even over the terminal.
   let showCommandBar = $state(false);
+  // Demo-only scripted-showcase seed (see $lib/demo/showcase.ts) — forwarded to
+  // CommandBar's `initialFilter`. Stays "" on the real ⌘K path.
+  let demoCommandFilter = $state("");
+  // Mirror the one-shot showcase store into local state — guarded so the whole
+  // subscription dead-code-eliminates out of non-demo builds. The real ⌘K path
+  // (onShortcut / oncommandbar* handlers below) never touches this store, so
+  // demoCommandFilter stays "" and showCommandBar is unaffected outside the demo.
+  $effect(() => {
+    if (!__DEMO__) return;
+    const unsub = commandBarShowcase.subscribe((s) => {
+      showCommandBar = s.open;
+      demoCommandFilter = s.filter;
+    });
+    return unsub;
+  });
   let showRetry = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
@@ -2755,6 +2773,7 @@
   onbroadcastclose={() => (showBroadcast = false)}
   {showCommandBar}
   {commandBarCommands}
+  commandBarInitialFilter={demoCommandFilter}
   oncommandbarclose={() => (showCommandBar = false)}
   oncommandbarsession={(id) => {
     showCommandBar = false;

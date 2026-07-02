@@ -155,6 +155,7 @@
     oncommandbarrepo,
     oncommandbarfilterrepo,
     oncommandbarlens,
+    commandBarInitialFilter = undefined,
     showRetry,
     onretryclose,
     clearMergedSessions,
@@ -270,6 +271,9 @@
     oncommandbarrepo: (path: string) => void;
     oncommandbarfilterrepo: (path: string) => void;
     oncommandbarlens: (lens: HerdFilter) => void;
+    /** Demo-only scripted-showcase seed, forwarded verbatim to CommandBar's
+     *  `initialFilter` (see $lib/demo/showcase.ts). Absent on the real ⌘K path. */
+    commandBarInitialFilter?: string;
     showRetry: boolean;
     onretryclose: () => void;
     clearMergedSessions: Session[] | null;
@@ -542,6 +546,7 @@
     onfilterrepo={oncommandbarfilterrepo}
     onselectlens={oncommandbarlens}
     onclose={oncommandbarclose}
+    initialFilter={commandBarInitialFilter}
   />
 {/if}
 

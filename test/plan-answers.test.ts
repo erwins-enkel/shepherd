@@ -28,15 +28,36 @@ describe("resolvePlanAnswers", () => {
     ];
     const r = resolvePlanAnswers(blocks, answers);
     expect(r).toEqual([
-      { prompt: "Which approach?", kind: "single", selected: ["New table"] },
-      { prompt: "Edge cases?", kind: "multi", selected: ["Empty", "Unicode"] },
-      { prompt: "Notes?", kind: "freeform", selected: [], text: "keep it minimal" },
+      {
+        blockId: "qf1",
+        questionId: "q1",
+        prompt: "Which approach?",
+        kind: "single",
+        selected: ["New table"],
+      },
+      {
+        blockId: "qf1",
+        questionId: "q2",
+        prompt: "Edge cases?",
+        kind: "multi",
+        selected: ["Empty", "Unicode"],
+      },
+      {
+        blockId: "qf1",
+        questionId: "q3",
+        prompt: "Notes?",
+        kind: "freeform",
+        selected: [],
+        text: "keep it minimal",
+      },
     ]);
   });
 
   it("keeps an empty multi-select as an answered 'none selected'", () => {
     const r = resolvePlanAnswers(blocks, [{ blockId: "qf1", questionId: "q2", optionIndices: [] }]);
-    expect(r).toEqual([{ prompt: "Edge cases?", kind: "multi", selected: [] }]);
+    expect(r).toEqual([
+      { blockId: "qf1", questionId: "q2", prompt: "Edge cases?", kind: "multi", selected: [] },
+    ]);
   });
 
   it("drops unknown ids, out-of-range single indices, and blank freeform", () => {
@@ -53,7 +74,15 @@ describe("resolvePlanAnswers", () => {
     const r = resolvePlanAnswers(blocks, [
       { blockId: "qf1", questionId: "q2", optionIndices: [2, 0, 2, 5] },
     ]);
-    expect(r).toEqual([{ prompt: "Edge cases?", kind: "multi", selected: ["Unicode", "Empty"] }]);
+    expect(r).toEqual([
+      {
+        blockId: "qf1",
+        questionId: "q2",
+        prompt: "Edge cases?",
+        kind: "multi",
+        selected: ["Unicode", "Empty"],
+      },
+    ]);
   });
 
   it("does not clobber the same questionId across two blocks (namespaced by blockId)", () => {
@@ -74,8 +103,8 @@ describe("resolvePlanAnswers", () => {
       { blockId: "b", questionId: "q", optionIndices: [1] },
     ]);
     expect(r).toEqual([
-      { prompt: "A?", kind: "single", selected: ["a0"] },
-      { prompt: "B?", kind: "single", selected: ["b1"] },
+      { blockId: "a", questionId: "q", prompt: "A?", kind: "single", selected: ["a0"] },
+      { blockId: "b", questionId: "q", prompt: "B?", kind: "single", selected: ["b1"] },
     ]);
   });
 
@@ -87,9 +116,28 @@ describe("resolvePlanAnswers", () => {
 describe("planAnswerSteerText", () => {
   it("composes prose with each answered prompt + answer and the stop instruction", () => {
     const text = planAnswerSteerText([
-      { prompt: "Which approach?", kind: "single", selected: ["New table"] },
-      { prompt: "Edge cases?", kind: "multi", selected: ["Empty", "Unicode"] },
-      { prompt: "Notes?", kind: "freeform", selected: [], text: "keep it minimal" },
+      {
+        blockId: "qf1",
+        questionId: "q1",
+        prompt: "Which approach?",
+        kind: "single",
+        selected: ["New table"],
+      },
+      {
+        blockId: "qf1",
+        questionId: "q2",
+        prompt: "Edge cases?",
+        kind: "multi",
+        selected: ["Empty", "Unicode"],
+      },
+      {
+        blockId: "qf1",
+        questionId: "q3",
+        prompt: "Notes?",
+        kind: "freeform",
+        selected: [],
+        text: "keep it minimal",
+      },
     ]);
     expect(text).toContain(
       "Incorporate each answer into the plan, then stop so it can be re-reviewed",
@@ -101,7 +149,9 @@ describe("planAnswerSteerText", () => {
   });
 
   it("renders an empty multi-select as (none selected)", () => {
-    const text = planAnswerSteerText([{ prompt: "Edge cases?", kind: "multi", selected: [] }]);
+    const text = planAnswerSteerText([
+      { blockId: "qf1", questionId: "q2", prompt: "Edge cases?", kind: "multi", selected: [] },
+    ]);
     expect(text).toContain("- Edge cases?\n  → (none selected)");
   });
 });

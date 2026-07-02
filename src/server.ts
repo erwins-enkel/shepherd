@@ -115,6 +115,7 @@ import type {
   SessionPreviewState,
   IssueRef,
   RelaunchOverrides,
+  PlanGate,
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
@@ -2100,6 +2101,21 @@ async function handleSessionAnswerPlanQuestions({
   const resolved = resolvePlanAnswers(gate.blocks, answers as RawAnswer[]);
   if (resolved.length === 0) return json({ error: "no answers resolved" }, 400);
   const delivered = deps.service.reply(id, planAnswerSteerText(resolved));
+  // Durably record the answered questions so the "unanswered plan question" attention signal
+  // clears (#1332). Keys derive from the RESOLVED answers only — a dropped invalid/blank answer
+  // never records a key. Re-fetch + planHash-guard so a concurrent finalize() that reset the
+  // keys for a NEW planHash can't be clobbered by writing back a stale gate; the read-modify-
+  // write is synchronous (no await between getPlanGate and putPlanGate).
+  const answeredKeys = resolved.map((r) => `${r.blockId} ${r.questionId}`);
+  const fresh = deps.store.getPlanGate(id);
+  if (fresh && fresh.planHash === gate.planHash) {
+    const merged: PlanGate = {
+      ...fresh,
+      answeredQuestionKeys: [...new Set([...(fresh.answeredQuestionKeys ?? []), ...answeredKeys])],
+    };
+    deps.store.putPlanGate(merged);
+    deps.events.emit("session:plangate", { id, gate: merged });
+  }
   return json({ ok: true, delivered });
 }
 

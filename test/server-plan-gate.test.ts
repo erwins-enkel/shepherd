@@ -382,6 +382,83 @@ test("POST answer-plan-questions → 400 when nothing resolves", async () => {
   expect(called).toBe(false);
 });
 
+// ── durable answered-key recording for the ambient tab signal (#1332) ────────
+
+test("POST answer-plan-questions → records the answered key + re-emits the gate (durable clear)", async () => {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const emitted: Array<{ id: string; gate?: PlanGate }> = [];
+  events.subscribe((event, data) => {
+    if (event === "session:plangate") emitted.push(data as { id: string; gate?: PlanGate });
+  });
+  const deps: AppDeps = {
+    store,
+    service: { reply: () => true } as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  const app = makeApp(deps);
+  const id = seedPlanningSession(store, { suffix: "rec", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [1] }]),
+    ),
+  );
+  expect(res.status).toBe(200);
+  // Durable: the resolved key is persisted so the attention signal clears across reconnect.
+  expect(store.getPlanGate(id)?.answeredQuestionKeys).toEqual(["qf1 q1"]);
+  // Re-emitted so HoldReasonService recomputes + the client store updates.
+  expect(emitted.some((e) => e.id === id && e.gate?.answeredQuestionKeys?.includes("qf1 q1"))).toBe(
+    true,
+  );
+});
+
+test("POST answer-plan-questions → a dropped invalid answer records no key (no false-clear)", async () => {
+  const { app, store } = harness({ service: { reply: () => true } as any });
+  const id = seedPlanningSession(store, { suffix: "drop", withForm: true });
+  // q1 is single with 2 options; an out-of-range index is dropped by resolvePlanAnswers.
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [99] }]),
+    ),
+  );
+  expect(res.status).toBe(400);
+  // The question stays pending: no key was recorded off the dropped answer.
+  expect(store.getPlanGate(id)?.answeredQuestionKeys ?? []).toEqual([]);
+});
+
+test("POST answer-plan-questions → skips the durable write when a concurrent finalize changed planHash", async () => {
+  const store = new SessionStore(":memory:");
+  const deps: AppDeps = {
+    store,
+    service: {
+      // Simulate a finalize() landing a fresh gate (new planHash, keys reset) while the steer
+      // is in flight — the guard must not clobber it by writing back the stale gate.
+      reply: (sid: string) => {
+        const g = store.getPlanGate(sid)!;
+        store.putPlanGate({ ...g, planHash: "h2", answeredQuestionKeys: [] });
+        return true;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  const app = makeApp(deps);
+  const id = seedPlanningSession(store, { suffix: "stale", withForm: true });
+  const res = await app.fetch(
+    new Request(
+      `http://x/api/sessions/${id}/answer-plan-questions`,
+      POST_ANSWERS([{ blockId: "qf1", questionId: "q1", optionIndices: [1] }]),
+    ),
+  );
+  expect(res.status).toBe(200);
+  // The h2 gate written by the concurrent finalize is untouched (no stale key appended).
+  expect(store.getPlanGate(id)?.planHash).toBe("h2");
+  expect(store.getPlanGate(id)?.answeredQuestionKeys ?? []).toEqual([]);
+});
+
 // ── PUT /api/repo-config { planGateEnabled } (regression guard for Task 2 wiring) ──
 
 test("PUT /api/repo-config persists + echoes planGateEnabled=true", async () => {

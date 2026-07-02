@@ -64,6 +64,7 @@ const EN: CopyMap = {
   "quota-plan": () => "Plan review stuck — keeps requesting changes.",
   "plan-rework": (p) =>
     `Plan review wants changes (round ${p.round ?? "?"}/${p.cap ?? "?"}) — your call.`,
+  "plan-question": () => "The plan has questions waiting on your answer.",
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Critic requested changes (${p.findings} open) — steered back to the agent.`
@@ -104,6 +105,7 @@ const DE: CopyMap = {
   "quota-plan": () => "Plan-Review hängt — fordert weiter Änderungen.",
   "plan-rework": (p) =>
     `Plan-Review fordert Änderungen (Runde ${p.round ?? "?"}/${p.cap ?? "?"}) — deine Entscheidung.`,
+  "plan-question": () => "Der Plan hat Fragen, die auf deine Antwort warten.",
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Kritiker fordert Änderungen (${p.findings} offen) — zurück zum Agenten gesteuert.`

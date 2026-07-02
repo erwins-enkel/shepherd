@@ -14,6 +14,7 @@ import {
   RUNDOWN_FOCUSNEXT_CAP,
   RUNDOWN_EPICS_CAP,
   explainHold,
+  planQuestionsUnanswered,
   type ClassifyCaches,
 } from "../src/rundown-core";
 import type { Session } from "../src/types";
@@ -538,6 +539,95 @@ test("classifyAttention: haltReason:completed → no halt signal", () => {
   const r = classifyAttention(session({ haltReason: "completed", status: "idle" }), {}, NOW);
   expect(r.signals).not.toContain("halted-error");
   expect(r.signals).not.toContain("halted-usage");
+});
+
+// ── plan-question: unanswered plan-gate question awaiting the operator (#1332) ──
+
+const gateWithForm = (over: Partial<PlanGate> = {}): PlanGate =>
+  ({
+    sessionId: "s1",
+    planHash: "h",
+    decision: "approved",
+    summary: "",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 3,
+    approved: true,
+    plan: "",
+    blocks: [
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [{ id: "q1", prompt: "Which?", kind: "single", options: ["a", "b"] }],
+      },
+    ],
+    answeredQuestionKeys: [],
+    updatedAt: NOW,
+    ...over,
+  }) as PlanGate;
+
+test("classifyAttention: planning + unanswered question → plan-question signal, tier 1", () => {
+  const r = classifyAttention(session({ planPhase: "planning" }), { gate: gateWithForm() }, NOW);
+  expect(r.signals).toContain("plan-question");
+  expect(r.tier).toBe(1);
+});
+
+test("classifyAttention: answered question → no plan-question signal", () => {
+  const r = classifyAttention(
+    session({ planPhase: "planning" }),
+    { gate: gateWithForm({ answeredQuestionKeys: ["qf1 q1"] }) },
+    NOW,
+  );
+  expect(r.signals).not.toContain("plan-question");
+});
+
+test("classifyAttention: unanswered question but executing → no plan-question signal (no leak)", () => {
+  const r = classifyAttention(session({ planPhase: "executing" }), { gate: gateWithForm() }, NOW);
+  expect(r.signals).not.toContain("plan-question");
+});
+
+test("classifyAttention: gate without a question-form → no plan-question signal", () => {
+  const r = classifyAttention(
+    session({ planPhase: "planning" }),
+    { gate: gateWithForm({ blocks: [{ type: "rich-text", id: "rt", markdown: "x" }] }) },
+    NOW,
+  );
+  expect(r.signals).not.toContain("plan-question");
+});
+
+test("explainHold: plan-question → { code: 'plan-question' }", () => {
+  const hold = explainHold(session({ planPhase: "planning" }), { gate: gateWithForm() }, NOW);
+  expect(hold).toEqual({ code: "plan-question" });
+});
+
+test("classifyAttention: plan-rework co-occurring with plan-question stays PRIMARY (round/cap intact)", () => {
+  // A changes_requested AUTO plan whose questions are also unanswered fires both Tier-1 signals;
+  // plan-question is ordered last so plan-rework remains the primary hold line with its params.
+  const gate = gateWithForm({ decision: "changes_requested", approved: false, round: 1, cap: 3 });
+  const s = session({ planPhase: "planning" });
+  const r = classifyAttention(s, { gate }, NOW);
+  expect(r.signals).toContain("plan-rework");
+  expect(r.signals).toContain("plan-question");
+  // explainHold takes the FIRST non-in-flight signal → plan-rework, carrying round/cap.
+  expect(explainHold(s, { gate }, NOW)).toEqual({
+    code: "plan-rework",
+    params: { round: 1, cap: 3 },
+  });
+});
+
+test("planQuestionsUnanswered matches the shared parity fixtures (server ↔ client drift lock)", () => {
+  // Same fixtures asserted by the UI's tab-signal.svelte.test.ts against its mirrored predicate;
+  // any drift between the two implementations fails one suite. Mirrors the MERGE_MARK_BACKSTOP_MS lock.
+  const cases = JSON.parse(
+    readFileSync(new URL("./fixtures/plan-question-parity.json", import.meta.url), "utf8"),
+  ) as Array<{ name: string; gate: Partial<PlanGate>; expected: boolean }>;
+  for (const c of cases) {
+    expect({ name: c.name, r: planQuestionsUnanswered(c.gate as PlanGate) }).toEqual({
+      name: c.name,
+      r: c.expected,
+    });
+  }
 });
 
 // ── block-aware blocked-decision ─────────────────────────────────────────────

@@ -361,6 +361,12 @@ export interface PlanGate {
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
   blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored, no diff-join); absent → flat markdown
+  // Answered question-form questions, keyed `${blockId} ${questionId}` (#1332). Durable so the
+  // "unanswered plan question" attention signal survives reconnect/restart. Reset to [] by
+  // buildGate on every new planHash; the answer route appends resolved keys. A question whose
+  // key is absent here is still pending (see planQuestionsUnanswered). Optional (like `blocks`):
+  // absent ⇒ treated as [] by every consumer.
+  answeredQuestionKeys?: string[];
   updatedAt: number;
 }
 
@@ -949,6 +955,7 @@ export type HoldCode =
   | "quota-error"
   | "quota-plan"
   | "plan-rework"
+  | "plan-question"
   | "critic-rework"
   | "ci-red"
   | "awaiting-merge"

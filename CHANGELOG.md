@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.41.0](https://github.com/erwins-enkel/shepherd/compare/v1.40.0...v1.41.0) (2026-07-02)
+
+
+### Features
+
+* **prs:** flag PRs with workflows awaiting approval ([#1328](https://github.com/erwins-enkel/shepherd/issues/1328)) ([976591b](https://github.com/erwins-enkel/shepherd/commit/976591b0237c9651536855cf8d0474e82aaa7c79))
+* **sites:** add Vercel Web Analytics to docs + marketing sites ([#1321](https://github.com/erwins-enkel/shepherd/issues/1321)) ([69eec2f](https://github.com/erwins-enkel/shepherd/commit/69eec2f5c1b3ec23128e5c3c2ea89afa2bbd0bc6))
+* **sites:** track marketing CTA custom events via Vercel Analytics ([#1323](https://github.com/erwins-enkel/shepherd/issues/1323)) ([a7b48e2](https://github.com/erwins-enkel/shepherd/commit/a7b48e251efe7fecbd4dee17d8c28974c14a17f1))
+* **telemetry:** anonymous opt-in usage telemetry via Aptabase ([#1331](https://github.com/erwins-enkel/shepherd/issues/1331)) ([8831d0c](https://github.com/erwins-enkel/shepherd/commit/8831d0c61c2780746f7cb8f73b7ceb6f754cdf9f))
+* **telemetry:** wire session_created / epic_drained / pr_opened events ([#1329](https://github.com/erwins-enkel/shepherd/issues/1329)) ([#1342](https://github.com/erwins-enkel/shepherd/issues/1342)) ([fe4fa08](https://github.com/erwins-enkel/shepherd/commit/fe4fa085dab39412a23f7970893f71fefd9b57e0))
+* **ui:** ambient browser-tab state signaling ([#1327](https://github.com/erwins-enkel/shepherd/issues/1327)) ([#1333](https://github.com/erwins-enkel/shepherd/issues/1333)) ([bbcac08](https://github.com/erwins-enkel/shepherd/commit/bbcac0818d45ece1e6e997c62b390f6b26fd8af8))
+* **ui:** command bar — Cmd/Ctrl+K quick-switcher for sessions, repos & lenses ([#1334](https://github.com/erwins-enkel/shepherd/issues/1334)) ([#1337](https://github.com/erwins-enkel/shepherd/issues/1337)) ([722c3db](https://github.com/erwins-enkel/shepherd/commit/722c3dbf4d8b3d6b305921269b25bae9e0ae0837))
+* **ui:** command bar v2 — docs search + actions registry ([#1338](https://github.com/erwins-enkel/shepherd/issues/1338)) ([#1343](https://github.com/erwins-enkel/shepherd/issues/1343)) ([bacec92](https://github.com/erwins-enkel/shepherd/commit/bacec92949acfa0a2a2585670f203ceddcbce4a9))
+* **ui:** command-bar search field in top bar; unify docs + learnings ([#1351](https://github.com/erwins-enkel/shepherd/issues/1351)) ([37c6289](https://github.com/erwins-enkel/shepherd/commit/37c62897c32fcfe0e8ef144e45dd1dd52525b5c7))
+* **ui:** complete ambient tab signal — progress ring + glyph ticker + toggle ([#1341](https://github.com/erwins-enkel/shepherd/issues/1341)) ([aabbf69](https://github.com/erwins-enkel/shepherd/commit/aabbf69eed96c9da77dd82882ba3cfaeda303b5c))
+* **ui:** count unanswered plan-gate questions in the ambient tab signal ([#1332](https://github.com/erwins-enkel/shepherd/issues/1332)) ([#1339](https://github.com/erwins-enkel/shepherd/issues/1339)) ([6318426](https://github.com/erwins-enkel/shepherd/commit/6318426bbcddf6034ad8b705f3b58b6fe5e0798f))
+* **ui:** filter session list from command bar repo results ([#1348](https://github.com/erwins-enkel/shepherd/issues/1348)) ([e443ca3](https://github.com/erwins-enkel/shepherd/commit/e443ca39ebe3e846de7392a95d470f3c80286aec))
+* **ui:** fuzzy matching for the command bar ([#1345](https://github.com/erwins-enkel/shepherd/issues/1345)) ([a9f8ade](https://github.com/erwins-enkel/shepherd/commit/a9f8ade5e82c2df3f96b999159174799f6b63486))
+* **ui:** hold Alt to jump to command-bar results by number ([#1349](https://github.com/erwins-enkel/shepherd/issues/1349)) ([49e6c7f](https://github.com/erwins-enkel/shepherd/commit/49e6c7feb3fb215b5ea87477b9f50b87a8410bca))
+
+
+### Bug Fixes
+
+* **boot:** de-dupe near-boot tmp-sweep + quiet two spurious log lines ([#1317](https://github.com/erwins-enkel/shepherd/issues/1317)) ([3004462](https://github.com/erwins-enkel/shepherd/commit/300446286794bb0ce9e7ee61b05c75b2a00bd59f))
+* **macos:** chmod node-pty spawn-helper after install so PTY spawns ([#1318](https://github.com/erwins-enkel/shepherd/issues/1318)) ([1782234](https://github.com/erwins-enkel/shepherd/commit/1782234b80bbf8ddb43d49bd4cbc82f01505a3c3))
+* make PR badge menu click-only ([#1300](https://github.com/erwins-enkel/shepherd/issues/1300)) ([40aa2d7](https://github.com/erwins-enkel/shepherd/commit/40aa2d7f101fca14713725ccce20f8664822417f))
+* **onboarding-harness:** boot past [#1313](https://github.com/erwins-enkel/shepherd/issues/1313) herdr fail-fast in seeded scenarios ([#1324](https://github.com/erwins-enkel/shepherd/issues/1324)) ([fea4a5c](https://github.com/erwins-enkel/shepherd/commit/fea4a5c0c381d27a4f60b7f240767beabba567fa)), closes [#1322](https://github.com/erwins-enkel/shepherd/issues/1322)
+* **owed:** scope Owed lens list + badge to the active repo chip ([#1330](https://github.com/erwins-enkel/shepherd/issues/1330)) ([298d7af](https://github.com/erwins-enkel/shepherd/commit/298d7af1696dad38e8cefab253ae716c95a45492))
+* **preview:** clarify tailnet preview setup contract ([#1340](https://github.com/erwins-enkel/shepherd/issues/1340)) ([c7feeeb](https://github.com/erwins-enkel/shepherd/commit/c7feeeb308c756841524f1f8f59c5ba28072d559))
+* **security:** resolve CodeQL alerts — table escaping, error exposure, url guard ([#1325](https://github.com/erwins-enkel/shepherd/issues/1325)) ([29f7be5](https://github.com/erwins-enkel/shepherd/commit/29f7be5b9368768e3fa8b95f074df7bc02cc7ab7))
+* **telemetry:** normalize locale to Aptabase's 10-char limit ([#1335](https://github.com/erwins-enkel/shepherd/issues/1335)) ([60d0af6](https://github.com/erwins-enkel/shepherd/commit/60d0af6d453f409380239ea6f42a1ded13f66b2e))
+* **tmp-sweep:** skip non-git work-dir folders in worktree prune ([#1315](https://github.com/erwins-enkel/shepherd/issues/1315)) ([73a5b69](https://github.com/erwins-enkel/shepherd/commit/73a5b69c03c2202a1232584670fdc9bcc026175d))
+
+
+### Documentation
+
+* document operator password login ([#1350](https://github.com/erwins-enkel/shepherd/issues/1350)) ([4d1bfa7](https://github.com/erwins-enkel/shepherd/commit/4d1bfa7a9cdd784b200e0b12cf7079f7795ffb8a))
+* **research:** tab-based state & operator-awareness signaling ([#1326](https://github.com/erwins-enkel/shepherd/issues/1326)) ([33e96a7](https://github.com/erwins-enkel/shepherd/commit/33e96a73efe2229f9111fdea642de8ccad7e9fa2))
+* surface recent features (command bar, tab signal, plugins) across demo, docs & marketing ([#1347](https://github.com/erwins-enkel/shepherd/issues/1347)) ([72eb009](https://github.com/erwins-enkel/shepherd/commit/72eb00920d50debba17d5f3f489491617f0118e1))
+
 ## [1.40.0](https://github.com/erwins-enkel/shepherd/compare/v1.39.1...v1.40.0) (2026-07-01)
 
 

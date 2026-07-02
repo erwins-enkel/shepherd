@@ -2,6 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
+  import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
   import {
     listSessions,
     createSession,
@@ -124,6 +125,19 @@
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
 
   const store = new HerdStore();
+
+  // Ambient tab-state signaling (#1327): when THIS tab is backgrounded, mirror the
+  // count of sessions needing the operator (blocked · ci-red · ready-to-merge) into
+  // the tab title + a severity-dot favicon + the App Badge. Driven by one $effect off
+  // the store here (where the HerdStore instance lives, not +layout); the aria-live
+  // region below mirrors changes for screen readers. Disposed on unmount.
+  const tabSignal = createTabSignal();
+  $effect(() => {
+    const { count, severity } = deriveTabState(store.sessions, store.git, store.workingBlocked);
+    tabSignal.update({ count, severity, attended: store.attended });
+  });
+  $effect(() => () => tabSignal.dispose());
+
   // PR identity keys (`${repoPath}#${number}`) currently owned by a running merge
   // train — a session that's flagged merging and has an open PR number. Threaded
   // down to the backlog PRs panel so each in-train row shows a badge + its manual
@@ -2118,6 +2132,10 @@
        h1 to orient by. Always present, even on the phone terminal screen where the
        chrome is hidden. -->
   <h1 class="sr-only">{m.app_shell_heading()}</h1>
+  <!-- a11y: the ambient tab signal (title/favicon/App Badge) is invisible to screen
+       readers and title changes aren't reliably announced, so mirror every count
+       change into a polite live region (#1327). -->
+  <div class="sr-only" role="status" aria-live="polite">{tabSignal.announcement}</div>
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
        viewport's merged header (repo · session + back + status tint), so it's
        hidden there; settings + global chrome stay on the herd overview. -->

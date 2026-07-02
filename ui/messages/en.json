@@ -2311,5 +2311,9 @@
   "model_guidance_codex_5": "Budget general GPT-5 profile for light tasks.",
   "model_guidance_codex_o3": "Reasoning-heavy option. Good for analysis, expensive for routine coding.",
   "feat_model_cost_guidance_title": "Model pickers show cost guidance",
-  "feat_model_cost_guidance_body": "Model menus now show relative cost markers and task-fit tags, and the selected model explains when it is worth using. The guidance appears in New Task, Settings, repo defaults and the compare or continue picker."
+  "feat_model_cost_guidance_body": "Model menus now show relative cost markers and task-fit tags, and the selected model explains when it is worth using. The guidance appears in New Task, Settings, repo defaults and the compare or continue picker.",
+  "tab_attention_count": "Sessions needing your attention: {count}",
+  "tab_attention_none": "No sessions need your attention",
+  "feat_tab_signaling_title": "Your browser tab now signals the herd",
+  "feat_tab_signaling_body": "When Shepherd is open in a background tab, the tab title shows a count of sessions needing you, and the favicon takes on a severity color — red for failing CI, amber for blocked, green for ready to merge. A brief check mark appears when the herd drains. Installed as an app, it also updates the app badge."
 }

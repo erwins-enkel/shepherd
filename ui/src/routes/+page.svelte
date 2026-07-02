@@ -528,6 +528,7 @@
   // reports first-run-pending (see loadSettings()). Once the pick persists, handleOnboardingPicked
   // re-loads settings and this flips false on its own.
   const onboardingBlocking = $derived(settings?.firstRunPending ?? false);
+  const showTelemetryConsentModal = $derived(showTelemetryConsent && !onboardingBlocking);
   // The blocking picker resolved server-side (putSettings persisted a root): close the gate and
   // re-pull settings so repoRoot/repoRootDisplay/firstRunPending are all fresh.
   function handleOnboardingPicked() {
@@ -2724,14 +2725,13 @@
   onstarresolve={(s) => (store.starPrompt = s)}
 />
 
-{#if showTelemetryConsent && !onboardingBlocking}
-  <TelemetryConsent
-    onresolved={() => {
-      showTelemetryConsent = false;
-      loadSettings();
-    }}
-  />
-{/if}
+<TelemetryConsent
+  show={showTelemetryConsentModal}
+  onresolved={() => {
+    showTelemetryConsent = false;
+    loadSettings();
+  }}
+/>
 
 <FeedbackDialog />
 

@@ -10,13 +10,9 @@
 
 export type TelemetryConsent = "unset" | "granted" | "denied";
 
-export const TELEMETRY_CONSENTS: readonly TelemetryConsent[] = [
-  "unset",
-  "granted",
-  "denied",
-] as const;
+const TELEMETRY_CONSENTS: readonly TelemetryConsent[] = ["unset", "granted", "denied"] as const;
 
-export function isTelemetryConsent(v: unknown): v is TelemetryConsent {
+function isTelemetryConsent(v: unknown): v is TelemetryConsent {
   return typeof v === "string" && (TELEMETRY_CONSENTS as readonly string[]).includes(v);
 }
 

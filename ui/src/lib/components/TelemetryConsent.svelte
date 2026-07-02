@@ -4,7 +4,7 @@
   import GlossaryText from "./GlossaryText.svelte";
   import { putTelemetryConsent } from "$lib/api";
 
-  const { onresolved }: { onresolved: () => void } = $props();
+  const { show, onresolved }: { show: boolean; onresolved: () => void } = $props();
   let busy = $state(false);
 
   async function choose(consent: "granted" | "denied") {
@@ -21,32 +21,39 @@
   }
 </script>
 
-<!-- Blocking first-run surface over the app: canonical scrim backdrop (design
-     system rule #5) — the global `.scrim` class provides the dim + blur. -->
-<div class="scrim" role="presentation">
-  <div
-    class="card"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="telemetry-consent-title"
-    use:dialog={{}}
-  >
-    <header class="head">
-      <h2 id="telemetry-consent-title">{m.telemetry_consent_title()}</h2>
-    </header>
-    <div class="body">
-      <p><GlossaryText text={m.telemetry_consent_body()} /></p>
+{#if show}
+  <!-- Blocking first-run surface over the app: canonical scrim backdrop (design
+       system rule #5) — the global `.scrim` class provides the dim + blur. -->
+  <div class="scrim" role="presentation">
+    <div
+      class="card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="telemetry-consent-title"
+      use:dialog={{}}
+    >
+      <header class="head">
+        <h2 id="telemetry-consent-title">{m.telemetry_consent_title()}</h2>
+      </header>
+      <div class="body">
+        <p><GlossaryText text={m.telemetry_consent_body()} /></p>
+      </div>
+      <footer class="foot">
+        <button type="button" class="gbtn" disabled={busy} onclick={() => choose("denied")}>
+          {m.telemetry_consent_decline()}
+        </button>
+        <button
+          type="button"
+          class="gbtn primary"
+          disabled={busy}
+          onclick={() => choose("granted")}
+        >
+          {m.telemetry_consent_accept()}
+        </button>
+      </footer>
     </div>
-    <footer class="foot">
-      <button type="button" class="gbtn" disabled={busy} onclick={() => choose("denied")}>
-        {m.telemetry_consent_decline()}
-      </button>
-      <button type="button" class="gbtn primary" disabled={busy} onclick={() => choose("granted")}>
-        {m.telemetry_consent_accept()}
-      </button>
-    </footer>
   </div>
-</div>
+{/if}
 
 <style>
   .scrim {

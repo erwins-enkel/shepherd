@@ -31,13 +31,24 @@ const DEMO_URL = "https://demo.shepherd.run";
 
     <ul class="links">
       <li>
-        <a href={DEMO_URL} rel="noopener noreferrer" target="_blank">Demo</a>
+        <a
+          href={DEMO_URL}
+          rel="noopener noreferrer"
+          target="_blank"
+          data-track="cta_demo"
+          data-track-location="nav">Demo</a
+        >
       </li>
       <li><a href="#features">Features</a></li>
       <li><a href="#install">Install</a></li>
-      <li><a href={DOCS_URL}>Docs</a></li>
+      <li><a href={DOCS_URL} data-track="cta_docs" data-track-location="nav">Docs</a></li>
       <li>
-        <a href={GITHUB_URL} rel="noopener noreferrer" target="_blank">GitHub</a
+        <a
+          href={GITHUB_URL}
+          rel="noopener noreferrer"
+          target="_blank"
+          data-track="cta_github"
+          data-track-location="nav">GitHub</a
         >
       </li>
     </ul>

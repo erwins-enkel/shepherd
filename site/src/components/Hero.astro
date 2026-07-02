@@ -44,16 +44,25 @@ const DEMO_URL = "https://demo.shepherd.run";
         class="btn btn-primary"
         href={DEMO_URL}
         rel="noopener noreferrer"
-        target="_blank">Try the live demo</a
+        target="_blank"
+        data-track="cta_demo"
+        data-track-location="hero">Try the live demo</a
       >
       <a class="btn btn-ghost" href="#install">Install</a>
       <a
         class="btn btn-ghost"
         href={GITHUB_URL}
         rel="noopener noreferrer"
-        target="_blank">View on GitHub</a
+        target="_blank"
+        data-track="cta_github"
+        data-track-location="hero">View on GitHub</a
       >
-      <a class="btn btn-ghost" href={DOCS_URL}>Read the docs</a>
+      <a
+        class="btn btn-ghost"
+        href={DOCS_URL}
+        data-track="cta_docs"
+        data-track-location="hero">Read the docs</a
+      >
     </div>
   </div>
 

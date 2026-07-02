@@ -13,9 +13,14 @@ const DOCS_URL = "https://docs.shepherd.run";
     <div class="top">
       <span class="wordmark">shepherd</span>
       <nav class="flinks" aria-label="Footer">
-        <a href={GITHUB_URL} rel="noopener noreferrer" target="_blank">GitHub</a
+        <a
+          href={GITHUB_URL}
+          rel="noopener noreferrer"
+          target="_blank"
+          data-track="cta_github"
+          data-track-location="footer">GitHub</a
         >
-        <a href={DOCS_URL}>Docs</a>
+        <a href={DOCS_URL} data-track="cta_docs" data-track-location="footer">Docs</a>
         <a href={LICENSE_URL} rel="noopener noreferrer" target="_blank"
           >License</a
         >

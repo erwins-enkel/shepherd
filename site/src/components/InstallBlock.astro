@@ -26,6 +26,8 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 </div>
 
 <script>
+  import { track } from "@vercel/analytics";
+
   const block = document.getElementById("install");
   const btn = block?.querySelector<HTMLButtonElement>(".copy");
   const label = btn?.querySelector<HTMLElement>(".copy-label");
@@ -54,6 +56,9 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
     if (label) label.textContent = "Copied!";
     btn.classList.add("is-copied");
     if (affirm) affirm.textContent = "Install command copied to clipboard.";
+    // Custom event: the strongest conversion signal on the page. Anonymous —
+    // no data payload. See Base.astro for the CTA-click tracker + plan caveat.
+    track("install_copy");
     clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
       if (label) label.textContent = "Copy";

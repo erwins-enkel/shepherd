@@ -32,12 +32,17 @@ export type CommandCtx = {
   onUsage: () => void;
   onRetry: () => void;
   onNextNeedsYou: () => void;
+  /** Opens the learnings drawer. */
+  onLearnings: () => void;
   /** store.sessions.length > 0 — Broadcast needs at least one session. */
   hasSessions: boolean;
   /** haltedCount > 0 && usageBelow — mirrors SteerBar's retry chip visibility. */
   retryReady: boolean;
   /** Sessions waiting on the operator other than the one on screen — gates the jump. */
   otherNeedsYouCount: number;
+  /** learningsPresent gate (learnings > 0 || learningsCurate > 0) — mirrors the mobile
+   *  sheet and desktop badge, so command-bar availability is uniform with those surfaces. */
+  hasLearnings: boolean;
 };
 
 /** The verbs available right now, in display order. Filters out any whose availability
@@ -76,6 +81,15 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         label: () => m.commandbar_cmd_usage(),
         keywords: () => m.commandbar_cmd_usage_kw(),
         run: ctx.onUsage,
+      },
+    },
+    {
+      available: ctx.hasLearnings,
+      cmd: {
+        id: "learnings",
+        label: () => m.commandbar_cmd_learnings(),
+        keywords: () => m.commandbar_cmd_learnings_kw(),
+        run: ctx.onLearnings,
       },
     },
     {

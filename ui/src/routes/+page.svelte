@@ -1522,6 +1522,14 @@
   // on the empty↔non-empty flip, so the interval is made once.
   const hasSessions = $derived(store.sessions.length > 0);
 
+  // Open the global learnings drawer: with proposals pending, show them all (repo = null);
+  // otherwise focus the first over-budget ("curate") repo. Shared by the top-bar entry
+  // point and the command-bar Learnings verb so both behave identically.
+  function openLearnings() {
+    learningsRepo = learningsCounts.proposed > 0 ? null : firstCurateRepo(learnings.injectable);
+    showLearnings = true;
+  }
+
   // Command bar v2 verbs. Availability flags mirror the same gates the on-screen
   // affordances use (Broadcast needs sessions; Retry mirrors SteerBar's retryReady chip;
   // the needs-you jump needs another waiting session), so the bar never offers a verb the
@@ -1534,9 +1542,11 @@
       onUsage: () => (showUsage = true),
       onRetry: () => (showRetry = true),
       onNextNeedsYou: () => selectNextNeedsYou(),
+      onLearnings: openLearnings,
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,
+      hasLearnings: learningsCounts.proposed > 0 || learningsCounts.curate > 0,
     }),
   );
 

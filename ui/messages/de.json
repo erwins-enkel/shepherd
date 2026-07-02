@@ -2365,5 +2365,11 @@
   "commandbar_prompt_match": "passt zur Beschreibung",
   "commandbar_repo_filter_affordance": "⇧↵ filtern",
   "feat_command_bar_repo_filter_title": "Sitzungen aus der Befehlsleiste filtern",
-  "feat_command_bar_repo_filter_body": "Wähle in der Befehlsleiste ein Repository aus und drücke dann ⇧↵ (oder ⌘/Strg+↵), um die Sitzungsliste auf die aktiven Sitzungen dieses Repos zu filtern. Mit einfachem ↵ öffnest du weiterhin sein Backlog."
+  "feat_command_bar_repo_filter_body": "Wähle in der Befehlsleiste ein Repository aus und drücke dann ⇧↵ (oder ⌘/Strg+↵), um die Sitzungsliste auf die aktiven Sitzungen dieses Repos zu filtern. Mit einfachem ↵ öffnest du weiterhin sein Backlog.",
+  "commandbar_cmd_learnings": "Erkenntnisse",
+  "commandbar_cmd_learnings_kw": "erkenntnisse einblicke regeln lektionen vorschläge",
+  "topbar_search": "Suchen",
+  "topbar_search_aria": "Suchen oder Befehl ausführen",
+  "feat_command_bar_search_field_title": "Suche in der oberen Leiste",
+  "feat_command_bar_search_field_body": "Die Befehlsleiste hat jetzt ein Suchfeld in der oberen Leiste mit einem ⌘K / Strg-K-Kürzel. Dokumentation und Erkenntnisse sind dorthin umgezogen — durchsuche die Dokumente und öffne Erkenntnisse direkt aus der Leiste."
 }

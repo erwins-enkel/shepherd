@@ -2365,5 +2365,11 @@
   "commandbar_prompt_match": "matches description",
   "commandbar_repo_filter_affordance": "⇧↵ filter",
   "feat_command_bar_repo_filter_title": "Filter sessions from the command bar",
-  "feat_command_bar_repo_filter_body": "Pick a repository in the command bar, then press ⇧↵ (or ⌘/Ctrl+↵) to filter the session list to that repo's active sessions. Plain ↵ still opens its backlog."
+  "feat_command_bar_repo_filter_body": "Pick a repository in the command bar, then press ⇧↵ (or ⌘/Ctrl+↵) to filter the session list to that repo's active sessions. Plain ↵ still opens its backlog.",
+  "commandbar_cmd_learnings": "Learnings",
+  "commandbar_cmd_learnings_kw": "learnings insights rules lessons proposals",
+  "topbar_search": "Search",
+  "topbar_search_aria": "Search or run a command",
+  "feat_command_bar_search_field_title": "Search from the top bar",
+  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl-K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar."
 }

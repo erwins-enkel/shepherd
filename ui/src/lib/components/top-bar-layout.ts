@@ -18,8 +18,6 @@ export interface ChromeState {
   herdrUpdateAvailable: boolean;
   codexUpdateAvailable: boolean;
   whatsNew: boolean;
-  /** pending learnings to review across all repos; >0 renders the global learnings badge */
-  learnings: number;
   /** held tasks; >0 renders the held badge (added async via the held:changed WS event,
    *  so it MUST be a counted input or the measure effect won't re-fire on its arrival) */
   held: number;
@@ -39,7 +37,6 @@ export function badgeCount(s: ChromeState): number {
     (s.herdrUpdateAvailable ? 1 : 0) +
     (s.codexUpdateAvailable ? 1 : 0) +
     (s.whatsNew ? 1 : 0) +
-    (s.learnings > 0 ? 1 : 0) +
     (s.held > 0 ? 1 : 0)
   );
 }

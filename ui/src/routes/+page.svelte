@@ -606,7 +606,14 @@
         // "seen" latch would otherwise keep the (non-blocking) checklist from reappearing.
         if (s.firstRunPending) showOnboarding = true;
         // Ask for telemetry consent once the operator has onboarded and telemetry can run.
-        if (s.telemetryAvailable && s.telemetryConsent === "unset" && !s.firstRunPending) {
+        // Skip in the hosted demo: its PUT /api/settings is a no-op stub, so a shown modal
+        // could never be dismissed (same __DEMO__ guard as the onboarding-checklist gate).
+        if (
+          !__DEMO__ &&
+          s.telemetryAvailable &&
+          s.telemetryConsent === "unset" &&
+          !s.firstRunPending
+        ) {
           showTelemetryConsent = true;
         }
         // One-shot: loadSettings() also re-fires on tab return, so the eligibility

@@ -83,6 +83,31 @@ export async function bootShepherd(driver: IncusDriver, name: string): Promise<v
   }
 }
 
+/** Boot Shepherd in the FOREGROUND expecting the #1313 herdr fail-fast, and return
+ *  its exit code + combined output. Used only by the `herdr-missing` runner: with
+ *  herdr removed, preflight prints the banner and exits 78 BEFORE binding the HTTP
+ *  server, so there is nothing to poll — we capture the process's exit directly.
+ *
+ *  Mirrors `bootShepherd`'s launch env exactly (same `cd`, `~/.bun/bin/bun
+ *  src/index.ts`, and PATH ordering) so the ONLY behavioral difference from a real
+ *  boot is the removed herdr. It intentionally OMITS `SHEPHERD_TOKEN` (which
+ *  `bootShepherd` sets): harmless, because preflight runs and exits before any
+ *  token/auth/store use and this path never reaches the server. `timeout 30` is a
+ *  defensive guard — the caller must treat ONLY exit 78 as the expected fail-fast
+ *  (timeout's 124, or any other code, means Shepherd did NOT fail-fast). */
+export async function bootExpectingPreflightExit(
+  driver: IncusDriver,
+  name: string,
+): Promise<{ code: number; output: string }> {
+  const r = await driver.exec(name, [
+    "sh",
+    "-c",
+    `cd ${SHEPHERD_DIR} && timeout 30 env PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH" ` +
+      `~/.bun/bin/bun src/index.ts 2>&1`,
+  ]);
+  return { code: r.code, output: r.stdout };
+}
+
 /** The poll command shared by the manual-boot retry path and `waitForApi`: poll
  *  the server until it answers or the ceiling elapses (degraded boots are expected —
  *  we only need the process up far enough to serve HTTP). Hits the PUBLIC `/api/health`

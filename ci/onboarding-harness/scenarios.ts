@@ -77,11 +77,18 @@ export const SCENARIOS: Scenario[] = [
     detectionOnly: true,
   },
   {
+    // Since #1313 a missing herdr fail-fasts (banner + exit 78) BEFORE the HTTP
+    // server binds, so the boot+probe path can't detect it. The baseline installs a
+    // herdr STUB (seed.ts) which this seed removes, restoring the real fail-fast;
+    // `preflightFailFast` selects the runner that asserts the banner/exit, then
+    // applies the verbatim REMEDIATIONS herdr install and re-boots to green. Stays
+    // `structured` (gate-eligible) — it exercises the real new first-run UX.
     id: "herdr-missing",
     image: "images:archlinux",
     seed: ["rm -f /usr/local/bin/herdr ~/.local/bin/herdr"],
     expect: [{ id: "herdr", state: "error" }],
     coaching: "structured",
+    preflightFailFast: true,
   },
   {
     // claudeProbe is PRESENCE-ONLY (a successful `claude --version` ⇒ ok; there is

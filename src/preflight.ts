@@ -6,7 +6,12 @@
 
 export const HERDR_MISSING_EXIT_CODE = 78; // EX_CONFIG
 
-const BANNER = `⚠  herdr not found on PATH — Shepherd cannot run.
+// The banner's distinctive line, exported so out-of-tree consumers (the onboarding
+// harness's fail-fast probe) can match the fail-fast output without hardcoding a
+// copy that a future reword would break silently.
+export const HERDR_MISSING_MARKER = "herdr not found on PATH";
+
+const BANNER = `⚠  ${HERDR_MISSING_MARKER} — Shepherd cannot run.
    herdr owns the interactive claude PTYs; nothing works without it.
    Install:  curl -fsSL https://herdr.dev/install.sh | bash
    It installs to ~/.local/bin — ensure that's on PATH:

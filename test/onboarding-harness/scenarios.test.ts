@@ -37,6 +37,16 @@ describe("scenario catalog", () => {
   // repoRoot ($HOME) — else the probe downgrades to `warning` and the gap reopens.
   // This guards against the `mkdir`-seed being silently deleted; it does NOT prove
   // the mechanism (that is the diagnostics behavioral test).
+  // herdr-missing uses the fail-fast preflight runner (since #1313 a missing herdr
+  // exits 78 before the HTTP server binds), and MUST stay gate-eligible (structured,
+  // not detection-only) — it exercises the real new first-run UX end-to-end.
+  it("herdr-missing is preflightFailFast and structured (gate-eligible)", () => {
+    const s = SCENARIOS.find((x) => x.id === "herdr-missing")!;
+    expect(s.preflightFailFast).toBe(true);
+    expect(s.coaching).toBe("structured");
+    expect(s.detectionOnly).toBeUndefined();
+  });
+
   it("every scenario expecting gh:error seeds a repo dir under repoRoot", () => {
     const ghErrorScenarios = SCENARIOS.filter((s) =>
       s.expect.some((e) => e.id === "gh" && e.state === "error"),

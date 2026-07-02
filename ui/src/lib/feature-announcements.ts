@@ -8,6 +8,13 @@
 // `scripts/check-feature-catalog.sh` gate (PR-hygiene CI + pre-push).
 // See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
 //
+// VERSION: `sinceVersion` is the NEXT (unreleased) version — run
+// `bun run next-version`, NEVER read package.json. Between releases package.json
+// holds the LAST released version; stamping that here makes the entry invisible
+// (feature-gate.ts only surfaces sinceVersion > the user's lastSeen). The
+// `scripts/check-announcement-versions.mjs` gate fails any new entry whose
+// sinceVersion is <= the last release, or whose filename version disagrees.
+//
 // FILENAME: `v<sinceVersion>-<id>.ts` — NO sequence number. Uniqueness comes
 // from the id (globally unique, enforced by the dup-id guard in
 // feature-gate.test.ts), so two concurrent PRs can never collide on a filename

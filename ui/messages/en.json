@@ -2341,7 +2341,7 @@
   "commandbar_repo_affordance": "Repository",
   "commandbar_no_matches": "No matches",
   "feat_command_bar_title": "Command bar — jump to anything with ⌘K",
-  "feat_command_bar_body": "Press ⌘K (macOS) or Ctrl+K (Windows/Linux) — even while the terminal is focused — to open a quick-switcher. Type to filter across your sessions, repositories, and herd lenses, then hit Enter to jump straight there.",
+  "feat_command_bar_body": "Press ⌘K (macOS) or Ctrl+K (Windows/Linux) — even while the terminal is focused — to open a quick-switcher. Type to fuzzy-search across your sessions, repositories, and herd lenses — matched letters are highlighted, and sessions match on their description too — then hit Enter to jump straight there.",
   "settings_tab_ticker_title": "Compact tab title",
   "settings_tab_ticker_hint": "When a background tab needs you, show grouped glyph counts (⚠ CI failed · ✋ blocked · ✓ ready · ▶ running) instead of a single number. Off by default.",
   "settings_tab_ticker_on": "Compact tab title on",
@@ -2361,5 +2361,6 @@
   "commandbar_cmd_next_needs_you": "Jump to next needs-you",
   "commandbar_cmd_next_needs_you_kw": "waiting blocked attention",
   "feat_command_bar_v2_title": "Command bar now runs commands and searches docs",
-  "feat_command_bar_v2_body": "⌘K/Ctrl+K does more than jump between sessions now. A Commands group runs verbs — New task, Broadcast, Settings, Usage, Retry, Jump to next needs-you — and a Docs group searches the documentation and opens the page in a new tab. Just start typing what you want to do."
+  "feat_command_bar_v2_body": "⌘K/Ctrl+K does more than jump between sessions now. A Commands group runs verbs — New task, Broadcast, Settings, Usage, Retry, Jump to next needs-you — and a Docs group searches the documentation and opens the page in a new tab. Just start typing what you want to do.",
+  "commandbar_prompt_match": "matches description"
 }

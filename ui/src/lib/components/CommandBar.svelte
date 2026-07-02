@@ -10,6 +10,7 @@
   import { DOCS_URL } from "$lib/build-info";
   import { DOCS_PAGES } from "$lib/docs-manifest";
   import type { Command } from "$lib/command-registry";
+  import { fuzzyScore } from "$lib/fuzzy";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -37,6 +38,8 @@
   // Row unions the three navigation targets. `oid` (assigned when the flat option
   // list is built) is a row's index within the SELECTABLE-only sequence — group
   // header rows are never part of it, so the roving cursor structurally skips them.
+  // `hl` holds the indices within the row's PRIMARY text that the query matched, for
+  // highlighting; empty when there is no query or the match landed outside the primary.
   type Row =
     | {
         kind: "session";
@@ -45,9 +48,13 @@
         repoPath: string;
         repoName: string | null;
         status: string;
+        hl: number[];
+        // Surfaced via a `prompt` (description) substring while the title itself did not
+        // match — drives the "matches description" affordance so the row isn't unexplained.
+        promptMatch: boolean;
       }
-    | { kind: "repo"; path: string; name: string; display: string }
-    | { kind: "lens"; lens: HerdFilter; label: string; icon: string }
+    | { kind: "repo"; path: string; name: string; display: string; hl: number[] }
+    | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[] }
     | { kind: "command"; id: string; label: string; run: () => void }
     | { kind: "doc"; title: string; url: string };
   type OptRow = Row & { oid: number };
@@ -71,39 +78,65 @@
     { id: "owed", label: () => m.herd_seg_owed() },
   ];
 
-  // Recency-first, per group (see plan: updatedAt / lastUsedAt are the last-activity
-  // signals — railOrder() is a stage/epic partition, not a recency sort).
+  // Fuzzy-match + rank, per group. The fuzzy matcher runs only over the SHORT display
+  // fields (title/desig/repo name) so a short query can't subsequence-match nearly every
+  // long prompt; the haystack starts with the primary text so matched positions below its
+  // length map straight onto the highlighted primary. A blank query scores every row 0, so
+  // the sort falls back to recency — preserving the previous unfiltered ordering exactly.
+  // (updatedAt / lastUsedAt are the last-activity signals; lenses keep their fixed order.)
   const sessionRows = $derived<Row[]>(
     sessions
-      .filter((s) => {
+      .map((s) => {
+        const title = s.name || s.desig;
         const repoName = repos.nameFor(s.repoPath) ?? "";
-        return (s.name + " " + s.desig + " " + repoName).toLowerCase().includes(q);
+        return {
+          s,
+          title,
+          res: fuzzyScore(q, title + " " + s.desig + " " + repoName),
+          // `prompt` (description) is matched by a contiguous SUBSTRING, not fuzzily —
+          // selective enough to stay useful over long prompts.
+          promptMatch: q !== "" && s.prompt.toLowerCase().includes(q),
+        };
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((s) => ({
+      .filter((e) => e.res !== null || e.promptMatch)
+      .sort((a, b) => (b.res?.score ?? 0) - (a.res?.score ?? 0) || b.s.updatedAt - a.s.updatedAt)
+      .map(({ s, title, res, promptMatch }) => ({
         kind: "session",
         id: s.id,
-        title: s.name || s.desig,
+        title,
         repoPath: s.repoPath,
         repoName: repos.nameFor(s.repoPath),
         status: statusLabel(displayStatus(s, workingBlocked)),
+        hl: (res?.positions ?? []).filter((p) => p < title.length),
+        promptMatch,
       })),
   );
 
   const repoRows = $derived<Row[]>(
     repos.entries
-      .filter((r) => (r.name + " " + r.display).toLowerCase().includes(q))
-      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
-      .map((r) => ({ kind: "repo", path: r.path, name: r.name, display: r.display })),
+      .map((r) => ({ r, res: fuzzyScore(q, r.name + " " + r.display) }))
+      .filter((e) => e.res !== null)
+      .sort((a, b) => b.res!.score - a.res!.score || (b.r.lastUsedAt ?? 0) - (a.r.lastUsedAt ?? 0))
+      .map(({ r, res }) => ({
+        kind: "repo",
+        path: r.path,
+        name: r.name,
+        display: r.display,
+        hl: res!.positions.filter((p) => p < r.name.length),
+      })),
   );
 
   const lensRows = $derived<Row[]>(
-    LENSES.filter((l) => l.label().toLowerCase().includes(q)).map((l) => ({
-      kind: "lens",
-      lens: l.id,
-      label: l.label(),
-      icon: lensGlyph[l.id],
-    })),
+    LENSES.map((l, i) => ({ l, i, label: l.label(), res: fuzzyScore(q, l.label()) }))
+      .filter((e) => e.res !== null)
+      .sort((a, b) => b.res!.score - a.res!.score || a.i - b.i)
+      .map(({ l, label, res }) => ({
+        kind: "lens",
+        lens: l.id,
+        label,
+        icon: lensGlyph[l.id],
+        hl: res!.positions, // the whole label is the primary text
+      })),
   );
 
   // Commands + Docs are search-driven, so they stay hidden until the user types: with an
@@ -111,6 +144,9 @@
   // burying the recency-ordered sessions/repos/lenses that make it a quick-switcher.
   // Commands match on label + optional localized keyword synonyms; docs on their title +
   // the generated keyword haystack (description + headings), so non-title queries resolve.
+  // These match by SUBSTRING (not the fuzzy scorer used for the navigation groups): their
+  // keyword haystacks are long free text, over which a short fuzzy subsequence would match
+  // nearly everything and flood the bar.
   const commandRows = $derived<Row[]>(
     q === ""
       ? []
@@ -174,6 +210,28 @@
     }
   }
 
+  // Split text into on/off runs at the matched positions, so matched chars can be wrapped
+  // in <mark> for highlighting. The rendered text is unchanged (runs concatenate back to the
+  // original), so a row's accessible name is preserved.
+  function segs(text: string, hl: number[]): { t: string; on: boolean }[] {
+    if (hl.length === 0) return [{ t: text, on: false }];
+    const on = new Set(hl);
+    const out: { t: string; on: boolean }[] = [];
+    let cur = "";
+    let curOn = on.has(0);
+    for (let i = 0; i < text.length; i++) {
+      const isOn = on.has(i);
+      if (isOn === curOn) cur += text[i];
+      else {
+        out.push({ t: cur, on: curOn });
+        cur = text[i];
+        curOn = isOn;
+      }
+    }
+    out.push({ t: cur, on: curOn });
+    return out;
+  }
+
   function selectOption(row: OptRow) {
     if (row.kind === "session") onselectsession(row.id);
     else if (row.kind === "repo") onselectrepo(row.path);
@@ -217,6 +275,13 @@
     }
   }
 </script>
+
+<!-- Primary text with fuzzy-matched chars wrapped in <mark> for highlighting. Shared by the
+     fuzzy-matched navigation rows (session / repo / lens); the split runs concatenate back to
+     the original, so the accessible name is preserved. -->
+{#snippet primary(text: string, hl: number[])}{#each segs(text, hl) as seg, i (i)}{#if seg.on}<mark
+        class="cb-hl">{seg.t}</mark
+      >{:else}{seg.t}{/if}{/each}{/snippet}
 
 <div
   class="overlay"
@@ -281,18 +346,19 @@
               <span class="cb-ic" aria-hidden="true"
                 >{projectIcons.iconFor(row.repoPath) ?? "▣"}</span
               >
-              <b class="cb-primary">{row.title}</b>
+              <b class="cb-primary">{@render primary(row.title, row.hl)}</b>
               <span class="cb-sub">
                 {#if row.repoName}{row.repoName} ·
-                {/if}{row.status}
+                {/if}{row.status}{#if row.promptMatch && row.hl.length === 0}
+                  · {m.commandbar_prompt_match()}{/if}
               </span>
             {:else if row.kind === "repo"}
               <span class="cb-ic" aria-hidden="true">{projectIcons.iconFor(row.path) ?? "▣"}</span>
-              <b class="cb-primary">{row.name}</b>
+              <b class="cb-primary">{@render primary(row.name, row.hl)}</b>
               <span class="cb-sub">{row.display} · {m.commandbar_repo_affordance()}</span>
             {:else if row.kind === "lens"}
               <span class="cb-ic" aria-hidden="true">{row.icon}</span>
-              <b class="cb-primary">{row.label}</b>
+              <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
             {:else if row.kind === "command"}
               <span class="cb-ic" aria-hidden="true">⌘</span>
               <b class="cb-primary">{row.label}</b>
@@ -430,6 +496,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Matched-character highlight. Reset the UA <mark> yellow fill; emphasize with the amber
+     accent (the same attention hue as the keyboard cursor) — token-only per the design system. */
+  .cb-hl {
+    background: transparent;
+    color: var(--color-amber);
+    font-weight: 700;
   }
   /* Secondary detail — meta size is a precedented exception for dim sub-text. */
   .cb-sub {

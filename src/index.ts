@@ -60,6 +60,7 @@ import { CodexUpdateService } from "./codex-update";
 import { DiagnosticsService } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
+import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -495,6 +496,14 @@ function roleEnv(cli: string, model: string): RoleEnvironment {
   return env;
 }
 
+// Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
+// granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
+const telemetry = new TelemetryService({
+  appKey: config.aptabaseAppKey,
+  hostOverride: config.aptabaseHostOverride,
+  enabled: () => config.telemetryConsent === "granted" && !config.doNotTrack,
+});
+
 const service = new SessionService({
   store,
   worktree,
@@ -536,6 +545,7 @@ const service = new SessionService({
     Promise.all([recapService.considerForArchive(s), snapshotSessionUsage(s, store)]).then(
       () => {},
     ),
+  telemetry,
 });
 
 // Deep modules for the learnings + repo-config route seams (#1092). Singletons so every
@@ -543,14 +553,6 @@ const service = new SessionService({
 // total accessors return these when injected via appDeps.
 const learningsSvc = new LearningsService(store, events);
 const repoConfigSvc = new RepoConfigService(store);
-
-// Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
-// granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
-const telemetry = new TelemetryService({
-  appKey: config.aptabaseAppKey,
-  hostOverride: config.aptabaseHostOverride,
-  enabled: () => config.telemetryConsent === "granted" && !config.doNotTrack,
-});
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -892,6 +894,10 @@ events.subscribe((event, data) => {
   manualStepsHeadSeen.set(id, headSha);
   void detectAndPersistManualSteps(id, git.number);
 });
+
+// Anonymous product telemetry: emit `pr_opened` the first time a session's tracked PR
+// transitions to open (see src/pr-opened-telemetry.ts for the transition/dedup design).
+wirePrOpenedTelemetry({ events, store, telemetry });
 
 // Drive tailscale serve mappings: register when a preview port binds, unregister
 // on teardown. Listens on session:preview (NOT session:preview-serve to avoid
@@ -1477,6 +1483,7 @@ const drain = new DrainService({
   // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
   // session:status (idle/done) push and the /api/sessions list enrichment.
   emitSessionNew: (s) => events.emit("session:new", { ...s, hasScratchpadFiles: false }),
+  telemetry,
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,
 });

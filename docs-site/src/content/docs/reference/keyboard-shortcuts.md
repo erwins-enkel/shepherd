@@ -38,6 +38,8 @@ The Alt combos work even while the terminal owns the keyboard, so you can move a
 | `Alt+G` | Next session that needs you |
 | `Alt+1`–`Alt+9` | Select the Nth session |
 
+The `Alt+Tab` / `Alt+Shift+Tab` variants work on macOS; on Windows and Linux the OS window switcher captures `Alt+Tab` before the app sees it, so use `Alt+]` / `Alt+[` there.
+
 ## Terminal
 
 | Keys | Action |

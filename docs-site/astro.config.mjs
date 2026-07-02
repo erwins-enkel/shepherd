@@ -120,6 +120,7 @@ export default defineConfig({
           items: [
             { label: "Configuration", slug: "reference/configuration" },
             { label: "Concepts & glossary", slug: "reference/glossary" },
+            { label: "Keyboard shortcuts", slug: "reference/keyboard-shortcuts" },
             { label: "Plugins", slug: "reference/plugins" },
             { label: "External Task API", slug: "reference/external-task-api" },
             { label: "Security", slug: "reference/security" },

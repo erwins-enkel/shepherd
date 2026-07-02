@@ -36,9 +36,9 @@ export function resolveAptabaseHost(
   appKey: string | null,
   hostOverride: string | null,
 ): string | null {
+  if (!appKey) return null;
   const override = hostOverride ? hostOverride.replace(/\/+$/, "") : null;
   if (override) return override;
-  if (!appKey) return null;
   const region = appKey.split("-")[1]?.toUpperCase();
   if (region === "US") return "https://us.aptabase.com";
   if (region === "EU") return "https://eu.aptabase.com";

@@ -26,6 +26,7 @@ test("resolveAptabaseHost derives region host, requires override for SH", () => 
   expect(resolveAptabaseHost("A-SH-x", null)).toBeNull();
   expect(resolveAptabaseHost("A-SH-x", "https://a.example.com/")).toBe("https://a.example.com");
   expect(resolveAptabaseHost(null, null)).toBeNull();
+  expect(resolveAptabaseHost(null, "https://x.example.com")).toBeNull();
 });
 
 test("emits a POST with correct host/App-Key/body when enabled", async () => {
@@ -66,12 +67,22 @@ test("never leaks host/username/path in systemProps", async () => {
 });
 
 test("batches in slices of <=25", async () => {
-  const { s, calls } = svc();
+  // Deferred schedule: coalesces like production setTimeout, so all 30 events
+  // accumulate in the buffer before a single flush slices them into batches.
+  let scheduled: (() => void) | undefined;
+  const defer = (fn: () => void) => {
+    scheduled = fn;
+  };
+  const { s, calls } = svc({ schedule: defer });
   for (let i = 0; i < 30; i++) s.event("session_created");
-  await s.flush();
+  expect(scheduled).toBeDefined();
+  scheduled?.();
+  await Promise.resolve();
   const total = calls.reduce((n, c) => n + c.batch.length, 0);
   expect(total).toBe(30);
-  for (const c of calls) expect(c.batch.length).toBeLessThanOrEqual(25);
+  expect(calls.length).toBe(2);
+  expect(calls[0]!.batch.length).toBe(25);
+  expect(calls[1]!.batch.length).toBe(5);
 });
 
 test("swallows postEvent failure (never throws)", async () => {

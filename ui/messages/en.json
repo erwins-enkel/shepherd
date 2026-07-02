@@ -2368,5 +2368,5 @@
   "topbar_search": "Search",
   "topbar_search_aria": "Search or run a command",
   "feat_command_bar_search_field_title": "Search from the top bar",
-  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl-K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar."
+  "feat_command_bar_search_field_body": "The command bar now has a search field in the top bar with a ⌘K / Ctrl K shortcut. Documentation and Learnings live inside it — search the docs and open Learnings straight from the bar."
 }

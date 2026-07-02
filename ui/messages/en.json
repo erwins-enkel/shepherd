@@ -2345,5 +2345,7 @@
   "settings_tab_ticker_title": "Compact tab title",
   "settings_tab_ticker_hint": "When a background tab needs you, show grouped glyph counts (⚠ CI failed · ✋ blocked · ✓ ready · ▶ running) instead of a single number. Off by default.",
   "settings_tab_ticker_on": "Compact tab title on",
-  "settings_tab_ticker_off": "Compact tab title off"
+  "settings_tab_ticker_off": "Compact tab title off",
+  "feat_tab_glyph_title_title": "Compact tab title",
+  "feat_tab_glyph_title_body": "Turn on a denser background-tab title that groups what needs you by glyph — ⚠ CI failed, ✋ blocked, ✓ ready, ▶ running — plus a progress ring on the favicon for the session you're watching. Enable it in Settings → Device."
 }

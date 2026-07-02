@@ -2345,5 +2345,7 @@
   "settings_tab_ticker_title": "Kompakter Tab-Titel",
   "settings_tab_ticker_hint": "Zeigt im Hintergrund-Tab gruppierte Symbolzähler (⚠ CI fehlgeschlagen · ✋ blockiert · ✓ bereit · ▶ läuft) statt einer einzelnen Zahl. Standardmäßig aus.",
   "settings_tab_ticker_on": "Kompakter Tab-Titel an",
-  "settings_tab_ticker_off": "Kompakter Tab-Titel aus"
+  "settings_tab_ticker_off": "Kompakter Tab-Titel aus",
+  "feat_tab_glyph_title_title": "Kompakter Tab-Titel",
+  "feat_tab_glyph_title_body": "Aktiviere einen dichteren Hintergrund-Tab-Titel, der nach Symbol gruppiert, was deine Aufmerksamkeit braucht — ⚠ CI fehlgeschlagen, ✋ blockiert, ✓ bereit, ▶ läuft — plus einen Fortschrittsring im Favicon der beobachteten Sitzung. Aktivierbar unter Einstellungen → Gerät."
 }

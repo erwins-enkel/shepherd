@@ -153,6 +153,7 @@
     oncommandbarclose,
     oncommandbarsession,
     oncommandbarrepo,
+    oncommandbarfilterrepo,
     oncommandbarlens,
     showRetry,
     onretryclose,
@@ -267,6 +268,7 @@
     oncommandbarclose: () => void;
     oncommandbarsession: (id: string) => void;
     oncommandbarrepo: (path: string) => void;
+    oncommandbarfilterrepo: (path: string) => void;
     oncommandbarlens: (lens: HerdFilter) => void;
     showRetry: boolean;
     onretryclose: () => void;
@@ -537,6 +539,7 @@
     commands={commandBarCommands}
     onselectsession={oncommandbarsession}
     onselectrepo={oncommandbarrepo}
+    onfilterrepo={oncommandbarfilterrepo}
     onselectlens={oncommandbarlens}
     onclose={oncommandbarclose}
   />

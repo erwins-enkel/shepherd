@@ -2362,5 +2362,8 @@
   "commandbar_cmd_next_needs_you_kw": "wartend blockiert aufmerksamkeit",
   "feat_command_bar_v2_title": "Befehlsleiste führt jetzt Befehle aus und durchsucht die Doku",
   "feat_command_bar_v2_body": "⌘K/Strg+K kann mehr als nur zwischen Sessions springen. Eine Gruppe „Befehle“ führt Verben aus — Neue Aufgabe, Broadcast, Einstellungen, Nutzung, Erneut versuchen, Zur nächsten Session springen, die dich braucht — und eine Gruppe „Doku“ durchsucht die Dokumentation und öffnet die Seite in einem neuen Tab. Tippe einfach, was du tun möchtest.",
-  "commandbar_prompt_match": "passt zur Beschreibung"
+  "commandbar_prompt_match": "passt zur Beschreibung",
+  "commandbar_repo_filter_affordance": "⇧↵ filtern",
+  "feat_command_bar_repo_filter_title": "Sitzungen aus der Befehlsleiste filtern",
+  "feat_command_bar_repo_filter_body": "Wähle in der Befehlsleiste ein Repository aus und drücke dann ⇧↵ (oder ⌘/Strg+↵), um die Sitzungsliste auf die aktiven Sitzungen dieses Repos zu filtern. Mit einfachem ↵ öffnest du weiterhin sein Backlog."
 }

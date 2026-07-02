@@ -2362,5 +2362,8 @@
   "commandbar_cmd_next_needs_you_kw": "waiting blocked attention",
   "feat_command_bar_v2_title": "Command bar now runs commands and searches docs",
   "feat_command_bar_v2_body": "⌘K/Ctrl+K does more than jump between sessions now. A Commands group runs verbs — New task, Broadcast, Settings, Usage, Retry, Jump to next needs-you — and a Docs group searches the documentation and opens the page in a new tab. Just start typing what you want to do.",
-  "commandbar_prompt_match": "matches description"
+  "commandbar_prompt_match": "matches description",
+  "commandbar_repo_filter_affordance": "⇧↵ filter",
+  "feat_command_bar_repo_filter_title": "Filter sessions from the command bar",
+  "feat_command_bar_repo_filter_body": "Pick a repository in the command bar, then press ⇧↵ (or ⌘/Ctrl+↵) to filter the session list to that repo's active sessions. Plain ↵ still opens its backlog."
 }

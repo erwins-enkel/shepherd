@@ -58,11 +58,15 @@ function session(partial: Partial<Session> & { id: string }): Session {
 }
 
 function seedRepos(): RepoEntry[] {
-  // beta has the higher lastUsedAt → sorts before alpha.
+  // beta has the higher lastUsedAt → sorts before alpha. gamma has NO live session
+  // (no seedSessions entry references it), so its filter affordance/action is inert.
   return [
     {
+      // Symlinked repo root: entry path differs from realPath. session s1.repoPath is
+      // the realpath'd form ("/repos/alpha"), matching realPath — so the filter action
+      // must key on realPath, while the backlog (onselectrepo) keys on the raw path.
       name: "alpha",
-      path: "/repos/alpha",
+      path: "/repos/alpha-link",
       display: "~/repos/alpha",
       realPath: "/repos/alpha",
       lastUsedAt: 100,
@@ -73,6 +77,13 @@ function seedRepos(): RepoEntry[] {
       display: "~/repos/beta",
       realPath: "/repos/beta",
       lastUsedAt: 200,
+    },
+    {
+      name: "gamma",
+      path: "/repos/gamma",
+      display: "~/repos/gamma",
+      realPath: "/repos/gamma",
+      lastUsedAt: 50,
     },
   ];
 }
@@ -88,6 +99,7 @@ function seedSessions(): Session[] {
 function renderBar(overrides: Partial<Parameters<typeof CommandBar>[1]> = {}) {
   const onselectsession = vi.fn();
   const onselectrepo = vi.fn();
+  const onfilterrepo = vi.fn();
   const onselectlens = vi.fn();
   const onclose = vi.fn();
   render(CommandBar, {
@@ -96,11 +108,12 @@ function renderBar(overrides: Partial<Parameters<typeof CommandBar>[1]> = {}) {
     commands: [],
     onselectsession,
     onselectrepo,
+    onfilterrepo,
     onselectlens,
     onclose,
     ...overrides,
   });
-  return { onselectsession, onselectrepo, onselectlens, onclose };
+  return { onselectsession, onselectrepo, onfilterrepo, onselectlens, onclose };
 }
 
 beforeEach(() => {
@@ -206,6 +219,90 @@ describe("CommandBar — selection", () => {
     const { onselectlens } = renderBar();
     await page.getByRole("option", { name: new RegExp(m.herd_seg_owed()) }).click();
     expect(onselectlens).toHaveBeenCalledWith("owed");
+  });
+});
+
+describe("CommandBar — repo secondary action (filter)", () => {
+  // options at rest: [s2, s1, (Repos header), beta, alpha, gamma, (Lenses header)…].
+  // Two ArrowDowns from idx0 lands on beta (idx2) — a repo WITH a live session.
+  it("Shift+Enter on a live-session repo filters instead of selecting", async () => {
+    const { onfilterrepo, onselectrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onfilterrepo).toHaveBeenCalledWith("/repos/beta");
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+Enter on a live-session repo filters", async () => {
+    const { onfilterrepo, onselectrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(onfilterrepo).toHaveBeenCalledWith("/repos/beta");
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+Enter on a live-session repo filters", async () => {
+    const { onfilterrepo, onselectrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    expect(onfilterrepo).toHaveBeenCalledWith("/repos/beta");
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
+  it("plain Enter on a repo still selects it (opens backlog), never filters", async () => {
+    const { onselectrepo, onfilterrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(onselectrepo).toHaveBeenCalledWith("/repos/beta");
+    expect(onfilterrepo).not.toHaveBeenCalled();
+  });
+
+  // gamma (idx4) has no live session → the modifier is inert and falls back to select.
+  it("Shift+Enter on a session-less repo falls back to selecting", async () => {
+    const { onselectrepo, onfilterrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onselectrepo).toHaveBeenCalledWith("/repos/gamma");
+    expect(onfilterrepo).not.toHaveBeenCalled();
+  });
+
+  // alpha (idx3) is a symlinked repo: entry path "/repos/alpha-link" ≠ realPath
+  // "/repos/alpha", and s1.repoPath is the realpath'd "/repos/alpha". The filter must
+  // apply the realPath (what the herd repoFilter compares against), not the raw path.
+  it("filters on the realPath for a symlinked repo root", async () => {
+    const { onfilterrepo, onselectrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onfilterrepo).toHaveBeenCalledWith("/repos/alpha");
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
+  it("still opens the backlog on the raw path for a symlinked repo root", async () => {
+    const { onselectrepo, onfilterrepo } = renderBar();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
+    expect(onselectrepo).toHaveBeenCalledWith("/repos/alpha-link");
+    expect(onfilterrepo).not.toHaveBeenCalled();
+  });
+
+  it("shows the filter hint on live-session repos but not on session-less ones", async () => {
+    renderBar();
+    // A live repo (beta) row carries both the "Repository" label and the ⇧↵ hint.
+    await page.getByRole("combobox").fill("beta");
+    const betaRow = page.getByRole("option", {
+      name: new RegExp(m.commandbar_repo_affordance()),
+    });
+    await expect.element(betaRow).toHaveTextContent(m.commandbar_repo_filter_affordance());
+    // The session-less repo (gamma) keeps "Repository" but shows no filter hint.
+    await page.getByRole("combobox").fill("gamma");
+    const gammaRow = page.getByRole("option").first();
+    await expect.element(gammaRow).toHaveTextContent(m.commandbar_repo_affordance());
+    expect(gammaRow.element().textContent).not.toContain(m.commandbar_repo_filter_affordance());
   });
 });
 

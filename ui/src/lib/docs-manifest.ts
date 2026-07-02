@@ -72,6 +72,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. running checks in a fresh worktree branch hygiene (one feature, linear off main) design system (required for any ui work) internationalization (required for any ui work) feature discovery (required for user-facing features) glossary (required when marking ui terms)",
   },
   {
+    title: "Keyboard shortcuts",
+    path: "/reference/keyboard-shortcuts/",
+    keywords:
+      "drive the shepherd dashboard from the keyboard — the command bar, session switching, and terminal keys. command bar session & herd navigation switch sessions while the terminal is focused terminal new task",
+  },
+  {
     title: "Plugins",
     path: "/reference/plugins/",
     keywords:

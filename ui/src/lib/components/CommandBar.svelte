@@ -22,6 +22,9 @@
     onfilterrepo,
     onselectlens,
     onclose,
+    // Demo-only seed for the scripted showcase (see $lib/demo/showcase.ts) — the
+    // real ⌘K path never passes this, so `filter` seeds to "" exactly as before.
+    initialFilter = undefined,
   }: {
     sessions: Session[];
     workingBlocked: Record<string, boolean>;
@@ -31,6 +34,7 @@
     onfilterrepo: (path: string) => void;
     onselectlens: (lens: HerdFilter) => void;
     onclose: () => void;
+    initialFilter?: string;
   } = $props();
 
   // Docs open externally (docs.shepherd.run) in a new tab. DOCS_URL carries a trailing
@@ -72,7 +76,7 @@
     | { kind: "doc"; title: string; url: string };
   type OptRow = Row & { oid: number };
 
-  let filter = $state("");
+  let filter = $state(initialFilter ?? "");
   let activeIdx = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);

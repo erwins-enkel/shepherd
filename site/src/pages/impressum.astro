@@ -1,0 +1,144 @@
+---
+// Legal notice (Imprint) required under § 5 DDG for a German-operated site.
+// Content mirrors the operating company's imprint at
+// https://www.erwins-enkel.dev/impressum, kept in English to match the rest of
+// the marketing site. The German statute citations (DDG, MStV, UStG) are
+// preserved verbatim — they are legal references, not translatable prose.
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+
+const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
+---
+
+<Base
+  title="Imprint — Shepherd"
+  description="Legal notice and provider identification for Erwins Enkel GmbH pursuant to § 5 DDG."
+>
+  <Nav />
+  <main id="top" class="legal">
+    <div class="inner">
+      <h1>Imprint</h1>
+
+      <section>
+        <h2>Information pursuant to § 5 DDG</h2>
+        <p>
+          <a href={ERWINS_ENKEL_URL} rel="noopener noreferrer" target="_blank"
+            >Erwins Enkel GmbH</a
+          ><br />
+          Viktoriastraße 45<br />
+          65189 Wiesbaden<br />
+          Germany
+        </p>
+      </section>
+
+      <section>
+        <h2>Represented by</h2>
+        <p>Managing Director: Patrick Lenz</p>
+      </section>
+
+      <section>
+        <h2>Contact</h2>
+        <p>
+          Email: <a href="mailto:hallo@erwins-enkel.dev"
+            >hallo@erwins-enkel.dev</a
+          >
+        </p>
+      </section>
+
+      <section>
+        <h2>Register entry</h2>
+        <p>
+          Entry in the Commercial Register.<br />
+          Registering court: Amtsgericht Wiesbaden<br />
+          Registration number: HRB [to be provided]
+        </p>
+      </section>
+
+      <section>
+        <h2>VAT ID</h2>
+        <p>
+          Value added tax identification number pursuant to § 27 a of the German
+          VAT Act (Umsatzsteuergesetz):<br />
+          DE [to be provided]
+        </p>
+      </section>
+
+      <section>
+        <h2>Responsible for the content pursuant to § 18 (2) MStV</h2>
+        <p>
+          Patrick Lenz<br />
+          Address as above
+        </p>
+      </section>
+
+      <section>
+        <h2>Consumer dispute resolution / Universal arbitration board</h2>
+        <p>
+          We are neither willing nor obliged to participate in dispute
+          resolution proceedings before a consumer arbitration board.
+        </p>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .legal {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+  }
+
+  .inner {
+    max-width: 46rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--ink);
+    margin-bottom: 0.4rem;
+  }
+
+  p {
+    color: var(--ink-muted);
+  }
+
+  a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--panel-2);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  a:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a {
+      transition: none;
+    }
+  }
+</style>

@@ -6,6 +6,10 @@ const LICENSE_URL =
   "https://github.com/erwins-enkel/shepherd/blob/main/LICENSE";
 // First-party docs site — same-tab navigation (no target="_blank").
 const DOCS_URL = "https://docs.shepherd.run";
+// Legal notice (§ 5 DDG) — first-party page, same-tab navigation.
+const IMPRESSUM_URL = "/impressum";
+// Operating company behind Shepherd.
+const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
 ---
 
 <footer class="footer" aria-label="Site footer">
@@ -24,11 +28,16 @@ const DOCS_URL = "https://docs.shepherd.run";
         <a href={LICENSE_URL} rel="noopener noreferrer" target="_blank"
           >License</a
         >
+        <a href={IMPRESSUM_URL}>Imprint</a>
       </nav>
     </div>
 
     <p class="license">
-      Business Source License 1.1 © 2026 Erwins Enkel GmbH
+      Business Source License 1.1 © 2026 <a
+        href={ERWINS_ENKEL_URL}
+        rel="noopener noreferrer"
+        target="_blank">Erwins Enkel GmbH</a
+      >
     </p>
 
     <p class="disclaimer">
@@ -100,6 +109,22 @@ const DOCS_URL = "https://docs.shepherd.run";
     color: var(--ink-muted);
   }
 
+  .license a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--panel-2);
+    transition: border-color 0.15s ease;
+  }
+
+  .license a:hover {
+    border-color: var(--green);
+  }
+
+  .license a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
   .disclaimer {
     font-size: 0.82rem;
     color: var(--ink-muted);
@@ -107,7 +132,8 @@ const DOCS_URL = "https://docs.shepherd.run";
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .flinks a {
+    .flinks a,
+    .license a {
       transition: none;
     }
   }

@@ -36,7 +36,7 @@ jobs:
         run: cd extension && bun run package
 
       - name: Upload store zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shepherd-capture-zip
           path: extension/shepherd-capture-*.zip

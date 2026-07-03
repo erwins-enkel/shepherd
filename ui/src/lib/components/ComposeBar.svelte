@@ -4,6 +4,7 @@
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
   import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
+  import { pcmChunksToWavBlob } from "$lib/wav";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -220,6 +221,35 @@
   let recordTimer: ReturnType<typeof setTimeout> | null = null;
   const MAX_RECORD_MS = 60_000; // cap a single clip so a forgotten mic can't record forever
 
+  // ── live interim transcription (progressive read-along) ────────────────────────────
+  // While MediaRecorder captures the authoritative clip, we ALSO tap the SAME mic stream via
+  // Web Audio, accumulate raw PCM, and every INTERIM_MS post the growing clip — encoded as a WAV,
+  // which is valid at every prefix — to the plugin, showing the returned text live in the field.
+  // On stop the accurate full-clip transcription replaces it. This is the ONLY way to get
+  // read-along on an iOS home-screen PWA: there is no Web Speech, and an iOS MediaRecorder mp4
+  // writes its `moov` atom only on stop so it can't be transcribed mid-recording. Everything stays
+  // local (the whisper plugin runs on the host), so — unlike a Web-Speech hybrid — nothing leaves
+  // the machine. The final MediaRecorder path is untouched, so a browser without Web Audio simply
+  // gets no interim and the same batch result as before.
+  interface AudioWindow extends Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
+  const AudioCtx: typeof AudioContext | undefined =
+    typeof window !== "undefined"
+      ? (window.AudioContext ?? (window as AudioWindow).webkitAudioContext)
+      : undefined;
+  const INTERIM_MS = 2500; // how often to re-transcribe the growing clip for the live preview
+  let audioCtx: AudioContext | null = null;
+  let audioSource: MediaStreamAudioSourceNode | null = null;
+  let audioProc: ScriptProcessorNode | null = null;
+  let audioSink: GainNode | null = null;
+  let pcmChunks: Float32Array[] = [];
+  let pcmRate = 0;
+  let interimTimer: ReturnType<typeof setInterval> | null = null;
+  let interimBusy = false; // one interim request in flight at a time — never stack transcriptions
+  let interimSeq = 0; // bumped to discard a stale/late interim response (incl. after stop)
+  let dictationBase = ""; // field text when recording started; interim/final render after it
+
   function pickMimeType(): string | undefined {
     if (typeof MediaRecorder === "undefined") return undefined;
     for (const c of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"])
@@ -231,6 +261,88 @@
     voiceError = true;
     if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
     voiceErrorTimer = setTimeout(() => (voiceError = false), 4000);
+  }
+
+  // Tap the live mic stream with Web Audio and start the interim-transcription loop. Best-effort:
+  // if Web Audio is unavailable or setup throws, we bail quietly and the final clip still runs.
+  function startInterimCapture(stream: MediaStream) {
+    if (!AudioCtx) return;
+    try {
+      // Ask for 16 kHz directly so the browser resamples for us; fall back to the device rate.
+      try {
+        audioCtx = new AudioCtx({ sampleRate: 16000 });
+      } catch {
+        audioCtx = new AudioCtx();
+      }
+      void audioCtx.resume?.().catch(() => {});
+      pcmRate = audioCtx.sampleRate;
+      pcmChunks = [];
+      audioSource = audioCtx.createMediaStreamSource(stream);
+      // ScriptProcessor is deprecated in favour of AudioWorklet, but the worklet needs a separately
+      // bundled module; ScriptProcessor is the simplest path that also works in an iOS PWA. A 60 s
+      // dictation on the main thread is well within its budget.
+      audioProc = audioCtx.createScriptProcessor(4096, 1, 1);
+      audioProc.onaudioprocess = (e) => {
+        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      // Route through a muted gain into the destination so the processor actually runs, without
+      // echoing the mic back to the speakers.
+      audioSink = audioCtx.createGain();
+      audioSink.gain.value = 0;
+      audioSource.connect(audioProc);
+      audioProc.connect(audioSink);
+      audioSink.connect(audioCtx.destination);
+      interimTimer = setInterval(() => void runInterim(), INTERIM_MS);
+    } catch {
+      stopInterimCapture();
+    }
+  }
+
+  // One interim tick: transcribe the clip captured so far and show it live. Guarded so only one
+  // request is ever in flight, and a stale/late response (a newer tick, or one arriving after we
+  // stopped) is discarded via the sequence number.
+  async function runInterim() {
+    if (interimBusy || transcribing || !listening) return;
+    if (pcmChunks.length === 0 || pcmRate === 0) return;
+    const blob = pcmChunksToWavBlob(pcmChunks, pcmRate);
+    interimBusy = true;
+    const seq = ++interimSeq;
+    try {
+      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      if (seq === interimSeq && listening && text)
+        value = dictationBase.trim() ? dictationBase.trimEnd() + " " + text.trim() : text.trim();
+      queueMicrotask(autogrow);
+    } catch {
+      // interim is best-effort — a failed/blocked tick is silently skipped; the final clip still runs
+    } finally {
+      interimBusy = false;
+    }
+  }
+
+  function stopInterimCapture() {
+    if (interimTimer) {
+      clearInterval(interimTimer);
+      interimTimer = null;
+    }
+    interimSeq++; // invalidate any in-flight interim response
+    interimBusy = false;
+    if (audioProc) audioProc.onaudioprocess = null;
+    try {
+      audioProc?.disconnect();
+      audioSource?.disconnect();
+      audioSink?.disconnect();
+    } catch {
+      /* nodes already torn down */
+    }
+    audioProc = null;
+    audioSource = null;
+    audioSink = null;
+    if (audioCtx) {
+      void audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    pcmChunks = [];
+    pcmRate = 0;
   }
 
   // Start recording. Reached two ways, both within the getUserMedia activation window: an
@@ -274,6 +386,10 @@
       listening = true;
       activeEngine = "local";
       recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
+      // Start the live read-along preview off the same stream (best-effort; the final clip above
+      // is authoritative and runs regardless of whether interim capture succeeds).
+      dictationBase = value;
+      if (mediaStream) startInterimCapture(mediaStream);
     } finally {
       acquiring = false;
     }
@@ -291,6 +407,7 @@
 
   async function finishLocalRecording() {
     const type = mediaRecorder?.mimeType || "audio/webm";
+    stopInterimCapture();
     releaseStream();
     mediaRecorder = null;
     activeEngine = null;
@@ -300,6 +417,9 @@
     transcribing = true;
     try {
       const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      // The accurate full-clip result replaces whatever the live preview last showed. On error we
+      // keep the last interim text rather than discarding what the user just dictated.
+      value = dictationBase;
       if (text) appendTranscript(text);
     } catch {
       flashVoiceError();
@@ -332,6 +452,7 @@
       }
       mediaRecorder = null;
     }
+    stopInterimCapture();
     releaseStream();
     chunks = [];
     listening = false;

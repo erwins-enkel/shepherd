@@ -5,6 +5,7 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import type { ControlKey } from "$lib/controlKeys";
   import { m } from "$lib/paraglide/messages";
+  import { getVoiceStatus } from "$lib/api";
 
   let {
     mobile,
@@ -62,6 +63,20 @@
       (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
       (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
     );
+  // Also offer the ◉ chip where the local-Whisper plugin gives a mic even without Web Speech
+  // (iOS home-screen PWA). Requires the client to actually be able to record (MediaRecorder +
+  // getUserMedia). Memoized once per page load; absent → chip shows only under Web Speech,
+  // exactly as before. The sheet's own mic then records via the plugin on an in-sheet tap.
+  const recorderSupported =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
+  let localVoiceAvailable = $state(false);
+  $effect(() => {
+    getVoiceStatus()
+      .then((s) => (localVoiceAvailable = s.available && recorderSupported))
+      .catch(() => {});
+  });
   function openDictate() {
     composeDictate = true;
     composeOpen = true;
@@ -192,7 +207,7 @@
         >
       {/if}
     </button>
-    {#if speechSupported}
+    {#if speechSupported || localVoiceAvailable}
       <button
         type="button"
         class="dictate"

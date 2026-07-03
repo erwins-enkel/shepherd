@@ -3,7 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
-  import { getCommands } from "$lib/api";
+  import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -183,6 +183,169 @@
   let listening = $state(false);
   let recog: SpeechRecognitionInstance | null = null;
 
+  // ── local Whisper voice input (the optional voice-whisper plugin) ──────────────────
+  // Server-side transcription: record with MediaRecorder, POST the clip to the plugin, insert
+  // the returned text. This is the ONLY mic in an iOS home-screen PWA (no Web Speech there).
+  // Detection is memoized once per page load; absent (404) → we keep Web Speech / hide the mic
+  // exactly as before. The backend is the optional voice-whisper plugin (issue #76):
+  // https://github.com/erwins-enkel/shepherd-plugin-voice-whisper — install it into ~/.shepherd/plugins/.
+  let localVoiceAvailable = $state(false);
+  let preferLocal = $state(false);
+  let transcribing = $state(false);
+  let voiceError = $state(false);
+  let voiceErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // The client must actually be able to record — MediaRecorder + getUserMedia. Without them a
+  // server-available plugin still can't be used from this browser, so treat local as unusable.
+  const recorderSupported =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
+  const localUsable = $derived(localVoiceAvailable && recorderSupported);
+
+  // The mic shows whenever *either* engine can run; `useLocal` picks which engine a NEW tap
+  // starts — local when Web Speech is absent (iOS PWA) or the plugin asks to be preferred,
+  // else the browser's live dictation. It can flip mid-session (getVoiceStatus() resolving
+  // after an auto-started dictation), so it must NOT decide how to STOP an in-flight session.
+  const micVisible = $derived(speechSupported || localUsable);
+  const useLocal = $derived(localUsable && (!speechSupported || preferLocal));
+
+  // Which engine actually owns the live recording, fixed when it starts. tapMic stops THIS one
+  // rather than re-reading `useLocal`, so a mid-session flip never strands the active recorder.
+  let activeEngine = $state<"web" | "local" | null>(null);
+
+  let mediaRecorder: MediaRecorder | null = null;
+  let mediaStream: MediaStream | null = null;
+  let chunks: Blob[] = [];
+  let recordTimer: ReturnType<typeof setTimeout> | null = null;
+  const MAX_RECORD_MS = 60_000; // cap a single clip so a forgotten mic can't record forever
+
+  function pickMimeType(): string | undefined {
+    if (typeof MediaRecorder === "undefined") return undefined;
+    for (const c of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"])
+      if (MediaRecorder.isTypeSupported(c)) return c;
+    return undefined; // let the browser choose its default container
+  }
+
+  function flashVoiceError() {
+    voiceError = true;
+    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
+    voiceErrorTimer = setTimeout(() => (voiceError = false), 4000);
+  }
+
+  // Start recording. Reached two ways, both within the getUserMedia activation window: an
+  // in-sheet mic tap, or the ◉ dictate entry (startDictation) auto-starting on mount when local
+  // is the engine — getVoiceStatus is memoized/pre-resolved by then, so the auto-start runs in
+  // the same turn as the chip tap. `acquiring` guards the getUserMedia await so an auto-start
+  // and a fast manual tap can't both open a stream.
+  let acquiring = false;
+  async function startLocalRecording() {
+    if (listening || transcribing || acquiring) return;
+    if (!recorderSupported) {
+      flashVoiceError();
+      return;
+    }
+    acquiring = true;
+    voiceError = false;
+    try {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        flashVoiceError();
+        return;
+      }
+      const mimeType = pickMimeType();
+      chunks = [];
+      // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in use);
+      // release the just-acquired mic stream so it isn't left open on failure.
+      try {
+        mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size) chunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => void finishLocalRecording();
+        mediaRecorder.start();
+      } catch {
+        mediaRecorder = null;
+        releaseStream();
+        flashVoiceError();
+        return;
+      }
+      listening = true;
+      activeEngine = "local";
+      recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
+    } finally {
+      acquiring = false;
+    }
+  }
+
+  // User-initiated stop → let onstop fire finishLocalRecording (which uploads + inserts).
+  function stopLocalRecording() {
+    if (recordTimer) {
+      clearTimeout(recordTimer);
+      recordTimer = null;
+    }
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    listening = false;
+  }
+
+  async function finishLocalRecording() {
+    const type = mediaRecorder?.mimeType || "audio/webm";
+    releaseStream();
+    mediaRecorder = null;
+    activeEngine = null;
+    if (chunks.length === 0) return;
+    const blob = new Blob(chunks, { type });
+    chunks = [];
+    transcribing = true;
+    try {
+      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      if (text) appendTranscript(text);
+    } catch {
+      flashVoiceError();
+    } finally {
+      transcribing = false;
+    }
+  }
+
+  function releaseStream() {
+    mediaStream?.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+  }
+
+  // Tear down an in-progress recording WITHOUT uploading (dismiss/submit/destroy): drop the
+  // onstop handler first so stopping never triggers a transcription of a discarded clip.
+  function teardownRecording() {
+    if (recordTimer) {
+      clearTimeout(recordTimer);
+      recordTimer = null;
+    }
+    if (mediaRecorder) {
+      mediaRecorder.ondataavailable = null;
+      mediaRecorder.onstop = null;
+      if (mediaRecorder.state !== "inactive") {
+        try {
+          mediaRecorder.stop();
+        } catch {
+          /* already stopped */
+        }
+      }
+      mediaRecorder = null;
+    }
+    releaseStream();
+    chunks = [];
+    listening = false;
+    activeEngine = null;
+  }
+
+  // Append transcribed text after whatever is already in the field (same join rule dictation uses).
+  function appendTranscript(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    value = value.trim() ? value.trimEnd() + " " + t : t;
+    queueMicrotask(autogrow);
+  }
+
   function toggleDictation() {
     if (!SpeechRec) return;
     if (listening) {
@@ -208,12 +371,15 @@
     };
     recog.onend = () => {
       listening = false;
+      activeEngine = null;
     };
     recog.onerror = () => {
       listening = false;
+      activeEngine = null;
     };
     recog.start();
     listening = true;
+    activeEngine = "web";
   }
 
   // Keep the sheet centered in the *visible* viewport — i.e. the area above the
@@ -236,11 +402,29 @@
     // still edit the transcript inline
     ta?.focus();
     autogrow();
+    // Probe for the local-Whisper plugin (memoized once per page load, so this resolves in the
+    // same turn as the tap that opened the sheet). When the ◉ dictate entry opened us and local
+    // is the engine (e.g. iOS PWA, no Web Speech), start recording now — otherwise a local-only
+    // dictate chip would open an idle sheet. The status is pre-resolved by the time the chip is
+    // tappable, so getUserMedia is still inside the tap's activation window; a denial just flashes
+    // an error and leaves the in-sheet mic. Guarded against double-starting Web Speech below.
+    getVoiceStatus()
+      .then((s) => {
+        localVoiceAvailable = s.available;
+        preferLocal = s.preferLocal;
+        if (startDictation && useLocal && !listening && !transcribing) void startLocalRecording();
+      })
+      .catch(() => {});
+    // Web Speech "open already listening" — fires synchronously so it's never delayed by the
+    // probe. On a local-only client (no Web Speech) this is a no-op and the branch above starts
+    // local instead.
     if (startDictation && speechSupported) toggleDictation();
   });
 
   onDestroy(() => {
     recog?.stop();
+    teardownRecording();
+    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
     window.visualViewport?.removeEventListener("resize", syncViewport);
     window.visualViewport?.removeEventListener("scroll", syncViewport);
   });
@@ -254,7 +438,7 @@
 
   function submit() {
     recog?.stop();
-    listening = false;
+    teardownRecording();
     slashOpen = false;
     onsend(value);
     value = "";
@@ -263,7 +447,7 @@
 
   function cancel() {
     recog?.stop();
-    listening = false;
+    teardownRecording();
     onclose();
   }
 
@@ -325,7 +509,18 @@
   // (which would dismiss the mobile soft keyboard), matching ControlBar.
   function tapMic(e: PointerEvent) {
     e.preventDefault();
-    toggleDictation();
+    if (transcribing) return;
+    // A live session is stopped by the engine that STARTED it (not the current `useLocal`,
+    // which may have flipped mid-session) — otherwise the active recorder is never stopped.
+    if (activeEngine === "local") {
+      stopLocalRecording();
+    } else if (activeEngine === "web") {
+      recog?.stop();
+    } else if (useLocal) {
+      void startLocalRecording();
+    } else {
+      toggleDictation();
+    }
   }
   function tapSend(e: PointerEvent) {
     e.preventDefault();
@@ -405,13 +600,22 @@
         {/each}
       </div>
     {/if}
+    {#if voiceError}
+      <div class="voice-hint" role="alert">{m.composebar_transcribe_failed()}</div>
+    {/if}
     <div class="actions">
-      {#if speechSupported}
+      {#if micVisible}
         <button
           type="button"
           class="btn mic"
           class:listening
-          aria-label={listening ? m.composebar_dictate_stop_aria() : m.composebar_dictate_aria()}
+          class:transcribing
+          disabled={transcribing}
+          aria-label={transcribing
+            ? m.composebar_transcribing()
+            : listening
+              ? m.composebar_dictate_stop_aria()
+              : m.composebar_dictate_aria()}
           aria-pressed={listening}
           onpointerdown={tapMic}>{m.composebar_dictate()}</button
         >
@@ -619,11 +823,16 @@
     font-size: var(--fs-lg);
     line-height: 1;
   }
-  /* while listening: highlighted + a soft pulse so it reads as "recording" */
-  .btn.mic.listening {
+  /* while listening/transcribing: highlighted + a soft pulse so it reads as "working" */
+  .btn.mic.listening,
+  .btn.mic.transcribing {
     background: var(--color-line-bright);
     border-color: var(--color-ink);
     animation: micPulse 1s ease-in-out infinite;
+  }
+  .btn.mic:disabled {
+    cursor: default;
+    opacity: 0.7;
   }
   @keyframes micPulse {
     0%,
@@ -635,8 +844,17 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .btn.mic.listening {
+    .btn.mic.listening,
+    .btn.mic.transcribing {
       animation: none;
     }
+  }
+
+  /* transient error line above the action row when a transcription fails */
+  .voice-hint {
+    color: var(--color-red);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    padding: 0 2px;
   }
 </style>

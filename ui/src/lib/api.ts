@@ -293,6 +293,55 @@ export async function uploadImage(file: File, sessionId?: string): Promise<strin
   return (await r.json()).path as string;
 }
 
+/** Detection status of the optional `voice-whisper` plugin (local Whisper transcription). */
+export interface VoiceStatus {
+  available: boolean;
+  engine: string | null;
+  model: string | null;
+  ffmpeg: boolean;
+  language: string;
+  /** When true, the mic should prefer local whisper even where Web Speech is supported. */
+  preferLocal: boolean;
+  hint: string;
+}
+
+const VOICE_ABSENT: VoiceStatus = {
+  available: false,
+  engine: null,
+  model: null,
+  ffmpeg: false,
+  language: "auto",
+  preferLocal: false,
+  hint: "",
+};
+
+let voiceStatusPromise: Promise<VoiceStatus> | null = null;
+
+/** Detection status of the voice-whisper plugin, memoized once per page load. A 404 (plugin
+ *  not installed) or any error resolves to an "unavailable" status and is cached — so the
+ *  compose-bar mic keeps the browser's Web Speech engine (or stays hidden) exactly as today,
+ *  with just this one cached probe as the difference. */
+export function getVoiceStatus(): Promise<VoiceStatus> {
+  if (!voiceStatusPromise) {
+    voiceStatusPromise = fetch("/api/plugins/voice-whisper/status")
+      .then((r) => (r.ok ? (r.json() as Promise<VoiceStatus>) : VOICE_ABSENT))
+      .catch(() => VOICE_ABSENT);
+  }
+  return voiceStatusPromise;
+}
+
+/** Transcribe a recorded audio clip via the voice-whisper plugin; returns the text. `lang`
+ *  (`"de"`/`"en"`) pins the transcription language when the plugin isn't configured to force one. */
+export async function transcribeAudio(blob: Blob, lang?: string): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", blob, "clip.webm");
+  if (lang) fd.append("lang", lang);
+  // no content-type header: the browser sets the multipart boundary
+  const r = await fetch("/api/plugins/voice-whisper/transcribe", { method: "POST", body: fd });
+  if (!r.ok) throw await failed(r, "transcribe");
+  return (await r.json()).text as string;
+}
+
 /** Leftover subprocesses/proxies that would survive this session's close; [] when none. */
 export async function getLeftovers(id: string): Promise<Leftover[]> {
   const r = await fetch(`/api/sessions/${id}/leftovers`);

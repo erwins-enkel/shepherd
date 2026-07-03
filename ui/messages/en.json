@@ -2404,5 +2404,6 @@
   "epic_handsoff_applied": "Hands-off defaults applied.",
   "epic_handsoff_apply_failed": "Couldn't apply hands-off defaults.",
   "epic_handsoff_guide": "Full guide ↗",
-  "automation_handsoff_hint": "Recommended for hands-off epics →"
+  "automation_handsoff_hint": "Recommended for hands-off epics →",
+  "epic_handsoff_mode_failed": "Applied the defaults, but couldn't switch the epic to auto mode — set Epic mode in the controls below."
 }

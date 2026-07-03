@@ -64,17 +64,36 @@
     if (applying) return;
     applying = true;
     try {
-      await repoConfig.applyHandsOffDefaults(repoPath);
-      if (epic.run.mode !== "auto") await updateEpic(repoPath, parent, { mode: "auto" });
+      // Two independent writes: repo-wide defaults, then the per-epic mode switch. Fail each
+      // separately so a mode-switch failure doesn't misreport the already-applied defaults as
+      // un-applied. On any failure keep the panel open (not marked seen) so its live checklist
+      // reflects reality and the operator can retry — both writes are idempotent.
+      try {
+        await repoConfig.applyHandsOffDefaults(repoPath);
+      } catch {
+        toasts.info(m.epic_handsoff_apply_failed(), {
+          duration: null,
+          alert: true,
+          key: "epic-handsoff-apply-fail",
+        });
+        return;
+      }
+      if (epic.run.mode !== "auto") {
+        try {
+          await updateEpic(repoPath, parent, { mode: "auto" });
+        } catch {
+          // Partial success: repo defaults landed, only the auto-mode switch failed.
+          toasts.info(m.epic_handsoff_mode_failed(), {
+            duration: null,
+            alert: true,
+            key: "epic-handsoff-mode-fail",
+          });
+          return;
+        }
+      }
       featureDiscovery.markSeen(SEEN_ID);
       dismissed = true;
       toasts.info(m.epic_handsoff_applied(), { key: "epic-handsoff-applied" });
-    } catch {
-      toasts.info(m.epic_handsoff_apply_failed(), {
-        duration: null,
-        alert: true,
-        key: "epic-handsoff-apply-fail",
-      });
     } finally {
       applying = false;
     }

@@ -2404,5 +2404,6 @@
   "epic_handsoff_applied": "Ohne-Eingriff-Standards übernommen.",
   "epic_handsoff_apply_failed": "Ohne-Eingriff-Standards konnten nicht übernommen werden.",
   "epic_handsoff_guide": "Vollständige Anleitung ↗",
-  "automation_handsoff_hint": "Empfohlen für Epics ohne Eingriff →"
+  "automation_handsoff_hint": "Empfohlen für Epics ohne Eingriff →",
+  "epic_handsoff_mode_failed": "Standards übernommen, aber der Epic konnte nicht auf Auto-Modus umgestellt werden — stelle den Epic-Modus in den Steuerelementen unten ein."
 }

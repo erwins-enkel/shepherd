@@ -3575,6 +3575,9 @@ test("detectEpicIntent: keyword heuristic over the raw spawn prompt", () => {
   expect(detectEpicIntent("split this into sub-issues")).toBe(true);
   expect(detectEpicIntent("one sub-issue per step please")).toBe(true);
   expect(detectEpicIntent("plan EPICS for q3")).toBe(true);
+  // Gerund/noun forms of "promote" count too — under-fire is the costly direction.
+  expect(detectEpicIntent("promoting this issue into sub-tasks")).toBe(true);
+  expect(detectEpicIntent("handle the promotion of #12")).toBe(true);
   // Negatives — ordinary code asks must not fire.
   expect(detectEpicIntent("fix the login flow")).toBe(false);
   expect(detectEpicIntent("add a settings page")).toBe(false);

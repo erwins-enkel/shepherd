@@ -38,9 +38,10 @@ and documented. Specific plugin **implementations** stay private under
 ## Installing from the UI
 
 **Settings → Plugins** lists every plugin folder on disk and installs new ones from a
-GitHub URL — the same `git clone … ~/.shepherd/plugins/` + restart flow as below, reachable
-without a terminal. It adds no capability a shell couldn't already do; the trust model is
-unchanged, so install is gated behind a confirm dialog.
+GitHub URL — the same `git clone … ~/.shepherd/plugins/` the terminal flow uses, reachable
+without a terminal and then **activated in-process** (no restart, below). It adds no
+capability a shell couldn't already do; the trust model is unchanged, so install is gated
+behind a confirm dialog.
 
 - **Install** — paste an `https://github.com/<owner>/<repo>` URL and confirm. Shepherd
   shallow-clones it into `~/.shepherd/plugins/<repo>`. Only `github.com` HTTPS URLs are
@@ -362,5 +363,5 @@ absent.
 checkout — the loader follows symlinked plugin dirs, so `git pull` keeps it current), then —
 because the example's `import type` uses a repo-relative path that won't resolve out-of-repo
 — **drop the `import type` line or vendor `src/plugins/types.ts`** (the import is erased at
-runtime, so loading is unaffected either way), and restart Shepherd. See
-`examples/plugins/README.md`.
+runtime, so loading is unaffected either way), then load it — Activate it in Settings →
+Plugins (no restart) or restart Shepherd. See `examples/plugins/README.md`.

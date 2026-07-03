@@ -369,8 +369,11 @@ function generateClaudeMd(scan: RepoScan, checks: GuardrailCheck[]): string {
     ? missing
         .map((c) => {
           const head = `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`;
-          const cmds = INSTALL_STEPS[c.id](verbs);
-          return cmds.length ? `${head}\n${cmds.map((cmd) => `    $ ${cmd}`).join("\n")}` : head;
+          const lines = [
+            ...(PRESCRIPTION_NOTE[c.id]?.(scan) ?? []),
+            ...INSTALL_STEPS[c.id](verbs).map((cmd) => `$ ${cmd}`),
+          ];
+          return lines.length ? `${head}\n${lines.map((l) => `    ${l}`).join("\n")}` : head;
         })
         .join("\n")
     : "- None — your deterministic guardrails already cover the baseline.";
@@ -456,6 +459,32 @@ export const PM_VERBS: Record<PackageManager, { add: string; exec: string }> = {
   pnpm: { add: "pnpm add -D", exec: "pnpm dlx" },
   yarn: { add: "yarn add -D", exec: "yarn dlx" },
   npm: { add: "npm i -D", exec: "npx" },
+};
+
+/**
+ * Extra prose guidance lines per guardrail, rendered under the adopt line (no `$ `
+ * prefix — guidance, not shell commands). Only for guardrails whose bootstrap is
+ * file-creation the agent would otherwise guess wrong: dependency_automation must
+ * name the Dependabot ecosystem, because agents default to `npm`, which never
+ * updates bun.lock on a bun repo (pnpm/yarn ARE served by the npm ecosystem —
+ * only bun has a dedicated one).
+ */
+const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>> = {
+  dependency_automation: (s) => {
+    if (s.pm === "bun") {
+      const lines = [
+        `Create \`.github/dependabot.yml\` with \`package-ecosystem: "bun"\` — this repo uses bun; the npm ecosystem would not update bun.lock.`,
+      ];
+      if (!s.has("bun.lock"))
+        lines.push(
+          `Dependabot's bun ecosystem needs the text lockfile: run \`bun install --save-text-lockfile\` first (it reads bun.lock only; the binary bun.lockb is not supported).`,
+        );
+      return lines;
+    }
+    return [
+      `Create \`.github/dependabot.yml\` with \`package-ecosystem: "npm"\` (also correct for pnpm/yarn lockfiles).`,
+    ];
+  },
 };
 
 /**

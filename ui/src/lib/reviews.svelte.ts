@@ -391,7 +391,9 @@ class RepoConfigStore {
   /** Apply the recommended "hands-off epic" repo defaults in one atomic PUT: Autopilot on,
    *  Full-auto merge on (forces Draft off), Critic on, Auto-Address on. Deliberately does NOT
    *  touch planGateEnabled — Plan gate is recommended ON (the seeded default) and is hands-off-safe
-   *  (see components/epic-handsoff.ts). Optimistic, reverts every field on a failed PUT. */
+   *  (see components/epic-handsoff.ts). Optimistic; on a failed PUT it reverts every field AND
+   *  rethrows (unlike the fire-and-forget toggles) so the caller can surface the failure and NOT
+   *  latch the intro as done — mirrors confirmAutomation(). */
   async applyHandsOffDefaults(repoPath: string) {
     const prev = {
       autopilot: this.autopilot[repoPath],
@@ -406,13 +408,16 @@ class RepoConfigStore {
     this.draftMode = { ...this.draftMode, [repoPath]: false };
     this.enabled = { ...this.enabled, [repoPath]: true };
     this.autoAddress = { ...this.autoAddress, [repoPath]: true };
-    await this.apply(repoPath, handsOffPatch(), () => {
+    try {
+      this.ingest(repoPath, await putRepoConfig(repoPath, handsOffPatch()));
+    } catch (e) {
       this.autopilot = { ...this.autopilot, [repoPath]: prev.autopilot };
       this.autoMerge = { ...this.autoMerge, [repoPath]: prev.autoMerge };
       this.draftMode = { ...this.draftMode, [repoPath]: prev.draftMode };
       this.enabled = { ...this.enabled, [repoPath]: prev.critic };
       this.autoAddress = { ...this.autoAddress, [repoPath]: prev.autoAddress };
-    });
+      throw e; // surface to the caller so the intro shows the failure toast and stays open
+    }
   }
 
   async setSignoffAuthority(repoPath: string, value: "human" | "critic" | "either") {

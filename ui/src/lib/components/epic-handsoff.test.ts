@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { handsOffPatch, handsOffDelta, handsOffReady, type HandsOffFlags } from "./epic-handsoff";
+import { handsOffPatch, handsOffDelta, type HandsOffFlags } from "./epic-handsoff";
 
 const ALL_OFF: HandsOffFlags = {
   autopilot: false,
@@ -55,24 +55,17 @@ describe("handsOffDelta", () => {
     expect(item?.ok).toBe(false);
   });
 
-  it("marks plan gate as informational — not applied by one-click", () => {
-    const item = handsOffDelta(ALL_OFF).find((i) => i.key === "plangate");
-    expect(item?.appliedByOneClick).toBe(false);
-  });
-
-  it("marks the applied settings as appliedByOneClick", () => {
-    const applied = handsOffDelta(ALL_OFF)
-      .filter((i) => i.appliedByOneClick)
+  it("covers every recommended setting exactly once", () => {
+    const keys = handsOffDelta(ALL_OFF)
       .map((i) => i.key)
       .sort();
-    expect(applied).toEqual(["autoaddress", "automerge", "autopilot", "critic", "epicmode"]);
-  });
-});
-
-describe("handsOffReady", () => {
-  it("is true only when every recommendation is satisfied", () => {
-    expect(handsOffReady(ALL_RECOMMENDED)).toBe(true);
-    expect(handsOffReady(ALL_OFF)).toBe(false);
-    expect(handsOffReady({ ...ALL_RECOMMENDED, planGate: false })).toBe(false);
+    expect(keys).toEqual([
+      "autoaddress",
+      "automerge",
+      "autopilot",
+      "critic",
+      "epicmode",
+      "plangate",
+    ]);
   });
 });

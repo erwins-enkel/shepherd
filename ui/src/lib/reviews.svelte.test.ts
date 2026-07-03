@@ -613,12 +613,13 @@ test("applyHandsOffDefaults PUTs the hands-off patch and never touches plan gate
   expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false);
 });
 
-test("applyHandsOffDefaults reverts every optimistic field on a failed PUT", async () => {
+test("applyHandsOffDefaults reverts every optimistic field AND rethrows on a failed PUT", async () => {
   repoConfig.autopilot = { "/repo": false };
   repoConfig.autoMerge = { "/repo": false };
   repoConfig.autoAddress = { "/repo": false };
   vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  await repoConfig.applyHandsOffDefaults("/repo");
+  // Rethrows so the caller can surface the failure instead of latching "applied".
+  await expect(repoConfig.applyHandsOffDefaults("/repo")).rejects.toThrow("boom");
   expect(repoConfig.isAutopilotEnabled("/repo")).toBe(false);
   expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false);
   expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(false);

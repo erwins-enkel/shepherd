@@ -28,9 +28,6 @@ export type HandsOffCheckItem = {
   key: HandsOffItemKey;
   /** True when the current value already matches the hands-off recommendation. */
   ok: boolean;
-  /** True when the one-click "Apply hands-off defaults" sets this to its recommended
-   *  value. False for plan gate (recommended on, but never touched by Apply). */
-  appliedByOneClick: boolean;
 };
 
 /** The exact repo-config patch one-click Apply writes. Excludes planGateEnabled (see file
@@ -53,21 +50,16 @@ export function handsOffPatch(): HandsOffPatch {
   };
 }
 
-/** Per-setting current-vs-recommended state driving the explainer checklist. */
+/** Per-setting current-vs-recommended state driving the explainer checklist. Plan gate is
+ *  recommended ON (informational — one-click Apply never touches it; see file header). */
 export function handsOffDelta(current: HandsOffFlags): HandsOffCheckItem[] {
   return [
-    { key: "autopilot", ok: current.autopilot, appliedByOneClick: true },
+    { key: "autopilot", ok: current.autopilot },
     // Full-auto merge is only effective with Draft off (mutually exclusive).
-    { key: "automerge", ok: current.autoMerge && !current.draftMode, appliedByOneClick: true },
-    { key: "critic", ok: current.critic, appliedByOneClick: true },
-    { key: "autoaddress", ok: current.autoAddress, appliedByOneClick: true },
-    // Recommended ON (seeded default, hands-off-safe) — informational, not applied.
-    { key: "plangate", ok: current.planGate, appliedByOneClick: false },
-    { key: "epicmode", ok: current.epicModeAuto, appliedByOneClick: true },
+    { key: "automerge", ok: current.autoMerge && !current.draftMode },
+    { key: "critic", ok: current.critic },
+    { key: "autoaddress", ok: current.autoAddress },
+    { key: "plangate", ok: current.planGate },
+    { key: "epicmode", ok: current.epicModeAuto },
   ];
-}
-
-/** True when every hands-off recommendation is already satisfied (checklist all-✓). */
-export function handsOffReady(current: HandsOffFlags): boolean {
-  return handsOffDelta(current).every((item) => item.ok);
 }

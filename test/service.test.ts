@@ -27,6 +27,7 @@ import {
   PREVIEW_START_STEER,
   PREVIEW_SETUP_STEER,
   buildQueueDirective,
+  detectEpicIntent,
 } from "../src/service";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
@@ -3510,6 +3511,11 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
     // flatly mandate opening one (which would contradict AUTOPILOT_DIRECTIVE's conditional framing).
     expect(sp).toContain("When you open a pull request");
     expect(sp).not.toContain("This session opens exactly one pull request");
+    // #1391: hatch (a) carries the structural epic-recognition contract — the mandatory body
+    // marker (fence example) and the explicit non-markers third-party agents reach for.
+    expect(sp).toContain("```epic-dag");
+    expect(sp).toContain("MANDATORY");
+    expect(sp).toContain("an `[EPIC]` title prefix");
   }
   // Suppressed for a research deliverable.
   expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
@@ -3538,6 +3544,74 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
   expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
     "<manual-steps-notice>",
   );
+});
+
+test("composeSystemPrompt rides the epic-authoring notice only on epicIntent, never on research", () => {
+  // #1391: the notice covers the direct operator epic ask the single-PR invariant's
+  // "too large for one PR" branch never reaches.
+  const withNotice = composeSystemPrompt(null, false, { epicIntent: true });
+  expect(withNotice).toContain("<epic-authoring-notice>");
+  expect(withNotice).toContain("</epic-authoring-notice>");
+  // Anchors: the shared shape contract, the promotion recipe (edit the PARENT body), and the
+  // deliberately CONDITIONAL, self-disqualifying no-PR clause.
+  expect(withNotice).toContain("```epic-dag");
+  expect(withNotice).toContain("`gh issue edit`");
+  expect(withNotice).toContain("IF the ask is to create or promote an epic");
+  expect(withNotice).toContain("ignore this notice and proceed normally");
+  // Default off; suppressed for research even when set.
+  expect(composeSystemPrompt(null)).not.toContain("<epic-authoring-notice>");
+  expect(composeSystemPrompt(null, false, { epicIntent: false })).not.toContain(
+    "<epic-authoring-notice>",
+  );
+  expect(composeSystemPrompt(null, false, { research: true, epicIntent: true })).not.toContain(
+    "<epic-authoring-notice>",
+  );
+});
+
+test("detectEpicIntent: keyword heuristic over the raw spawn prompt", () => {
+  // Positives — the direct-ask phrasings #1391 targets.
+  expect(detectEpicIntent("create an epic for the billing revamp")).toBe(true);
+  expect(detectEpicIntent("Promote #12 to an epic")).toBe(true);
+  expect(detectEpicIntent("split this into sub-issues")).toBe(true);
+  expect(detectEpicIntent("one sub-issue per step please")).toBe(true);
+  expect(detectEpicIntent("plan EPICS for q3")).toBe(true);
+  // Gerund/noun forms of "promote" count too — under-fire is the costly direction.
+  expect(detectEpicIntent("promoting this issue into sub-tasks")).toBe(true);
+  expect(detectEpicIntent("handle the promotion of #12")).toBe(true);
+  // Unhyphenated / spaced spellings of sub-issue count for the same reason.
+  expect(detectEpicIntent("split this into subissues")).toBe(true);
+  expect(detectEpicIntent("create sub issues for each step")).toBe(true);
+  // Negatives — ordinary code asks must not fire.
+  expect(detectEpicIntent("fix the login flow")).toBe(false);
+  expect(detectEpicIntent("add a settings page")).toBe(false);
+  // No substring false-positives (\b guards).
+  expect(detectEpicIntent("epicenter of the outage")).toBe(false);
+  expect(detectEpicIntent("promoted the build")).toBe(false);
+});
+
+test("create: epic-intent prompt injects the notice on attended spawns, never on auto spawns", async () => {
+  // #1391 attended gate: epicBaseDirective puts "This task is part of an epic" into EVERY
+  // epic-child auto-drain prompt, so an ungated notice — with its no-PR clause — would ride
+  // unattended children whose actual job IS to open a PR against the integration branch.
+  const prompt = "This task is part of an epic. Implement the storage layer for #40.";
+  const attended: { argv?: string[] } = {};
+  const svcA = new SessionService(injectDeps(new SessionStore(":memory:"), attended) as any);
+  await svcA.create({ repoPath: "/repo", baseBranch: "main", prompt, model: null, images: [] });
+  expect(sysPrompt(attended.argv!)).toContain("<epic-authoring-notice>");
+
+  const auto: { argv?: string[] } = {};
+  const svcB = new SessionService(injectDeps(new SessionStore(":memory:"), auto) as any);
+  await svcB.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt,
+    model: null,
+    images: [],
+    auto: true,
+  });
+  expect(sysPrompt(auto.argv!)).not.toContain("<epic-authoring-notice>");
+  // The invariant (and its embedded contract) still rides the auto spawn — only the notice gates.
+  expect(sysPrompt(auto.argv!)).toContain("<single-pr-invariant>");
 });
 
 test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", async () => {

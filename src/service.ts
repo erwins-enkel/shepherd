@@ -487,6 +487,34 @@ const AUTOPILOT_DIRECTIVE =
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
+ * The structural epic-recognition contract (issue #1391), shared verbatim by the single-PR
+ * invariant's promote-to-epic hatch and the epic-authoring notice below. Shepherd recognizes an
+ * epic ONLY structurally (parseEpicBody members, native sub-issues, or the stored epic_run parent)
+ * — there is no `epic` label, `[EPIC]` title, or front-matter convention anywhere — yet agents in
+ * third-party repos reliably reach for exactly those, producing "epics" Shepherd never sees. This
+ * text makes the contract explicit and the body marker MANDATORY (not "if you map dependencies").
+ *
+ * IMPORTANT — the embedded fence + checklist examples are the SOURCE OF TRUTH for the marker
+ * grammar and are pinned to the parser by unit tests (`parseEpicBody(EPIC_SHAPE_CONTRACT)` in
+ * test/epic-parse.test.ts — the manual-steps-notice precedent). The examples must keep LITERAL
+ * issue numbers (`#12`, `#13 <- #12`, `- [ ] #12`): LINE_RE/CHECK_RE in src/epic-parse.ts require
+ * digits, so a `#<n>` placeholder line would be unparseable and fail the pin. Agent-facing prompt
+ * text, so fixed English — same precedent as SINGLE_PR_INVARIANT.
+ */
+export const EPIC_SHAPE_CONTRACT =
+  "Shepherd recognizes an epic ONLY structurally — the parent issue's body must reference each " +
+  "child's REAL issue number. Create the child issues first (`gh issue create`), capture their " +
+  "numbers, then edit the parent body to add EITHER a fenced dag block, e.g.:\n" +
+  "```epic-dag\n" +
+  "#12\n" +
+  "#13 <- #12\n" +
+  "```\n" +
+  "(one `#<n>` line per child; `#<n> <- #<m>` when #n is blocked by #m), OR a task-list with one " +
+  "`- [ ] #12`-style line per child issue. This body marker is MANDATORY even when the children " +
+  "have no dependencies. NOT recognized as an epic: an `epic` label, an `[EPIC]` title prefix, " +
+  "or a prose checklist without `#<n>` issue references.";
+
+/**
  * The one-session-one-PR invariant (issue #839). Shepherd tracks ONE branch per session and
  * resolves its PR on demand — there is no per-session list of PRs. When one session opens a second
  * PR on a different branch (e.g. the #830/#835 "Part A / Part B" split out of #825), that PR is
@@ -503,7 +531,10 @@ const AUTOPILOT_DIRECTIVE =
  * Escape hatch (a) is worded honestly: epic drain is operator/drain-driven (server
  * `/api/epic/approve-next` → drain.approveEpicNext + drain.tick), so an agent CANNOT self-trigger
  * Shepherd to drain an epic — it sets the epic up and STOPS. Hatch (b) (one PR + follow-up issue)
- * is the always-safe default.
+ * is the always-safe default. Hatch (a) embeds EPIC_SHAPE_CONTRACT (issue #1391): the earlier
+ * thin wording ("add one sub-issue … and an `epic-dag` fence if you map dependencies") read as
+ * generic GitHub and framed the one reliable marker as optional, so third-party-repo agents
+ * shipped label/prose "epics" Shepherd never recognized.
  *
  * Advisory only — there is no enforcement. The data layer cannot see a second PR on another branch,
  * so recurrence stays possible; the deferred detection guardrail (split-marker scan) is the
@@ -514,14 +545,52 @@ const SINGLE_PR_INVARIANT =
   'When you open a pull request, open exactly one — never a second, and never label work "PR 1 of ' +
   'N." This holds even when the task or its issue describes multiple parts, phases, or "Part A / ' +
   'Part B." If the work is genuinely too large for one cohesive PR, pick ONE of:\n' +
-  "- (a) Promote to an epic: convert the issue into an epic — add one sub-issue per intended PR " +
-  "(and an `epic-dag` fence if you map dependencies) — open NO pull request yourself, then STOP " +
-  "and tell the operator the epic is ready to drain. Shepherd drains each sub-issue as its own " +
-  "session and its own PR, but that drain is operator-started — you cannot trigger it yourself.\n" +
+  "- (a) Promote to an epic: convert the issue into an epic — create one child issue per " +
+  "intended PR and mark the parent body so Shepherd recognizes it (shape below) — open NO pull " +
+  "request yourself, then STOP and tell the operator the epic is ready to drain. Shepherd drains " +
+  "each sub-issue as its own session and its own PR, but that drain is operator-started — you " +
+  "cannot trigger it yourself.\n" +
   "- (b) Ship one PR + file a follow-up: complete and open a single cohesive PR for the slice you " +
   "can finish, then `gh issue create` a follow-up issue capturing the remainder for a later agent, " +
   "and reference it from the PR body. This is the always-safe default.\n" +
+  `For option (a), the epic's shape matters: ${EPIC_SHAPE_CONTRACT}\n` +
   "Never split the work across two PRs from this one session.";
+
+/**
+ * Epic-authoring notice (issue #1391) for a DIRECT operator epic ask ("create an epic for X",
+ * "promote #N to an epic", "split this into sub-issues") — an intent the single-PR invariant's
+ * "work too large for one PR" branch never reaches. Injected only when detectEpicIntent matches
+ * the spawn prompt AND the spawn is attended (`!input.auto`): epicBaseDirective (src/autopilot.ts)
+ * puts "This task is part of an epic" into EVERY epic-child auto-drain prompt (drain.ts
+ * resolveSpawnBase), so without the attended gate this notice — including its no-PR clause —
+ * would ride 100% of unattended epic children whose actual job IS to open a PR against the
+ * integration branch. The no-PR clause is deliberately CONDITIONAL ("IF the ask is…") and
+ * self-disqualifying, so an incidental keyword match on an attended spawn (e.g. "promote the
+ * flag to prod") can never read as a standing no-PR instruction. Embeds EPIC_SHAPE_CONTRACT
+ * verbatim — each block must be self-sufficient; the ~110-word overlap with the single-PR
+ * invariant occurs only on intent-matched attended spawns. Agent-facing prompt text, so fixed
+ * English — same precedent as SINGLE_PR_INVARIANT.
+ */
+const EPIC_AUTHORING_NOTICE =
+  "This task's prompt suggests it may involve creating an epic, creating sub-issues, or " +
+  `promoting an issue to an epic. If so, the shape matters: ${EPIC_SHAPE_CONTRACT}\n` +
+  "To promote an existing issue #N to an epic: create the child issues first, capture their " +
+  "numbers, then EDIT #N's body (`gh issue edit`) to add the fence/task-list referencing those " +
+  "numbers — creating children while leaving the parent body unmarked leaves #N unrecognized.\n" +
+  "IF the ask is to create or promote an epic, the epic itself is the deliverable — open NO pull " +
+  "request, and stop once the parent body carries the marker. If this task merely mentions these " +
+  "words and the actual ask is a code change, ignore this notice and proceed normally.";
+
+/**
+ * Case-insensitive epic-intent heuristic over the RAW spawn prompt (issue #1391). Deliberately
+ * loose — an over-fire costs one short, self-disqualifying system-prompt block — and evaluated
+ * only for attended spawns (see composeDirectives): drain-spawn prompts are title +
+ * epicBaseDirective (the issue BODY folds into promptArg only later, after directives compose),
+ * and epic-child prompts always contain "epic". Exported for tests.
+ */
+export function detectEpicIntent(prompt: string): boolean {
+  return /\bepics?\b|\bsub[- ]?issues?\b|\bpromot(?:e|ing|ion)\b/i.test(prompt);
+}
 
 /**
  * Agent-facing notice (#1257) that tells a PR-authoring agent to DECLARE manual operator steps in the
@@ -930,6 +999,10 @@ export function planGoSteer(draftMode: boolean): string {
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
  * always ride. The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
  * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
+ * `opts.epicIntent` (issue #1391) appends the `<epic-authoring-notice>` block after the
+ * manual-steps notice, likewise suppressed for research; callers set it only for ATTENDED spawns
+ * whose prompt matches detectEpicIntent (see composeDirectives — auto-drain epic-child prompts
+ * always contain "epic" via epicBaseDirective, so auto spawns never set it).
  * `autopilotActive` appends the autopilot directive (see above), UNLESS `opts.planGate`
  * is set: the plan gate and autopilot are mutually exclusive. During the planning phase the matching
  * plan-gate directive (interactive/auto) is appended INSTEAD of the autopilot directive, even when
@@ -983,6 +1056,7 @@ export function composeSystemPrompt(
     previewHint?: boolean;
     draftMode?: boolean;
     trimmed?: boolean;
+    epicIntent?: boolean;
     agentProvider?: AgentProvider;
   } = {},
 ): string {
@@ -1010,6 +1084,12 @@ export function composeSystemPrompt(
     // attended Codex starts free of workflow guidance.
     if (agentProvider !== "codex" || autopilotActive) {
       blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
+    }
+    // Epic-authoring notice (#1391): attended spawns whose prompt signals epic intent (callers
+    // gate on !input.auto — see composeDirectives). No per-provider gating: unlike the
+    // manual-steps notice, this block is directly relevant to the attended ask itself.
+    if (opts.epicIntent) {
+      blocks.push(`<epic-authoring-notice>\n${EPIC_AUTHORING_NOTICE}\n</epic-authoring-notice>`);
     }
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
@@ -1857,6 +1937,12 @@ export class SessionService {
       previewHint: isolated,
       draftMode: repoConfig.draftMode,
       trimmed,
+      // Epic-authoring notice (#1391): attended spawns only. Auto-drain prompts are issue title +
+      // (for epic children) epicBaseDirective — which ALWAYS contains "epic" — so without the
+      // !input.auto gate the notice's no-PR clause would ride every unattended epic child whose
+      // job is to open a PR against the integration branch. An auto spawn is never a direct
+      // operator epic ask, so nothing is lost.
+      epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: args.agentProvider,
     });
   }

@@ -260,11 +260,13 @@
   }
   /* Functional indicator: under reduced-motion keep the rotation (it's what
      reads as "still working" here) but slow it way down instead of stopping
-     it, per WCAG guidance that gentle, non-essential motion is fine — only
-     the duration changes, not the keyframe. */
+     it, per WCAG guidance that gentle, non-essential motion is fine. Needs
+     the full shorthand + !important: app.css's global reduced-motion rule
+     (`* { animation: none !important }`) otherwise wins over a bare
+     animation-duration override and the gear goes fully static. */
   @media (prefers-reduced-motion: reduce) {
     .rb-cog {
-      animation-duration: 6s;
+      animation: icon-btn-spin 6s linear infinite !important;
     }
   }
   .rb-text {

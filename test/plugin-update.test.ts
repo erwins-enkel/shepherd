@@ -115,6 +115,30 @@ test("repository: an OLDER candidate with a different apiVersion stays up-to-dat
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("repository: a candidate manifest for a DIFFERENT plugin id is an error, not an update", async () => {
+  // A misconfigured repository must not surface another plugin's version as ours.
+  const dir = makePluginsDir({ p: okManifest({ id: "mine", repository: "https://x/other.git" }) });
+  const git = repoGit(
+    "aaa\trefs/tags/v9.9.9\n",
+    okManifest({ id: "someone-else", version: "9.9.9" }),
+  );
+  const st = await new PluginUpdateService({ pluginsDir: dir, git }).check(1);
+  expect(st.plugins[0]!.state).toBe("error");
+  expect(st.updateAvailable).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("git checkout: an upstream manifest for a DIFFERENT plugin id is an error, not an update", async () => {
+  const dir = makePluginsDir({ p: okManifest({ id: "mine" }) });
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: checkoutGit(okManifest({ id: "someone-else", version: "9.9.9" })),
+  }).check(1);
+  expect(st.plugins[0]!.state).toBe("error");
+  expect(st.updateAvailable).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("repository: no version tags on the remote is an error, not a false badge", async () => {
   const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
   const git = fakeGit({ "ls-remote": () => "aaa\trefs/tags/latest\nbbb\trefs/tags/nightly\n" });

@@ -202,6 +202,19 @@ export class PluginUpdateService {
     source: "repository" | "git",
     candidate: RawManifest,
   ): PluginUpdateInfo {
+    // The candidate must be the SAME plugin. A `repository` pointing at (or an
+    // upstream diverged into) a different plugin would otherwise surface its
+    // version as an update for the installed one — a wrong, potentially unsafe
+    // "update available". A mismatch is an error, never a badge.
+    if (candidate.id !== base.id) {
+      return {
+        ...base,
+        latestVersion: null,
+        source,
+        state: "error",
+        detail: `candidate plugin id "${candidate.id}" does not match installed "${base.id}"`,
+      };
+    }
     const current = parseSemver(base.currentVersion);
     const latest = parseSemver(candidate.version);
     if (!current) {

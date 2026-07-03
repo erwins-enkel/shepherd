@@ -144,6 +144,9 @@ function makeHarness(
     usagePct?: number;
     usageCeilingPct?: number;
     credits?: UsageLimitsType["credits"];
+    /** Full control over the usage source (overrides usagePct/credits) — lets a test drive a
+     *  CHANGING scrape across successive buildState calls (rising credit spend, weekly reset). */
+    limitsImpl?: () => UsageLimitsType;
     mergeImpl?: () => Promise<void>;
     listIssuesImpl?: () => Promise<Issue[]>;
     archiveImpl?: (id: string) => number | Promise<number>;
@@ -242,6 +245,7 @@ function makeHarness(
 
   const usage = {
     limits: (): UsageLimitsType => {
+      if (opts.limitsImpl) return opts.limitsImpl();
       const pct = opts.usagePct ?? 0;
       const base = pct > 0 ? { ...NO_USAGE, session5h: { pct, resetAt: 0 } } : { ...NO_USAGE };
       if (opts.credits !== undefined) base.credits = opts.credits;
@@ -629,18 +633,74 @@ test("stale credits snapshot → NO credits hold (drain proceeds, stale data dis
   expect(h.creates).toHaveLength(1); // spawned: not frozen on stale spend
 });
 
-// Control: same overage, fresh snapshot → DOES hold. Proves the !stale gate is the difference.
-test("fresh credits snapshot over ceiling → credits hold (paused)", async () => {
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEK_RESET = 1_700_000_000_000; // fixed epoch; injected verbatim (no rollForward in tests)
+
+// Build a usage source whose weekly window + credit spend can be mutated between pumps, to
+// exercise the "spend since the weekly window began" cost guard (effectiveCreditSpent).
+function usageWithCredit(
+  read: () => { spent: number; weekResetAt: number | null; weekPct?: number },
+) {
+  return (): UsageLimitsType => {
+    const { spent, weekResetAt, weekPct = 20 } = read();
+    return {
+      ...NO_USAGE,
+      week: weekResetAt == null ? null : { pct: weekPct, resetAt: weekResetAt },
+      credits: creditWindow({ spent, resetAt: WEEK_RESET + 2 * WEEK_MS }),
+    };
+  };
+}
+
+// THE FIX: a large month-to-date credit total with fresh weekly headroom is HISTORICAL spend
+// (paid overage can only accrue while a window is exhausted). It must NOT freeze the drain — the
+// old guard paused until the monthly credit reset even with plenty of subscription left.
+test("month-to-date credits but weekly headroom → NO credits hold (historical spend baselined out)", async () => {
   const h = makeHarness({
     maxAuto: 2,
     issues: [issue(1)],
-    credits: creditWindow({ spent: 999, stale: false }),
+    limitsImpl: usageWithCredit(() => ({ spent: 46.47, weekResetAt: WEEK_RESET, weekPct: 27 })),
   });
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).not.toBe("credits");
+  expect(h.creates).toHaveLength(1); // drained: a pre-existing total doesn't pause it
+});
+
+// Control: NEW paid spend accruing after the baseline (window re-exhausted this week) → DOES hold.
+test("credits rising above the weekly baseline → credits hold (paused)", async () => {
+  let spent = 25; // anchored on first observation
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // first observation → anchor := 25
+  spent = 30; // +5 of genuinely new paid spend this weekly cycle
   await h.drain.pump(REPO);
   const last = h.statuses.at(-1)!;
   expect(last.reason).toBe("credits");
   expect(last.paused).toBe(true);
   expect(h.creates).toHaveLength(0);
+});
+
+// The pause tracks the SUBSCRIPTION cadence: a credit hold clears when the weekly window resets
+// (re-anchoring to the current total), not stuck until the monthly credit reset.
+test("weekly window reset re-anchors credits → a credit pause clears at the reset", async () => {
+  let spent = 10;
+  let weekResetAt = WEEK_RESET;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 10 @ WEEK_RESET
+  spent = 15; // +5 new paid spend this week
+  await h.drain.pump(REPO);
+  expect(h.statuses.at(-1)!.reason).toBe("credits"); // paused: 5 > ceiling 0
+
+  weekResetAt = WEEK_RESET + WEEK_MS; // weekly window rolled over → fresh headroom
+  await h.drain.pump(REPO);
+  expect(h.statuses.at(-1)!.reason).not.toBe("credits"); // re-anchored to 15 → 0 → un-paused
 });
 
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {

@@ -242,6 +242,15 @@ export class DrainService {
    *  of an issue whose create() keeps throwing. Cleared on a successful spawn. In-memory. */
   private spawnFailures = new Map<string, number>();
   private approvedNext = new Set<string>();
+  /** Extra-credit cost-guard baseline (account-wide, in-memory/ephemeral). The scraped paid-credit
+   *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
+   *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
+   *  HISTORICAL spend, not imminent spend, and must not freeze the drain until the monthly credit
+   *  reset. We anchor the total at first observation and re-anchor at each weekly-window reset, then
+   *  gate on spend accrued SINCE that anchor (see {@link effectiveCreditSpent}). null until first
+   *  observed. On restart the anchor re-captures the current total, which is why a deploy of this
+   *  fix immediately clears a stale historical-spend pause. */
+  private creditBaseline: { spent: number; weekResetAt: number | null } | null = null;
   private now: () => number;
   private issuesTtlMs: number;
   /** #1071: injectable seam; defaults to the real rebaseLandingBranch import. */
@@ -441,6 +450,42 @@ export class DrainService {
 
   // ── state assembly ──────────────────────────────────────────────────────────
 
+  /**
+   * Effective extra-credit spend for the drain cost guard: paid pay-as-you-go overage accrued
+   * since the current weekly subscription window began (see {@link creditBaseline}), NOT the raw
+   * cumulative month-to-date total. Paid overage can only be spent while a subscription window is
+   * exhausted, so a nonzero month-to-date total with fresh weekly headroom is historical spend
+   * that must not pause the drain until the (much later) monthly credit reset — the bug this
+   * fixes. Returns 0 when credits are absent or stale (fail-safe: never pause on a missing/stale
+   * scrape). Idempotent within a pump: the anchor only advances on first observation and when the
+   * weekly reset boundary moves, so repeated per-repo calls in one pump (and the read-path
+   * snapshot()/queue()) can't drift it, and it never flaps — a credit pause holds until the weekly
+   * window actually resets rather than clearing the instant spawning stops.
+   */
+  private effectiveCreditSpent(limits: UsageLimits): number {
+    const credits = limits.credits;
+    if (!credits || credits.stale) return 0;
+    const weekResetAt = limits.week?.resetAt ?? null;
+    const b = this.creditBaseline;
+    // First observation (incl. after a restart): anchor the historical total; govern only spend
+    // from here. A subscription window with headroom means no paid spend is happening now, so
+    // baselining out the pre-existing total is safe; any genuinely new spend still rises above it.
+    if (!b) {
+      this.creditBaseline = { spent: credits.spent, weekResetAt };
+      return 0;
+    }
+    // Weekly window rolled over → fresh subscription headroom, so paid spend (temporarily) stops.
+    // Re-anchor to the current total so last week's overage no longer gates this week's drain.
+    if (weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt) {
+      this.creditBaseline = { spent: credits.spent, weekResetAt };
+      return 0;
+    }
+    // Adopt a late-arriving weekly anchor (calibration landed after we first observed credits)
+    // without disturbing the spend anchor — so future resets become detectable.
+    if (b.weekResetAt == null && weekResetAt != null) b.weekResetAt = weekResetAt;
+    return Math.max(0, credits.spent - b.spent);
+  }
+
   private async buildState(repoPath: string): Promise<{
     state: DrainRepoState & { epicParent: number | null };
     epic: Epic | null;
@@ -519,9 +564,11 @@ export class DrainService {
         maxAuto: cfg.maxAuto,
         usageCeilingPct: cfg.usageCeilingPct,
         usagePct,
-        // Extra-credit cost guard: paid overage spent this window (0 when credits is
-        // null/stale/post-reset — fail-safe), against the account-wide live ceiling.
-        creditSpent: limits.credits && !limits.credits.stale ? limits.credits.spent : 0,
+        // Extra-credit cost guard: paid overage accrued since the current weekly window began
+        // (0 when credits is null/stale/post-reset — fail-safe), against the account-wide live
+        // ceiling. NOT the raw month-to-date total — see effectiveCreditSpent for why (a nonzero
+        // cumulative total with fresh weekly headroom is historical, not imminent, spend).
+        creditSpent: this.effectiveCreditSpent(limits),
         creditSpendCeiling: config.extraCreditsDrainCeiling,
         autoSessions,
         mappedIssueNumbers,

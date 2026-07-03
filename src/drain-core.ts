@@ -84,7 +84,11 @@ export interface DrainRepoState {
   usageCeilingPct: number;
   /** The worse of the 5h / weekly usage windows, 0–100. */
   usagePct: number;
-  /** Paid extra-credit spend this monthly window (account-wide), 0 when none/stale/unknown. */
+  /** Paid extra-credit spend accrued since the current WEEKLY subscription window began
+   *  (account-wide), 0 when none/stale/unknown. NOT the raw month-to-date total: a nonzero
+   *  cumulative total with fresh weekly headroom is historical, not imminent, spend and reads 0
+   *  here (see DrainService.effectiveCreditSpent). This keeps the pause on the subscription
+   *  cadence instead of stuck until the monthly credit reset. */
   creditSpent: number;
   /** Account-wide ceiling (account currency units); spend strictly above it pauses the drain. */
   creditSpendCeiling: number;
@@ -230,7 +234,9 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     return { kind: "hold", reason: { code: "usage", detail: String(state.usagePct) } };
   }
 
-  // Extra-credit cost guard: never keep spending real pay-as-you-go money unattended.
+  // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.
+  // creditSpent is spend accrued since the weekly window began (see effectiveCreditSpent), so a
+  // nonzero month-to-date total with subscription headroom does NOT pause here.
   if (state.creditSpent > state.creditSpendCeiling) {
     return { kind: "hold", reason: { code: "credits", detail: String(state.creditSpent) } };
   }

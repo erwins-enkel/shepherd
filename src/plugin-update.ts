@@ -8,8 +8,6 @@ import { PLUGIN_API_VERSION } from "./plugins/types";
 import { timedAsync } from "./instrument";
 import type { PluginUpdateInfo, PluginUpdatesStatus, PluginUpdateState } from "./types";
 
-export type { PluginUpdateInfo, PluginUpdatesStatus, PluginUpdateState };
-
 const execFileAsync = promisify(execFile);
 
 /** Extract a bare `major.minor.patch` from an arbitrary version/tag string

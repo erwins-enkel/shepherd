@@ -178,6 +178,41 @@
     pluginUpdates?.plugins.filter((p) => p.state === "update-available").length ?? 0,
   );
 
+  // The active update CTAs (herdr / codex / plugin), assembled in the script so the
+  // template renders them with one loop instead of three near-identical `{#if}`s.
+  type UpdateCta = { key: string; cls: string; label: string; detail: string; onclick: () => void };
+  const updateCtas = $derived(
+    [
+      herdrUpdateAvailable && {
+        key: "herdr",
+        cls: "",
+        label: m.settings_herdr_update_label(),
+        detail: m.topbar_herdr_update_title({
+          current: herdrUpdate!.current ?? "?",
+          latest: herdrUpdate!.latest ?? "?",
+        }),
+        onclick: () => onherdrupdate?.(),
+      },
+      codexUpdateAvailable && {
+        key: "codex",
+        cls: "codex-cta",
+        label: m.settings_codex_update_label(),
+        detail: m.topbar_codex_update_title({
+          current: codexUpdate!.current ?? "?",
+          latest: codexUpdate!.latest ?? "?",
+        }),
+        onclick: () => oncodexupdate?.(),
+      },
+      pluginUpdateAvailable && {
+        key: "plugin",
+        cls: "codex-cta",
+        label: m.settings_plugin_update_label(),
+        detail: m.settings_plugin_update_count({ count: pluginUpdateCount }),
+        onclick: () => onpluginupdates?.(),
+      },
+    ].filter(Boolean) as UpdateCta[],
+  );
+
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
   let telemetryOn = $state(false);
@@ -943,48 +978,19 @@
       >
     </div>
 
-    {#if herdrUpdateAvailable}
-      <button type="button" class="herdr-cta" onclick={() => onherdrupdate?.()}>
+    <!-- herdr / codex / plugin update CTAs share one row shape; built as a list in
+         the script so the template carries a single loop, not three near-identical
+         `{#if}` blocks (keeps the <template> under the fallow complexity bar). -->
+    {#each updateCtas as cta (cta.key)}
+      <button type="button" class="herdr-cta {cta.cls}" onclick={cta.onclick}>
         <span class="hc-dot" aria-hidden="true">▲</span>
         <span class="hc-text">
-          <span class="hc-label">{m.settings_herdr_update_label()}</span>
-          <span class="hc-ver"
-            >{m.topbar_herdr_update_title({
-              current: herdrUpdate!.current ?? "?",
-              latest: herdrUpdate!.latest ?? "?",
-            })}</span
-          >
+          <span class="hc-label">{cta.label}</span>
+          <span class="hc-ver">{cta.detail}</span>
         </span>
         <span class="hc-chev" aria-hidden="true">›</span>
       </button>
-    {/if}
-
-    {#if codexUpdateAvailable}
-      <button type="button" class="herdr-cta codex-cta" onclick={() => oncodexupdate?.()}>
-        <span class="hc-dot" aria-hidden="true">▲</span>
-        <span class="hc-text">
-          <span class="hc-label">{m.settings_codex_update_label()}</span>
-          <span class="hc-ver"
-            >{m.topbar_codex_update_title({
-              current: codexUpdate!.current ?? "?",
-              latest: codexUpdate!.latest ?? "?",
-            })}</span
-          >
-        </span>
-        <span class="hc-chev" aria-hidden="true">›</span>
-      </button>
-    {/if}
-
-    {#if pluginUpdateAvailable}
-      <button type="button" class="herdr-cta codex-cta" onclick={() => onpluginupdates?.()}>
-        <span class="hc-dot" aria-hidden="true">▲</span>
-        <span class="hc-text">
-          <span class="hc-label">{m.settings_plugin_update_label()}</span>
-          <span class="hc-ver">{m.settings_plugin_update_count({ count: pluginUpdateCount })}</span>
-        </span>
-        <span class="hc-chev" aria-hidden="true">›</span>
-      </button>
-    {/if}
+    {/each}
 
     {#if isNarrow}
       <!-- Narrow viewport: the strip can't fit one row in the card (and the

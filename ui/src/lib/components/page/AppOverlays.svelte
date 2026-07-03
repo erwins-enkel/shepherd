@@ -441,7 +441,7 @@
   />
 {/if}
 
-{#if showPluginUpdates && store.pluginUpdates}
+{#if showPluginUpdates}
   <PluginUpdatesModal status={store.pluginUpdates} onclose={onpluginupdatesclose} />
 {/if}
 

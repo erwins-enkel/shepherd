@@ -7,7 +7,9 @@
     status,
     onclose,
   }: {
-    status: PluginUpdatesStatus;
+    // Nullable so the mount site (AppOverlays) needs no `&& store.pluginUpdates`
+    // guard; the modal renders nothing until a snapshot has landed.
+    status: PluginUpdatesStatus | null;
     onclose?: () => void;
   } = $props();
 
@@ -20,7 +22,9 @@
     "no-source": 3,
     "up-to-date": 4,
   };
-  const plugins = $derived([...status.plugins].sort((a, b) => ORDER[a.state] - ORDER[b.state]));
+  const plugins = $derived(
+    [...(status?.plugins ?? [])].sort((a, b) => ORDER[a.state] - ORDER[b.state]),
+  );
 
   function stateLabel(p: PluginUpdateInfo): string {
     switch (p.state) {

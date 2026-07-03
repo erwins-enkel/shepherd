@@ -723,6 +723,24 @@ test("monthly credit reset (total drops) re-anchors → fresh new-month spend st
   expect(h.creates).toHaveLength(0);
 });
 
+// A monthly reset observed LATE (stale across the boundary, or spend accrued before the first
+// post-reset scrape) shows a nonzero new-cycle total on first re-observation. Anchoring to that
+// value would mask it; the fresh cycle starts at 0, so the full observed total must count.
+test("monthly reset observed late (first post-reset total nonzero) → still pauses on that spend", async () => {
+  let spent = 46.47;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 46.47 (old month)
+  spent = 5; // monthly budget rolled over, but €5 already accrued before we first re-observed
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("credits"); // counts €5 from 0 — not masked by re-anchoring to it
+  expect(h.creates).toHaveLength(0);
+});
+
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {
   const advances: Promise<void>[] = [];
   const h = makeHarness({

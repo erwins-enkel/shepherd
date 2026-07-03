@@ -475,16 +475,20 @@ export class DrainService {
       this.creditBaseline = { spent: credits.spent, weekResetAt };
       return 0;
     }
-    // Re-anchor when either window that bounds paid spend rolls over:
-    //  - credits.spent DROPS below the anchor → the monthly credit budget reset (the scraped
-    //    total is monotonic within a month, so any decrease is a reset boundary). Without this,
-    //    fresh spend in the NEW month is masked until it re-climbs past last month's anchor, and
-    //    the default-0 ceiling fails to pause on real new spend.
-    //  - the weekly subscription window rolls over → fresh headroom (temporarily) stops paid
-    //    spend, so last week's overage no longer gates this week's drain.
-    const weeklyRolled =
-      weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt;
-    if (credits.spent < b.spent || weeklyRolled) {
+    // Monthly credit budget rolled over — the scraped total is monotonic within a month, so any
+    // DROP below the anchor is a reset boundary and the new cycle starts at 0, making ALL of it
+    // new spend. Anchor at 0 (NOT the current reading, which would mask spend already accrued
+    // before this first post-reset observation — the default-0 ceiling would then fail to pause on
+    // it) and count the observed new-cycle total in full. Checked BEFORE the weekly roll so a
+    // coincident monthly+weekly reset still counts (the weekly branch's re-anchor-to-current masks).
+    if (credits.spent < b.spent) {
+      this.creditBaseline = { spent: 0, weekResetAt };
+      return credits.spent;
+    }
+    // Weekly subscription window rolled over → fresh headroom (temporarily) stops paid spend, so
+    // last week's overage no longer gates this week's drain. Anchor at the current total (spend in
+    // earlier weeks of the SAME month is historical, unlike the fresh-from-0 monthly case above).
+    if (weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt) {
       this.creditBaseline = { spent: credits.spent, weekResetAt };
       return 0;
     }

@@ -203,10 +203,16 @@
     !!navigator.mediaDevices?.getUserMedia;
   const localUsable = $derived(localVoiceAvailable && recorderSupported);
 
-  // The mic shows whenever *either* engine can run; it uses local when Web Speech is absent
-  // (iOS PWA) or when the plugin asks to be preferred, else the browser's live dictation.
+  // The mic shows whenever *either* engine can run; `useLocal` picks which engine a NEW tap
+  // starts — local when Web Speech is absent (iOS PWA) or the plugin asks to be preferred,
+  // else the browser's live dictation. It can flip mid-session (getVoiceStatus() resolving
+  // after an auto-started dictation), so it must NOT decide how to STOP an in-flight session.
   const micVisible = $derived(speechSupported || localUsable);
   const useLocal = $derived(localUsable && (!speechSupported || preferLocal));
+
+  // Which engine actually owns the live recording, fixed when it starts. tapMic stops THIS one
+  // rather than re-reading `useLocal`, so a mid-session flip never strands the active recorder.
+  let activeEngine = $state<"web" | "local" | null>(null);
 
   let mediaRecorder: MediaRecorder | null = null;
   let mediaStream: MediaStream | null = null;
@@ -260,6 +266,7 @@
       return;
     }
     listening = true;
+    activeEngine = "local";
     recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
   }
 
@@ -277,6 +284,7 @@
     const type = mediaRecorder?.mimeType || "audio/webm";
     releaseStream();
     mediaRecorder = null;
+    activeEngine = null;
     if (chunks.length === 0) return;
     const blob = new Blob(chunks, { type });
     chunks = [];
@@ -318,6 +326,7 @@
     releaseStream();
     chunks = [];
     listening = false;
+    activeEngine = null;
   }
 
   // Append transcribed text after whatever is already in the field (same join rule dictation uses).
@@ -353,12 +362,15 @@
     };
     recog.onend = () => {
       listening = false;
+      activeEngine = null;
     };
     recog.onerror = () => {
       listening = false;
+      activeEngine = null;
     };
     recog.start();
     listening = true;
+    activeEngine = "web";
   }
 
   // Keep the sheet centered in the *visible* viewport — i.e. the area above the
@@ -483,9 +495,14 @@
   function tapMic(e: PointerEvent) {
     e.preventDefault();
     if (transcribing) return;
-    if (useLocal) {
-      if (listening) stopLocalRecording();
-      else void startLocalRecording();
+    // A live session is stopped by the engine that STARTED it (not the current `useLocal`,
+    // which may have flipped mid-session) — otherwise the active recorder is never stopped.
+    if (activeEngine === "local") {
+      stopLocalRecording();
+    } else if (activeEngine === "web") {
+      recog?.stop();
+    } else if (useLocal) {
+      void startLocalRecording();
     } else {
       toggleDictation();
     }

@@ -239,20 +239,18 @@
 
   // The measured overflow result drives the flags the markup keys off, for every
   // non-mobile mode (desktop + touch-desktop). The single signal COUPLES them: on a
-  // measured overflow the numeric clock-time drops AND labels collapse to icons together
-  // — there is intentionally no clock-dropped-but-labels-full intermediate (this is the
+  // measured overflow the labels AND tallies collapse to icons together — there is
+  // intentionally no labels-collapsed-but-tallies-full intermediate (this is the
   // deliberate loss of #322's two-step ladder, kept consistent with desktop). Mobile uses
   // its own wrapping layout (the `mobile` flag), never these.
-  const hideClockTime = $derived(mode !== "mobile" && measuredCompact);
   const compactBadges = $derived(mode !== "mobile" && measuredCompact);
 
   const idle = $derived(sessions.filter((s) => displayStatus(s, workingBlocked) === "idle").length);
   const blocked = $derived(
     sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
   );
-  const clock = $derived(new Date(nowMs).toTimeString().slice(0, 8));
   const connText = $derived(
-    connected ? m.topbar_clock_tip_connected() : m.topbar_clock_tip_disconnected(),
+    connected ? m.topbar_conn_tip_connected() : m.topbar_conn_tip_disconnected(),
   );
 
   // Three-step ladder (usage-gauges.ts): muted at rest, amber 75–90 (warming),
@@ -745,8 +743,8 @@
         bind:gaugeWrap
       />
     {/if}
-    <div class="clock tip" class:no-time={hideClockTime} data-tip={connText} aria-label={connText}>
-      <span class="dot" class:on={connected}>●</span><span class="time">{clock}</span>
+    <div class="conn tip" data-tip={connText} aria-label={connText}>
+      <span class="dot" class:on={connected}>●</span>
     </div>
     {#if !mobile}<TopBarBadges
         {compactBadges}
@@ -916,29 +914,18 @@
   /* credit-gauge.* rules moved to top-bar/CreditGauge.svelte (#855) */
   /* credit-detail.* rules moved to top-bar/CreditDetail.svelte (#855) */
   /* update-badge, up-dot, up-n, update-pulse moved to top-bar/TopBarBadges.svelte (#855) */
-  .clock {
+  .conn {
     color: var(--color-ink-bright);
-    letter-spacing: 0.16em;
     display: flex;
-    gap: 9px;
     align-items: center;
-    font-variant-numeric: tabular-nums;
-  }
-  /* Measured overflow (non-mobile): hide the numeric time, keep the dot inline so the
-     right-side cluster no longer overflows the bar. */
-  .clock.no-time {
-    gap: 0;
-  }
-  .clock.no-time .time {
-    display: none;
   }
   /* connection dot: informational, so it stays in the neutral ink ramp — bright
      when connected vs faint when dropped (brightness, not a status hue, carries
      the cue; the tooltip/aria text names the state). */
-  .clock .dot {
+  .conn .dot {
     color: var(--color-faint);
   }
-  .clock .dot.on {
+  .conn .dot.on {
     color: var(--color-ink-bright);
   }
   .hud.mobile {
@@ -965,15 +952,11 @@
     font-size: var(--fs-base);
     letter-spacing: 0.12em;
   }
-  /* Mobile: drop the numeric time and let the bare connection dot ride inline at
-     the head of the right-side cluster (order:-1) — vertically centred with the
-     gauge/gear instead of floating off-centre in the corner. */
-  .hud.mobile .clock {
+  /* Mobile: let the bare connection dot ride inline at the head of the right-side
+     cluster (order:-1) — vertically centred with the gauge/gear instead of floating
+     off-centre in the corner. */
+  .hud.mobile .conn {
     order: -1;
-    gap: 0;
-  }
-  .hud.mobile .clock .time {
-    display: none;
   }
   .hud.mobile .rightside {
     flex-wrap: wrap;

@@ -354,39 +354,40 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     assertControlsHittable(hud);
   });
 
-  it("clock-drop and label-collapse are COUPLED across all widths (#322 two-step ladder dropped)", async () => {
-    // The single measured signal couples the two flags: on a measured overflow the bar
-    // drops the numeric clock AND compacts the labels together — there is NO
-    // clock-dropped-but-full-label intermediate (the deliberate loss of #322's two-step
+  it("label-collapse and tally-collapse are COUPLED across all widths (#322 two-step ladder dropped)", async () => {
+    // The single measured signal couples the two rendered compaction observables: on a
+    // measured overflow the labels AND the tallies collapse to icons together — there is NO
+    // labels-collapsed-but-tallies-full intermediate (the deliberate loss of #322's two-step
     // ladder, matching desktop). Asserted as an invariant over a width sweep rather than a
     // fixed band, so it's independent of font metrics (the exact transition width varies
-    // by the monospace fallback). At every width: clock-dropped iff labels-compacted; and
+    // by the monospace fallback). At every width: labels-compacted iff tallies-compacted; and
     // the sweep must exercise BOTH states (a wide width stays full, a narrow width
     // compacts) so the invariant can't pass vacuously.
     // Widths start at 800 (proven to fit once compacted, in CI + local) and span up to a
     // wide tablet; the exact compact↔full transition is font-dependent, but coupling must
     // hold at every width regardless. `.search` (TopBarSearch, always rendered) is the
-    // labels-compacted signal — it replaces the old lone-learnings-badge chip.
-    const states: { width: number; clockDropped: boolean; labelsCompact: boolean }[] = [];
+    // labels-compacted signal; `.tallies.compact` is the tallies signal — both keyed off the
+    // same `compactBadges` (this replaces the old numeric-clock observable, now removed).
+    const states: { width: number; labelsCompact: boolean; talliesCompact: boolean }[] = [];
     for (const width of [800, 880, 960, 1100, 1250, 1366]) {
       const hud = await renderTD(width, { update: { behind: 87 } as UpdateStatus });
       await waitNoOverflow(hud);
       await drainFrames(hud);
-      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
       const labelsCompact = hud
         .querySelector<HTMLElement>(".search")!
         .classList.contains("compact");
-      expect(clockDropped, `coupled at ${width}px (clock vs labels)`).toBe(labelsCompact);
+      const talliesCompact = !!hud.querySelector(".tallies.compact");
+      expect(labelsCompact, `coupled at ${width}px (labels vs tallies)`).toBe(talliesCompact);
       assertControlsHittable(hud);
-      states.push({ width, clockDropped, labelsCompact });
+      states.push({ width, labelsCompact, talliesCompact });
     }
     expect(
-      states.some((s) => s.clockDropped),
-      "sweep exercises the compacted state (some narrow width drops clock + compacts)",
+      states.some((s) => s.labelsCompact),
+      "sweep exercises the compacted state (some narrow width compacts labels + tallies)",
     ).toBe(true);
     expect(
-      states.some((s) => !s.clockDropped),
-      "sweep exercises the full state (some wide width keeps clock + full labels)",
+      states.some((s) => !s.labelsCompact),
+      "sweep exercises the full state (some wide width keeps labels + tallies full)",
     ).toBe(true);
   });
 
@@ -399,7 +400,7 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
     // varies). Content mirrors the screenshot: held badge + an update badge + several sessions
     // (non-zero tallies) + both usage gauges. The update badge is present so `drainFrames`
     // (which keys off `.search`, always rendered) still has settled compaction to observe.
-    const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
+    const states: { width: number; labelsCompact: boolean; talliesCompact: boolean }[] = [];
     for (const width of [800, 920, 1040, 1200, 1400, 1600]) {
       const hud = await renderTD(width, {
         ...sessionsProp(4),
@@ -408,10 +409,14 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
       });
       await waitNoOverflow(hud);
       await drainFrames(hud);
-      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
+      const labelsCompact = hud
+        .querySelector<HTMLElement>(".search")!
+        .classList.contains("compact");
       const talliesCompact = !!hud.querySelector(".tallies.compact");
-      // Coupling: tallies compact iff the measured-overflow signal fired (clock dropped).
-      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(clockDropped);
+      // Coupling: tallies compact iff the measured-overflow signal fired (labels compacted).
+      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(
+        labelsCompact,
+      );
       // Whichever form rendered, it must be the right one — never both, never neither.
       if (talliesCompact) {
         expect(hud.querySelector(".tally"), `no full tally at ${width}px`).toBeNull();
@@ -420,7 +425,7 @@ describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-drive
         expect(hud.querySelector(".micro"), `full tally label at ${width}px`).not.toBeNull();
       }
       assertControlsHittable(hud);
-      states.push({ width, clockDropped, talliesCompact });
+      states.push({ width, labelsCompact, talliesCompact });
     }
     expect(
       states.some((s) => s.talliesCompact),
@@ -665,7 +670,7 @@ describe("TopBar — fine-pointer desktop tallies ALSO collapse under measured o
   }
 
   it("narrow desktop window collapses the tallies to fit; wide keeps full labels (no over-compaction)", async () => {
-    const states: { width: number; clockDropped: boolean; talliesCompact: boolean }[] = [];
+    const states: { width: number; labelsCompact: boolean; talliesCompact: boolean }[] = [];
     for (const width of [1000, 1150, 1350, 1500, 1650]) {
       const hud = await renderDesktopBar(width, {
         heldCount: 3,
@@ -673,16 +678,20 @@ describe("TopBar — fine-pointer desktop tallies ALSO collapse under measured o
       });
       await waitNoOverflow(hud);
       await drainFrames(hud);
-      const clockDropped = hud.querySelector(".clock")!.classList.contains("no-time");
+      const labelsCompact = hud
+        .querySelector<HTMLElement>(".search")!
+        .classList.contains("compact");
       const talliesCompact = !!hud.querySelector(".tallies.compact");
-      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(clockDropped);
+      expect(talliesCompact, `tallies coupled to overflow signal at ${width}px`).toBe(
+        labelsCompact,
+      );
       if (talliesCompact) {
         expect(hud.querySelector(".tally"), `no full tally at ${width}px`).toBeNull();
       } else {
         expect(hud.querySelector(".tally"), `full tally present at ${width}px`).not.toBeNull();
       }
       assertControlsHittable(hud);
-      states.push({ width, clockDropped, talliesCompact });
+      states.push({ width, labelsCompact, talliesCompact });
     }
     expect(
       states.some((s) => s.talliesCompact),

@@ -2408,5 +2408,9 @@
   "epic_handsoff_apply_failed": "Ohne-Eingriff-Standards konnten nicht übernommen werden.",
   "epic_handsoff_guide": "Vollständige Anleitung ↗",
   "automation_handsoff_hint": "Empfohlen für Epics ohne Eingriff →",
-  "epic_handsoff_mode_failed": "Standards übernommen, aber der Epic konnte nicht auf Auto-Modus umgestellt werden — stelle den Epic-Modus in den Steuerelementen unten ein."
+  "epic_handsoff_mode_failed": "Standards übernommen, aber der Epic konnte nicht auf Auto-Modus umgestellt werden — stelle den Epic-Modus in den Steuerelementen unten ein.",
+  "composebar_transcribing": "Wird transkribiert…",
+  "composebar_transcribe_failed": "Transkription fehlgeschlagen – bitte erneut versuchen.",
+  "feat_voice_whisper_title": "Spracheingabe mit lokalem Whisper",
+  "feat_voice_whisper_body": "Installiere das optionale voice-whisper-Plugin, und das Mikrofon der Compose-Leiste transkribiert direkt auf deinem Rechner per whisper.cpp – gleichbleibende Qualität, nichts verlässt den Host, und endlich ein funktionierendes Mikrofon in der iOS-Homescreen-PWA."
 }

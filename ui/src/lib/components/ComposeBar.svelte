@@ -3,7 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
-  import { getCommands } from "$lib/api";
+  import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -183,6 +183,151 @@
   let listening = $state(false);
   let recog: SpeechRecognitionInstance | null = null;
 
+  // ── local Whisper voice input (the optional voice-whisper plugin) ──────────────────
+  // Server-side transcription: record with MediaRecorder, POST the clip to the plugin, insert
+  // the returned text. This is the ONLY mic in an iOS home-screen PWA (no Web Speech there).
+  // Detection is memoized once per page load; absent (404) → we keep Web Speech / hide the mic
+  // exactly as before. The backend is the optional voice-whisper plugin (issue #76):
+  // https://github.com/erwins-enkel/shepherd-plugin-voice-whisper — install it into ~/.shepherd/plugins/.
+  let localVoiceAvailable = $state(false);
+  let preferLocal = $state(false);
+  let transcribing = $state(false);
+  let voiceError = $state(false);
+  let voiceErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // The client must actually be able to record — MediaRecorder + getUserMedia. Without them a
+  // server-available plugin still can't be used from this browser, so treat local as unusable.
+  const recorderSupported =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
+  const localUsable = $derived(localVoiceAvailable && recorderSupported);
+
+  // The mic shows whenever *either* engine can run; it uses local when Web Speech is absent
+  // (iOS PWA) or when the plugin asks to be preferred, else the browser's live dictation.
+  const micVisible = $derived(speechSupported || localUsable);
+  const useLocal = $derived(localUsable && (!speechSupported || preferLocal));
+
+  let mediaRecorder: MediaRecorder | null = null;
+  let mediaStream: MediaStream | null = null;
+  let chunks: Blob[] = [];
+  let recordTimer: ReturnType<typeof setTimeout> | null = null;
+  const MAX_RECORD_MS = 60_000; // cap a single clip so a forgotten mic can't record forever
+
+  function pickMimeType(): string | undefined {
+    if (typeof MediaRecorder === "undefined") return undefined;
+    for (const c of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"])
+      if (MediaRecorder.isTypeSupported(c)) return c;
+    return undefined; // let the browser choose its default container
+  }
+
+  function flashVoiceError() {
+    voiceError = true;
+    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
+    voiceErrorTimer = setTimeout(() => (voiceError = false), 4000);
+  }
+
+  // Start recording. Called from an in-sheet mic tap — a FRESH user-activation gesture, never
+  // on mount, so getUserMedia stays inside its activation window across the async sheet mount.
+  async function startLocalRecording() {
+    if (listening || transcribing) return;
+    if (!recorderSupported) {
+      flashVoiceError();
+      return;
+    }
+    voiceError = false;
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      flashVoiceError();
+      return;
+    }
+    const mimeType = pickMimeType();
+    chunks = [];
+    // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in use);
+    // release the just-acquired mic stream so it isn't left open on failure.
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size) chunks.push(e.data);
+      };
+      mediaRecorder.onstop = () => void finishLocalRecording();
+      mediaRecorder.start();
+    } catch {
+      mediaRecorder = null;
+      releaseStream();
+      flashVoiceError();
+      return;
+    }
+    listening = true;
+    recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
+  }
+
+  // User-initiated stop → let onstop fire finishLocalRecording (which uploads + inserts).
+  function stopLocalRecording() {
+    if (recordTimer) {
+      clearTimeout(recordTimer);
+      recordTimer = null;
+    }
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    listening = false;
+  }
+
+  async function finishLocalRecording() {
+    const type = mediaRecorder?.mimeType || "audio/webm";
+    releaseStream();
+    mediaRecorder = null;
+    if (chunks.length === 0) return;
+    const blob = new Blob(chunks, { type });
+    chunks = [];
+    transcribing = true;
+    try {
+      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      if (text) appendTranscript(text);
+    } catch {
+      flashVoiceError();
+    } finally {
+      transcribing = false;
+    }
+  }
+
+  function releaseStream() {
+    mediaStream?.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+  }
+
+  // Tear down an in-progress recording WITHOUT uploading (dismiss/submit/destroy): drop the
+  // onstop handler first so stopping never triggers a transcription of a discarded clip.
+  function teardownRecording() {
+    if (recordTimer) {
+      clearTimeout(recordTimer);
+      recordTimer = null;
+    }
+    if (mediaRecorder) {
+      mediaRecorder.ondataavailable = null;
+      mediaRecorder.onstop = null;
+      if (mediaRecorder.state !== "inactive") {
+        try {
+          mediaRecorder.stop();
+        } catch {
+          /* already stopped */
+        }
+      }
+      mediaRecorder = null;
+    }
+    releaseStream();
+    chunks = [];
+    listening = false;
+  }
+
+  // Append transcribed text after whatever is already in the field (same join rule dictation uses).
+  function appendTranscript(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    value = value.trim() ? value.trimEnd() + " " + t : t;
+    queueMicrotask(autogrow);
+  }
+
   function toggleDictation() {
     if (!SpeechRec) return;
     if (listening) {
@@ -236,11 +381,23 @@
     // still edit the transcript inline
     ta?.focus();
     autogrow();
+    // Probe for the local-Whisper plugin (memoized once per page load). Never auto-starts
+    // local recording — that needs a fresh in-sheet tap for the getUserMedia gesture.
+    getVoiceStatus()
+      .then((s) => {
+        localVoiceAvailable = s.available;
+        preferLocal = s.preferLocal;
+      })
+      .catch(() => {});
+    // `startDictation` ("open already listening") is a Web-Speech affordance; the ◉ chip that
+    // sets it only appears where Web Speech works, so this never fights the local path.
     if (startDictation && speechSupported) toggleDictation();
   });
 
   onDestroy(() => {
     recog?.stop();
+    teardownRecording();
+    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
     window.visualViewport?.removeEventListener("resize", syncViewport);
     window.visualViewport?.removeEventListener("scroll", syncViewport);
   });
@@ -254,7 +411,7 @@
 
   function submit() {
     recog?.stop();
-    listening = false;
+    teardownRecording();
     slashOpen = false;
     onsend(value);
     value = "";
@@ -263,7 +420,7 @@
 
   function cancel() {
     recog?.stop();
-    listening = false;
+    teardownRecording();
     onclose();
   }
 
@@ -325,7 +482,13 @@
   // (which would dismiss the mobile soft keyboard), matching ControlBar.
   function tapMic(e: PointerEvent) {
     e.preventDefault();
-    toggleDictation();
+    if (transcribing) return;
+    if (useLocal) {
+      if (listening) stopLocalRecording();
+      else void startLocalRecording();
+    } else {
+      toggleDictation();
+    }
   }
   function tapSend(e: PointerEvent) {
     e.preventDefault();
@@ -405,13 +568,22 @@
         {/each}
       </div>
     {/if}
+    {#if voiceError}
+      <div class="voice-hint" role="alert">{m.composebar_transcribe_failed()}</div>
+    {/if}
     <div class="actions">
-      {#if speechSupported}
+      {#if micVisible}
         <button
           type="button"
           class="btn mic"
           class:listening
-          aria-label={listening ? m.composebar_dictate_stop_aria() : m.composebar_dictate_aria()}
+          class:transcribing
+          disabled={transcribing}
+          aria-label={transcribing
+            ? m.composebar_transcribing()
+            : listening
+              ? m.composebar_dictate_stop_aria()
+              : m.composebar_dictate_aria()}
           aria-pressed={listening}
           onpointerdown={tapMic}>{m.composebar_dictate()}</button
         >
@@ -619,11 +791,16 @@
     font-size: var(--fs-lg);
     line-height: 1;
   }
-  /* while listening: highlighted + a soft pulse so it reads as "recording" */
-  .btn.mic.listening {
+  /* while listening/transcribing: highlighted + a soft pulse so it reads as "working" */
+  .btn.mic.listening,
+  .btn.mic.transcribing {
     background: var(--color-line-bright);
     border-color: var(--color-ink);
     animation: micPulse 1s ease-in-out infinite;
+  }
+  .btn.mic:disabled {
+    cursor: default;
+    opacity: 0.7;
   }
   @keyframes micPulse {
     0%,
@@ -635,8 +812,17 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .btn.mic.listening {
+    .btn.mic.listening,
+    .btn.mic.transcribing {
       animation: none;
     }
+  }
+
+  /* transient error line above the action row when a transcription fails */
+  .voice-hint {
+    color: var(--color-red);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    padding: 0 2px;
   }
 </style>

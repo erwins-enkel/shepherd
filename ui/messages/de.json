@@ -1291,7 +1291,7 @@
   "feat_session_recap_title": "Sitzungszusammenfassung",
   "feat_session_recap_body": "Shepherd erstellt nach jeder Sitzung eine kompakte Zusammenfassung — mit Ergebnis, Überschrift und offenen Punkten — damit du auf einen Blick siehst, was passiert ist.",
   "newtask_research_label": "Recherche-Aufgabe",
-  "newtask_research_hint": "Webrecherche → ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen.",
+  "newtask_research_hint": "Webrecherche → ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen. Plan-Gate und Autopilot gelten hier nicht und sind deaktiviert.",
   "newtask_research_sandbox_note": "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang.",
   "research_badge_label": "Recherche",
   "research_badge_title": "Rechercheaufgabe: Web-Recherche → ein Bericht-PR oder ein GitHub-Issue",

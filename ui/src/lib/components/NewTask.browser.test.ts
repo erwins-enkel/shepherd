@@ -249,7 +249,12 @@ describe("NewTask plan-gate inheritance", () => {
     return { promise, resolve, reject };
   }
 
-  const planGateBox = () => document.querySelector<HTMLInputElement>(".plan-gate input")!;
+  // Research renders first in the stack, so match the plan-gate row by label
+  // instead of grabbing the first `.plan-gate input`.
+  const planGateBox = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
+      el.closest("label")?.textContent?.includes(m.newtask_plan_gate_label()),
+    )!;
   const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
 
   async function fillAndSubmit() {
@@ -548,18 +553,21 @@ describe("NewTask research toggle", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false, research: true });
   });
 
-  it("toggling plan-gate on unchecks Research", async () => {
+  it("disables plan-gate and Autopilot while Research is on, re-enables on uncheck", async () => {
     render(NewTask, { props: base() });
     await expect.poll(() => researchBox()).toBeTruthy();
 
-    // tick Research on first
+    // tick Research on → both rows lock (visible exclusivity, not silent re-checkable)
     researchBox().click();
     await expect.poll(() => researchBox().checked).toBe(true);
+    await expect.poll(() => planGateBox().disabled).toBe(true);
+    await expect.poll(() => autopilotBox().disabled).toBe(true);
 
-    // then tick plan-gate → Research should clear
-    planGateBox().click();
-    await expect.poll(() => planGateBox().checked).toBe(true);
+    // untick Research → both rows unlock
+    researchBox().click();
     await expect.poll(() => researchBox().checked).toBe(false);
+    await expect.poll(() => planGateBox().disabled).toBe(false);
+    await expect.poll(() => autopilotBox().disabled).toBe(false);
   });
 
   it("disables the autonomous sandbox option when Research is on", async () => {

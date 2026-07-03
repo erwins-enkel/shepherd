@@ -65,73 +65,14 @@
   });
 </script>
 
-<!-- Per-task run settings. Plan gate gets its own full-width row so its explainer
-     reads on one line; Model + Sandbox share a 50/50 row beneath. -->
+<!-- Per-task run settings. Each toggle gets its own full-width row so its explainer
+     reads on one line; Model + Sandbox share a 50/50 row beneath. Research leads the
+     stack: it's the mode switch that disables the two options under it. -->
 <div class="opts-row">
   <!-- Each toggle's long explainer now lives behind an InfoTip "i" rather than a
        wrapped hint paragraph — keeps this stack of options compact, which matters
        most on the phone sheet. The InfoTip is a sibling of the <label> (not nested
        inside it) so a tap on the "i" never toggles the checkbox. -->
-  <div class="pg-row">
-    <label class="plan-gate" use:coachTarget={"plan-gate"}>
-      <input
-        type="checkbox"
-        checked={planGate}
-        onchange={(e) => {
-          planGate = e.currentTarget.checked;
-          onPlanGateTouched();
-          if (planGate) research = false;
-        }}
-        disabled={planGateLoading}
-      />
-      <span class="pg-label">{m.newtask_plan_gate_label()}</span>
-    </label>
-    {#if planGateLoading}
-      <span class="pg-loading">{m.common_loading()}</span>
-    {/if}
-    <InfoTip
-      text={m.newtask_plan_gate_hint()}
-      label={m.newtask_info_aria({ topic: m.newtask_plan_gate_label() })}
-    />
-  </div>
-
-  <!-- Relaunch intentionally CARRIES the original session's autopilot value
-       (server-side, src/service.ts relaunch()), so RelaunchOverrides has no
-       autopilotEnabled field and the override wouldn't take effect here.
-       Hide the control in relaunch so it never implies an override it can't honor. -->
-  {#if !relaunch}
-    <div class="pg-row">
-      <label class="plan-gate" use:coachTarget={"task-autopilot"}>
-        <input
-          type="checkbox"
-          checked={autopilot}
-          onchange={(e) => {
-            autopilot = e.currentTarget.checked;
-            onAutopilotTouched();
-          }}
-          disabled={autopilotLoading}
-        />
-        <span class="pg-label">{m.newtask_autopilot_label()}</span>
-      </label>
-      <!-- The repo's standing default, shown alongside so it's clear how this repo
-           normally handles it — the checkbox is seeded from it on open, so unchecking
-           here is a visible, deliberate opt-out for this one task. -->
-      {#if autopilotLoading}
-        <span class="pg-loading">{m.common_loading()}</span>
-      {:else if repoPath}
-        <span class="repo-default" class:on={autopilotDefault}>
-          {autopilotDefault
-            ? m.newtask_autopilot_repo_default_on()
-            : m.newtask_autopilot_repo_default_off()}
-        </span>
-      {/if}
-      <InfoTip
-        text={m.newtask_autopilot_hint()}
-        label={m.newtask_info_aria({ topic: m.newtask_autopilot_label() })}
-      />
-    </div>
-  {/if}
-
   <div class="pg-row">
     <label class="plan-gate">
       <input
@@ -156,6 +97,68 @@
       label={m.newtask_info_aria({ topic: m.newtask_research_label() })}
     />
   </div>
+
+  <!-- Plan gate + Autopilot don't apply to research tasks: while Research is checked
+       they render disabled/muted (research-locked) instead of silently re-checkable.
+       The Research InfoTip carries the reason. -->
+  <div class="pg-row">
+    <label class="plan-gate" class:research-locked={research} use:coachTarget={"plan-gate"}>
+      <input
+        type="checkbox"
+        checked={planGate}
+        onchange={(e) => {
+          planGate = e.currentTarget.checked;
+          onPlanGateTouched();
+        }}
+        disabled={planGateLoading || research}
+      />
+      <span class="pg-label">{m.newtask_plan_gate_label()}</span>
+    </label>
+    {#if planGateLoading}
+      <span class="pg-loading">{m.common_loading()}</span>
+    {/if}
+    <InfoTip
+      text={m.newtask_plan_gate_hint()}
+      label={m.newtask_info_aria({ topic: m.newtask_plan_gate_label() })}
+    />
+  </div>
+
+  <!-- Relaunch intentionally CARRIES the original session's autopilot value
+       (server-side, src/service.ts relaunch()), so RelaunchOverrides has no
+       autopilotEnabled field and the override wouldn't take effect here.
+       Hide the control in relaunch so it never implies an override it can't honor. -->
+  {#if !relaunch}
+    <div class="pg-row">
+      <label class="plan-gate" class:research-locked={research} use:coachTarget={"task-autopilot"}>
+        <input
+          type="checkbox"
+          checked={autopilot}
+          onchange={(e) => {
+            autopilot = e.currentTarget.checked;
+            onAutopilotTouched();
+          }}
+          disabled={autopilotLoading || research}
+        />
+        <span class="pg-label">{m.newtask_autopilot_label()}</span>
+      </label>
+      <!-- The repo's standing default, shown alongside so it's clear how this repo
+           normally handles it — the checkbox is seeded from it on open, so unchecking
+           here is a visible, deliberate opt-out for this one task. -->
+      {#if autopilotLoading}
+        <span class="pg-loading">{m.common_loading()}</span>
+      {:else if repoPath}
+        <span class="repo-default" class:on={autopilotDefault}>
+          {autopilotDefault
+            ? m.newtask_autopilot_repo_default_on()
+            : m.newtask_autopilot_repo_default_off()}
+        </span>
+      {/if}
+      <InfoTip
+        text={m.newtask_autopilot_hint()}
+        label={m.newtask_info_aria({ topic: m.newtask_autopilot_label() })}
+      />
+    </div>
+  {/if}
 
   <div class="run-config">
     <div class="model-field">
@@ -348,6 +351,12 @@
   .plan-gate:has(input:disabled) {
     cursor: progress;
     opacity: 0.6;
+  }
+  /* Disabled because Research is on (permanent lock, not transient loading): scoped
+     with :has(input:disabled) so it outranks the progress rule above; when a row is
+     both loading and research-locked, the lock wins. */
+  .plan-gate.research-locked:has(input:disabled) {
+    cursor: not-allowed;
   }
   .pg-label {
     color: var(--color-ink-bright);

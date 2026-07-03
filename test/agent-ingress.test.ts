@@ -19,9 +19,10 @@ const SID = "step_abc";
 const parts = (p: string) => p.split("/").filter(Boolean);
 
 // ── isAgentIngressRoute: exhaustive allow/deny table ────────────────────────────
-test("isAgentIngressRoute: ALLOWS exactly the three agent→server routes", () => {
+test("isAgentIngressRoute: ALLOWS exactly the four agent→server routes", () => {
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks`))).toBe(true);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/queue`))).toBe(true);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(true);
 });
 
@@ -36,9 +37,10 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   // Wrong methods on the allowed paths.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
-  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue`))).toBe(false);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue`))).toBe(false);
+  expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/queue`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(false);
   // queue/steps without a step id, or with a trailing extra segment.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps`))).toBe(false);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps/${SID}/x`))).toBe(
@@ -165,6 +167,36 @@ test("makeAgentIngressApp: an ALLOWED route DELEGATES to the full app (reaches t
   const q = await ok.json();
   expect(q.steps.length).toBe(1);
   expect(q.steps[0].title).toBe("do a thing");
+});
+
+test("makeAgentIngressApp: GET /api/sessions/:id/queue delegates — the agent can read back the queue it authored", async () => {
+  // The spawn directive tells the agent to "inspect the current queue at any time" and to re-GET
+  // the queue to recover step ids. A gate that 404s this GET makes agents conclude the whole
+  // build-queue endpoint is dead and abandon the queue.
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const app = makeAgentIngressApp(deps);
+
+  const put = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/queue`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ steps: [{ id: "s1", title: "do a thing" }] }),
+    }),
+  );
+  expect(put.status).toBe(200);
+
+  const get = await app.fetch(new Request(`http://x/api/sessions/${s.id}/queue`));
+  expect(get.status).toBe(200);
+  const q = await get.json();
+  expect(q.steps.length).toBe(1);
+  expect(q.steps[0].id).toBe("s1");
 });
 
 test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth gate (issue #1079)", async () => {

@@ -20,9 +20,7 @@
   const windows = $derived(codexGaugeList(usage));
 </script>
 
-<div class="provider-head">
-  <span class="provider-name">{m.agent_provider_codex()}</span>
-</div>
+<!-- Section heading ("Codex usage") is rendered by the parent popover; this is the body. -->
 {#each windows as g (g.label)}
   <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
 {/each}
@@ -43,17 +41,6 @@
 </div>
 
 <style>
-  .provider-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
-  .provider-name {
-    color: var(--color-text);
-    font-size: var(--fs-meta);
-    text-transform: capitalize;
-  }
   .limits-unavailable {
     margin: 4px 0 6px;
     padding: 6px 0;

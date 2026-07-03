@@ -1499,6 +1499,47 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(detail!.querySelector(".credit-refresh"), "refresh button reachable").not.toBeNull();
   });
 
+  it("a stale Claude snapshot dims only the Claude section, not fresh Codex usage", async () => {
+    // Claude limits stale + a fresh Codex provider: the Claude subsection dims, but the Codex
+    // section (own codexUsage.stale=false) must stay lit — the stale must not ride the popover root.
+    const limits: UsageLimits = {
+      session5h: { pct: 42, resetAt: 1_700_003_600_000 },
+      week: { pct: 30, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
+      credits: null,
+      stale: true,
+      calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 1_000_000,
+          session5hTokens: 100_000,
+          weekTokens: 1_000_000,
+          session5h: null,
+          week: null,
+          updatedAt: 1_700_000_000_000,
+          stale: false,
+        },
+      ],
+    };
+    const hud = await renderDesktop(limits);
+    openDesktopPopover(hud);
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop, "popover open").not.toBeNull();
+    expect(pop!.classList.contains("stale"), "root popover is not globally dimmed").toBe(false);
+    expect(
+      pop!.querySelector(".gauge-pop-claude")!.classList.contains("stale"),
+      "Claude section is dimmed",
+    ).toBe(true);
+    expect(
+      pop!.querySelector(".token-window")!.classList.contains("stale"),
+      "fresh Codex usage is NOT dimmed",
+    ).toBe(false);
+  });
+
   it("the per-window reset detail is present in the dialog the instant it opens", async () => {
     const hud = await renderDesktop(limitsWithCredit({}));
     openDesktopPopover(hud);

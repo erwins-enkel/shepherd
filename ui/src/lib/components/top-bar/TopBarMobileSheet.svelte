@@ -125,6 +125,8 @@
   // Codex's own 5h/weekly rate-limit windows as Claude-style gauges, so both CLIs read alike.
   // Empty when Shepherd cannot find a rate-limit event in Codex rollouts.
   const codexWindows = $derived(codexGaugeList(codexUsage));
+  // Claude vs Codex are distinct providers with their own labelled sections.
+  const hasClaude = $derived(gauges.length > 0 || perModel.length > 0 || !!credits);
 </script>
 
 <!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
@@ -188,52 +190,62 @@
 
     <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
     {#if gauges.length || perModel.length || credits || subscriptionOnly || codexUsage}
-      <div class="sheet-section-label micro">{m.topbar_sheet_usage()}</div>
       {#if subscriptionOnly && !codexUsage}
+        <div class="sheet-section-label micro">
+          {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
+        </div>
         <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
       {:else}
-        <div class="sheet-gauges {stale ? 'stale' : ''}">
-          {#each gauges as g (g.label)}
-            <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
-          {/each}
-          {#each perModel as entry (entry.model)}
-            <div class="sheet-model-row">
-              <ModelWeekGauge {entry} {nowMs} />
+        {#if hasClaude}
+          <div class="sheet-section-label micro">
+            {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
+          </div>
+          <div class="sheet-gauges {stale ? 'stale' : ''}">
+            {#each gauges as g (g.label)}
+              <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
+            {/each}
+            {#each perModel as entry (entry.model)}
+              <div class="sheet-model-row">
+                <ModelWeekGauge {entry} {nowMs} />
+              </div>
+            {/each}
+            <CreditDetail
+              {credits}
+              {creditFill}
+              {creditColor}
+              {creditAmount}
+              {nowMs}
+              {refreshing}
+              {refreshError}
+              {onRefresh}
+            />
+          </div>
+        {/if}
+        {#if codexUsage}
+          <div class="sheet-section-label micro">
+            {m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })}
+          </div>
+          <div class="sheet-gauges {codexUsage.stale ? 'stale' : ''}">
+            {#each codexWindows as g (g.label)}
+              <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
+            {/each}
+            {#if codexWindows.length === 0}
+              <div class="limits-unavailable micro">{m.topbar_codex_limits_unavailable()}</div>
+            {/if}
+            <div class="token-line">
+              <span>{m.topbar_tokens_window({ period: "5H" })}</span>
+              <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
             </div>
-          {/each}
-          <CreditDetail
-            {credits}
-            {creditFill}
-            {creditColor}
-            {creditAmount}
-            {nowMs}
-            {refreshing}
-            {refreshError}
-            {onRefresh}
-          />
-          {#if codexUsage}
-            <div class="sheet-token-row" class:stale={codexUsage.stale}>
-              <div class="token-head">
-                <span class="token-provider">{m.agent_provider_codex()}</span>
-                <span class="token-total">{formatTokenLabel(codexUsage.totalTokens)}</span>
-              </div>
-              {#each codexWindows as g (g.label)}
-                <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
-              {/each}
-              {#if codexWindows.length === 0}
-                <div class="limits-unavailable micro">{m.topbar_codex_limits_unavailable()}</div>
-              {/if}
-              <div class="token-line">
-                <span>{m.topbar_tokens_window({ period: "5H" })}</span>
-                <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
-              </div>
-              <div class="token-line">
-                <span>{m.topbar_tokens_window({ period: "WK" })}</span>
-                <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
-              </div>
+            <div class="token-line">
+              <span>{m.topbar_tokens_window({ period: "WK" })}</span>
+              <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
             </div>
-          {/if}
-        </div>
+            <div class="token-line">
+              <span>{m.topbar_tokens_total()}</span>
+              <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
+            </div>
+          </div>
+        {/if}
       {/if}
       <button
         type="button"
@@ -565,27 +577,12 @@
   .sheet-gauges.stale {
     opacity: 0.5;
   }
-  .sheet-model-row,
-  .sheet-token-row {
+  .sheet-model-row {
     display: flex;
     flex-direction: column;
     gap: 5px;
     padding-top: 6px;
     border-top: 1px solid var(--color-line);
-  }
-  .sheet-token-row.stale {
-    opacity: 0.5;
-  }
-  .token-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
-  .token-provider {
-    color: var(--color-text);
-    font-size: var(--fs-meta);
-    text-transform: capitalize;
   }
   .limits-unavailable {
     padding: 6px 0;
@@ -595,13 +592,10 @@
     letter-spacing: 0.08em;
     line-height: 1.35;
   }
-  .token-total,
   .token-line {
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
-  }
-  .token-line {
     display: flex;
     justify-content: space-between;
     gap: 16px;

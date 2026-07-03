@@ -48,6 +48,10 @@
   function optionalDialog(node: HTMLElement) {
     return desktop ? dialog(node, { onclose: onClose }) : {};
   }
+
+  // Claude vs Codex are distinct providers with their own labelled sections. The Claude heading
+  // shows only when Claude has data (else a codex-only popover would show an empty section).
+  const hasClaude = $derived(gauges.length > 0 || perModel.length > 0 || !!credits);
 </script>
 
 <div
@@ -55,58 +59,68 @@
   class:gauge-pop-desk={desktop}
   role="dialog"
   aria-label={m.topbar_gauge_popover_title()}
-  class:stale
   use:optionalDialog
 >
-  <div class="gauge-pop-title micro">
-    {m.topbar_gauge_popover_title()}{stale ? m.topbar_gauge_stale_suffix() : ""}
-  </div>
-  {#if desktop}
-    {#each gauges as g (g.label)}
-      <div class="gp-window">
-        <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
-      </div>
-    {/each}
-    {#each perModel as entry (entry.model)}
-      <div class="gp-window">
-        <ModelWeekGauge {entry} {nowMs} />
-      </div>
-    {/each}
-    {#if credits}
-      <div class="gp-window">
-        <CreditDetail
-          {credits}
-          {creditFill}
-          {creditColor}
-          {creditAmount}
-          {nowMs}
-          {refreshing}
-          {refreshError}
-          {onRefresh}
-        />
+  <!-- Claude section. `stale` (Claude limits staleness) dims ONLY this block — the Codex section
+       below carries its own `codexUsage.stale`, so a stale Claude snapshot must not dim fresh Codex. -->
+  <div class="gauge-pop-claude" class:stale>
+    {#if hasClaude}
+      <div class="gauge-pop-title micro">
+        {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}{stale
+          ? m.topbar_gauge_stale_suffix()
+          : ""}
       </div>
     {/if}
-  {:else}
-    {#each gauges as g (g.label)}
-      <LimitGaugeRow label={g.label} limit={g.w} {nowMs} inline />
-    {/each}
-    {#each perModel as entry (entry.model)}
-      <div class="gauge-pop-row-model">
-        <ModelWeekGauge {entry} {nowMs} />
-      </div>
-    {/each}
-    <CreditDetail
-      {credits}
-      {creditFill}
-      {creditColor}
-      {creditAmount}
-      {nowMs}
-      {refreshing}
-      {refreshError}
-      {onRefresh}
-    />
-  {/if}
+    {#if desktop}
+      {#each gauges as g (g.label)}
+        <div class="gp-window">
+          <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
+        </div>
+      {/each}
+      {#each perModel as entry (entry.model)}
+        <div class="gp-window">
+          <ModelWeekGauge {entry} {nowMs} />
+        </div>
+      {/each}
+      {#if credits}
+        <div class="gp-window">
+          <CreditDetail
+            {credits}
+            {creditFill}
+            {creditColor}
+            {creditAmount}
+            {nowMs}
+            {refreshing}
+            {refreshError}
+            {onRefresh}
+          />
+        </div>
+      {/if}
+    {:else}
+      {#each gauges as g (g.label)}
+        <LimitGaugeRow label={g.label} limit={g.w} {nowMs} inline />
+      {/each}
+      {#each perModel as entry (entry.model)}
+        <div class="gauge-pop-row-model">
+          <ModelWeekGauge {entry} {nowMs} />
+        </div>
+      {/each}
+      <CreditDetail
+        {credits}
+        {creditFill}
+        {creditColor}
+        {creditAmount}
+        {nowMs}
+        {refreshing}
+        {refreshError}
+        {onRefresh}
+      />
+    {/if}
+  </div>
   {#if codexUsage}
+    <div class="gauge-pop-title micro codex-heading">
+      {m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })}
+    </div>
     <div class="gp-window token-window" class:stale={codexUsage.stale}>
       <CodexTokenDetail usage={codexUsage} {nowMs} {periodLabel} />
     </div>
@@ -133,11 +147,27 @@
     flex-direction: column;
     gap: 4px;
   }
-  .gauge-pop.stale {
+  /* Claude section wrapper: column layout inheriting the pop's row gap so wrapping the Claude
+     blocks doesn't change their spacing. `.stale` dims ONLY this section. */
+  .gauge-pop-claude {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .gauge-pop-desk .gauge-pop-claude {
+    gap: 0;
+  }
+  .gauge-pop-claude.stale {
     opacity: 0.5;
   }
   .gauge-pop-title {
     margin-bottom: 6px;
+  }
+  /* Codex is a separate provider section — set it off from the Claude block above. */
+  .codex-heading {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-line);
   }
   .gauge-pop-row-model {
     margin-bottom: 6px;

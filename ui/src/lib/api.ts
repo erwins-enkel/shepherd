@@ -26,6 +26,7 @@ import type {
   CodexUpdateStatus,
   DiagnosticsSnapshot,
   PluginInfo,
+  InstalledPlugin,
   StarPromptStatus,
   Steer,
   DiffResult,
@@ -1150,6 +1151,51 @@ export async function getPlugins(): Promise<PluginInfo[]> {
   if (!r.ok) throw await failed(r, "plugins");
   const body = (await r.json()) as { plugins: PluginInfo[] };
   return body.plugins ?? [];
+}
+
+/** All plugin FOLDERS on disk (the Settings → Plugins manager list), including
+ *  pending-restart, soft-disabled, and broken folders — not just loaded plugins. */
+export async function getInstalledPlugins(): Promise<InstalledPlugin[]> {
+  const r = await fetch("/api/plugins/manage/installed");
+  if (!r.ok) throw await failed(r, "installed plugins");
+  const body = (await r.json()) as { installed: InstalledPlugin[] };
+  return body.installed ?? [];
+}
+
+/** Install a plugin by GitHub URL. Returns a discriminated result — `error` is a stable
+ *  server-side CODE (e.g. `url_not_github`, `id_collision`) the caller maps to a message,
+ *  never raw text — so a bad URL surfaces inline rather than throwing. */
+export async function installPlugin(
+  url: string,
+): Promise<
+  | { ok: true; plugin: { id: string; name: string; version: string; folder: string } }
+  | { ok: false; error: string }
+> {
+  const r = await fetch("/api/plugins/manage/install", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const body = (await r.json().catch(() => ({}))) as {
+    plugin?: { id: string; name: string; version: string; folder: string };
+    error?: string;
+  };
+  if (r.ok && body.plugin) return { ok: true, plugin: body.plugin };
+  flagIfUnauthorized(r.status);
+  return { ok: false, error: typeof body.error === "string" ? body.error : "install_failed" };
+}
+
+/** Uninstall a plugin folder. Returns a discriminated result mirroring {@link installPlugin}. */
+export async function uninstallPlugin(
+  folder: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await fetch(`/api/plugins/manage/installed/${encodeURIComponent(folder)}`, {
+    method: "DELETE",
+  });
+  if (r.ok) return { ok: true };
+  flagIfUnauthorized(r.status);
+  const body = (await r.json().catch(() => ({}))) as { error?: string };
+  return { ok: false, error: typeof body.error === "string" ? body.error : "uninstall_failed" };
 }
 
 /** Invoke a plugin-registered route at `/api/plugins/<id>/<path>` with the given method.

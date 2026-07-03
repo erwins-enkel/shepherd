@@ -1348,6 +1348,21 @@ export interface PluginInfo {
   gearItem: PluginGearItem | null;
 }
 
+/** A plugin FOLDER on disk, as surfaced to the Settings → Plugins manager. Mirrors
+ *  `InstalledPlugin` in src/plugins/types.ts — reflects the filesystem, so pending-restart,
+ *  soft-disabled, and broken folders are listed too. The manager unions this by `id` with
+ *  the live `PluginInfo[]`. */
+export interface InstalledPlugin {
+  id: string;
+  name: string;
+  version: string;
+  /** Directory name under the plugins dir — the uninstall key. */
+  folder: string;
+  loaded: boolean;
+  disabled: boolean;
+  broken: boolean;
+}
+
 // Up Next (#1169) — cross-repo ranked queue of un-started work. Mirrors src/up-next-core.ts.
 export type UpNextKind = "epic" | "bug" | "feature";
 export interface UpNextItem {

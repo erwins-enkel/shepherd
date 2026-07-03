@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Plugins",
     path: "/reference/plugins/",
     keywords:
-      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading manifest (plugin.json) entry contract the ctx capability seam the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
+      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui manifest (plugin.json) entry contract the ctx capability seam the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
   },
   {
     title: "Security",

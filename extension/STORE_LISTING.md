@@ -126,15 +126,18 @@ The body below is the source of truth the hosted page mirrors — keep the two i
 - ~~**Host the privacy policy** body above at a public URL and add a contact address.~~ ✅ Done —
   hosted at https://shepherd.run/privacy (`site/src/pages/privacy.astro`).
 - Produce the **screenshot(s)** and **promo tile**.
-- After registration, read back the item's **final assigned ID** and reconcile it — see below.
 
-## Task 5 — ID reconciliation (follow-up after registration)
+## Task 5 — ID reconciliation
 
-The store may assign a different ID than the self-generated manifest `key`. Once the final
-published ID is known, update it in **two** places so unpacked dev builds and the published item
-share one ID:
+**Done (server allowlist):** the item is registered with the permanent published ID
+`liknmighjkhplpbocaefaljokofaifgi` (assigned while pending review). It is baked into the server's
+default allowlist as `SHEPHERD_CAPTURE_EXTENSION_ID` in `src/config.ts`, so store-installed
+extensions work with no pairing. The pinned unpacked dev ID `bflahkibnmcbijbhelmpjbohpfhlbaig`
+stays allowed too (`SHEPHERD_CAPTURE_UNPACKED_DEV_ID`).
 
-- `SHEPHERD_CAPTURE_EXTENSION_ID` in `src/config.ts` (the server's default allowlist entry), and
-- `key` in `extension/manifest.config.ts`.
-
-Interim value (the pinned unpacked ID): `bflahkibnmcbijbhelmpjbohpfhlbaig`.
+**Optional (unify the two IDs):** a Chrome extension's ID is a one-way hash of the manifest's
+public `key`, and the store signs the published item with **its own** key — which is why the
+published ID differs from the manifest-key-derived unpacked ID. To make unpacked dev builds share
+the **published** ID (and drop the dev-only allowlist entry), copy the store item's **public key**
+from the CWS dashboard and set it as `key` in `extension/manifest.config.ts`. The public key is
+**not** derivable from the ID, so this needs the dashboard value. Not required for store users.

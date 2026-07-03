@@ -32,6 +32,13 @@ export default defineManifest({
   // the base64 DER SPKI of an RSA keypair; only the public half lives here (the
   // private key is kept out of the repo, needed only to re-pack a .crx later).
   //
+  // NOTE: the PUBLISHED Chrome Web Store item is signed with the STORE's own key,
+  // so it has a DIFFERENT id (liknmighjkhplpbocaefaljokofaifgi) — both ids are
+  // allowlisted server-side (see SHEPHERD_CAPTURE_EXTENSION_ID +
+  // SHEPHERD_CAPTURE_UNPACKED_DEV_ID in src/config.ts). To UNIFY unpacked builds
+  // with the published id, replace this `key` with the store item's PUBLIC key
+  // (copy it from the CWS dashboard — it is NOT derivable from the id).
+  //
   // Re-derive the ID from this key to confirm it matches the README/allowlist:
   //   node -e 'const c=require("crypto"),der=Buffer.from(KEY,"base64"); \
   //     console.log([...c.createHash("sha256").update(der).digest("hex").slice(0,32)] \

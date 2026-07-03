@@ -1,14 +1,23 @@
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config";
 import { compareSemver } from "./herdr-update";
 import { PLUGIN_API_VERSION } from "./plugins/types";
 import { timedAsync } from "./instrument";
-import type { PluginUpdateInfo, PluginUpdatesStatus, PluginUpdateState } from "./types";
+import type { PluginUpdateInfo, PluginUpdatesStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
+
+/** Internal result of resolving a plugin's candidate manifest before classification.
+ *  `no-source` carries the reportable source (`git` checkout without upstream vs no
+ *  git/repository at all); `error` carries a diagnostic detail. */
+type Candidate =
+  | { kind: "manifest"; manifest: RawManifest }
+  | { kind: "no-source"; source: "git" | "none"; detail?: string }
+  | { kind: "error"; detail: string };
 
 /** Extract a bare `major.minor.patch` from an arbitrary version/tag string
  *  (e.g. `v1.3.0`, `refs/tags/1.3.0`). Null when none is present. */
@@ -59,19 +68,24 @@ export interface PluginUpdateDeps {
  * mutates a plugin folder and exposes no `apply()` — surfacing an update is all
  * it does; picking it up stays the operator's manual (or a future opt-in) step.
  *
- * A plugin is only checkable when a source can be resolved:
+ * A plugin is only checkable when a source can be resolved. Either way the check
+ * reads the CANDIDATE `plugin.json` (version + apiVersion), so both paths run the
+ * same classification — no path over-claims installability:
  *  - a declared `repository` in its `plugin.json` (the explicit, supply-chain-
- *    conscious path — works for the primary `cp -r` install that has no `.git`),
- *    checked via `git ls-remote --tags` against that URL, or
+ *    conscious path — works for the primary `cp -r` install that has no `.git`):
+ *    the highest semver tag is found via `git ls-remote --tags`, then that tag's
+ *    `plugin.json` is read via a shallow, checkout-less fetch into a scratch dir, or
  *  - the folder being a git work tree with an upstream (the documented symlink-
- *    to-checkout dev workflow), checked by reading the upstream `plugin.json`
- *    version — a `git fetch` that only moves remote-tracking refs, never the
- *    working tree.
+ *    to-checkout dev workflow): the upstream `plugin.json` is read after a
+ *    `git fetch` that only moves remote-tracking refs, never the working tree.
  * Everything else reports `no-source`. The installed manifest `version` is the
  * source of truth for "what we're on"; a newer version is decided by a real
- * semver comparison (`>`), so an upstream on an equal/older version is never a
- * false "update-available". Fail-safe throughout: any git/parse error yields a
- * per-plugin `error`/`no-source` state, never a spurious badge.
+ * semver comparison (`>`) BEFORE anything else, so an equal/older candidate is
+ * always `up-to-date` — even if its apiVersion differs. Only a genuinely newer
+ * candidate is then apiVersion-gated: one that bumps apiVersion beyond what this
+ * Shepherd supports (and would be silently disabled at load) is `incompatible`
+ * rather than `update-available`. Fail-safe throughout: any git/parse error
+ * yields a per-plugin `error`/`no-source` state, never a spurious badge.
  */
 export class PluginUpdateService {
   private pluginsDir: string;
@@ -146,78 +160,50 @@ export class PluginUpdateService {
       return null; // not a plugin folder
     }
     const base = { id: manifest.id, name: manifest.name, currentVersion: manifest.version };
-    const errorInfo = (source: PluginUpdateInfo["source"], detail: string): PluginUpdateInfo => ({
-      ...base,
-      latestVersion: null,
-      source,
-      state: "error",
-      detail,
-    });
-
+    // A declared repository is the explicit path (covers `cp -r` installs); else a
+    // git checkout with an upstream. Both resolve the CANDIDATE manifest so the
+    // same classifier runs — no path claims installability without seeing apiVersion.
+    const source: "repository" | "git" = manifest.repository ? "repository" : "git";
     try {
-      // 1) Explicit declared source wins — the supply-chain-conscious path that
-      //    also covers `cp -r` installs (no local `.git`). Latest release = the
-      //    highest semver tag on the remote; apiVersion is not knowable via
-      //    ls-remote, so no incompatibility pre-flight on this path.
-      if (manifest.repository) {
-        const latest = await this.latestRemoteTag(manifest.repository);
-        if (!latest) return errorInfo("repository", "no version tags on the declared repository");
-        return this.classify(base, "repository", latest, null);
+      const candidate = manifest.repository
+        ? await this.candidateFromRepository(manifest.repository)
+        : await this.candidateFromCheckout(dir);
+      switch (candidate.kind) {
+        case "manifest":
+          return this.classifyCandidate(base, source, candidate.manifest);
+        case "no-source":
+          return {
+            ...base,
+            latestVersion: null,
+            source: candidate.source,
+            state: "no-source",
+            ...(candidate.detail ? { detail: candidate.detail } : {}),
+          };
+        case "error":
+          return { ...base, latestVersion: null, source, state: "error", detail: candidate.detail };
       }
-
-      // 2) Otherwise, a git work tree with an upstream (the symlink-to-checkout
-      //    dev workflow). `fetch` only moves remote-tracking refs — never the
-      //    working tree — so this is safe even on the operator's own checkout.
-      if (!(await this.isGitWorkTree(dir))) {
-        return { ...base, latestVersion: null, source: "none", state: "no-source" };
-      }
-      // A checkout with no upstream tracking branch (detached HEAD, unpushed
-      // local branch) has nothing to compare against — that is a "no source" for
-      // update purposes, not a failure. `@{upstream}` exits non-zero when absent.
-      if (!(await this.hasUpstream(dir))) {
-        return {
-          ...base,
-          latestVersion: null,
-          source: "git",
-          state: "no-source",
-          detail: "git checkout has no upstream branch to compare against",
-        };
-      }
-      await this.git(["fetch", "--quiet"], dir);
-      const upstreamManifest = await this.readUpstreamManifest(dir);
-      if (!upstreamManifest) return errorInfo("git", "could not read upstream plugin.json");
-      // apiVersion pre-flight: an update that bumps apiVersion beyond what this
-      // Shepherd supports would be SILENTLY DISABLED at load — surface it as
-      // incompatible instead of a plain "update available".
-      if (upstreamManifest.apiVersion !== PLUGIN_API_VERSION) {
-        return {
-          ...base,
-          latestVersion: parseSemver(upstreamManifest.version),
-          source: "git",
-          state: "incompatible",
-          detail: `upstream apiVersion ${upstreamManifest.apiVersion} != supported ${PLUGIN_API_VERSION}`,
-        };
-      }
-      const latest = parseSemver(upstreamManifest.version);
-      if (!latest) return errorInfo("git", "upstream plugin.json has no parseable version");
-      return this.classify(base, "git", latest, null);
     } catch (e) {
-      return errorInfo(
-        manifest.repository ? "repository" : "git",
-        e instanceof Error ? e.message : "update check failed",
-      );
+      return {
+        ...base,
+        latestVersion: null,
+        source,
+        state: "error",
+        detail: e instanceof Error ? e.message : "update check failed",
+      };
     }
   }
 
-  /** Compare an installed version against a resolved latest one via real semver
-   *  ordering — only a strictly-greater upstream is `update-available`. */
-  private classify(
+  /** Classify an installed plugin against a resolved candidate manifest. Version
+   *  ordering is decided FIRST: an equal/older candidate is `up-to-date` no matter
+   *  its apiVersion. Only a strictly-newer candidate is apiVersion-gated — one whose
+   *  apiVersion this Shepherd wouldn't load is `incompatible`, not `update-available`. */
+  private classifyCandidate(
     base: { id: string; name: string; currentVersion: string },
-    source: PluginUpdateInfo["source"],
-    latest: string,
-    detail: string | null,
+    source: "repository" | "git",
+    candidate: RawManifest,
   ): PluginUpdateInfo {
     const current = parseSemver(base.currentVersion);
+    const latest = parseSemver(candidate.version);
     if (!current) {
       return {
         ...base,
@@ -227,22 +213,94 @@ export class PluginUpdateService {
         detail: "installed version is not valid semver",
       };
     }
-    const state: PluginUpdateState =
-      compareSemver(latest, current) > 0 ? "update-available" : "up-to-date";
-    return { ...base, latestVersion: latest, source, state, ...(detail ? { detail } : {}) };
+    if (!latest) {
+      return {
+        ...base,
+        latestVersion: null,
+        source,
+        state: "error",
+        detail: "candidate plugin.json has no parseable version",
+      };
+    }
+    if (compareSemver(latest, current) <= 0) {
+      return { ...base, latestVersion: latest, source, state: "up-to-date" };
+    }
+    // Genuinely newer — now the apiVersion pre-flight applies. A bump beyond what
+    // this Shepherd supports would be SILENTLY DISABLED at load, so flag it.
+    if (candidate.apiVersion !== PLUGIN_API_VERSION) {
+      return {
+        ...base,
+        latestVersion: latest,
+        source,
+        state: "incompatible",
+        detail: `candidate apiVersion ${candidate.apiVersion} != supported ${PLUGIN_API_VERSION}`,
+      };
+    }
+    return { ...base, latestVersion: latest, source, state: "update-available" };
   }
 
-  /** Highest semver tag published on a remote, without cloning (`ls-remote` reads
-   *  only). Null when the remote is unreachable or carries no version tags. */
-  private async latestRemoteTag(repository: string): Promise<string | null> {
+  /** Resolve the candidate manifest from a declared repository: the highest semver
+   *  tag's `plugin.json`, read via a checkout-less shallow fetch. */
+  private async candidateFromRepository(repository: string): Promise<Candidate> {
+    const tag = await this.latestRemoteTag(repository);
+    if (!tag) return { kind: "error", detail: "no version tags on the declared repository" };
+    const manifest = await this.readRemoteTagManifest(repository, tag.ref);
+    if (!manifest) return { kind: "error", detail: "could not read plugin.json at the latest tag" };
+    return { kind: "manifest", manifest };
+  }
+
+  /** Resolve the candidate manifest from a local git checkout's upstream tip. */
+  private async candidateFromCheckout(dir: string): Promise<Candidate> {
+    if (!(await this.isGitWorkTree(dir))) return { kind: "no-source", source: "none" };
+    // A checkout with no upstream (detached HEAD / unpushed local branch) has
+    // nothing to compare against — a "no source", not a failure.
+    if (!(await this.hasUpstream(dir))) {
+      return {
+        kind: "no-source",
+        source: "git",
+        detail: "git checkout has no upstream branch to compare against",
+      };
+    }
+    await this.git(["fetch", "--quiet"], dir);
+    const manifest = await this.readUpstreamManifest(dir);
+    if (!manifest) return { kind: "error", detail: "could not read upstream plugin.json" };
+    return { kind: "manifest", manifest };
+  }
+
+  /** Highest semver tag on a remote (ref + parsed version), without cloning
+   *  (`ls-remote` reads only). Null when unreachable or carrying no version tags. */
+  private async latestRemoteTag(
+    repository: string,
+  ): Promise<{ ref: string; version: string } | null> {
     const out = await this.git(["ls-remote", "--tags", "--refs", repository]);
-    let best: string | null = null;
+    let best: { ref: string; version: string } | null = null;
     for (const line of out.split("\n")) {
       const ref = line.split("\t")[1] ?? line.split(/\s+/)[1];
       const v = parseSemver(ref);
-      if (v && (best === null || compareSemver(v, best) > 0)) best = v;
+      if (v && ref && (best === null || compareSemver(v, best.version) > 0))
+        best = { ref, version: v };
     }
     return best;
+  }
+
+  /** Read `plugin.json` at a remote tag WITHOUT a full clone or working-tree
+   *  checkout: init a scratch repo, shallow-fetch just that tag ref, and read the
+   *  blob from FETCH_HEAD. The scratch dir is always removed. */
+  private async readRemoteTagManifest(
+    repository: string,
+    ref: string,
+  ): Promise<RawManifest | null> {
+    const scratch = await mkdtemp(join(tmpdir(), "shepherd-plugin-remote-"));
+    try {
+      await this.git(["init", "-q"], scratch);
+      await this.git(["fetch", "--depth", "1", "--no-tags", repository, ref], scratch);
+      const parsed = JSON.parse(await this.git(["show", "FETCH_HEAD:plugin.json"], scratch));
+      return isRawManifest(parsed) ? parsed : null;
+    } catch {
+      return null;
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
   }
 
   private async isGitWorkTree(dir: string): Promise<boolean> {

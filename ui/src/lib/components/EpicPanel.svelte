@@ -271,7 +271,58 @@
     padding-top: 2px;
   }
 
-  /* .gbtn and .gbtn.primary are global recipes from the design system;
-     they are defined app-wide (see /design-system) and work without local
-     duplication. */
+  /* ── progress badge ──────────────────────────────────────────────────────
+     Neutral pill for the "{merged}/{total} merged" head count — token-only,
+     mirrors the .label-chip / .chip recipe used elsewhere. */
+  .badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ── buttons ─────────────────────────────────────────────────────────────
+     Canonical .gbtn recipe from /design-system. Copied into this component's
+     scoped style because Svelte scopes styles per-component and there is no
+     global .gbtn in app.css — every sibling that uses .gbtn duplicates it here
+     the same way. Without this the controls render as bare unstyled text. */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+
+  @media (max-width: 768px) {
+    .gbtn {
+      min-height: 40px;
+      padding: 2px 14px;
+    }
+  }
 </style>

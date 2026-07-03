@@ -6,7 +6,14 @@
  * delegates to.
  */
 import { describe, it, expect } from "vitest";
-import { filterIssues, hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
+import {
+  filterIssues,
+  hideOthers,
+  hideActive,
+  hideSubIssues,
+  sortEpicsFirst,
+  ACTIVE_LABEL,
+} from "./issues-panel";
 import type { Issue } from "$lib/types";
 
 function issue(
@@ -184,5 +191,36 @@ describe("hideSubIssues", () => {
     const subs = new Set<number>([]);
     const parents = new Set<number>([2]);
     expect(hideSubIssues(all, true, subs, parents)).toEqual(all);
+  });
+});
+
+describe("sortEpicsFirst", () => {
+  const a = issue(122, "Regular A");
+  const epic1 = issue(100, "Epic one");
+  const b = issue(117, "Regular B");
+  const epic2 = issue(90, "Epic two");
+  const all = [a, epic1, b, epic2];
+
+  it("moves epic parents to the front", () => {
+    const parents = new Set<number>([100, 90]);
+    expect(sortEpicsFirst(all, parents)).toEqual([epic1, epic2, a, b]);
+  });
+
+  it("preserves relative order within each group (stable)", () => {
+    // epic2 appears after epic1 in the input, and a before b — both orders kept.
+    const parents = new Set<number>([100, 90]);
+    const result = sortEpicsFirst(all, parents);
+    expect(result.map((i) => i.number)).toEqual([100, 90, 122, 117]);
+  });
+
+  it("is an identity copy when there are no epic parents", () => {
+    const result = sortEpicsFirst(all, new Set<number>());
+    expect(result).toEqual(all);
+    expect(result).not.toBe(all); // new array, input not mutated
+  });
+
+  it("returns all issues when every issue is an epic parent", () => {
+    const parents = new Set<number>([122, 100, 117, 90]);
+    expect(sortEpicsFirst(all, parents)).toEqual(all);
   });
 });

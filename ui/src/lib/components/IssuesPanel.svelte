@@ -5,7 +5,13 @@
   import { steerAppliesToRepo } from "$lib/steer-scope";
   import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { filterIssues, hideOthers, hideActive, hideSubIssues } from "./issues-panel";
+  import {
+    filterIssues,
+    hideOthers,
+    hideActive,
+    hideSubIssues,
+    sortEpicsFirst,
+  } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
@@ -80,7 +86,9 @@
       epicParentNums,
     ),
   );
-  let visibleIssues = $derived(filterIssues(subFiltered, filter));
+  // Epic parents float to the top of the backlog (stable within each group), so
+  // epics are the first thing the operator sees. Applied after text filtering.
+  let visibleIssues = $derived(sortEpicsFirst(filterIssues(subFiltered, filter), epicParentNums));
   // True when there ARE open issues but the assignee filter hid them all — drives
   // the distinct "all assigned to others" empty state (vs the text no-match state).
   let allHiddenByAssignee = $derived(

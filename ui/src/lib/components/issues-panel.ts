@@ -86,3 +86,23 @@ export function hideSubIssues(
   if (!enabled) return [...issues];
   return issues.filter((issue) => !(subIssues.has(issue.number) && !epicParents.has(issue.number)));
 }
+
+/**
+ * Reorder an issue list so epic parents (issues whose number is in `epicParents`)
+ * come first, followed by everything else. Stable — the relative order within
+ * each group is preserved (so the forge's newest-first ordering survives inside
+ * both groups). Returns a new array; the input is not mutated.
+ *
+ * A no-op (identity copy) when there are no epic parents in the list.
+ */
+export function sortEpicsFirst(
+  issues: readonly Issue[],
+  epicParents: ReadonlySet<number>,
+): Issue[] {
+  const epics: Issue[] = [];
+  const rest: Issue[] = [];
+  for (const issue of issues) {
+    (epicParents.has(issue.number) ? epics : rest).push(issue);
+  }
+  return [...epics, ...rest];
+}

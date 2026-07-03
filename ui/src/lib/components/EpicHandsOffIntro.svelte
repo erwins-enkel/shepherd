@@ -215,4 +215,42 @@
   .ho-guide:hover {
     text-decoration: underline;
   }
+
+  /* Canonical .gbtn recipe from /design-system. Scoped-duplicated because Svelte
+     scopes styles per-component and there is no global .gbtn in app.css — without
+     it the Apply/Dismiss buttons render as bare unstyled text. */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+
+  @media (max-width: 768px) {
+    .gbtn {
+      min-height: 40px;
+      padding: 2px 14px;
+    }
+  }
 </style>

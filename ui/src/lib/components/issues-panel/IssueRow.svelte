@@ -48,7 +48,7 @@
   const isEpicParent = $derived(!!epicSummary);
 </script>
 
-<div class="issue-row" id={`epic-issue-row-${issue.number}`}>
+<div class="issue-row" class:is-epic={isEpicParent} id={`epic-issue-row-${issue.number}`}>
   <div class="issue-top">
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
     <a
@@ -163,6 +163,18 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-inset);
+  }
+
+  /* Epic parent rows stand out from ordinary issues: an amber (--status-running,
+     the epic/in-progress semantic) left accent + a faint amber wash. The tint is
+     deliberately low (6%) so the accent, the amber EPIC badge, and amber button
+     hovers on the same row read as one signal, not three competing ones. The
+     2px left border compensates 1px off the left padding to keep text aligned
+     with neighbouring non-epic rows. */
+  .issue-row.is-epic {
+    border-left: 2px solid var(--status-running);
+    padding-left: 7px;
+    background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
   }
 
   .issue-top {

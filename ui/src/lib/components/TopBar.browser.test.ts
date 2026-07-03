@@ -144,7 +144,7 @@ const SCENARIOS: Scenario[] = [
   // the halt e-stop lives in the gear menu, not the bar) and had NO fallback — desktop never
   // compacted, so it overflowed 1436 on every monitor. Desktop compaction is now
   // MEASUREMENT-DRIVEN in TopBar.svelte (measureFull + decideFromCache): the bar
-  // compacts (labels → icons, clock-time drops, Mission-Control label hides) iff it
+  // compacts (labels → icons, Mission-Control label hides) iff it
   // would actually overflow its container at the current width. These scenarios
   // assert the crunched form fits — strict, no skip. The measurement happens in a
   // requestAnimationFrame, so the runner waits for it to settle before asserting.

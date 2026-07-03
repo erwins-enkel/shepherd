@@ -589,7 +589,7 @@ const EPIC_AUTHORING_NOTICE =
  * and epic-child prompts always contain "epic". Exported for tests.
  */
 export function detectEpicIntent(prompt: string): boolean {
-  return /\bepics?\b|\bsub-issues?\b|\bpromot(?:e|ing|ion)\b/i.test(prompt);
+  return /\bepics?\b|\bsub[- ]?issues?\b|\bpromot(?:e|ing|ion)\b/i.test(prompt);
 }
 
 /**

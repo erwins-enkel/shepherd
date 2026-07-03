@@ -14,7 +14,12 @@ bun run check      # svelte-check
 bun run lint
 bun test           # vitest (pure units)
 bun run check:i18n # EN+DE catalog parity
+bun run package    # build, then zip dist/ → shepherd-capture-<version>.zip (CWS upload)
 ```
+
+`bun run package` shells out to the system **`zip`** binary (preinstalled on macOS
+and the CI ubuntu runner; otherwise `apt-get install zip` / `brew install zip`). The
+zip is git-ignored.
 
 ## Load unpacked
 

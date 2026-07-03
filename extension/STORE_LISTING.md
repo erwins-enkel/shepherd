@@ -106,7 +106,8 @@ research report (#1359, `docs/research/extension-chrome-web-store-readiness.md` 
 
 1. Produce the zip: `cd extension && bun run package` → `extension/shepherd-capture-<version>.zip`
    (or download the artifact from the **Extension package** GitHub Actions run). The zip is
-   git-ignored.
+   git-ignored. Requires the system **`zip`** binary on PATH (preinstalled on macOS and the CI
+   runner; otherwise `apt-get install zip` / `brew install zip`).
 2. In the CWS dashboard, create/update the item and upload the zip.
 3. Upload listing assets: the 128×128 store icon (`store-assets/store-icon-128.png`), ≥1
    screenshot at 1280×800, and the 440×280 promo tile (see `store-assets/README.md`).

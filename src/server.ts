@@ -6195,8 +6195,9 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[2])) return false;
   // POST /api/sessions/<id>/hooks
   if (method === "POST" && parts[3] === "hooks" && !parts[4]) return true;
-  // PUT /api/sessions/<id>/queue
-  if (method === "PUT" && parts[3] === "queue" && !parts[4]) return true;
+  // PUT /api/sessions/<id>/queue (author/replace) + GET (the directive's "inspect the current
+  // queue" / re-GET-for-ids path — read-only, strictly weaker than the PUT already allowed).
+  if ((method === "PUT" || method === "GET") && parts[3] === "queue" && !parts[4]) return true;
   // POST /api/sessions/<id>/queue/steps/<stepId>
   if (method === "POST" && parts[3] === "queue" && parts[4] === "steps" && parts[5] && !parts[6]) {
     return true;

@@ -2,7 +2,9 @@
 // dispatch, end-to-end through makeApp. Verifies the zero-plugin no-op (no registry →
 // empty list + 404 for sub-routes) and example-plugin dispatch.
 import { test, expect } from "bun:test";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
@@ -85,4 +87,33 @@ test("unknown plugin / sub-route → 404", async () => {
 test("plugin sub-route 404s when no registry is wired", async () => {
   const app = makeApp(baseDeps(undefined));
   expect((await app.fetch(new Request("http://x/api/plugins/x/y"))).status).toBe(404);
+});
+
+test("GET /api/plugins/manage/installed returns the on-disk scan (reserved segment beats plugin dispatch)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shep-manage-"));
+  mkdirSync(join(dir, "on-disk"), { recursive: true });
+  writeFileSync(
+    join(dir, "on-disk", "plugin.json"),
+    JSON.stringify({ id: "on-disk", name: "On Disk", version: "0.1.0", apiVersion: 1 }),
+  );
+  const app = makeApp({ ...baseDeps(undefined), pluginsDir: dir } as AppDeps);
+  const res = await app.fetch(new Request("http://x/api/plugins/manage/installed"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { installed: Array<Record<string, unknown>> };
+  expect(body.installed).toEqual([
+    {
+      id: "on-disk",
+      name: "On Disk",
+      version: "0.1.0",
+      folder: "on-disk",
+      loaded: false,
+      disabled: false,
+      broken: false,
+    },
+  ]);
+});
+
+test("plugin management routes 404 when pluginsDir isn't wired", async () => {
+  const app = makeApp(baseDeps(undefined));
+  expect((await app.fetch(new Request("http://x/api/plugins/manage/installed"))).status).toBe(404);
 });

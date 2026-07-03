@@ -246,10 +246,11 @@ export class DrainService {
    *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
    *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
    *  HISTORICAL spend, not imminent spend, and must not freeze the drain until the monthly credit
-   *  reset. We anchor the total at first observation and re-anchor at each weekly-window reset, then
-   *  gate on spend accrued SINCE that anchor (see {@link effectiveCreditSpent}). null until first
-   *  observed. On restart the anchor re-captures the current total, which is why a deploy of this
-   *  fix immediately clears a stale historical-spend pause. */
+   *  reset. We anchor the total at first observation and re-anchor at each weekly-window reset AND
+   *  whenever the scraped total drops (the monthly credit budget rolled over), then gate on spend
+   *  accrued SINCE that anchor (see {@link effectiveCreditSpent}). null until first observed. On
+   *  restart the anchor re-captures the current total, which is why a deploy of this fix immediately
+   *  clears a stale historical-spend pause. */
   private creditBaseline: { spent: number; weekResetAt: number | null } | null = null;
   private now: () => number;
   private issuesTtlMs: number;
@@ -474,9 +475,16 @@ export class DrainService {
       this.creditBaseline = { spent: credits.spent, weekResetAt };
       return 0;
     }
-    // Weekly window rolled over → fresh subscription headroom, so paid spend (temporarily) stops.
-    // Re-anchor to the current total so last week's overage no longer gates this week's drain.
-    if (weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt) {
+    // Re-anchor when either window that bounds paid spend rolls over:
+    //  - credits.spent DROPS below the anchor → the monthly credit budget reset (the scraped
+    //    total is monotonic within a month, so any decrease is a reset boundary). Without this,
+    //    fresh spend in the NEW month is masked until it re-climbs past last month's anchor, and
+    //    the default-0 ceiling fails to pause on real new spend.
+    //  - the weekly subscription window rolls over → fresh headroom (temporarily) stops paid
+    //    spend, so last week's overage no longer gates this week's drain.
+    const weeklyRolled =
+      weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt;
+    if (credits.spent < b.spent || weeklyRolled) {
       this.creditBaseline = { spent: credits.spent, weekResetAt };
       return 0;
     }

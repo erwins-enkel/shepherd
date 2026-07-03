@@ -703,6 +703,26 @@ test("weekly window reset re-anchors credits → a credit pause clears at the re
   expect(h.statuses.at(-1)!.reason).not.toBe("credits"); // re-anchored to 15 → 0 → un-paused
 });
 
+// The monthly credit budget resets independently of the weekly window: the scraped total DROPS
+// (e.g. 46.47 → 0). The anchor must follow that drop, else fresh new-month spend is masked until
+// it re-climbs past last month's anchor and the default-0 ceiling fails to pause on real spend.
+test("monthly credit reset (total drops) re-anchors → fresh new-month spend still pauses", async () => {
+  let spent = 46.47;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 46.47 (end of month)
+  spent = 0; // monthly budget rolled over → cumulative total drops
+  await h.drain.snapshot(); // re-anchor := 0
+  spent = 5; // €5 of genuinely new spend in the fresh month
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("credits"); // 5 > ceiling 0 → paused, NOT masked by the old anchor
+  expect(h.creates).toHaveLength(0);
+});
+
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {
   const advances: Promise<void>[] = [];
   const h = makeHarness({

@@ -265,6 +265,43 @@ test("a bare bun repo emits exactly the installable-guardrail commands, all bun"
   expect(INSTALL_STEPS.dependency_automation(PM_VERBS.bun)).toEqual([]);
 });
 
+test("dependabot note prescribes the bun ecosystem for a bun repo", () => {
+  pkg({ name: "bare" });
+  write("bun.lock", "");
+  const r = analyzeReadiness(dir);
+  expect(r.claudeMd).toContain('package-ecosystem: "bun"');
+  expect(r.claudeMd).not.toContain('package-ecosystem: "npm"');
+  // Text lockfile already present — no migration hint.
+  expect(r.claudeMd).not.toContain("--save-text-lockfile");
+});
+
+test("dependabot note prescribes the npm ecosystem for npm and pnpm repos", () => {
+  pkg({ name: "bare" });
+  write("package-lock.json", "{}");
+  expect(analyzeReadiness(dir).claudeMd).toContain('package-ecosystem: "npm"');
+  expect(analyzeReadiness(dir).claudeMd).not.toContain('package-ecosystem: "bun"');
+  rmSync(join(dir, "package-lock.json"));
+  write("pnpm-lock.yaml", "");
+  expect(analyzeReadiness(dir).claudeMd).toContain('package-ecosystem: "npm"');
+});
+
+test("dependabot note adds the text-lockfile migration hint for bun.lockb-only repos", () => {
+  pkg({ name: "bare" });
+  write("bun.lockb", "");
+  const r = analyzeReadiness(dir);
+  expect(r.claudeMd).toContain('package-ecosystem: "bun"');
+  expect(r.claudeMd).toContain("bun install --save-text-lockfile");
+});
+
+test("no dependabot note when dependency automation is already present", () => {
+  pkg({ name: "bare" });
+  write("bun.lock", "");
+  write(".github/dependabot.yml", "version: 2");
+  const r = analyzeReadiness(dir);
+  expect(present("dependency_automation", r)).toBe(true);
+  expect(r.claudeMd).not.toContain("package-ecosystem");
+});
+
 test("a present guardrail emits no install command for itself", () => {
   pkg({ name: "x", devDependencies: { eslint: "^9" }, scripts: { lint: "eslint ." } });
   write("package-lock.json", "{}");

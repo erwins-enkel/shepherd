@@ -5,7 +5,7 @@
     "": {
       "name": "tank",
       "dependencies": {
-        "jsonrepair": "^3.14",
+        "jsonrepair": "^3.15",
         "node-pty": "^1.1.0",
         "web-push": "^3.6.7",
       },
@@ -325,7 +325,7 @@
 
     "json-stable-stringify-without-jsonify": ["json-stable-stringify-without-jsonify@1.0.1", "", {}, "sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw=="],
 
-    "jsonrepair": ["jsonrepair@3.14.1", "", { "bin": { "jsonrepair": "bin/cli.js" } }, "sha512-NpGgMhmzG/fajkBEFlS9jZvMSGDvc2xN/9wNCHZ+Nx32GZfLRELU6UE6dQkebvrQUct9S+7bvnpX29NB36Qbdw=="],
+    "jsonrepair": ["jsonrepair@3.15.0", "", { "bin": { "jsonrepair": "bin/cli.js" } }, "sha512-wy8OTjwsJwQRnQJkKnMJJ9vcytRdBPAgIF/Hy6+s1dAj42BHMKiyL8JzEieIl3JY7idt8eyHwBWTO8mh/+mtwA=="],
 
     "jwa": ["jwa@2.0.1", "", { "dependencies": { "buffer-equal-constant-time": "^1.0.1", "ecdsa-sig-formatter": "1.0.11", "safe-buffer": "^5.0.1" } }, "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg=="],
 

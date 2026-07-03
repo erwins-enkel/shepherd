@@ -49,7 +49,7 @@
     "dompurify": "^3.4.11",
     "marked": "^18.0.5",
     "mermaid": "^11.16.0",
-    "shiki": "^4.3.0",
+    "shiki": "^4.3.1",
     "svelte-dnd-action": "^0.9.70"
   }
 }

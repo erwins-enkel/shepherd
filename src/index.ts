@@ -2205,6 +2205,7 @@ const appDeps: AppDeps = {
   repoConfig: repoConfigSvc,
   events,
   pluginRegistry,
+  pluginsDir: config.pluginsDir,
   usageLimits,
   usageRollup,
   refreshUsage,

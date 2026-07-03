@@ -219,6 +219,28 @@ export interface PluginUIView {
   root: PluginUINode;
 }
 
+/** A plugin FOLDER on disk under the plugins dir, as surfaced to the Settings → Plugins
+ *  manager. Distinct from {@link PluginInfo} (the loaded-registry view): this reflects the
+ *  filesystem, so a freshly-installed (pending-restart), soft-disabled, or broken folder is
+ *  listed and removable too — not just the folders that registered at boot. The manager UI
+ *  unions this by `id` with the live `PluginInfo[]`. */
+export interface InstalledPlugin {
+  /** Manifest `id`, or the folder name when the manifest is missing/invalid (`broken`). */
+  id: string;
+  /** Manifest `name`, or the folder-name fallback when `broken`. */
+  name: string;
+  /** Manifest `version`, or `""` when unknown (`broken`). */
+  version: string;
+  /** Directory name under the plugins dir — the uninstall key. */
+  folder: string;
+  /** True when a plugin with this manifest `id` is in the live registry right now. */
+  loaded: boolean;
+  /** True when the manifest sets `enabled:false` (soft off-switch; never registers). */
+  disabled: boolean;
+  /** True when the folder has no valid `plugin.json` (missing/unparseable/invalid). */
+  broken: boolean;
+}
+
 /** Panel/list view of a loaded plugin — core-derived health is authoritative. */
 export interface PluginInfo {
   id: string;

@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsPluginsPanel from "./SettingsPluginsPanel.svelte";
-import type { PluginInfo } from "$lib/types";
+import type { PluginInfo, InstalledPlugin } from "$lib/types";
 
 function plugin(overrides: Partial<PluginInfo> = {}): PluginInfo {
   return {
@@ -19,7 +19,41 @@ function plugin(overrides: Partial<PluginInfo> = {}): PluginInfo {
   };
 }
 
+function inst(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
+  return {
+    id: "p1",
+    name: "Test Plugin",
+    version: "1.0.0",
+    folder: "p1",
+    loaded: false,
+    disabled: false,
+    broken: false,
+    ...overrides,
+  };
+}
+
+/** Stub the management scan fetch so the panel's onMount load resolves to `rows`. */
+function stubScan(rows: InstalledPlugin[]) {
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    if (String(input).includes("/api/plugins/manage/installed")) {
+      return new Response(JSON.stringify({ installed: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("{}", { status: 404 });
+  });
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
 describe("SettingsPluginsPanel", () => {
+  it("always shows the install-from-URL section", async () => {
+    stubScan([]);
+    render(SettingsPluginsPanel, { plugins: [] });
+    await expect.element(page.getByPlaceholder("https://github.com/owner/repo")).toBeVisible();
+  });
+
   it("renders a settings-panel view always-visible (no click needed)", async () => {
     render(SettingsPluginsPanel, {
       plugins: [
@@ -55,8 +89,8 @@ describe("SettingsPluginsPanel", () => {
     // Status JSON must NOT be visible before expanding
     expect(document.querySelector("pre")).toBeNull();
 
-    // Expand via the toggle button
-    await page.getByRole("button").click();
+    // Expand via the plugin's own header toggle (not the Install button)
+    await page.getByRole("button", { name: /Test Plugin/ }).click();
     // Now raw JSON dump appears (status value is present)
     await expect.element(page.getByText(/"secret": 99/)).toBeInTheDocument();
   });
@@ -68,8 +102,8 @@ describe("SettingsPluginsPanel", () => {
     // JSON is hidden initially
     expect(document.querySelector("pre")).toBeNull();
 
-    // Click expand
-    await page.getByRole("button").click();
+    // Click the plugin header toggle
+    await page.getByRole("button", { name: /Test Plugin/ }).click();
     // Status dump now visible
     await expect.element(page.getByText(/"n": 42/)).toBeInTheDocument();
   });
@@ -92,7 +126,7 @@ describe("SettingsPluginsPanel", () => {
 
     // JSON is behind the toggle (falls back to status dump)
     expect(document.querySelector("pre")).toBeNull();
-    await page.getByRole("button").click();
+    await page.getByRole("button", { name: /Test Plugin/ }).click();
     await expect.element(page.getByText(/"side": true/)).toBeInTheDocument();
   });
 
@@ -102,6 +136,30 @@ describe("SettingsPluginsPanel", () => {
     });
     expect(document.getElementById("plugin-card-alpha")).not.toBeNull();
     expect(document.getElementById("plugin-card-beta")).not.toBeNull();
+  });
+
+  it("shows a pending-restart row + restart banner for an installed-but-unloaded plugin", async () => {
+    stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })]);
+    render(SettingsPluginsPanel, { plugins: [] });
+    await expect.element(page.getByText("Fresh Plugin")).toBeVisible();
+    await expect.element(page.getByText(/pending restart/i)).toBeVisible();
+    // The restart banner surfaces the command.
+    await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
+  });
+
+  it("shows a broken row for a folder with an invalid manifest", async () => {
+    stubScan([
+      inst({
+        id: "weird-folder",
+        name: "weird-folder",
+        version: "",
+        broken: true,
+        folder: "weird-folder",
+      }),
+    ]);
+    render(SettingsPluginsPanel, { plugins: [] });
+    await expect.element(page.getByText("weird-folder")).toBeVisible();
+    await expect.element(page.getByText(/unrecognized/i)).toBeVisible();
   });
 
   it("focusId scrolls the card to the top of the panel (block:start, not center)", async () => {

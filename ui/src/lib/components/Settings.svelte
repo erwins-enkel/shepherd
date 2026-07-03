@@ -57,8 +57,9 @@
   // (installed plugins), SESSION (runtime defaults + review gates), DEVICE (this
   // browser's notifications + theme), DIAGNOSTICS (troubleshooting, last). The
   // HERDR-update CTA is an alert, not a section, so it stays pinned above the tabs.
-  // Plugins (issue #1124) sits high in the order but is only RENDERED when ≥1 plugin
-  // is loaded (see `visibleTabs` below) — a fresh clone with no plugins never shows it.
+  // Plugins (issue #1124) sits high in the order. The tab is ALWAYS shown now that it
+  // hosts the install-from-URL manager (a fresh clone with zero plugins still needs the
+  // entry point to install its first one).
   const ALL_TABS = [
     { id: "workspace", label: m.settings_tab_workspace },
     { id: "codingAgents", label: m.settings_tab_coding_agents },
@@ -121,8 +122,9 @@
   let tab = $state<TabId>(untrack(() => initialTab));
   let steersEl = $state<HTMLDivElement | null>(null);
 
-  // Hide the Plugins tab entirely when no plugins are loaded (the zero-plugin invariant).
-  const visibleTabs = $derived(ALL_TABS.filter((t) => t.id !== "plugins" || plugins.length > 0));
+  // Every tab is always visible — the Plugins tab now hosts the install manager, so it must
+  // render even with zero loaded plugins.
+  const visibleTabs = ALL_TABS;
 
   // Below the card's full-screen breakpoint the tab strip is swapped for a dropdown:
   // the fixed tab set can't fit one row in the 520px card, and the full-screen mobile
@@ -1522,17 +1524,15 @@
       <SettingsDiagnosePanel {initialDiagnostics} />
     </div>
 
-    {#if plugins.length > 0}
-      <div
-        class="panel"
-        use:panelShape={isNarrow}
-        id="settings-panel-plugins"
-        aria-label={m.settings_tab_plugins()}
-        hidden={tab !== "plugins"}
-      >
-        <SettingsPluginsPanel {plugins} focusId={focusPluginId} />
-      </div>
-    {/if}
+    <div
+      class="panel"
+      use:panelShape={isNarrow}
+      id="settings-panel-plugins"
+      aria-label={m.settings_tab_plugins()}
+      hidden={tab !== "plugins"}
+    >
+      <SettingsPluginsPanel {plugins} focusId={focusPluginId} />
+    </div>
   </div>
 </div>
 

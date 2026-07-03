@@ -79,8 +79,10 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Required-field guard for a parsed manifest. */
-function validManifest(m: unknown): m is PluginManifest {
+/** Required-field guard for a parsed manifest. Exported so the install/scan path
+ *  (`src/plugins/manage.ts`) validates a cloned manifest with the EXACT same structural
+ *  check the boot loader uses — the two can never drift. */
+export function validManifest(m: unknown): m is PluginManifest {
   if (!m || typeof m !== "object") return false;
   const o = m as Record<string, unknown>;
   return (

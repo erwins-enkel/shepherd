@@ -182,6 +182,7 @@ import { quotaBlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
 import { PluginSpawnAborted } from "./plugins/types";
+import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
 import { randomUUID } from "node:crypto";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
@@ -227,6 +228,9 @@ export interface AppDeps {
   /** Server-side plugin registry (issue #1124); absent → `/api/plugins/*` 404s and the
    *  Settings → Plugins panel stays hidden (the zero-plugin invariant). */
   pluginRegistry?: PluginRegistry;
+  /** Plugins dir on disk (`config.pluginsDir`), for the install/uninstall/scan management
+   *  routes. Absent in tests that don't wire it → `/api/plugins/manage/*` falls through. */
+  pluginsDir?: string;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
@@ -5111,6 +5115,60 @@ function handlePing({ req, parts }: Ctx): Response | null {
  *  - `/api/plugins/<id>/<sub…>` → a plugin-registered route (any method). Unknown
  *    plugin/route → null (falls through to the standard `/api` 404). All of these sit
  *    behind the operator auth gate in makeApp (checkAuth runs before ROUTE_HANDLERS). */
+/** Plugin MANAGEMENT routes (install-from-URL / uninstall / on-disk scan) — the
+ *  Settings → Plugins manager. Reserved segment `manage` under `/api/plugins`, matched
+ *  BEFORE `handlePluginRoutes` (registered ahead of it) so it can never be shadowed by, nor
+ *  shadow, a plugin's own `/api/plugins/<id>/*` routes. `manage` is a reserved plugin id
+ *  (install rejects it). All behind operator auth + the CSRF origin check (both run before
+ *  ROUTE_HANDLERS). Falls through (null) when `pluginsDir` isn't wired (tests).
+ *  - `GET    /api/plugins/manage/installed`          → `{ installed: InstalledPlugin[] }`
+ *  - `POST   /api/plugins/manage/install`  `{ url }` → `{ plugin }` | 400 `{ error }`
+ *  - `DELETE /api/plugins/manage/installed/<folder>` → `{ ok:true }` | 400/404 `{ error }` */
+/** POST /api/plugins/manage/install — validate + clone. Body errors → 400. */
+async function pluginInstall(
+  req: Request,
+  pluginsDir: string,
+  loadedIds: Set<string>,
+): Promise<Response> {
+  let body: { url?: unknown };
+  try {
+    body = (await req.json()) as { url?: unknown };
+  } catch {
+    return json({ error: "invalid_body" }, 400);
+  }
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) return json({ error: "url_required" }, 400);
+  const result = await installPlugin(pluginsDir, url, loadedIds);
+  return result.ok ? json({ plugin: result.plugin }) : json({ error: result.error }, 400);
+}
+
+/** DELETE /api/plugins/manage/installed/<folder> — remove a plugin folder. */
+async function pluginUninstall(pluginsDir: string, folder: string): Promise<Response> {
+  const result = await uninstallPlugin(pluginsDir, decodeURIComponent(folder));
+  if (result.ok) return json({ ok: true });
+  return json({ error: result.error }, result.error === "not_found" ? 404 : 400);
+}
+
+async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "plugins" || parts[2] !== "manage") return null;
+  const pluginsDir = deps.pluginsDir;
+  if (!pluginsDir) return null;
+  // Loaded ids for cross-referencing / collision checks; null-registry-safe (fresh clone).
+  const loadedIds = new Set((deps.pluginRegistry?.list() ?? []).map((p) => p.id));
+  const [seg, folder] = [parts[3], parts[4]];
+
+  if (seg === "installed" && !folder && req.method === "GET") {
+    return json({ installed: await scanInstalled(pluginsDir, loadedIds) });
+  }
+  if (seg === "install" && !folder && req.method === "POST") {
+    return pluginInstall(req, pluginsDir, loadedIds);
+  }
+  if (seg === "installed" && folder && !parts[5] && req.method === "DELETE") {
+    return pluginUninstall(pluginsDir, folder);
+  }
+  return null;
+}
+
 async function handlePluginRoutes({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins") return null;
   if (!parts[2]) {
@@ -5922,6 +5980,7 @@ const ROUTE_HANDLERS = [
   handleMe,
   handlePing,
   handleHealth,
+  handlePluginManagement,
   handlePluginRoutes,
   handleGitSnapshot,
   handleActivitySnapshot,

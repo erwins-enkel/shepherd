@@ -27,9 +27,34 @@ and documented. Specific plugin **implementations** stay private under
 - **Load-at-boot only — no hot reload.** Enabling, disabling, or reconfiguring a plugin
   means _edit the folder, restart Shepherd_ (`systemctl --user restart shepherd`), the
   same lifecycle as every other `~/.shepherd/` setting.
-- A **missing or empty** plugins dir is a clean no-op: no hooks, the Settings → Plugins
-  panel stays hidden, and `/api/plugins/<id>/*` returns 404 — a fresh clone behaves
-  exactly as a stock Shepherd.
+- A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
+  returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
+  tab still renders (so you can install the first plugin), just with an empty list.
+
+## Installing from the UI
+
+**Settings → Plugins** lists every plugin folder on disk and installs new ones from a
+GitHub URL — the same `git clone … ~/.shepherd/plugins/` + restart flow as below, reachable
+without a terminal. It adds no capability a shell couldn't already do; the trust model is
+unchanged, so install is gated behind a confirm dialog.
+
+- **Install** — paste an `https://github.com/<owner>/<repo>` URL and confirm. Shepherd
+  shallow-clones it into `~/.shepherd/plugins/<repo>`. Only `github.com` HTTPS URLs are
+  accepted (no credentials in the URL); the clone runs with `GIT_TERMINAL_PROMPT=0` so a
+  private/typo'd URL fails fast. The cloned `plugin.json` is validated up front — a
+  missing/invalid manifest, an `apiVersion` mismatch, or an `id` that collides with an
+  already-installed/loaded plugin **or the reserved `manage` segment** is rejected and the
+  clone removed. **v1 clones the repo only** — a plugin that ships its own dependencies still
+  needs a manual `bun install` in its folder before it will load.
+- **Restart to activate.** Because loading is boot-only (below), a freshly installed plugin
+  shows as **pending restart** until you restart Shepherd; the panel shows a persistent
+  banner with the restart command.
+- **Uninstall** removes the folder. A **symlinked** install is unlinked (the link only —
+  your source checkout is untouched). Uninstalling a still-loaded plugin removes the folder
+  but it keeps running until the next restart (shown as **loaded · removed**).
+- **Management API** (behind operator auth, reserved `manage` segment):
+  `GET /api/plugins/manage/installed`, `POST /api/plugins/manage/install` (`{ url }`),
+  `DELETE /api/plugins/manage/installed/<folder>`.
 
 ## Manifest (`plugin.json`)
 

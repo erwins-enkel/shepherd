@@ -130,6 +130,13 @@ Once a task exists, an external agent can also drive it:
   streams a single file. Paths are relative to the scratchpad root and
   realpath-contained to it (`..`, absolute, and symlink escapes are rejected);
   both `404` on a missing/archived session.
+- `GET /api/sessions/:id/worktree[?path=]` — browse a live session's git
+  worktree subtree (read-only); `GET /api/sessions/:id/worktree/download?path=`
+  streams a single file. Paths are relative to the worktree root and
+  realpath-contained to it. `.git` is hidden at any level, and symlinks that
+  resolve outside the worktree are surfaced as non-navigable `linkOutside`
+  entries rather than dropped. There is no worktree upload route; both `404` on
+  a missing/archived session.
 - `POST /api/sessions/:id/scratchpad/upload[?path=<relDir>]` — upload an
   arbitrary binary file (multipart `file` field, no MIME restriction) into the
   session's scratchpad. `?path` selects a relative subdirectory within the

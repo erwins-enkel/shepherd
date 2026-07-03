@@ -258,11 +258,13 @@
     color: var(--accent);
     animation: icon-btn-spin 2.4s linear infinite;
   }
-  /* Functional indicator: under reduced-motion swap rotation for the same
-     dot-pulse the REVIEWING dots use, so the "work happening" signal survives. */
+  /* Functional indicator: under reduced-motion keep the rotation (it's what
+     reads as "still working" here) but slow it way down instead of stopping
+     it, per WCAG guidance that gentle, non-essential motion is fine — only
+     the duration changes, not the keyframe. */
   @media (prefers-reduced-motion: reduce) {
     .rb-cog {
-      animation: dot-pulse 1.1s ease-in-out infinite !important;
+      animation-duration: 6s;
     }
   }
   .rb-text {

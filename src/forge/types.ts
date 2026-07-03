@@ -533,8 +533,11 @@ export interface RollupEntry {
   status?: string | null;
   conclusion?: string | null;
   detailsUrl?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   // StatusContext
   context?: string | null;
   state?: string | null;
   targetUrl?: string | null;
+  createdAt?: string | null;
 }

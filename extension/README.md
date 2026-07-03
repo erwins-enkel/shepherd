@@ -119,10 +119,11 @@ single default **Repo path**. Each rule is a `pattern → repo path` pair:
 
 **No pairing step is required.** The extension's `fetch` sends
 `Origin: chrome-extension://<id>`; Shepherd's origin guard allowlists by the URL
-**hostname**, which for that origin is the **raw extension ID**. That fixed ID
-(`bflahkibnmcbijbhelmpjbohpfhlbaig`, pinned by the manifest `key`) is **baked into
-the server's default allowlist**, so a stock `bun run start` accepts captures from
-this extension out of the box:
+**hostname**, which for that origin is the **raw extension ID**. Both the published
+Web Store ID (`liknmighjkhplpbocaefaljokofaifgi`) and the pinned unpacked-dev ID
+(`bflahkibnmcbijbhelmpjbohpfhlbaig`, from the manifest `key`) are **baked into the
+server's default allowlist**, so a stock `bun run start` accepts captures from a
+store-installed **or** load-unpacked build out of the box:
 
 ```bash
 bun run start

@@ -371,31 +371,40 @@ const mainPort = Number(process.env.SHEPHERD_PORT ?? 7330);
 // Shepherd Capture (the MV3 Chrome extension in `extension/`) sends its captures with
 // `Origin: chrome-extension://<id>`; the origin guard allowlists by hostname, and for that
 // origin the hostname IS the extension ID (see originAllowed in validate.ts). Baking the fixed
-// ID into the default allowlist removes the manual `SHEPHERD_ALLOWED_HOSTS` pairing step: a
+// IDs into the default allowlist removes the manual `SHEPHERD_ALLOWED_HOSTS` pairing step: a
 // stock install accepts captures with no env tweak. This is CSRF origin hygiene, not auth — a
 // web page can't forge a `chrome-extension://` origin, and `SHEPHERD_TOKEN` remains the real
-// auth boundary — so shipping a public, fixed ID as allowed-by-default grants nothing exploitable.
+// auth boundary — so shipping public, fixed IDs as allowed-by-default grants nothing exploitable.
 //
-// TODO(#1360 Task 5): reconcile with the final PUBLISHED Chrome Web Store ID once the item is
-// registered — the store may assign a different ID than the self-generated manifest `key`
-// (extension/manifest.config.ts). This is the pinned UNPACKED id; update both in lockstep.
-export const SHEPHERD_CAPTURE_EXTENSION_ID = "bflahkibnmcbijbhelmpjbohpfhlbaig";
+// TWO IDs are allowed because a Chrome extension's ID is a one-way hash of the manifest's public
+// `key`, and the Web Store signs published items with ITS OWN key — so the published ID differs
+// from the one the repo's manifest `key` (extension/manifest.config.ts) derives for unpacked dev
+// builds. Both origins are real and must work with no pairing:
+//   - SHEPHERD_CAPTURE_EXTENSION_ID       — the PUBLISHED Web Store item (what real users install).
+//   - SHEPHERD_CAPTURE_UNPACKED_DEV_ID    — the pinned load-unpacked dev build.
+// TODO(#1360 Task 5): to UNIFY them, set the manifest `key` to the store item's PUBLIC key (from
+// the CWS dashboard — it is NOT derivable from the ID); unpacked builds then share the published
+// ID and the dev-only entry below can be dropped.
+export const SHEPHERD_CAPTURE_EXTENSION_ID = "liknmighjkhplpbocaefaljokofaifgi";
+export const SHEPHERD_CAPTURE_UNPACKED_DEV_ID = "bflahkibnmcbijbhelmpjbohpfhlbaig";
 
 /**
  * Resolve the origin allowlist from `SHEPHERD_ALLOWED_HOSTS` (comma-separated), always appending
- * the built-in Capture extension ID. The env value overrides the built-in localhost defaults, but
- * the Capture ID is appended UNCONDITIONALLY (deduped) — it's origin hygiene the operator would
- * not want to drop, so it survives even a custom `SHEPHERD_ALLOWED_HOSTS`. Consequence: the env
- * var is no longer fully authoritative over the allowlist. Entries are trimmed and empties dropped
- * (a hostname with stray whitespace would never match `URL.hostname`); real entries — including
- * `::1` and bracketed `[::1]` — are preserved verbatim. Exported for tests.
+ * the built-in Capture extension IDs. The env value overrides the built-in localhost defaults, but
+ * the Capture IDs are appended UNCONDITIONALLY (deduped) — they're origin hygiene the operator
+ * would not want to drop, so they survive even a custom `SHEPHERD_ALLOWED_HOSTS`. Consequence: the
+ * env var is no longer fully authoritative over the allowlist. Entries are trimmed and empties
+ * dropped (a hostname with stray whitespace would never match `URL.hostname`); real entries —
+ * including `::1` and bracketed `[::1]` — are preserved verbatim. Exported for tests.
  */
 export function resolveAllowedOriginHosts(envValue: string | undefined): string[] {
   const hosts = (envValue ?? "localhost,127.0.0.1,::1,[::1]")
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean);
-  if (!hosts.includes(SHEPHERD_CAPTURE_EXTENSION_ID)) hosts.push(SHEPHERD_CAPTURE_EXTENSION_ID);
+  for (const id of [SHEPHERD_CAPTURE_EXTENSION_ID, SHEPHERD_CAPTURE_UNPACKED_DEV_ID]) {
+    if (!hosts.includes(id)) hosts.push(id);
+  }
   return hosts;
 }
 

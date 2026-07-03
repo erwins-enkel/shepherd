@@ -1,0 +1,144 @@
+---
+// Legal notice (Impressum) required under § 5 DDG for a German-operated site.
+// Content mirrors the operating company's imprint at
+// https://www.erwins-enkel.dev/impressum and is kept in German — the legally
+// binding language for this disclosure — even though the rest of the marketing
+// site is English-only.
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+
+const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
+---
+
+<Base
+  title="Impressum — Shepherd"
+  description="Impressum und Anbieterkennzeichnung der Erwins Enkel GmbH gemäß § 5 DDG."
+>
+  <Nav />
+  <main id="top" class="legal">
+    <div class="inner">
+      <h1>Impressum</h1>
+
+      <section>
+        <h2>Angaben gemäß § 5 DDG</h2>
+        <p>
+          <a href={ERWINS_ENKEL_URL} rel="noopener noreferrer" target="_blank"
+            >Erwins Enkel GmbH</a
+          ><br />
+          Viktoriastraße 45<br />
+          65189 Wiesbaden<br />
+          Deutschland
+        </p>
+      </section>
+
+      <section>
+        <h2>Vertreten durch</h2>
+        <p>Geschäftsführer: Patrick Lenz</p>
+      </section>
+
+      <section>
+        <h2>Kontakt</h2>
+        <p>
+          E-Mail: <a href="mailto:hallo@erwins-enkel.dev"
+            >hallo@erwins-enkel.dev</a
+          >
+        </p>
+      </section>
+
+      <section>
+        <h2>Registereintrag</h2>
+        <p>
+          Eintragung im Handelsregister.<br />
+          Registergericht: Amtsgericht Wiesbaden<br />
+          Registernummer: HRB [bitte ergänzen]
+        </p>
+      </section>
+
+      <section>
+        <h2>Umsatzsteuer-ID</h2>
+        <p>
+          Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:<br
+          />
+          DE [bitte ergänzen]
+        </p>
+      </section>
+
+      <section>
+        <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+        <p>
+          Patrick Lenz<br />
+          Anschrift wie oben
+        </p>
+      </section>
+
+      <section>
+        <h2>Verbraucherstreitbeilegung / Universalschlichtungsstelle</h2>
+        <p>
+          Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren
+          vor einer Verbraucherschlichtungsstelle teilzunehmen.
+        </p>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .legal {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+  }
+
+  .inner {
+    max-width: 46rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--ink);
+    margin-bottom: 0.4rem;
+  }
+
+  p {
+    color: var(--ink-muted);
+  }
+
+  a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--panel-2);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  a:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a {
+      transition: none;
+    }
+  }
+</style>

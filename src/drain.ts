@@ -247,11 +247,16 @@ export class DrainService {
    *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
    *  HISTORICAL spend, not imminent spend, and must not freeze the drain until the monthly credit
    *  reset. We anchor the total at first observation and re-anchor at each weekly-window reset AND
-   *  whenever the scraped total drops (the monthly credit budget rolled over), then gate on spend
-   *  accrued SINCE that anchor (see {@link effectiveCreditSpent}). null until first observed. On
-   *  restart the anchor re-captures the current total, which is why a deploy of this fix immediately
-   *  clears a stale historical-spend pause. */
-  private creditBaseline: { spent: number; weekResetAt: number | null } | null = null;
+   *  at each monthly credit-budget rollover (detected by the credit reset epoch advancing, with a
+   *  spend-drop fallback for an unparseable reset label), then gate on spend accrued SINCE that
+   *  anchor (see {@link effectiveCreditSpent}). null until first observed. On restart the anchor
+   *  re-captures the current total, which is why a deploy of this fix immediately clears a stale
+   *  historical-spend pause. */
+  private creditBaseline: {
+    spent: number;
+    weekResetAt: number | null;
+    monthResetAt: number | null;
+  } | null = null;
   private now: () => number;
   private issuesTtlMs: number;
   /** #1071: injectable seam; defaults to the real rebaseLandingBranch import. */
@@ -467,34 +472,42 @@ export class DrainService {
     const credits = limits.credits;
     if (!credits || credits.stale) return 0;
     const weekResetAt = limits.week?.resetAt ?? null;
+    const monthResetAt = credits.resetAt; // the monthly credit-budget reset epoch (null if unparsed)
     const b = this.creditBaseline;
     // First observation (incl. after a restart): anchor the historical total; govern only spend
     // from here. A subscription window with headroom means no paid spend is happening now, so
     // baselining out the pre-existing total is safe; any genuinely new spend still rises above it.
     if (!b) {
-      this.creditBaseline = { spent: credits.spent, weekResetAt };
+      this.creditBaseline = { spent: credits.spent, weekResetAt, monthResetAt };
       return 0;
     }
-    // Monthly credit budget rolled over — the scraped total is monotonic within a month, so any
-    // DROP below the anchor is a reset boundary and the new cycle starts at 0, making ALL of it
-    // new spend. Anchor at 0 (NOT the current reading, which would mask spend already accrued
-    // before this first post-reset observation — the default-0 ceiling would then fail to pause on
-    // it) and count the observed new-cycle total in full. Checked BEFORE the weekly roll so a
-    // coincident monthly+weekly reset still counts (the weekly branch's re-anchor-to-current masks).
-    if (credits.spent < b.spent) {
-      this.creditBaseline = { spent: 0, weekResetAt };
+    // Monthly credit budget rolled over → the new cycle starts at 0, so ALL of it is new spend.
+    // Detect via EITHER the monthly reset epoch advancing (the robust signal — catches a new cycle
+    // that already reached/exceeded last month's total before our first fresh scrape, e.g. Shepherd
+    // stale/down across the boundary; a spend-drop check alone would then subtract the old anchor
+    // and under-count) OR, as a fallback when the reset label was unparseable (null epoch), the
+    // scraped total dropping below the anchor. Anchor at 0 and count the observed new-cycle total in
+    // full — NEVER subtract the old-month anchor. Checked BEFORE the weekly roll so a coincident
+    // monthly+weekly reset still counts (the weekly branch re-anchors to current, which would mask).
+    const monthlyRolled =
+      (monthResetAt != null && b.monthResetAt != null && monthResetAt > b.monthResetAt) ||
+      credits.spent < b.spent;
+    if (monthlyRolled) {
+      this.creditBaseline = { spent: 0, weekResetAt, monthResetAt };
       return credits.spent;
     }
     // Weekly subscription window rolled over → fresh headroom (temporarily) stops paid spend, so
     // last week's overage no longer gates this week's drain. Anchor at the current total (spend in
     // earlier weeks of the SAME month is historical, unlike the fresh-from-0 monthly case above).
     if (weekResetAt != null && b.weekResetAt != null && weekResetAt > b.weekResetAt) {
-      this.creditBaseline = { spent: credits.spent, weekResetAt };
+      this.creditBaseline = { spent: credits.spent, weekResetAt, monthResetAt };
       return 0;
     }
-    // Adopt a late-arriving weekly anchor (calibration landed after we first observed credits)
-    // without disturbing the spend anchor — so future resets become detectable.
+    // Adopt late-arriving anchors (weekly calibration or a monthly reset label that only parsed
+    // after we first observed credits) without disturbing the spend anchor — so future resets
+    // stay detectable.
     if (b.weekResetAt == null && weekResetAt != null) b.weekResetAt = weekResetAt;
+    if (b.monthResetAt == null && monthResetAt != null) b.monthResetAt = monthResetAt;
     return Math.max(0, credits.spent - b.spent);
   }
 

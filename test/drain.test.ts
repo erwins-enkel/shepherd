@@ -14,6 +14,7 @@ import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
+import { config } from "../src/config";
 
 const REPO = "/repo";
 
@@ -635,18 +636,25 @@ test("stale credits snapshot → NO credits hold (drain proceeds, stale data dis
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const WEEK_RESET = 1_700_000_000_000; // fixed epoch; injected verbatim (no rollForward in tests)
+const MONTH_RESET = WEEK_RESET + 2 * WEEK_MS; // the monthly credit-budget reset epoch
 
-// Build a usage source whose weekly window + credit spend can be mutated between pumps, to
-// exercise the "spend since the weekly window began" cost guard (effectiveCreditSpent).
+// Build a usage source whose weekly window + credit spend (+ monthly reset epoch) can be mutated
+// between pumps, to exercise the "spend since the weekly window began" cost guard
+// (effectiveCreditSpent).
 function usageWithCredit(
-  read: () => { spent: number; weekResetAt: number | null; weekPct?: number },
+  read: () => {
+    spent: number;
+    weekResetAt: number | null;
+    weekPct?: number;
+    monthResetAt?: number | null;
+  },
 ) {
   return (): UsageLimitsType => {
-    const { spent, weekResetAt, weekPct = 20 } = read();
+    const { spent, weekResetAt, weekPct = 20, monthResetAt = MONTH_RESET } = read();
     return {
       ...NO_USAGE,
       week: weekResetAt == null ? null : { pct: weekPct, resetAt: weekResetAt },
-      credits: creditWindow({ spent, resetAt: WEEK_RESET + 2 * WEEK_MS }),
+      credits: creditWindow({ spent, resetAt: monthResetAt }),
     };
   };
 }
@@ -739,6 +747,40 @@ test("monthly reset observed late (first post-reset total nonzero) → still pau
   const last = h.statuses.at(-1)!;
   expect(last.reason).toBe("credits"); // counts €5 from 0 — not masked by re-anchoring to it
   expect(h.creates).toHaveLength(0);
+});
+
+// A monthly reset with NO spend drop: the new cycle already reached/exceeded last month's total
+// before the first fresh scrape (Shepherd stale/down across the boundary). A spend-drop heuristic
+// can't see it, so we detect the rollover from the monthly reset EPOCH advancing and count from 0.
+// With a ceiling between the stale delta and the real new-cycle spend, the old code wouldn't pause.
+test("monthly reset with no spend drop (epoch advanced) → counts new cycle from 0, pauses", async () => {
+  const savedCeiling = config.extraCreditsDrainCeiling;
+  config.extraCreditsDrainCeiling = 10; // between the stale delta (50−46.47=3.53) and the real 50
+  try {
+    let spent = 46.47;
+    let monthResetAt = MONTH_RESET;
+    const h = makeHarness({
+      maxAuto: 2,
+      issues: [issue(1)],
+      limitsImpl: usageWithCredit(() => ({
+        spent,
+        weekResetAt: WEEK_RESET,
+        weekPct: 50,
+        monthResetAt,
+      })),
+    });
+    await h.drain.snapshot(); // anchor := { spent 46.47, monthResetAt MONTH_RESET }
+    spent = 50; // new month already spent €50 (> old baseline) before our first fresh scrape
+    monthResetAt = MONTH_RESET + 30 * 24 * 60 * 60 * 1000; // monthly reset epoch advanced
+    await h.drain.pump(REPO);
+    const last = h.statuses.at(-1)!;
+    // Old (drop-only) code: 50 ≥ 46.47 → no drop → delta 3.53 < ceiling 10 → no pause (the bug).
+    // New code: epoch advanced → count 50 from 0 → 50 > 10 → pause.
+    expect(last.reason).toBe("credits");
+    expect(h.creates).toHaveLength(0);
+  } finally {
+    config.extraCreditsDrainCeiling = savedCeiling;
+  }
 });
 
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {

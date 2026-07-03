@@ -1252,12 +1252,12 @@
   "feat_session_recap_title": "Sitzungszusammenfassung",
   "feat_session_recap_body": "Shepherd erstellt nach jeder Sitzung eine kompakte Zusammenfassung — mit Ergebnis, Überschrift und offenen Punkten — damit du auf einen Blick siehst, was passiert ist.",
   "newtask_research_label": "Recherche-Aufgabe",
-  "newtask_research_hint": "Webrecherche mit Unter-Agenten → ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen.",
+  "newtask_research_hint": "Webrecherche → ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen.",
   "newtask_research_sandbox_note": "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang.",
   "research_badge_label": "Recherche",
-  "research_badge_title": "Rechercheaufgabe: Web-Recherche mit Sub-Agenten → ein Bericht-PR oder ein GitHub-Issue",
+  "research_badge_title": "Rechercheaufgabe: Web-Recherche → ein Bericht-PR oder ein GitHub-Issue",
   "feat_research_title": "Rechercheaufgaben",
-  "feat_research_body": "Starte eine Rechercheaufgabe im Dialog „Neue Aufgabe“: Ein betreuter Agent führt Web-Recherche mit Sub-Agenten durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR.",
+  "feat_research_body": "Starte eine Rechercheaufgabe im Dialog „Neue Aufgabe“: Ein betreuter Agent führt Web-Recherche durch und liefert einen Bericht-PR oder öffnet ein GitHub-Issue. Rechercheaufgaben öffnen niemals einen Code-PR.",
   "completed_epic_toast": "Epic #{number} abgeschlossen — {count} Teil-Issues gelandet",
   "integrated_epics_band_title": "Integrierte Epics ({count})",
   "integrated_epics_chip": "INTEGRIERT {merged}/{total}",
@@ -1971,7 +1971,7 @@
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Die Codex-Integration ist eine Alpha/MVP-Funktion und wird gerade intensiv weiterentwickelt.",
   "newtask_agent_provider_codex_suggested_for_hold": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, daher umgeht das Ausführen dieser Aufgabe auf Codex den Rückhalt. Wechsle die Coding-CLI zurück zu Claude Code, um sie stattdessen bis zum Reset zurückzuhalten oder trotzdem einzureichen.",
-  "newtask_agent_provider_codex_note": "Codex startet als interaktive Terminal-Session und läuft unbeaufsichtigt unter --dangerously-bypass-approvals-and-sandbox (Sandbox-Profil fest auf trusted). Plan Gate ist aus. Autopilot ist best-effort (Alpha) und treibt eine isolierte Session bis zu einem offenen PR. Die Modellauswahl nutzt Codex-CLI-Modelle.",
+  "newtask_agent_provider_codex_note": "Codex startet als interaktive Terminal-Session und läuft unbeaufsichtigt unter --dangerously-bypass-approvals-and-sandbox (Sandbox-Profil fest auf trusted). Plan Gate ist verfügbar. Autopilot ist best-effort (Alpha) und treibt eine isolierte Session bis zu einem offenen PR. Die Modellauswahl nutzt Codex-CLI-Modelle.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",
   "agent_provider_codex_alpha": "Codex (Alpha MVP)",
@@ -2380,5 +2380,7 @@
   "feat_command_bar_jump_body": "Halte bei geöffneter Befehlsleiste Alt gedrückt, um Ziffernhinweise (1–9, dann 0) auf den ersten zehn Ergebnissen einzublenden, und drücke dann die Ziffer, um direkt dorthin zu springen.",
   "viewport_scroll_to_top": "Zum Anfang der Session springen",
   "feat_scroll_to_session_start_title": "Zum Session-Anfang springen",
-  "feat_scroll_to_session_start_body": "Wenn du ältere Terminal-Ausgabe liest, zeigt die schwebende Scroll-Schaltfläche jetzt zusätzlich einen ↑-Button für den Anfang der Session neben dem bestehenden ↓-Sprung zurück zum aktuellen Prompt."
+  "feat_scroll_to_session_start_body": "Wenn du ältere Terminal-Ausgabe liest, zeigt die schwebende Scroll-Schaltfläche jetzt zusätzlich einen ↑-Button für den Anfang der Session neben dem bestehenden ↓-Sprung zurück zum aktuellen Prompt.",
+  "feat_codex_plan_gate_title": "Plan-Gate für Codex (Alpha)",
+  "feat_codex_plan_gate_body": "Das Plan-Gate funktioniert jetzt für Codex-Aufgaben. Schalte es im Neue-Aufgabe-Dialog ein, und Codex recherchiert und schreibt zuerst einen Plan, stoppt zur Review und implementiert erst nach Freigabe des Plans — dasselbe Pre-Execution-Gate, das Claude nutzt."
 }

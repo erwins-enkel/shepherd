@@ -307,8 +307,11 @@ function setRepoAutopilot(store: SessionStore, on: boolean) {
 
 const hasDirective = (argv: string[]) => argv.some((a) => a.includes("<autopilot-directive>"));
 const hasManualNotice = (argv: string[]) => argv.some((a) => a.includes("<manual-steps-notice>"));
+// The codex prompt is the final positional argv element (after the `--model` pair, if any): the
+// task text with the inline `<shepherd-directives>` block appended (TASK-413). Helpers below read it.
+const codexPrompt = (argv: string[]) => argv[argv.length - 1]!;
 
-test("createSession: codex provider starts interactive codex; plan-gate forced off, autopilot off → no directive", async () => {
+test("createSession: codex provider starts interactive codex; spawn argv carries the inline directives block", async () => {
   const { store, service, calls } = codexHarness(true);
 
   const s = await service.create({
@@ -318,28 +321,31 @@ test("createSession: codex provider starts interactive codex; plan-gate forced o
     agentProvider: "codex",
     model: "gpt-5.5",
     images: [],
-    planGateEnabled: true, // forced off for codex
     autopilotEnabled: false,
   });
 
-  // Autopilot is off here, so Codex gets the attended New Task shape: just the operator prompt,
-  // with no inline PR/manual-steps workflow guidance.
-  expect(calls.start.argv.slice(0, 5)).toEqual([
+  const argv: string[] = calls.start.argv;
+  expect(argv.slice(0, 5)).toEqual([
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
     "gpt-5.5",
   ]);
-  const codexPrompt = calls.start.argv[5] as string;
-  expect(codexPrompt).toBe("flatten it");
-  expect(codexPrompt).not.toContain("<autopilot-directive>");
-  expect(codexPrompt).not.toContain("<manual-steps-notice>");
+  // Codex has no --append-system-prompt, so the directive block rides inline on the prompt.
+  const prompt = codexPrompt(argv);
+  expect(prompt.startsWith("flatten it\n\n<shepherd-directives>\n")).toBe(true);
+  expect(prompt).toContain("</shepherd-directives>");
+  // The always-on directives that Codex previously never received now reach it.
+  expect(prompt).toContain("<engineering-posture>");
+  expect(prompt).toContain("<single-pr-invariant>");
+  // Autopilot is off here → no autopilot directive, and the #1257 manual-steps notice stays
+  // autopilot-only for Codex (attended prompts kept clean of PR workflow guidance).
+  expect(prompt).not.toContain("<autopilot-directive>");
+  expect(prompt).not.toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBe("gpt-5.5");
   expect(s.claudeSessionId).toBe("");
-  expect(s.planGateEnabled).toBe(false); // plan-gate stays codex-forced-off
-  expect(s.autopilotEnabled).toBe(false);
   expect(store.get(s.id)?.agentProvider).toBe("codex");
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
 });
@@ -362,12 +368,145 @@ test("createSession: codex drops a carried Claude model and uses provider defaul
     "--dangerously-bypass-approvals-and-sandbox",
   ]);
   expect(calls.start.argv).not.toContain("--model");
-  const codexPrompt = calls.start.argv[3] as string;
-  expect(codexPrompt).toBe("flatten it");
-  expect(codexPrompt).not.toContain("<manual-steps-notice>");
+  const prompt = codexPrompt(calls.start.argv);
+  expect(prompt.startsWith("flatten it")).toBe(true);
+  // Attended (autopilot off) → the #1257 manual-steps notice stays off for Codex.
+  expect(prompt).not.toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
   expect(s.model).toBeNull();
   expect(store.get(s.id)?.model).toBeNull();
+});
+
+// TASK-413 — the reported bug: a codex research session received NO research instruction (the
+// directive was Claude-only via composeSystemPrompt), so codex implemented directly. It now rides
+// inline, in the codex variant (no "sub-agents" — codex has none).
+test("createSession: codex + research → inline research directive, codex variant (no sub-agents)", async () => {
+  const { service, calls } = codexHarness(true);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "investigate the auth flow",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    images: [],
+    research: true,
+  });
+  const prompt = codexPrompt(calls.start.argv);
+  expect(prompt).toContain("<research-directive>");
+  expect(prompt).toContain("attended RESEARCH task");
+  expect(prompt).not.toContain("sub-agents");
+  // research suppresses the single-PR + autopilot blocks, same as the Claude path.
+  expect(prompt).not.toContain("<single-pr-invariant>");
+  expect(prompt).not.toContain("<autopilot-directive>");
+});
+
+// TASK-413 — plan-gate is no longer codex-forced-off. A codex plan-gate session persists the flag,
+// enters the planning phase, and gets the interactive directive inline in the codex variant
+// (hardened stop clause, no AskUserQuestion tool reference).
+test("createSession: codex + planGateEnabled → enters planning, inline codex plan-gate directive", async () => {
+  const { store, service, calls } = codexHarness(true);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "add a settings page",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    images: [],
+    planGateEnabled: true,
+    autopilotEnabled: false,
+  });
+  expect(s.planGateEnabled).toBe(true);
+  expect(store.get(s.id)?.planPhase).toBe("planning");
+  const prompt = codexPrompt(calls.start.argv);
+  expect(prompt).toContain("<plan-gate-directive>");
+  expect(prompt).toContain("pre-execution PLAN GATE");
+  // codex variant: hardened stop clause present, AskUserQuestion tool reference absent.
+  expect(prompt).toContain("Do NOT write or modify ANY code this turn");
+  expect(prompt).not.toContain("AskUserQuestion");
+  // plan-gate suppresses the autopilot directive (mutually exclusive).
+  expect(prompt).not.toContain("<autopilot-directive>");
+});
+
+// TASK-413: a plan-gated session must never get an AUTO-executing build queue. During the plan gate
+// the deliverable is the approved plan, so the queue must stop-and-wait — not drive straight into
+// execution. Codex delivers directives inline where the operator sees them, but the conflict is
+// provider-agnostic. Here: build-queue + autopilot both ON (autopilotActive true) yet plan-gated →
+// the baked curation gate is stop-and-wait, not auto-exec.
+test("createSession: codex plan-gate + build-queue + autopilot → build queue stop-and-wait, not auto-exec", async () => {
+  const { store, service, calls } = codexHarness(true);
+  store.setRepoConfig("/repo", {
+    criticEnabled: true,
+    criticAllPrs: false,
+    autoAddressEnabled: false,
+    learningsEnabled: false,
+    autopilotEnabled: true,
+    planGateEnabled: false,
+    autoDrainEnabled: false,
+    autoMergeEnabled: false,
+    buildQueueEnabled: true,
+    draftMode: false,
+    signoffAuthority: "human",
+    maxAuto: 1,
+    autoLabel: "shepherd:auto",
+    usageCeilingPct: 80,
+    sandboxProfile: "trusted",
+    defaultModel: "inherit",
+    egressExtraHosts: [],
+    repoMode: "forge",
+    autoOptimizeFlagged: false,
+    manualStepsIssueEnabled: false,
+  } as any);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "add a settings page",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    images: [],
+    planGateEnabled: true,
+    autopilotEnabled: true, // autopilotActive would otherwise make the queue auto-exec
+  });
+  const prompt = codexPrompt(calls.start.argv);
+  expect(prompt).toContain("<build-queue>");
+  expect(prompt).toContain("<plan-gate-directive>");
+  // Gated → stop-and-wait, NOT the auto-execute phrasing.
+  expect(prompt).toContain("STOP and wait");
+  expect(prompt).not.toContain("immediately begin executing the steps in order without waiting");
+});
+
+// trimmed is Claude-trim-specific (skill catalog / slash commands / plugins) — never for codex.
+test("createSession: codex never receives the context-trim notice", async () => {
+  const { service, calls } = codexHarness(true);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    images: [],
+    auto: true,
+  });
+  expect(codexPrompt(calls.start.argv)).not.toContain("<context-trim-notice>");
+});
+
+// Autopilot directive divergence (TASK-413 review point 1): Claude gates the directive on the REPO
+// DEFAULT only; Codex folds in the per-session toggle (and an isolation gate). With repo-default OFF
+// + per-session ON (isolated), Codex includes the autopilot directive — pinned by "codex + isolated
+// + autopilotEnabled=true → directive injected" above — while Claude omits it. This is the Claude
+// half: collapsing the two into one shared rule would regress one provider.
+test("autopilot directive: claude is repo-default-only — per-session ON with repo-default OFF omits it", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+    autopilotEnabled: true, // per-session ON, but the repo default is OFF
+  });
+  expect(sysPrompt(captured.argv!)).not.toContain("<autopilot-directive>");
 });
 
 test("createSession: codex + isolated + autopilotEnabled=true → directive injected, persisted true", async () => {
@@ -4958,6 +5097,26 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
     "gpt-5.5",
   ]);
   expect(calls.removed).toEqual([]);
+});
+
+// TASK-413 (critic): replaceAgent must persist planGateEnabled provider-agnostically, mirroring the
+// create path. Replacing a plan-gated Claude session with Codex enters the planning phase
+// (launch.planGateOn) — the flag must record ON too, not the old codex-forced-off (which would
+// mis-display the gate and drop the explicit-on choice on resume).
+test("replaceAgent → codex keeps planGateEnabled and planPhase in sync (not forced off)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store, { planGateEnabled: true }); // plan-gated Claude session
+  store.update(orig.id, { status: "done", lastState: "done" });
+
+  const replaced = await service.replaceAgent(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.5",
+  });
+
+  expect(replaced.agentProvider).toBe("codex");
+  expect(replaced.planGateEnabled).toBe(true); // persisted, not codex-forced-off
+  expect(replaced.planPhase).toBe("planning"); // and consistent with the flag
 });
 
 test("replaceAgent keeps the old agent registered if replacement spawn fails", async () => {

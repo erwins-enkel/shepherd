@@ -560,24 +560,39 @@ export const MANUAL_STEPS_NOTICE =
 
 /**
  * Injected as the highest-priority directive for an attended RESEARCH task (`research: true`).
- * A research session does open-ended web research with sub-agents and delivers a report-only PR
- * OR a GitHub issue — never code. It SUPPRESSES the plan-gate, autopilot, and build-queue
- * directives (see composeSystemPrompt), since none of those fit a research deliverable. Not
- * user-facing chrome (an instruction to the agent), so no i18n — same precedent as
- * AUTOPILOT_DIRECTIVE and the other spawn-constant directives.
+ * A research session does open-ended web research and delivers a report-only PR OR a GitHub issue —
+ * never code. It SUPPRESSES the plan-gate, autopilot, and build-queue directives (see
+ * composeSystemPrompt), since none of those fit a research deliverable. Not user-facing chrome (an
+ * instruction to the agent), so no i18n — same precedent as AUTOPILOT_DIRECTIVE and the other
+ * spawn-constant directives.
+ *
+ * Provider-adjusted: Claude can fan out work to sub-agents (the Task tool); Codex has no sub-agent
+ * capability, so its variant drops the "sub-agents" phrasing and tells it to research directly via
+ * web search / fetch. The deliverable (report-PR or issue) and the no-code / attended rules are
+ * identical across providers. `researchDirective("claude")` is byte-identical to the prior
+ * `RESEARCH_DIRECTIVE` constant — keep it that way (Claude regression).
  */
-const RESEARCH_DIRECTIVE =
-  "You are running as an attended RESEARCH task — open-ended web research with sub-agents, NOT " +
-  "writing product code.\n" +
-  "- Use web search / fetch and dispatch sub-agents to investigate thoroughly, then synthesize " +
-  "the findings yourself.\n" +
-  "- Deliver exactly ONE of: (a) a markdown report written to `docs/research/<slug>.md` and " +
-  "opened as a report-only PR — that report file is the ENTIRE diff, no code changes; or (b) a " +
-  "GitHub issue capturing the findings and recommendation. Choose (a) for reference material, " +
-  "(b) for actionable follow-up work.\n" +
-  "- Do NOT open a code pull request and do NOT modify product code. Once your deliverable " +
-  "(report PR or issue) is up, you are done.\n" +
-  "- You are attended: ask the user on a genuine product/requirements decision; otherwise keep going.";
+function researchDirective(agentProvider: AgentProvider): string {
+  const head =
+    agentProvider === "codex"
+      ? "You are running as an attended RESEARCH task — open-ended web research, NOT " +
+        "writing product code.\n" +
+        "- Use web search / fetch to investigate thoroughly, then synthesize the findings yourself.\n"
+      : "You are running as an attended RESEARCH task — open-ended web research with sub-agents, NOT " +
+        "writing product code.\n" +
+        "- Use web search / fetch and dispatch sub-agents to investigate thoroughly, then synthesize " +
+        "the findings yourself.\n";
+  return (
+    head +
+    "- Deliver exactly ONE of: (a) a markdown report written to `docs/research/<slug>.md` and " +
+    "opened as a report-only PR — that report file is the ENTIRE diff, no code changes; or (b) a " +
+    "GitHub issue capturing the findings and recommendation. Choose (a) for reference material, " +
+    "(b) for actionable follow-up work.\n" +
+    "- Do NOT open a code pull request and do NOT modify product code. Once your deliverable " +
+    "(report PR or issue) is up, you are done.\n" +
+    "- You are attended: ask the user on a genuine product/requirements decision; otherwise keep going."
+  );
+}
 
 /**
  * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
@@ -692,7 +707,10 @@ export function buildQueueDirective(args: {
  * When `allowQuestionForm` is false (interactive), the `question-form` block type is omitted
  * entirely and the agent is told to ask questions live, not park them in the sidecar.
  */
-export function planBlockInstructions(opts: { allowQuestionForm: boolean }): string {
+export function planBlockInstructions(opts: {
+  allowQuestionForm: boolean;
+  agentProvider?: AgentProvider;
+}): string {
   const lines: string[] = [
     "## Optional visual-plan sidecar",
     "",
@@ -732,9 +750,14 @@ export function planBlockInstructions(opts: { allowQuestionForm: boolean }): str
         "— for surfacing genuinely-undecidable-without-a-human questions when running unattended. Use sparingly: only for questions that cannot be resolved by reading the codebase.",
     );
   } else {
+    // Codex has no AskUserQuestion tool — drop that tool reference for it (Claude keeps it verbatim).
+    const liveAsk =
+      opts.agentProvider === "codex"
+        ? "Ask questions live in the conversation; the sidecar carries only rendering blocks."
+        : "Ask questions live in the conversation (or via AskUserQuestion for choices); the sidecar carries only rendering blocks.";
     lines.push(
       "In interactive mode you must ask questions live — never park them in the plan or sidecar. " +
-        "Ask questions live in the conversation (or via AskUserQuestion for choices); the sidecar carries only rendering blocks.",
+        liveAsk,
     );
   }
 
@@ -748,27 +771,68 @@ export function planBlockInstructions(opts: { allowQuestionForm: boolean }): str
   return lines.join("\n");
 }
 
-const PLAN_GATE_DIRECTIVE_INTERACTIVE =
-  "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
-  "1. Research the codebase enough to plan confidently.\n" +
-  "2. Ask the user actively — do NOT hide questions in the plan or a spec file. Use the AskUserQuestion " +
-  "tool for choice-style clarifications, and ask open-ended questions directly in the conversation. Keep " +
-  "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
-  "success criteria. Misalignment now is the costliest failure.\n" +
-  "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, files, " +
-  "steps, risks, success criteria) and tell the user it's ready for review. The plan must contain NO open / " +
-  "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
-  "assumptions and resolved decisions.\n" +
-  "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
-  "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
-  planBlockInstructions({ allowQuestionForm: false });
-const PLAN_GATE_DIRECTIVE_AUTO =
-  "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
-  "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
-  "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
-  "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
-  "are told the plan is approved.\n\n" +
-  planBlockInstructions({ allowQuestionForm: true });
+/**
+ * The interactive plan-gate directive, provider-adjusted. Two Codex-specific divergences:
+ *  - Codex has no AskUserQuestion tool, so step 2 tells it to ask in the conversation instead.
+ *  - Codex's default disposition is eager (it caused TASK-413 by implementing instead of researching),
+ *    so a hardened stop clause leads the directive: code stays untouched, the plan file is the only
+ *    deliverable this turn, then STOP. Claude keeps the original phrasing verbatim.
+ * `planGateDirectiveInteractive("claude")` is byte-identical to the prior
+ * `PLAN_GATE_DIRECTIVE_INTERACTIVE` constant — keep it that way (Claude regression).
+ */
+function planGateDirectiveInteractive(agentProvider: AgentProvider): string {
+  const stopClause =
+    agentProvider === "codex"
+      ? "Do NOT write or modify ANY code this turn. Your ONLY deliverable right now is the plan file " +
+        "`.shepherd-plan.md`; once you have written it, STOP and wait for review — do not start implementing.\n"
+      : "";
+  const askStep =
+    agentProvider === "codex"
+      ? "2. Ask the user actively — do NOT hide questions in the plan or a spec file. Ask your " +
+        "clarifying questions directly in the conversation. Keep "
+      : "2. Ask the user actively — do NOT hide questions in the plan or a spec file. Use the AskUserQuestion " +
+        "tool for choice-style clarifications, and ask open-ended questions directly in the conversation. Keep ";
+  return (
+    stopClause +
+    "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
+    "1. Research the codebase enough to plan confidently.\n" +
+    askStep +
+    "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
+    "success criteria. Misalignment now is the costliest failure.\n" +
+    "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, files, " +
+    "steps, risks, success criteria) and tell the user it's ready for review. The plan must contain NO open / " +
+    "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
+    "assumptions and resolved decisions.\n" +
+    "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
+    "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
+    planBlockInstructions({ allowQuestionForm: false, agentProvider })
+  );
+}
+const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
+/**
+ * The unattended (drain) plan-gate directive, provider-adjusted. The auto path has NO human to catch
+ * an eager Codex that starts implementing — so it needs the hardened stop clause even MORE than the
+ * interactive path. Codex gets the same lead-in stop clause; Claude keeps the original phrasing.
+ * `planGateDirectiveAuto("claude")` is byte-identical to the prior `PLAN_GATE_DIRECTIVE_AUTO`
+ * constant — keep it that way (Claude regression).
+ */
+function planGateDirectiveAuto(agentProvider: AgentProvider): string {
+  const stopClause =
+    agentProvider === "codex"
+      ? "Do NOT write or modify ANY code this turn. Your ONLY deliverable right now is the plan file " +
+        "`.shepherd-plan.md`; once you have written it, STOP and wait — do not start implementing.\n"
+      : "";
+  return (
+    stopClause +
+    "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
+    "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
+    "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
+    "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
+    "are told the plan is approved.\n\n" +
+    planBlockInstructions({ allowQuestionForm: true, agentProvider })
+  );
+}
+const PLAN_GATE_DIRECTIVE_AUTO = planGateDirectiveAuto("claude");
 export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
 
 /**
@@ -882,6 +946,33 @@ export function planGoSteer(draftMode: boolean): string {
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
+/**
+ * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
+ * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
+ * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
+ * keep that function under the complexity gate.
+ */
+function primaryDirectiveBlock(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  opts: { research?: boolean; planGate?: "interactive" | "auto" },
+): string | null {
+  if (opts.research) {
+    return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
+  }
+  if (opts.planGate) {
+    const variant =
+      opts.planGate === "auto"
+        ? planGateDirectiveAuto(agentProvider)
+        : planGateDirectiveInteractive(agentProvider);
+    return `<plan-gate-directive>\n${variant}\n</plan-gate-directive>`;
+  }
+  if (autopilotActive) {
+    return `<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
+  }
+  return null;
+}
+
 export function composeSystemPrompt(
   houseRules: string | null,
   autopilotActive = false,
@@ -892,8 +983,13 @@ export function composeSystemPrompt(
     previewHint?: boolean;
     draftMode?: boolean;
     trimmed?: boolean;
+    agentProvider?: AgentProvider;
   } = {},
 ): string {
+  // Provider-adjust only the two blocks that name a Claude-only tool/capability (research's
+  // "sub-agents", the interactive plan-gate's "AskUserQuestion"). Absent → "claude", so every
+  // existing Claude caller is byte-identical.
+  const agentProvider = opts.agentProvider ?? "claude";
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
@@ -906,21 +1002,20 @@ export function composeSystemPrompt(
   if (!opts.research) {
     blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
-    // opens no code PR) — same gate as the single-PR invariant. Gives the Owed lens a live data
-    // source by telling the agent to declare manual steps via the carriers parseManualSteps reads.
-    blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
+    // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
+    // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
+    // gets it in the invisible system prompt, so it always rides; Codex delivers directives inline
+    // where they're visible to the operator, so — matching #1257's attended-Codex decision — the
+    // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
+    // attended Codex starts free of workflow guidance.
+    if (agentProvider !== "codex" || autopilotActive) {
+      blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
+    }
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
-  // directive (none of those fit a report-PR/issue deliverable).
-  if (opts.research) {
-    blocks.push(`<research-directive>\n${RESEARCH_DIRECTIVE}\n</research-directive>`);
-  } else if (opts.planGate) {
-    const variant =
-      opts.planGate === "auto" ? PLAN_GATE_DIRECTIVE_AUTO : PLAN_GATE_DIRECTIVE_INTERACTIVE;
-    blocks.push(`<plan-gate-directive>\n${variant}\n</plan-gate-directive>`);
-  } else if (autopilotActive) {
-    blocks.push(`<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`);
-  }
+  // directive (none of those fit a report-PR/issue deliverable). See primaryDirectiveBlock.
+  const primary = primaryDirectiveBlock(agentProvider, autopilotActive, opts);
+  if (primary) blocks.push(primary);
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
   // but a research session authors no queue — suppress it there too.
   if (!opts.research && opts.buildQueue != null)
@@ -1709,6 +1804,63 @@ export class SessionService {
     if (spawnModel) argv.push("--model", spawnModel);
   }
 
+  /**
+   * Compose the full spawn-time directive block (`composeSystemPrompt` output) for a session.
+   * Shared by BOTH spawn builders so Claude and Codex deliver the SAME directives — the only
+   * difference is the delivery channel (Claude: `--append-system-prompt`; Codex: inline on the
+   * prompt, since Codex has no such flag).
+   *
+   * `autopilotActive` and `trimmed` are passed IN by the caller, never derived here, because they
+   * legitimately diverge per provider (issue: TASK-413):
+   *  - autopilotActive — Claude uses the repo default (`repoConfig.autopilotEnabled`); Codex folds in
+   *    the per-session toggle AND the isolation gate (`isolated && effectiveAutopilot(...)`), since
+   *    Codex autopilot stands down on non-isolated sessions. Collapsing these would regress a provider.
+   *  - trimmed — the context-trim notice is Claude-specific (skill-catalog / slash-command / plugin
+   *    trimming); Codex has no such trim, so its caller passes `false`.
+   *
+   * Side effect: `recordInjectedHouseRules` writes the injected-learnings join rows. It now runs on
+   * the Codex path too (intended — Codex sessions should participate in the learning lifecycle), so
+   * this must be called EXACTLY ONCE per spawn.
+   */
+  private composeDirectives(args: {
+    input: CreateSessionInput;
+    sessionId: string;
+    planGateOn: boolean | undefined;
+    isolated: boolean;
+    baseUrl: string;
+    autopilotActive: boolean;
+    trimmed: boolean;
+    agentProvider: AgentProvider;
+  }): string {
+    const { input, sessionId, planGateOn, isolated, baseUrl, autopilotActive, trimmed } = args;
+    const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    const houseRules = this.recordInjectedHouseRules(sessionId, input);
+    const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
+    const buildQueue = repoConfig.buildQueueEnabled
+      ? buildQueueDirective({
+          sessionId,
+          baseUrl,
+          token: config.token,
+          // Never hand a plan-gated session an AUTO-executing build queue (TASK-413): during the
+          // plan gate the deliverable is the approved plan, so the queue must stop-and-wait, not
+          // drive straight into execution. This matters most for Codex, whose directives ride
+          // visibly inline, but the conflict is provider-agnostic so the guard is too. After the
+          // plan is approved and the session released, the release steer is the queue's "begin"
+          // signal (and shouldPreApproveBuildQueue already pre-approved it for an autopilot run).
+          autopilot: autopilotActive && !planGateOn,
+        })
+      : null;
+    return composeSystemPrompt(houseRules, autopilotActive, {
+      research: input.research,
+      planGate,
+      buildQueue,
+      previewHint: isolated,
+      draftMode: repoConfig.draftMode,
+      trimmed,
+      agentProvider: args.agentProvider,
+    });
+  }
+
   private buildSpawnArgv(
     input: CreateSessionInput,
     claudeSessionId: string,
@@ -1720,17 +1872,6 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const houseRules = this.recordInjectedHouseRules(sessionId, input);
-    const autopilotActive = repoConfig.autopilotEnabled;
-    const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
-    const buildQueue = repoConfig.buildQueueEnabled
-      ? buildQueueDirective({
-          sessionId,
-          baseUrl,
-          token: config.token,
-          autopilot: autopilotActive,
-        })
-      : null;
     const argv = [
       "claude",
       "--dangerously-skip-permissions",
@@ -1747,13 +1888,16 @@ export class SessionService {
     );
     argv.push(
       "--append-system-prompt",
-      composeSystemPrompt(houseRules, autopilotActive, {
-        research: input.research,
-        planGate,
-        buildQueue,
-        previewHint: isolated,
-        draftMode: repoConfig.draftMode,
+      this.composeDirectives({
+        input,
+        sessionId,
+        planGateOn,
+        isolated,
+        baseUrl,
+        // Claude divergence: autopilot directive rides on the repo default, not isolation-gated.
+        autopilotActive: repoConfig.autopilotEnabled,
         trimmed: trim.trimmed,
+        agentProvider: "claude",
       }),
     );
     this.pushModelFlag(argv, input.model);
@@ -1761,24 +1905,43 @@ export class SessionService {
     return argv;
   }
 
-  private buildCodexSpawnArgv(
-    promptArg: string,
-    model: string | null,
-    autopilotActive: boolean,
-    manualStepsNotice: boolean,
-  ): string[] {
+  private buildCodexSpawnArgv(args: {
+    input: CreateSessionInput;
+    sessionId: string;
+    promptArg: string;
+    planGateOn: boolean | undefined;
+    isolated: boolean;
+    baseUrl: string;
+  }): string[] {
+    const { input, sessionId, promptArg, planGateOn, isolated, baseUrl } = args;
+    const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
-    if (model) argv.push("--model", model);
-    // Codex has no --append-system-prompt, so extra blocks ride inline on the prompt. For attended
-    // sessions that would visibly turn the operator's prompt into PR workflow guidance, unlike the
-    // Claude Code New Task flow. The caller therefore gates both autopilot and PR/manual-steps text
-    // on the same effective-autopilot predicate.
-    let prompt = promptArg;
-    if (autopilotActive)
-      prompt += `\n\n<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
-    if (manualStepsNotice)
-      prompt += `\n\n<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`;
-    argv.push(prompt);
+    if (input.model) argv.push("--model", input.model);
+    // Codex divergence (preserved from the prior call-site gating): the autopilot directive stands
+    // down on a non-isolated session, and the per-session toggle counts. Research/plan-gate precedence
+    // is handled inside composeSystemPrompt, so it need not be repeated here.
+    const autopilotActive =
+      isolated &&
+      effectiveAutopilot(
+        { autopilotEnabled: input.autopilotEnabled ?? null },
+        repoConfig.autopilotEnabled,
+      );
+    // Codex has no --append-system-prompt, so the directive block Claude gets via composeSystemPrompt
+    // rides inline on the prompt instead, wrapped so the agent can separate it from the task. The
+    // manual-steps-notice #1257 is the one block composeSystemPrompt gates per-provider: it stays
+    // autopilot-only for Codex (attended Codex prompts kept clean of PR workflow guidance).
+    // trimmed:false — context-trim is a Claude-only mechanism.
+    const directives = this.composeDirectives({
+      input,
+      sessionId,
+      planGateOn,
+      isolated,
+      baseUrl,
+      autopilotActive,
+      trimmed: false,
+      agentProvider: "codex",
+    });
+    argv.push(`${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`);
     return argv;
   }
 
@@ -1972,38 +2135,28 @@ export class SessionService {
     }
 
     const repoConfig = this.deps.store.getRepoConfig(spawnInput.repoPath);
-    const planGateOn =
-      agentProvider === "claude" ? this.resolvePlanGateOn(spawnInput, repoConfig) : false;
+    // Plan gate (#348): provider-agnostic (TASK-413) — Codex now enters the gate too; its directive
+    // rides inline (see buildCodexSpawnArgv) and the detection/review/release machinery is already
+    // CLI-agnostic. See resolvePlanGateOn for the override + research semantics.
+    const planGateOn = this.resolvePlanGateOn(spawnInput, repoConfig);
     const trim = await this.trimFor(spawnInput.auto);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
         : this.researchSafeProfileOverride(spawnInput, repoConfig, sessionId);
     const baseUrl = this.resolveSpawnBaseUrl(profileOverride, spawnInput.repoPath);
-    const codexAutopilotActive =
-      agentProvider === "codex" &&
-      !spawnInput.research &&
-      wt.isolated &&
-      effectiveAutopilot(
-        { autopilotEnabled: spawnInput.autopilotEnabled ?? null },
-        repoConfig.autopilotEnabled,
-      );
+    // buildCodexSpawnArgv computes its own autopilot gate internally (isolated && effectiveAutopilot)
+    // and delivers the full directive block via composeDirectives — no caller-side gating needed.
     const argv =
       agentProvider === "codex"
-        ? this.buildCodexSpawnArgv(
+        ? this.buildCodexSpawnArgv({
+            input: spawnInput,
+            sessionId,
             promptArg,
-            spawnInput.model,
-            // Deliberate divergence from Claude (which gates its directive on the repo
-            // default only, see buildSpawnArgv): Codex uses effectiveAutopilot so the
-            // headline case (repo default OFF + per-session toggle ON) gets the directive.
-            // Do NOT align to Claude's repo-default-only behavior. Suppressed for research
-            // (which replaces the autopilot directive) and non-isolated (which autopilot
-            // stands down on — see eligible()).
-            codexAutopilotActive,
-            // Codex cannot hide this in a system prompt; keep attended starts free of PR/body
-            // instructions and attach the manual-steps contract only for autonomous PR-bound runs.
-            codexAutopilotActive,
-          )
+            planGateOn,
+            isolated: wt.isolated,
+            baseUrl,
+          })
         : this.buildSpawnArgv(
             spawnInput,
             claudeSessionId,
@@ -2070,7 +2223,8 @@ export class SessionService {
         model: spawnInput.model,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
-        planGateEnabled: agentProvider === "claude" ? (spawnInput.planGateEnabled ?? null) : false,
+        // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
+        planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,
@@ -2308,8 +2462,10 @@ export class SessionService {
         mergingSince: null,
         mergingTrainId: null,
         mergingPrNumber: null,
-        planGateEnabled:
-          agentProvider === "claude" ? (launch.spawnInput.planGateEnabled ?? null) : false,
+        // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
+        // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
+        // as disabled (which would mis-display and drop the explicit-on choice on resume).
+        planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
         planPhase: launch.planGateOn ? "planning" : null,
       });
       this.deps.store.setSandboxState(s.id, {

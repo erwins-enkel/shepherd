@@ -491,16 +491,24 @@ export class PlanGateService {
 
   /** Persist an approved gate. A session meant to run hands-free — drain-spawned (auto) OR
    *  autopilot-enabled — clears straight into execution; a purely interactive (autopilot-off)
-   *  session waits for the operator's explicit Go (so we do NOT release it here). */
+   *  session waits for the operator's explicit Go (so we do NOT release it here).
+   *
+   *  Codex divergence (TASK-413): Codex autopilot stands down on a NON-isolated session — its
+   *  resume path (`codex resume --last`) would target a sibling codex session in a shared cwd (see
+   *  autopilot.ts eligible() + buildCodexSpawnArgv's isolated-gated autopilot). Such a session is
+   *  therefore NOT actually hands-free, so it must wait for the operator's explicit Go rather than
+   *  auto-releasing here. Guard only the autopilot arm: drain (`s.auto`) can't reach a codex session
+   *  (full-auto is codex-disabled), so it needs no guard and must still release unattended. */
   private applyApproved(f: PlanInFlight, gate: PlanGate): void {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
     const s = this.deps.store.get(f.sessionId);
-    if (
-      s &&
-      (s.auto || effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled))
-    )
-      this.deps.release(f.sessionId);
+    if (!s) return;
+    const codexNonIsolated = (s.agentProvider ?? "claude") === "codex" && !s.isolated;
+    const autopilotReleases =
+      !codexNonIsolated &&
+      effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
+    if (s.auto || autopilotReleases) this.deps.release(f.sessionId);
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop

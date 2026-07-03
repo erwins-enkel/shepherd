@@ -1252,12 +1252,12 @@
   "feat_session_recap_title": "Session recap",
   "feat_session_recap_body": "Shepherd now generates a concise recap after each session — verdict, headline, and open items — so you can see what happened at a glance.",
   "newtask_research_label": "Research task",
-  "newtask_research_hint": "Web research with sub-agents → a report PR or a GitHub issue. No code changes.",
+  "newtask_research_hint": "Web research → a report PR or a GitHub issue. No code changes.",
   "newtask_research_sandbox_note": "Research can't use the autonomous profile — web search needs open network access.",
   "research_badge_label": "Research",
-  "research_badge_title": "Research task: web research with sub-agents → a report PR or a GitHub issue",
+  "research_badge_title": "Research task: web research → a report PR or a GitHub issue",
   "feat_research_title": "Research tasks",
-  "feat_research_body": "Start a Research task from New Task: an attended agent does web research with sub-agents and delivers a report PR or opens a GitHub issue. Research never opens a code PR.",
+  "feat_research_body": "Start a Research task from New Task: an attended agent does web research and delivers a report PR or opens a GitHub issue. Research never opens a code PR.",
   "completed_epic_toast": "Epic #{number} complete — {count} sub-issues landed",
   "integrated_epics_band_title": "Integrated epics ({count})",
   "integrated_epics_chip": "INTEGRATED {merged}/{total}",
@@ -1971,7 +1971,7 @@
   "newtask_agent_provider_codex_alpha_badge": "Alpha MVP",
   "newtask_agent_provider_codex_alpha_note": "Codex integration is an Alpha/MVP feature and is under heavy development.",
   "newtask_agent_provider_codex_suggested_for_hold": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead.",
-  "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is off. Autopilot is best-effort (Alpha) and drives an isolated session toward an open PR. The model picker uses Codex CLI models.",
+  "newtask_agent_provider_codex_note": "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is available. Autopilot is best-effort (Alpha) and drives an isolated session toward an open PR. The model picker uses Codex CLI models.",
   "agent_provider_claude": "Claude Code",
   "agent_provider_codex": "Codex",
   "agent_provider_codex_alpha": "Codex (Alpha MVP)",
@@ -2380,5 +2380,7 @@
   "feat_command_bar_jump_body": "Hold Alt with the command bar open to reveal number hints (1–9, then 0) on the first ten results, then press the digit to jump straight to it.",
   "viewport_scroll_to_top": "Jump to session start",
   "feat_scroll_to_session_start_title": "Jump to session start",
-  "feat_scroll_to_session_start_body": "When you're reading older terminal output, the floating scroll control now includes an ↑ button for the start of the session next to the existing ↓ jump back to the latest prompt."
+  "feat_scroll_to_session_start_body": "When you're reading older terminal output, the floating scroll control now includes an ↑ button for the start of the session next to the existing ↓ jump back to the latest prompt.",
+  "feat_codex_plan_gate_title": "Plan gate for Codex (Alpha)",
+  "feat_codex_plan_gate_body": "The plan gate now works for Codex tasks. Toggle it on in New Task and Codex researches and writes a plan first, stops for review, and only implements once the plan is approved — the same pre-execution gate Claude uses."
 }

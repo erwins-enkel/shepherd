@@ -10,6 +10,7 @@
     resuming,
     resumeFailed,
     resumable,
+    scrollToTop,
     scrollToBottom,
     takeover,
     reattach,
@@ -23,6 +24,7 @@
     resuming: boolean;
     resumeFailed: boolean;
     resumable: boolean;
+    scrollToTop: () => void;
     scrollToBottom: () => void;
     takeover: () => void;
     reattach: () => void;
@@ -31,15 +33,26 @@
 </script>
 
 {#if tab === "term" && scrolledUp && !parked}
-  <button
-    class="scroll-bottom"
-    type="button"
-    onclick={scrollToBottom}
-    title={m.viewport_scroll_to_bottom()}
-    aria-label={m.viewport_scroll_to_bottom()}
-  >
-    <span aria-hidden="true">↓</span>
-  </button>
+  <div class="scroll-jump">
+    <button
+      class="scroll-jump-btn"
+      type="button"
+      onclick={scrollToTop}
+      title={m.viewport_scroll_to_top()}
+      aria-label={m.viewport_scroll_to_top()}
+    >
+      <span aria-hidden="true">↑</span>
+    </button>
+    <button
+      class="scroll-jump-btn"
+      type="button"
+      onclick={scrollToBottom}
+      title={m.viewport_scroll_to_bottom()}
+      aria-label={m.viewport_scroll_to_bottom()}
+    >
+      <span aria-hidden="true">↓</span>
+    </button>
+  </div>
 {/if}
 {#if parked && tab === "term"}
   <button class="parked" type="button" onclick={takeover}>
@@ -104,9 +117,9 @@
     opacity: 0.7;
   }
 
-  /* jump-to-bottom: small round affordance, bottom-right of the terminal body.
-     sits above xterm content (z-index 2) but below the parked/resume overlays (3) */
-  .scroll-bottom {
+  /* jump controls: small round affordances, bottom-right of the terminal body.
+     sit above xterm content (z-index 2) but below the parked/resume overlays (3) */
+  .scroll-jump {
     position: absolute;
     /* Lift clear of the ReviewInFlightBanner's bottom strip when it's shown:
        --review-banner-h (published on .vp-body) is that banner's occupied height,
@@ -114,6 +127,13 @@
     bottom: calc(12px + var(--review-banner-h, 0px));
     right: 14px;
     z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--mobile-shell-pad);
+  }
+  .scroll-jump-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -136,15 +156,14 @@
       background 0.12s ease,
       color 0.12s ease,
       box-shadow 0.12s ease,
-      transform 0.12s ease,
-      bottom 0.12s ease;
+      transform 0.12s ease;
     /* slide in, then pulse the amber glow twice to draw the eye; the pulse ends
-       and the button rests on the steady halo set above. */
+       and the buttons rest on the steady halo set above. */
     animation:
       scroll-bottom-in 0.14s ease,
       scroll-bottom-glow 1.5s ease-in-out 0.14s 2;
   }
-  .scroll-bottom:hover {
+  .scroll-jump-btn:hover {
     background: var(--color-hover);
     color: var(--color-amber);
     transform: translateY(-1px);
@@ -160,7 +179,7 @@
      element itself is simplest — stays round, stays flat. Desktop (fine pointer)
      keeps the 38px glyph. */
   @media (pointer: coarse) {
-    .scroll-bottom {
+    .scroll-jump-btn {
       min-width: 44px;
       min-height: 44px;
     }

@@ -447,6 +447,14 @@ test("originAllowed: subdomain of localhost rejected", () => {
   expect(originAllowed("http://attacker.localhost:7330", allowedHosts)).toBe(false);
 });
 
+test("originAllowed: chrome-extension origin passes when its ID is allowlisted", () => {
+  // For a chrome-extension:// origin the URL hostname IS the extension ID, so listing the
+  // Capture ID in the allowlist (the shipped default) accepts its captures with no pairing.
+  const id = "bflahkibnmcbijbhelmpjbohpfhlbaig";
+  expect(originAllowed(`chrome-extension://${id}`, [...allowedHosts, id])).toBe(true);
+  expect(originAllowed(`chrome-extension://${id}`, allowedHosts)).toBe(false);
+});
+
 // ── isValidTerminalId ─────────────────────────────────────────────────────────
 
 test("isValidTerminalId: accepts typical herdr id", () => {

@@ -1,7 +1,7 @@
 {
   "name": "extension",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,7 @@
     "build:picker": "esbuild src/picker.ts --bundle --format=iife --target=chrome111 --outfile=public/picker.js",
     "build:axe": "cp node_modules/axe-core/axe.min.js public/axe.min.js",
     "build": "bun run build:axe && bun run build:recorder && bun run build:picker && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && vite build",
+    "package": "bun run build && node scripts/package.mjs",
     "preview": "vite preview",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "prepare": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",

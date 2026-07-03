@@ -1,0 +1,43 @@
+# Build + zip the Shepherd Capture extension into an uploadable Chrome Web Store
+# artifact. This does NOT publish — it deliberately wires no store credentials. The
+# resulting zip is downloaded from the run's Artifacts and uploaded to the CWS
+# dashboard by a human (see extension/STORE_LISTING.md). Runs on manual dispatch or
+# a `capture-v*` tag push.
+name: Extension package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "capture-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install (extension)
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: extension
+
+      # `bun run package` builds then zips dist/ → extension/shepherd-capture-<version>.zip.
+      - name: Build + package
+        run: cd extension && bun run package
+
+      - name: Upload store zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: shepherd-capture-zip
+          path: extension/shepherd-capture-*.zip
+          if-no-files-found: error

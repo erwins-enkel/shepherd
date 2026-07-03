@@ -320,31 +320,33 @@
       <span class="text-xs text-red-600">{m.options_save_failed()}</span>
     {/if}
 
-    <fieldset class="mt-2 flex flex-col gap-2 border-t border-gray-200 pt-3">
-      <legend class="text-gray-600">{m.options_pairing_title()}</legend>
-      <span class="text-xs text-gray-500">{m.options_pairing_hint()}</span>
+    <details class="mt-2 border-t border-gray-200 pt-3">
+      <summary class="cursor-pointer text-gray-600">{m.options_pairing_title()}</summary>
+      <div class="mt-2 flex flex-col gap-2">
+        <span class="text-xs text-gray-500">{m.options_pairing_hint()}</span>
 
-      <span class="text-gray-600">{m.options_extension_id_label()}</span>
-      <div class="flex items-center gap-2">
-        <code class="min-w-0 flex-1 truncate rounded bg-gray-100 px-2 py-1 text-xs">
-          {extensionId}
-        </code>
-        <button
-          type="button"
-          class="shrink-0 rounded border border-gray-300 px-2 py-1"
-          onclick={copyExtensionId}
+        <span class="text-gray-600">{m.options_extension_id_label()}</span>
+        <div class="flex items-center gap-2">
+          <code class="min-w-0 flex-1 truncate rounded bg-gray-100 px-2 py-1 text-xs">
+            {extensionId}
+          </code>
+          <button
+            type="button"
+            class="shrink-0 rounded border border-gray-300 px-2 py-1"
+            onclick={copyExtensionId}
+          >
+            {copied ? m.options_copied() : m.options_copy()}
+          </button>
+        </div>
+        {#if copyFailed}
+          <span class="text-xs text-red-600">{m.options_copy_failed()}</span>
+        {/if}
+
+        <span class="text-gray-600">{m.options_pairing_command_label()}</span>
+        <code class="block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs"
+          >{pairingCommand}</code
         >
-          {copied ? m.options_copied() : m.options_copy()}
-        </button>
       </div>
-      {#if copyFailed}
-        <span class="text-xs text-red-600">{m.options_copy_failed()}</span>
-      {/if}
-
-      <span class="text-gray-600">{m.options_pairing_command_label()}</span>
-      <code class="block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs"
-        >{pairingCommand}</code
-      >
-    </fieldset>
+    </details>
   </form>
 </main>

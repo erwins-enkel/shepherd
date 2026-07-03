@@ -22,8 +22,9 @@ bun run check:i18n # EN+DE catalog parity
 2. Chrome → `chrome://extensions` → enable **Developer mode** → **Load unpacked**
    → select `extension/dist`.
 3. The extension's **ID** is now fixed at `bflahkibnmcbijbhelmpjbohpfhlbaig`
-   (pinned by the manifest `key`), so it no longer drifts per directory/machine —
-   set the server allowlist (below) once. The card shows the same ID.
+   (pinned by the manifest `key`), so it no longer drifts per directory/machine.
+   The card shows the same ID. This ID is **allowlisted by default** on the server,
+   so no pairing step is needed for a standard install (see [Server setup](#server-setup)).
 
 ## Open the popup
 
@@ -109,23 +110,29 @@ single default **Repo path**. Each rule is a `pattern → repo path` pair:
 - The popup shows the resolved repo and a **(routed)** hint when a rule overrode the
   default. Routing applies to both delivery targets.
 
-## Server setup (one-time)
+## Server setup
 
-The extension's `fetch` sends `Origin: chrome-extension://<id>`. Shepherd's origin
-guard allowlists by the URL **hostname**, which for that origin is the **raw
-extension ID**. The ID is fixed at `bflahkibnmcbijbhelmpjbohpfhlbaig` (pinned by
-the manifest `key`), so set this once — it won't drift between loads:
+**No pairing step is required.** The extension's `fetch` sends
+`Origin: chrome-extension://<id>`; Shepherd's origin guard allowlists by the URL
+**hostname**, which for that origin is the **raw extension ID**. That fixed ID
+(`bflahkibnmcbijbhelmpjbohpfhlbaig`, pinned by the manifest `key`) is **baked into
+the server's default allowlist**, so a stock `bun run start` accepts captures from
+this extension out of the box:
 
 ```bash
-SHEPHERD_ALLOWED_HOSTS="bflahkibnmcbijbhelmpjbohpfhlbaig" bun run start
+bun run start
 ```
 
-If you skip this, spawn-now returns `403` and the popup shows the
-"add this extension's ID to SHEPHERD_ALLOWED_HOSTS" error.
+The origin allowlist is CSRF hygiene, not authentication (`SHEPHERD_TOKEN` is the
+real auth boundary), so shipping this fixed, public ID as allowed-by-default is safe.
+
+**Only** if you override `SHEPHERD_ALLOWED_HOSTS` with a custom list do you need to
+include this extension's ID in it — the built-in Capture ID is always appended
+regardless, so in practice you never have to add it manually.
 
 | Failure | Popup message                 | Fix                                                                                                       |
 | ------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `403`   | origin rejected               | add the extension ID to `SHEPHERD_ALLOWED_HOSTS`                                                          |
+| `403`   | origin rejected               | only if a custom `SHEPHERD_ALLOWED_HOSTS` is set — the built-in Capture ID is allowed by default          |
 | `401`   | auth failed                   | set the correct token in options                                                                          |
 | `400`   | "Shepherd rejected: <detail>" | request invalid — the server's detail says what (e.g. repo path outside `SHEPHERD_REPO_ROOT`, bad branch) |
 | `413`   | screenshot too large          | viewport screenshot exceeded the upload size limit                                                        |
@@ -137,9 +144,9 @@ If you skip this, spawn-now returns `403` and the popup shows the
 - [ ] `bun run build` produces a loadable `dist/`.
 - [ ] Loading unpacked shows the branded **Shepherd sheep** toolbar icon.
 - [ ] Pressing **Alt+Shift+S** opens the capture popup.
-- [ ] With the server running + extension ID in `SHEPHERD_ALLOWED_HOSTS` and a
-      valid repo configured: click the icon on any normal web page → popup shows a
-      screenshot thumbnail + the target repo.
+- [ ] With the server running (stock `bun run start`, no `SHEPHERD_ALLOWED_HOSTS`
+      needed) and a valid repo configured: click the icon on any normal web page →
+      popup shows a screenshot thumbnail + the target repo.
 - [ ] Type a task, click **Spawn now** → popup shows `TASK-NN`.
 - [ ] The session appears live in the Shepherd HUD, with the screenshot attached
       and the fenced browser-context block appended to the prompt.

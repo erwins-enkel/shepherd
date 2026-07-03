@@ -2442,5 +2442,18 @@
   "composebar_transcribing": "Wird transkribiert…",
   "composebar_transcribe_failed": "Transkription fehlgeschlagen – bitte erneut versuchen.",
   "feat_voice_whisper_title": "Spracheingabe mit lokalem Whisper",
-  "feat_voice_whisper_body": "Installiere das optionale voice-whisper-Plugin, und das Mikrofon der Compose-Leiste transkribiert direkt auf deinem Rechner per whisper.cpp – gleichbleibende Qualität, nichts verlässt den Host, und endlich ein funktionierendes Mikrofon in der iOS-Homescreen-PWA."
+  "feat_voice_whisper_body": "Installiere das optionale voice-whisper-Plugin, und das Mikrofon der Compose-Leiste transkribiert direkt auf deinem Rechner per whisper.cpp – gleichbleibende Qualität, nichts verlässt den Host, und endlich ein funktionierendes Mikrofon in der iOS-Homescreen-PWA.",
+  "pluginupdate_title": "Plugin-Updates",
+  "pluginupdate_intro": "Update-Status deiner installierten Plugins. Rein informativ — Updates werden nicht automatisch angewendet.",
+  "pluginupdate_empty": "Keine Plugins installiert.",
+  "pluginupdate_state_update": "Update verfügbar → v{latest}",
+  "pluginupdate_state_uptodate": "Aktuell",
+  "pluginupdate_state_incompatible": "v{latest} verfügbar — inkompatibel",
+  "pluginupdate_state_nosource": "Nicht prüfbar",
+  "pluginupdate_state_error": "Prüfung fehlgeschlagen",
+  "pluginupdate_manual_hint": "Updates werden nicht automatisch angewendet — ersetze den Ordner eines Plugins (oder aktualisiere seinen Checkout) und starte Shepherd neu, um eine neue Version zu laden.",
+  "settings_plugin_update_label": "Plugin-Updates verfügbar",
+  "settings_plugin_update_count": "{count} deiner Plugins haben eine neuere Version",
+  "feat_plugin_updates_title": "Sieh, wann deine Plugins Updates haben",
+  "feat_plugin_updates_body": "Die Einstellungen prüfen jetzt, ob deine installierten Plugins eine neuere veröffentlichte Version haben, und zeigen das an — für Plugins, die ein Repository deklarieren oder aus einem Git-Checkout laufen. Nur informativ; Updates werden weiterhin manuell angewendet."
 }

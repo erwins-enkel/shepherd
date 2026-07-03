@@ -37,6 +37,7 @@
     type AgentProvider,
     type HerdrUpdateStatus,
     type CodexUpdateStatus,
+    type PluginUpdatesStatus,
     type DiagnosticCheck,
     type PluginInfo,
   } from "$lib/types";
@@ -92,6 +93,8 @@
     onherdrupdate,
     codexUpdate = null,
     oncodexupdate,
+    pluginUpdates = null,
+    onpluginupdates,
     onwhatsnew,
     initialTab = "workspace",
     initialDiagnostics = null,
@@ -105,6 +108,8 @@
     onherdrupdate?: () => void;
     codexUpdate?: CodexUpdateStatus | null;
     oncodexupdate?: () => void;
+    pluginUpdates?: PluginUpdatesStatus | null;
+    onpluginupdates?: () => void;
     onwhatsnew?: () => void;
     initialTab?: TabId;
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
@@ -166,6 +171,12 @@
   const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
   // Same fold-in for the Codex CLI update badge.
   const codexUpdateAvailable = $derived(!!codexUpdate && codexUpdate.updateAvailable);
+  // Installed-plugin updates: a CTA to the informational plugin-update modal,
+  // shown only when at least one plugin has a newer released version.
+  const pluginUpdateAvailable = $derived(!!pluginUpdates && pluginUpdates.updateAvailable);
+  const pluginUpdateCount = $derived(
+    pluginUpdates?.plugins.filter((p) => p.state === "update-available").length ?? 0,
+  );
 
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
@@ -959,6 +970,17 @@
               latest: codexUpdate!.latest ?? "?",
             })}</span
           >
+        </span>
+        <span class="hc-chev" aria-hidden="true">›</span>
+      </button>
+    {/if}
+
+    {#if pluginUpdateAvailable}
+      <button type="button" class="herdr-cta codex-cta" onclick={() => onpluginupdates?.()}>
+        <span class="hc-dot" aria-hidden="true">▲</span>
+        <span class="hc-text">
+          <span class="hc-label">{m.settings_plugin_update_label()}</span>
+          <span class="hc-ver">{m.settings_plugin_update_count({ count: pluginUpdateCount })}</span>
         </span>
         <span class="hc-chev" aria-hidden="true">›</span>
       </button>

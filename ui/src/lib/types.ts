@@ -1189,6 +1189,29 @@ export interface CodexUpdateResult {
   error?: string;
 }
 
+/** Per-plugin update state (mirror of src/types.ts PluginUpdateState). */
+export type PluginUpdateState =
+  "up-to-date" | "update-available" | "incompatible" | "no-source" | "error";
+
+/** One installed plugin's update status (mirror of src/types.ts PluginUpdateInfo). */
+export interface PluginUpdateInfo {
+  id: string;
+  name: string;
+  currentVersion: string;
+  latestVersion: string | null;
+  source: "repository" | "git" | "none";
+  state: PluginUpdateState;
+  detail?: string;
+}
+
+/** Informational installed-plugin update check (no auto-apply). Mirror of
+ *  src/types.ts PluginUpdatesStatus. */
+export interface PluginUpdatesStatus {
+  plugins: PluginUpdateInfo[];
+  updateAvailable: boolean;
+  checkedAt: number;
+}
+
 /** State of the "star us on GitHub?" nudge (see src/star-prompt.ts). */
 export interface StarPromptStatus {
   /** Render the nudge now? False once dismissed/starred/snoozed or still in the grace window. */
@@ -1453,6 +1476,7 @@ export type WsEvent =
   | { event: "codex-update:status"; data: CodexUpdateStatus }
   | { event: "codex-update:log"; data: { line: string } }
   | { event: "codex-update:done"; data: CodexUpdateResult }
+  | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "herd:digest"; data: { digest: HerdDigest } }

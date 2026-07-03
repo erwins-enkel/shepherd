@@ -27,6 +27,7 @@ import type {
   DiagnosticsSnapshot,
   PluginInfo,
   InstalledPlugin,
+  PluginUpdatesStatus,
   StarPromptStatus,
   Steer,
   DiffResult,
@@ -1183,6 +1184,14 @@ export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
 export async function getCodexUpdate(): Promise<CodexUpdateStatus> {
   const r = await fetch("/api/codex-update");
   if (!r.ok) throw await failed(r, "codex update status");
+  return r.json();
+}
+
+/** Current installed-plugin update status (informational; which plugins have a
+ *  newer released version and which can be checked at all). */
+export async function getPluginUpdates(): Promise<PluginUpdatesStatus> {
+  const r = await fetch("/api/plugin-update");
+  if (!r.ok) throw await failed(r, "plugin update status");
   return r.json();
 }
 

@@ -54,6 +54,11 @@ export interface PluginRegistryDeps {
 
 /** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel; `gearItem` backs the gear menu. */
 interface LoadedPlugin {
+  /** Folder basename this record was loaded from. Lets `activateOne` resolve id
+   *  OWNERSHIP: a second folder declaring an already-owned id is a collision, not an
+   *  idempotent re-activation. Set at BOTH `plugins.set()` sites so it's present for
+   *  errored/apiVersion-mismatch records too. */
+  folder: string;
   manifest: PluginManifest;
   health: PluginInfo["health"];
   lastError: string | null;
@@ -133,7 +138,60 @@ export class PluginRegistry {
     }
   }
 
+  /** Activate a SINGLE installed plugin folder in-process, without a restart — the
+   *  runtime counterpart to boot-time `loadAll`. Loading is additive (`register(ctx)`
+   *  wires hooks/routes/gear/UI into the same live structures a restart would), and a
+   *  freshly-installed folder was never imported, so there's no module-cache to bust.
+   *
+   *  NEVER reports a silent no-op as success (`loadOne` records NO entry for a
+   *  missing/invalid manifest, `enabled:false`, or a duplicate id): the manifest is
+   *  read up front to resolve the id, id OWNERSHIP is checked against `folder`, and the
+   *  post-load lookup is guarded. A same-folder record is returned AS-IS (its current
+   *  health, no re-`register()`) — picking up newly-installed deps or edited code still
+   *  needs a restart (`loadOne`'s `has(id)` guard would no-op a re-load anyway). */
+  async activateOne(
+    folder: string,
+  ): Promise<{ ok: true; plugin: PluginInfo } | { ok: false; error: string }> {
+    if (
+      folder === "" ||
+      folder === "." ||
+      folder === ".." ||
+      folder.includes("/") ||
+      folder.includes("\\")
+    ) {
+      return { ok: false, error: "invalid_folder" };
+    }
+    const dir = join(this.deps.pluginsDir, folder);
+    let manifest: PluginManifest;
+    try {
+      const parsed = JSON.parse(await readFile(join(dir, "plugin.json"), "utf8"));
+      if (!validManifest(parsed)) return { ok: false, error: "invalid_manifest" };
+      manifest = parsed;
+    } catch {
+      return { ok: false, error: "invalid_manifest" };
+    }
+    if (manifest.enabled === false) return { ok: false, error: "disabled" };
+
+    // Ownership: an existing record for this id either belongs to THIS folder (idempotent)
+    // or to a DIFFERENT one (collision) — never a fresh activation.
+    const existing = this.plugins.get(manifest.id);
+    if (existing) {
+      return existing.folder === folder
+        ? { ok: true, plugin: this.toInfo(existing) }
+        : { ok: false, error: "id_collision" };
+    }
+
+    await this.loadOne(dir);
+    const rec = this.plugins.get(manifest.id);
+    // For a valid+enabled, non-duplicate manifest loadOne always records an entry (ok or
+    // errored). A missing entry here is only a TOCTOU edge (folder vanished mid-load) —
+    // report it honestly rather than claim the plugin is live.
+    if (!rec) return { ok: false, error: "activation_failed" };
+    return { ok: true, plugin: this.toInfo(rec) };
+  }
+
   private async loadOne(dir: string): Promise<void> {
+    const folder = basename(dir);
     const manifestPath = join(dir, "plugin.json");
     let raw: string;
     try {
@@ -162,6 +220,7 @@ export class PluginRegistry {
     if (manifest.apiVersion !== PLUGIN_API_VERSION) {
       // Record it so the panel surfaces the mismatch; register no hooks.
       this.plugins.set(manifest.id, {
+        folder,
         manifest,
         health: "errored",
         lastError: `apiVersion ${manifest.apiVersion} != supported ${PLUGIN_API_VERSION}`,
@@ -181,6 +240,7 @@ export class PluginRegistry {
 
     const config = await this.readConfig(dir);
     const rec: LoadedPlugin = {
+      folder,
       manifest,
       health: "ok",
       lastError: null,
@@ -419,7 +479,12 @@ export class PluginRegistry {
 
   /** Panel/list view. Empty array when no plugins are loaded (UI hides the section). */
   list(): PluginInfo[] {
-    return [...this.plugins.values()].map((r) => ({
+    return [...this.plugins.values()].map((r) => this.toInfo(r));
+  }
+
+  /** Map an internal record to the panel-facing `PluginInfo` (core-derived health). */
+  private toInfo(r: LoadedPlugin): PluginInfo {
+    return {
       id: r.manifest.id,
       name: r.manifest.name,
       version: r.manifest.version,
@@ -428,7 +493,7 @@ export class PluginRegistry {
       status: r.status,
       ui: r.ui,
       gearItem: r.gearItem,
-    }));
+    };
   }
 
   loadedCount(): number {

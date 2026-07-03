@@ -99,6 +99,7 @@
     initialTab = "workspace",
     initialDiagnostics = null,
     plugins = [],
+    onpluginschanged,
     focusPluginId = null,
     focusSteerId = null,
   }: {
@@ -116,6 +117,10 @@
     initialDiagnostics?: DiagnosticCheck[] | null;
     /** Loaded server-side plugins (issue #1124); empty → the Plugins tab is hidden. */
     plugins?: PluginInfo[];
+    /** Called after a plugin is activated in-process so the parent can refresh `store.plugins`
+     *  (a freshly-loaded id must be seeded into the store for its row to flip to a loaded card
+     *  and for its gear/UI pushes to stop no-opping on an unknown id). */
+    onpluginschanged?: () => void;
     /** Plugin id to scroll into view + highlight on open (from gear-item panel action). */
     focusPluginId?: string | null;
     /** Steer id to expand + focus in the steers editor on open (from a chip's right-click). */
@@ -1559,7 +1564,7 @@
       aria-label={m.settings_tab_plugins()}
       hidden={tab !== "plugins"}
     >
-      <SettingsPluginsPanel {plugins} focusId={focusPluginId} />
+      <SettingsPluginsPanel {plugins} {onpluginschanged} focusId={focusPluginId} />
     </div>
   </div>
 </div>

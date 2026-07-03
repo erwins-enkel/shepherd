@@ -24,9 +24,13 @@ and documented. Specific plugin **implementations** stay private under
 - At boot — **after** all core services exist and **before** the HTTP server accepts
   requests — Shepherd scans the dir (alphabetically), reads each manifest, `import()`s the
   entry, and calls `register(ctx)` **once**.
-- **Load-at-boot only — no hot reload.** Enabling, disabling, or reconfiguring a plugin
-  means _edit the folder, restart Shepherd_ (`systemctl --user restart shepherd`), the
-  same lifecycle as every other `~/.shepherd/` setting.
+- **Load-at-boot, plus in-process activation for newly installed plugins.** Every plugin
+  loads once at boot (above). A _freshly installed_ folder can also be **activated in-process**
+  from Settings → Plugins (the Activate button / `POST /api/plugins/manage/activate`) —
+  `register(ctx)` wires it into the live registry with no restart, since a never-imported
+  folder has no module cache. What still needs a restart (`systemctl --user restart shepherd`):
+  **editing or reconfiguring an already-loaded plugin** (no hot reload — its module is cached)
+  and **unloading** one whose folder you removed.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -34,9 +38,10 @@ and documented. Specific plugin **implementations** stay private under
 ## Installing from the UI
 
 **Settings → Plugins** lists every plugin folder on disk and installs new ones from a
-GitHub URL — the same `git clone … ~/.shepherd/plugins/` + restart flow as below, reachable
-without a terminal. It adds no capability a shell couldn't already do; the trust model is
-unchanged, so install is gated behind a confirm dialog.
+GitHub URL — the same `git clone … ~/.shepherd/plugins/` the terminal flow uses, reachable
+without a terminal and then **activated in-process** (no restart, below). It adds no
+capability a shell couldn't already do; the trust model is unchanged, so install is gated
+behind a confirm dialog.
 
 - **Install** — paste an `https://github.com/<owner>/<repo>` URL and confirm. Shepherd
   shallow-clones it into `~/.shepherd/plugins/<repo>`. Only `github.com` HTTPS URLs are
@@ -46,14 +51,18 @@ unchanged, so install is gated behind a confirm dialog.
   already-installed/loaded plugin **or the reserved `manage` segment** is rejected and the
   clone removed. **v1 clones the repo only** — a plugin that ships its own dependencies still
   needs a manual `bun install` in its folder before it will load.
-- **Restart to activate.** Because loading is boot-only (below), a freshly installed plugin
-  shows as **pending restart** until you restart Shepherd; the panel shows a persistent
-  banner with the restart command.
+- **Activate in-process — usually no restart.** A freshly installed plugin shows as
+  **installed · activate to load**; click **Activate** to load it immediately — its routes,
+  hooks and gear/UI go live with no restart. A plugin that ships its own dependencies fails to
+  activate until you run `bun install` in its folder and then restart (the panel surfaces the
+  failure + a restart hint).
 - **Uninstall** removes the folder. A **symlinked** install is unlinked (the link only —
   your source checkout is untouched). Uninstalling a still-loaded plugin removes the folder
-  but it keeps running until the next restart (shown as **loaded · removed**).
+  but it keeps running until the next restart (shown as **loaded · removed**, with the restart
+  banner).
 - **Management API** (behind operator auth, reserved `manage` segment):
   `GET /api/plugins/manage/installed`, `POST /api/plugins/manage/install` (`{ url }`),
+  `POST /api/plugins/manage/activate` (`{ folder }`),
   `DELETE /api/plugins/manage/installed/<folder>`.
 
 ## Manifest (`plugin.json`)
@@ -354,5 +363,5 @@ absent.
 checkout — the loader follows symlinked plugin dirs, so `git pull` keeps it current), then —
 because the example's `import type` uses a repo-relative path that won't resolve out-of-repo
 — **drop the `import type` line or vendor `src/plugins/types.ts`** (the import is erased at
-runtime, so loading is unaffected either way), and restart Shepherd. See
-`examples/plugins/README.md`.
+runtime, so loading is unaffected either way), then load it — Activate it in Settings →
+Plugins (no restart) or restart Shepherd. See `examples/plugins/README.md`.

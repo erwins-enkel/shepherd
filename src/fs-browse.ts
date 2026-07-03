@@ -1,4 +1,4 @@
-import { promises as fsp } from "node:fs";
+import { promises as fsp, type Dirent } from "node:fs";
 import { join, relative, dirname, sep, normalize, isAbsolute } from "node:path";
 
 /**
@@ -87,6 +87,75 @@ export async function resolveInRoot(
 }
 
 /**
+ * Classify a symlink dirent that has already realpath'd to `real`: within root → resolve its
+ * target type and surface it normally; escaping the root → surface as a marked `linkOutside`
+ * entry when `onEscape: "mark"`, else drop it silently (default). Split out of `classifyDirent`
+ * so each stays under the complexity bar — same drop/mark semantics as before, just factored.
+ */
+async function classifySymlinkTarget(
+  dirent: Dirent,
+  abs: string,
+  real: string,
+  rootReal: string,
+  opts?: BrowseOptions,
+): Promise<BrowseEntry | null> {
+  if (within(real, rootReal)) {
+    let isDir: boolean;
+    try {
+      isDir = (await fsp.stat(abs)).isDirectory();
+    } catch {
+      return null;
+    }
+    return { name: dirent.name, type: isDir ? "dir" : "file", path: relFromRoot(rootReal, abs) };
+  }
+  if (opts?.onEscape === "mark") {
+    let type: "file" | "dir" = "file";
+    try {
+      type = (await fsp.stat(abs)).isDirectory() ? "dir" : "file";
+    } catch {
+      // best-effort — default to "file" on throw
+    }
+    return { name: dirent.name, type, path: relFromRoot(rootReal, abs), linkOutside: true };
+  }
+  // else ("drop" / default): never surface an entry that escapes the root
+  return null;
+}
+
+/**
+ * Classify a single directory entry into a `BrowseEntry`, or null when it should be dropped
+ * (broken symlink, escaping symlink under the default "drop" policy, or an unsurfaced type like
+ * a socket/fifo/device). Extracted from `listDir`'s per-dirent loop — same drop/mark semantics,
+ * same `linkOutside`, same types, just factored out for readability.
+ */
+async function classifyDirent(
+  dirent: Dirent,
+  resolved: string,
+  rootReal: string,
+  opts?: BrowseOptions,
+): Promise<BrowseEntry | null> {
+  const abs = join(resolved, dirent.name);
+
+  if (dirent.isSymbolicLink()) {
+    let real: string;
+    try {
+      real = await fsp.realpath(abs);
+    } catch {
+      return null; // broken symlink / unreadable → skip
+    }
+    return classifySymlinkTarget(dirent, abs, real, rootReal, opts);
+  }
+
+  if (dirent.isDirectory()) {
+    // No realpath/stat — a non-symlink child of an in-root dir is provably in-root.
+    return { name: dirent.name, type: "dir", path: relFromRoot(rootReal, abs) };
+  } else if (dirent.isFile()) {
+    return { name: dirent.name, type: "file", path: relFromRoot(rootReal, abs) };
+  }
+  // else: sockets/fifos/devices are not surfaced
+  return null;
+}
+
+/**
  * List one directory under `root`. Returns null on escape/missing/not-a-directory.
  * Sort: directories first, then locale-aware alphabetical within each group.
  */
@@ -109,52 +178,8 @@ export async function listDir(
   const entries: BrowseEntry[] = [];
   for (const d of dirents) {
     if (opts?.hideSegment?.(d.name)) continue;
-    const abs = join(resolved, d.name);
-
-    if (d.isSymbolicLink()) {
-      let real: string;
-      try {
-        real = await fsp.realpath(abs);
-      } catch {
-        continue; // broken symlink / unreadable → skip
-      }
-      if (within(real, rootReal)) {
-        let isDir: boolean;
-        try {
-          isDir = (await fsp.stat(abs)).isDirectory();
-        } catch {
-          continue;
-        }
-        entries.push({
-          name: d.name,
-          type: isDir ? "dir" : "file",
-          path: relFromRoot(rootReal, abs),
-        });
-      } else if (opts?.onEscape === "mark") {
-        let type: "file" | "dir" = "file";
-        try {
-          type = (await fsp.stat(abs)).isDirectory() ? "dir" : "file";
-        } catch {
-          // best-effort — default to "file" on throw
-        }
-        entries.push({
-          name: d.name,
-          type,
-          path: relFromRoot(rootReal, abs),
-          linkOutside: true,
-        });
-      }
-      // else ("drop" / default): never surface an entry that escapes the root
-      continue;
-    }
-
-    if (d.isDirectory()) {
-      // No realpath/stat — a non-symlink child of an in-root dir is provably in-root.
-      entries.push({ name: d.name, type: "dir", path: relFromRoot(rootReal, abs) });
-    } else if (d.isFile()) {
-      entries.push({ name: d.name, type: "file", path: relFromRoot(rootReal, abs) });
-    }
-    // else: sockets/fifos/devices are not surfaced
+    const entry = await classifyDirent(d, resolved, rootReal, opts);
+    if (entry) entries.push(entry);
   }
 
   entries.sort((a, b) =>

@@ -276,6 +276,14 @@
         "maxCognitive": 20,
         "maxCrap": 1000,
         "reason": "Codex/default-provider persistence extends the existing hydrate migration path by one branch; keep capped until hydrate migrations are extracted."
+      },
+      {
+        "files": ["ui/src/lib/demo/router.ts"],
+        "functions": ["handleSessionDetailGet"],
+        "maxCyclomatic": 20,
+        "maxCognitive": 20,
+        "maxCrap": 1000,
+        "reason": "Demo session-detail GET dispatch chain gained the /worktree route (one branch over the cognitive default); keep capped until the GET routes move to the data-driven table the mutations already use (#855)."
       }
     ],
 

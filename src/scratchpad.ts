@@ -7,7 +7,6 @@ import {
   resolveInRoot,
   listDir,
   resolveFileInRoot,
-  type BrowseEntry,
   type BrowseListing,
 } from "./fs-browse";
 
@@ -20,7 +19,6 @@ import {
  * just binds it to the per-session scratchpad root.
  */
 
-export type ScratchEntry = BrowseEntry;
 export type ScratchListing = BrowseListing;
 
 /**

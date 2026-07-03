@@ -1,5 +1,6 @@
 node_modules/
 dist/
+shepherd-capture-*.zip
 src/lib/paraglide/
 public/recorder.js
 public/picker.js

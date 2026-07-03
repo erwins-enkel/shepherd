@@ -368,6 +368,37 @@ export function parseHour(raw: string | undefined, def: number): number {
 // relative to it (mainPort + 1) — a custom SHEPHERD_PORT shifts both in lockstep.
 const mainPort = Number(process.env.SHEPHERD_PORT ?? 7330);
 
+// Shepherd Capture (the MV3 Chrome extension in `extension/`) sends its captures with
+// `Origin: chrome-extension://<id>`; the origin guard allowlists by hostname, and for that
+// origin the hostname IS the extension ID (see originAllowed in validate.ts). Baking the fixed
+// ID into the default allowlist removes the manual `SHEPHERD_ALLOWED_HOSTS` pairing step: a
+// stock install accepts captures with no env tweak. This is CSRF origin hygiene, not auth — a
+// web page can't forge a `chrome-extension://` origin, and `SHEPHERD_TOKEN` remains the real
+// auth boundary — so shipping a public, fixed ID as allowed-by-default grants nothing exploitable.
+//
+// TODO(#1360 Task 5): reconcile with the final PUBLISHED Chrome Web Store ID once the item is
+// registered — the store may assign a different ID than the self-generated manifest `key`
+// (extension/manifest.config.ts). This is the pinned UNPACKED id; update both in lockstep.
+export const SHEPHERD_CAPTURE_EXTENSION_ID = "bflahkibnmcbijbhelmpjbohpfhlbaig";
+
+/**
+ * Resolve the origin allowlist from `SHEPHERD_ALLOWED_HOSTS` (comma-separated), always appending
+ * the built-in Capture extension ID. The env value overrides the built-in localhost defaults, but
+ * the Capture ID is appended UNCONDITIONALLY (deduped) — it's origin hygiene the operator would
+ * not want to drop, so it survives even a custom `SHEPHERD_ALLOWED_HOSTS`. Consequence: the env
+ * var is no longer fully authoritative over the allowlist. Entries are trimmed and empties dropped
+ * (a hostname with stray whitespace would never match `URL.hostname`); real entries — including
+ * `::1` and bracketed `[::1]` — are preserved verbatim. Exported for tests.
+ */
+export function resolveAllowedOriginHosts(envValue: string | undefined): string[] {
+  const hosts = (envValue ?? "localhost,127.0.0.1,::1,[::1]")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  if (!hosts.includes(SHEPHERD_CAPTURE_EXTENSION_ID)) hosts.push(SHEPHERD_CAPTURE_EXTENSION_ID);
+  return hosts;
+}
+
 export const config = {
   port: mainPort,
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
@@ -416,9 +447,7 @@ export const config = {
   // active repo root: defaults to the ceiling, but is UI-configurable (boot-override
   // from the store + PUT /api/settings) so long as it stays inside `rootCeiling`.
   repoRoot: process.env.SHEPHERD_REPO_ROOT ?? process.env.HOME ?? "/",
-  allowedOriginHosts: (process.env.SHEPHERD_ALLOWED_HOSTS ?? "localhost,127.0.0.1,::1,[::1]").split(
-    ",",
-  ),
+  allowedOriginHosts: resolveAllowedOriginHosts(process.env.SHEPHERD_ALLOWED_HOSTS),
   token: process.env.SHEPHERD_TOKEN ?? null, // optional operator bearer (CLI/curl); agents use the loopback ingress, not this
   // Single-operator auth (issue #1079). `password` (env) is authoritative when set: it re-seeds
   // the persisted argon2id `passwordHash` every boot. Unset ⇒ the persisted hash is used as-is

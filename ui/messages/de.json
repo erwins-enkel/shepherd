@@ -2443,6 +2443,8 @@
   "composebar_transcribe_failed": "Transkription fehlgeschlagen – bitte erneut versuchen.",
   "feat_voice_whisper_title": "Spracheingabe mit lokalem Whisper",
   "feat_voice_whisper_body": "Installiere das optionale voice-whisper-Plugin, und das Mikrofon der Compose-Leiste transkribiert direkt auf deinem Rechner per whisper.cpp – gleichbleibende Qualität, nichts verlässt den Host, und endlich ein funktionierendes Mikrofon in der iOS-Homescreen-PWA.",
+  "feat_live_dictation_title": "Live-Transkription beim Sprechen",
+  "feat_live_dictation_body": "Das lokale-Whisper-Mikrofon der Compose-Leiste zeigt deine Worte jetzt live beim Diktieren – eine laufende Vorschau, die sich alle paar Sekunden aktualisiert und beim Stoppen durch das genaue Transkript ersetzt wird. Funktioniert auch in der iOS-Homescreen-PWA und bleibt komplett auf deinem Rechner.",
   "pluginupdate_title": "Plugin-Updates",
   "pluginupdate_intro": "Update-Status deiner installierten Plugins. Rein informativ — Updates werden nicht automatisch angewendet.",
   "pluginupdate_empty": "Keine Plugins installiert.",

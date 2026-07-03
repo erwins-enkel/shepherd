@@ -2455,5 +2455,7 @@
   "settings_plugin_update_label": "Plugin-Updates verfügbar",
   "settings_plugin_update_count": "{count} deiner Plugins haben eine neuere Version",
   "feat_plugin_updates_title": "Sieh, wann deine Plugins Updates haben",
-  "feat_plugin_updates_body": "Die Einstellungen prüfen jetzt, ob deine installierten Plugins eine neuere veröffentlichte Version haben, und zeigen das an — für Plugins, die ein Repository deklarieren oder aus einem Git-Checkout laufen. Nur informativ; Updates werden weiterhin manuell angewendet."
+  "feat_plugin_updates_body": "Die Einstellungen prüfen jetzt, ob deine installierten Plugins eine neuere veröffentlichte Version haben, und zeigen das an — für Plugins, die ein Repository deklarieren oder aus einem Git-Checkout laufen. Nur informativ; Updates werden weiterhin manuell angewendet.",
+  "feat_epic_backlog_visibility_title": "Epics stechen im Backlog hervor",
+  "feat_epic_backlog_visibility_body": "In der Issue-Liste des Repo-Backlogs werden Epics jetzt nach oben sortiert und mit einem Bernstein-Akzent hervorgehoben, damit man sie leicht erkennt. Klappt man ein Epic auf, erscheinen seine Steuerelemente (Pause, Beaufsichtigt, Epic stoppen, Nächstes freigeben) als richtige Buttons statt als reiner Text."
 }

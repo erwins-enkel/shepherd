@@ -172,6 +172,11 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
+    /* The menu is a DOM child of .vp-head, which sets white-space:nowrap to keep
+       the toolbar single-line. white-space inherits down the DOM tree (even
+       across position:fixed), so without this reset the hint text never wraps
+       and spills past the menu's fixed width. */
+    white-space: normal;
   }
   .redraw-menu:focus {
     outline: none;

@@ -71,7 +71,11 @@ research report (#1359, `docs/research/extension-chrome-web-store-readiness.md` 
   lending**. The extension transmits captures **only** to the user's own configured Shepherd
   server and to no other destination.
 
-## Privacy policy (body text — host at a public URL, then paste the URL into the dashboard)
+## Privacy policy — hosted at https://shepherd.run/privacy
+
+**Published:** the policy is live at **https://shepherd.run/privacy** (source:
+`site/src/pages/privacy.astro`). Paste that URL into the CWS dashboard's Privacy-practices tab.
+The body below is the source of truth the hosted page mirrors — keep the two in sync if either changes.
 
 > **Shepherd Capture — Privacy Policy**
 >
@@ -98,7 +102,7 @@ research report (#1359, `docs/research/extension-chrome-web-store-readiness.md` 
 > access (all-sites recording; Tailscale) is granted at runtime and revocable at any time from
 > `chrome://extensions`.
 >
-> **Contact.** <add a contact email or link before publishing>
+> **Contact.** hallo@erwins-enkel.dev
 
 ---
 
@@ -112,13 +116,15 @@ research report (#1359, `docs/research/extension-chrome-web-store-readiness.md` 
 3. Upload listing assets: the 128×128 store icon (`store-assets/store-icon-128.png`), ≥1
    screenshot at 1280×800, and the 440×280 promo tile (see `store-assets/README.md`).
 4. Fill the **Privacy practices** tab with the single-purpose statement, per-permission +
-   per-host justifications, and data-usage certifications above; set the privacy-policy URL.
+   per-host justifications, and data-usage certifications above; set the privacy-policy URL to
+   `https://shepherd.run/privacy`.
 5. Set **remote code = No**, visibility **Unlisted**, and submit for review.
 
 ## Out-of-scope prerequisites (human/ops — not doable in code)
 
 - Register the CWS developer account + pay the one-time **$5** fee; declare **Trader/Non-Trader**.
-- **Host the privacy policy** body above at a public URL and add a contact address.
+- ~~**Host the privacy policy** body above at a public URL and add a contact address.~~ ✅ Done —
+  hosted at https://shepherd.run/privacy (`site/src/pages/privacy.astro`).
 - Produce the **screenshot(s)** and **promo tile**.
 - After registration, read back the item's **final assigned ID** and reconcile it — see below.
 

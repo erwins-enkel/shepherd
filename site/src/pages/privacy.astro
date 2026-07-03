@@ -1,0 +1,156 @@
+---
+// Privacy policy for the Shepherd Capture browser extension. Hosted here so the
+// Chrome Web Store listing can point at a stable public URL (https://shepherd.run/privacy).
+// Body text is reproduced VERBATIM from the reviewed policy in
+// extension/STORE_LISTING.md (§"Privacy policy"); only structural mapping (bold
+// lead-ins → <h2>) and <code>/<strong> formatting are applied. Kept in English to
+// match the rest of the marketing site, like the imprint. Modeled on impressum.astro.
+//
+// Angle-bracket note: `<host>` in the Tailscale URL is escaped as `&lt;host&gt;` —
+// a bare <host> would be parsed as an empty HTML element and its surrounding text
+// silently dropped.
+import Base from "../layouts/Base.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<Base
+  title="Privacy Policy — Shepherd Capture"
+  description="Privacy policy for the Shepherd Capture browser extension: what it handles, where captured data goes, and how it is stored."
+>
+  <Nav />
+  <main id="top" class="legal">
+    <div class="inner">
+      <h1>Shepherd Capture — Privacy Policy</h1>
+
+      <p>
+        Shepherd Capture is a companion to a self-hosted Shepherd instance that the
+        user runs and controls. It exists to send captured browser context to that
+        server and nowhere else.
+      </p>
+
+      <section>
+        <h2>What it handles</h2>
+        <p>
+          When you invoke a capture, the extension collects: the current page's URL
+          and title; a screenshot of the visible tab, the full page, or a picked
+          element; and — only when you explicitly enable them — an <code>axe-core</code>
+          accessibility report, buffered <code>console.error</code>/<code>warn</code>
+          and uncaught-error messages, and failed network-request URLs. Note that
+          failed-request URLs can contain query-string tokens; enable console/network
+          recording with that in mind. The extension also stores your settings and
+          Shepherd access token.
+        </p>
+      </section>
+
+      <section>
+        <h2>Where it goes</h2>
+        <p>
+          Captured data is transmitted <strong>only</strong> to the Shepherd server
+          you configure (<code>http://localhost:7330</code> on your own machine, or
+          your own <code>https://&lt;host&gt;.ts.net</code> core over Tailscale). It is
+          <strong>never</strong> sent to the extension's developers or to any third
+          party. The developers receive nothing and act as no kind of data controller
+          or processor for your captures.
+        </p>
+      </section>
+
+      <section>
+        <h2>Local storage</h2>
+        <p>
+          Your settings and access token are kept in <code>chrome.storage.local</code>
+          on your device. They are never synced to any account and never leave your
+          browser except as the <code>Authorization</code> header on requests to your
+          own configured server.
+        </p>
+      </section>
+
+      <section>
+        <h2>Your control</h2>
+        <p>
+          Uninstalling the extension removes all locally-stored settings. Optional host
+          access (all-sites recording; Tailscale) is granted at runtime and revocable
+          at any time from <code>chrome://extensions</code>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Contact</h2>
+        <p>
+          Email: <a href="mailto:hallo@erwins-enkel.dev">hallo@erwins-enkel.dev</a>
+        </p>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .legal {
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
+  }
+
+  .inner {
+    max-width: 46rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--ink);
+    margin-bottom: 0.4rem;
+  }
+
+  p {
+    color: var(--ink-muted);
+  }
+
+  strong {
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    word-break: break-word;
+  }
+
+  a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--panel-2);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  a:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a {
+      transition: none;
+    }
+  }
+</style>

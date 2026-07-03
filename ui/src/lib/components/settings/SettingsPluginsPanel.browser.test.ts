@@ -45,6 +45,33 @@ function stubScan(rows: InstalledPlugin[]) {
   });
 }
 
+/** Stub the scan + the activate POST. `activate` receives the parsed body and returns the
+ *  JSON payload the endpoint would (`{ plugin }` on success, `{ error }` on failure) with an
+ *  optional status. */
+function stubActivate(
+  rows: InstalledPlugin[],
+  activate: (body: { folder?: string }) => { payload: unknown; status?: number },
+) {
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/plugins/manage/activate")) {
+      const body = init?.body ? (JSON.parse(String(init.body)) as { folder?: string }) : {};
+      const { payload, status = 200 } = activate(body);
+      return new Response(JSON.stringify(payload), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/api/plugins/manage/installed")) {
+      return new Response(JSON.stringify({ installed: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("{}", { status: 404 });
+  });
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SettingsPluginsPanel", () => {
@@ -145,6 +172,90 @@ describe("SettingsPluginsPanel", () => {
     await expect.element(page.getByText(/pending restart/i)).toBeVisible();
     // The restart banner surfaces the command.
     await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
+  });
+
+  it("a pending plugin exposes an Activate button that posts + triggers a store refresh", async () => {
+    let activateCalls = 0;
+    stubActivate([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })], () => {
+      activateCalls++;
+      return { payload: { plugin: plugin({ id: "fresh", name: "Fresh Plugin", health: "ok" }) } };
+    });
+    const onpluginschanged = vi.fn();
+    render(SettingsPluginsPanel, { plugins: [], onpluginschanged });
+
+    const btn = page.getByRole("button", { name: "Activate" });
+    await expect.element(btn).toBeVisible();
+    await btn.click();
+
+    await vi.waitFor(() => expect(activateCalls).toBe(1));
+    // The store-refresh callback fires so the parent can seed the freshly-loaded id.
+    await vi.waitFor(() => expect(onpluginschanged).toHaveBeenCalled());
+  });
+
+  it("once the store gains the activated plugin it renders as a loaded card (no pending row)", async () => {
+    // Simulates the post-activation state: parent re-seeded store.plugins + scan reports loaded.
+    stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh", loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin({ id: "fresh", name: "Fresh Plugin", health: "ok" })],
+    });
+    await expect.element(page.getByText("Fresh Plugin")).toBeVisible();
+    // Loaded card shows the health label; no Activate button, no pending-restart state.
+    await expect.element(page.getByText("OK")).toBeVisible();
+    expect(document.body.textContent).not.toContain("pending restart");
+    expect(page.getByRole("button", { name: "Activate" }).elements()).toHaveLength(0);
+  });
+
+  it("a failed activation surfaces a mapped message, not a raw code, and keeps the row pending", async () => {
+    stubActivate([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })], () => ({
+      payload: { error: "id_collision" },
+      status: 400,
+    }));
+    render(SettingsPluginsPanel, { plugins: [] });
+
+    await page.getByRole("button", { name: "Activate" }).click();
+    // errorMessage() maps id_collision → the human string (never the bare code).
+    await expect
+      .element(page.getByText("A plugin with that id is already installed."))
+      .toBeVisible();
+    expect(document.body.textContent).not.toContain("id_collision");
+    // Still pending — nothing loaded.
+    await expect.element(page.getByText(/pending restart/i)).toBeVisible();
+  });
+
+  it("disables the Activate button while its request is in flight (no double-fire)", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolve = r;
+    });
+    let activateCalls = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/plugins/manage/activate")) {
+        activateCalls++;
+        await gate;
+        return new Response(JSON.stringify({ plugin: plugin({ id: "fresh", health: "ok" }) }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/api/plugins/manage/installed")) {
+        return new Response(
+          JSON.stringify({
+            installed: [inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    });
+    render(SettingsPluginsPanel, { plugins: [] });
+
+    await page.getByRole("button", { name: "Activate" }).click();
+    // Mid-flight the button flips to the busy label and is disabled.
+    const busy = page.getByRole("button", { name: "Activating…" });
+    await expect.element(busy).toBeDisabled();
+    expect(activateCalls).toBe(1);
+    resolve();
   });
 
   it("shows a broken row for a folder with an invalid manifest", async () => {

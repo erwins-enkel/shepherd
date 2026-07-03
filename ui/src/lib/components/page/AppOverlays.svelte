@@ -21,6 +21,7 @@
     dismissMergeSuggestion,
     promoteGlobalLearning,
     mergeSuggestNow,
+    getPlugins,
   } from "$lib/api";
   import type { HerdStore } from "$lib/store.svelte";
   import type {
@@ -502,6 +503,7 @@
     initialTab={settingsTab}
     initialDiagnostics={store.diagnostics?.checks ?? null}
     plugins={store.plugins}
+    onpluginschanged={async () => store.setPlugins(await getPlugins())}
     {focusPluginId}
     {focusSteerId}
     onclose={onsettingsclose}

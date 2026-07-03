@@ -1,13 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
-  import { getInstalledPlugins, installPlugin, uninstallPlugin } from "$lib/api";
+  import { getInstalledPlugins, installPlugin, uninstallPlugin, activatePlugin } from "$lib/api";
   import type { PluginInfo, InstalledPlugin } from "$lib/types";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
 
-  let { plugins = [], focusId = null }: { plugins?: PluginInfo[]; focusId?: string | null } =
-    $props();
+  let {
+    plugins = [],
+    onpluginschanged,
+    focusId = null,
+  }: {
+    plugins?: PluginInfo[];
+    /** Called after an in-process activation so the parent can re-seed `store.plugins`
+     *  (a freshly-loaded id must land in the store for the row to flip to a loaded card
+     *  and for its gear/UI pushes to stop no-opping). */
+    onpluginschanged?: () => void;
+    focusId?: string | null;
+  } = $props();
 
   // On-disk plugin folders (install manager). Self-fetched — the live `plugins` prop only
   // carries LOADED plugins; the scan additionally surfaces pending-restart/disabled/broken.
@@ -108,6 +118,8 @@
         return m.plugins_err_folder_exists();
       case "invalid_manifest":
         return m.plugins_err_manifest();
+      case "disabled":
+        return m.plugins_err_disabled();
       case "api_version_mismatch":
         return m.plugins_err_api_version();
       case "id_collision":
@@ -167,6 +179,29 @@
       const res = await uninstallPlugin(folder);
       if (res.ok) await loadInstalled();
       else actionError = errorMessage(res.error);
+    } finally {
+      busyFolder = null;
+    }
+  }
+
+  /** Activate a pending plugin in-process (no restart). `busyFolder` guards a double-click.
+   *  On success the plugin is now in the registry (health `ok` OR `errored`): re-seed the
+   *  store via `onpluginschanged` so the row flips to a loaded card (which itself surfaces an
+   *  errored health + lastError), then hint a restart when it loaded but failed to register. */
+  async function runActivate(folder: string) {
+    busyFolder = folder;
+    actionError = null;
+    try {
+      const res = await activatePlugin(folder);
+      if (!res.ok) {
+        actionError = errorMessage(res.error);
+        return;
+      }
+      onpluginschanged?.();
+      await loadInstalled();
+      if (res.plugin.health !== "ok") {
+        actionError = m.plugins_activate_needs_restart({ name: res.plugin.name });
+      }
     } finally {
       busyFolder = null;
     }
@@ -267,6 +302,16 @@
           <span class="ver micro">v{row.inst.version}</span>
         {/if}
         <span class="state micro" class:broken={row.kind === "broken"}>{stateLabel(row.kind)}</span>
+        {#if row.kind === "pending"}
+          <button
+            type="button"
+            class="gbtn activate"
+            disabled={busyFolder === row.inst.folder}
+            onclick={() => runActivate(row.inst.folder)}
+          >
+            {busyFolder === row.inst.folder ? m.plugins_activating() : m.plugins_activate()}
+          </button>
+        {/if}
         <button
           type="button"
           class="gbtn del"
@@ -363,9 +408,15 @@
     color: var(--color-amber);
   }
   .gbtn.del,
-  .gbtn.copy {
+  .gbtn.copy,
+  .gbtn.activate {
     font-size: var(--fs-micro);
     padding: 5px 9px;
+  }
+  /* Activate is the row's primary action — amber accent like the install button. */
+  .gbtn.activate {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
 
   /* Restart-owed banner */

@@ -5135,6 +5135,7 @@ function handlePing({ req, parts }: Ctx): Response | null {
  *  ROUTE_HANDLERS). Falls through (null) when `pluginsDir` isn't wired (tests).
  *  - `GET    /api/plugins/manage/installed`          → `{ installed: InstalledPlugin[] }`
  *  - `POST   /api/plugins/manage/install`  `{ url }` → `{ plugin }` | 400 `{ error }`
+ *  - `POST   /api/plugins/manage/activate` `{ folder }` → `{ plugin }` | 400/409 `{ error }`
  *  - `DELETE /api/plugins/manage/installed/<folder>` → `{ ok:true }` | 400/404 `{ error }` */
 /** POST /api/plugins/manage/install — validate + clone. Body errors → 400. */
 async function pluginInstall(
@@ -5161,6 +5162,22 @@ async function pluginUninstall(pluginsDir: string, folder: string): Promise<Resp
   return json({ error: result.error }, result.error === "not_found" ? 404 : 400);
 }
 
+/** POST /api/plugins/manage/activate — load an installed folder in-process (no restart).
+ *  Returns the resulting `PluginInfo` (health `ok` OR `errored` + lastError) so the UI can
+ *  reflect a failed register()/deps activation instead of falsely claiming the plugin is live. */
+async function pluginActivate(req: Request, registry: PluginRegistry): Promise<Response> {
+  let body: { folder?: unknown };
+  try {
+    body = (await req.json()) as { folder?: unknown };
+  } catch {
+    return json({ error: "invalid_body" }, 400);
+  }
+  const folder = typeof body.folder === "string" ? body.folder.trim() : "";
+  if (!folder) return json({ error: "folder_required" }, 400);
+  const result = await registry.activateOne(folder);
+  return result.ok ? json({ plugin: result.plugin }) : json({ error: result.error }, 400);
+}
+
 async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins" || parts[2] !== "manage") return null;
   const pluginsDir = deps.pluginsDir;
@@ -5174,6 +5191,10 @@ async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Respon
   }
   if (seg === "install" && !folder && req.method === "POST") {
     return pluginInstall(req, pluginsDir, loadedIds);
+  }
+  if (seg === "activate" && !folder && req.method === "POST") {
+    if (!deps.pluginRegistry) return json({ error: "no_registry" }, 409);
+    return pluginActivate(req, deps.pluginRegistry);
   }
   if (seg === "installed" && folder && !parts[5] && req.method === "DELETE") {
     return pluginUninstall(pluginsDir, folder);

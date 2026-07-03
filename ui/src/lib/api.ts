@@ -1256,6 +1256,23 @@ export async function uninstallPlugin(
   return { ok: false, error: typeof body.error === "string" ? body.error : "uninstall_failed" };
 }
 
+/** Activate an installed plugin folder in-process (no restart). On success returns the
+ *  resulting {@link PluginInfo} — its `health` may be `errored`, so callers must inspect it
+ *  rather than assume the plugin is live. Mirrors {@link installPlugin}'s discriminated result. */
+export async function activatePlugin(
+  folder: string,
+): Promise<{ ok: true; plugin: PluginInfo } | { ok: false; error: string }> {
+  const r = await fetch("/api/plugins/manage/activate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folder }),
+  });
+  const body = (await r.json().catch(() => ({}))) as { plugin?: PluginInfo; error?: string };
+  if (r.ok && body.plugin) return { ok: true, plugin: body.plugin };
+  flagIfUnauthorized(r.status);
+  return { ok: false, error: typeof body.error === "string" ? body.error : "activate_failed" };
+}
+
 /** Invoke a plugin-registered route at `/api/plugins/<id>/<path>` with the given method.
  *  On success, returns the trimmed response text (capped to 200 chars; longer responses are
  *  sliced to 199 chars with a trailing "…"). Strings are verbatim plugin-authored DATA.

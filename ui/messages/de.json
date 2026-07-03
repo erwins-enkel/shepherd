@@ -2480,5 +2480,7 @@
   "files_worktree_empty": "Keine Dateien im Worktree.",
   "files_worktree_load_error": "Worktree-Dateien konnten nicht geladen werden.",
   "files_worktree_list_aria": "Worktree-Dateien",
-  "files_link_outside_title": "Symlink zeigt aus dem Worktree heraus"
+  "files_link_outside_title": "Symlink zeigt aus dem Worktree heraus",
+  "feat_worktree_files_title": "Worktree im Dateien-Tab durchsuchen",
+  "feat_worktree_files_body": "Der Dateien-Tab hat jetzt einen Scratchpad-/Worktree-Umschalter — wechsle zu Worktree, um jede Datei aus dem Arbeitsbaum der Sitzung anzusehen und herunterzuladen (schreibgeschützt, .git ausgeblendet). Scratchpad bleibt Standard und nimmt weiterhin Uploads entgegen."
 }

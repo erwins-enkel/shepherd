@@ -2480,5 +2480,7 @@
   "files_worktree_empty": "No files in the worktree.",
   "files_worktree_load_error": "Couldn't load worktree files.",
   "files_worktree_list_aria": "Worktree files",
-  "files_link_outside_title": "Symlink points outside the worktree"
+  "files_link_outside_title": "Symlink points outside the worktree",
+  "feat_worktree_files_title": "Browse the worktree from the Files tab",
+  "feat_worktree_files_body": "The Files tab now has a Scratchpad / Worktree switch — flip to Worktree to browse and download any file from the session's working tree (read-only, .git hidden). Scratchpad stays the default and still takes uploads."
 }

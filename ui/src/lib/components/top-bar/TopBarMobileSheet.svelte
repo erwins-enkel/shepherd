@@ -11,9 +11,10 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import LimitGaugeRow from "./LimitGaugeRow.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
-  import { gaugeColor, codexGaugeList } from "../usage-gauges";
-  import { formatResetIn, formatReset, formatTokenLabel } from "$lib/format";
+  import { codexGaugeList } from "../usage-gauges";
+  import { formatTokenLabel } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
@@ -122,7 +123,7 @@
   } = $props();
 
   // Codex's own 5h/weekly rate-limit windows as Claude-style gauges, so both CLIs read alike.
-  // Empty until Codex logs a rate-limit event (then only the raw token counts show).
+  // Empty when Shepherd cannot find a rate-limit event in Codex rollouts.
   const codexWindows = $derived(codexGaugeList(codexUsage));
 </script>
 
@@ -193,28 +194,10 @@
       {:else}
         <div class="sheet-gauges {stale ? 'stale' : ''}">
           {#each gauges as g (g.label)}
-            <div class="sheet-gauge-row">
-              <div class="sheet-gauge-head">
-                <span class="gp-period">{periodLabel(g.label)}</span>
-                <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-              </div>
-              <span class="g-bar g-bar-wide"
-                ><span
-                  class="g-fill"
-                  style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                    100});background:{gaugeColor(g.w.pct)}"
-                ></span></span
-              >
-              <div class="gauge-pop-reset micro">
-                {m.topbar_gauge_reset_rel({
-                  rel: formatResetIn(g.w.resetAt, nowMs),
-                  abs: formatReset(g.w.resetAt, nowMs),
-                })}
-              </div>
-            </div>
+            <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
           {/each}
           {#each perModel as entry (entry.model)}
-            <div class="sheet-gauge-row">
+            <div class="sheet-model-row">
               <ModelWeekGauge {entry} {nowMs} />
             </div>
           {/each}
@@ -230,31 +213,16 @@
           />
           {#if codexUsage}
             <div class="sheet-token-row" class:stale={codexUsage.stale}>
-              <div class="sheet-gauge-head">
-                <span class="gp-period">{m.agent_provider_codex()}</span>
+              <div class="token-head">
+                <span class="token-provider">{m.agent_provider_codex()}</span>
                 <span class="token-total">{formatTokenLabel(codexUsage.totalTokens)}</span>
               </div>
               {#each codexWindows as g (g.label)}
-                <div class="sheet-gauge-row">
-                  <div class="sheet-gauge-head">
-                    <span class="gp-period">{periodLabel(g.label)}</span>
-                    <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-                  </div>
-                  <span class="g-bar g-bar-wide"
-                    ><span
-                      class="g-fill"
-                      style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-                        100});background:{gaugeColor(g.w.pct)}"
-                    ></span></span
-                  >
-                  <div class="gauge-pop-reset micro">
-                    {m.topbar_gauge_reset_rel({
-                      rel: formatResetIn(g.w.resetAt, nowMs),
-                      abs: formatReset(g.w.resetAt, nowMs),
-                    })}
-                  </div>
-                </div>
+                <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
               {/each}
+              {#if codexWindows.length === 0}
+                <div class="limits-unavailable micro">{m.topbar_codex_limits_unavailable()}</div>
+              {/if}
               <div class="token-line">
                 <span>{m.topbar_tokens_window({ period: "5H" })}</span>
                 <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
@@ -597,17 +565,7 @@
   .sheet-gauges.stale {
     opacity: 0.5;
   }
-  .sheet-gauge-row {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-  .sheet-gauge-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
+  .sheet-model-row,
   .sheet-token-row {
     display: flex;
     flex-direction: column;
@@ -617,6 +575,25 @@
   }
   .sheet-token-row.stale {
     opacity: 0.5;
+  }
+  .token-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+  .token-provider {
+    color: var(--color-text);
+    font-size: var(--fs-meta);
+    text-transform: capitalize;
+  }
+  .limits-unavailable {
+    padding: 6px 0;
+    border-top: 1px solid var(--color-line);
+    border-bottom: 1px solid var(--color-line);
+    color: var(--color-faint);
+    letter-spacing: 0.08em;
+    line-height: 1.35;
   }
   .token-total,
   .token-line {
@@ -786,51 +763,6 @@
     height: var(--fs-lg);
     display: block;
     flex-shrink: 0;
-  }
-  /* Base gauge classes used by the usage section in this sheet. */
-  .g-bar {
-    width: 46px;
-    height: 5px;
-    background: var(--color-line);
-    border: 1px solid var(--color-line-bright);
-    overflow: hidden;
-  }
-  .g-fill {
-    display: block;
-    width: 100%;
-    height: 100%;
-    transform-origin: left;
-    transition: transform 0.6s ease;
-  }
-  .g-pct {
-    font-size: var(--fs-meta);
-    min-width: 30px;
-    text-align: right;
-  }
-  .g-bar-wide {
-    width: 100%;
-    height: 6px;
-  }
-  .gauge-pop-reset {
-    margin: 0 0 6px 30px;
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-faint);
-  }
-  .gauge-pop-reset:last-child {
-    margin-bottom: 0;
-  }
-  .gp-period {
-    color: var(--color-text);
-    font-size: var(--fs-meta);
-    text-transform: capitalize;
-  }
-  .sheet-gauge-row .g-bar-wide {
-    width: 100%;
-    height: 6px;
-  }
-  .sheet-gauge-row .gauge-pop-reset {
-    margin: 0;
   }
   .micro {
     font-size: var(--fs-meta);

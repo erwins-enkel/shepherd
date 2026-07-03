@@ -986,6 +986,10 @@ export type UsageProviderSnapshot =
        *  rate-limit event has been logged yet (UI then shows just the raw token counts). */
       session5h: LimitWindow | null;
       week: LimitWindow | null;
+      rateLimitSource?: "rollout" | "missing";
+      rateLimitCheckedAt?: number;
+      rateLimitFilesScanned?: number;
+      rateLimitLatestEventAt?: number | null;
     };
 
 export type UsageRange = "24h" | "7d" | "30d" | "all";

@@ -340,6 +340,10 @@ export type UsageProviderSnapshot =
       // a rate-limit event yet, so the UI falls back to the raw token counts.
       session5h: LimitWindow | null;
       week: LimitWindow | null;
+      rateLimitSource?: "rollout" | "missing";
+      rateLimitCheckedAt?: number;
+      rateLimitFilesScanned?: number;
+      rateLimitLatestEventAt?: number | null;
     };
 
 export interface UsageProviderSource {

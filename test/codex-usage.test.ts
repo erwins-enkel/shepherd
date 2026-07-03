@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -7,6 +7,7 @@ import {
   CodexUsageProvider,
   latestCodexStateDb,
   parseCodexRateLimits,
+  recentCodexRolloutPaths,
   readCodexRateLimits,
   readCodexTokenUsage,
 } from "../src/codex-usage";
@@ -123,9 +124,13 @@ test("parseCodexRateLimits reads the latest primary/secondary windows", () => {
     rolloutLine(43, 9, resetSec), // newest reading wins
   ].join("\n");
 
-  expect(parseCodexRateLimits(content, NOW)).toEqual({
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
     session5h: { pct: 43, resetAt: resetSec * 1000 },
     week: { pct: 9, resetAt: (resetSec + 600) * 1000 },
+    source: "rollout",
+    checkedAt: NOW,
+    filesScanned: 0,
+    latestEventAt: Date.parse("2026-06-25T15:59:00.000Z"),
   });
 });
 
@@ -140,7 +145,7 @@ test("parseCodexRateLimits tolerates whitespace after the rate_limits colon", ()
   const spaced = rolloutLine(7, 3, resetSec).replace('"rate_limits":{', '"rate_limits": {');
   expect(spaced).toContain('"rate_limits": {');
 
-  expect(parseCodexRateLimits(spaced, NOW)).toEqual({
+  expect(parseCodexRateLimits(spaced, NOW)).toMatchObject({
     session5h: { pct: 7, resetAt: resetSec * 1000 },
     week: { pct: 3, resetAt: (resetSec + 600) * 1000 },
   });
@@ -154,9 +159,30 @@ test("parseCodexRateLimits skips a null rate_limits line and keeps scanning", ()
   ].join("\n");
 
   // The trailing null reading must not shadow the real one above it.
-  expect(parseCodexRateLimits(content, NOW)).toEqual({
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
     session5h: { pct: 11, resetAt: resetSec * 1000 },
     week: { pct: 4, resetAt: (resetSec + 600) * 1000 },
+  });
+});
+
+test("parseCodexRateLimits ignores non-token-count payloads that mention rate_limits", () => {
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const content = [
+    rolloutLine(15, 5, resetSec),
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "tool_call",
+        internal_chat_message_metadata_passthrough: {
+          rate_limits: { primary: { used_percent: 99 } },
+        },
+      },
+    }),
+  ].join("\n");
+
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
+    session5h: { pct: 15, resetAt: resetSec * 1000 },
+    week: { pct: 5, resetAt: (resetSec + 600) * 1000 },
   });
 });
 
@@ -168,9 +194,65 @@ test("readCodexRateLimits skips files without a reading and uses the first that 
   writeFileSync(empty, '{"type":"event_msg","payload":{"type":"agent_message"}}\n');
   writeFileSync(withData, rolloutLine(50, 20, resetSec));
 
-  expect(readCodexRateLimits([empty, withData, "/no/such/file.jsonl"], NOW)).toEqual({
+  expect(readCodexRateLimits([empty, withData, "/no/such/file.jsonl"], NOW)).toMatchObject({
     session5h: { pct: 50, resetAt: resetSec * 1000 },
     week: { pct: 20, resetAt: (resetSec + 600) * 1000 },
+    filesScanned: 2,
+  });
+});
+
+test("recentCodexRolloutPaths lists newest rollout files under CODEX_HOME sessions", () => {
+  const dir = tempDir();
+  const sessions = join(dir, "sessions", "2026", "06", "25");
+  mkdirSync(sessions, { recursive: true });
+  const oldPath = join(sessions, "rollout-old.jsonl");
+  const newPath = join(sessions, "rollout-new.jsonl");
+  writeFileSync(oldPath, "{}\n");
+  writeFileSync(newPath, "{}\n");
+  writeFileSync(join(sessions, "notes.txt"), "{}\n");
+  utimesSync(oldPath, new Date(NOW - H), new Date(NOW - H));
+  utimesSync(newPath, new Date(NOW), new Date(NOW));
+
+  expect(recentCodexRolloutPaths(dir, 2)).toEqual([newPath, oldPath]);
+});
+
+test("CodexUsageProvider falls back to recent session rollouts when DB paths carry no limits", () => {
+  const dir = tempDir();
+  const dbPath = join(dir, "state_5.sqlite");
+  const sessions = join(dir, "sessions", "2026", "06", "25");
+  mkdirSync(sessions, { recursive: true });
+  const newest = join(sessions, "rollout-newest.jsonl");
+  const older = join(sessions, "rollout-older.jsonl");
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  writeFileSync(newest, '{"type":"event_msg","payload":{"type":"agent_message","text":"hi"}}\n');
+  writeFileSync(older, rolloutLine(61, 33, resetSec));
+  utimesSync(older, new Date(NOW - H), new Date(NOW - H));
+  utimesSync(newest, new Date(NOW), new Date(NOW));
+
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      model_provider TEXT NOT NULL,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      updated_at_ms INTEGER NOT NULL,
+      rollout_path TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  db.query(
+    "INSERT INTO threads (id, model_provider, tokens_used, updated_at_ms, rollout_path) VALUES (?, ?, ?, ?, ?)",
+  ).run("recent", "openai", 1_000, NOW - H, "");
+  db.close();
+
+  const snap = new CodexUsageProvider(dbPath, dir).snapshot(NOW);
+
+  expect(snap).toMatchObject({
+    provider: "codex",
+    kind: "tokens",
+    session5h: { pct: 61, resetAt: resetSec * 1000 },
+    week: { pct: 33, resetAt: (resetSec + 600) * 1000 },
+    rateLimitSource: "rollout",
+    rateLimitFilesScanned: 2,
   });
 });
 
@@ -196,7 +278,7 @@ test("CodexUsageProvider.snapshot merges token counts with rollout rate limits",
   ).run("recent", "openai", 1_000, NOW - H, rollout);
   db.close();
 
-  const snap = new CodexUsageProvider(dbPath).snapshot(NOW);
+  const snap = new CodexUsageProvider(dbPath, dir).snapshot(NOW);
 
   expect(snap).toMatchObject({
     provider: "codex",
@@ -204,5 +286,6 @@ test("CodexUsageProvider.snapshot merges token counts with rollout rate limits",
     totalTokens: 1_000,
     session5h: { pct: 38, resetAt: resetSec * 1000 },
     week: { pct: 22, resetAt: (resetSec + 600) * 1000 },
+    rateLimitSource: "rollout",
   });
 });

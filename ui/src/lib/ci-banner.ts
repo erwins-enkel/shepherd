@@ -23,14 +23,23 @@ export interface CiBannerInput {
 }
 
 /**
- * Whether the CI-running banner shows, and with what. True iff the session has an
- * open PR whose checks are still in flight (`pending`) and no review banner is
- * currently claiming the strip. No `noCi` guard is needed: `noCi` is exactly the
- * "zero workflows → checks:none" case, so it can't co-occur with `checks:"pending"`.
+ * Whether the CI-running banner shows, and with what. Shows iff the session has an
+ * open PR with CI still in flight and no review banner is claiming the strip.
+ *
+ * "In flight" is two signals OR'd: the aggregate `checks === "pending"` (the only
+ * one on the REST/Gitea fallback, where `runningChecks` is absent), AND a non-empty
+ * `runningChecks`. The second matters because GitHub's worst-of rollup flips
+ * `checks` to `"failure"` the moment ONE check fails while others keep running — so
+ * keying on `checks === "pending"` alone would hide the banner mid-run on the first
+ * failure, exactly when the operator still shouldn't act. No `noCi` guard is needed:
+ * `noCi` is the "zero workflows → checks:none, runningChecks empty" case, which
+ * neither branch matches.
  */
 export function ciBannerState(input: CiBannerInput): CiBannerState {
   const { git, reviewActive } = input;
   if (reviewActive) return { show: false };
-  if (!git || git.state !== "open" || git.checks !== "pending") return { show: false };
-  return { show: true, number: git.number, url: git.url, names: git.runningChecks ?? [] };
+  if (!git || git.state !== "open") return { show: false };
+  const names = git.runningChecks ?? [];
+  if (git.checks !== "pending" && names.length === 0) return { show: false };
+  return { show: true, number: git.number, url: git.url, names };
 }

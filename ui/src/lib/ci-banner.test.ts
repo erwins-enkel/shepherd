@@ -45,10 +45,25 @@ describe("ciBannerState", () => {
     });
   });
 
-  it("hides when checks are not pending", () => {
+  it("hides when checks are not pending and nothing is still running", () => {
     for (const checks of ["none", "success", "failure"] as const) {
       expect(ciBannerState({ git: git({ checks }), reviewActive: false })).toEqual({ show: false });
     }
+  });
+
+  it("shows while a check still runs even after another failed (worst-of rollup = failure)", () => {
+    // GitHub flips the aggregate to "failure" on the first failed check while others
+    // keep running — the banner must stay up so the operator knows CI isn't done.
+    const s = ciBannerState({
+      git: git({ checks: "failure", runningChecks: ["verify / test"] }),
+      reviewActive: false,
+    });
+    expect(s).toEqual({
+      show: true,
+      number: 1376,
+      url: "https://github.com/o/r/pull/1376",
+      names: ["verify / test"],
+    });
   });
 
   it("hides when the PR is not open", () => {

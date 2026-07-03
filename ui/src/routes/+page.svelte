@@ -109,7 +109,7 @@
     pickRepoSwitchTarget,
     repoChipRows,
     staleFilterRepos,
-    shouldFollowFilterToRepo,
+    followRepoFilter,
   } from "$lib/components/queue-strip";
   import BacklogView from "$lib/components/BacklogView.svelte";
   import AppOverlays from "$lib/components/page/AppOverlays.svelte";
@@ -634,12 +634,19 @@
   // Shared by every create/relaunch path so the behaviour can't drift between them.
   // Arms both follow latches (declared near repoFilter) so the prune and re-target
   // effects coordinate until the new session arrives via WS.
-  function selectNewSession(id: string, repoPath: string) {
-    if (shouldFollowFilterToRepo(repoFilter, repoPath)) {
+  // Follow the herd's repo filter onto `repoPath` when an active filter would otherwise hide a
+  // session there, arming both follow latches so the prune + re-target effects don't fight it.
+  // The single shared follow step behind selectNewSession (new task) AND the command-bar session
+  // select, so the behaviour can't drift. followRepoFilter mutates repoFilter in place (collapse
+  // to the single repo) and reports whether it changed; the latches arm only on a real change.
+  function followFilterToRepo(repoPath: string) {
+    if (followRepoFilter(repoFilter, repoPath)) {
       followingRepo = repoPath;
       followingNewSession = true;
-      replaceRepoFilter([repoPath]);
     }
+  }
+  function selectNewSession(id: string, repoPath: string) {
+    followFilterToRepo(repoPath);
     selectedId = id;
   }
 
@@ -2816,7 +2823,14 @@
     showCommandBar = false;
     demoCommandFilter = "";
     showBacklog = false;
+    // A ⌘K session jump must land the session VISIBLE + highlighted in the herd list, which
+    // narrows by both the lens filter AND the sticky repo/status filters. Reset both stickies
+    // (herdFilter → all, statusFilter → null) and follow the repo filter onto the session's
+    // repo so a filter on a different repo/status can't strand it out of the list.
     herdFilter = "all";
+    statusFilter = null;
+    const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
+    if (repoPath) followFilterToRepo(repoPath);
     selectUnit(id);
   }}
   oncommandbarrepo={(path) => {

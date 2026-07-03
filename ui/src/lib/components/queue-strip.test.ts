@@ -15,6 +15,7 @@ import {
   nextRepoFilter,
   staleFilterRepos,
   shouldFollowFilterToRepo,
+  followRepoFilter,
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
 import type { BlockState } from "../triage";
@@ -548,6 +549,40 @@ describe("shouldFollowFilterToRepo", () => {
 
   it("TRUE when the active filter does not include the new task's repo — would hide it", () => {
     expect(shouldFollowFilterToRepo(new Set(["/repos/a"]), "/repos/b")).toBe(true);
+  });
+});
+
+// ─── followRepoFilter ─────────────────────────────────────────────────────────
+
+describe("followRepoFilter", () => {
+  it("no-op (false) on an empty filter — must not narrow the 'all repos' view", () => {
+    const f = new Set<string>();
+    expect(followRepoFilter(f, "/repos/a")).toBe(false);
+    expect([...f]).toEqual([]);
+  });
+
+  it("collapses a single mismatched repo onto the session's repo", () => {
+    const f = new Set(["/repos/a"]);
+    expect(followRepoFilter(f, "/repos/b")).toBe(true);
+    expect([...f]).toEqual(["/repos/b"]);
+  });
+
+  it("collapses a multi-selection onto the session's repo (not additive)", () => {
+    const f = new Set(["/repos/a", "/repos/b"]);
+    expect(followRepoFilter(f, "/repos/c")).toBe(true);
+    expect([...f]).toEqual(["/repos/c"]);
+  });
+
+  it("no-op (false) when a multi-selection already covers the session's repo", () => {
+    const f = new Set(["/repos/a", "/repos/b"]);
+    expect(followRepoFilter(f, "/repos/a")).toBe(false);
+    expect([...f].sort()).toEqual(["/repos/a", "/repos/b"]);
+  });
+
+  it("no-op (false) when the sole selected repo already covers the session's repo", () => {
+    const f = new Set(["/repos/a"]);
+    expect(followRepoFilter(f, "/repos/a")).toBe(false);
+    expect([...f]).toEqual(["/repos/a"]);
   });
 });
 

@@ -20,6 +20,12 @@ export interface PluginManifest {
   capabilities?: string[];
   /** Soft off-switch: `false` skips the plugin at load without removing the folder. */
   enabled?: boolean;
+  /** Optional git URL declaring where this plugin is published. Consumed ONLY by
+   *  the update check (`PluginUpdateService`): it makes a `cp -r`-installed plugin
+   *  (which has no local `.git`) checkable for newer released tags. Advisory —
+   *  the loader ignores it. Absent → the plugin is only checkable when its folder
+   *  is itself a git checkout, else it reports `no-source`. */
+  repository?: string;
 }
 
 /** Read-only snapshot of how an agent is about to launch, handed to an `onSpawn` hook.

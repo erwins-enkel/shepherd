@@ -55,6 +55,7 @@
   import UpdateModal from "$lib/components/UpdateModal.svelte";
   import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
   import CodexUpdateModal from "$lib/components/CodexUpdateModal.svelte";
+  import PluginUpdatesModal from "$lib/components/PluginUpdatesModal.svelte";
   import StarPrompt from "$lib/components/StarPrompt.svelte";
   import WhatsNew from "$lib/components/WhatsNew.svelte";
   import FableArrival from "$lib/components/FableArrival.svelte";
@@ -90,6 +91,8 @@
     codexUpdating,
     oncodexupdateconfirm,
     oncodexupdateclose,
+    showPluginUpdates,
+    onpluginupdatesclose,
     showOnboarding,
     onboardingBlocking = false,
     diagnosticsLoadFailed,
@@ -133,6 +136,7 @@
     onsettingsclose,
     onsettingsherdrupdate,
     onsettingscodexupdate,
+    onsettingspluginupdates,
     onsettingswhatsnew,
     showUsage,
     onusageclose,
@@ -200,6 +204,8 @@
     codexUpdating: boolean;
     oncodexupdateconfirm: () => void;
     oncodexupdateclose: () => void;
+    showPluginUpdates: boolean;
+    onpluginupdatesclose: () => void;
     showOnboarding: boolean;
     /** True on a genuine server-reported first run (`settings.firstRunPending`) — forces the
      *  Onboarding surface into its required-pick, non-dismissible mode. */
@@ -246,6 +252,7 @@
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
     onsettingscodexupdate: () => void;
+    onsettingspluginupdates: () => void;
     onsettingswhatsnew: () => void;
     showUsage: boolean;
     onusageclose: () => void;
@@ -434,6 +441,10 @@
   />
 {/if}
 
+{#if showPluginUpdates}
+  <PluginUpdatesModal status={store.pluginUpdates} onclose={onpluginupdatesclose} />
+{/if}
+
 {#if showOnboarding}
   <Onboarding
     checks={store.diagnostics?.checks ?? null}
@@ -498,6 +509,8 @@
     onherdrupdate={onsettingsherdrupdate}
     codexUpdate={store.codexUpdate}
     oncodexupdate={onsettingscodexupdate}
+    pluginUpdates={store.pluginUpdates}
+    onpluginupdates={onsettingspluginupdates}
     onwhatsnew={onsettingswhatsnew}
   />
 {/if}

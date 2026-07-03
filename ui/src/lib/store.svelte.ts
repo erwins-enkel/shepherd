@@ -11,6 +11,7 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   CodexUpdateResult,
+  PluginUpdatesStatus,
   DiagnosticsSnapshot,
   DiagnosticState,
   StarPromptStatus,
@@ -65,6 +66,9 @@ export class HerdStore {
   update = $state<UpdateStatus | null>(null);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   codexUpdate = $state<CodexUpdateStatus | null>(null);
+  /** Installed-plugin update snapshot (informational). Seeded by the
+   *  `plugin-update:status` event; drives the plugin-update badge + modal. */
+  pluginUpdates = $state<PluginUpdatesStatus | null>(null);
   diagnostics = $state<DiagnosticsSnapshot | null>(null);
   /** Loaded server-side plugins (issue #1124). Empty → Settings → Plugins tab hidden.
    *  Seeded by a bootstrap GET /api/plugins; live-updated by the `plugin:status` event. */
@@ -81,6 +85,11 @@ export class HerdStore {
   /** Worst-of diagnostics state; "ok" until a snapshot lands. */
   get diagnosticsOverall(): DiagnosticState {
     return this.diagnostics?.overall ?? "ok";
+  }
+  /** True when at least one installed plugin has a newer released version. Drives
+   *  the plugin-update badge; false until a snapshot lands. */
+  get anyPluginUpdate(): boolean {
+    return this.pluginUpdates?.updateAvailable ?? false;
   }
   /** Number of tasks currently held (waiting for usage to reset). Updated by `held:changed` WS events. */
   heldCount = $state(0);
@@ -661,6 +670,9 @@ export class HerdStore {
         return true;
       case "star-prompt:status":
         this.starPrompt = ev.data;
+        return true;
+      case "plugin-update:status":
+        this.pluginUpdates = ev.data;
         return true;
     }
     return false;

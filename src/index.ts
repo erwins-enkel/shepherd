@@ -57,6 +57,7 @@ import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService } from "./codex-update";
+import { PluginUpdateService } from "./plugin-update";
 import { DiagnosticsService } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -2091,6 +2092,16 @@ const checkCodexUpdate = async () =>
 setTimeout(checkCodexUpdate, 5_000);
 setInterval(checkCodexUpdate, 6 * 60 * 60 * 1000);
 
+// watch installed plugins for a newer released version and surface an
+// informational badge — READ-ONLY, no apply (mirrors the codex badge). Each
+// check hits `git ls-remote`/`git fetch` per plugin with a declared repository
+// or git checkout, so a gentle 30-min cadence is plenty; plugin releases are rare.
+const pluginUpdates = new PluginUpdateService();
+const checkPluginUpdates = async () =>
+  events.emit("plugin-update:status", await pluginUpdates.check(Date.now()));
+setTimeout(checkPluginUpdates, 6_000);
+setInterval(checkPluginUpdates, 30 * 60 * 1000);
+
 // environment-readiness diagnostics (issue #623): fan 7 dependency probes behind
 // a TTL cache and push the snapshot to clients. Like the herdr-update check, a
 // delayed boot kick + a 6h background re-check keep the UI's health pip live with
@@ -2215,6 +2226,7 @@ const appDeps: AppDeps = {
   updates,
   herdrUpdates,
   codexUpdates,
+  pluginUpdates,
   diagnostics,
   starPrompt,
   herdr,

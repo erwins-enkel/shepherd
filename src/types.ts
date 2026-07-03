@@ -317,6 +317,37 @@ export interface CodexUpdateStatus {
   error?: string;
 }
 
+// ── plugin update check (informational only) ────────────────────────────────
+/** Per-plugin update state. `no-source` = no way to check (no declared
+ *  repository and not a git checkout); `incompatible` = a newer version exists
+ *  but its apiVersion would be rejected at load; `error` = the check itself
+ *  failed for this plugin (bad manifest version, unreachable remote, …). */
+export type PluginUpdateState =
+  "up-to-date" | "update-available" | "incompatible" | "no-source" | "error";
+
+/** One installed plugin's update status. */
+export interface PluginUpdateInfo {
+  id: string;
+  name: string;
+  /** installed version from the folder's plugin.json */
+  currentVersion: string;
+  /** resolved latest version (upstream manifest, or highest remote tag); null when unknown */
+  latestVersion: string | null;
+  /** how the check resolved a source: declared `repository`, local `git` checkout, or `none` */
+  source: "repository" | "git" | "none";
+  state: PluginUpdateState;
+  /** short human-readable reason for a no-source/incompatible/error state */
+  detail?: string;
+}
+
+/** Snapshot of every installed plugin's update state (informational; no apply). */
+export interface PluginUpdatesStatus {
+  plugins: PluginUpdateInfo[];
+  /** true when at least one plugin is `update-available`; drives the badge */
+  updateAvailable: boolean;
+  checkedAt: number;
+}
+
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────
 /** State of a single dependency probe. `error` = the hard gate (missing /
  *  unauthenticated / unreachable); `warning` = advisory (e.g. below the version

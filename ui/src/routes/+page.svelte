@@ -17,6 +17,7 @@
     getUpdateLog,
     getHerdrUpdate,
     getCodexUpdate,
+    getPluginUpdates,
     getStarPrompt,
     gitStates,
     activityStates,
@@ -495,6 +496,11 @@
     store.codexUpdateLog = [];
     codexUpdating = false;
     showCodexUpdate = true;
+  }
+  // Installed-plugin update status (informational; no apply, so no "updating" state).
+  let showPluginUpdates = $state(false);
+  function openPluginUpdates() {
+    showPluginUpdates = true;
   }
   let showWhatsNew = $state(false);
   let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
@@ -1289,6 +1295,7 @@
       showUpdate ||
       showHerdrUpdate ||
       showCodexUpdate ||
+      showPluginUpdates ||
       showWhatsNew ||
       showCommandBar
     );
@@ -1437,6 +1444,9 @@
       .catch(() => {});
     getCodexUpdate()
       .then((u) => (store.codexUpdate = u))
+      .catch(() => {});
+    getPluginUpdates()
+      .then((u) => (store.pluginUpdates = u))
       .catch(() => {});
     loadDiagnostics();
     loadPlugins();
@@ -2683,6 +2693,10 @@
     codexUpdating = false;
     store.codexUpdateDone = null;
   }}
+  {showPluginUpdates}
+  onpluginupdatesclose={() => {
+    showPluginUpdates = false;
+  }}
   {showOnboarding}
   {onboardingBlocking}
   {diagnosticsLoadFailed}
@@ -2767,6 +2781,10 @@
   onsettingscodexupdate={() => {
     showSettings = false;
     openCodexUpdate();
+  }}
+  onsettingspluginupdates={() => {
+    showSettings = false;
+    openPluginUpdates();
   }}
   onsettingswhatsnew={() => {
     showSettings = false;

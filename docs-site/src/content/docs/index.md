@@ -23,6 +23,8 @@ agents.
 - **[Getting started](/getting-started/)** — install Shepherd and sign in.
 - **[Operating Shepherd](/operating/)** — run it as a service, expose it over
   Tailscale, and deploy code changes.
+- **[Hands-off epics](/hands-off-epics/)** — the automation settings that let an
+  epic drain end-to-end, and what still stops it.
 - **[Configuration](/reference/configuration/)** — every environment variable.
 - **[Concepts & glossary](/reference/glossary/)** — the terms Shepherd uses.
 - **[Plugins](/reference/plugins/)** — extend Shepherd with server-side spawn

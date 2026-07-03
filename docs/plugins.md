@@ -24,9 +24,13 @@ and documented. Specific plugin **implementations** stay private under
 - At boot — **after** all core services exist and **before** the HTTP server accepts
   requests — Shepherd scans the dir (alphabetically), reads each manifest, `import()`s the
   entry, and calls `register(ctx)` **once**.
-- **Load-at-boot only — no hot reload.** Enabling, disabling, or reconfiguring a plugin
-  means _edit the folder, restart Shepherd_ (`systemctl --user restart shepherd`), the
-  same lifecycle as every other `~/.shepherd/` setting.
+- **Load-at-boot, plus in-process activation for newly installed plugins.** Every plugin
+  loads once at boot (above). A _freshly installed_ folder can also be **activated in-process**
+  from Settings → Plugins (the Activate button / `POST /api/plugins/manage/activate`) —
+  `register(ctx)` wires it into the live registry with no restart, since a never-imported
+  folder has no module cache. What still needs a restart (`systemctl --user restart shepherd`):
+  **editing or reconfiguring an already-loaded plugin** (no hot reload — its module is cached)
+  and **unloading** one whose folder you removed.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -46,14 +50,18 @@ unchanged, so install is gated behind a confirm dialog.
   already-installed/loaded plugin **or the reserved `manage` segment** is rejected and the
   clone removed. **v1 clones the repo only** — a plugin that ships its own dependencies still
   needs a manual `bun install` in its folder before it will load.
-- **Restart to activate.** Because loading is boot-only (below), a freshly installed plugin
-  shows as **pending restart** until you restart Shepherd; the panel shows a persistent
-  banner with the restart command.
+- **Activate in-process — usually no restart.** A freshly installed plugin shows as
+  **installed · activate to load**; click **Activate** to load it immediately — its routes,
+  hooks and gear/UI go live with no restart. A plugin that ships its own dependencies fails to
+  activate until you run `bun install` in its folder and then restart (the panel surfaces the
+  failure + a restart hint).
 - **Uninstall** removes the folder. A **symlinked** install is unlinked (the link only —
   your source checkout is untouched). Uninstalling a still-loaded plugin removes the folder
-  but it keeps running until the next restart (shown as **loaded · removed**).
+  but it keeps running until the next restart (shown as **loaded · removed**, with the restart
+  banner).
 - **Management API** (behind operator auth, reserved `manage` segment):
   `GET /api/plugins/manage/installed`, `POST /api/plugins/manage/install` (`{ url }`),
+  `POST /api/plugins/manage/activate` (`{ folder }`),
   `DELETE /api/plugins/manage/installed/<folder>`.
 
 ## Manifest (`plugin.json`)

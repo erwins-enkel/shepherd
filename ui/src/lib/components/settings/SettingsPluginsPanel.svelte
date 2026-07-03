@@ -89,8 +89,10 @@
     return out;
   });
 
-  // A restart is owed while anything is installed-not-loaded or loaded-not-on-disk.
-  const pendingRestart = $derived(rows.some((r) => r.kind === "pending" || r.kind === "removed"));
+  // A restart is owed only to UNLOAD a plugin whose folder is gone (`removed`): that can't be
+  // done in-process. A `pending` (installed-not-loaded) plugin no longer needs one — the
+  // Activate button loads it live — so it must not raise the restart banner.
+  const pendingRestart = $derived(rows.some((r) => r.kind === "removed"));
 
   const rowKey = (row: Row): string =>
     row.kind === "loaded" || row.kind === "removed"

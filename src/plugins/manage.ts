@@ -4,10 +4,11 @@
 // operation is async + bounded (the server is one Bun event loop; docs/plugins.md).
 //
 // Trust model unchanged: plugins run in-process with full server privileges and no sandbox.
-// This module only makes the existing manual `git clone … ~/.shepherd/plugins/` + restart
-// flow reachable from the UI; it adds no capability a shell couldn't already do. The UI
-// gates install behind a trust-confirm dialog. Loading remains boot-only, so an installed
-// plugin needs a restart to activate and an uninstalled-but-loaded one to fully unload.
+// This module only makes the existing manual `git clone … ~/.shepherd/plugins/` flow
+// reachable from the UI; it adds no capability a shell couldn't already do. The UI gates
+// install behind a trust-confirm dialog. A freshly installed plugin is loaded in-process by
+// `PluginRegistry.activateOne` (no restart); an uninstalled-but-loaded one still needs a
+// restart to fully unload, as does editing/reconfiguring an already-loaded plugin.
 
 import { readdir, readFile, lstat, stat, realpath, rm, unlink, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";

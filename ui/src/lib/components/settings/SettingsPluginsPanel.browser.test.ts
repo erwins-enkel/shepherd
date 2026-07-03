@@ -165,12 +165,22 @@ describe("SettingsPluginsPanel", () => {
     expect(document.getElementById("plugin-card-beta")).not.toBeNull();
   });
 
-  it("shows a pending-restart row + restart banner for an installed-but-unloaded plugin", async () => {
+  it("a pending plugin shows an activate-to-load row + Activate button, NOT the restart banner", async () => {
     stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })]);
     render(SettingsPluginsPanel, { plugins: [] });
     await expect.element(page.getByText("Fresh Plugin")).toBeVisible();
-    await expect.element(page.getByText(/pending restart/i)).toBeVisible();
-    // The restart banner surfaces the command.
+    await expect.element(page.getByText(/activate to load/i)).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Activate" })).toBeVisible();
+    // A pending plugin is activatable in-process, so it must NOT raise the restart banner.
+    expect(document.body.textContent).not.toContain("systemctl --user restart shepherd");
+  });
+
+  it("shows the restart banner for a removed (loaded-but-uninstalled) plugin", async () => {
+    // Loaded in-process (in `plugins`) but its folder is gone from the scan → `removed`:
+    // unloading it needs a restart, so the banner + command are shown.
+    stubScan([]);
+    render(SettingsPluginsPanel, { plugins: [plugin({ id: "gone", name: "Gone Plugin" })] });
+    await expect.element(page.getByText(/restart to unload/i)).toBeVisible();
     await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
   });
 
@@ -199,9 +209,9 @@ describe("SettingsPluginsPanel", () => {
       plugins: [plugin({ id: "fresh", name: "Fresh Plugin", health: "ok" })],
     });
     await expect.element(page.getByText("Fresh Plugin")).toBeVisible();
-    // Loaded card shows the health label; no Activate button, no pending-restart state.
+    // Loaded card shows the health label; no Activate button, no pending state.
     await expect.element(page.getByText("OK")).toBeVisible();
-    expect(document.body.textContent).not.toContain("pending restart");
+    expect(document.body.textContent).not.toContain("activate to load");
     expect(page.getByRole("button", { name: "Activate" }).elements()).toHaveLength(0);
   });
 
@@ -218,8 +228,8 @@ describe("SettingsPluginsPanel", () => {
       .element(page.getByText("A plugin with that id is already installed."))
       .toBeVisible();
     expect(document.body.textContent).not.toContain("id_collision");
-    // Still pending — nothing loaded.
-    await expect.element(page.getByText(/pending restart/i)).toBeVisible();
+    // Still pending — nothing loaded (id_collision means loadOne never recorded this folder).
+    await expect.element(page.getByText(/activate to load/i)).toBeVisible();
   });
 
   it("disables the Activate button while its request is in flight (no double-fire)", async () => {

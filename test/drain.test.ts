@@ -14,6 +14,7 @@ import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
+import { config } from "../src/config";
 
 const REPO = "/repo";
 
@@ -144,6 +145,9 @@ function makeHarness(
     usagePct?: number;
     usageCeilingPct?: number;
     credits?: UsageLimitsType["credits"];
+    /** Full control over the usage source (overrides usagePct/credits) — lets a test drive a
+     *  CHANGING scrape across successive buildState calls (rising credit spend, weekly reset). */
+    limitsImpl?: () => UsageLimitsType;
     mergeImpl?: () => Promise<void>;
     listIssuesImpl?: () => Promise<Issue[]>;
     archiveImpl?: (id: string) => number | Promise<number>;
@@ -242,6 +246,7 @@ function makeHarness(
 
   const usage = {
     limits: (): UsageLimitsType => {
+      if (opts.limitsImpl) return opts.limitsImpl();
       const pct = opts.usagePct ?? 0;
       const base = pct > 0 ? { ...NO_USAGE, session5h: { pct, resetAt: 0 } } : { ...NO_USAGE };
       if (opts.credits !== undefined) base.credits = opts.credits;
@@ -629,18 +634,153 @@ test("stale credits snapshot → NO credits hold (drain proceeds, stale data dis
   expect(h.creates).toHaveLength(1); // spawned: not frozen on stale spend
 });
 
-// Control: same overage, fresh snapshot → DOES hold. Proves the !stale gate is the difference.
-test("fresh credits snapshot over ceiling → credits hold (paused)", async () => {
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEK_RESET = 1_700_000_000_000; // fixed epoch; injected verbatim (no rollForward in tests)
+const MONTH_RESET = WEEK_RESET + 2 * WEEK_MS; // the monthly credit-budget reset epoch
+
+// Build a usage source whose weekly window + credit spend (+ monthly reset epoch) can be mutated
+// between pumps, to exercise the "spend since the weekly window began" cost guard
+// (effectiveCreditSpent).
+function usageWithCredit(
+  read: () => {
+    spent: number;
+    weekResetAt: number | null;
+    weekPct?: number;
+    monthResetAt?: number | null;
+  },
+) {
+  return (): UsageLimitsType => {
+    const { spent, weekResetAt, weekPct = 20, monthResetAt = MONTH_RESET } = read();
+    return {
+      ...NO_USAGE,
+      week: weekResetAt == null ? null : { pct: weekPct, resetAt: weekResetAt },
+      credits: creditWindow({ spent, resetAt: monthResetAt }),
+    };
+  };
+}
+
+// THE FIX: a large month-to-date credit total with fresh weekly headroom is HISTORICAL spend
+// (paid overage can only accrue while a window is exhausted). It must NOT freeze the drain — the
+// old guard paused until the monthly credit reset even with plenty of subscription left.
+test("month-to-date credits but weekly headroom → NO credits hold (historical spend baselined out)", async () => {
   const h = makeHarness({
     maxAuto: 2,
     issues: [issue(1)],
-    credits: creditWindow({ spent: 999, stale: false }),
+    limitsImpl: usageWithCredit(() => ({ spent: 46.47, weekResetAt: WEEK_RESET, weekPct: 27 })),
   });
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).not.toBe("credits");
+  expect(h.creates).toHaveLength(1); // drained: a pre-existing total doesn't pause it
+});
+
+// Control: NEW paid spend accruing after the baseline (window re-exhausted this week) → DOES hold.
+test("credits rising above the weekly baseline → credits hold (paused)", async () => {
+  let spent = 25; // anchored on first observation
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // first observation → anchor := 25
+  spent = 30; // +5 of genuinely new paid spend this weekly cycle
   await h.drain.pump(REPO);
   const last = h.statuses.at(-1)!;
   expect(last.reason).toBe("credits");
   expect(last.paused).toBe(true);
   expect(h.creates).toHaveLength(0);
+});
+
+// The pause tracks the SUBSCRIPTION cadence: a credit hold clears when the weekly window resets
+// (re-anchoring to the current total), not stuck until the monthly credit reset.
+test("weekly window reset re-anchors credits → a credit pause clears at the reset", async () => {
+  let spent = 10;
+  let weekResetAt = WEEK_RESET;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 10 @ WEEK_RESET
+  spent = 15; // +5 new paid spend this week
+  await h.drain.pump(REPO);
+  expect(h.statuses.at(-1)!.reason).toBe("credits"); // paused: 5 > ceiling 0
+
+  weekResetAt = WEEK_RESET + WEEK_MS; // weekly window rolled over → fresh headroom
+  await h.drain.pump(REPO);
+  expect(h.statuses.at(-1)!.reason).not.toBe("credits"); // re-anchored to 15 → 0 → un-paused
+});
+
+// The monthly credit budget resets independently of the weekly window: the scraped total DROPS
+// (e.g. 46.47 → 0). The anchor must follow that drop, else fresh new-month spend is masked until
+// it re-climbs past last month's anchor and the default-0 ceiling fails to pause on real spend.
+test("monthly credit reset (total drops) re-anchors → fresh new-month spend still pauses", async () => {
+  let spent = 46.47;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 46.47 (end of month)
+  spent = 0; // monthly budget rolled over → cumulative total drops
+  await h.drain.snapshot(); // re-anchor := 0
+  spent = 5; // €5 of genuinely new spend in the fresh month
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("credits"); // 5 > ceiling 0 → paused, NOT masked by the old anchor
+  expect(h.creates).toHaveLength(0);
+});
+
+// A monthly reset observed LATE (stale across the boundary, or spend accrued before the first
+// post-reset scrape) shows a nonzero new-cycle total on first re-observation. Anchoring to that
+// value would mask it; the fresh cycle starts at 0, so the full observed total must count.
+test("monthly reset observed late (first post-reset total nonzero) → still pauses on that spend", async () => {
+  let spent = 46.47;
+  const h = makeHarness({
+    maxAuto: 2,
+    issues: [issue(1)],
+    limitsImpl: usageWithCredit(() => ({ spent, weekResetAt: WEEK_RESET, weekPct: 50 })),
+  });
+  await h.drain.snapshot(); // anchor := 46.47 (old month)
+  spent = 5; // monthly budget rolled over, but €5 already accrued before we first re-observed
+  await h.drain.pump(REPO);
+  const last = h.statuses.at(-1)!;
+  expect(last.reason).toBe("credits"); // counts €5 from 0 — not masked by re-anchoring to it
+  expect(h.creates).toHaveLength(0);
+});
+
+// A monthly reset with NO spend drop: the new cycle already reached/exceeded last month's total
+// before the first fresh scrape (Shepherd stale/down across the boundary). A spend-drop heuristic
+// can't see it, so we detect the rollover from the monthly reset EPOCH advancing and count from 0.
+// With a ceiling between the stale delta and the real new-cycle spend, the old code wouldn't pause.
+test("monthly reset with no spend drop (epoch advanced) → counts new cycle from 0, pauses", async () => {
+  const savedCeiling = config.extraCreditsDrainCeiling;
+  config.extraCreditsDrainCeiling = 10; // between the stale delta (50−46.47=3.53) and the real 50
+  try {
+    let spent = 46.47;
+    let monthResetAt = MONTH_RESET;
+    const h = makeHarness({
+      maxAuto: 2,
+      issues: [issue(1)],
+      limitsImpl: usageWithCredit(() => ({
+        spent,
+        weekResetAt: WEEK_RESET,
+        weekPct: 50,
+        monthResetAt,
+      })),
+    });
+    await h.drain.snapshot(); // anchor := { spent 46.47, monthResetAt MONTH_RESET }
+    spent = 50; // new month already spent €50 (> old baseline) before our first fresh scrape
+    monthResetAt = MONTH_RESET + 30 * 24 * 60 * 60 * 1000; // monthly reset epoch advanced
+    await h.drain.pump(REPO);
+    const last = h.statuses.at(-1)!;
+    // Old (drop-only) code: 50 ≥ 46.47 → no drop → delta 3.53 < ceiling 10 → no pause (the bug).
+    // New code: epoch advanced → count 50 from 0 → 50 > 10 → pause.
+    expect(last.reason).toBe("credits");
+    expect(h.creates).toHaveLength(0);
+  } finally {
+    config.extraCreditsDrainCeiling = savedCeiling;
+  }
 });
 
 test("merged → archive → advance chain: onGit(merged) closes issue, archives, drops, emits, and onArchived spawns #2", async () => {

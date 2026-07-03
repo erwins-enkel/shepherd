@@ -137,6 +137,19 @@ export function shouldFollowFilterToRepo(
   return repoFilter.size > 0 && !repoFilter.has(repoPath);
 }
 
+/** Follow the repo filter onto `repoPath` for a session jump: when an active filter would
+ *  otherwise hide a session in that repo, collapse the filter to just that repo (mutating
+ *  `repoFilter` IN PLACE — the live SvelteSet is reactive) and return true; otherwise a
+ *  no-op returning false (empty filter = "all repos", or the repo is already covered).
+ *  Shared decision behind both the new-task follow (selectNewSession) and the command-bar
+ *  session select, so the two can't drift. Callers arm their follow latches on a true return. */
+export function followRepoFilter(repoFilter: Set<string>, repoPath: string): boolean {
+  if (!shouldFollowFilterToRepo(repoFilter, repoPath)) return false;
+  for (const p of [...repoFilter]) if (p !== repoPath) repoFilter.delete(p);
+  repoFilter.add(repoPath);
+  return true;
+}
+
 /**
  * The session the terminal should re-target onto after the user picks a repo chip.
  * Narrowing the herd to a repo would otherwise leave the terminal on whatever session

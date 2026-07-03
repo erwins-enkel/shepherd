@@ -6,6 +6,9 @@ import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  // BCP-47 document language. Defaults to the English marketing site; the
+  // German legal notice (/impressum) overrides it with "de".
+  lang?: string;
 }
 
 const SITE_URL = "https://shepherd.run/";
@@ -16,11 +19,12 @@ const OG_IMAGE_ALT =
 const {
   title = "Shepherd — run a herd of real coding agents",
   description = "Self-hosted mission control for interactive AI coding CLIs — spawn, watch, and steer a herd of real claude sessions (Codex CLI in alpha) from your browser or phone, with best-practice guardrails built in.",
+  lang = "en",
 } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

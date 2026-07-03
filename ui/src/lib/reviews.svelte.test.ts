@@ -587,3 +587,39 @@ test("confirmAutomation reverts confirmed and rethrows on PUT failure", async ()
   await expect(repoConfig.confirmAutomation("/repo")).rejects.toThrow("network error");
   expect(repoConfig.isAutomationConfirmed("/repo")).toBe(false); // reverted
 });
+
+test("applyHandsOffDefaults PUTs the hands-off patch and never touches plan gate", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(
+    rc({
+      autopilotEnabled: true,
+      autoMergeEnabled: true,
+      criticEnabled: true,
+      autoAddressEnabled: true,
+    }),
+  );
+  await repoConfig.applyHandsOffDefaults("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", {
+    autopilotEnabled: true,
+    autoMergeEnabled: true,
+    draftMode: false,
+    criticEnabled: true,
+    autoAddressEnabled: true,
+  });
+  // Plan gate is recommended ON (seeded default) and hands-off-safe — Apply must never flip it.
+  const patch = vi.mocked(putRepoConfig).mock.calls[0][1];
+  expect(patch).not.toHaveProperty("planGateEnabled");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(true);
+  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(true);
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false);
+});
+
+test("applyHandsOffDefaults reverts every optimistic field on a failed PUT", async () => {
+  repoConfig.autopilot = { "/repo": false };
+  repoConfig.autoMerge = { "/repo": false };
+  repoConfig.autoAddress = { "/repo": false };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.applyHandsOffDefaults("/repo");
+  expect(repoConfig.isAutopilotEnabled("/repo")).toBe(false);
+  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false);
+  expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(false);
+});

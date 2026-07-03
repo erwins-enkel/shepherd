@@ -4,6 +4,8 @@
   import { updateEpic, approveEpicNext, importEpic } from "$lib/api";
   import { chipFor, progress, stateLabel } from "./epic-panel";
   import { toasts } from "$lib/toasts.svelte";
+  import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   let { repoPath, parent, epic }: { repoPath: string; parent: number; epic: Epic } = $props();
 
@@ -12,6 +14,8 @@
 </script>
 
 <div class="epic" role="region" aria-label={epic.parentTitle}>
+  <EpicHandsOffIntro {repoPath} {parent} {epic} />
+
   <div class="epic-head">
     <span class="badge">{m.epic_progress({ merged: p.merged, total: p.total })}</span>
     {#if epic.source === "markdown"}
@@ -73,6 +77,7 @@
       <button
         class="gbtn"
         type="button"
+        use:coachTarget={"epic-hands-off-intro"}
         onclick={() =>
           updateEpic(repoPath, parent, { status: "running" }).catch(() =>
             toasts.info(m.epic_update_failed(), {

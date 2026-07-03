@@ -12,6 +12,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "install shepherd and sign in. install curl|bash trust note supported platforms installer environment knobs finish setup from-clone / development path requirements next steps",
   },
   {
+    title: "Hands-off epics",
+    path: "/hands-off-epics/",
+    keywords:
+      'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic',
+  },
+  {
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:

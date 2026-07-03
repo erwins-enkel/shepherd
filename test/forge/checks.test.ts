@@ -237,3 +237,227 @@ test("runningCheckNames: includes a waiting StatusContext (pending)", () => {
     runningCheckNames([{ __typename: "StatusContext", context: "ci/circleci", state: "pending" }]),
   ).toEqual(["ci/circleci"]);
 });
+
+// --- Dedup to the latest run per check identity (#1387) ---
+
+test("rollupChecks: stale FAILURE superseded by a newer SUCCESS of the same check → success (#1384 shape)", () => {
+  expect(
+    rollupChecks([
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-07-03T16:29:16Z",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "verify",
+        workflowName: "CI",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-07-03T16:29:15Z",
+        completedAt: "2026-07-03T16:33:39Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-07-03T16:30:05Z",
+        completedAt: "2026-07-03T16:30:24Z",
+      },
+    ]),
+  ).toBe("success");
+});
+
+test("rollupChecks: a genuine later FAILURE still wins (recency, not success-bias)", () => {
+  expect(
+    rollupChecks([
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-07-03T16:29:16Z",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-07-03T16:30:05Z",
+        completedAt: "2026-07-03T16:30:24Z",
+      },
+    ]),
+  ).toBe("failure");
+});
+
+test("jobsFromRollup: same-name re-run collapses to one job (the latest)", () => {
+  expect(
+    jobsFromRollup([
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-07-03T16:29:16Z",
+        completedAt: "2026-07-03T16:29:31Z",
+        detailsUrl: "https://gh/old",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-07-03T16:30:05Z",
+        completedAt: "2026-07-03T16:30:24Z",
+        detailsUrl: "https://gh/new",
+      },
+    ]),
+  ).toEqual([{ name: "PR title / pr title", state: "success", url: "https://gh/new" }]);
+});
+
+test("jobsFromRollup: same job name under different workflows is NOT collapsed", () => {
+  expect(
+    jobsFromRollup([
+      {
+        __typename: "CheckRun",
+        name: "test",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "failure",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "test",
+        workflowName: "Nightly",
+        status: "completed",
+        conclusion: "success",
+        completedAt: "2026-07-03T16:30:24Z",
+      },
+    ]),
+  ).toEqual([
+    { name: "CI / test", state: "failure", url: undefined },
+    { name: "Nightly / test", state: "success", url: undefined },
+  ]);
+});
+
+test("rollupChecks: same job name under different workflows still worst-ofs to failure", () => {
+  expect(
+    rollupChecks([
+      {
+        __typename: "CheckRun",
+        name: "test",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "failure",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "test",
+        workflowName: "Nightly",
+        status: "completed",
+        conclusion: "success",
+        completedAt: "2026-07-03T16:30:24Z",
+      },
+    ]),
+  ).toBe("failure");
+});
+
+test("rollupChecks: StatusContext dedupes by context via createdAt", () => {
+  expect(
+    rollupChecks([
+      {
+        __typename: "StatusContext",
+        context: "ci/circleci",
+        state: "FAILURE",
+        createdAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "StatusContext",
+        context: "ci/circleci",
+        state: "SUCCESS",
+        createdAt: "2026-07-03T16:30:24Z",
+      },
+    ]),
+  ).toBe("success");
+});
+
+test("rollupChecks: duplicate entries without timestamps → later array entry wins", () => {
+  expect(
+    rollupChecks([
+      { __typename: "CheckRun", name: "lint", status: "completed", conclusion: "failure" },
+      { __typename: "CheckRun", name: "lint", status: "completed", conclusion: "success" },
+    ]),
+  ).toBe("success");
+});
+
+test("rollupChecks: in-flight re-run (completedAt null) supersedes the older completed run → pending", () => {
+  expect(
+    rollupChecks([
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-07-03T16:29:16Z",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "IN_PROGRESS",
+        conclusion: null,
+        startedAt: "2026-07-03T16:30:05Z",
+        completedAt: null,
+      },
+    ]),
+  ).toBe("pending");
+});
+
+test("runningCheckNames: a re-run pending check is listed once", () => {
+  expect(
+    runningCheckNames([
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        startedAt: "2026-07-03T16:29:16Z",
+        completedAt: "2026-07-03T16:29:31Z",
+      },
+      {
+        __typename: "CheckRun",
+        name: "pr title",
+        workflowName: "PR title",
+        status: "IN_PROGRESS",
+        conclusion: null,
+        startedAt: "2026-07-03T16:30:05Z",
+        completedAt: null,
+      },
+    ]),
+  ).toEqual(["PR title / pr title"]);
+});
+
+test("rollupChecks: unlabeled entries are never collapsed into each other", () => {
+  expect(
+    rollupChecks([
+      { __typename: "CheckRun", status: "completed", conclusion: "failure" },
+      { __typename: "CheckRun", status: "completed", conclusion: "success" },
+    ]),
+  ).toBe("failure");
+});

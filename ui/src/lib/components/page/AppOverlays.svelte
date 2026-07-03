@@ -29,6 +29,7 @@
     BacklogPayload,
     DeployState,
     Issue,
+    PluginUpdatesStatus,
     PullRequest,
     SandboxProfile,
     Session,
@@ -94,6 +95,7 @@
     oncodexupdateclose,
     showPluginUpdates,
     onpluginupdatesclose,
+    onpluginupdated,
     showOnboarding,
     onboardingBlocking = false,
     diagnosticsLoadFailed,
@@ -207,6 +209,9 @@
     oncodexupdateclose: () => void;
     showPluginUpdates: boolean;
     onpluginupdatesclose: () => void;
+    /** After an in-place plugin update: push the recomputed snapshot so the badge +
+     *  loaded-plugins list refresh. */
+    onpluginupdated: (status: PluginUpdatesStatus) => void;
     showOnboarding: boolean;
     /** True on a genuine server-reported first run (`settings.firstRunPending`) — forces the
      *  Onboarding surface into its required-pick, non-dismissible mode. */
@@ -443,7 +448,11 @@
 {/if}
 
 {#if showPluginUpdates}
-  <PluginUpdatesModal status={store.pluginUpdates} onclose={onpluginupdatesclose} />
+  <PluginUpdatesModal
+    status={store.pluginUpdates}
+    onclose={onpluginupdatesclose}
+    onapplied={onpluginupdated}
+  />
 {/if}
 
 {#if showOnboarding}

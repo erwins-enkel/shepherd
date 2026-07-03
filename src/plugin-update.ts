@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { cp, lstat, mkdtemp, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -18,6 +18,14 @@ type Candidate =
   | { kind: "manifest"; manifest: RawManifest }
   | { kind: "no-source"; source: "git" | "none"; detail?: string }
   | { kind: "error"; detail: string };
+
+/** Result of {@link PluginUpdateService.apply} — the on-disk half of picking up an
+ *  update. `folder` lets the caller re-activate the (now newer) plugin in-process;
+ *  `updatedTo` is the version now on disk. `error` is a stable code the UI maps to a
+ *  message (`not_installed`, `already_up_to_date`, `incompatible`, `no_source`,
+ *  `symlinked_source`, `check_failed`, `update_failed`). */
+export type PluginApplyResult =
+  { ok: true; folder: string; updatedTo: string } | { ok: false; error: string; detail?: string };
 
 /** Extract a bare `major.minor.patch` from an arbitrary version/tag string
  *  (e.g. `v1.3.0`, `refs/tags/1.3.0`). Null when none is present. */
@@ -63,10 +71,11 @@ export interface PluginUpdateDeps {
 }
 
 /**
- * Detects whether installed Shepherd plugins have a newer version available.
- * Badge-first and READ-ONLY, modelled on {@link CodexUpdateService}: it never
- * mutates a plugin folder and exposes no `apply()` — surfacing an update is all
- * it does; picking it up stays the operator's manual (or a future opt-in) step.
+ * Detects whether installed Shepherd plugins have a newer version available and,
+ * on request, applies it ON DISK. Detection is badge-first and READ-ONLY, modelled
+ * on {@link CodexUpdateService}; {@link apply} is the one mutating path — a
+ * deliberately narrow, re-verified fetch-and-swap (never a background auto-update),
+ * so surfacing a badge still never touches a folder on its own.
  *
  * A plugin is only checkable when a source can be resolved. Either way the check
  * reads the CANDIDATE `plugin.json` (version + apiVersion), so both paths run the
@@ -109,26 +118,197 @@ export class PluginUpdateService {
     return this.last;
   }
 
+  /** Installed plugin folder basenames (real dirs + symlinks-to-dirs), sorted —
+   *  the loader's exact directory handling. Shared by {@link check} and {@link apply};
+   *  throws (missing/unreadable dir) so callers can map it to the zero-plugin case. */
+  private async listFolders(): Promise<string[]> {
+    const entries = await readdir(this.pluginsDir, { withFileTypes: true });
+    const names: string[] = [];
+    for (const e of entries) {
+      if (e.isDirectory()) names.push(e.name);
+      else if (e.isSymbolicLink()) {
+        try {
+          if ((await stat(join(this.pluginsDir, e.name))).isDirectory()) names.push(e.name);
+        } catch {
+          /* dangling symlink — skip */
+        }
+      }
+    }
+    names.sort();
+    return names;
+  }
+
+  /**
+   * Apply an available update to the plugin with the given `id`, ON DISK. The one
+   * mutating operation on this service, and deliberately narrow:
+   *  1. Locate the installed folder for `id` (null → `not_installed`).
+   *  2. Refuse a SYMLINKED install (`symlinked_source`): the dev "run from a checkout"
+   *     workflow points at a source tree outside the plugins dir that is the operator's
+   *     to update — never clobber it from the UI.
+   *  3. RE-VERIFY freshly via {@link checkOne} that the plugin is genuinely
+   *     `update-available` right now — never trust a stale snapshot. Any other state
+   *     maps to a stable error (`already_up_to_date`/`incompatible`/`no_source`/`check_failed`)
+   *     so a race (someone else updated, or the remote moved) can't force a bad swap.
+   *  4. Bring the folder to the candidate version by source: a `git` checkout with an
+   *     upstream fast-forwards in place (untracked `config.json` preserved); a declared
+   *     `repository` install clones the latest tag into a scratch dir beside it, carries
+   *     `config.json` over, and swaps it in behind a backup so a mid-swap failure restores
+   *     the original folder rather than leaving it half-written.
+   * On success the snapshot is recomputed so the badge/list reflect the new on-disk
+   * version, and `folder` is returned so the caller can re-activate it in-process.
+   * Loading the NEW code into a plugin that is already running still needs a restart —
+   * that's the caller's concern; this only owns the bytes on disk.
+   */
+  /** Find the installed folder whose `plugin.json` declares `id`. Null when the plugins
+   *  dir is unreadable or no folder matches. Factored out of {@link apply} so its control
+   *  flow stays flat. */
+  private async locate(
+    id: string,
+  ): Promise<{ folder: string; dir: string; manifest: RawManifest } | null> {
+    let folders: string[];
+    try {
+      folders = await this.listFolders();
+    } catch {
+      return null;
+    }
+    for (const folder of folders) {
+      const dir = join(this.pluginsDir, folder);
+      try {
+        const parsed = JSON.parse(await readFile(join(dir, "plugin.json"), "utf8"));
+        if (isRawManifest(parsed) && parsed.id === id) return { folder, dir, manifest: parsed };
+      } catch {
+        /* not a plugin folder — skip */
+      }
+    }
+    return null;
+  }
+
+  /** Stable apply error code for a check state that is NOT `update-available`. */
+  private nonActionableCode(state: PluginUpdateInfo["state"]): string {
+    switch (state) {
+      case "up-to-date":
+        return "already_up_to_date";
+      case "incompatible":
+        return "incompatible";
+      case "no-source":
+        return "no_source";
+      default:
+        return "check_failed";
+    }
+  }
+
+  async apply(id: string, now: number): Promise<PluginApplyResult> {
+    // 1. locate the installed folder whose manifest declares this id
+    const match = await this.locate(id);
+    if (!match) return { ok: false, error: "not_installed" };
+    const { folder, dir, manifest } = match;
+
+    // 2. never mutate a symlinked install — its source lives outside the plugins dir
+    try {
+      if ((await lstat(dir)).isSymbolicLink()) return { ok: false, error: "symlinked_source" };
+    } catch {
+      return { ok: false, error: "not_installed" };
+    }
+
+    // 3. re-verify the update is real and installable RIGHT NOW
+    const info = await this.checkOne(dir);
+    if (!info) return { ok: false, error: "not_installed" };
+    if (info.state !== "update-available") {
+      return {
+        ok: false,
+        error: this.nonActionableCode(info.state),
+        ...(info.detail ? { detail: info.detail } : {}),
+      };
+    }
+    const updatedTo = info.latestVersion ?? manifest.version;
+
+    // 4. bring the folder to the candidate version
+    try {
+      if (manifest.repository) {
+        await this.applyFromRepository(dir, folder, manifest.repository, id, now);
+      } else {
+        await this.applyFromCheckout(dir);
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: "update_failed",
+        detail: e instanceof Error ? e.message : "could not apply the update",
+      };
+    }
+
+    // 5. refresh the snapshot so current()/the badge reflect the new on-disk version
+    await this.check(now).catch(() => {});
+    return { ok: true, folder, updatedTo };
+  }
+
+  /** Fast-forward a git checkout to its upstream tip, preserving untracked files
+   *  (notably `config.json`). Throws on a non-fast-forward or any git failure — the
+   *  caller maps it to `update_failed`, and the manual path still works. */
+  private async applyFromCheckout(dir: string): Promise<void> {
+    await this.git(["fetch", "--quiet"], dir);
+    await this.git(["merge", "--ff-only", "@{upstream}"], dir);
+  }
+
+  /** Materialize the latest tag of `repository` into a scratch dir beside the install,
+   *  carry `config.json` over, then swap it into place behind a backup so a mid-swap
+   *  failure restores the original. Validates the cloned tree is the SAME plugin, on a
+   *  supported apiVersion, before touching the live folder. */
+  private async applyFromRepository(
+    dir: string,
+    folder: string,
+    repository: string,
+    id: string,
+    now: number,
+  ): Promise<void> {
+    const tag = await this.latestRemoteTag(repository);
+    if (!tag) throw new Error("no version tags on the declared repository");
+    const tagName = tag.ref.replace(/^refs\/tags\//, "");
+    // Scratch + backup are hidden siblings in the plugins dir → same filesystem, so the
+    // swap is a rename (never a cross-device copy the loader could observe half-done).
+    const scratch = join(this.pluginsDir, `.${folder}.update-${now}`);
+    const backup = join(this.pluginsDir, `.${folder}.bak-${now}`);
+    await rm(scratch, { recursive: true, force: true });
+    try {
+      await this.git(["clone", "--depth", "1", "--branch", tagName, "--", repository, scratch]);
+      const parsed = JSON.parse(await readFile(join(scratch, "plugin.json"), "utf8"));
+      if (!isRawManifest(parsed)) throw new Error("cloned plugin.json is invalid");
+      if (parsed.id !== id)
+        throw new Error(`cloned plugin id "${parsed.id}" does not match "${id}"`);
+      if (parsed.apiVersion !== PLUGIN_API_VERSION) {
+        throw new Error(
+          `cloned apiVersion ${parsed.apiVersion} != supported ${PLUGIN_API_VERSION}`,
+        );
+      }
+      // Keep it a clean file copy (the primary `cp -r` install has no `.git`) and carry
+      // the operator's local config.json across the swap.
+      await rm(join(scratch, ".git"), { recursive: true, force: true });
+      await cp(join(dir, "config.json"), join(scratch, "config.json")).catch(() => {
+        /* no local config.json to preserve */
+      });
+      // Swap behind a backup: move the live folder aside, move the new one in, and on
+      // failure put the original back so the folder is never left missing/partial.
+      await rm(backup, { recursive: true, force: true });
+      await rename(dir, backup);
+      try {
+        await rename(scratch, dir);
+      } catch (e) {
+        await rename(backup, dir).catch(() => {});
+        throw e;
+      }
+      await rm(backup, { recursive: true, force: true }).catch(() => {});
+    } finally {
+      await rm(scratch, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   /** Scan the plugins dir and recompute each installed plugin's update state.
    *  Fail-safe: a missing dir yields an empty list; a per-plugin failure is
    *  isolated to that plugin's `error` state. */
   async check(now: number): Promise<PluginUpdatesStatus> {
     let names: string[];
     try {
-      const entries = await readdir(this.pluginsDir, { withFileTypes: true });
-      names = [];
-      for (const e of entries) {
-        // Mirror the loader: real dirs and symlinks-to-dirs both count as installs.
-        if (e.isDirectory()) names.push(e.name);
-        else if (e.isSymbolicLink()) {
-          try {
-            if ((await stat(join(this.pluginsDir, e.name))).isDirectory()) names.push(e.name);
-          } catch {
-            /* dangling symlink — skip */
-          }
-        }
-      }
-      names.sort();
+      names = await this.listFolders();
     } catch {
       // missing/unreadable dir → the zero-plugin case; not an error.
       this.last = { plugins: [], updateAvailable: false, checkedAt: now };

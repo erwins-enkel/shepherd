@@ -1,5 +1,6 @@
 import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
+import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import { PREVIEW_SETUP_STEER, RestoreError } from "./service";
 import { WorktreeRestoreError } from "./worktree";
@@ -251,8 +252,9 @@ export interface AppDeps {
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
   codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
-  /** installed-plugin update tracker (informational, no apply); absent when unwired. */
-  pluginUpdates?: Pick<PluginUpdateService, "current">;
+  /** installed-plugin update tracker: `current()` for the badge/status, `apply()` to
+   *  fetch-and-swap a plugin's new version on disk (issue #1124); absent when unwired. */
+  pluginUpdates?: Pick<PluginUpdateService, "current" | "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -3558,13 +3560,76 @@ function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
-// ── plugin update: status only (informational, no apply) ───────────────
-function handlePluginUpdate({ req, parts, deps }: Ctx): Response | null {
-  if (!(parts[0] === "api" && parts[1] === "plugin-update" && !parts[2])) return null;
-  if (req.method !== "GET") return null;
-  return json(
-    deps.pluginUpdates?.current() ?? { plugins: [], updateAvailable: false, checkedAt: Date.now() },
-  );
+// ── plugin update: status (informational) + in-place apply ─────────────
+//  - GET  /api/plugin-update        → PluginUpdatesStatus (badge/list)
+//  - POST /api/plugin-update/apply  `{ id }` → fetch-and-swap the new version on disk,
+//    then bring it live in-process when possible (else signal a restart is owed).
+async function handlePluginUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "plugin-update") return null;
+  if (!parts[2] && req.method === "GET") {
+    return json(
+      deps.pluginUpdates?.current() ?? {
+        plugins: [],
+        updateAvailable: false,
+        checkedAt: Date.now(),
+      },
+    );
+  }
+  if (parts[2] === "apply" && !parts[3] && req.method === "POST") {
+    return pluginUpdateApply(req, deps);
+  }
+  return null;
+}
+
+/** HTTP status for a failed plugin-update apply: 404 (no such plugin), 409 (nothing
+ *  newer to apply), else 400 (a bad/failed apply the caller can act on). */
+function pluginApplyStatus(error: string): number {
+  if (error === "not_installed") return 404;
+  if (error === "already_up_to_date") return 409;
+  return 400;
+}
+
+/** After the new version is on disk, bring it into the live registry. A plugin that is
+ *  ALREADY running can't be hot-swapped (its old module is cached) → a restart is owed;
+ *  a not-yet-loaded one is activated now (and returned when that succeeds). */
+async function activateAfterApply(
+  registry: PluginRegistry | undefined,
+  id: string,
+  folder: string,
+): Promise<{ restartRequired: boolean; plugin?: PluginInfo }> {
+  const loaded = registry?.list().some((p) => p.id === id) ?? false;
+  if (loaded || !registry) return { restartRequired: loaded };
+  const act = await registry.activateOne(folder);
+  return act.ok ? { restartRequired: false, plugin: act.plugin } : { restartRequired: true };
+}
+
+/** POST /api/plugin-update/apply — apply an available update on disk, then re-activate
+ *  the plugin in-process (or signal a restart when it was already running). */
+async function pluginUpdateApply(req: Request, deps: AppDeps): Promise<Response> {
+  const svc = deps.pluginUpdates;
+  if (!svc?.apply) return json({ error: "not_available" }, 503);
+  let body: { id?: unknown };
+  try {
+    body = (await req.json()) as { id?: unknown };
+  } catch {
+    return json({ error: "invalid_body" }, 400);
+  }
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  if (!id) return json({ error: "id_required" }, 400);
+
+  const res = await svc.apply(id, Date.now());
+  if (!res.ok) {
+    const body = { error: res.error, ...(res.detail ? { detail: res.detail } : {}) };
+    return json(body, pluginApplyStatus(res.error));
+  }
+  const { restartRequired, plugin } = await activateAfterApply(deps.pluginRegistry, id, res.folder);
+  return json({
+    ok: true,
+    restartRequired,
+    updatedTo: res.updatedTo,
+    plugin,
+    status: svc.current(),
+  });
 }
 
 // Fallback snapshot when the diagnostics service isn't wired (e.g. in tests):

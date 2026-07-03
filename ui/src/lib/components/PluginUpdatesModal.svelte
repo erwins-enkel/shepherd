@@ -2,19 +2,26 @@
   import type { PluginUpdatesStatus, PluginUpdateInfo } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import { applyPluginUpdate } from "$lib/api";
 
   let {
     status,
     onclose,
+    onapplied,
   }: {
     // Nullable so the mount site (AppOverlays) needs no `&& store.pluginUpdates`
     // guard; the modal renders nothing until a snapshot has landed.
     status: PluginUpdatesStatus | null;
     onclose?: () => void;
+    /** Push the recomputed snapshot up after an apply so the badge + loaded-plugins
+     *  list refresh (the modal itself only owns per-row apply UI). */
+    onapplied?: (status: PluginUpdatesStatus) => void;
   } = $props();
 
-  // Informational only — this modal never applies an update. Sort so the plugins
-  // that need attention (update-available, then incompatible) surface first.
+  const RESTART_CMD = "systemctl --user restart shepherd";
+
+  // Sort so the plugins that need attention (update-available, then incompatible)
+  // surface first.
   const ORDER: Record<PluginUpdateInfo["state"], number> = {
     "update-available": 0,
     incompatible: 1,
@@ -25,6 +32,18 @@
   const plugins = $derived(
     [...(status?.plugins ?? [])].sort((a, b) => ORDER[a.state] - ORDER[b.state]),
   );
+  const updatable = $derived(plugins.filter((p) => p.state === "update-available"));
+
+  // Per-id apply state. `applying` disables buttons mid-flight; `outcome` persists a
+  // success/restart/error note that survives the list refresh — a just-updated plugin
+  // drops to `up-to-date` and would otherwise lose its "restart to finish" hint.
+  let applying = $state<Record<string, boolean>>({});
+  type Outcome = { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string };
+  let outcome = $state<Record<string, Outcome>>({});
+  let copied = $state(false);
+
+  const anyApplying = $derived(Object.values(applying).some(Boolean));
+  const anyRestart = $derived(Object.values(outcome).some((o) => o.kind === "restart"));
 
   function stateLabel(p: PluginUpdateInfo): string {
     switch (p.state) {
@@ -38,6 +57,61 @@
         return m.pluginupdate_state_error();
       default:
         return m.pluginupdate_state_uptodate();
+    }
+  }
+
+  /** Map a stable server error CODE to a message (never render the raw code). */
+  function applyErr(code: string): string {
+    switch (code) {
+      case "symlinked_source":
+        return m.pluginupdate_apply_err_symlinked();
+      case "incompatible":
+        return m.pluginupdate_apply_err_incompatible();
+      case "no_source":
+        return m.pluginupdate_apply_err_nosource();
+      default:
+        return m.pluginupdate_apply_err_generic();
+    }
+  }
+
+  async function applyOne(p: PluginUpdateInfo) {
+    if (applying[p.id]) return;
+    applying = { ...applying, [p.id]: true };
+    // Drop any prior outcome for this id so a retry starts clean.
+    const next = { ...outcome };
+    delete next[p.id];
+    outcome = next;
+    try {
+      const res = await applyPluginUpdate(p.id);
+      if (res.ok) {
+        outcome = {
+          ...outcome,
+          [p.id]: {
+            kind: res.result.restartRequired ? "restart" : "live",
+            version: res.result.updatedTo,
+          },
+        };
+        onapplied?.(res.result.status);
+      } else {
+        outcome = { ...outcome, [p.id]: { kind: "error", msg: applyErr(res.error) } };
+      }
+    } finally {
+      applying = { ...applying, [p.id]: false };
+    }
+  }
+
+  async function applyAll() {
+    // Snapshot at click — a plugin updated this round simply isn't in the list next render.
+    for (const p of [...updatable]) await applyOne(p);
+  }
+
+  async function copyRestart() {
+    try {
+      await navigator.clipboard.writeText(RESTART_CMD);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      /* clipboard blocked — the command is visible to copy manually */
     }
   }
 </script>
@@ -65,18 +139,63 @@
 
     <div class="intro">{m.pluginupdate_intro()}</div>
 
+    {#if anyRestart}
+      <div class="restart" role="status">
+        <span class="restart-text">{m.plugins_restart_banner()}</span>
+        <code class="cmd">{RESTART_CMD}</code>
+        <button type="button" class="gbtn copy" onclick={copyRestart}>
+          {copied ? m.plugins_copied() : m.plugins_copy()}
+        </button>
+      </div>
+    {/if}
+
     {#if plugins.length === 0}
       <div class="empty">{m.pluginupdate_empty()}</div>
     {:else}
+      {#if updatable.length > 1}
+        <div class="pactions">
+          <button type="button" class="gbtn upd" disabled={anyApplying} onclick={applyAll}>
+            {m.pluginupdate_apply_all()}
+          </button>
+        </div>
+      {/if}
       <ul class="plist">
         {#each plugins as p (p.id)}
           <li>
             <div class="row-head">
               <span class="pname">{p.name}</span>
-              <span class="pver">v{p.currentVersion}</span>
+              {#if p.state === "update-available"}
+                <span class="pver"
+                  >v{p.currentVersion} <span class="arrow" aria-hidden="true">→</span>
+                  v{p.latestVersion}</span
+                >
+              {:else}
+                <span class="pver">v{p.currentVersion}</span>
+              {/if}
               <span class="badge {p.state}">{stateLabel(p)}</span>
+              {#if p.state === "update-available"}
+                <button
+                  type="button"
+                  class="gbtn upd"
+                  disabled={applying[p.id]}
+                  onclick={() => applyOne(p)}
+                >
+                  {applying[p.id] ? m.pluginupdate_applying() : m.pluginupdate_apply()}
+                </button>
+              {/if}
             </div>
-            {#if p.detail}
+            {#if outcome[p.id]}
+              {@const o = outcome[p.id]}
+              {#if o.kind === "error"}
+                <div class="outcome error" role="alert">{o.msg}</div>
+              {:else if o.kind === "restart"}
+                <div class="outcome">{m.pluginupdate_applied_restart({ version: o.version })}</div>
+              {:else}
+                <div class="outcome live">
+                  {m.pluginupdate_applied_live({ version: o.version })}
+                </div>
+              {/if}
+            {:else if p.detail}
               <!-- server-authored diagnostic (verbatim, like a plugin's lastError) -->
               <div class="pdetail">{p.detail}</div>
             {/if}
@@ -165,6 +284,10 @@
     color: var(--color-muted);
     font-size: var(--fs-base);
   }
+  .pactions {
+    display: flex;
+    justify-content: flex-end;
+  }
   .plist {
     list-style: none;
     margin: 0;
@@ -194,6 +317,9 @@
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
   }
+  .arrow {
+    color: var(--color-amber);
+  }
   .badge {
     margin-left: auto;
     font-size: var(--fs-meta);
@@ -216,6 +342,49 @@
     color: var(--color-green, var(--color-blue));
     border-color: var(--color-green, var(--color-blue));
   }
+  /* Base gear button recipe (from /design-system). */
+  .gbtn {
+    border: 1px solid var(--color-line-bright);
+    background: transparent;
+    color: var(--color-ink);
+    padding: 5px 10px;
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    white-space: nowrap;
+    flex: none;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Update is the row's primary action — amber accent. */
+  .gbtn.upd {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .outcome {
+    margin-top: 6px;
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    color: var(--color-amber);
+  }
+  .outcome.live {
+    color: var(--color-green, var(--color-blue));
+  }
+  .outcome.error {
+    color: var(--color-red);
+    word-break: break-word;
+  }
   .pdetail {
     margin-top: 6px;
     font-size: var(--fs-meta);
@@ -229,6 +398,31 @@
     color: var(--color-muted);
     border-top: 1px solid var(--color-line);
     padding-top: 10px;
+  }
+  /* Restart-owed banner (mirrors the Settings → Plugins manager). */
+  .restart {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    border: 1px solid var(--color-amber);
+    background: var(--wash-warn, var(--color-inset));
+    padding: 8px 10px;
+  }
+  .restart-text {
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+  }
+  .cmd {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--fs-micro);
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    padding: 3px 6px;
+    color: var(--color-ink);
+  }
+  .restart .copy {
+    margin-left: auto;
   }
   .actions {
     display: flex;
@@ -269,6 +463,9 @@
       min-width: 44px;
       min-height: 44px;
       margin: -14px -14px -10px 0;
+    }
+    .gbtn {
+      min-height: 36px;
     }
     .later {
       min-height: 44px;

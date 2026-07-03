@@ -1209,6 +1209,37 @@ export async function getPluginUpdates(): Promise<PluginUpdatesStatus> {
   return r.json();
 }
 
+/** Result of a successful in-place plugin update (mirror of the server's apply response).
+ *  `restartRequired` is true when the plugin was already running and its new code can only
+ *  load on the next restart; `plugin` is the freshly-activated PluginInfo otherwise. `status`
+ *  is the recomputed update snapshot so the badge/list refresh without a second round-trip. */
+export interface PluginUpdateApplied {
+  ok: true;
+  restartRequired: boolean;
+  updatedTo: string;
+  plugin?: PluginInfo;
+  status: PluginUpdatesStatus;
+}
+
+/** Apply an available update to a plugin in place: the server fetches the new version, swaps
+ *  it on disk, and re-activates it. Discriminated result — `error` is a stable server CODE
+ *  the caller maps to a message (mirrors {@link installPlugin}). */
+export async function applyPluginUpdate(
+  id: string,
+): Promise<{ ok: true; result: PluginUpdateApplied } | { ok: false; error: string }> {
+  const r = await fetch("/api/plugin-update/apply", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  const body = (await r.json().catch(() => ({}))) as Partial<PluginUpdateApplied> & {
+    error?: string;
+  };
+  if (r.ok && body.ok) return { ok: true, result: body as PluginUpdateApplied };
+  flagIfUnauthorized(r.status);
+  return { ok: false, error: typeof body.error === "string" ? body.error : "update_failed" };
+}
+
 /** Current environment-readiness diagnostics; `refresh` forces a re-probe. */
 export async function getDiagnostics(refresh = false): Promise<DiagnosticsSnapshot> {
   const r = await fetch(`/api/diagnostics${refresh ? "?refresh=1" : ""}`);

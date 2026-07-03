@@ -100,7 +100,12 @@
 
   <!-- Plan gate + Autopilot don't apply to research tasks: while Research is checked
        they render disabled/muted (research-locked) instead of silently re-checkable.
-       The Research InfoTip carries the reason. -->
+       The Research InfoTip carries the visible reason; this hidden note carries it to
+       assistive tech via aria-describedby on both locked inputs. -->
+  {#if research}
+    <span class="sr-only" id="nt-research-locked-note">{m.newtask_research_locked_aria()}</span>
+  {/if}
+
   <div class="pg-row">
     <label class="plan-gate" class:research-locked={research} use:coachTarget={"plan-gate"}>
       <input
@@ -111,6 +116,7 @@
           onPlanGateTouched();
         }}
         disabled={planGateLoading || research}
+        aria-describedby={research ? "nt-research-locked-note" : undefined}
       />
       <span class="pg-label">{m.newtask_plan_gate_label()}</span>
     </label>
@@ -138,6 +144,7 @@
             onAutopilotTouched();
           }}
           disabled={autopilotLoading || research}
+          aria-describedby={research ? "nt-research-locked-note" : undefined}
         />
         <span class="pg-label">{m.newtask_autopilot_label()}</span>
       </label>
@@ -365,5 +372,17 @@
   .pg-hint {
     color: var(--color-muted);
     font-size: var(--fs-meta);
+  }
+  /* Screen-reader-only note (same recipe as TaskIdButton). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

@@ -1955,8 +1955,8 @@
       {#if !connected}
         <span
           class="vp-offline"
-          title={m.topbar_clock_tip_disconnected()}
-          aria-label={m.topbar_clock_tip_disconnected()}>●</span
+          title={m.topbar_conn_tip_disconnected()}
+          aria-label={m.topbar_conn_tip_disconnected()}>●</span
         >
       {/if}
       {#if hotGauge}

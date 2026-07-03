@@ -2382,5 +2382,8 @@
   "feat_scroll_to_session_start_title": "Zum Session-Anfang springen",
   "feat_scroll_to_session_start_body": "Wenn du ältere Terminal-Ausgabe liest, zeigt die schwebende Scroll-Schaltfläche jetzt zusätzlich einen ↑-Button für den Anfang der Session neben dem bestehenden ↓-Sprung zurück zum aktuellen Prompt.",
   "feat_codex_plan_gate_title": "Plan-Gate für Codex (Alpha)",
-  "feat_codex_plan_gate_body": "Das Plan-Gate funktioniert jetzt für Codex-Aufgaben. Schalte es im Neue-Aufgabe-Dialog ein, und Codex recherchiert und schreibt zuerst einen Plan, stoppt zur Review und implementiert erst nach Freigabe des Plans — dasselbe Pre-Execution-Gate, das Claude nutzt."
+  "feat_codex_plan_gate_body": "Das Plan-Gate funktioniert jetzt für Codex-Aufgaben. Schalte es im Neue-Aufgabe-Dialog ein, und Codex recherchiert und schreibt zuerst einen Plan, stoppt zur Review und implementiert erst nach Freigabe des Plans — dasselbe Pre-Execution-Gate, das Claude nutzt.",
+  "feat_codex_usage_gauges_title": "Codex-Auslastungsbalken",
+  "feat_codex_usage_gauges_body": "Das Auslastungs-Popover zeigt die 5-Stunden- und Wochen-Limits von Codex jetzt als Prozentbalken mit Reset-Zeiten — im selben Format wie Claude, sodass du beide CLIs auf einen Blick vergleichen kannst. Die reinen Token-Zahlen stehen weiterhin unter den Balken.",
+  "topbar_codex_limits_unavailable": "Codex-Limits nicht gefunden; zeige Token-Nutzung."
 }

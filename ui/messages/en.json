@@ -2382,5 +2382,8 @@
   "feat_scroll_to_session_start_title": "Jump to session start",
   "feat_scroll_to_session_start_body": "When you're reading older terminal output, the floating scroll control now includes an ↑ button for the start of the session next to the existing ↓ jump back to the latest prompt.",
   "feat_codex_plan_gate_title": "Plan gate for Codex (Alpha)",
-  "feat_codex_plan_gate_body": "The plan gate now works for Codex tasks. Toggle it on in New Task and Codex researches and writes a plan first, stops for review, and only implements once the plan is approved — the same pre-execution gate Claude uses."
+  "feat_codex_plan_gate_body": "The plan gate now works for Codex tasks. Toggle it on in New Task and Codex researches and writes a plan first, stops for review, and only implements once the plan is approved — the same pre-execution gate Claude uses.",
+  "feat_codex_usage_gauges_title": "Codex usage gauges",
+  "feat_codex_usage_gauges_body": "The usage popover now shows Codex's 5-hour and weekly rate limits as percentage bars with reset times — the same format as Claude, so you can compare both CLIs at a glance. Raw token counts still show below the bars.",
+  "topbar_codex_limits_unavailable": "Codex limits not found; showing token usage."
 }

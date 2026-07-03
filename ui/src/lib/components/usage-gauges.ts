@@ -16,6 +16,18 @@ export function gaugeList(limits: UsageLimits | null): Gauge[] {
   return out;
 }
 
+type CodexTokenSnapshot = Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }>;
+
+/** Codex's 5H/WK rate-limit windows as gauges, in display order — the same shape `gaugeList`
+ *  produces for Claude so both render identically. Empty until Codex logs a rate-limit event. */
+export function codexGaugeList(usage: CodexTokenSnapshot | null): Gauge[] {
+  if (!usage) return [];
+  const out: Gauge[] = [];
+  if (usage.session5h) out.push({ label: "5H", w: usage.session5h });
+  if (usage.week) out.push({ label: "WK", w: usage.week });
+  return out;
+}
+
 export function providerSnapshots(limits: UsageLimits | null): UsageProviderSnapshot[] {
   if (!limits) return [];
   if (limits.providers?.length) return limits.providers;

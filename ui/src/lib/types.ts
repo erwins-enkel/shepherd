@@ -982,6 +982,14 @@ export type UsageProviderSnapshot =
       weekTokens: number;
       updatedAt: number | null;
       stale: boolean;
+      /** 5h/weekly used-% + reset scraped from Codex's own session rollout logs; null when no
+       *  rate-limit event has been logged yet (UI then shows just the raw token counts). */
+      session5h: LimitWindow | null;
+      week: LimitWindow | null;
+      rateLimitSource?: "rollout" | "missing";
+      rateLimitCheckedAt?: number;
+      rateLimitFilesScanned?: number;
+      rateLimitLatestEventAt?: number | null;
     };
 
 export type UsageRange = "24h" | "7d" | "30d" | "all";

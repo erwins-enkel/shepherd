@@ -1,12 +1,12 @@
 <script lang="ts">
   import { dialog } from "$lib/a11yDialog";
-  import { formatResetIn, formatReset } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
   import type { CreditWindow, ModelWeekWindow, UsageProviderSnapshot } from "$lib/types";
-  import { gaugeColor, type GaugeKey } from "../usage-gauges";
+  import { type GaugeKey } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CodexTokenDetail from "./CodexTokenDetail.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import LimitGaugeRow from "./LimitGaugeRow.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
 
   let {
@@ -64,23 +64,7 @@
   {#if desktop}
     {#each gauges as g (g.label)}
       <div class="gp-window">
-        <div class="gp-head">
-          <span class="gp-period">{periodLabel(g.label)}</span>
-          <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-        </div>
-        <span class="g-bar g-bar-wide"
-          ><span
-            class="g-fill"
-            style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-              100});background:{gaugeColor(g.w.pct)}"
-          ></span></span
-        >
-        <div class="gauge-pop-reset micro">
-          {m.topbar_gauge_reset_rel({
-            rel: formatResetIn(g.w.resetAt, nowMs),
-            abs: formatReset(g.w.resetAt, nowMs),
-          })}
-        </div>
+        <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
       </div>
     {/each}
     {#each perModel as entry (entry.model)}
@@ -104,23 +88,7 @@
     {/if}
   {:else}
     {#each gauges as g (g.label)}
-      <div class="gauge-pop-row">
-        <span class="g-label micro">{g.label}</span>
-        <span class="g-bar g-bar-wide"
-          ><span
-            class="g-fill"
-            style="transform:scaleX({Math.min(Math.max(g.w.pct, 0), 100) /
-              100});background:{gaugeColor(g.w.pct)}"
-          ></span></span
-        >
-        <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-      </div>
-      <div class="gauge-pop-reset micro">
-        {m.topbar_gauge_reset_rel({
-          rel: formatResetIn(g.w.resetAt, nowMs),
-          abs: formatReset(g.w.resetAt, nowMs),
-        })}
-      </div>
+      <LimitGaugeRow label={g.label} limit={g.w} {nowMs} inline />
     {/each}
     {#each perModel as entry (entry.model)}
       <div class="gauge-pop-row-model">
@@ -140,7 +108,7 @@
   {/if}
   {#if codexUsage}
     <div class="gp-window token-window" class:stale={codexUsage.stale}>
-      <CodexTokenDetail usage={codexUsage} />
+      <CodexTokenDetail usage={codexUsage} {nowMs} {periodLabel} />
     </div>
   {/if}
   <button type="button" class="gauge-pop-link" aria-haspopup="dialog" onclick={onOpenUsage}>
@@ -170,29 +138,6 @@
   }
   .gauge-pop-title {
     margin-bottom: 6px;
-  }
-  .gauge-pop-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-  .gauge-pop-row .g-bar-wide {
-    flex: 1;
-    width: auto;
-    height: 6px;
-  }
-  .gauge-pop-row .g-pct {
-    min-width: 34px;
-  }
-  .gauge-pop-reset {
-    margin: 0 0 6px 30px;
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-faint);
-  }
-  .gauge-pop-reset:last-child {
-    margin-bottom: 0;
   }
   .gauge-pop-row-model {
     margin-bottom: 6px;
@@ -229,48 +174,8 @@
     padding-top: 10px;
     border-top: 1px solid var(--color-line);
   }
-  .gp-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-variant-numeric: tabular-nums;
-  }
-  .gp-period {
-    color: var(--color-text);
-    font-size: var(--fs-meta);
-    text-transform: capitalize;
-  }
   .token-window.stale {
     opacity: 0.5;
-  }
-  .gauge-pop-desk .g-bar-wide {
-    width: 100%;
-    height: 6px;
-  }
-  .gauge-pop-desk .gauge-pop-reset {
-    margin: 0;
-  }
-  .g-label {
-    color: var(--color-muted);
-  }
-  .g-bar {
-    width: 46px;
-    height: 5px;
-    background: var(--color-line);
-    border: 1px solid var(--color-line-bright);
-    overflow: hidden;
-  }
-  .g-fill {
-    display: block;
-    width: 100%;
-    height: 100%;
-    transform-origin: left;
-    transition: transform 0.6s ease;
-  }
-  .g-pct {
-    font-size: var(--fs-meta);
-    min-width: 30px;
-    text-align: right;
   }
   .micro {
     font-size: var(--fs-meta);

@@ -1357,6 +1357,8 @@ describe("TopBar — CR extra-credit gauge", () => {
           weekTokens: 92_600_000,
           updatedAt: 1_700_000_000_000,
           stale,
+          session5h: null,
+          week: null,
         },
       ],
     };
@@ -1560,6 +1562,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(pop, "popover rendered").not.toBeNull();
     const text = pop!.textContent ?? "";
     expect(text, "codex provider label").toContain(m.agent_provider_codex());
+    expect(text, "codex limits fallback").toContain(m.topbar_codex_limits_unavailable());
     expect(text, "5H token row").toContain(m.topbar_tokens_window({ period: "5H" }));
     expect(text, "weekly token row").toContain(m.topbar_tokens_window({ period: "WK" }));
   });
@@ -1573,6 +1576,29 @@ describe("TopBar — CR extra-credit gauge", () => {
       m.agent_provider_codex(),
     );
     expect(toggle!.classList.contains("stale"), "stale codex-only toggle is dimmed").toBe(true);
+  });
+
+  it("mobile sheet: codex-only without rate limits explains the token-only fallback", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      ...sessionsProp(0),
+      limits: codexOnly(),
+    });
+
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const sheet = document.querySelector<HTMLElement>(".gear-sheet");
+    expect(sheet, "mobile sheet rendered").not.toBeNull();
+    const text = sheet!.textContent ?? "";
+    expect(text, "codex fallback visible in mobile sheet").toContain(
+      m.topbar_codex_limits_unavailable(),
+    );
+    expect(text, "codex token rows remain visible").toContain(
+      m.topbar_tokens_window({ period: "5H" }),
+    );
   });
 
   it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {

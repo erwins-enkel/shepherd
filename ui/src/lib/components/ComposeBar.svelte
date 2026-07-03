@@ -233,41 +233,50 @@
     voiceErrorTimer = setTimeout(() => (voiceError = false), 4000);
   }
 
-  // Start recording. Called from an in-sheet mic tap — a FRESH user-activation gesture, never
-  // on mount, so getUserMedia stays inside its activation window across the async sheet mount.
+  // Start recording. Reached two ways, both within the getUserMedia activation window: an
+  // in-sheet mic tap, or the ◉ dictate entry (startDictation) auto-starting on mount when local
+  // is the engine — getVoiceStatus is memoized/pre-resolved by then, so the auto-start runs in
+  // the same turn as the chip tap. `acquiring` guards the getUserMedia await so an auto-start
+  // and a fast manual tap can't both open a stream.
+  let acquiring = false;
   async function startLocalRecording() {
-    if (listening || transcribing) return;
+    if (listening || transcribing || acquiring) return;
     if (!recorderSupported) {
       flashVoiceError();
       return;
     }
+    acquiring = true;
     voiceError = false;
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      flashVoiceError();
-      return;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        flashVoiceError();
+        return;
+      }
+      const mimeType = pickMimeType();
+      chunks = [];
+      // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in use);
+      // release the just-acquired mic stream so it isn't left open on failure.
+      try {
+        mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size) chunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => void finishLocalRecording();
+        mediaRecorder.start();
+      } catch {
+        mediaRecorder = null;
+        releaseStream();
+        flashVoiceError();
+        return;
+      }
+      listening = true;
+      activeEngine = "local";
+      recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
+    } finally {
+      acquiring = false;
     }
-    const mimeType = pickMimeType();
-    chunks = [];
-    // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in use);
-    // release the just-acquired mic stream so it isn't left open on failure.
-    try {
-      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size) chunks.push(e.data);
-      };
-      mediaRecorder.onstop = () => void finishLocalRecording();
-      mediaRecorder.start();
-    } catch {
-      mediaRecorder = null;
-      releaseStream();
-      flashVoiceError();
-      return;
-    }
-    listening = true;
-    activeEngine = "local";
-    recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
   }
 
   // User-initiated stop → let onstop fire finishLocalRecording (which uploads + inserts).
@@ -393,16 +402,22 @@
     // still edit the transcript inline
     ta?.focus();
     autogrow();
-    // Probe for the local-Whisper plugin (memoized once per page load). Never auto-starts
-    // local recording — that needs a fresh in-sheet tap for the getUserMedia gesture.
+    // Probe for the local-Whisper plugin (memoized once per page load, so this resolves in the
+    // same turn as the tap that opened the sheet). When the ◉ dictate entry opened us and local
+    // is the engine (e.g. iOS PWA, no Web Speech), start recording now — otherwise a local-only
+    // dictate chip would open an idle sheet. The status is pre-resolved by the time the chip is
+    // tappable, so getUserMedia is still inside the tap's activation window; a denial just flashes
+    // an error and leaves the in-sheet mic. Guarded against double-starting Web Speech below.
     getVoiceStatus()
       .then((s) => {
         localVoiceAvailable = s.available;
         preferLocal = s.preferLocal;
+        if (startDictation && useLocal && !listening && !transcribing) void startLocalRecording();
       })
       .catch(() => {});
-    // `startDictation` ("open already listening") is a Web-Speech affordance; the ◉ chip that
-    // sets it only appears where Web Speech works, so this never fights the local path.
+    // Web Speech "open already listening" — fires synchronously so it's never delayed by the
+    // probe. On a local-only client (no Web Speech) this is a no-op and the branch above starts
+    // local instead.
     if (startDictation && speechSupported) toggleDictation();
   });
 

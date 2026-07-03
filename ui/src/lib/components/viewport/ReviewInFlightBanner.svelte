@@ -155,6 +155,11 @@
     view.show && view.phase === "conclusion" && view.tone !== "errored" ? "✓" : "⚠",
   );
 
+  // While a review is actively running, lead with a rotating gear ("Shepherd is
+  // working, wait with typing") instead of the static ⚠. The brief conclusion
+  // tiers keep the static icon above — nothing is running there. (issue #1022)
+  const inFlight = $derived(view.show && view.phase === "in-flight");
+
   // Publish the banner's occupied height so the floating jump-to-latest button can
   // lift clear of it (issue: scroll button obscured by this banner). The bound
   // element mirrors the {#if} below. offsetHeight (via bind: on the element) is the
@@ -178,13 +183,35 @@
   <div
     class="review-banner"
     data-tone={view.tone}
+    data-phase={view.phase}
     role="status"
     aria-live="polite"
     bind:this={bannerEl}
     bind:offsetHeight={height}
     use:coachTarget={"review-inflight"}
   >
-    <span class="rb-icon" aria-hidden="true">{icon}</span>
+    {#if inFlight}
+      <!-- Rotating cog: an inline SVG (not the ⚙ glyph, which renders as a color
+           emoji ignoring currentColor and rotates off-center) so it tints to the
+           tone accent and turns cleanly about its center. -->
+      <svg
+        class="rb-cog"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+        />
+      </svg>
+    {:else}
+      <span class="rb-icon" aria-hidden="true">{icon}</span>
+    {/if}
     <span class="rb-text">{bannerText(view)}</span>
   </div>
 {/if}
@@ -209,9 +236,34 @@
     border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
     animation: rb-in 0.14s ease;
   }
+  /* Prominence bump scoped to the in-flight tier only: the "review is running"
+     message reads taller + larger, while the short-lived conclusion tiers keep
+     the compact base size above. */
+  .review-banner[data-phase="in-flight"] {
+    padding: 9px 12px;
+    font-size: var(--fs-base);
+  }
   .rb-icon {
     font-size: var(--fs-base);
     line-height: 1;
+  }
+  /* Rotating gear — the "Shepherd is working" cue. Tinted to the tone accent
+     (amber calm / warn escalated), echoing the amber REVIEWING pulse. Rotation
+     reuses the shared icon-btn-spin keyframe (app.css), NOT the .spin class,
+     whose reduced-motion rule (animation:none) would drop this state signal. */
+  .rb-cog {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    animation: icon-btn-spin 2.4s linear infinite;
+  }
+  /* Functional indicator: under reduced-motion swap rotation for the same
+     dot-pulse the REVIEWING dots use, so the "work happening" signal survives. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-cog {
+      animation: dot-pulse 1.1s ease-in-out infinite !important;
+    }
   }
   .rb-text {
     color: var(--color-ink-bright);

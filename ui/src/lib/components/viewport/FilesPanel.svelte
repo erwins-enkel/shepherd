@@ -53,6 +53,7 @@
     if (s === source) return;
     source = s;
     uploads = []; // upload statuses belong to the scratchpad session
+    listing = null; // avoid a stale-source listing flashing under the new source's labels/hrefs
     void browse(""); // reset to root and reload from the new source
   }
 

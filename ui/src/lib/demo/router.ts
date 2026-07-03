@@ -136,6 +136,12 @@ function handleSessionDetailGet(path: string, url: URL): Response | null {
     const root = demoState.scratchpadRoot(seg(path, 3));
     return json(reqPath ? { path: reqPath, parent: "", entries: [] } : root);
   }
+  if (/^\/api\/sessions\/[^/]+\/worktree$/.test(path)) {
+    // Demo has no seeded worktree tree; return a valid (empty) listing so the Files-tab
+    // Worktree view renders its empty state instead of crashing on a shapeless {} body.
+    const reqPath = url.searchParams.get("path") ?? "";
+    return json({ path: reqPath, parent: reqPath ? "" : null, entries: [] });
+  }
   if (/^\/api\/sessions\/[^/]+\/usage$/.test(path)) {
     return json(demoState.sessionUsage(seg(path, 3)));
   }

@@ -160,8 +160,28 @@ The extension is not a passive capture tool — it ships **user data** to a serv
   warns those failed-request URLs **may contain tokens in query strings** (`README.md` §Signals);
 - **axe-core accessibility findings**.
 
-Even though the destination is the user's _own_ Shepherd core, the Chrome Web Store's data-handling
-rules key off _the extension collecting/transmitting user data_, not off who owns the endpoint. So:
+**A natural objection:** if all of this goes to the user's _own_ self-hosted Shepherd and never touches
+the extension author's systems, is a privacy policy still required? **Yes** — the store's rules key off
+whether _the extension_ handles user data, not off who owns the destination server. Verified against
+Google's [User Data FAQ](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq) and
+[Privacy policy](https://developer.chrome.com/docs/webstore/program-policies/privacy):
+
+- **The trigger is handling, at any destination.** _"If your Product handles any user data, then you
+  must post an accurate and up to date privacy policy."_ "Handle" is defined as _collecting,
+  transmitting, using, or sharing_ user data — there is no exemption for a user-specified or
+  developer-not-owned endpoint (the only near-neighbor carve-out, for "FTP/IRC clients connecting to
+  user-specified servers," doesn't cleanly apply because Shepherd Capture also _scrapes web content_).
+- **Even local-only data counts.** _"Extensions are required to disclose how they handle user data, even
+  when data is processed or stored locally on a user's device and is not transmitted to external
+  servers."_ So the token in `chrome.storage.local` alone would already require disclosure.
+- **Screenshots and URLs are explicitly named as user data.** The policy enumerates _"taking screenshots
+  or capturing data from a web page"_ and _"web browsing activity (which is any information about the
+  websites or other web resources a user requests or interacts with)."_
+
+**What the self-hosted destination _does_ change is the content and burden, not the existence, of the
+policy** — favorably: the developer is not a data controller in practice, the Limited-Use certifications
+(not sold, not reused) are trivially true because nothing is ever received, and the policy itself is a
+short, strong statement. So:
 
 - A **hosted privacy policy URL is required** at submission. It should state plainly: data is sent only
   to the user's own configured Shepherd server; nothing goes to Shepherd's authors or any third party;

@@ -169,6 +169,12 @@ export interface PrStatus {
   /** null = host still computing mergeability. */
   mergeable?: boolean | null;
   checks: ChecksState;
+  /** Names of the checks currently in flight (the `pending` subset of the rollup),
+   *  e.g. `["verify / test", "PR hygiene / i18n"]`. Populated only on the GitHub
+   *  `gh pr list` path; absent on the REST rate-limit fallback and on Gitea, and
+   *  absent (rather than `[]`) when nothing is running. Drives the terminal
+   *  "CI running: <names>" banner. Order isn't stable — compare as a set. */
+  runningChecks?: string[];
   /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;

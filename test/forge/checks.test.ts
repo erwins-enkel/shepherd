@@ -5,6 +5,7 @@ import {
   mapGiteaActionStatus,
   mapStatusState,
   rollupChecks,
+  runningCheckNames,
 } from "../../src/forge/checks";
 
 test("mapCheckState: incomplete status → pending", () => {
@@ -172,4 +173,67 @@ test("jobsFromRollup: entries without a usable label are dropped", () => {
   expect(
     jobsFromRollup([{ __typename: "CheckRun", status: "completed", conclusion: "success" }]),
   ).toEqual([]);
+});
+
+test("runningCheckNames: only the pending (status != completed) checks, qualified", () => {
+  expect(
+    runningCheckNames([
+      {
+        __typename: "CheckRun",
+        name: "test",
+        workflowName: "verify",
+        status: "in_progress",
+        conclusion: null,
+      },
+      {
+        __typename: "CheckRun",
+        name: "i18n",
+        workflowName: "PR hygiene",
+        status: "queued",
+        conclusion: null,
+      },
+      {
+        __typename: "CheckRun",
+        name: "lint",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "success",
+      },
+    ]),
+  ).toEqual(["verify / test", "PR hygiene / i18n"]);
+});
+
+test("runningCheckNames: completed action_required is failure, not pending → excluded", () => {
+  expect(
+    runningCheckNames([
+      {
+        __typename: "CheckRun",
+        name: "deploy",
+        workflowName: "CD",
+        status: "completed",
+        conclusion: "action_required",
+      },
+    ]),
+  ).toEqual([]);
+});
+
+test("runningCheckNames: none pending → empty", () => {
+  expect(
+    runningCheckNames([
+      {
+        __typename: "CheckRun",
+        name: "lint",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "success",
+      },
+      { __typename: "StatusContext", context: "netlify", state: "FAILURE" },
+    ]),
+  ).toEqual([]);
+});
+
+test("runningCheckNames: includes a waiting StatusContext (pending)", () => {
+  expect(
+    runningCheckNames([{ __typename: "StatusContext", context: "ci/circleci", state: "pending" }]),
+  ).toEqual(["ci/circleci"]);
 });

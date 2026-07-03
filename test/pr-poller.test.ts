@@ -1,8 +1,38 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { PrPoller, trustsTerminal } from "../src/pr-poller";
-import type { GitForge, PrStatus } from "../src/forge/types";
+import { PrPoller, trustsTerminal, gitStateChanged } from "../src/pr-poller";
+import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+
+const openGit = (over: Partial<GitState> = {}): GitState => ({
+  kind: "github",
+  state: "open",
+  number: 1,
+  checks: "pending",
+  deployConfigured: false,
+  ...over,
+});
+
+test("gitStateChanged: true when the running-checks set changes", () => {
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a"] }), openGit({ runningChecks: ["a", "b"] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a"] }), openGit({ runningChecks: ["c"] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ runningChecks: undefined }), openGit({ runningChecks: ["a"] })),
+  ).toBe(true);
+});
+
+test("gitStateChanged: false when running-checks only reorders (set-equal)", () => {
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a", "b"] }), openGit({ runningChecks: ["b", "a"] })),
+  ).toBe(false);
+  expect(
+    gitStateChanged(openGit({ runningChecks: undefined }), openGit({ runningChecks: undefined })),
+  ).toBe(false);
+});
 
 const baseSession = {
   name: "x",

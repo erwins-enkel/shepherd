@@ -2465,5 +2465,10 @@
   "feat_plugin_updates_title": "See when your plugins have updates",
   "feat_plugin_updates_body": "Settings now checks whether your installed plugins have a newer released version and shows it — for plugins that declare a repository or run from a git checkout. It's informational only; updates are still applied manually.",
   "feat_epic_backlog_visibility_title": "Epics stand out in the backlog",
-  "feat_epic_backlog_visibility_body": "In the repo backlog's Issues list, epics now sort to the top and carry an amber accent so they're easy to spot. Expanding one shows its controls (Pause, Attended, Stop epic, Approve next) as proper buttons instead of plain text."
+  "feat_epic_backlog_visibility_body": "In the repo backlog's Issues list, epics now sort to the top and carry an amber accent so they're easy to spot. Expanding one shows its controls (Pause, Attended, Stop epic, Approve next) as proper buttons instead of plain text.",
+  "cibanner_running_named": "CI running: {checks}",
+  "cibanner_running_bare": "CI is running",
+  "cibanner_pr": "PR #{number}",
+  "feat_ci_running_banner_title": "See when CI is running",
+  "feat_ci_running_banner_body": "While CI runs on a session's PR, the terminal now shows a spinning-gear banner — the same spot as the review-in-flight notice — naming the checks in flight, with the PR number linking to its checks on GitHub. Status and automation info always lands in one consistent place, so you know to hold off while CI is still working."
 }

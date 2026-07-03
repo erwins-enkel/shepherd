@@ -286,6 +286,52 @@ test("GithubForge.prStatus: open PR with rollup → mapped PrStatus", async () =
   expect(calls[0]).toContain("o/r");
 });
 
+test("GithubForge.prStatus: runningChecks names only the in-flight (pending) checks", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 8,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      statusCheckRollup: [
+        {
+          __typename: "CheckRun",
+          name: "test",
+          workflowName: "verify",
+          status: "IN_PROGRESS",
+          conclusion: null,
+        },
+        {
+          __typename: "CheckRun",
+          name: "lint",
+          workflowName: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+        },
+      ],
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const st = await new GithubForge("o/r", {}, run).prStatus("feature");
+  expect(st.checks).toBe("pending");
+  expect(st.runningChecks).toEqual(["verify / test"]);
+});
+
+test("GithubForge.prStatus: runningChecks is undefined when nothing is pending", async () => {
+  const prJson = JSON.stringify([
+    {
+      number: 8,
+      url: "u",
+      title: "feat",
+      state: "OPEN",
+      statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prJson });
+  const st = await new GithubForge("o/r", {}, run).prStatus("feature");
+  expect(st.runningChecks).toBeUndefined();
+});
+
 test("GithubForge.prStatus: surfaces baseRefName (the PR's real target branch)", async () => {
   // A hotfix PR targeting a non-default branch — the case the diff/recap base resolution needs.
   const prJson = JSON.stringify([

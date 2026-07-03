@@ -20,7 +20,17 @@
     keystrokes,
     tab,
     height = $bindable(0),
-  }: { session: Session; keystrokes: number; tab: string; height?: number } = $props();
+    active = $bindable(false),
+  }: {
+    session: Session;
+    keystrokes: number;
+    tab: string;
+    height?: number;
+    /** Logical "this banner occupies the strip" signal (mirrors the render
+     *  condition below). Bound out so a sibling status banner (CiRunningBanner)
+     *  can suppress itself synchronously — no offsetHeight/paint race. */
+    active?: boolean;
+  } = $props();
 
   // Live in-flight flags (mutually exclusive: plan-gate = planning phase, critic =
   // post-PR, so never both at once).
@@ -171,6 +181,7 @@
   let bannerEl = $state<HTMLDivElement>();
   $effect(() => {
     const shown = view.show && tab === "term";
+    if (active !== shown) active = shown; // logical occupancy signal for a sibling status banner (pre-paint)
     if (!shown) {
       height = 0; // hidden branch: reset (the only place height is zeroed)
       return;

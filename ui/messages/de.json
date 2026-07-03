@@ -2465,5 +2465,10 @@
   "feat_plugin_updates_title": "Sieh, wann deine Plugins Updates haben",
   "feat_plugin_updates_body": "Die Einstellungen prüfen jetzt, ob deine installierten Plugins eine neuere veröffentlichte Version haben, und zeigen das an — für Plugins, die ein Repository deklarieren oder aus einem Git-Checkout laufen. Nur informativ; Updates werden weiterhin manuell angewendet.",
   "feat_epic_backlog_visibility_title": "Epics stechen im Backlog hervor",
-  "feat_epic_backlog_visibility_body": "In der Issue-Liste des Repo-Backlogs werden Epics jetzt nach oben sortiert und mit einem Bernstein-Akzent hervorgehoben, damit man sie leicht erkennt. Klappt man ein Epic auf, erscheinen seine Steuerelemente (Pause, Beaufsichtigt, Epic stoppen, Nächstes freigeben) als richtige Buttons statt als reiner Text."
+  "feat_epic_backlog_visibility_body": "In der Issue-Liste des Repo-Backlogs werden Epics jetzt nach oben sortiert und mit einem Bernstein-Akzent hervorgehoben, damit man sie leicht erkennt. Klappt man ein Epic auf, erscheinen seine Steuerelemente (Pause, Beaufsichtigt, Epic stoppen, Nächstes freigeben) als richtige Buttons statt als reiner Text.",
+  "cibanner_running_named": "CI läuft: {checks}",
+  "cibanner_running_bare": "CI läuft",
+  "cibanner_pr": "PR #{number}",
+  "feat_ci_running_banner_title": "Sehen, wenn CI läuft",
+  "feat_ci_running_banner_body": "Während auf dem PR einer Session CI läuft, zeigt das Terminal jetzt ein Banner mit drehendem Zahnrad – an derselben Stelle wie der Review-in-flight-Hinweis – und nennt die gerade laufenden Checks; die PR-Nummer verlinkt auf deren Checks auf GitHub. Status- und Automatik-Infos landen so immer an einer konsistenten Stelle, damit du weißt, dass du warten solltest, solange CI noch arbeitet."
 }

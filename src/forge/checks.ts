@@ -95,6 +95,18 @@ export function jobsFromRollup(entries: ReadonlyArray<RollupEntry>): WorkflowJob
   return entries.map(rollupEntryToJob).filter((j): j is WorkflowJob => j != null);
 }
 
+/** Names of the checks currently in flight — the `pending` subset of
+ *  {@link jobsFromRollup} (status != completed: queued / in_progress / waiting).
+ *  A completed `action_required` conclusion is FAILURE, not pending, so it's
+ *  excluded. Drives the terminal "CI running: <names>" banner; empty when nothing
+ *  is running (the caller then omits the field). Order follows the rollup, which
+ *  isn't guaranteed stable — consumers comparing this must do so order-independently. */
+export function runningCheckNames(entries: ReadonlyArray<RollupEntry>): string[] {
+  return jobsFromRollup(entries)
+    .filter((j) => j.state === "pending")
+    .map((j) => j.name);
+}
+
 /** Roll a list of `statusCheckRollup` entries into a single worst-of state
  *  (failure > pending > success > none). Folds in legacy StatusContext entries
  *  via {@link entryState}, so a repo running only commit statuses still rolls up

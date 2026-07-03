@@ -1,7 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
-import { jobsFromRollup, mapCheckState, mapStatusState, rollupChecks } from "./checks";
+import {
+  jobsFromRollup,
+  mapCheckState,
+  mapStatusState,
+  rollupChecks,
+  runningCheckNames,
+} from "./checks";
 import { classifyPr } from "./pr-kind";
 import {
   graphRateLimit,
@@ -711,6 +717,7 @@ export class GithubForge implements GitForge {
   private mapGhPr(pr: GhPr, deployConfigured: boolean): PrStatus {
     const state = pr.state.toLowerCase() as PrStatus["state"];
     const createdAt = Date.parse(pr.createdAt ?? "");
+    const running = runningCheckNames(pr.statusCheckRollup ?? []);
     return {
       state: state === "open" || state === "merged" || state === "closed" ? state : "none",
       number: pr.number,
@@ -721,6 +728,7 @@ export class GithubForge implements GitForge {
       mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
       isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
+      runningChecks: running.length ? running : undefined,
       headSha: pr.headRefOid,
       baseRefName: pr.baseRefName,
       latestReview: latestHumanReview(pr.reviews),

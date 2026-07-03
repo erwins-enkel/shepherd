@@ -105,6 +105,7 @@ import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { CodexUpdateService } from "./codex-update";
+import type { PluginUpdateService } from "./plugin-update";
 import type { DiagnosticsService } from "./diagnostics";
 import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
@@ -249,6 +250,8 @@ export interface AppDeps {
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
   codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
+  /** installed-plugin update tracker (informational, no apply); absent when unwired. */
+  pluginUpdates?: Pick<PluginUpdateService, "current">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -3520,6 +3523,15 @@ function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
+// ── plugin update: status only (informational, no apply) ───────────────
+function handlePluginUpdate({ req, parts, deps }: Ctx): Response | null {
+  if (!(parts[0] === "api" && parts[1] === "plugin-update" && !parts[2])) return null;
+  if (req.method !== "GET") return null;
+  return json(
+    deps.pluginUpdates?.current() ?? { plugins: [], updateAvailable: false, checkedAt: Date.now() },
+  );
+}
+
 // Fallback snapshot when the diagnostics service isn't wired (e.g. in tests):
 // an empty, all-ok payload so the UI renders a benign "nothing to flag" state.
 const DIAGNOSTICS_IDLE = {
@@ -6026,6 +6038,7 @@ const ROUTE_HANDLERS = [
   handleUpdate,
   handleHerdrUpdate,
   handleCodexUpdate,
+  handlePluginUpdate,
   handleDiagnostics,
   handleDiagnosticsFix,
   handleStarPrompt,

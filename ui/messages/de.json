@@ -2471,5 +2471,14 @@
   "cibanner_running_bare": "CI läuft",
   "cibanner_pr": "PR #{number}",
   "feat_ci_running_banner_title": "Sehen, wenn CI läuft",
-  "feat_ci_running_banner_body": "Während auf dem PR einer Session CI läuft, zeigt das Terminal jetzt ein Banner mit drehendem Zahnrad – an derselben Stelle wie der Review-in-flight-Hinweis – und nennt die gerade laufenden Checks; die PR-Nummer verlinkt auf den PR auf GitHub. Status- und Automatik-Infos landen so immer an einer konsistenten Stelle, damit du weißt, dass du warten solltest, solange CI noch arbeitet."
+  "feat_ci_running_banner_body": "Während auf dem PR einer Session CI läuft, zeigt das Terminal jetzt ein Banner mit drehendem Zahnrad – an derselben Stelle wie der Review-in-flight-Hinweis – und nennt die gerade laufenden Checks; die PR-Nummer verlinkt auf den PR auf GitHub. Status- und Automatik-Infos landen so immer an einer konsistenten Stelle, damit du weißt, dass du warten solltest, solange CI noch arbeitet.",
+  "files_source_switch_aria": "Dateiquelle",
+  "files_source_scratchpad": "Scratchpad",
+  "files_source_worktree": "Worktree",
+  "files_worktree_root_crumb": "Worktree",
+  "files_worktree_breadcrumb_aria": "Worktree-Pfad",
+  "files_worktree_empty": "Keine Dateien im Worktree.",
+  "files_worktree_load_error": "Worktree-Dateien konnten nicht geladen werden.",
+  "files_worktree_list_aria": "Worktree-Dateien",
+  "files_link_outside_title": "Symlink zeigt aus dem Worktree heraus"
 }

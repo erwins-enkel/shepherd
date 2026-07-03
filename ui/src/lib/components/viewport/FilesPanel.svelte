@@ -3,15 +3,21 @@
     getScratchpadListing,
     scratchpadDownloadUrl,
     uploadScratchpadFile,
+    getWorktreeListing,
+    worktreeDownloadUrl,
     ApiError,
   } from "$lib/api";
   import type { ScratchListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { untrack } from "svelte";
 
   // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to
   // descend, click a file to download it. Upload via button or drag-and-drop into the current dir.
   let { sessionId }: { sessionId: string } = $props();
+
+  let source = $state<"scratchpad" | "worktree">("scratchpad");
+  const readOnly = $derived(source === "worktree");
 
   let listing = $state<ScratchListing | null>(null);
   let loading = $state(false);
@@ -32,7 +38,10 @@
     loading = true;
     error = false;
     try {
-      listing = await getScratchpadListing(sessionId, path || undefined);
+      listing =
+        source === "worktree"
+          ? await getWorktreeListing(sessionId, path || undefined)
+          : await getScratchpadListing(sessionId, path || undefined);
     } catch {
       error = true;
     } finally {
@@ -40,22 +49,45 @@
     }
   }
 
+  function switchSource(s: "scratchpad" | "worktree") {
+    if (s === source) return;
+    source = s;
+    uploads = []; // upload statuses belong to the scratchpad session
+    void browse(""); // reset to root and reload from the new source
+  }
+
+  const downloadUrl = (p: string) =>
+    source === "worktree" ? worktreeDownloadUrl(sessionId, p) : scratchpadDownloadUrl(sessionId, p);
+
   // (Re)load the root whenever the viewed session changes. Keyed on the id value so it only
-  // re-runs on an actual unit switch, not on session-object churn.
+  // re-runs on an actual unit switch, not on session-object churn. The reset/reload itself is
+  // wrapped in `untrack` so reading `source` inside `browse()` doesn't make this effect
+  // (wrongly) re-fire whenever the user flips the source switch — it must only key off sessionId.
   $effect(() => {
     const id = sessionId;
-    listing = null;
-    error = false;
-    uploads = [];
-    void browse("");
+    untrack(() => {
+      source = "scratchpad";
+      listing = null;
+      error = false;
+      uploads = [];
+      void browse("");
+    });
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     id;
   });
 
-  // Breadcrumb segments from the current relative path; the first crumb is the scratchpad root.
+  const rootCrumbLabel = $derived(readOnly ? m.files_worktree_root_crumb() : m.files_root_crumb());
+  const breadcrumbAria = $derived(
+    readOnly ? m.files_worktree_breadcrumb_aria() : m.files_breadcrumb_aria(),
+  );
+  const listAria = $derived(readOnly ? m.files_worktree_list_aria() : m.files_list_aria());
+  const emptyText = $derived(readOnly ? m.files_worktree_empty() : m.files_empty());
+  const loadErrorText = $derived(readOnly ? m.files_worktree_load_error() : m.files_load_error());
+
+  // Breadcrumb segments from the current relative path; the first crumb is the source root.
   const crumbs = $derived.by(() => {
     const segs = listing?.path ? listing.path.split("/") : [];
-    const out: { label: string; path: string }[] = [{ label: m.files_root_crumb(), path: "" }];
+    const out: { label: string; path: string }[] = [{ label: rootCrumbLabel, path: "" }];
     let acc = "";
     for (const s of segs) {
       acc = acc ? `${acc}/${s}` : s;
@@ -105,17 +137,20 @@
   }
 
   function handleDragOver(e: DragEvent) {
+    if (readOnly) return;
     e.preventDefault();
     dragOver = true;
   }
 
   function handleDragLeave(e: DragEvent) {
+    if (readOnly) return;
     // Ignore leave events triggered by crossing into a child element — only clear on a real exit.
     if (e.relatedTarget && (e.currentTarget as Node).contains(e.relatedTarget as Node)) return;
     dragOver = false;
   }
 
   function handleDrop(e: DragEvent) {
+    if (readOnly) return;
     e.preventDefault();
     dragOver = false;
     if (!listing) return; // still loading
@@ -131,11 +166,27 @@
 <div
   class="files"
   role="region"
-  aria-label={m.files_list_aria()}
+  aria-label={listAria}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
+  <div class="seg-row" role="group" aria-label={m.files_source_switch_aria()}>
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={source === "scratchpad"}
+      aria-pressed={source === "scratchpad"}
+      onclick={() => switchSource("scratchpad")}>{m.files_source_scratchpad()}</button
+    >
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={source === "worktree"}
+      aria-pressed={source === "worktree"}
+      onclick={() => switchSource("worktree")}>{m.files_source_worktree()}</button
+    >
+  </div>
   {#if dragOver}
     <!-- Whole-tab drop overlay; sits over (not inside) the scroll wrapper so it always covers the
          visible area, and pointer-events:none keeps drag/drop events reaching .files -->
@@ -146,7 +197,7 @@
   <!-- Scroll wrapper; .files itself stays non-scrolling so the overlay anchors to the viewport -->
   <div class="files-scroll">
     <div class="toolbar">
-      <nav class="crumbs" aria-label={m.files_breadcrumb_aria()}>
+      <nav class="crumbs" aria-label={breadcrumbAria}>
         {#each crumbs as c, i (c.path)}
           {#if i > 0}<span class="crumb-sep" aria-hidden="true">/</span>{/if}
           {#if i === crumbs.length - 1}
@@ -156,24 +207,26 @@
           {/if}
         {/each}
       </nav>
-      <button
-        type="button"
-        class="gbtn upload-btn"
-        aria-label={m.files_upload_aria()}
-        disabled={listing === null}
-        onclick={openFilePicker}
-        use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
-      >
-      <!-- Hidden real input; triggered by the upload button -->
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        class="sr-only"
-        aria-hidden="true"
-        tabindex="-1"
-        onchange={handleFileInput}
-      />
+      {#if !readOnly}
+        <button
+          type="button"
+          class="gbtn upload-btn"
+          aria-label={m.files_upload_aria()}
+          disabled={listing === null}
+          onclick={openFilePicker}
+          use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
+        >
+        <!-- Hidden real input; triggered by the upload button -->
+        <input
+          bind:this={fileInput}
+          type="file"
+          multiple
+          class="sr-only"
+          aria-hidden="true"
+          tabindex="-1"
+          onchange={handleFileInput}
+        />
+      {/if}
     </div>
 
     <!-- Upload status lines -->
@@ -194,15 +247,22 @@
       {#if loading && !listing}
         <div class="placeholder">{m.common_loading()}</div>
       {:else if error}
-        <div class="placeholder err">{m.files_load_error()}</div>
+        <div class="placeholder err">{loadErrorText}</div>
       {:else if listing && listing.entries.length === 0}
         <div class="placeholder empty-droppable">
-          <span>{m.files_empty()}</span>
-          <span class="drop-hint">{m.files_upload_drop_hint()}</span>
+          <span>{emptyText}</span>
+          {#if !readOnly}
+            <span class="drop-hint">{m.files_upload_drop_hint()}</span>
+          {/if}
         </div>
       {:else if listing}
         {#each listing.entries as e (e.path)}
-          {#if e.type === "dir"}
+          {#if e.linkOutside}
+            <div class="row link-outside" aria-disabled="true" title={m.files_link_outside_title()}>
+              <span class="ico" aria-hidden="true">↗</span>
+              <span class="nm">{e.name}</span>
+            </div>
+          {:else if e.type === "dir"}
             <button type="button" class="row" onclick={() => browse(e.path)}>
               <span class="ico" aria-hidden="true">▸</span>
               <span class="nm">{e.name}</span>
@@ -212,7 +272,7 @@
             <!-- eslint-disable svelte/no-navigation-without-resolve -- server API download endpoint, not an app route -->
             <a
               class="row file"
-              href={scratchpadDownloadUrl(sessionId, e.path)}
+              href={downloadUrl(e.path)}
               download={e.name}
               aria-label={m.files_download_aria({ name: e.name })}
             >
@@ -244,6 +304,43 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+  }
+  .seg-row {
+    display: flex;
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
+  }
+  .seg-btn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-base);
+    cursor: pointer;
+    padding: 0 2px;
+    color: var(--color-muted);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .seg-btn:last-child {
+    border-right: 0;
+  }
+  .seg-btn:hover {
+    color: var(--color-ink);
+  }
+  .seg-btn.seg-active {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    box-shadow: inset 0 -2px 0 var(--color-amber);
+  }
+  .seg-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .drop-overlay {
     position: absolute;
@@ -401,6 +498,16 @@
   }
   .row.file .ico {
     color: var(--color-faint);
+  }
+  .row.link-outside {
+    color: var(--color-faint);
+    cursor: default;
+  }
+  .row.link-outside .ico {
+    color: var(--color-faint);
+  }
+  .row.link-outside:hover {
+    background: transparent;
   }
   .nm {
     flex: 1;

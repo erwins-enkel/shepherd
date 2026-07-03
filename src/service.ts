@@ -2117,6 +2117,7 @@ export class SessionService {
     promptArg: string,
     sessionId: string,
     claudeSessionId: string,
+    opts: { planGateOn?: boolean } = {},
   ): Promise<{
     agentProvider: AgentProvider;
     spawnInput: CreateSessionInput;
@@ -2137,8 +2138,9 @@ export class SessionService {
     const repoConfig = this.deps.store.getRepoConfig(spawnInput.repoPath);
     // Plan gate (#348): provider-agnostic (TASK-413) — Codex now enters the gate too; its directive
     // rides inline (see buildCodexSpawnArgv) and the detection/review/release machinery is already
-    // CLI-agnostic. See resolvePlanGateOn for the override + research semantics.
-    const planGateOn = this.resolvePlanGateOn(spawnInput, repoConfig);
+    // CLI-agnostic. See resolvePlanGateOn for the override + research semantics. Replacements can
+    // pass a runtime override so a session that already left planning does not re-enter the gate.
+    const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
     const trim = await this.trimFor(spawnInput.auto);
     const profileOverride =
       agentProvider === "codex"
@@ -2436,6 +2438,7 @@ export class SessionService {
       promptArg,
       s.id,
       claudeSessionId,
+      { planGateOn: s.planPhase === "planning" },
     );
 
     const outcome = await this.prepareSpawnOrThrow(launch.argv, {
@@ -2466,7 +2469,7 @@ export class SessionService {
         // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
         // as disabled (which would mis-display and drop the explicit-on choice on resume).
         planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
-        planPhase: launch.planGateOn ? "planning" : null,
+        planPhase: s.planPhase,
       });
       this.deps.store.setSandboxState(s.id, {
         applied: outcome.applied,

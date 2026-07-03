@@ -5096,27 +5096,51 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
     "--model",
     "gpt-5.5",
   ]);
+  expect(calls.started[0]!.argv.at(-1)!).not.toContain("<plan-gate-directive>");
   expect(calls.removed).toEqual([]);
 });
 
-// TASK-413 (critic): replaceAgent must persist planGateEnabled provider-agnostically, mirroring the
-// create path. Replacing a plan-gated Claude session with Codex enters the planning phase
-// (launch.planGateOn) — the flag must record ON too, not the old codex-forced-off (which would
-// mis-display the gate and drop the explicit-on choice on resume).
-test("replaceAgent → codex keeps planGateEnabled and planPhase in sync (not forced off)", async () => {
+test("replaceAgent preserves an executing plan phase instead of resurrecting Codex plan-gate", async () => {
   const store = new SessionStore(":memory:");
-  const { service } = relaunchHarness(store);
-  const orig = originalSession(store, { planGateEnabled: true }); // plan-gated Claude session
-  store.update(orig.id, { status: "done", lastState: "done" });
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, {
+    claudeSessionId: "claude-old",
+    agentProvider: "claude",
+    planGateEnabled: true,
+    planPhase: "executing",
+  });
 
   const replaced = await service.replaceAgent(orig.id, {
     agentProvider: "codex",
     model: "gpt-5.5",
   });
 
-  expect(replaced.agentProvider).toBe("codex");
-  expect(replaced.planGateEnabled).toBe(true); // persisted, not codex-forced-off
-  expect(replaced.planPhase).toBe("planning"); // and consistent with the flag
+  expect(replaced.planGateEnabled).toBe(true);
+  expect(replaced.planPhase).toBe("executing");
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).not.toContain("<plan-gate-directive>");
+  expect(promptArg).toContain("<autopilot-directive>");
+});
+
+test("replaceAgent keeps Codex in plan-gate only when the existing session is still planning", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, {
+    claudeSessionId: "claude-old",
+    agentProvider: "claude",
+    planGateEnabled: true,
+    planPhase: "planning",
+  });
+
+  const replaced = await service.replaceAgent(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.5",
+  });
+
+  expect(replaced.planPhase).toBe("planning");
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).toContain("<plan-gate-directive>");
+  expect(promptArg).not.toContain("<autopilot-directive>");
 });
 
 test("replaceAgent keeps the old agent registered if replacement spawn fails", async () => {

@@ -61,6 +61,7 @@
   import SessionRecap from "$lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
+  import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
@@ -230,6 +231,12 @@
   // Published as --review-banner-h on .vp-body so the floating jump-to-latest button
   // (a sibling in ViewportTermBanners) can lift clear of the bottom banner strip.
   let reviewBannerH = $state(0);
+  // occupied height of the CiRunningBanner, and the review banner's logical
+  // visibility. The two strips are mutually exclusive by construction (CI suppresses
+  // itself while reviewActive), so at most one publishes a non-zero height — the
+  // jump-to-latest button lifts by `reviewBannerH || ciBannerH` (no max() needed).
+  let ciBannerH = $state(0);
+  let reviewActive = $state(false);
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
@@ -2187,7 +2194,7 @@
     role="tabpanel"
     id={vpBodyId}
     aria-labelledby={tabId(tab)}
-    style:--review-banner-h={`${reviewBannerH}px`}
+    style:--review-banner-h={`${reviewBannerH || ciBannerH}px`}
   >
     <div class="scan" class:running={tab === "term"} aria-hidden="true"></div>
     <div
@@ -2224,7 +2231,16 @@
     <!-- Non-blocking review-in-flight banner: bottom strip over the terminal,
          above the steer bar. Stays mounted across tab switches (state survives);
          it suppresses its own render off the term tab. (issue #1022) -->
-    <ReviewInFlightBanner {session} keystrokes={opKeystrokes} {tab} bind:height={reviewBannerH} />
+    <ReviewInFlightBanner
+      {session}
+      keystrokes={opKeystrokes}
+      {tab}
+      bind:height={reviewBannerH}
+      bind:active={reviewActive}
+    />
+    <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
+         review banner claims it (reviewActive) so the two never overlap. -->
+    <CiRunningBanner {git} {tab} {reviewActive} bind:height={ciBannerH} />
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />

@@ -1,8 +1,38 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { PrPoller, trustsTerminal } from "../src/pr-poller";
-import type { GitForge, PrStatus } from "../src/forge/types";
+import { PrPoller, trustsTerminal, gitStateChanged } from "../src/pr-poller";
+import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+
+const openGit = (over: Partial<GitState> = {}): GitState => ({
+  kind: "github",
+  state: "open",
+  number: 1,
+  checks: "pending",
+  deployConfigured: false,
+  ...over,
+});
+
+test("gitStateChanged: true when the running-checks set changes", () => {
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a"] }), openGit({ runningChecks: ["a", "b"] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a"] }), openGit({ runningChecks: ["c"] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ runningChecks: undefined }), openGit({ runningChecks: ["a"] })),
+  ).toBe(true);
+});
+
+test("gitStateChanged: false when running-checks only reorders (set-equal)", () => {
+  expect(
+    gitStateChanged(openGit({ runningChecks: ["a", "b"] }), openGit({ runningChecks: ["b", "a"] })),
+  ).toBe(false);
+  expect(
+    gitStateChanged(openGit({ runningChecks: undefined }), openGit({ runningChecks: undefined })),
+  ).toBe(false);
+});
 
 const baseSession = {
   name: "x",
@@ -412,6 +442,19 @@ const OPEN_PENDING: PrStatus = {
   deployConfigured: false,
 };
 
+// Worst-of rollup already "failure" (one check failed) but jobs still running.
+// mergeable + mergeStateStatus are settled so the ONLY transient trigger is
+// runningChecks — proving isTransientOpen keys on it.
+const OPEN_FAILING_RUNNING: PrStatus = {
+  state: "open",
+  number: 1,
+  checks: "failure",
+  runningChecks: ["verify / test"],
+  mergeable: true,
+  mergeStateStatus: "clean",
+  deployConfigured: false,
+};
+
 const MERGED: PrStatus = {
   state: "merged",
   number: 344,
@@ -597,6 +640,26 @@ test("fastTick falls back to per-session for a single eligible PR — count<2 (b
   expect(stats.count).toBe(0); // count<2 short-circuits before the probe
   expect(stats.list).toBe(0);
   expect(stats.prStatus).toBe(1); // lone eligible → per-session
+});
+
+test("fastTick keeps re-polling an open PR whose CI failed but still has running jobs", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  const { forge, stats } = forgeWithBatch(
+    { "shepherd/a": OPEN_FAILING_RUNNING },
+    { prStatusByBranch: { "shepherd/a": OPEN_FAILING_RUNNING } },
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+
+  await poller.tick();
+  stats.prStatus = 0;
+  await poller.fastTick();
+  // Transient purely via runningChecks (merge state settled) → still fast-polled.
+  expect(stats.prStatus).toBe(1);
 });
 
 test("fastTick fans out O(eligible) per-session across singleton repos, no cap (c)", async () => {

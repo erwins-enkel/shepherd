@@ -267,6 +267,11 @@ export interface PrStatus {
   createdAt?: number;
   mergeable?: boolean | null;
   checks: ChecksState;
+  /** Names of the checks currently in flight (the `pending` subset of the rollup),
+   *  e.g. `["verify / test"]`. Populated only on the GitHub path; absent on the
+   *  REST fallback / Gitea and absent (not `[]`) when nothing runs. Drives the
+   *  terminal CI-running banner. Order isn't stable — compare as a set. */
+  runningChecks?: string[];
   /** GitHub's precise merge-state signal; absent for Gitea (mirrors server PrStatus). */
   mergeStateStatus?: MergeStateStatus;
   deployConfigured: boolean;

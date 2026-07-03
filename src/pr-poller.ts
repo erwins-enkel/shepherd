@@ -69,15 +69,27 @@ export function trustsTerminal(
   return !!prev && prev.number != null && prev.number === raw.number && prev.state !== "none";
 }
 
+/** Order-independent equality for two optional string lists. `runningChecks` is
+ *  derived from `jobsFromRollup`, whose order isn't guaranteed stable, so a plain
+ *  index compare would flag a pure reorder as a change and emit a spurious push. */
+function sameSet(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  if ((a?.length ?? 0) !== (b?.length ?? 0)) return false;
+  const as = [...(a ?? [])].sort();
+  const bs = [...(b ?? [])].sort();
+  return as.every((v, i) => v === bs[i]);
+}
+
 /** True when a freshly polled PR state differs from the cached one in any field
  *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
- *  pushing a session:git update. */
-function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
+ *  pushing a session:git update. Exported for unit testing. */
+export function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
   return (
     !prev ||
     prev.state !== git.state ||
     prev.number !== git.number ||
     prev.checks !== git.checks ||
+    !sameSet(prev.runningChecks, git.runningChecks) ||
     prev.mergeable !== git.mergeable ||
     prev.mergeStateStatus !== git.mergeStateStatus ||
     prev.isDraft !== git.isDraft ||
@@ -134,6 +146,10 @@ export class PrPoller implements PrCache {
     return (
       git.state === "open" &&
       (git.checks === "pending" ||
+        // Jobs can still be running after the worst-of rollup already flipped to
+        // "failure" (one check failed, others in flight). Keep fast-polling so the
+        // terminal CI banner clears/updates live instead of lagging the slow sweep.
+        (git.runningChecks?.length ?? 0) > 0 ||
         git.mergeable == null ||
         git.mergeStateStatus === "unknown" ||
         git.mergeStateStatus === "unstable")

@@ -268,6 +268,50 @@ describe("Settings responsive tab navigation", () => {
   });
 });
 
+describe("Settings dialog layout stability", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  function cardMetrics() {
+    const card = document.querySelector<HTMLElement>(".card");
+    expect(card).not.toBeNull();
+    const rect = card!.getBoundingClientRect();
+    return {
+      top: rect.top,
+      height: rect.height,
+      computedHeight: getComputedStyle(card!).height,
+    };
+  }
+
+  it("desktop tab switches keep the modal shell stable", async () => {
+    await page.viewport(1280, 900);
+    render(Settings, { onclose: noop, onsaved: noop });
+
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_workspace() }))
+      .toBeInTheDocument();
+    const before = cardMetrics();
+
+    await page.getByRole("tab", { name: m.settings_tab_session() }).click();
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_session() }))
+      .toBeInTheDocument();
+
+    const sessionPanel = document.querySelector<HTMLElement>("#settings-panel-session");
+    expect(sessionPanel).not.toBeNull();
+    expect(getComputedStyle(sessionPanel!).overflowY).toBe("auto");
+
+    const after = cardMetrics();
+    expect(after.computedHeight).toBe(before.computedHeight);
+
+    if (before.height > 0 && after.height > 0) {
+      expect(after.height).toBeCloseTo(before.height, 0);
+      expect(after.top).toBeCloseTo(before.top, 0);
+    }
+  });
+});
+
 // Regression guard for the issue's "no false success" criterion (PR #703): the green
 // "Fixed" toast must only fire when the RE-PROBED snapshot shows the targeted check ok.
 // A command that exits 0 but leaves the check non-ok (e.g. installer succeeds but its

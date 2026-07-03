@@ -1204,7 +1204,7 @@
   "plugins_install_heading": "Install a plugin",
   "plugins_install_placeholder": "https://github.com/owner/repo",
   "plugins_install_button": "Install",
-  "plugins_install_hint": "Paste a public GitHub repo URL, then restart Shepherd to activate. Cloned as-is — a plugin with its own dependencies needs a manual install before it loads.",
+  "plugins_install_hint": "Paste a public GitHub repo URL, then Activate it — no restart needed. Cloned as-is — a plugin with its own dependencies needs a manual install (and a restart) before it loads.",
   "plugins_trust_warning": "Plugins run in-process with full server privileges and are not sandboxed. Only install code you wrote or fully trust.",
   "plugins_confirm_install_title": "Install this plugin?",
   "plugins_confirm_uninstall_title": "Uninstall this plugin?",

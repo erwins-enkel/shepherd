@@ -1204,7 +1204,7 @@
   "plugins_install_heading": "Plugin installieren",
   "plugins_install_placeholder": "https://github.com/owner/repo",
   "plugins_install_button": "Installieren",
-  "plugins_install_hint": "Füge die URL eines öffentlichen GitHub-Repos ein und starte Shepherd danach neu, um es zu aktivieren. Wird unverändert geklont — ein Plugin mit eigenen Abhängigkeiten muss vor dem Laden manuell installiert werden.",
+  "plugins_install_hint": "Füge die URL eines öffentlichen GitHub-Repos ein und aktiviere es dann — kein Neustart nötig. Wird unverändert geklont — ein Plugin mit eigenen Abhängigkeiten muss vor dem Laden manuell installiert werden (dann Neustart).",
   "plugins_trust_warning": "Plugins laufen prozessintern mit vollen Server-Rechten und ohne Sandbox. Installiere nur Code, den du selbst geschrieben hast oder dem du voll vertraust.",
   "plugins_confirm_install_title": "Dieses Plugin installieren?",
   "plugins_confirm_uninstall_title": "Dieses Plugin deinstallieren?",

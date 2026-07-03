@@ -2471,5 +2471,16 @@
   "cibanner_running_bare": "CI is running",
   "cibanner_pr": "PR #{number}",
   "feat_ci_running_banner_title": "See when CI is running",
-  "feat_ci_running_banner_body": "While CI runs on a session's PR, the terminal now shows a spinning-gear banner — the same spot as the review-in-flight notice — naming the checks in flight, with the PR number linking to the PR on GitHub. Status and automation info always lands in one consistent place, so you know to hold off while CI is still working."
+  "feat_ci_running_banner_body": "While CI runs on a session's PR, the terminal now shows a spinning-gear banner — the same spot as the review-in-flight notice — naming the checks in flight, with the PR number linking to the PR on GitHub. Status and automation info always lands in one consistent place, so you know to hold off while CI is still working.",
+  "files_source_switch_aria": "File source",
+  "files_source_scratchpad": "Scratchpad",
+  "files_source_worktree": "Worktree",
+  "files_worktree_root_crumb": "worktree",
+  "files_worktree_breadcrumb_aria": "Worktree path",
+  "files_worktree_empty": "No files in the worktree.",
+  "files_worktree_load_error": "Couldn't load worktree files.",
+  "files_worktree_list_aria": "Worktree files",
+  "files_link_outside_title": "Symlink points outside the worktree",
+  "feat_worktree_files_title": "Browse the worktree from the Files tab",
+  "feat_worktree_files_body": "The Files tab now has a Scratchpad / Worktree switch — flip to Worktree to browse and download any file from the session's working tree (read-only, .git hidden). Scratchpad stays the default and still takes uploads."
 }

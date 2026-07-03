@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../../app.css";
 import { ApiError } from "$lib/api";
 import { m } from "$lib/paraglide/messages";
@@ -12,14 +13,17 @@ vi.mock("$lib/api", async (importOriginal) => {
     getScratchpadListing: vi.fn(),
     scratchpadDownloadUrl: vi.fn((id: string, path: string) => `/dl/${id}/${path}`),
     uploadScratchpadFile: vi.fn(),
+    getWorktreeListing: vi.fn(),
+    worktreeDownloadUrl: vi.fn((id: string, path: string) => `/wt/${id}/${path}`),
   };
 });
 
 const { default: FilesPanel } = await import("./FilesPanel.svelte");
 
-const { getScratchpadListing, uploadScratchpadFile } = await import("$lib/api");
+const { getScratchpadListing, uploadScratchpadFile, getWorktreeListing } = await import("$lib/api");
 const mockListing = vi.mocked(getScratchpadListing);
 const mockUpload = vi.mocked(uploadScratchpadFile);
+const mockWorktreeListing = vi.mocked(getWorktreeListing);
 
 const EMPTY_LISTING = { path: "", parent: null, entries: [] };
 
@@ -27,9 +31,11 @@ let fontStyle: HTMLStyleElement;
 beforeEach(() => {
   mockListing.mockReset();
   mockUpload.mockReset();
+  mockWorktreeListing.mockReset();
 
   // Default: empty listing so the panel renders without hanging on the initial browse
   mockListing.mockResolvedValue(EMPTY_LISTING);
+  mockWorktreeListing.mockResolvedValue(EMPTY_LISTING);
 
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -161,5 +167,75 @@ describe("FilesPanel — drag-and-drop calls uploadScratchpadFile", () => {
 
     tab.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
     await expect.poll(() => document.querySelector(".drop-overlay")).toBeFalsy();
+  });
+});
+
+// Helper: click the Worktree segmented-control button (trusted click via the browser locator)
+async function clickWorktreeSegButton() {
+  await page.getByRole("button", { name: m.files_source_worktree() }).click();
+}
+
+describe("FilesPanel — source switch (scratchpad/worktree)", () => {
+  it("defaults to scratchpad and fetches scratchpad listing", async () => {
+    render(FilesPanel, { sessionId: "sess-6" });
+    await waitForPanel();
+
+    await expect.poll(() => mockListing.mock.calls.length).toBeGreaterThan(0);
+    expect(mockWorktreeListing).not.toHaveBeenCalled();
+  });
+
+  it("switching to Worktree fetches the worktree listing and uses worktree download URLs", async () => {
+    mockListing.mockResolvedValue(EMPTY_LISTING);
+    mockWorktreeListing.mockResolvedValue({
+      path: "",
+      parent: null,
+      entries: [{ name: "readme.md", type: "file", path: "readme.md" }],
+    });
+
+    render(FilesPanel, { sessionId: "sess-7" });
+    await waitForPanel();
+
+    await clickWorktreeSegButton();
+
+    await expect.poll(() => mockWorktreeListing.mock.calls.length).toBeGreaterThan(0);
+    expect(mockWorktreeListing).toHaveBeenCalledWith("sess-7", undefined);
+
+    await expect.poll(() => document.querySelector("a.row.file")).toBeTruthy();
+    const fileRow = document.querySelector<HTMLAnchorElement>("a.row.file")!;
+    expect(fileRow.getAttribute("href")).toBe("/wt/sess-7/readme.md");
+  });
+
+  it("hides the upload button in worktree mode", async () => {
+    render(FilesPanel, { sessionId: "sess-8" });
+    await waitForPanel();
+
+    expect(document.querySelector("button.upload-btn")).toBeTruthy();
+
+    await clickWorktreeSegButton();
+
+    await expect.poll(() => document.querySelector("button.upload-btn")).toBeFalsy();
+  });
+
+  it("renders a linkOutside entry as a disabled, non-interactive row", async () => {
+    mockWorktreeListing.mockResolvedValue({
+      path: "",
+      parent: null,
+      entries: [{ name: "escaped-link", type: "file", path: "escaped-link", linkOutside: true }],
+    });
+
+    render(FilesPanel, { sessionId: "sess-9" });
+    await waitForPanel();
+
+    await clickWorktreeSegButton();
+
+    await expect.poll(() => document.querySelector(".row.link-outside")).toBeTruthy();
+    const row = document.querySelector(".row.link-outside")!;
+    expect(row.tagName).toBe("DIV");
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.textContent).toContain("escaped-link");
+    // Not rendered as a navigable/actionable element
+    expect(row.querySelector("a")).toBeNull();
+    expect(row.closest("a")).toBeNull();
+    expect(row.tagName).not.toBe("BUTTON");
   });
 });

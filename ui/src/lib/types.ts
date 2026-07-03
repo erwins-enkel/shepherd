@@ -153,6 +153,9 @@ export interface ScratchEntry {
   name: string;
   type: "file" | "dir";
   path: string;
+  /** true when this entry is a symlink resolving outside the root (worktree view only);
+   *  rendered as a disabled, non-navigable row. */
+  linkOutside?: boolean;
 }
 
 /** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the

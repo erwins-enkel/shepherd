@@ -81,6 +81,7 @@ import {
   resolveScratchpadUploadDir,
   placeScratchpadUpload,
 } from "./scratchpad";
+import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
@@ -1966,6 +1967,39 @@ async function handleSessionScratchpad({ req, parts, url, deps }: Ctx): Promise<
   return null;
 }
 
+// ── worktree file browser: GET /api/sessions/:id/worktree[?path=] (list)
+//                           GET /api/sessions/:id/worktree/download?path= (file) ──
+// Read-only browse + single-file download, rooted at and realpath-contained to the session's
+// worktree. `.git` is hidden; out-of-root symlinks are surfaced disabled. Live sessions only:
+// 404 on a missing/archived session. Containment is enforced in src/worktree-files.ts.
+async function worktreeDownload(s: Session, rel: string): Promise<Response> {
+  const file = await resolveWorktreeFile(s.worktreePath, rel);
+  if (!file) return json({ error: "not found" }, 404);
+  const f = Bun.file(file);
+  return new Response(f, {
+    headers: {
+      "content-type": f.type || "application/octet-stream",
+      "content-disposition": attachmentDisposition(basename(file)),
+    },
+  });
+}
+
+async function worktreeList(s: Session, rel: string): Promise<Response> {
+  const listing = await listWorktree(s.worktreePath, rel);
+  if (listing) return json(listing);
+  return json({ error: "not found" }, 404);
+}
+
+async function handleSessionWorktree({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[3] !== "worktree") return null;
+  const s = deps.store.get(parts[2] ?? "");
+  if (!s || s.status === "archived") return json({ error: "not found" }, 404);
+  const rel = url.searchParams.get("path") ?? "";
+  if (parts[4] === "download") return worktreeDownload(s, rel);
+  if (!parts[4]) return worktreeList(s, rel);
+  return null;
+}
+
 // ── scratchpad upload: POST /api/sessions/:id/scratchpad/upload[?path=] ──
 // Accepts any binary file (no MIME restriction) up to MAX_UPLOAD_BYTES. The `?path` param
 // is a relative subdir within the scratchpad root (default: root). The scratchpad root is
@@ -3089,6 +3123,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReads,
     handleSessionScratchpad,
     handleSessionScratchpadUpload,
+    handleSessionWorktree,
     handleSessionDelete,
     handleSessionReply,
     handleSessionRecommend,

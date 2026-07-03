@@ -1,39 +1,25 @@
 import { promises as fsp } from "node:fs";
-import { join, relative, dirname, basename, extname, sep, normalize, isAbsolute } from "node:path";
+import { join, basename, extname, sep, normalize, isAbsolute } from "node:path";
 import { sessionScratchpadDir } from "./tmp-sweep";
+import {
+  within,
+  relFromRoot,
+  resolveInRoot,
+  listDir,
+  resolveFileInRoot,
+  type BrowseListing,
+} from "./fs-browse";
 
 /**
  * Read-only browser of a session's scratchpad subtree (#1164). Every path the operator supplies
  * is treated as RELATIVE to the scratchpad root and is realpath-contained to it: `..`, absolute
  * paths, and symlink escapes all resolve to null/dropped. The genuinely new power vs. the
  * existing `/api/fs/dirs` browser is streaming file BYTES, so containment is the trust boundary.
+ * The containment core lives in `./fs-browse` (shared with the worktree browser); this module
+ * just binds it to the per-session scratchpad root.
  */
 
-export interface ScratchEntry {
-  name: string;
-  type: "file" | "dir";
-  /** Path relative to the scratchpad root, forward-slash separated, no leading slash. */
-  path: string;
-}
-
-export interface ScratchListing {
-  /** The directory being listed, relative to the root ("" = root). */
-  path: string;
-  /** Parent dir relative to the root, or null at the root. */
-  parent: string | null;
-  entries: ScratchEntry[];
-}
-
-/** true when `real` is the root itself or lives inside it (realpath containment). */
-function within(real: string, rootReal: string): boolean {
-  return real === rootReal || real.startsWith(rootReal + sep);
-}
-
-/** Root-relative, forward-slash form of an absolute path known to be within `rootReal`. */
-function relFromRoot(rootReal: string, abs: string): string {
-  if (abs === rootReal) return "";
-  return relative(rootReal, abs).split(sep).join("/");
-}
+export type ScratchListing = BrowseListing;
 
 /**
  * Resolve a caller-supplied RELATIVE path against the session scratchpad root, enforcing
@@ -47,25 +33,7 @@ export async function resolveScratchpadPath(
   relPath: string,
 ): Promise<{ rootReal: string; resolved: string } | null> {
   if (!claudeSessionId) return null;
-  let rootReal: string;
-  try {
-    rootReal = await fsp.realpath(sessionScratchpadDir(worktreePath, claudeSessionId));
-  } catch {
-    return null; // root not created yet (agent wrote nothing) / unreadable
-  }
-  // Treat as root-relative. Reject any normalized path that climbs above the root (`..`) or is
-  // absolute; realpath containment below is the backstop (catches symlink escapes too).
-  const norm = normalize(relPath || "");
-  if (norm === ".." || norm.startsWith(".." + sep) || isAbsolute(norm)) return null;
-  const target = norm === "" || norm === "." ? rootReal : join(rootReal, norm);
-  let resolved: string;
-  try {
-    resolved = await fsp.realpath(target);
-  } catch {
-    return null;
-  }
-  if (!within(resolved, rootReal)) return null;
-  return { rootReal, resolved };
+  return resolveInRoot(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**
@@ -80,46 +48,8 @@ export async function listScratchpad(
   claudeSessionId: string,
   relPath: string,
 ): Promise<ScratchListing | null> {
-  const r = await resolveScratchpadPath(worktreePath, claudeSessionId, relPath);
-  if (!r) return null;
-  const { rootReal, resolved } = r;
-
-  let dirents;
-  try {
-    dirents = await fsp.readdir(resolved, { withFileTypes: true });
-  } catch {
-    return null; // not a directory / unreadable
-  }
-
-  const entries: ScratchEntry[] = [];
-  for (const d of dirents) {
-    const abs = join(resolved, d.name);
-    let real: string;
-    try {
-      real = await fsp.realpath(abs);
-    } catch {
-      continue; // broken symlink / unreadable → skip
-    }
-    if (!within(real, rootReal)) continue; // never surface an entry that escapes the root
-    let isDir: boolean;
-    try {
-      isDir = (await fsp.stat(abs)).isDirectory();
-    } catch {
-      continue;
-    }
-    entries.push({ name: d.name, type: isDir ? "dir" : "file", path: relFromRoot(rootReal, abs) });
-  }
-
-  entries.sort((a, b) =>
-    a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name),
-  );
-
-  const here = relFromRoot(rootReal, resolved);
-  return {
-    path: here,
-    parent: here === "" ? null : relFromRoot(rootReal, dirname(resolved)),
-    entries,
-  };
+  if (!claudeSessionId) return null;
+  return listDir(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**
@@ -131,14 +61,8 @@ export async function resolveScratchpadFile(
   claudeSessionId: string,
   relPath: string,
 ): Promise<string | null> {
-  const r = await resolveScratchpadPath(worktreePath, claudeSessionId, relPath);
-  if (!r) return null;
-  try {
-    if (!(await fsp.stat(r.resolved)).isFile()) return null;
-  } catch {
-    return null;
-  }
-  return r.resolved;
+  if (!claudeSessionId) return null;
+  return resolveFileInRoot(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**

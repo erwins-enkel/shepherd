@@ -223,6 +223,16 @@ describe("session-detail tab GETs never fall back to {}", () => {
     expect(Array.isArray(empty.body.entries)).toBe(true);
   });
 
+  it("GET /api/sessions/:id/worktree returns a ScratchListing with an `entries` array, never {}", async () => {
+    const { status, body } = await get("/api/sessions/coupon/worktree");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.entries)).toBe(true);
+    const withPath = await get("/api/sessions/coupon/worktree?path=src");
+    expect(withPath.status).toBe(200);
+    expect(Array.isArray(withPath.body.entries)).toBe(true);
+    expect(withPath.body.path).toBe("src");
+  });
+
   it("GET /api/sessions/:id/usage returns a SessionUsage record, never {}", async () => {
     const { body } = await get("/api/sessions/coupon/usage");
     expect(typeof body.total).toBe("number");

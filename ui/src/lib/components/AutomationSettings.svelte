@@ -3,6 +3,7 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { getSettings } from "$lib/api";
+  import { DOCS_URL } from "$lib/build-info";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import "./automation-settings/automation-fields.css";
@@ -99,6 +100,16 @@
 {#if showHeader}
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>
+  <!-- eslint-disable svelte/no-navigation-without-resolve -- external docs URL -->
+  <a
+    class="auto-guide"
+    href={`${DOCS_URL}hands-off-epics/`}
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    {m.automation_handsoff_hint()}
+  </a>
+  <!-- eslint-enable svelte/no-navigation-without-resolve -->
 {/if}
 
 <!-- Repo mode: lightweight (local-only) vs forge (GitHub/PRs) -->
@@ -508,6 +519,16 @@
     font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 0 12px 6px;
+  }
+  .auto-guide {
+    display: block;
+    font-size: var(--fs-micro);
+    color: var(--color-blue);
+    text-decoration: none;
+    padding: 0 12px 8px;
+  }
+  .auto-guide:hover {
+    text-decoration: underline;
   }
   .auto-group {
     font-size: var(--fs-micro);

@@ -1549,6 +1549,7 @@
   .card {
     position: relative;
     width: min(560px, 92vw);
+    height: min(680px, 86vh);
     max-height: 86vh;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);

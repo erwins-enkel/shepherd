@@ -146,6 +146,10 @@ export class PrPoller implements PrCache {
     return (
       git.state === "open" &&
       (git.checks === "pending" ||
+        // Jobs can still be running after the worst-of rollup already flipped to
+        // "failure" (one check failed, others in flight). Keep fast-polling so the
+        // terminal CI banner clears/updates live instead of lagging the slow sweep.
+        (git.runningChecks?.length ?? 0) > 0 ||
         git.mergeable == null ||
         git.mergeStateStatus === "unknown" ||
         git.mergeStateStatus === "unstable")

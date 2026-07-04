@@ -320,10 +320,13 @@ test("nextNeedsYouTarget: no blocked → null id, null expand", () => {
 
 // altComboKey — physical KeyboardEvent.code → keynav key vocabulary
 
-test("altComboKey maps j/k/g letter codes", () => {
+test("altComboKey maps j/k letter codes", () => {
   expect(altComboKey("KeyJ")).toBe("j");
   expect(altComboKey("KeyK")).toBe("k");
-  expect(altComboKey("KeyG")).toBe("g");
+});
+
+test("altComboKey does not map KeyG (needs-you jump retired from Alt combos)", () => {
+  expect(altComboKey("KeyG")).toBeNull();
 });
 
 test("altComboKey maps arrow codes", () => {

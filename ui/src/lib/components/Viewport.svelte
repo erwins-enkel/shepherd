@@ -77,8 +77,6 @@
     session,
     onarchive,
     onback,
-    onnextneedsyou,
-    nextNeedsYou = 0,
     onbroadcast,
     onretry,
     retryHaltedCount = 0,
@@ -108,10 +106,6 @@
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
-    /** Jump to the next session waiting for a reply (header shortcut). */
-    onnextneedsyou?: () => void;
-    /** How many *other* sessions are waiting on the operator; gates the button. */
-    nextNeedsYou?: number;
     onbroadcast?: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
@@ -1842,24 +1836,6 @@
         >{mobile ? "‹" : m.viewport_back_button()}</button
       >
     {/if}
-    {#if onnextneedsyou && nextNeedsYou > 0}
-      <button
-        class="next-yu"
-        class:compact
-        type="button"
-        onclick={onnextneedsyou}
-        aria-label={m.viewport_next_needs_you_aria()}
-        title={!compact ? m.actionbar_shortcut_hint({ key: "G" }) : undefined}
-        aria-keyshortcuts={!compact ? "g" : undefined}
-      >
-        {#if compact}
-          <span class="ny-icon" aria-hidden="true">!</span><span class="ny-n">{nextNeedsYou}</span>
-        {:else}
-          {m.viewport_next_needs_you({ count: nextNeedsYou })}
-        {/if}
-        <span class="nyu-arrow" aria-hidden="true">›</span>
-      </button>
-    {/if}
     {#if showQueueNav}
       <div class="queue-nav" role="group" aria-label={m.common_needs_you({ count: queue.length })}>
         <button
@@ -2371,9 +2347,9 @@
         {m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}
       </span>
       <span class="sep">·</span>
-      <span>{m.viewport_keynav_hint({ key: isMac ? "⌥" : "Alt" })}</span>
+      <span>{m.viewport_keynav_hint()}</span>
       <span class="sep">·</span>
-      <span>{m.viewport_keynav_needsyou_hint()}</span>
+      <span>{m.viewport_commandbar_hint({ key: isMac ? "⌘K" : "Ctrl+K" })}</span>
       <!-- Enter only hands focus back on the terminal tab (focusTerminal
            no-ops elsewhere), so don't advertise it on other tabs -->
       {#if tab === "term"}
@@ -3046,50 +3022,6 @@
   .back:hover {
     background: var(--color-hover);
   }
-  /* red highlight: mirrors the TopBar "needs you" badge — jumps to the next session
-     actively waiting on the operator. */
-  .next-yu {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: color-mix(in srgb, var(--color-red) 18%, transparent);
-    border: 1px solid var(--color-red);
-    color: var(--color-red);
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    padding: 4px 9px;
-    cursor: pointer;
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  .next-yu:hover {
-    background: color-mix(in srgb, var(--color-red) 28%, transparent);
-  }
-  .nyu-arrow {
-    font-size: var(--fs-base);
-    line-height: 1;
-    letter-spacing: 0;
-  }
-  /* phone/touch: collapse to an icon+count chip (full label drops to the aria-label),
-     matching the TopBar compact badge instead of carrying the full word. */
-  .next-yu.compact {
-    justify-content: center;
-    gap: 4px;
-    /* not the 44px floor: this chip's content (icon + count + arrow) + padding
-       already renders wider than 44px; the floor only guards against collapse. */
-    min-width: 40px;
-    letter-spacing: 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .next-yu.compact .ny-icon {
-    font-weight: 700;
-    line-height: 1;
-  }
-  .next-yu.compact .ny-n {
-    font-weight: 600;
-  }
-
   /* ‹ n/total › paging through the "needs you" queue — compact layouts only */
   .queue-nav {
     display: flex;
@@ -3186,8 +3118,7 @@
     flex: 0;
   }
   /* finger-sized header controls on touch layouts (≥44px) */
-  .vp-head.mobile .back,
-  .vp-head.mobile .next-yu {
+  .vp-head.mobile .back {
     min-height: 44px;
     padding: 8px 12px;
     font-size: var(--fs-base);

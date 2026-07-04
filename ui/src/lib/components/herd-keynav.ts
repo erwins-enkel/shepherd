@@ -63,9 +63,9 @@ export function nthId(order: string[], n: number): string | null {
  *  by the page-level shortcut handler (lowercase `e.key`-style), or null if the
  *  code is not part of the Alt+key session-switch combo set.
  *
- *  The combo set: `j`/`k` (+ `arrowdown`/`arrowup`) cycle prev/next, `g` jumps to
- *  the next needs-you session, `1`–`9` select the Nth row, and the session-switch
- *  aliases `tab` (Alt+Tab / Alt+Shift+Tab) + `]`/`[` (Alt+] / Alt+[). This map is
+ *  The combo set: `j`/`k` (+ `arrowdown`/`arrowup`) cycle prev/next, `1`–`9` select
+ *  the Nth row, and the session-switch aliases `tab` (Alt+Tab / Alt+Shift+Tab) +
+ *  `]`/`[` (Alt+] / Alt+[). This map is
  *  direction-AGNOSTIC: it returns `"tab"` for both Alt+Tab and Alt+Shift+Tab
  *  (Shift is not encoded here). The window handler resolves Tab's direction from
  *  `e.shiftKey` (Tab = next, Shift+Tab = prev); Viewport only needs non-null to
@@ -86,7 +86,6 @@ export function nthId(order: string[], n: number): string | null {
 export function altComboKey(code: string): string | null {
   if (code === "KeyJ") return "j";
   if (code === "KeyK") return "k";
-  if (code === "KeyG") return "g";
   if (code === "ArrowDown") return "arrowdown";
   if (code === "ArrowUp") return "arrowup";
   if (code === "Tab") return "tab";
@@ -134,8 +133,8 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
 
 /** Resolve the next needs-you jump target plus the epic group key (if any) that must be
  *  expanded so the target row is visible. `groupOf` maps sessionId → its epic group key.
- *  Keeps the `g`-handler and the NEEDS-YOU jump button DRY: both resolve the target AND
- *  the collapsed-group-to-expand through one tested helper so they can't drift. */
+ *  Backs the command bar's `next-needs-you` verb: resolves the target AND the
+ *  collapsed-group-to-expand through one tested helper. */
 export function nextNeedsYouTarget(
   blockedIds: string[],
   currentId: string | null,

@@ -784,6 +784,10 @@ export interface Session {
   claudeSessionId: string;
   agentProvider?: AgentProvider;
   model: string | null;
+  // Optional on the client mirror: the server always sends it, but the only consumer
+  // (`s.effort ?? "default"` when seeding the relaunch composer) tolerates its absence,
+  // so test fixtures need not set it.
+  effort?: string | null;
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;
@@ -1537,6 +1541,7 @@ export interface RelaunchOverrides {
   /** Agent CLI override; absent → keep the original's provider. */
   agentProvider?: AgentProvider;
   model?: string | null;
+  effort?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
 }

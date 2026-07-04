@@ -580,6 +580,9 @@
   let composePrompt = $state<string | null>(null);
   // Seed model for the New Task dialog (Fable celebration "Try it" path); null = picker default.
   let composeModel = $state<string | null>(null);
+  // Seed effort for the composer, mirroring composeModel. On relaunch/edit-held it carries the
+  // original's effort so the picker shows it (and the submit forwards it); null = provider default.
+  let composeEffort = $state<string | null>(null);
   // Relaunch-elsewhere: when set, the New Task dialog runs in relaunch mode and its
   // submit routes to relaunchSession(originalId, …) instead of createSession.
   let relaunchOriginalId = $state<string | null>(null);
@@ -1675,6 +1678,7 @@
     composeIssue = null;
     composePrompt = null;
     composeModel = null;
+    composeEffort = null;
     composeBaseBranch = null;
     relaunchOriginalId = null;
     relaunchIssueNumber = null;
@@ -1773,6 +1777,7 @@
       baseBranch: string;
       prompt: string;
       model: string | null;
+      effort: string | null;
       images: string[];
       planGateEnabled: boolean | null;
     },
@@ -1784,6 +1789,7 @@
         baseBranch: input.baseBranch,
         prompt: input.prompt,
         model: input.model,
+        effort: input.effort,
         planGateEnabled: input.planGateEnabled,
         images: input.images,
       });
@@ -1817,6 +1823,7 @@
       prompt: string;
       agentProvider?: AgentProvider;
       model: string | null;
+      effort: string | null;
       images: string[];
       issueRef?: IssueRef;
       planGateEnabled: boolean | null;
@@ -1837,6 +1844,7 @@
     prompt: string;
     agentProvider?: AgentProvider;
     model: string | null;
+    effort: string | null;
     images: string[];
     issueRef?: IssueRef;
     planGateEnabled: boolean | null;
@@ -1895,6 +1903,9 @@
     // model select shows Default and submits null back (preserving the original's model
     // exactly). `?? undefined` would wrongly fall back to the operator default.
     composeModel = s.model ?? "default";
+    // Mirror the null-model handling: null effort → literal "default" so the picker shows Default
+    // and submits it, preserving the original's effort exactly (server keeps it via pickOverride).
+    composeEffort = s.effort ?? "default";
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
@@ -1914,6 +1925,7 @@
     composeBaseBranch = input.baseBranch;
     // Mirror relaunch's null-model handling: null = "claude default" → literal "default".
     composeModel = input.model ?? "default";
+    composeEffort = input.effort ?? "default";
     composeImages = (input.images ?? []).map((p) => ({ path: p, name: p.split("/").at(-1) ?? p }));
     // The held input carries an IssueRef (no labels/assignees); pad it to the Issue shape
     // the composer chip expects. The body rides out-of-band, same as a fresh attach.
@@ -2780,6 +2792,7 @@
   {composeImages}
   {composePrompt}
   {composeModel}
+  {composeEffort}
   {composeAgentProvider}
   {composePlanGate}
   {composeAutopilot}

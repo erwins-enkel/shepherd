@@ -69,6 +69,7 @@ function baseProps(): Props {
     composeImages: [],
     composePrompt: null,
     composeModel: null,
+    composeEffort: null,
     composeAgentProvider: null,
     composePlanGate: null,
     composeAutopilot: null,

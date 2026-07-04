@@ -217,7 +217,6 @@ export const MODELS = CLAUDE_MODELS;
  *  domain (`minimal|low|medium|high`) is handled by clamping at argv-build; `minimal` (below
  *  `low`, Codex-only) is not exposed here. `"default"` (settings) / `null` (session) = no flag. */
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type Effort = (typeof EFFORTS)[number];
 
 /** Curated Codex CLI model aliases shown in the task dialog. The server accepts any safe Codex
  *  model alias because the installed Codex CLI may learn new names before Shepherd does. */

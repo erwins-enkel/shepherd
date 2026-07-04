@@ -278,6 +278,14 @@
         "reason": "Codex/default-provider persistence extends the existing hydrate migration path by one branch; keep capped until hydrate migrations are extracted."
       },
       {
+        "files": ["src/store.ts"],
+        "functions": ["buildSessionRow"],
+        "maxCyclomatic": 18,
+        "maxCognitive": 18,
+        "maxCrap": 1000,
+        "reason": "Flat session-row field assembly (mirror of hydrate); per-session reasoning-effort persistence (#1417) adds one nullish-coalescing default. Cyclomatic is field-count-driven, not logic — keep capped until the field mapping is extracted."
+      },
+      {
         "files": ["ui/src/lib/demo/router.ts"],
         "functions": ["handleSessionDetailGet"],
         "maxCyclomatic": 20,

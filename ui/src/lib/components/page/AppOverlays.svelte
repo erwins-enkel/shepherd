@@ -322,6 +322,8 @@
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
   const newTaskInitialModel = $derived(composeModel ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
+  // Hoisted out of the template (branch-free markup): the global default-effort seed.
+  const newTaskDefaultEffort = $derived(settings?.defaultEffort);
   // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
   const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
   const onboardingRepoRootDisplay = $derived(settings?.repoRootDisplay ?? null);
@@ -498,7 +500,7 @@
     initialResearch={composeResearch}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
-    defaultEffort={settings?.defaultEffort}
+    defaultEffort={newTaskDefaultEffort}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}
     onclose={onnewclose}

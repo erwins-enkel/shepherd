@@ -1585,7 +1585,6 @@ export const MODELS = CLAUDE_MODELS;
  *  domain). Codex's narrower domain (no xhigh/max) is handled by the picker's provider filter +
  *  the server-side clamp. "default" (settings) / null (session) = no flag. */
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type Effort = (typeof EFFORTS)[number];
 
 /** Curated Codex CLI model aliases shown in the task dialog. */
 export const CODEX_MODELS = [

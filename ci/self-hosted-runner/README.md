@@ -196,6 +196,12 @@ step's warning.
 
 ## ⚠️ MANDATORY public-repo cutover
 
+> **Status for shepherd:** steps 1–2 are done (`CI_RUNNER` deleted, hosted CI green)
+> and the workflow files are pinned to `ubuntu-latest`; steps 3–4 (runner teardown +
+> deregistration) are still pending on the host. The `erwins-enkel/shepherd` commands
+> below are that concrete instance — for any future private-repo deployment of this
+> harness, substitute that repo and run the same checklist before it goes public.
+
 A self-hosted runner attached to a **public** repo executes **fork-PR code on this
 host** — any internet stranger's pull request runs on your machine, beside production.
 This is GitHub's own loud warning, and here it's non-negotiable. Making the repo public

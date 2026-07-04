@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   package:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Pinned to GitHub-hosted — public repo, no CI_RUNNER toggle (see ci.yml).
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7

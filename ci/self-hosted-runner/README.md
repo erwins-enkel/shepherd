@@ -1,11 +1,17 @@
 # Shepherd self-hosted CI runner
 
-A locally-hosted GitHub Actions runner for `erwins-enkel/shepherd`, so CI for this
-**private** repo stops burning the account's included Actions minutes. The workflows
-(`.github/workflows/ci.yml`, `pr-hygiene.yml`) target it via
-`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` — set the repo Actions variable
-`CI_RUNNER=self-hosted` to route jobs here, delete it to fall straight back to
-GitHub-hosted runners.
+A locally-hosted GitHub Actions runner, built for `erwins-enkel/shepherd` while it was
+**private**, so CI stopped burning the account's included Actions minutes. **Status:
+retired for shepherd** — the repo is public (hosted minutes are free), and the
+workflows are now **pinned to `ubuntu-latest`** with the old
+`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` toggle removed, so a stray
+`gh variable set CI_RUNNER` can no longer route public fork-PR code to this host.
+
+The harness itself is repo-agnostic: `GH_REPO` / `REPO_URL` live in the host-side
+`~/.config/shepherd-ci-runner/.env`, so it can be repointed at any other **private**
+repo (e.g. `erwins-enkel/pulse`) by editing that file, re-registering the runners, and
+adding the same `vars.CI_RUNNER || 'ubuntu-latest'` toggle to that repo's workflows.
+The setup/operations sections below describe the mechanism generically.
 
 ## What & why — the cost trade-off
 
@@ -190,6 +196,12 @@ step's warning.
 
 ## ⚠️ MANDATORY public-repo cutover
 
+> **Status for shepherd:** steps 1–2 are done (`CI_RUNNER` deleted, hosted CI green)
+> and the workflow files are pinned to `ubuntu-latest`; steps 3–4 (runner teardown +
+> deregistration) are still pending on the host. The `erwins-enkel/shepherd` commands
+> below are that concrete instance — for any future private-repo deployment of this
+> harness, substitute that repo and run the same checklist before it goes public.
+
 A self-hosted runner attached to a **public** repo executes **fork-PR code on this
 host** — any internet stranger's pull request runs on your machine, beside production.
 This is GitHub's own loud warning, and here it's non-negotiable. Making the repo public
@@ -218,9 +230,9 @@ state:
 
 5. **Only now flip the repo to public.**
 
-> Optional hardening for the public phase: drop the `vars.CI_RUNNER ||` toggle from the
-> workflow files entirely, so a single `gh variable set` can't silently re-arm the
-> self-hosted path on a public repo.
+> Hardening for the public phase (**done** — PR that pinned the workflows): the
+> `vars.CI_RUNNER ||` toggle is dropped from the workflow files entirely, so a single
+> `gh variable set` can't silently re-arm the self-hosted path on a public repo.
 
 ## Egress real-machinery tests
 

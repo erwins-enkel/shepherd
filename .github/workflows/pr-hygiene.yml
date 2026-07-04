@@ -24,11 +24,8 @@ jobs:
     # this required check (skipped == passing to the ruleset). Non-release PRs run as
     # normal. This does NOT touch GitHub's separate bot-PR "awaiting approval" gate.
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
-    # Runner toggle for the closed-source phase: set the repo variable CI_RUNNER to
-    # 'self-hosted' to run on the local self-hosted runner (saves included minutes).
-    # Unset/empty falls back to ubuntu-latest. MUST be deleted before the repo goes
-    # public — a self-hosted runner on a public repo runs fork-PR code on the host.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Pinned to GitHub-hosted — public repo, no CI_RUNNER toggle (see ci.yml).
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head (the real branch tip, not the merge ref)
         uses: actions/checkout@v7

@@ -7,9 +7,7 @@ name: Onboarding release gate
 # open whenever a scenario regresses (closing it when green again). This gate
 # consults that issue when release-please's release PR is opened/updated, so a
 # release can't ship over a known onboarding regression. It only READS an issue —
-# no Incus, no host access — so it is safe and runs on a hosted runner (kept off
-# the CI_RUNNER toggle so it stays reliable when the self-hosted runner is down,
-# matching release-please.yml).
+# no Incus, no host access — so it is safe and runs on a hosted runner.
 on:
   pull_request:
     branches: [main]

@@ -52,7 +52,7 @@ concurrency:
 jobs:
   automerge:
     name: merge green doc PRs
-    runs-on: ubuntu-latest # a tiny control job — kept off the self-hosted CI runner on purpose
+    runs-on: ubuntu-latest
     steps:
       # Give the job git context: `gh repo view` (and gh's repo auto-detection generally) falls back
       # to the local git remote, so without a checkout it dies with "fatal: not a git repository".

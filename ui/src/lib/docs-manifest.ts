@@ -69,7 +69,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic critic merge train rework inferred lightweight repo trial weighted units satellite pass industry terms pr ci telemetry",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic critic merge train rework inferred lightweight repo trial weighted units reasoning effort satellite pass industry terms pr ci telemetry",
   },
   {
     title: "Project house rules",

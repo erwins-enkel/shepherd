@@ -1295,9 +1295,9 @@
   // Herd keyboard navigation (the rail-selection half of onShortcut):
   // j/k (vim) + arrows cycle selection through the rail's visible order
   // (wrapping at the ends; preventDefault keeps arrows from also scrolling),
-  // g jumps to the next session that needs you (cycling among blocked ones,
-  // silently a no-op when nothing is blocked), 1-9 select the Nth visible
-  // session in rail order. Returns true when the key belonged to keynav.
+  // 1-9 select the Nth visible session in rail order. (Jump-to-next-needs-you
+  // lives only in the command bar's `next-needs-you` verb now.) Returns true
+  // when the key belonged to keynav.
   // focusTerm follows the keystroke's origin: plain keys pass false so focus
   // stays out of the terminal and the next plain key still chains; Alt combos
   // pass true only when fired from inside the terminal (focus follows origin).
@@ -1319,11 +1319,6 @@
         e.preventDefault();
         keyNavSelect(cycleId(railIds(), navCursor(), -1), focusTerm);
         return true;
-      case "g": {
-        e.preventDefault();
-        selectNextNeedsYou(focusTerm);
-        return true;
-      }
       default:
         if (key >= "1" && key <= "9") {
           const id = nthId(railIds(), Number(key));
@@ -1356,7 +1351,7 @@
     );
   }
 
-  // The Alt tier of onShortcut: Alt+J/K/G/arrows/1-9 are the work-everywhere
+  // The Alt tier of onShortcut: Alt+J/K/arrows/1-9 are the work-everywhere
   // session switchers — they deliberately SKIP the typing guard so they fire
   // even while xterm holds focus (Viewport's attachCustomKeyEventHandler
   // suppresses the same combos — via the shared altComboKey map — from reaching
@@ -1440,14 +1435,14 @@
   }
 
   // sessions waiting on the operator other than the one on screen — gates the
-  // header "needs you" jump and tells the operator how many remain.
+  // command bar's `next-needs-you` verb and tells the operator how many remain.
   const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
 
   // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
   // as the NEEDS YOU badge) starting after the current one, wrapping around. Keep
   // blockedEntries UNFILTERED (count + jump stay on the same full set); if the target
-  // sits in a collapsed epic group, expand it first so the row is visible. Shared by
-  // the "g" shortcut and the header button so they can't drift.
+  // sits in a collapsed epic group, expand it first so the row is visible. Backs the
+  // command bar's `next-needs-you` verb.
   async function selectNextNeedsYou(focusTerm = true) {
     const { id, expand } = nextNeedsYouTarget(
       blockedEntries.map((entry) => entry.session.id),
@@ -1460,9 +1455,6 @@
       await tick(); // let the now-expanded group's rows mount so keyNavSelect can scroll to the target
     }
     keyNavSelect(id, focusTerm);
-  }
-  function jumpNextNeedsYou() {
-    selectNextNeedsYou();
   }
 
   // if the selected unit disappears while in mobile detail, fall back to the list
@@ -2517,8 +2509,6 @@
             {onarchive}
             workingBlocked={store.workingBlocked}
             onback={() => (mobileScreen = "list")}
-            nextNeedsYou={otherNeedsYou.length}
-            onnextneedsyou={jumpNextNeedsYou}
             onbroadcast={() => (showBroadcast = true)}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}

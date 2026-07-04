@@ -11,6 +11,8 @@ Shepherd is built to drive from the keyboard. These shortcuts are **desktop-only
 | --- | --- |
 | `⌘K` / `Ctrl+K` | Open the command bar — a quick-switcher over your sessions, repositories, and herd lenses. Fires even while an input or the terminal is focused. Type to filter, `↑` / `↓` to move, `Enter` to jump, `Esc` to close. |
 
+The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting). Type part of a verb's name to surface it.
+
 ## Session & herd navigation
 
 These fire when the dashboard body has focus — not while typing in a field.
@@ -19,7 +21,6 @@ These fire when the dashboard body has focus — not while typing in a field.
 | --- | --- |
 | `j` / `↓` | Select the next session |
 | `k` / `↑` | Select the previous session |
-| `g` | Jump to the next session that needs you |
 | `1`–`9` | Select the Nth session |
 | `n` | Open New Task |
 | `r` | Open the Repos / backlog view |
@@ -35,7 +36,6 @@ The Alt combos work even while the terminal owns the keyboard, so you can move a
 | `Alt+K` / `Alt+↑` | Previous session |
 | `Alt+]` / `Alt+Tab` | Next session |
 | `Alt+[` / `Alt+Shift+Tab` | Previous session |
-| `Alt+G` | Next session that needs you |
 | `Alt+1`–`Alt+9` | Select the Nth session |
 
 The `Alt+Tab` / `Alt+Shift+Tab` variants work on macOS; on Windows and Linux the OS window switcher captures `Alt+Tab` before the app sees it, so use `Alt+]` / `Alt+[` there.

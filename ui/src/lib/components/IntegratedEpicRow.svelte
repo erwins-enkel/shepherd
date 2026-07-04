@@ -45,6 +45,11 @@
 
   // Whether this row is in "action needed" open-landing state.
   const isOpen = $derived(epic.landingState === "open");
+
+  // Markdown-body epics fall the child title back to the literal "#<n>" string when the issue is
+  // absent from the open list (can hit integrated children too) — suppress it so the row doesn't
+  // render "#222 #222". Kept out of the template (fallow 40/60).
+  const showChildTitle = (c: { number: number; title: string }) => c.title !== `#${c.number}`;
 </script>
 
 <div
@@ -70,10 +75,15 @@
     <span class="num">#{epic.parentIssueNumber}</span>
     {#if isOpen}
       <span class="chip chip-warn">{m.integrated_epics_awaiting_landing_pill()}</span>
-      <span class="chip chip-done chip-secondary">{m.integrated_epics_chip({ merged, total })}</span
+      <span
+        class="chip chip-done chip-secondary"
+        title={m.integrated_epics_chip_hint({ merged, total })}
+        >{m.integrated_epics_chip({ merged, total })}</span
       >
     {:else}
-      <span class="chip chip-done">{m.integrated_epics_chip({ merged, total })}</span>
+      <span class="chip chip-done" title={m.integrated_epics_chip_hint({ merged, total })}
+        >{m.integrated_epics_chip({ merged, total })}</span
+      >
     {/if}
     <span class="ago"
       >{m.integrated_epics_finished_ago({ ago: formatAgo(nowMs - epic.completedAt) })}</span
@@ -99,7 +109,9 @@
               <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
               <a class="ref" href={c.url} target="_blank" rel="noopener noreferrer">#{c.number}</a>
             {/if}
-            <span class="title">{c.title}</span>
+            {#if showChildTitle(c)}
+              <span class="title">{c.title}</span>
+            {/if}
             <span class="child-ago"
               >{m.integrated_epics_child_merged_ago({
                 ago: formatAgo(nowMs - (c.mergedAt ?? epic.completedAt)),
@@ -108,8 +120,12 @@
           {:else}
             <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
             <a class="ref" href={c.url} target="_blank" rel="noopener noreferrer">#{c.number}</a>
-            <span class="title">{c.title}</span>
-            <span class="closed">{m.integrated_epics_child_closed()}</span>
+            {#if showChildTitle(c)}
+              <span class="title">{c.title}</span>
+            {/if}
+            <span class="closed" title={m.integrated_epics_child_closed_hint()}
+              >{m.integrated_epics_child_closed()}</span
+            >
           {/if}
         </li>
       {/each}
@@ -253,7 +269,5 @@
     flex: none;
     color: var(--color-faint);
     font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
 </style>

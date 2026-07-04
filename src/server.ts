@@ -108,6 +108,7 @@ import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { CodexUpdateService } from "./codex-update";
 import type { PluginUpdateService } from "./plugin-update";
+import type { RestartService } from "./restart";
 import type { DiagnosticsService } from "./diagnostics";
 import type { VerifyKeyResult } from "./verify-key";
 import type { StarPromptStatus } from "./star-prompt";
@@ -262,6 +263,9 @@ export interface AppDeps {
    *  an on-demand re-scan, `apply()` to fetch-and-swap a plugin's new version on disk
    *  (issue #1124); absent when unwired. */
   pluginUpdates?: Pick<PluginUpdateService, "current" | "apply" | "check">;
+  /** one-click shepherd restart (optionally with a herdr live-handoff first);
+   *  absent in environments where it isn't wired (tests). */
+  restart?: Pick<RestartService, "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -3595,6 +3599,29 @@ function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
+// ── shepherd restart: relaunch the systemd unit on demand ──────────────
+// POST /api/restart `{ herdr?: boolean }` → 202 once the detached restart is
+// launched. `herdr: true` runs a graceful `herdr server live-handoff` first
+// (panes survive). No GET: the UI detects completion by /api/health answering
+// again after the restart. Errors carry a stable code (`not_systemd` when this
+// process isn't the systemd unit — e.g. a dev worktree — so a dev UI can never
+// bounce the production instance).
+async function handleRestart({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "restart" && !parts[2])) return null;
+  if (req.method !== "POST") return null;
+  if (!deps.restart) return json({ started: false, error: "not_available" }, 503);
+  let herdr = false;
+  try {
+    const body = (await req.json()) as { herdr?: unknown };
+    herdr = body?.herdr === true;
+  } catch {
+    // an empty/absent body is a plain shepherd-only restart
+  }
+  const r = deps.restart.apply({ herdr });
+  if (r.started) return json({ started: true }, 202);
+  return json({ started: false, error: r.error ?? "could not start the restart" }, 409);
+}
+
 // ── plugin update: status (informational) + on-demand check + in-place apply ──
 //  - GET  /api/plugin-update        → PluginUpdatesStatus (cached snapshot; badge/list)
 //  - POST /api/plugin-update/check  → force a fresh scan NOW, broadcast the snapshot on
@@ -6248,6 +6275,7 @@ const ROUTE_HANDLERS = [
   handleHerdrUpdate,
   handleCodexUpdate,
   handlePluginUpdate,
+  handleRestart,
   handleDiagnostics,
   handleDiagnosticsFix,
   handleStarPrompt,

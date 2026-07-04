@@ -17,6 +17,7 @@
   } from "$lib/types";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
+  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
 
   let {
     plugins = [],
@@ -59,6 +60,7 @@
   type Confirm =
     { kind: "install"; url: string } | { kind: "uninstall"; folder: string; name: string };
   let confirm = $state<Confirm | null>(null);
+  let restartOpen = $state(false); // the one-click Restart-Shepherd dialog
 
   const RESTART_CMD = "systemctl --user restart shepherd";
 
@@ -408,6 +410,9 @@
       <button type="button" class="gbtn copy" onclick={copyRestart}>
         {copied ? m.plugins_copied() : m.plugins_copy()}
       </button>
+      <button type="button" class="gbtn restart-now" onclick={() => (restartOpen = true)}>
+        {m.restart_now()}
+      </button>
     </div>
   {/if}
 
@@ -502,6 +507,10 @@
   <PluginConfirmDialog {confirm} onconfirm={onConfirm} oncancel={() => (confirm = null)} />
 {/if}
 
+{#if restartOpen}
+  <RestartShepherdDialog onclose={() => (restartOpen = false)} />
+{/if}
+
 <style>
   .plugins {
     display: flex;
@@ -582,15 +591,17 @@
   }
   .gbtn.del,
   .gbtn.copy,
+  .gbtn.restart-now,
   .gbtn.activate,
   .gbtn.check,
   .gbtn.upd {
     font-size: var(--fs-micro);
     padding: 5px 9px;
   }
-  /* Activate / Update are the row's primary action — amber accent like the install button. */
+  /* Activate / Update / Restart are the row's primary action — amber accent like the install button. */
   .gbtn.activate,
-  .gbtn.upd {
+  .gbtn.upd,
+  .gbtn.restart-now {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }

@@ -58,6 +58,7 @@ import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService } from "./codex-update";
 import { PluginUpdateService } from "./plugin-update";
+import { RestartService } from "./restart";
 import { DiagnosticsService } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -2074,6 +2075,10 @@ const refreshUsage = () => calibrate();
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.
 const updates = new UpdateService();
+
+// one-click restart of the shepherd unit (optionally herdr live-handoff first);
+// self-guarded: refuses unless this process IS the systemd unit's activation.
+const restart = new RestartService();
 const checkUpdates = async () => events.emit("update:status", await updates.check(Date.now()));
 setTimeout(checkUpdates, 3_000);
 setInterval(checkUpdates, 5 * 60 * 1000);
@@ -2241,6 +2246,7 @@ const appDeps: AppDeps = {
   // is quota-exempt, so it works even when the GraphQL bucket is at zero.
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
   updates,
+  restart,
   herdrUpdates,
   codexUpdates,
   pluginUpdates,

@@ -5,7 +5,9 @@ import "../../app.css";
 import type { PluginUpdatesStatus } from "$lib/types";
 
 const { applyMock } = vi.hoisted(() => ({ applyMock: vi.fn() }));
-vi.mock("$lib/api", () => ({ applyPluginUpdate: applyMock }));
+// triggerRestart is pulled in by the nested RestartShepherdDialog; the mock only
+// needs the export to exist for these tests (the dialog opens on click only).
+vi.mock("$lib/api", () => ({ applyPluginUpdate: applyMock, triggerRestart: vi.fn() }));
 
 import PluginUpdatesModal from "./PluginUpdatesModal.svelte";
 

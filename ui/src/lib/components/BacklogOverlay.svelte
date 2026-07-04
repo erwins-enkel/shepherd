@@ -109,6 +109,7 @@
   }
   .card {
     width: min(960px, 94vw);
+    height: min(720px, 88vh);
     max-height: 88vh;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);

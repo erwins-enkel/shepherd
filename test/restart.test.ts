@@ -10,6 +10,7 @@ function makeService(overrides: RestartDeps = {}) {
     unitInvocationId: () => "abc-123\n",
     launch: (script) => launched.push(script),
     now: () => 1_000_000,
+    herdrBin: "herdr",
     ...overrides,
   });
   return { svc, launched };
@@ -26,8 +27,14 @@ test("herdr restart: live-handoff runs BEFORE the shepherd restart", () => {
   const { svc, launched } = makeService();
   expect(svc.apply({ herdr: true }).started).toBe(true);
   const lines = launched[0]!.split("\n");
-  expect(lines[0]).toBe("herdr server live-handoff || true");
+  expect(lines[0]).toBe("'herdr' server live-handoff || true");
   expect(lines[1]).toBe("systemctl --user restart 'shepherd'");
+});
+
+test("herdr restart uses the configured binary, shell-quoted", () => {
+  const { svc, launched } = makeService({ herdrBin: "/opt/o'dd/herdr" });
+  expect(svc.apply({ herdr: true }).started).toBe(true);
+  expect(launched[0]!.split("\n")[0]).toBe(`'/opt/o'\\''dd/herdr' server live-handoff || true`);
 });
 
 test("no own INVOCATION_ID (dev worktree) → not_systemd, nothing launched", () => {
@@ -82,6 +89,6 @@ test("launcher failure surfaces its message and does NOT arm the debounce", () =
 });
 
 test("buildRestartScript omits herdr line unless asked", () => {
-  expect(buildRestartScript({ herdr: false })).not.toContain("herdr");
-  expect(buildRestartScript({ herdr: true })).toContain("herdr server live-handoff");
+  expect(buildRestartScript({ herdr: false }, "herdr")).not.toContain("herdr");
+  expect(buildRestartScript({ herdr: true }, "herdr")).toContain("'herdr' server live-handoff");
 });

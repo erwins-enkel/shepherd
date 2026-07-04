@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { config } from "./config";
 
 /**
  * One-click restart of the shepherd systemd unit, optionally preceded by a
@@ -31,10 +32,12 @@ const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
  *  shepherd finds a settled daemon instead of the mid-handoff window (ordering
  *  is politeness, not safety — a down daemon can't trip the exit-78 preflight,
  *  which only fires on a missing binary). `|| true` keeps a failed handoff from
- *  blocking the shepherd restart; the old herdr server stays up in that case. */
-export function buildRestartScript(opts: { herdr: boolean }): string {
+ *  blocking the shepherd restart; the old herdr server stays up in that case.
+ *  `herdrBin` is the configured binary (HERDR_BIN / config.herdrBin) — a
+ *  custom-binary install must hand off via the same herdr it runs. */
+export function buildRestartScript(opts: { herdr: boolean }, herdrBin = config.herdrBin): string {
   const lines: string[] = [];
-  if (opts.herdr) lines.push("herdr server live-handoff || true");
+  if (opts.herdr) lines.push(`${shq(herdrBin)} server live-handoff || true`);
   lines.push(`systemctl --user restart ${shq(UNIT)}`);
   return lines.join("\n");
 }
@@ -48,6 +51,8 @@ export interface RestartDeps {
   launch?: (script: string) => void;
   /** clock inject for the relaunch window */
   now?: () => number;
+  /** herdr binary for the live-handoff line; defaults to config.herdrBin */
+  herdrBin?: string;
 }
 
 export class RestartService {
@@ -55,6 +60,7 @@ export class RestartService {
   private unitInvocationId: () => string;
   private launch: (script: string) => void;
   private now: () => number;
+  private herdrBin: string;
   private launchedAt = 0;
 
   constructor(deps: RestartDeps = {}) {
@@ -62,6 +68,7 @@ export class RestartService {
     this.unitInvocationId = deps.unitInvocationId ?? defaultUnitInvocationId;
     this.launch = deps.launch ?? defaultLaunch;
     this.now = deps.now ?? Date.now;
+    this.herdrBin = deps.herdrBin ?? config.herdrBin;
   }
 
   /** True only when this process IS the systemd unit's current activation:
@@ -91,7 +98,7 @@ export class RestartService {
       return { started: false, error: "already_restarting" };
     }
     try {
-      this.launch(buildRestartScript(opts));
+      this.launch(buildRestartScript(opts, this.herdrBin));
     } catch (e) {
       return {
         started: false,

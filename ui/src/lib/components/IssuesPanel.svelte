@@ -135,6 +135,8 @@
     nativeSubIssues = new Set();
     epicsLoaded = false;
     fetched.clear();
+    epicFetchSeq.clear();
+    epicFetchPending.clear();
     const issuesTicket = ++issuesSeq;
     listIssues(rp)
       .then((r) => {
@@ -228,20 +230,48 @@
         epicsLoaded = true;
       })
       .catch(() => {});
-    // One-shot epic cache: refresh what's on screen, drop the rest (a later expand
-    // refetches). Without this an expanded idle epic (absent from the live store)
-    // would keep rendering its frozen first fetch forever.
+    // One-shot epic cache: drop what's no longer on screen, then refresh every
+    // EXPANDED panel the live store doesn't cover (store-backed panels are refreshed
+    // by +page's resync re-pull; idle/pruned epics exist only in `fetched`). Iterating
+    // `expanded` — not `fetched.keys()` — also re-seeds a panel whose live record the
+    // store PRUNED (completed epic) since it was expanded, which left it in neither.
     for (const num of [...fetched.keys()]) {
-      if (!expanded.has(num)) {
-        fetched.delete(num);
-        continue;
-      }
-      getEpic(rp, num)
-        .then((e) => {
-          if (rp === repoPath) fetched.set(num, e);
-        })
-        .catch(() => {});
+      if (!expanded.has(num)) fetched.delete(num);
     }
+    for (const num of expanded) {
+      if (epics?.[`${rp}#${num}`]) continue;
+      fetchEpicInto(rp, num);
+    }
+  }
+
+  // Per-number fetch tickets for the one-shot epic cache — same role as issuesSeq/
+  // epicsSeq above. Applied results must ALSO still be expanded: a late settle for a
+  // since-collapsed epic would otherwise re-seed `fetched`, and the next expand would
+  // serve that stale entry without refetching. Plain Map on purpose (guard, not UI
+  // state); cleared on repo change alongside `fetched`.
+  // Deliberately plain (non-reactive) on purpose — fetch guards, NOT UI state; a
+  // SvelteMap/SvelteSet would make the backfill $effect re-run on its own writes.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const epicFetchSeq = new Map<number, number>();
+  // In-flight numbers, so the backfill effect below doesn't re-fire a fetch that is
+  // merely still pending (epicFor stays undefined until it settles). The `finally`
+  // only clears the flag while it still holds the latest ticket — an older settle
+  // must not unmark a newer in-flight fetch.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- same guard rationale
+  const epicFetchPending = new Set<number>();
+  function fetchEpicInto(rp: string, num: number) {
+    const ticket = (epicFetchSeq.get(num) ?? 0) + 1;
+    epicFetchSeq.set(num, ticket);
+    epicFetchPending.add(num);
+    getEpic(rp, num)
+      .then((e) => {
+        if (rp !== repoPath || epicFetchSeq.get(num) !== ticket || !expanded.has(num)) return;
+        fetched.set(num, e);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (epicFetchSeq.get(num) === ticket) epicFetchPending.delete(num);
+      });
   }
 
   /** Return the live store value for an epic if available, else the cached fetch result. */
@@ -249,15 +279,23 @@
     return epics?.[`${repoPath}#${n}`] ?? fetched.get(n);
   }
 
-  /** Expand an epic's panel + one-shot fetch its record if the store lacks it. */
+  // Sole owner of the one-shot fetch: any EXPANDED row with a record in NEITHER
+  // source gets fetched into the cache. Covers the first expand (expandEpicRow just
+  // records intent) AND the live store pruning a completed epic out from under an
+  // already-open panel — without this the panel would flip to its loading state and
+  // stick there until collapse/re-expand. Reactive on `expanded`, the `epics` prop
+  // and `fetched`, so a successful fetch (or a prune) re-evaluates and settles; a
+  // failed fetch stays absent until the next expanded/epics change retries it —
+  // the same recovery the old expand-time one-shot had.
+  $effect(() => {
+    for (const num of expanded) {
+      if (!epicFor(num) && !epicFetchPending.has(num)) untrack(() => fetchEpicInto(repoPath, num));
+    }
+  });
+
+  /** Expand an epic's panel; the backfill effect above fetches it if needed. */
   function expandEpicRow(number: number) {
     expanded.add(number);
-    // Trigger a one-shot fetch if the live store doesn't have this epic yet.
-    if (!epics?.[`${repoPath}#${number}`] && !fetched.has(number)) {
-      getEpic(repoPath, number)
-        .then((e) => fetched.set(number, e))
-        .catch(() => {});
-    }
   }
 
   function toggleEpic(number: number) {

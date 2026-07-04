@@ -8,6 +8,7 @@ import { listIssues, getEpics, getEpic } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+import { reactiveRecord } from "./reactive-fixture.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -810,5 +811,77 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     expect(document.querySelector(".issues-list")?.textContent).not.toContain(
       m.common_issues_load_failed(),
     );
+  });
+
+  it("refetches an expanded panel when the live store prunes its record (no stuck loading state)", async () => {
+    // A store-backed expanded panel renders via the `epics` prop; when the epic
+    // completes, the store PRUNES that record — the backfill must fetch it into the
+    // one-shot cache instead of leaving the open panel on its loading state forever.
+    // The prune is driven by mutating a deeply-reactive record (see reactiveRecord):
+    // the harness's rerender would replace the whole props object and re-run the
+    // repo-change reset, which a single store prune never does in production.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(60, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(60, 2, 3)], subIssues: [] });
+    mockEpic.mockResolvedValue(makeEpic(60, ["merged", "merged", "merged"]));
+
+    const live = reactiveRecord({ "/repo#60": makeEpic(60, ["merged", "merged", "running"]) });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: live, expandEpic: 60 });
+
+    // Panel renders from the live store — no one-shot fetch needed or fired.
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).not.toHaveBeenCalled();
+
+    // The epic finishes → the store drops the key (setEpic finished-prune).
+    delete live["/repo#60"];
+
+    // Backfill kicks in: the panel re-renders from the fetched record.
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 3, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).toHaveBeenCalledWith("/repo", 60);
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("a late epic fetch for a since-collapsed panel is discarded — re-expand refetches", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(70, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(70, 0, 1)], subIssues: [] });
+    let resolveFirst!: (e: Epic) => void;
+    mockEpic
+      .mockReturnValueOnce(new Promise<Epic>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(makeEpic(70, ["merged"]));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+
+    const badge = () => document.querySelector(".epic-badge") as HTMLButtonElement;
+    badge().click(); // expand → backfill fetch #1 (held pending)
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1);
+    badge().click(); // collapse while the fetch is still in flight
+
+    // The late settle must NOT re-seed the cache for the collapsed panel…
+    resolveFirst(makeEpic(70, ["ready"]));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // …so re-expanding refetches instead of serving the discarded stale record.
+    badge().click();
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 1 })))
+      .toBeInTheDocument();
   });
 });

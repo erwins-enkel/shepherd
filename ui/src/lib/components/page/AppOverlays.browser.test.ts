@@ -44,6 +44,7 @@ function baseProps(): Props {
     oncodexupdateclose: vi.fn(),
     showPluginUpdates: false,
     onpluginupdatesclose: vi.fn(),
+    onpluginupdated: vi.fn(),
     showOnboarding: false,
     diagnosticsLoadFailed: false,
     ononboardingretry: vi.fn(),

@@ -57,6 +57,7 @@
     Issue,
     IssueRef,
     OwedFocusSnapshot,
+    PluginUpdatesStatus,
     PullRequest,
     SandboxProfile,
     Session,
@@ -498,10 +499,19 @@
     codexUpdating = false;
     showCodexUpdate = true;
   }
-  // Installed-plugin update status (informational; no apply, so no "updating" state).
+  // Installed-plugin update status + in-place apply.
   let showPluginUpdates = $state(false);
   function openPluginUpdates() {
     showPluginUpdates = true;
+  }
+  function closePluginUpdates() {
+    showPluginUpdates = false;
+  }
+  /** After an in-place plugin update: adopt the recomputed snapshot (refreshes the badge)
+   *  and reload the loaded-plugin list so a freshly-activated/newly-versioned plugin shows. */
+  function onPluginUpdated(status: PluginUpdatesStatus) {
+    store.pluginUpdates = status;
+    loadPlugins();
   }
   let showWhatsNew = $state(false);
   let whatsNewEntries = $state<FeatureAnnouncement[]>([]);
@@ -2739,9 +2749,8 @@
     store.codexUpdateDone = null;
   }}
   {showPluginUpdates}
-  onpluginupdatesclose={() => {
-    showPluginUpdates = false;
-  }}
+  onpluginupdatesclose={closePluginUpdates}
+  onpluginupdated={onPluginUpdated}
   {showOnboarding}
   {onboardingBlocking}
   {diagnosticsLoadFailed}

@@ -65,6 +65,40 @@ behind a confirm dialog.
   `POST /api/plugins/manage/activate` (`{ folder }`),
   `DELETE /api/plugins/manage/installed/<folder>`.
 
+### Updates — in place, one click
+
+Shepherd periodically checks each installed plugin for a newer released version and
+surfaces an **update badge** + a **Plugin updates** modal. A plugin is checkable when a
+source resolves one of two ways:
+
+- it declares a **`repository`** in its `plugin.json` (the primary path for a `cp -r`
+  install with no local `.git`) — the highest **semver tag** on that repo is the candidate,
+  read without a full clone (`git ls-remote --tags` + a checkout-less fetch of the tag's
+  `plugin.json`); or
+- its folder is a **git checkout with an upstream** (the symlink-to-checkout dev workflow) —
+  the upstream tip's `plugin.json` is the candidate, read after a `git fetch` that never
+  touches the working tree.
+
+The installed `version` is compared to the candidate by real semver; only a strictly-newer,
+`apiVersion`-compatible candidate is offered (a version bump that would be rejected at load is
+shown as **incompatible**, not update-available). Detection is read-only — it never mutates a
+folder on its own.
+
+**Applying** (the modal's **Update** / **Update all** buttons, or
+`POST /api/plugin-update/apply` `{ id }`) is a re-verified fetch-and-swap on disk: a git
+checkout **fast-forwards** to its upstream (untracked `config.json` preserved); a `repository`
+install **clones the latest tag** into a scratch dir beside the folder, carries `config.json`
+over, and swaps it in behind a backup (a mid-swap failure restores the original). A **symlinked**
+install is refused — its source lives outside the plugins dir and is yours to update. After the
+swap Shepherd re-activates the plugin: if it **wasn't loaded** it goes live immediately; if it
+**was already running** its old module is cached, so the panel reports a restart is owed
+(`systemctl --user restart shepherd`) to run the new code.
+
+**To ship an update your users can pick up:** bump `version` in `plugin.json` (semver), then
+either push a matching **git tag** (for `repository`-declared installs — a leading `v` is fine,
+`v1.3.0` and `1.3.0` both parse) or push to the branch your users' checkout tracks (for the
+git-checkout workflow).
+
 ## Manifest (`plugin.json`)
 
 ```json
@@ -82,7 +116,8 @@ behind a confirm dialog.
 | -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`           | yes      | Stable unique id; namespaces routes (`/api/plugins/<id>/…`) and state.                                                                                            |
 | `name`         | yes      | Display name in the status panel.                                                                                                                                 |
-| `version`      | yes      | Your plugin's version string.                                                                                                                                     |
+| `version`      | yes      | Your plugin's version string (semver). Drives the update check — bump it to publish an update.                                                                    |
+| `repository`   | no       | Declared update source, an `https://github.com/<owner>/<repo>` URL. Lets a `cp -r` install (no local `.git`) be update-checked against its highest semver tag.    |
 | `apiVersion`   | yes      | Plugin API version. Must equal the current `PLUGIN_API_VERSION` (**1**). A mismatch is skipped + surfaced as `errored` in the panel.                              |
 | `capabilities` | no       | Declared intent (`spawn`, `events`, `state`, `routes`, `status`, …). **Unenforced in v1** — advisory/documentation; the hook a permission model bolts onto later. |
 | `enabled`      | no       | Soft off-switch. `false` skips the plugin at load without removing the folder.                                                                                    |

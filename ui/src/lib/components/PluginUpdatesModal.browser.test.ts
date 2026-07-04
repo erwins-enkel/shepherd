@@ -4,6 +4,9 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { PluginUpdatesStatus } from "$lib/types";
 
+const { applyMock } = vi.hoisted(() => ({ applyMock: vi.fn() }));
+vi.mock("$lib/api", () => ({ applyPluginUpdate: applyMock }));
+
 import PluginUpdatesModal from "./PluginUpdatesModal.svelte";
 
 const status: PluginUpdatesStatus = {
@@ -39,6 +42,7 @@ const status: PluginUpdatesStatus = {
 
 afterEach(async () => {
   document.body.innerHTML = "";
+  applyMock.mockReset();
   await page.viewport(1280, 900);
 });
 
@@ -67,5 +71,94 @@ describe("PluginUpdatesModal", () => {
     });
     expect(document.querySelector(".empty")).not.toBeNull();
     expect(document.querySelector(".plist")).toBeNull();
+  });
+
+  it("shows an Update button only on the updatable row, with a current→new version", () => {
+    render(PluginUpdatesModal, { props: { status } });
+    const rows = document.querySelectorAll(".plist li");
+    // only the update-available row (voice) carries an Update button
+    expect(rows[0]!.querySelector(".gbtn.upd")).not.toBeNull();
+    expect(rows[1]!.querySelector(".gbtn.upd")).toBeNull();
+    expect(rows[0]!.querySelector(".pver")!.textContent).toContain("1.2.0");
+    expect(rows[0]!.querySelector(".pver")!.textContent).toContain("1.3.0");
+    // one updatable plugin → no "Update all"
+    expect(document.querySelector(".pactions")).toBeNull();
+  });
+
+  it("applying an update calls the API and shows the restart hint", async () => {
+    applyMock.mockResolvedValue({
+      ok: true,
+      result: { restartRequired: true, updatedTo: "1.3.0", status },
+    });
+    const onapplied = vi.fn();
+    render(PluginUpdatesModal, { props: { status, onapplied } });
+    document.querySelector<HTMLButtonElement>(".plist li .gbtn.upd")!.click();
+    await vi.waitFor(() => {
+      expect(applyMock).toHaveBeenCalledWith("voice");
+      expect(document.querySelector(".restart")).not.toBeNull();
+      expect(document.body.textContent).toContain("1.3.0");
+    });
+    expect(onapplied).toHaveBeenCalledWith(status);
+  });
+
+  it("surfaces a failed update inline without a restart banner", async () => {
+    applyMock.mockResolvedValue({ ok: false, error: "update_failed" });
+    render(PluginUpdatesModal, { props: { status } });
+    document.querySelector<HTMLButtonElement>(".plist li .gbtn.upd")!.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".outcome.error")).not.toBeNull();
+    });
+    expect(document.querySelector(".restart")).toBeNull();
+  });
+
+  it("does not re-apply a plugin that already succeeded (stale-snapshot guard)", async () => {
+    applyMock.mockResolvedValue({
+      ok: true,
+      result: { restartRequired: false, updatedTo: "1.3.0", status },
+    });
+    render(PluginUpdatesModal, { props: { status } });
+    const btn = () => document.querySelector<HTMLButtonElement>(".plist li .gbtn.upd")!;
+    btn().click();
+    await vi.waitFor(() => expect(applyMock).toHaveBeenCalledTimes(1));
+    // status prop is static in the test, so the (now succeeded) row still renders its button —
+    // a second click must be a no-op, not a re-apply that would overwrite the success.
+    btn().click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(applyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Update all applies each updatable plugin exactly once (no duplicate re-apply)", async () => {
+    const multi: PluginUpdatesStatus = {
+      updateAvailable: true,
+      checkedAt: 0,
+      plugins: [
+        {
+          id: "a",
+          name: "A",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          source: "repository",
+          state: "update-available",
+        },
+        {
+          id: "b",
+          name: "B",
+          currentVersion: "2.0.0",
+          latestVersion: "2.1.0",
+          source: "git",
+          state: "update-available",
+        },
+      ],
+    };
+    applyMock.mockResolvedValue({
+      ok: true,
+      result: { restartRequired: false, updatedTo: "x", status: multi },
+    });
+    render(PluginUpdatesModal, { props: { status: multi } });
+    // "Update all" only renders when >1 plugin is updatable.
+    document.querySelector<HTMLButtonElement>(".pactions .gbtn.upd")!.click();
+    await vi.waitFor(() => expect(applyMock).toHaveBeenCalledTimes(2));
+    const ids = applyMock.mock.calls.map((c) => c[0]).sort();
+    expect(ids).toEqual(["a", "b"]); // once each, never repeated
   });
 });

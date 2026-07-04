@@ -23,3 +23,17 @@ export function prBadgeLabel(git: GitState | undefined): string | null {
 export function prBadgeIsDraft(git: GitState | undefined): boolean {
   return git?.state === "open" && !!git.isDraft;
 }
+
+/** Whether the badge menu offers the Merge action. Mirrors GitRail's mergeBlocked
+ *  gate (minus `busy`, which is component state): real-forge open PR, not a draft,
+ *  no conflicts, and mergeStateStatus not blocked/behind — falling back to
+ *  checks !== "failure" when the host reports no usable mergeStateStatus (Gitea).
+ *  UI-side gate only; the server re-validates the merge. */
+export function prMergeAvailable(git: GitState | undefined): boolean {
+  if (!git || (git.kind !== "github" && git.kind !== "gitea")) return false;
+  if (git.state !== "open" || !git.number) return false;
+  if (git.isDraft === true || git.mergeable === false) return false;
+  return git.mergeStateStatus && git.mergeStateStatus !== "unknown"
+    ? git.mergeStateStatus !== "blocked" && git.mergeStateStatus !== "behind"
+    : git.checks !== "failure";
+}

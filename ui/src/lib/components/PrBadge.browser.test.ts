@@ -110,4 +110,76 @@ describe("PrBadge", () => {
     await draftAction.click({ force: true });
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("shows the Merge action when merge is available", async () => {
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_merge() }))
+      .toBeInTheDocument();
+  });
+
+  it("hides the Merge action when merge is not available", async () => {
+    for (const over of [
+      { isDraft: true },
+      { mergeable: false },
+      { mergeStateStatus: "blocked" },
+      { checks: "failure" },
+      { kind: "local" },
+    ] satisfies Partial<GitState>[]) {
+      render(PrBadge, { props: { git: git(over), sessionId: "s1" } });
+
+      await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+      await expect
+        .element(page.getByRole("menuitem", { name: m.prbadge_open_pr() }))
+        .toBeInTheDocument();
+      expect(document.querySelector(".pm-item.armed"), JSON.stringify(over)).toBeNull();
+      for (const item of document.querySelectorAll<HTMLButtonElement>(".pm-item")) {
+        expect(item.textContent, JSON.stringify(over)).not.toContain(m.prbadge_merge());
+      }
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("merges only after a two-tap confirm", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
+
+    // first tap arms only — no request yet, label flips to the confirm prompt
+    expect(fetch).not.toHaveBeenCalled();
+    const confirm = page.getByRole("menuitem", { name: m.prbadge_confirm_merge() });
+    await expect.element(confirm).toBeInTheDocument();
+
+    await confirm.click();
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/git/merge", expect.any(Object));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
+  });
+
+  it("surfaces a merge failure as an alert toast", async () => {
+    const { toasts } = await import("$lib/toasts.svelte");
+    const info = vi.spyOn(toasts, "info");
+    const fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
+    await page.getByRole("menuitem", { name: m.prbadge_confirm_merge() }).click();
+
+    await vi.waitFor(() =>
+      expect(info).toHaveBeenCalledWith(
+        m.prbadge_merge_failed({ reason: "boom" }),
+        expect.objectContaining({ alert: true, duration: null, key: "pr-merge:s1" }),
+      ),
+    );
+  });
 });

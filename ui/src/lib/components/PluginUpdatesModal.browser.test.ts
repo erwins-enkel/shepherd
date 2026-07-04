@@ -110,4 +110,55 @@ describe("PluginUpdatesModal", () => {
     });
     expect(document.querySelector(".restart")).toBeNull();
   });
+
+  it("does not re-apply a plugin that already succeeded (stale-snapshot guard)", async () => {
+    applyMock.mockResolvedValue({
+      ok: true,
+      result: { restartRequired: false, updatedTo: "1.3.0", status },
+    });
+    render(PluginUpdatesModal, { props: { status } });
+    const btn = () => document.querySelector<HTMLButtonElement>(".plist li .gbtn.upd")!;
+    btn().click();
+    await vi.waitFor(() => expect(applyMock).toHaveBeenCalledTimes(1));
+    // status prop is static in the test, so the (now succeeded) row still renders its button —
+    // a second click must be a no-op, not a re-apply that would overwrite the success.
+    btn().click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(applyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Update all applies each updatable plugin exactly once (no duplicate re-apply)", async () => {
+    const multi: PluginUpdatesStatus = {
+      updateAvailable: true,
+      checkedAt: 0,
+      plugins: [
+        {
+          id: "a",
+          name: "A",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          source: "repository",
+          state: "update-available",
+        },
+        {
+          id: "b",
+          name: "B",
+          currentVersion: "2.0.0",
+          latestVersion: "2.1.0",
+          source: "git",
+          state: "update-available",
+        },
+      ],
+    };
+    applyMock.mockResolvedValue({
+      ok: true,
+      result: { restartRequired: false, updatedTo: "x", status: multi },
+    });
+    render(PluginUpdatesModal, { props: { status: multi } });
+    // "Update all" only renders when >1 plugin is updatable.
+    document.querySelector<HTMLButtonElement>(".pactions .gbtn.upd")!.click();
+    await vi.waitFor(() => expect(applyMock).toHaveBeenCalledTimes(2));
+    const ids = applyMock.mock.calls.map((c) => c[0]).sort();
+    expect(ids).toEqual(["a", "b"]); // once each, never repeated
+  });
 });

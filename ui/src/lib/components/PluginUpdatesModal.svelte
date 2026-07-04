@@ -41,6 +41,9 @@
   type Outcome = { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string };
   let outcome = $state<Record<string, Outcome>>({});
   let copied = $state(false);
+  // True for the duration of an "Update all" serial run. Locks every per-row Update button
+  // too, so a manual click can't race the bulk loop's snapshot and get re-applied under it.
+  let bulk = $state(false);
 
   const anyApplying = $derived(Object.values(applying).some(Boolean));
   const anyRestart = $derived(Object.values(outcome).some((o) => o.kind === "restart"));
@@ -76,8 +79,13 @@
 
   async function applyOne(p: PluginUpdateInfo) {
     if (applying[p.id]) return;
+    // Never re-apply a plugin that already succeeded this session — the bulk loop iterates a
+    // snapshot, so without this a plugin updated manually (or in an earlier bulk pass) would
+    // be re-applied and its success overwritten by a false "already up to date" error.
+    const prior = outcome[p.id];
+    if (prior && prior.kind !== "error") return;
     applying = { ...applying, [p.id]: true };
-    // Drop any prior outcome for this id so a retry starts clean.
+    // Drop any prior (error) outcome for this id so a retry starts clean.
     const next = { ...outcome };
     delete next[p.id];
     outcome = next;
@@ -101,8 +109,14 @@
   }
 
   async function applyAll() {
+    if (bulk) return;
+    bulk = true;
     // Snapshot at click — a plugin updated this round simply isn't in the list next render.
-    for (const p of [...updatable]) await applyOne(p);
+    try {
+      for (const p of [...updatable]) await applyOne(p);
+    } finally {
+      bulk = false;
+    }
   }
 
   async function copyRestart() {
@@ -154,7 +168,7 @@
     {:else}
       {#if updatable.length > 1}
         <div class="pactions">
-          <button type="button" class="gbtn upd" disabled={anyApplying} onclick={applyAll}>
+          <button type="button" class="gbtn upd" disabled={anyApplying || bulk} onclick={applyAll}>
             {m.pluginupdate_apply_all()}
           </button>
         </div>
@@ -177,7 +191,7 @@
                 <button
                   type="button"
                   class="gbtn upd"
-                  disabled={applying[p.id]}
+                  disabled={applying[p.id] || bulk}
                   onclick={() => applyOne(p)}
                 >
                   {applying[p.id] ? m.pluginupdate_applying() : m.pluginupdate_apply()}

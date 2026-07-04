@@ -105,7 +105,9 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 ### Requirements
 
 - [Bun](https://bun.sh) — backend runtime + package manager
-- `herdr` on `PATH` — manages the interactive `claude` panes (owns the PTYs)
+- `herdr` on `PATH` — [Can Celik](https://github.com/ogulcancelik)'s agent
+  multiplexer ([herdr.dev](https://herdr.dev)); manages the interactive `claude`
+  panes (owns the PTYs)
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

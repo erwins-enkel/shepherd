@@ -49,6 +49,17 @@ const splits: Split[] = [
         reattach</strong>. Nothing lost, no run interrupted.
       </p>
       <p class="rule">“The orchestrator is disposable. Your running agents are not.”</p>
+      <p class="credit">
+        This split exists because of <a
+          href="https://herdr.dev"
+          rel="noopener noreferrer"
+          target="_blank">herdr</a
+        >, the agent multiplexer by <a
+          href="https://github.com/ogulcancelik"
+          rel="noopener noreferrer"
+          target="_blank">Can Celik</a
+        > — without it, Shepherd wouldn't be possible.
+      </p>
     </div>
 
     <ul class="grid">
@@ -124,6 +135,34 @@ const splits: Split[] = [
     font-family: var(--font-mono);
     font-size: 0.95rem;
     color: var(--ink-muted);
+  }
+
+  .credit {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+  }
+
+  .credit a {
+    color: var(--ink);
+    border-bottom: 1px solid var(--panel-2);
+    transition: border-color 0.15s ease;
+  }
+
+  .credit a:hover {
+    border-color: var(--green);
+  }
+
+  .credit a:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .credit a {
+      transition: none;
+    }
   }
 
   .grid {

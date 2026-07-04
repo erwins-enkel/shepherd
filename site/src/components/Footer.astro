@@ -12,6 +12,9 @@ const IMPRESSUM_URL = "/impressum";
 const PRIVACY_URL = "/privacy";
 // Operating company behind Shepherd.
 const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
+// herdr credit — the agent multiplexer Shepherd is built on.
+const HERDR_URL = "https://herdr.dev";
+const HERDR_AUTHOR_URL = "https://github.com/ogulcancelik";
 ---
 
 <footer class="footer" aria-label="Site footer">
@@ -41,6 +44,14 @@ const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
         rel="noopener noreferrer"
         target="_blank">Erwins Enkel GmbH</a
       >
+    </p>
+
+    <p class="credit">
+      Built on <a href={HERDR_URL} rel="noopener noreferrer" target="_blank"
+        >herdr</a
+      > by <a href={HERDR_AUTHOR_URL} rel="noopener noreferrer" target="_blank"
+        >Can Celik</a
+      > — without it, Shepherd wouldn't exist.
     </p>
 
     <p class="disclaimer">
@@ -112,17 +123,26 @@ const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
     color: var(--ink-muted);
   }
 
-  .license a {
+  .credit {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    max-width: 40rem;
+  }
+
+  .license a,
+  .credit a {
     color: var(--ink);
     border-bottom: 1px solid var(--panel-2);
     transition: border-color 0.15s ease;
   }
 
-  .license a:hover {
+  .license a:hover,
+  .credit a:hover {
     border-color: var(--green);
   }
 
-  .license a:focus-visible {
+  .license a:focus-visible,
+  .credit a:focus-visible {
     outline: 2px solid var(--green);
     outline-offset: 3px;
     border-radius: 2px;
@@ -136,7 +156,8 @@ const ERWINS_ENKEL_URL = "https://www.erwins-enkel.dev/";
 
   @media (prefers-reduced-motion: reduce) {
     .flinks a,
-    .license a {
+    .license a,
+    .credit a {
       transition: none;
     }
   }

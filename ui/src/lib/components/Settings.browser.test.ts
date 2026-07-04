@@ -55,6 +55,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
+    defaultEffort: "default",
     criticCli: "inherit",
     criticModel: "default",
     plannerCli: "inherit",

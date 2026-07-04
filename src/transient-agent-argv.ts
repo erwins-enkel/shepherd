@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { apiKeySettingsFragment } from "./spawn-auth";
 import { codexRoleArgv } from "./codex-role-argv";
+import { effortForSpawn } from "./default-effort";
 import type { AgentProvider } from "./types";
 
 /**
@@ -76,6 +77,11 @@ export interface TransientAgentArgvOptions {
    *  think/ultrathink magic words do NOT fire from it); a no-op on a non-thinking model. Passed by
    *  the reviewer/doc callers only. */
   thinkingTokens?: number;
+  /** Optional reasoning-effort tier; emits `--effort` (Claude) / `-c model_reasoning_effort=`
+   *  (Codex) when set. Opt-in per call site, exactly like `thinkingTokens` — most transient roles
+   *  omit it. In-repo only the plan reviewer (plan-gate.ts) passes it in this release; the two
+   *  critic sites deliberately do NOT, keeping their spawn argv byte-unchanged. */
+  effort?: string | null;
 }
 
 /** Read-only git grounding — diff/log/show/status only. NO add/commit/push. Shared by reviewer+doc. */
@@ -140,7 +146,8 @@ export function buildTransientAgentArgv(
   // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,
   // --allowedTools, thinkingTokens) have a Codex equivalent; the sandbox shape is enforced by
   // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
-  if (opts.provider === "codex") return { argv: codexRoleArgv(opts.model, opts.prompt), sessionId };
+  if (opts.provider === "codex")
+    return { argv: codexRoleArgv(opts.model, opts.prompt, opts.effort ?? null), sessionId };
 
   const settings: Record<string, unknown> = { disableAllHooks: true };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;
@@ -160,6 +167,8 @@ export function buildTransientAgentArgv(
   if (preset.mcpIsolated) argv.push("--safe-mode");
   argv.push("--allowedTools", ...preset.allowedTools);
   if (opts.model) argv.push("--model", opts.model);
+  const effortTier = effortForSpawn("claude", opts.effort ?? null);
+  if (effortTier) argv.push("--effort", effortTier);
   argv.push("--permission-mode", "dontAsk");
   // child_process.spawn REJECTS any argv arg containing a NUL ("must be a string without null
   // bytes") — a hard throw, not a transient failure. The prompt is the ONLY argv slot that carries

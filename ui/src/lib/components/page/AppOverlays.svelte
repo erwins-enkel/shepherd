@@ -498,6 +498,7 @@
     initialResearch={composeResearch}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
+    defaultEffort={settings?.defaultEffort}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}
     onclose={onnewclose}

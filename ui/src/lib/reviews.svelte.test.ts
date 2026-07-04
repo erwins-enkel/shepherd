@@ -26,6 +26,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   signoffAuthority: "human",
   sandboxProfile: "trusted",
   defaultModel: "inherit",
+  defaultEffort: "inherit",
   maxAuto: 1,
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,

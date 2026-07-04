@@ -2,8 +2,9 @@
   import { m } from "$lib/paraglide/messages";
   import { repoConfig } from "$lib/reviews.svelte";
   import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
-  import { MODELS } from "$lib/types";
+  import { MODELS, EFFORTS } from "$lib/types";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
+  import { effortLabel } from "$lib/effort-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import type { RepoRoles } from "$lib/types";
   import "./automation-fields.css";
@@ -81,6 +82,7 @@
 
   const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
+  const defaultEffort = $derived(repoConfig.defaultEffortFor(repoPath));
 </script>
 
 <!-- Default model: a repo-wide override of the global default (Settings → Session).
@@ -108,6 +110,24 @@
     <ModelGuidance provider="claude" model={guidanceModel} context="repo" />
   </div>
   <div class="signoff-note">{m.automation_default_model_hint()}</div>
+
+  <label class="drain-field">
+    <span class="drain-label">{m.automation_default_effort_label()}</span>
+    <select
+      class="afield-num model-select"
+      aria-label={m.automation_default_effort_label()}
+      value={defaultEffort}
+      onchange={(e) =>
+        repoConfig.setDefaultEffort(repoPath, (e.currentTarget as HTMLSelectElement).value)}
+    >
+      <option value="inherit">{m.automation_default_effort_inherit()}</option>
+      <option value="default">{m.effort_default()}</option>
+      {#each EFFORTS as tier (tier)}
+        <option value={tier}>{effortLabel(tier)}</option>
+      {/each}
+    </select>
+  </label>
+  <div class="signoff-note">{m.automation_default_effort_hint()}</div>
 </div>
 
 <!-- Repo responsibilities: reviewer + merger (committed to .shepherd/roles.json) -->

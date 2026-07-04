@@ -22,6 +22,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     herdrAgentId: "a1",
     claudeSessionId: "",
     model: null,
+    effort: null,
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,

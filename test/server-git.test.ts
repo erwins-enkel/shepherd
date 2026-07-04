@@ -24,6 +24,7 @@ const SESSION: Session = {
   herdrAgentId: "a1",
   claudeSessionId: "c1",
   model: null,
+  effort: null,
   readyToMerge: false,
   mergingSince: null,
   mergingTrainId: null,

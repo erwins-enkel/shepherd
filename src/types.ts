@@ -28,6 +28,7 @@ export interface Session {
   agentProvider?: AgentProvider;
 
   model: string | null; // selected CLI --model alias; null = provider default (no flag)
+  effort: string | null; // reasoning-effort tier; null = provider default (no effort flag)
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,
@@ -155,6 +156,7 @@ export interface CreateSessionInput {
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
+  effort?: string | null; // reasoning effort tier; null/absent = provider default (no effort flag)
   images: string[]; // absolute paths to staged uploads (may be empty)
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
   /** True when this session is auto-spawned by the drain queue (default false). The
@@ -190,6 +192,9 @@ export interface RelaunchOverrides {
    *  resets a now-incompatible carried model to the provider default. */
   agentProvider?: AgentProvider;
   model?: string | null;
+  /** Reasoning-effort override; absent → keep original, present (incl. `null`) → replace.
+   *  When `agentProvider` changes, `relaunch` re-clamps a now-incompatible effort. */
+  effort?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
   /** Research task kind override; absent → keep original. */
@@ -206,6 +211,13 @@ const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "hai
 
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;
+
+/** Reasoning-effort tiers exposed in the picker, ordered least→most effort. The value space is
+ *  the Claude `--effort` domain (verified against the pinned `claude` CLI). Codex's narrower
+ *  domain (`minimal|low|medium|high`) is handled by clamping at argv-build; `minimal` (below
+ *  `low`, Codex-only) is not exposed here. `"default"` (settings) / `null` (session) = no flag. */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
 
 /** Curated Codex CLI model aliases shown in the task dialog. The server accepts any safe Codex
  *  model alias because the installed Codex CLI may learn new names before Shepherd does. */

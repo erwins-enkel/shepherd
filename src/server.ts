@@ -168,6 +168,12 @@ import {
   normalizeRoleCli,
   normalizeRoleModelToken,
 } from "./default-model";
+import {
+  normalizeDefaultEffortSetting,
+  normalizeRepoDefaultEffortSetting,
+  drainSpawnEffort,
+  resolveDefaultEffortSetting,
+} from "./default-effort";
 import { startSerially } from "./up-next";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
@@ -939,6 +945,9 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         // Operator default model (repo override wins; "auto"/"inherit" → no --model flag).
         // The Fable promo is client-only and never applied here, matching drain spawns.
         model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        effort: drainSpawnEffort(
+          resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort),
+        ),
         images: [],
         auto: false,
         issueRef: it.issueRef,
@@ -1054,6 +1063,16 @@ function parseRepoDefaultModel(v: unknown): string | { error: string } {
   return r;
 }
 
+// defaultEffort: a per-repo override SETTING ("inherit" | "default" | <effort tier>)
+function parseRepoDefaultEffort(v: unknown): string | { error: string } {
+  const r = normalizeRepoDefaultEffortSetting(v);
+  if (r === null)
+    return {
+      error: "defaultEffort must be one of: inherit, default, low, medium, high, xhigh, max",
+    };
+  return r;
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -1088,6 +1107,7 @@ type RepoCfgBody = {
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
+  defaultEffort?: unknown;
   egressExtraHosts?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
@@ -1113,6 +1133,7 @@ type RepoCfgScalars = {
   signoffAuthority?: "human" | "critic" | "either";
   sandboxProfile?: SandboxProfile;
   defaultModel?: string;
+  defaultEffort?: string;
   egressExtraHosts?: string[];
   repoMode?: "forge" | "lightweight";
   previewStartScript?: string | null;
@@ -1142,6 +1163,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["signoffAuthority", parseSignoffAuthority],
   ["sandboxProfile", parseSandboxProfile],
   ["defaultModel", parseRepoDefaultModel],
+  ["defaultEffort", parseRepoDefaultEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
   ["repoMode", parseRepoMode],
   ["previewStartScript", parseNullableString],
@@ -1180,6 +1202,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
+      defaultEffort?: string;
       egressExtraHosts?: string[];
       maxAuto?: number;
       autoLabel?: string;
@@ -1212,6 +1235,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority,
     sandboxProfile,
     defaultModel,
+    defaultEffort,
     egressExtraHosts,
     repoMode,
     previewStartScript,
@@ -1225,6 +1249,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority !== undefined ||
     sandboxProfile !== undefined ||
     defaultModel !== undefined ||
+    defaultEffort !== undefined ||
     egressExtraHosts !== undefined ||
     repoMode !== undefined ||
     previewStartScript !== undefined ||
@@ -1234,7 +1259,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, automationConfirmed",
       },
       400,
     );
@@ -1256,6 +1281,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     signoffAuthority,
     sandboxProfile,
     defaultModel,
+    defaultEffort,
     egressExtraHosts,
     maxAuto,
     autoLabel,
@@ -3961,6 +3987,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
+      defaultEffort: config.defaultEffort,
       // per-role ENVIRONMENT SETTINGs, a pair per role: `<role>Cli` ("inherit" | "claude" | "codex";
       // "inherit" follows defaultAgentProvider + defaultModel) and `<role>Model` ("default" | <alias>
       // for that CLI). The UI shows each role's effective resolved CLI · model alongside the pickers.
@@ -4032,6 +4059,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
+  ["defaultEffort", putDefaultEffort],
   ["criticCli", makeRoleCliPatch("critic")],
   ["criticModel", makeRoleModelPatch("critic")],
   ["plannerCli", makeRoleCliPatch("planner")],
@@ -4119,6 +4147,14 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeDefaultEffortSetting(value);
+  if (v === null) return json({ error: "unknown effort" }, 400);
+  config.defaultEffort = v; // live: next drain spawn picks it up
+  deps.store.setSetting("defaultEffort", v); // persist across restarts
+  return json({ defaultEffort: config.defaultEffort });
 }
 
 // Per-role ENVIRONMENT patch handlers (critic/planner/recap/doc-agent/namer/autopilot). Each role

@@ -57,6 +57,8 @@ export interface Settings {
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
+  /** Global default-effort setting ("default"|<tier>); "default" emits no effort flag. */
+  defaultEffort: string;
   /** Per-role ENVIRONMENT settings for the helper agents Shepherd spawns: a CLI pair per role.
    *  `<role>Cli` ∈ "inherit" | "claude" | "codex" ("inherit" follows `defaultAgentProvider` +
    *  `defaultModel`); `<role>Model` ∈ "default" | <alias for that CLI>. The Settings UI shows each
@@ -587,6 +589,8 @@ export interface RepoConfig {
   sandboxProfile: SandboxProfile;
   /** Per-repo default-model override; "inherit" (default) defers to the global default. */
   defaultModel: string;
+  /** Per-repo default-effort override; "inherit" (default) defers to the global default. */
+  defaultEffort: string;
   maxAuto: number;
   autoLabel: string;
   usageCeilingPct: number;
@@ -1543,6 +1547,7 @@ export interface CreateInput {
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null;
+  effort?: string | null; // reasoning-effort tier; null/absent → provider default (no effort flag)
   images?: string[]; // absolute staging paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
@@ -1575,6 +1580,12 @@ const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "hai
 
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;
+
+/** Reasoning-effort tiers, least→most effort. Mirrors src/types.ts EFFORTS (the Claude `--effort`
+ *  domain). Codex's narrower domain (no xhigh/max) is handled by the picker's provider filter +
+ *  the server-side clamp. "default" (settings) / null (session) = no flag. */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
 
 /** Curated Codex CLI model aliases shown in the task dialog. */
 export const CODEX_MODELS = [

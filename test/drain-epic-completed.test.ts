@@ -104,6 +104,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,

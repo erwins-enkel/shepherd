@@ -30,6 +30,7 @@ import {
   modelForProviderOrDefault,
   spawnModelForAvailability,
 } from "./default-model";
+import { effortForSpawn } from "./default-effort";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -1885,6 +1886,24 @@ export class SessionService {
   }
 
   /**
+   * Push the reasoning-effort flag for `provider`, or nothing when effort is unset/unsupported.
+   * The value is clamped/translated by `effortForSpawn` (Codex: no xhigh/max → high; Claude:
+   * pass-through — the pinned CLI self-clamps a tier the resolved model doesn't support, so no
+   * per-model map is needed, verified in issue #1417's Phase-0 gate). Provider-only: unlike the
+   * model flag, effort needs no final-`spawnModel` clamp, so it is safe on both spawn and resume.
+   */
+  private pushEffortFlag(
+    argv: string[],
+    effort: string | null | undefined,
+    provider: AgentProvider,
+  ): void {
+    const tier = effortForSpawn(provider, effort ?? null);
+    if (!tier) return;
+    if (provider === "codex") argv.push("-c", `model_reasoning_effort=${tier}`);
+    else argv.push("--effort", tier);
+  }
+
+  /**
    * Compose the full spawn-time directive block (`composeSystemPrompt` output) for a session.
    * Shared by BOTH spawn builders so Claude and Codex deliver the SAME directives — the only
    * difference is the delivery channel (Claude: `--append-system-prompt`; Codex: inline on the
@@ -1987,6 +2006,7 @@ export class SessionService {
       }),
     );
     this.pushModelFlag(argv, input.model);
+    this.pushEffortFlag(argv, input.effort, "claude");
     argv.push(promptArg);
     return argv;
   }
@@ -2003,6 +2023,7 @@ export class SessionService {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     if (input.model) argv.push("--model", input.model);
+    this.pushEffortFlag(argv, input.effort, "codex");
     // Codex divergence (preserved from the prior call-site gating): the autopilot directive stands
     // down on a non-isolated session, and the per-session toggle counts. Research/plan-gate precedence
     // is handled inside composeSystemPrompt, so it need not be repeated here.
@@ -2031,7 +2052,7 @@ export class SessionService {
     return argv;
   }
 
-  private buildCodexResumeArgv(model: string | null): string[] {
+  private buildCodexResumeArgv(model: string | null, effort: string | null): string[] {
     // Codex has `codex resume [SESSION_ID]`, but Shepherd does not yet persist the
     // Codex session id. `--last` is scoped by the Codex CLI's own resume selection
     // rules, so concurrent/non-isolated Codex sessions sharing a cwd can target the
@@ -2045,6 +2066,7 @@ export class SessionService {
       "--dangerously-bypass-approvals-and-sandbox",
     ];
     if (model) argv.push("--model", model);
+    this.pushEffortFlag(argv, effort, "codex");
     return argv;
   }
 
@@ -2063,12 +2085,13 @@ export class SessionService {
       }),
     ];
     this.pushModelFlag(argv, s.model);
+    this.pushEffortFlag(argv, s.effort, "claude");
     return argv;
   }
 
   private buildResumeArgv(s: Session, provider: AgentProvider, trim: TrimDecision): string[] {
     return provider === "codex"
-      ? this.buildCodexResumeArgv(s.model)
+      ? this.buildCodexResumeArgv(s.model, s.effort)
       : this.buildClaudeResumeArgv(s, trim);
   }
 
@@ -2309,6 +2332,7 @@ export class SessionService {
         claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
         agentProvider,
         model: spawnInput.model,
+        effort: spawnInput.effort ?? null,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
         // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
@@ -2447,6 +2471,9 @@ export class SessionService {
       prompt: overrides?.prompt ?? s.prompt,
       agentProvider: effectiveProvider,
       model,
+      // Effort needs no provider re-clamp: unlike a model alias, every tier is meaningful for both
+      // providers, and the argv-build seam clamps Codex's xhigh/max → high at emit time.
+      effort: pickOverride(overrides?.effort, s.effort),
       planGateEnabled: pickOverride(overrides?.planGateEnabled, s.planGateEnabled),
       // Carry autopilot at spawn time (NOT redundant with the setAutopilotState copy below):
       // create()'s build-queue pre-approval reads the session's effective autopilot and is never

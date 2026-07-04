@@ -299,6 +299,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean) {
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
@@ -349,6 +350,25 @@ test("createSession: codex provider starts interactive codex; spawn argv carries
   expect(s.claudeSessionId).toBe("");
   expect(store.get(s.id)?.agentProvider).toBe("codex");
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
+});
+
+test("createSession: codex spawn emits -c model_reasoning_effort, clamping max → high (#1417)", async () => {
+  const { store, service, calls } = codexHarness(true);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    effort: "max",
+    images: [],
+    autopilotEnabled: false,
+  });
+  const argv: string[] = calls.start.argv;
+  const cIdx = argv.indexOf("-c");
+  expect(cIdx).toBeGreaterThan(argv.indexOf("--model"));
+  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high"); // codex has no max → clamp
+  expect(store.get(s.id)?.effort).toBe("max"); // stored intent is the un-clamped tier
 });
 
 test("createSession: codex drops a carried Claude model and uses provider default", async () => {
@@ -452,6 +472,7 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
@@ -2251,6 +2272,88 @@ test("resume uses codex resume --last for codex sessions", async () => {
   ]);
 });
 
+// ── reasoning effort persists across resume (issue #1417) ────────────────────────────────────
+test("resume re-emits the persisted --effort for a Claude session", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, { model: "opus", effort: "xhigh" });
+  expect(store.get(s.id)?.effort).toBe("xhigh"); // persisted on the row
+  await svc.resume(s.id);
+  expect(calls.argv).toEqual([
+    "claude",
+    "--dangerously-skip-permissions",
+    "--resume",
+    "abc-123",
+    "--settings",
+    spawnSettingsOverlay(),
+    "--model",
+    "opus",
+    "--effort",
+    "xhigh",
+  ]);
+});
+
+test("resume re-emits Codex reasoning effort, clamping xhigh → high", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_codex_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    model: "gpt-5.5",
+    effort: "xhigh",
+  });
+  await svc.resume(s.id);
+  expect(calls.argv).toEqual([
+    "codex",
+    "resume",
+    "--last",
+    "--no-alt-screen",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--model",
+    "gpt-5.5",
+    "-c",
+    "model_reasoning_effort=high",
+  ]);
+});
+
 test("resume re-uses a still-live agent instead of spawning a duplicate", async () => {
   const store = new SessionStore(":memory:");
   let started = 0;
@@ -3330,6 +3433,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
@@ -3379,6 +3483,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
@@ -4251,6 +4356,7 @@ function buildQueueDeps(
       usageCeilingPct: 80,
       sandboxProfile: "trusted",
       defaultModel: "inherit",
+      defaultEffort: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
       autoOptimizeFlagged: false,
@@ -5638,6 +5744,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     usageCeilingPct: 80,
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,
@@ -5680,6 +5787,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     usageCeilingPct: 80,
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
+    defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,

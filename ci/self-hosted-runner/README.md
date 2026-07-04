@@ -1,11 +1,17 @@
 # Shepherd self-hosted CI runner
 
-A locally-hosted GitHub Actions runner for `erwins-enkel/shepherd`, so CI for this
-**private** repo stops burning the account's included Actions minutes. The workflows
-(`.github/workflows/ci.yml`, `pr-hygiene.yml`) target it via
-`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` — set the repo Actions variable
-`CI_RUNNER=self-hosted` to route jobs here, delete it to fall straight back to
-GitHub-hosted runners.
+A locally-hosted GitHub Actions runner, built for `erwins-enkel/shepherd` while it was
+**private**, so CI stopped burning the account's included Actions minutes. **Status:
+retired for shepherd** — the repo is public (hosted minutes are free), and the
+workflows are now **pinned to `ubuntu-latest`** with the old
+`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` toggle removed, so a stray
+`gh variable set CI_RUNNER` can no longer route public fork-PR code to this host.
+
+The harness itself is repo-agnostic: `GH_REPO` / `REPO_URL` live in the host-side
+`~/.config/shepherd-ci-runner/.env`, so it can be repointed at any other **private**
+repo (e.g. `erwins-enkel/pulse`) by editing that file, re-registering the runners, and
+adding the same `vars.CI_RUNNER || 'ubuntu-latest'` toggle to that repo's workflows.
+The setup/operations sections below describe the mechanism generically.
 
 ## What & why — the cost trade-off
 
@@ -218,9 +224,9 @@ state:
 
 5. **Only now flip the repo to public.**
 
-> Optional hardening for the public phase: drop the `vars.CI_RUNNER ||` toggle from the
-> workflow files entirely, so a single `gh variable set` can't silently re-arm the
-> self-hosted path on a public repo.
+> Hardening for the public phase (**done** — PR that pinned the workflows): the
+> `vars.CI_RUNNER ||` toggle is dropped from the workflow files entirely, so a single
+> `gh variable set` can't silently re-arm the self-hosted path on a public repo.
 
 ## Egress real-machinery tests
 

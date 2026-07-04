@@ -251,6 +251,12 @@
   // state); cleared on repo change alongside `fetched`.
   // Deliberately plain (non-reactive) on purpose — fetch guards, NOT UI state; a
   // SvelteMap/SvelteSet would make the backfill $effect re-run on its own writes.
+  // Ticket VALUES come from one shared monotonic counter (never reset), NOT a
+  // per-number restart-from-1: after an A→B→A repo flip the repo-change effect
+  // clears this map, and per-number numbering would re-mint the same ticket a
+  // still-in-flight fetch from the first visit already holds — letting its stale
+  // settle pass the guard and its finally unmark the newer fetch's pending flag.
+  let epicFetchTicket = 0;
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const epicFetchSeq = new Map<number, number>();
   // In-flight numbers, so the backfill effect below doesn't re-fire a fetch that is
@@ -260,7 +266,7 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- same guard rationale
   const epicFetchPending = new Set<number>();
   function fetchEpicInto(rp: string, num: number) {
-    const ticket = (epicFetchSeq.get(num) ?? 0) + 1;
+    const ticket = ++epicFetchTicket;
     epicFetchSeq.set(num, ticket);
     epicFetchPending.add(num);
     getEpic(rp, num)

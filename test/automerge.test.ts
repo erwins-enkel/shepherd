@@ -34,6 +34,9 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     service: {
       archive: mock(() => 1),
@@ -199,6 +202,9 @@ test("multi-session: merges ready A then steers rebase for behind B", async () =
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     service: { archive, reply, resume: mock(() => true), resolveMerging: mock(() => {}) } as any,
     resolveForge: () =>
@@ -269,6 +275,9 @@ test("rebase_cap: behind session at cap → no reply steer, emitStatus rebase_ca
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
     service: {
@@ -305,6 +314,9 @@ test("manual_steps gate: otherwise-ready PR with an un-acked step → emitStatus
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
@@ -446,6 +458,9 @@ test("tick: skips repo with no full-auto session (no merge/steer)", async () => 
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     resolveForge: () =>
       ({
@@ -486,6 +501,9 @@ test("per-session override true + repo default false → merges (repoHasFullAuto
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
@@ -573,6 +591,9 @@ test("merge-error backoff: after CAP failures the stuck PR is skipped, a ready s
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     resolveForge: () => forge as any,
     service: {
@@ -626,6 +647,9 @@ test("status payload carries sessionId on rebase_cap hold", async () => {
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
     emitStatus,
@@ -653,6 +677,9 @@ test("rebase steer references origin/<baseBranch> from the session", async () =>
       setAutoMergeState: mock(() => {}),
       setAutopilotState: mock(() => {}),
       isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
     } as any,
     worktree: { behindBase: async () => true } as any,
     service: {
@@ -666,4 +693,61 @@ test("rebase steer references origin/<baseBranch> from the session", async () =>
   await svc.pump("/r");
   expect(reply.mock.calls.length).toBe(1);
   expect((reply as any).mock.calls[0][1]).toContain("origin/develop-trunk");
+});
+
+// ── #1401: doMerge records epic integration BEFORE settle ────────────────────
+
+test("doMerge: epic child records epic_integrated (pinned base) BEFORE archive", async () => {
+  const order: string[] = [];
+  const session = baseSession({ issueNumber: 12 });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => ({ repoPath: "/r", parentIssueNumber: 5, mode: "auto", status: "running" }),
+      getEpicIntegrationBranch: () => "epic/5-x",
+      recordEpicIntegrated: mock(() => order.push("record")),
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        s1: {
+          state: "open",
+          checks: "success",
+          mergeable: true,
+          number: 7,
+          headSha: "h1",
+          url: "http://pr/7",
+          baseRefName: "epic/5-x",
+        },
+      }),
+    } as any,
+    service: {
+      archive: mock(() => {
+        order.push("archive");
+        return 1;
+      }),
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect((d.store.recordEpicIntegrated as any).mock.calls).toEqual([
+    ["/r", 5, 12, { number: 7, url: "http://pr/7" }, "epic/5-x"],
+  ]);
+  expect(order).toEqual(["record", "archive"]); // #1037: row exists before settle reads it
+});
+
+test("doMerge: non-epic repo (no epic run) records nothing", async () => {
+  const d = deps();
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect((d.store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
 });

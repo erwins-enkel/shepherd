@@ -1,5 +1,87 @@
 import type { GitForge } from "./forge/types";
 import type { Session } from "./types";
+import type { SessionStore } from "./store";
+
+/** Store surface for {@link recordEpicIntegrationIfChild}. */
+export type EpicIntegrationStore = Pick<
+  SessionStore,
+  "getEpicRun" | "getEpicIntegrationBranch" | "recordEpicIntegrated"
+>;
+
+/** The merged PR's facts as the caller observed them (poller GitState / prCache / prStatus). */
+export interface MergedPrFacts {
+  number?: number | null;
+  url?: string | null;
+  /** The PR's actual base ref when the payload supplies it (GitHub); absent on Gitea/local. */
+  baseRefName?: string | null;
+}
+
+/**
+ * #1401: record `epic_integrated` for a merged epic-child PR on the settle paths that are NOT
+ * the drain's retire path (poller reap of an out-of-band merge, merge train, local merge). Until
+ * this existed, `retireEpicChild` was the only writer, so any other merge left the epic stalled
+ * `running` forever (no completion, no landing PR).
+ *
+ * Call this BEFORE {@link settleMergedSession}: the just-written row is what its
+ * `isIntegratedEpicChild` guard (#1037) reads to archive-only instead of closing the child
+ * issue out of band.
+ *
+ * Deliberately NOT gated on `s.auto` — a manual (`auto=0`) respawn whose PR merges into the
+ * integration branch is exactly the escape hatch that stalled pulse epic #128.
+ *
+ * Base resolution (the PR is the source of truth, not the session's stored base):
+ *   1. `pr.baseRefName` from the caller's payload;
+ *   2. number-keyed `forge.prReviewMeta` fallback;
+ *   3. a forge that structurally cannot report a base (Gitea/local: no baseRefName, no
+ *      prReviewMeta) falls back to `s.baseBranch` — the same trust `retireEpicChild` and the
+ *      #645 `epicChildBaseBlocked` Gitea carve-out already extend;
+ *   4. a base-CAPABLE forge whose base stays unresolvable fails closed (no record; the
+ *      reconcile sweep retries later).
+ *
+ * Records only when the resolved base equals the PINNED integration branch (exact match —
+ * divergent `epic/*` bases stay fail-closed; #645 warnings surface those). Best-effort: never
+ * throws (the merge already happened; recording must not break teardown), and the store upsert
+ * is idempotent so double-recording with the retire path is harmless.
+ */
+export async function recordEpicIntegrationIfChild(
+  s: Session,
+  pr: MergedPrFacts,
+  deps: { store: EpicIntegrationStore; forge?: GitForge | null },
+): Promise<void> {
+  try {
+    if (s.issueNumber == null) return;
+    const run = deps.store.getEpicRun(s.repoPath);
+    // Mirrors the retire path's epicActive gate — an idle/absent epic never records.
+    if (!run || (run.status !== "running" && run.status !== "paused")) return;
+    const pinned = deps.store.getEpicIntegrationBranch(s.repoPath, run.parentIssueNumber);
+    if (pinned === null) return; // never pinned → this repo's epic never spawned a child
+    if ((await resolveMergedBase(s, pr, deps.forge)) !== pinned) return;
+    deps.store.recordEpicIntegrated(
+      s.repoPath,
+      run.parentIssueNumber,
+      s.issueNumber,
+      pr.number != null ? { number: pr.number, url: pr.url ?? "" } : undefined,
+      pinned,
+    );
+  } catch (err) {
+    console.warn(`[epic] record-integration failed for ${s.id} (issue #${s.issueNumber}):`, err);
+  }
+}
+
+/** The merged PR's actual base per the resolution order documented on
+ *  {@link recordEpicIntegrationIfChild}; null ⇒ unresolvable on a base-capable forge (fail closed). */
+async function resolveMergedBase(
+  s: Session,
+  pr: MergedPrFacts,
+  forge: GitForge | null | undefined,
+): Promise<string | null> {
+  if (pr.baseRefName != null) return pr.baseRefName;
+  // Base-incapable forge (Gitea/local) — the #645-style carve-out trusts the session's base.
+  if (!forge?.prReviewMeta) return s.baseBranch;
+  // Base-capable forge: resolve number-keyed; an unresolvable base fails closed.
+  if (pr.number == null) return null;
+  return (await forge.prReviewMeta(pr.number))?.baseRefName || null;
+}
 
 export interface MergeTeardownDeps {
   resolveForge: (repoPath: string) => GitForge | null;

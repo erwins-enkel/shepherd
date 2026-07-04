@@ -8,7 +8,7 @@ import {
   type MergeRepoState,
   type MergeSessionView,
 } from "./automerge-core";
-import { settleMergedSession } from "./merge-teardown";
+import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
 
 /** Live per-repo merge-train status pushed to clients. */
@@ -50,6 +50,9 @@ export interface AutoMergeDeps {
     | "setAutoMergeState"
     | "setAutopilotState"
     | "isEpicIntegratedChild"
+    | "getEpicRun"
+    | "getEpicIntegrationBranch"
+    | "recordEpicIntegrated"
   >;
   service: {
     archive(id: string): Promise<number>;
@@ -306,6 +309,17 @@ export class AutoMergeService {
     // credit the train tracker directly (the poller-driven resolveMerging never fires
     // for this path). No-op unless the session was merge-train-flagged.
     this.deps.service.resolveMerging(sessionId, true);
+    // #1401: record epic integration BEFORE settleMergedSession so its isIntegratedEpicChild
+    // guard (#1037) sees the fresh row and archives-only. The base comes from the prCache
+    // snapshot (a merge doesn't change the base), with the helper's prReviewMeta fallback.
+    // Normally unreachable for epic children (isFullAuto excludes integration-branch bases),
+    // but a session whose PR was re-targeted to the epic branch can still be train-merged.
+    const git = this.deps.prCache.snapshot()[sessionId] ?? null;
+    await recordEpicIntegrationIfChild(
+      s,
+      { number: prNumber, url: git?.url, baseRefName: git?.baseRefName },
+      { store: this.deps.store, forge },
+    );
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
       archive: (id) => this.deps.service.archive(id),

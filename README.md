@@ -1,5 +1,9 @@
 # Shepherd
 
+[![CI](https://github.com/erwins-enkel/shepherd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/erwins-enkel/shepherd/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/erwins-enkel/shepherd)](https://github.com/erwins-enkel/shepherd/releases)
+[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE)
+
 > Self-hosted mission control for **interactive** AI coding CLIs — and opinionated about how
 > agent-built software should ship. Spawn, watch, and steer a herd of real `claude` sessions (with
 > the Codex CLI in alpha) from your browser or phone, with best-practice guardrails built in. On

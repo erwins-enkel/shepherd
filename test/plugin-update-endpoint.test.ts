@@ -126,6 +126,25 @@ test("POST /api/plugin-update/apply on a NOT-loaded plugin activates it live", a
   expect(body.status).toEqual(status);
 });
 
+test("POST /api/plugin-update/apply signals a restart when the new code fails to register", async () => {
+  // activateOne returns ok:true even when register() throws (record loads `errored`) — that
+  // is NOT a live update, so it must not be reported as running.
+  const app = makeApp(
+    makeDeps({
+      pluginUpdates: fakeUpdates({ ok: true, folder: "voice", updatedTo: "1.3.0" }),
+      pluginRegistry: fakeRegistry([], {
+        ok: true,
+        plugin: pluginInfo({ health: "errored", lastError: "boom" }),
+      }),
+    }),
+  );
+  const res = await app.fetch(applyReq({ id: "voice" }));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.restartRequired).toBe(true); // not falsely "now running"
+  expect(body.plugin?.health).toBe("errored"); // still surfaced so the panel shows the error
+});
+
 test("POST /api/plugin-update/apply on an ALREADY-loaded plugin signals a restart", async () => {
   const app = makeApp(
     makeDeps({

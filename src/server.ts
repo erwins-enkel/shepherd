@@ -3591,7 +3591,9 @@ function pluginApplyStatus(error: string): number {
 
 /** After the new version is on disk, bring it into the live registry. A plugin that is
  *  ALREADY running can't be hot-swapped (its old module is cached) → a restart is owed;
- *  a not-yet-loaded one is activated now (and returned when that succeeds). */
+ *  a not-yet-loaded one is activated now. `activateOne` returns `ok:true` even when the new
+ *  code's `register()` throws (the record loads `errored`), so a non-`ok` health is NOT a
+ *  live update — report the restart hint rather than falsely claim the plugin is running. */
 async function activateAfterApply(
   registry: PluginRegistry | undefined,
   id: string,
@@ -3600,7 +3602,8 @@ async function activateAfterApply(
   const loaded = registry?.list().some((p) => p.id === id) ?? false;
   if (loaded || !registry) return { restartRequired: loaded };
   const act = await registry.activateOne(folder);
-  return act.ok ? { restartRequired: false, plugin: act.plugin } : { restartRequired: true };
+  if (!act.ok) return { restartRequired: true };
+  return { restartRequired: act.plugin.health !== "ok", plugin: act.plugin };
 }
 
 /** POST /api/plugin-update/apply — apply an available update on disk, then re-activate

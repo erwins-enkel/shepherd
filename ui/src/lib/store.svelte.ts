@@ -56,6 +56,11 @@ export class HerdStore {
   sessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
+  /** Counts every socket that reached `onopen` (1 = the initial page-load connect).
+   *  The resync trigger anchors here rather than on a `connected` false→true edge:
+   *  a mobile freeze kills the socket WITHOUT ever firing `onclose`, so `connected`
+   *  never goes false and an edge-watcher would miss the replacement socket. */
+  connectionEpoch = $state(0);
   /** True when THIS tab is focused+visible (the "attended" tier of the attention
    *  ladder — same `active()` notion connect() reports for push suppression). The
    *  ambient tab-signal (tab-signal.svelte.ts) suppresses its title/favicon/badge
@@ -239,9 +244,34 @@ export class HerdStore {
     this.buildQueues = map;
     buildQueuesStore.seed(map);
   }
-  /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push. */
+  /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push.
+   *  FINISHED epics (idle + every child merged — the drain's own auto-complete
+   *  condition, and the shape of its final post-completion emit) are PRUNED instead
+   *  of upserted: `epics` is otherwise append-only, and +page's resync() re-fetches
+   *  every key on each wake/socket-reopen, so a long-lived tab would issue one
+   *  GET /api/epic per epic EVER seen, forever. The prune also self-cleans on the
+   *  wake path — a resync re-pull of a since-completed epic drops its key rather
+   *  than refreshing it. Display of completed epics is unaffected: the backlog
+   *  grouping keys off drain.epicParent and IssuesPanel falls back to its own
+   *  one-shot fetch when the live record is absent. */
   setEpic(e: Epic) {
-    this.epics = { ...this.epics, [`${e.repoPath}#${e.parentIssueNumber}`]: e };
+    const key = `${e.repoPath}#${e.parentIssueNumber}`;
+    const finished =
+      e.run.status === "idle" &&
+      e.children.length > 0 &&
+      e.children.every((c) => c.state === "merged");
+    if (finished) {
+      this.dropEpic(key);
+      return;
+    }
+    this.epics = { ...this.epics, [key]: e };
+  }
+  /** Remove a live epic record (no-op when absent). */
+  private dropEpic(key: string) {
+    if (!(key in this.epics)) return;
+    const next = { ...this.epics };
+    delete next[key];
+    this.epics = next;
   }
   /** Seed (or replace) the completed-epics list after a bootstrap GET. */
   seedCompletedEpics(list: CompletedEpic[]): void {
@@ -609,6 +639,11 @@ export class HerdStore {
         return true;
       case "epic:completed": {
         const key = `${ev.data.repoPath}#${ev.data.parentIssueNumber}`;
+        // The run is over — drop the live record so the append-only `epics` map
+        // doesn't pin a resync re-fetch for it forever (see setEpic). The drain's
+        // trailing final epic:update (idle, all merged) is swallowed by setEpic's
+        // finished-prune, so it can't resurrect the key.
+        this.dropEpic(key);
         const filtered = this.completedEpics.filter(
           (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
         );
@@ -820,6 +855,7 @@ export class HerdStore {
       ws = makeWs();
       ws.onopen = () => {
         this.connected = true;
+        this.connectionEpoch += 1;
         reportPresence();
       };
       ws.onmessage = (e) => {

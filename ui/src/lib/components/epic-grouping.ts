@@ -10,9 +10,11 @@ import { partitionSessions, flattenByStage } from "./herd-partition";
  *  number, never the parent — a session whose `issueNumber` equals an epic's
  *  `parentIssueNumber` must NOT group. A `null` `issueNumber` is never a child.
  *
- *  `epics` is keyed `${repoPath}#${parentIssueNumber}` and is never pruned, so it
- *  can hold stale/idle epics; `activeEpicKeys` (same key shape) gates which epics
- *  group. Groups are sorted by repo basename then `parentIssueNumber`; each group's
+ *  `epics` is keyed `${repoPath}#${parentIssueNumber}`; it can hold stale/idle
+ *  epics, and FINISHED epics are pruned from it (HerdStore.setEpic drops
+ *  idle+all-merged records) — so an `activeEpicKeys` entry may briefly lack its
+ *  record here (skipped below). `activeEpicKeys` (same key shape) gates which
+ *  epics group. Groups are sorted by repo basename then `parentIssueNumber`; each group's
  *  sessions are ordered by lifecycle stage via `flattenByStage(partitionSessions(...))`.
  *  `rest` (non-members) preserves input order and is NOT reordered. */
 export function groupSessionsByEpic(

@@ -129,6 +129,7 @@
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
+  import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
   import { commandBarShowcase } from "$lib/demo/showcase";
@@ -733,7 +734,18 @@
       .catch(() => {});
   }
 
-  function resync() {
+  // Wake + socket-reopen typically coincide (a frozen tab kills the socket), which
+  // would fire resync() twice back-to-back. The guard swallows the duplicate on the
+  // visibility/pageshow path only; the socket-open caller passes force:true and must
+  // NEVER be suppressed — it is the only fetch that closes the loss window for
+  // sig-deduped epic:update events emitted after a guarded wake-fetch but before the
+  // replacement socket was open (the server never re-sends those deltas).
+  let lastResyncAt = 0;
+
+  function resync(opts?: { force?: boolean }) {
+    const now = Date.now();
+    if (!opts?.force && now - lastResyncAt < 2_000) return;
+    lastResyncAt = now;
     refreshHeldCount();
     listSessions()
       .then((list) => store.setAll(list))
@@ -777,6 +789,25 @@
     getCompletedEpics()
       .then((l) => store.seedCompletedEpics(l))
       .catch(() => {});
+    // Re-pull drain + live epics: both are delta-streams (drain:status / epic:update)
+    // whose missed events are gone for good — the server dedupes epic emissions by
+    // signature and only re-emits on the NEXT real change, so a badge that missed a
+    // child-merge while the tab was frozen would otherwise sit stale indefinitely.
+    // Refreshing store.drain also refreshes activeEpicKeys; an epic that STARTED
+    // while away is then fetched by the seed $effect above, so here we only need to
+    // re-pull epics the page already knows.
+    getDrain()
+      .then((l) => store.setDrain(l))
+      .catch(() => {});
+    for (const k of Object.keys(store.epics)) {
+      const i = k.lastIndexOf("#"); // repoPath may contain no '#'; parent is after the last '#'
+      getEpic(k.slice(0, i), Number(k.slice(i + 1)))
+        .then((e) => store.setEpic(e))
+        .catch(() => {});
+    }
+    // Nudge the backlog drawer's one-shot caches (issues, epic summaries, expanded
+    // epic panels) — an open IssuesPanel has no other refresh path.
+    backlogRefresh.bump();
     // Reconcile critic + plan-gate verdicts and their reviewing latches from the
     // server snapshot (both self-handle errors). load() re-fetches the /inflight
     // ids, so a `reviewing=false` missed across a disconnect/restart is corrected.
@@ -784,6 +815,20 @@
     planGates.load();
     recaps.load();
   }
+
+  // Forced resync whenever a REPLACEMENT socket opens (epoch 1 is the initial
+  // page-load connect — onMount's bootstrap already covers it). Anchored to
+  // ws.onopen via connectionEpoch, not a `connected` false→true edge: a mobile
+  // freeze kills the socket without ever firing onclose, so `connected` never goes
+  // false there. force:true bypasses the 2s guard — deltas emitted between a
+  // guarded wake-fetch and this socket opening are sig-deduped server-side and will
+  // never be re-sent, so only this post-open pull can recover them. untrack keeps
+  // the effect keyed on the epoch alone: resync() reads reactive state (e.g.
+  // store.epics) and writes it back via setEpic, which would otherwise loop.
+  $effect(() => {
+    const epoch = store.connectionEpoch;
+    if (epoch > 1) untrack(() => resync({ force: true }));
+  });
 
   // Fetch backlog when the overview is empty, or when the operator opens the
   // backlog overlay while agents are running. Reading store.sessions.length and

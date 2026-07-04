@@ -13,11 +13,12 @@
     sortEpicsFirst,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
 
   // ACTIVE_LABEL (used in IssueRow) is the label the drain stamps on an issue it has
   // claimed (auto session or human-linked task). Highlighted so a claimed issue reads
@@ -115,6 +116,15 @@
   // One-shot fetch cache: issue number → fetched Epic (avoids re-fetching on re-render).
   const fetched = new SvelteMap<number, Epic>();
 
+  // Fetch sequence tokens: the soft refresh below runs the SAME requests concurrently
+  // with a possibly still-in-flight mount/repo-change fetch for the SAME repo, so the
+  // `rp !== repoPath` guard alone can't stop a late-settling older request from
+  // clobbering a newer result (or its .catch from stamping loadError over fresh
+  // data). Every fetch takes a ticket; only the holder of the latest ticket applies.
+  // Plain (non-reactive) counters on purpose — they're guards, not UI state.
+  let issuesSeq = 0;
+  let epicsSeq = 0;
+
   $effect(() => {
     const rp = repoPath;
     loading = true;
@@ -125,9 +135,12 @@
     nativeSubIssues = new Set();
     epicsLoaded = false;
     fetched.clear();
+    epicFetchSeq.clear();
+    epicFetchPending.clear();
+    const issuesTicket = ++issuesSeq;
     listIssues(rp)
       .then((r) => {
-        if (rp !== repoPath) return;
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         slug = r.slug;
         repoUrl = r.webUrl;
         issues = r.issues;
@@ -137,15 +150,16 @@
       })
       .catch(() => {
         // Mirror the success path's staleness guard: a rejection from a
-        // previously-selected repo must not stamp a sticky load-failed banner
-        // onto the repo now showing.
-        if (rp !== repoPath) return;
+        // previously-selected repo (or a superseded request) must not stamp a
+        // sticky load-failed banner onto the data now showing.
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         loadError = true;
         loading = false;
       });
+    const epicsTicket = ++epicsSeq;
     getEpics(rp)
       .then((r) => {
-        if (rp !== repoPath) return;
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
         epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
         nativeSubIssues = new Set(r.subIssues);
         epicsLoaded = true;
@@ -155,20 +169,159 @@
       });
   });
 
+  // Soft refresh on the global backlogRefresh nonce (bumped by +page's resync() on
+  // tab wake / socket re-open): re-pull issues + epic summaries + expanded epic
+  // panels WITHOUT the hard reset above — filter text, expanded rows and the
+  // rendered list survive; old data stays on screen until (and unless) fresh data
+  // lands. The latch swallows the effect's FIRST execution per mount: the nonce is
+  // page-lifetime, so the {#if}-mounted drawer routinely mounts with nonce > 0
+  // right after the repoPath effect already fetched — a `nonce === 0` check would
+  // double-fetch on every open after the first wake. Plain variable on purpose:
+  // it's a latch, not UI state. untrack keys the effect on the nonce alone.
+  let lastSeenNonce: number | undefined;
+  $effect(() => {
+    const n = backlogRefresh.nonce;
+    if (lastSeenNonce === undefined || n === lastSeenNonce) {
+      lastSeenNonce = n;
+      return;
+    }
+    lastSeenNonce = n;
+    untrack(() => softRefresh(repoPath));
+  });
+
+  function softRefresh(rp: string) {
+    const issuesTicket = ++issuesSeq;
+    listIssues(rp)
+      .then((r) => {
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
+        // Apply only clean results: on a failed listing (r.error) the old list is
+        // more useful than an empty one + failure banner mid-session. But when
+        // there IS no old list — the mount fetch lost its ticket to this refresh
+        // and was discarded — surface the failure instead of an eternal skeleton.
+        if (r.error != null) {
+          if (loading) {
+            loadError = true;
+            loading = false;
+          }
+          return;
+        }
+        slug = r.slug;
+        repoUrl = r.webUrl;
+        issues = r.issues;
+        viewer = r.viewer;
+        loadError = false;
+        // This result is now the newest state — display it even if the (superseded)
+        // mount fetch never settled; otherwise fresh data hides behind the skeleton.
+        loading = false;
+      })
+      .catch(() => {
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
+        if (loading) {
+          loadError = true;
+          loading = false;
+        }
+      });
+    const epicsTicket = ++epicsSeq;
+    getEpics(rp)
+      .then((r) => {
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
+        epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
+        nativeSubIssues = new Set(r.subIssues);
+        epicsLoaded = true;
+      })
+      .catch(() => {});
+    // One-shot epic cache: drop what's no longer on screen, then refresh every
+    // EXPANDED panel the live store doesn't cover (store-backed panels are refreshed
+    // by +page's resync re-pull; idle/pruned epics exist only in `fetched`). Iterating
+    // `expanded` — not `fetched.keys()` — also re-seeds a panel whose live record the
+    // store PRUNED (completed epic) since it was expanded, which left it in neither.
+    for (const num of [...fetched.keys()]) {
+      if (!expanded.has(num)) fetched.delete(num);
+    }
+    for (const num of expanded) {
+      if (epics?.[`${rp}#${num}`]) continue;
+      fetchEpicInto(rp, num);
+    }
+  }
+
+  // Per-number fetch tickets for the one-shot epic cache — same role as issuesSeq/
+  // epicsSeq above. Applied results must ALSO still be expanded: a late settle for a
+  // since-collapsed epic would otherwise re-seed `fetched`, and the next expand would
+  // serve that stale entry without refetching. Plain Map on purpose (guard, not UI
+  // state); cleared on repo change alongside `fetched`.
+  // Deliberately plain (non-reactive) on purpose — fetch guards, NOT UI state; a
+  // SvelteMap/SvelteSet would make the backfill $effect re-run on its own writes.
+  // Ticket VALUES come from one shared monotonic counter (never reset), NOT a
+  // per-number restart-from-1: after an A→B→A repo flip the repo-change effect
+  // clears this map, and per-number numbering would re-mint the same ticket a
+  // still-in-flight fetch from the first visit already holds — letting its stale
+  // settle pass the guard and its finally unmark the newer fetch's pending flag.
+  let epicFetchTicket = 0;
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const epicFetchSeq = new Map<number, number>();
+  // In-flight numbers, so the backfill effect below doesn't re-fire a fetch that is
+  // merely still pending (epicFor stays undefined until it settles). The `finally`
+  // only clears the flag while it still holds the latest ticket — an older settle
+  // must not unmark a newer in-flight fetch.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- same guard rationale
+  const epicFetchPending = new Set<number>();
+  function fetchEpicInto(rp: string, num: number) {
+    const ticket = ++epicFetchTicket;
+    epicFetchSeq.set(num, ticket);
+    epicFetchPending.add(num);
+    getEpic(rp, num)
+      .then((e) => {
+        if (rp !== repoPath || epicFetchSeq.get(num) !== ticket || !expanded.has(num)) return;
+        // The live store gained a record mid-flight (epic:update seeded it while
+        // this fetch ran): our snapshot predates that run — caching it would make
+        // a LATER finished-prune fall back to pre-run counts, and the backfill
+        // would see a defined record and never refetch. Drop it; the panel is
+        // rendering live, and the prune-backfill path will fetch fresh.
+        if (epics?.[`${rp}#${num}`]) return;
+        fetched.set(num, e);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (epicFetchSeq.get(num) === ticket) epicFetchPending.delete(num);
+      });
+  }
+
   /** Return the live store value for an epic if available, else the cached fetch result. */
   function epicFor(n: number): Epic | undefined {
     return epics?.[`${repoPath}#${n}`] ?? fetched.get(n);
   }
 
-  /** Expand an epic's panel + one-shot fetch its record if the store lacks it. */
+  // Sole owner of the one-shot fetch: any EXPANDED row with a record in NEITHER
+  // source gets fetched into the cache. Covers the first expand (expandEpicRow just
+  // records intent) AND the live store pruning a completed epic out from under an
+  // already-open panel — without this the panel would flip to its loading state and
+  // stick there until collapse/re-expand. Reactive on `expanded`, the `epics` prop
+  // and `fetched`, so a successful fetch (or a prune) re-evaluates and settles; a
+  // failed fetch stays absent until the next expanded/epics change retries it —
+  // the same recovery the old expand-time one-shot had.
+  $effect(() => {
+    for (const num of expanded) {
+      // A live record is authoritative while it exists — anything the one-shot
+      // path holds for this number predates the run. Invalidate a pending fetch
+      // (a settle AFTER a seed-then-prune-within-one-flight would pass the
+      // settle-time guard, epics[key] being undefined again by then) and drop a
+      // stale cached entry, so a later finished-prune always refetches fresh
+      // instead of falling back to pre-run counts.
+      if (epics?.[`${repoPath}#${num}`]) {
+        if (epicFetchPending.has(num)) {
+          epicFetchSeq.set(num, ++epicFetchTicket);
+          epicFetchPending.delete(num);
+        }
+        if (fetched.has(num)) fetched.delete(num);
+        continue;
+      }
+      if (!epicFor(num) && !epicFetchPending.has(num)) untrack(() => fetchEpicInto(repoPath, num));
+    }
+  });
+
+  /** Expand an epic's panel; the backfill effect above fetches it if needed. */
   function expandEpicRow(number: number) {
     expanded.add(number);
-    // Trigger a one-shot fetch if the live store doesn't have this epic yet.
-    if (!epics?.[`${repoPath}#${number}`] && !fetched.has(number)) {
-      getEpic(repoPath, number)
-        .then((e) => fetched.set(number, e))
-        .catch(() => {});
-    }
   }
 
   function toggleEpic(number: number) {

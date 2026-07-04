@@ -8,6 +8,8 @@ import type {
   BuildQueue,
   CompletedEpic,
   DrainStatus,
+  Epic,
+  EpicChildState,
   GitState,
   Session,
   SessionActivity,
@@ -510,6 +512,25 @@ test("tab return on a socket still stuck CONNECTING reopens it (frozen handshake
   // never accept() → readyState stays 0 (CONNECTING), as after a mid-handshake freeze
   dom.fire("d:", "visibilitychange");
   expect(made.length).toBe(2); // stale CONNECTING socket is not left alone
+  dispose();
+});
+
+test("connectionEpoch counts every opened socket — incl. a replacement after a silent kill (no onclose)", () => {
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  expect(s.connectionEpoch).toBe(0);
+  made[0].accept();
+  expect(s.connectionEpoch).toBe(1); // initial page-load connect
+  // Mobile freeze kills the socket WITHOUT firing onclose: `connected` never flips
+  // false, so a connected false→true edge-watcher would miss the replacement —
+  // this is exactly why the resync trigger anchors on the epoch instead.
+  made[0].readyState = 3;
+  dom.fire("d:", "visibilitychange"); // tab returns → replacement socket
+  expect(made.length).toBe(2);
+  expect(s.connected).toBe(true); // never observed the drop
+  made[1].accept();
+  expect(s.connectionEpoch).toBe(2); // replacement open still advances the epoch
   dispose();
 });
 
@@ -1024,6 +1045,65 @@ test("epic:completed for different repos/parents appends", () => {
   s.apply({ event: "epic:completed", data: completedEpic("/r", 42) });
   s.apply({ event: "epic:completed", data: completedEpic("/r", 99) });
   expect(s.completedEpics).toHaveLength(2);
+});
+
+// ── live-epic pruning ─────────────────────────────────────────────────────────
+// `epics` would otherwise be append-only while +page's resync() re-fetches every
+// key on each wake/socket-reopen — a long-lived tab would GET /api/epic once per
+// epic EVER seen, forever. Finished epics must therefore leave the map.
+
+function liveEpic(
+  repoPath: string,
+  parentIssueNumber: number,
+  status: "running" | "idle",
+  childStates: EpicChildState[],
+): Epic {
+  return {
+    repoPath,
+    parentIssueNumber,
+    parentTitle: `Epic #${parentIssueNumber}`,
+    source: "native",
+    children: childStates.map((state, i) => ({
+      number: 100 + i,
+      title: `child ${i}`,
+      url: `https://github.com/x/y/issues/${100 + i}`,
+      order: i,
+      body: "",
+      blockedBy: [],
+      state,
+      sessionId: null,
+      prNumber: null,
+      issueClosed: state === "merged",
+      claimed: false,
+    })),
+    warnings: [],
+    run: { repoPath, parentIssueNumber, mode: "auto", status },
+  };
+}
+
+test("setEpic prunes a finished epic (idle + all children merged) instead of upserting", () => {
+  const s = new HerdStore();
+  s.setEpic(liveEpic("/r", 42, "running", ["merged", "running"]));
+  expect(s.epics["/r#42"]).toBeDefined();
+  // The drain's final post-completion emit: idle run, every child merged → key drops.
+  s.setEpic(liveEpic("/r", 42, "idle", ["merged", "merged"]));
+  expect(s.epics["/r#42"]).toBeUndefined();
+});
+
+test("setEpic keeps an idle epic that still has unmerged children (stopped mid-run)", () => {
+  const s = new HerdStore();
+  s.setEpic(liveEpic("/r", 42, "idle", ["merged", "ready"]));
+  expect(s.epics["/r#42"]).toBeDefined();
+});
+
+test("epic:completed drops the live epic record", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.setEpic(liveEpic("/r", 42, "running", ["merged", "running"]));
+  s.setEpic(liveEpic("/other", 7, "running", ["ready"]));
+  s.apply({ event: "epic:completed", data: completedEpic("/r", 42) });
+  expect(s.epics["/r#42"]).toBeUndefined();
+  expect(s.epics["/other#7"]).toBeDefined(); // untouched
 });
 
 test("epic:completed-cleared removes matching entry and leaves others", () => {

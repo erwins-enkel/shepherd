@@ -7,6 +7,8 @@ import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
+import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+import { reactiveRecord } from "./reactive-fixture.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -598,5 +600,372 @@ describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
     await expect.poll(() => issueTitles()).not.toContain("Plain sub-issue");
     expect(issueTitles()).toContain("Mid-level epic");
     expect(issueTitles()).toContain("Ordinary issue");
+  });
+});
+
+describe("IssuesPanel soft refresh (backlogRefresh)", () => {
+  function makeIssue(number: number, title: string): Issue {
+    return {
+      number,
+      title,
+      body: "",
+      url: `https://example.com/i/${number}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    };
+  }
+
+  function makeSummary(parentIssueNumber: number, merged: number, total: number): EpicSummary {
+    return {
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      merged,
+      total,
+      status: "idle",
+      source: "markdown",
+    };
+  }
+
+  function makeEpic(
+    parentIssueNumber: number,
+    childStates: Epic["children"][number]["state"][],
+  ): Epic {
+    return {
+      repoPath: "/repo",
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      source: "markdown",
+      children: childStates.map((state, i) => ({
+        number: 100 + i,
+        title: `Child ${100 + i}`,
+        url: `https://example.com/i/${100 + i}`,
+        order: i,
+        body: "",
+        blockedBy: [],
+        state,
+        sessionId: null,
+        prNumber: null,
+        issueClosed: state === "merged",
+        claimed: false,
+      })),
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber, mode: "auto", status: "idle" },
+    };
+  }
+
+  it("mounted with nonce > 0 → single fetch (mount latch swallows the page-lifetime nonce)", async () => {
+    // The overlay is {#if}-mounted while the nonce increments page-lifetime, so a
+    // panel routinely mounts with nonce > 0 — the latch must NOT read that as a bump.
+    backlogRefresh.bump();
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Only issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+    // Give a (buggy) soft-refresh double-fetch a chance to fire before counting.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockListIssues).toHaveBeenCalledTimes(1);
+    expect(mockGetEpics).toHaveBeenCalledTimes(1);
+  });
+
+  it("nonce stable after mount → no extra fetches", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Only issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockListIssues).toHaveBeenCalledTimes(1);
+    expect(mockGetEpics).toHaveBeenCalledTimes(1);
+  });
+
+  it("bump refetches issues + summaries + expanded epic, preserving filter text and expansion", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(50, "Epic parent"), makeIssue(51, "Other issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(50, 1, 3)], subIssues: [] });
+    // No `epics` (live store) prop → the expanded panel renders from the one-shot
+    // `fetched` cache; the bump must refresh that too.
+    mockEpic.mockResolvedValue(makeEpic(50, ["merged", "running", "ready"]));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 50 });
+
+    // Collapsed-row badge from the summary + expanded panel from the fetched Epic.
+    await expect.element(page.getByText(m.epic_badge({ merged: 1, total: 3 }))).toBeInTheDocument();
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).toHaveBeenCalledTimes(1);
+
+    // Operator types a filter — it must survive the refresh.
+    const filterInput = document.querySelector<HTMLInputElement>(".issue-filter")!;
+    filterInput.value = "Epic";
+    filterInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    // Reality moved on: one more child merged.
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(50, 2, 3)], subIssues: [] });
+    mockEpic.mockResolvedValue(makeEpic(50, ["merged", "merged", "running"]));
+    backlogRefresh.bump();
+
+    // Badge + expanded panel both show the new counts…
+    await expect.element(page.getByText(m.epic_badge({ merged: 2, total: 3 }))).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
+      .toBeInTheDocument();
+    // …the expanded fetched-cache epic was re-pulled…
+    expect(mockEpic).toHaveBeenCalledTimes(2);
+    expect(mockEpic).toHaveBeenLastCalledWith("/repo", 50);
+    // …and operator state survived: expansion + filter text intact (no hard reset).
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector<HTMLInputElement>(".issue-filter")?.value).toBe("Epic");
+  });
+
+  it("keeps the old list when the refreshed listing reports a fetch failure", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Survivor issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+
+    // The wake-refresh hits a rate-limited forge: old data beats an error banner.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+    backlogRefresh.bump();
+
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+    ).toEqual(["Survivor issue"]);
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+  });
+
+  it("a late-settling mount fetch cannot clobber a newer soft-refresh result", async () => {
+    // Mount fetch and soft refresh hit the SAME repo concurrently, so the
+    // rp !== repoPath guard alone can't order them — the fetch sequence token must.
+    type Listing = Awaited<ReturnType<typeof listIssues>>;
+    let rejectMount!: (e: Error) => void;
+    const mountFetch = new Promise<Listing>((_res, rej) => {
+      rejectMount = rej;
+    });
+    mockListIssues
+      .mockReturnValueOnce(mountFetch) // mount: stays pending
+      .mockResolvedValueOnce({
+        // soft refresh: settles first, with fresher data
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [makeIssue(2, "Fresh issue")],
+        viewer: null,
+      });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(1);
+    backlogRefresh.bump();
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(2);
+
+    // The soft result must render even though the mount fetch never settled —
+    // i.e. softRefresh clears `loading` so fresh data isn't stuck behind the skeleton.
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+      )
+      .toEqual(["Fresh issue"]);
+
+    // Now the superseded mount fetch settles late — first rejecting would previously
+    // stamp loadError over fresh data; a stale .then would restore older issues.
+    rejectMount(new Error("late mount failure"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+    ).toEqual(["Fresh issue"]);
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+  });
+
+  it("refetches an expanded panel when the live store prunes its record (no stuck loading state)", async () => {
+    // A store-backed expanded panel renders via the `epics` prop; when the epic
+    // completes, the store PRUNES that record — the backfill must fetch it into the
+    // one-shot cache instead of leaving the open panel on its loading state forever.
+    // The prune is driven by mutating a deeply-reactive record (see reactiveRecord):
+    // the harness's rerender would replace the whole props object and re-run the
+    // repo-change reset, which a single store prune never does in production.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(60, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(60, 2, 3)], subIssues: [] });
+    mockEpic.mockResolvedValue(makeEpic(60, ["merged", "merged", "merged"]));
+
+    const live = reactiveRecord({ "/repo#60": makeEpic(60, ["merged", "merged", "running"]) });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: live, expandEpic: 60 });
+
+    // Panel renders from the live store — no one-shot fetch needed or fired.
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).not.toHaveBeenCalled();
+
+    // The epic finishes → the store drops the key (setEpic finished-prune).
+    delete live["/repo#60"];
+
+    // Backfill kicks in: the panel re-renders from the fetched record.
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 3, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).toHaveBeenCalledWith("/repo", 60);
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("a snapshot settling after the live store gained the record is not cached (prune refetches fresh)", async () => {
+    // expand → backfill getEpic in flight → epic:update seeds the live record →
+    // settle. Caching that pre-run snapshot would make a later finished-prune fall
+    // back to stale counts with the backfill seeing a defined record (no refetch).
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(80, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(80, 0, 3)], subIssues: [] });
+    let resolveFirst!: (e: Epic) => void;
+    mockEpic
+      .mockReturnValueOnce(new Promise<Epic>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(makeEpic(80, ["merged", "merged", "merged"]));
+
+    const live = reactiveRecord<Epic>({});
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: live, expandEpic: 80 });
+
+    // Backfill fetch #1 fires (no record anywhere) and is held pending.
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1);
+
+    // The epic run starts mid-flight: the live store seeds the record…
+    live["/repo#80"] = makeEpic(80, ["merged", "merged", "running"]);
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
+      .toBeInTheDocument();
+    // …then the pre-run snapshot settles late. It must NOT enter the cache.
+    resolveFirst(makeEpic(80, ["ready", "ready", "ready"]));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector(".epic-panel, .epic")?.textContent).not.toContain(
+      m.epic_progress({ merged: 0, total: 3 }),
+    );
+
+    // Epic finishes → store prunes. The backfill must fetch FRESH (call #2), not
+    // serve the discarded pre-run snapshot.
+    delete live["/repo#80"];
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 3, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).toHaveBeenCalledTimes(2);
+  });
+
+  it("a snapshot settling after seed AND prune both happened mid-flight is discarded", async () => {
+    // The narrowest window: expand → backfill getEpic held pending → epic:update
+    // seeds the live record → the run completes and the finished-prune drops the
+    // key — all BEFORE the fetch settles. At settle epics[key] is undefined again,
+    // so the settle-time guard alone would cache the pre-run snapshot; the seed-time
+    // invalidation must have already killed the ticket so the prune refetches fresh.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(90, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(90, 0, 2)], subIssues: [] });
+    let resolveFirst!: (e: Epic) => void;
+    mockEpic
+      .mockReturnValueOnce(new Promise<Epic>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(makeEpic(90, ["merged", "merged"]));
+
+    const live = reactiveRecord<Epic>({});
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: live, expandEpic: 90 });
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1); // backfill #1, held pending
+
+    // Run starts (seed) and finishes (prune) while fetch #1 is still in flight.
+    live["/repo#90"] = makeEpic(90, ["merged", "running"]);
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 2 })))
+      .toBeInTheDocument();
+    delete live["/repo#90"];
+
+    // The prune triggers a FRESH backfill fetch (#2) — the pending flag was cleared
+    // at seed time, so the effect isn't blocked by the still-unsettled fetch #1.
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
+    // Fetch #1's pre-run snapshot settles last; its invalidated ticket discards it.
+    resolveFirst(makeEpic(90, ["ready", "ready"]));
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 2 })))
+      .toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.body.textContent).not.toContain(m.epic_progress({ merged: 0, total: 2 }));
+  });
+
+  it("a late epic fetch for a since-collapsed panel is discarded — re-expand refetches", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(70, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(70, 0, 1)], subIssues: [] });
+    let resolveFirst!: (e: Epic) => void;
+    mockEpic
+      .mockReturnValueOnce(new Promise<Epic>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(makeEpic(70, ["merged"]));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+
+    const badge = () => document.querySelector(".epic-badge") as HTMLButtonElement;
+    badge().click(); // expand → backfill fetch #1 (held pending)
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1);
+    badge().click(); // collapse while the fetch is still in flight
+
+    // The late settle must NOT re-seed the cache for the collapsed panel…
+    resolveFirst(makeEpic(70, ["ready"]));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // …so re-expanding refetches instead of serving the discarded stale record.
+    badge().click();
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 1 })))
+      .toBeInTheDocument();
   });
 });

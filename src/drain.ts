@@ -4,7 +4,7 @@ import type { CreateSessionInput, Session } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
 import type { TelemetryService } from "./telemetry";
-import { settleMergedSession } from "./merge-teardown";
+import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
 import {
   ACTIVE_LABEL,
@@ -56,6 +56,10 @@ const SPAWN_FAIL_COOLDOWN_MS = 5 * 60_000;
  *  `prReviewMeta` API call on every pump while the operator hasn't fixed it — recheck at most
  *  this often per child. Bounds the cost to ≤1 call/child/~60s while a child stays blocked. */
 const EPIC_BASE_RECHECK_TTL_MS = 60_000;
+/** #1401: one reconcile sweep per epic per this window (plus one on the first tick after a
+ *  restart — the throttle map is in-memory). Slow on purpose: the sweep is convergence repair
+ *  for merges whose event-time recording was missed, not a hot path. */
+const EPIC_RECONCILE_TTL_MS = 5 * 60_000;
 
 /** Cap on epic-landing-PR open attempts (#635, Stage B). A failed `openPr` flips the
  *  `epic_completed` row to `landingState:'error'` and increments `landingAttempts`; the
@@ -238,6 +242,10 @@ export class DrainService {
   // recomputing on restart is fine — no persisted column).
   private epicBranchScanCache = new Map<string, { at: number; divergent: string[] }>();
   private lastEpicSig = new Map<string, string>();
+  // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
+  // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
+  // tick), then settles to one sweep per EPIC_RECONCILE_TTL_MS.
+  private epicReconcileAt = new Map<string, number>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn-failure timestamp; throttles re-spawn
    *  of an issue whose create() keeps throwing. Cleared on a successful spawn. In-memory. */
   private spawnFailures = new Map<string, number>();
@@ -1865,6 +1873,11 @@ export class DrainService {
   async handle(change: SessionStateChange): Promise<void> {
     const s = change.snapshot.session;
     if (change.kind === "git") {
+      // #1401: record epic integration BEFORE the auto gate — a manual (auto=0) session never
+      // reaches reapMerged, so this is the only event-time hook covering its merged PR. Also
+      // deliberately before settleMergedSession (via reapMerged below) so the #1037
+      // isIntegratedEpicChild guard sees the fresh row and archives-only.
+      if (change.git.state === "merged") await this.recordEpicIntegrationForMerge(s, change.git);
       if (!s.auto) return; // drain only manages auto sessions
       if (change.git.state === "merged") {
         await this.reapMerged(s);
@@ -1880,7 +1893,10 @@ export class DrainService {
   /** pr-poller observed a new git state for a session. */
   async onGit(id: string, git: GitState): Promise<void> {
     const s = this.deps.store.get(id);
-    if (!s || !s.auto) return; // drain only manages auto sessions
+    if (!s) return;
+    // #1401: record BEFORE the auto gate (see handle() — same manual-session coverage).
+    if (git.state === "merged") await this.recordEpicIntegrationForMerge(s, git);
+    if (!s.auto) return; // drain only manages auto sessions
     if (git.state === "merged") {
       await this.reapMerged(s);
       return;
@@ -1888,6 +1904,102 @@ export class DrainService {
     // open/green/other → the retire gate may now fire (e.g. CI just went green).
     // Skip drain-disabled repos — no spawn/retire there, just WS noise.
     await this.pumpIfEnabled(s.repoPath);
+  }
+
+  /** #1401: event-time epic-integration recording for a poller-observed merge. Thin adapter
+   *  over the shared helper (which owns the gates: issue-linked, active epic, merged base ==
+   *  pinned integration branch, never-throws). Ungated by `s.auto` — see handle()/onGit(). */
+  private async recordEpicIntegrationForMerge(s: Session, git: GitState): Promise<void> {
+    await recordEpicIntegrationIfChild(
+      s,
+      { number: git.number, url: git.url, baseRefName: git.baseRefName },
+      { store: this.deps.store, forge: this.deps.resolveForge(s.repoPath) },
+    );
+  }
+
+  /**
+   * #1401 reconcile sweep: backfill `epic_integrated` rows for children whose merged PR was
+   * settled without recording (out-of-band merges that predate the event-time fix, or whose
+   * event was missed). Event-time recording is one-shot and already consumed for such children,
+   * so a stalled epic can only converge through this pass. Runs from tick() ungated by the
+   * drain toggle, but is internally cheap: nothing for repos without an active epic, and one
+   * sweep per epic per {@link EPIC_RECONCILE_TTL_MS} otherwise.
+   *
+   * Mapping is session-records-only (ratified in the plan): every stored session row for the
+   * child (ANY status incl. archived, ANY auto flag) contributes its branch; each DISTINCT
+   * branch is probed via branch-keyed `prStatus` until one records. All rows — not first-match —
+   * because `store.list()` is createdAt-ordered, so a dead predecessor session (spawned first,
+   * never opened a PR) sorts before the manual respawn whose PR actually merged (#128's
+   * TASK-1248 vs TASK-1249 shape). Branches whose LIVE session currently shows an open PR are
+   * skipped — their merge will be recorded event-time; probing them every sweep would just burn
+   * forge reads on healthy in-flight children.
+   *
+   * Worst case: one `prStatus` per distinct not-open-PR branch per un-integrated child per TTL.
+   * After a backfill the same tick's pump reads the new row → handleEpicSideEffects completes
+   * the epic → the landing PR opens. No manual DB surgery.
+   */
+  private async reconcileEpicIntegrations(repoPath: string): Promise<void> {
+    const run = this.deps.store.getEpicRun(repoPath);
+    if (!run || (run.status !== "running" && run.status !== "paused")) return;
+    const key = `${repoPath}#${run.parentIssueNumber}`;
+    const last = this.epicReconcileAt.get(key);
+    if (last !== undefined && this.now() - last < EPIC_RECONCILE_TTL_MS) return;
+    this.epicReconcileAt.set(key, this.now());
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge) return;
+    const epic = await this.buildEpic(repoPath, run);
+    if (!epic) return;
+    const candidates = epic.children.filter((c) => !c.integrationMerged && !c.issueClosed);
+    if (candidates.length === 0) return;
+    const rows = this.deps.store
+      .list()
+      .filter((x) => x.repoPath === repoPath && x.issueNumber != null && x.branch);
+    for (const child of candidates) {
+      await this.probeChildIntegration(
+        forge,
+        repoPath,
+        child.number,
+        rows.filter((x) => x.issueNumber === child.number),
+      );
+    }
+  }
+
+  /** One child's probe pass for {@link reconcileEpicIntegrations}: try each DISTINCT branch
+   *  among the child's session rows until one records. Rows arrive in `store.list()`
+   *  (createdAt) order — dead predecessors first — which is exactly why every branch is tried.
+   *  A live row whose snapshot shows an OPEN PR is skipped (event-time recording owns it);
+   *  per-branch probe errors warn + continue. */
+  private async probeChildIntegration(
+    forge: GitForge,
+    repoPath: string,
+    childNumber: number,
+    rows: Session[],
+  ): Promise<void> {
+    const prSnap = this.deps.prCache.snapshot();
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const branch = row.branch!;
+      if (seen.has(branch)) continue;
+      seen.add(branch);
+      // Live session with an open PR → event-time recording owns it; skip the probe.
+      if (row.status !== "archived" && prSnap[row.id]?.state === "open") continue;
+      let pr: PrStatus;
+      try {
+        pr = await forge.prStatus(branch);
+      } catch (err) {
+        console.warn(`[drain] epic reconcile prStatus(${branch}) failed for ${repoPath}:`, err);
+        continue;
+      }
+      if (pr.state !== "merged") continue;
+      // The helper re-applies the full gate set (active epic, base resolution incl. the
+      // base-incapable carve-out via THIS row's baseBranch, pinned match, idempotent upsert).
+      await recordEpicIntegrationIfChild(
+        row,
+        { number: pr.number, url: pr.url, baseRefName: pr.baseRefName },
+        { store: this.deps.store, forge },
+      );
+      if (this.deps.store.isEpicIntegratedChild(repoPath, childNumber)) return; // recorded
+    }
   }
 
   /** Reap a session whose PR was observed merged out-of-band — a human or GitHub
@@ -1984,6 +2096,14 @@ export class DrainService {
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
     for (const repoPath of this.deps.repos()) {
+      // #1401: backfill missed epic-integration rows BEFORE the pump so a stalled epic
+      // completes (and opens its landing PR) in this same tick. UNGATED by the drain toggle,
+      // like its neighbors; internally throttled + no-op without an active epic.
+      try {
+        await this.reconcileEpicIntegrations(repoPath);
+      } catch (err) {
+        console.warn(`[drain] epic reconcile failed for ${repoPath}:`, err);
+      }
       // UNGATED landing-PR retry: runs for EVERY repo, BEFORE the pump gate, so a completed
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.
       // DB-gated internally → zero forge calls in steady state.

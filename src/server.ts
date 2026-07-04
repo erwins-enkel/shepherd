@@ -127,7 +127,7 @@ import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
-import { settleMergedSession } from "./merge-teardown";
+import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
@@ -3226,6 +3226,14 @@ async function forgeMerge(
   // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human
   // merges on the host and the poller-driven archive path handles teardown.
   if (forge.kind === "local") {
+    // #1401: record epic integration BEFORE settleMergedSession (the #1037 guard reads the
+    // fresh row to archive-only). LocalForge reports no PR base, so the helper's
+    // base-incapable carve-out trusts session.baseBranch — same as the retire path.
+    await recordEpicIntegrationIfChild(
+      session,
+      { number: cur.number, url: cur.url, baseRefName: cur.baseRefName },
+      { store: deps.store, forge },
+    );
     await settleMergedSession(session, {
       resolveForge: (repoPath) => deps.resolveForge?.(repoPath) ?? null,
       archive: (id) => deps.service.archive(id),

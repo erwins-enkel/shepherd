@@ -522,6 +522,7 @@
     oncodexupdate={onsettingscodexupdate}
     pluginUpdates={store.pluginUpdates}
     onpluginupdates={onsettingspluginupdates}
+    onpluginapplied={onpluginupdated}
     onwhatsnew={onsettingswhatsnew}
   />
 {/if}

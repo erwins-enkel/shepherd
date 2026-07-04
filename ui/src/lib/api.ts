@@ -1209,6 +1209,15 @@ export async function getPluginUpdates(): Promise<PluginUpdatesStatus> {
   return r.json();
 }
 
+/** Force a fresh plugin-update scan NOW (each plugin hits its git remote, so this can
+ *  take seconds). The server also broadcasts the snapshot on `plugin-update:status`,
+ *  which is what re-renders the UI — callers await this mainly for a busy state. */
+export async function checkPluginUpdates(): Promise<PluginUpdatesStatus> {
+  const r = await fetch("/api/plugin-update/check", { method: "POST" });
+  if (!r.ok) throw await failed(r, "plugin update check");
+  return r.json();
+}
+
 /** Result of a successful in-place plugin update (mirror of the server's apply response).
  *  `restartRequired` is true when the plugin was already running and its new code can only
  *  load on the next restart; `plugin` is the freshly-activated PluginInfo otherwise. `status`
@@ -1223,10 +1232,13 @@ export interface PluginUpdateApplied {
 
 /** Apply an available update to a plugin in place: the server fetches the new version, swaps
  *  it on disk, and re-activates it. Discriminated result — `error` is a stable server CODE
- *  the caller maps to a message (mirrors {@link installPlugin}). */
+ *  the caller maps to a message (mirrors {@link installPlugin}); `detail` is the server's
+ *  verbatim diagnostic (e.g. the git error) so a failure is diagnosable, not just generic. */
 export async function applyPluginUpdate(
   id: string,
-): Promise<{ ok: true; result: PluginUpdateApplied } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; result: PluginUpdateApplied } | { ok: false; error: string; detail?: string }
+> {
   const r = await fetch("/api/plugin-update/apply", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1234,10 +1246,15 @@ export async function applyPluginUpdate(
   });
   const body = (await r.json().catch(() => ({}))) as Partial<PluginUpdateApplied> & {
     error?: string;
+    detail?: string;
   };
   if (r.ok && body.ok) return { ok: true, result: body as PluginUpdateApplied };
   flagIfUnauthorized(r.status);
-  return { ok: false, error: typeof body.error === "string" ? body.error : "update_failed" };
+  return {
+    ok: false,
+    error: typeof body.error === "string" ? body.error : "update_failed",
+    ...(typeof body.detail === "string" && body.detail ? { detail: body.detail } : {}),
+  };
 }
 
 /** Current environment-readiness diagnostics; `refresh` forces a re-probe. */

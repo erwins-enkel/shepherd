@@ -8,12 +8,26 @@
     folder,
     busy = false,
     onuninstall,
+    update = null,
+    onupdate,
   }: {
     plugin: PluginInfo;
     /** Directory name for uninstall; null when the folder is unknown (no uninstall shown). */
     folder: string | null;
     busy?: boolean;
     onuninstall: (folder: string, name: string) => void;
+    /** In-card update state (issue: surface "update available" where the user looks).
+     *  `latest` non-null shows the badge + Update button; `outcome` persists a
+     *  live/restart/error note after an apply — even once the badge is gone. */
+    update?: {
+      latest: string | null;
+      applying: boolean;
+      outcome:
+        | { kind: "live" | "restart"; version: string }
+        | { kind: "error"; msg: string; detail?: string }
+        | null;
+    } | null;
+    onupdate?: () => void;
   } = $props();
 
   // Core-derived health → token + label. Design rule (mirrors DiagnoseRows): never
@@ -54,6 +68,17 @@
       <span class="ver micro">v{plugin.version}</span>
       <span class="health micro" style="color:{health.color}">{health.label()}</span>
     </button>
+    {#if update?.latest}
+      <span class="upd-badge micro">{m.pluginupdate_state_update({ latest: update.latest })}</span>
+      <button
+        type="button"
+        class="gbtn upd"
+        disabled={update.applying}
+        onclick={() => onupdate?.()}
+      >
+        {update.applying ? m.pluginupdate_applying() : m.pluginupdate_apply()}
+      </button>
+    {/if}
     {#if folder}
       {@const f = folder}
       <button
@@ -66,6 +91,20 @@
       </button>
     {/if}
   </div>
+  {#if update?.outcome}
+    {@const o = update.outcome}
+    {#if o.kind === "error"}
+      <p class="upd-outcome error micro" role="alert">{o.msg}</p>
+      {#if o.detail}
+        <!-- server-authored diagnostic (verbatim) — makes the failure debuggable -->
+        <p class="upd-detail micro">{o.detail}</p>
+      {/if}
+    {:else if o.kind === "restart"}
+      <p class="upd-outcome micro">{m.pluginupdate_applied_restart({ version: o.version })}</p>
+    {:else}
+      <p class="upd-outcome live micro">{m.pluginupdate_applied_live({ version: o.version })}</p>
+    {/if}
+  {/if}
   {#if plugin.lastError}
     <p class="err micro" title={plugin.lastError}>{m.plugins_last_error()}: {plugin.lastError}</p>
   {/if}
@@ -104,6 +143,7 @@
   .head-line {
     display: flex;
     align-items: center;
+    flex-wrap: wrap; /* badge + Update wrap under the head instead of crushing it */
     gap: 8px;
   }
   .head {
@@ -128,6 +168,7 @@
   .name {
     font-size: var(--fs-base);
     font-weight: 600;
+    min-width: 0; /* allow the flex item to actually shrink into its ellipsis */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -163,6 +204,38 @@
   .gbtn.del {
     font-size: var(--fs-micro);
     padding: 5px 9px;
+  }
+  /* Update is the card's primary action — amber accent (mirrors the updates modal). */
+  .gbtn.upd {
+    font-size: var(--fs-micro);
+    padding: 5px 9px;
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .upd-badge {
+    font-size: var(--fs-micro);
+    padding: 2px 8px;
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    white-space: nowrap;
+    flex: none;
+  }
+  .upd-outcome {
+    margin: 6px 0 0;
+    color: var(--color-amber);
+  }
+  .upd-outcome.live {
+    color: var(--color-green, var(--color-blue));
+  }
+  .upd-outcome.error {
+    color: var(--color-red);
+    word-break: break-word;
+  }
+  .upd-detail {
+    margin: 4px 0 0;
+    color: var(--color-muted);
+    font-family: var(--font-mono, monospace);
+    word-break: break-word;
   }
   .err {
     color: var(--color-red);

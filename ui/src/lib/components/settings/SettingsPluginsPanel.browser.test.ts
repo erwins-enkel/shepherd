@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsPluginsPanel from "./SettingsPluginsPanel.svelte";
-import type { PluginInfo, InstalledPlugin } from "$lib/types";
+import type { PluginInfo, InstalledPlugin, PluginUpdatesStatus } from "$lib/types";
 
 function plugin(overrides: Partial<PluginInfo> = {}): PluginInfo {
   return {
@@ -70,6 +70,52 @@ function stubActivate(
     }
     return new Response("{}", { status: 404 });
   });
+}
+
+/** An update snapshot whose one plugin (`p1` unless overridden) is update-available. */
+function updSnapshot(
+  over: Partial<PluginUpdatesStatus["plugins"][number]> = {},
+): PluginUpdatesStatus {
+  return {
+    plugins: [
+      {
+        id: "p1",
+        name: "Test Plugin",
+        currentVersion: "1.0.0",
+        latestVersion: "1.1.0",
+        source: "git",
+        state: "update-available",
+        ...over,
+      },
+    ],
+    updateAvailable: true,
+    checkedAt: 1700000000000,
+  };
+}
+
+/** Stub the scan + the update-apply POST. `apply` returns the endpoint's JSON payload
+ *  (`{ ok: true, ... }` on success, `{ error, detail? }` on failure) with an optional status. */
+function stubApply(rows: InstalledPlugin[], apply: () => { payload: unknown; status?: number }) {
+  const calls: string[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/plugin-update/apply")) {
+      calls.push(init?.body ? String(init.body) : "");
+      const { payload, status = 200 } = apply();
+      return new Response(JSON.stringify(payload), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/api/plugins/manage/installed")) {
+      return new Response(JSON.stringify({ installed: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("{}", { status: 404 });
+  });
+  return calls;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -303,6 +349,157 @@ describe("SettingsPluginsPanel", () => {
     } finally {
       Element.prototype.scrollIntoView = orig;
     }
+  });
+
+  it("a loaded card shows the update badge + Update button when the snapshot says so", async () => {
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot(),
+    });
+    // "update available" surfaces INSIDE the plugin card (issue: user looked here first)
+    await expect.element(page.getByText("Update available → v1.1.0")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Update", exact: true })).toBeVisible();
+  });
+
+  it("no badge when the plugin is up to date", async () => {
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot({ state: "up-to-date", latestVersion: "1.0.0" }),
+    });
+    await expect.element(page.getByText("Test Plugin")).toBeVisible();
+    expect(document.body.textContent).not.toContain("Update available");
+    expect(page.getByRole("button", { name: "Update", exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("a pending (not-loaded) row also carries the update badge + button", async () => {
+    stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })]);
+    render(SettingsPluginsPanel, {
+      plugins: [],
+      updates: updSnapshot({ id: "fresh", name: "Fresh Plugin" }),
+    });
+    await expect.element(page.getByText("Update available → v1.1.0")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Update", exact: true })).toBeVisible();
+  });
+
+  it("inline apply (live) shows the running note and pushes the snapshot up", async () => {
+    const calls = stubApply([inst({ loaded: true })], () => ({
+      payload: {
+        ok: true,
+        restartRequired: false,
+        updatedTo: "1.1.0",
+        status: { plugins: [], updateAvailable: false, checkedAt: 2 },
+      },
+    }));
+    const onpluginapplied = vi.fn();
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot(),
+      onpluginapplied,
+    });
+    await page.getByRole("button", { name: "Update", exact: true }).click();
+    await expect.element(page.getByText("Updated to v1.1.0 — now running.")).toBeVisible();
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0]!)).toEqual({ id: "p1" });
+    await vi.waitFor(() => expect(onpluginapplied).toHaveBeenCalled());
+    // A live update owes no restart.
+    expect(document.body.textContent).not.toContain("systemctl --user restart shepherd");
+  });
+
+  it("inline apply on a running plugin surfaces the restart note + banner", async () => {
+    stubApply([inst({ loaded: true })], () => ({
+      payload: {
+        ok: true,
+        restartRequired: true,
+        updatedTo: "1.1.0",
+        status: { plugins: [], updateAvailable: false, checkedAt: 2 },
+      },
+    }));
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot(),
+    });
+    await page.getByRole("button", { name: "Update", exact: true }).click();
+    await expect.element(page.getByText(/Updated to v1\.1\.0\. Restart Shepherd/)).toBeVisible();
+    await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
+  });
+
+  it("a failed apply shows the mapped message AND the server detail", async () => {
+    stubApply([inst({ loaded: true })], () => ({
+      payload: { error: "update_failed", detail: "not a fast-forward" },
+      status: 400,
+    }));
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot(),
+    });
+    await page.getByRole("button", { name: "Update", exact: true }).click();
+    await expect.element(page.getByText("Update failed.")).toBeVisible();
+    // The verbatim server diagnostic — a generic message alone is undebuggable.
+    await expect.element(page.getByText("not a fast-forward")).toBeVisible();
+  });
+
+  it("Check now posts to /api/plugin-update/check and shows a busy state mid-flight", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolve = r;
+    });
+    let checkCalls = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/plugin-update/check")) {
+        expect(init?.method).toBe("POST");
+        checkCalls++;
+        await gate;
+        return new Response(JSON.stringify(updSnapshot()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/api/plugins/manage/installed")) {
+        return new Response(JSON.stringify({ installed: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    });
+    render(SettingsPluginsPanel, { plugins: [] });
+
+    await page.getByRole("button", { name: "Check for updates" }).click();
+    // Mid-flight the button flips to the busy label and is disabled (no double-fire).
+    await expect.element(page.getByRole("button", { name: "Checking…" })).toBeDisabled();
+    expect(checkCalls).toBe(1);
+    resolve();
+    // Back to idle once the check resolves (rows refresh via the status broadcast).
+    await expect.element(page.getByRole("button", { name: "Check for updates" })).toBeEnabled();
+  });
+
+  it("a failed manual check surfaces an error line", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/plugin-update/check")) {
+        return new Response("{}", { status: 503 });
+      }
+      if (url.includes("/api/plugins/manage/installed")) {
+        return new Response(JSON.stringify({ installed: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    });
+    render(SettingsPluginsPanel, { plugins: [] });
+    await page.getByRole("button", { name: "Check for updates" }).click();
+    await expect.element(page.getByText("Update check failed.")).toBeVisible();
+  });
+
+  it("shows the last-checked time from the snapshot", async () => {
+    stubScan([]);
+    render(SettingsPluginsPanel, { plugins: [], updates: updSnapshot() });
+    // Locale-dependent rendering — assert the stable message prefix.
+    await expect.element(page.getByText(/last checked/)).toBeVisible();
   });
 
   it("focusId applies focus-flash class to the matching card", async () => {

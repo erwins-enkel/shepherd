@@ -95,6 +95,7 @@
     oncodexupdate,
     pluginUpdates = null,
     onpluginupdates,
+    onpluginapplied,
     onwhatsnew,
     initialTab = "workspace",
     initialDiagnostics = null,
@@ -111,6 +112,9 @@
     oncodexupdate?: () => void;
     pluginUpdates?: PluginUpdatesStatus | null;
     onpluginupdates?: () => void;
+    /** After an inline apply on the Plugins tab: adopt the recomputed update snapshot
+     *  (same contract as PluginUpdatesModal's `onapplied`). */
+    onpluginapplied?: (status: PluginUpdatesStatus) => void;
     onwhatsnew?: () => void;
     initialTab?: TabId;
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
@@ -1564,7 +1568,13 @@
       aria-label={m.settings_tab_plugins()}
       hidden={tab !== "plugins"}
     >
-      <SettingsPluginsPanel {plugins} {onpluginschanged} focusId={focusPluginId} />
+      <SettingsPluginsPanel
+        {plugins}
+        {onpluginschanged}
+        focusId={focusPluginId}
+        updates={pluginUpdates}
+        {onpluginapplied}
+      />
     </div>
   </div>
 </div>

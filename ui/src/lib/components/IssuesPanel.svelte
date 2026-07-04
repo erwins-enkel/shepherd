@@ -272,6 +272,12 @@
     getEpic(rp, num)
       .then((e) => {
         if (rp !== repoPath || epicFetchSeq.get(num) !== ticket || !expanded.has(num)) return;
+        // The live store gained a record mid-flight (epic:update seeded it while
+        // this fetch ran): our snapshot predates that run — caching it would make
+        // a LATER finished-prune fall back to pre-run counts, and the backfill
+        // would see a defined record and never refetch. Drop it; the panel is
+        // rendering live, and the prune-backfill path will fetch fresh.
+        if (epics?.[`${rp}#${num}`]) return;
         fetched.set(num, e);
       })
       .catch(() => {})

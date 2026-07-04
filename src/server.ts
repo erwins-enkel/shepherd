@@ -252,9 +252,10 @@ export interface AppDeps {
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
   codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
-  /** installed-plugin update tracker: `current()` for the badge/status, `apply()` to
-   *  fetch-and-swap a plugin's new version on disk (issue #1124); absent when unwired. */
-  pluginUpdates?: Pick<PluginUpdateService, "current" | "apply">;
+  /** installed-plugin update tracker: `current()` for the badge/status, `check()` for
+   *  an on-demand re-scan, `apply()` to fetch-and-swap a plugin's new version on disk
+   *  (issue #1124); absent when unwired. */
+  pluginUpdates?: Pick<PluginUpdateService, "current" | "apply" | "check">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -3568,8 +3569,11 @@ function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: r.started }, r.started ? 202 : 409);
 }
 
-// ── plugin update: status (informational) + in-place apply ─────────────
-//  - GET  /api/plugin-update        → PluginUpdatesStatus (badge/list)
+// ── plugin update: status (informational) + on-demand check + in-place apply ──
+//  - GET  /api/plugin-update        → PluginUpdatesStatus (cached snapshot; badge/list)
+//  - POST /api/plugin-update/check  → force a fresh scan NOW, broadcast the snapshot on
+//    `plugin-update:status` (like POST /api/diagnostics/fix), and return it. A POST —
+//    never a side-effecting GET — because each scan runs git network work per plugin.
 //  - POST /api/plugin-update/apply  `{ id }` → fetch-and-swap the new version on disk,
 //    then bring it live in-process when possible (else signal a restart is owed).
 async function handlePluginUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -3582,6 +3586,14 @@ async function handlePluginUpdate({ req, parts, deps }: Ctx): Promise<Response |
         checkedAt: Date.now(),
       },
     );
+  }
+  if (parts[2] === "check" && !parts[3] && req.method === "POST") {
+    if (!deps.pluginUpdates?.check) return json({ error: "not_available" }, 503);
+    const status = await deps.pluginUpdates.check(Date.now());
+    // Push to every client (badge, modal, other tabs) — the requester's own UI
+    // re-renders from this same event; the response body is for the busy state.
+    deps.events.emit("plugin-update:status", status);
+    return json(status);
   }
   if (parts[2] === "apply" && !parts[3] && req.method === "POST") {
     return pluginUpdateApply(req, deps);
@@ -3630,6 +3642,11 @@ async function pluginUpdateApply(req: Request, deps: AppDeps): Promise<Response>
 
   const res = await svc.apply(id, Date.now());
   if (!res.ok) {
+    // Leave a trace — a transient git/network failure is otherwise undiagnosable
+    // after the fact (the UI only gets the stable code + detail).
+    console.error(
+      `[plugin-update] apply failed for "${id}": ${res.error}${res.detail ? ` — ${res.detail}` : ""}`,
+    );
     const body = { error: res.error, ...(res.detail ? { detail: res.detail } : {}) };
     return json(body, pluginApplyStatus(res.error));
   }

@@ -301,6 +301,20 @@
   // the same recovery the old expand-time one-shot had.
   $effect(() => {
     for (const num of expanded) {
+      // A live record is authoritative while it exists — anything the one-shot
+      // path holds for this number predates the run. Invalidate a pending fetch
+      // (a settle AFTER a seed-then-prune-within-one-flight would pass the
+      // settle-time guard, epics[key] being undefined again by then) and drop a
+      // stale cached entry, so a later finished-prune always refetches fresh
+      // instead of falling back to pre-run counts.
+      if (epics?.[`${repoPath}#${num}`]) {
+        if (epicFetchPending.has(num)) {
+          epicFetchSeq.set(num, ++epicFetchTicket);
+          epicFetchPending.delete(num);
+        }
+        if (fetched.has(num)) fetched.delete(num);
+        continue;
+      }
       if (!epicFor(num) && !epicFetchPending.has(num)) untrack(() => fetchEpicInto(repoPath, num));
     }
   });

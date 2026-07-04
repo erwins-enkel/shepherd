@@ -895,6 +895,47 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     expect(mockEpic).toHaveBeenCalledTimes(2);
   });
 
+  it("a snapshot settling after seed AND prune both happened mid-flight is discarded", async () => {
+    // The narrowest window: expand → backfill getEpic held pending → epic:update
+    // seeds the live record → the run completes and the finished-prune drops the
+    // key — all BEFORE the fetch settles. At settle epics[key] is undefined again,
+    // so the settle-time guard alone would cache the pre-run snapshot; the seed-time
+    // invalidation must have already killed the ticket so the prune refetches fresh.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(90, "Epic parent")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(90, 0, 2)], subIssues: [] });
+    let resolveFirst!: (e: Epic) => void;
+    mockEpic
+      .mockReturnValueOnce(new Promise<Epic>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(makeEpic(90, ["merged", "merged"]));
+
+    const live = reactiveRecord<Epic>({});
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: live, expandEpic: 90 });
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1); // backfill #1, held pending
+
+    // Run starts (seed) and finishes (prune) while fetch #1 is still in flight.
+    live["/repo#90"] = makeEpic(90, ["merged", "running"]);
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 2 })))
+      .toBeInTheDocument();
+    delete live["/repo#90"];
+
+    // The prune triggers a FRESH backfill fetch (#2) — the pending flag was cleared
+    // at seed time, so the effect isn't blocked by the still-unsettled fetch #1.
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
+    // Fetch #1's pre-run snapshot settles last; its invalidated ticket discards it.
+    resolveFirst(makeEpic(90, ["ready", "ready"]));
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 2 })))
+      .toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.body.textContent).not.toContain(m.epic_progress({ merged: 0, total: 2 }));
+  });
+
   it("a late epic fetch for a since-collapsed panel is discarded — re-expand refetches", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

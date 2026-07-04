@@ -1,0 +1,31 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for asking! The [README](https://github.com/erwins-enkel/shepherd#readme) and
+        [docs](https://docs.shepherd.run/) cover install, configuration, and the automation suite —
+        worth a quick scan first.
+
+        🔒 **Security vulnerabilities** don't go here — report them privately via a
+        [GitHub Security advisory](https://github.com/erwins-enkel/shepherd/security/advisories/new).
+        🐛 **Reproducible bugs** belong in [Issues](https://github.com/erwins-enkel/shepherd/issues/new/choose).
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: Your question, with the goal you're after — not just the step that's stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Commands you ran, settings you changed, output or errors you saw.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Shepherd version, your OS, and how you run Shepherd (e.g. the agent CLI you drive).
+      render: text

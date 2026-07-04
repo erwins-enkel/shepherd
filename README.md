@@ -5,6 +5,8 @@
 > the Codex CLI in alpha) from your browser or phone, with best-practice guardrails built in. On
 > your own server, on your own subscription.
 
+[![GitHub Discussions](https://img.shields.io/github/discussions/erwins-enkel/shepherd?logo=github&label=Discussions)](https://github.com/erwins-enkel/shepherd/discussions)
+
 Shepherd spawns genuine interactive `claude` sessions (and, in alpha, `codex` sessions) in isolated
 git worktrees (via [`herdr`](https://herdr.dev), the interactive-pane manager), bridges each PTY to an `xterm.js` pane in
 the browser, and lets one operator run many agents in parallel — observing their status and steering
@@ -612,10 +614,12 @@ live PTY → browser, status lights, persistence/resume, repo + branch + model p
 sync, issue intake and git-host actions for GitHub and Gitea/Forgejo, usage tracking); the
 automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue); Learnings;
 Readiness; live previews of agents' dev servers; and a browser capture extension that turns a page
-into a spawned session or filed issue. See the [GitHub issues][issues] for the open backlog and
-`PRD.md` for the full feature set and roadmap.
+into a spawned session or filed issue. See the [GitHub issues][issues] for the open backlog,
+[Discussions][discussions] for questions and ideas, and `PRD.md` for the full feature set and
+roadmap.
 
 [issues]: https://github.com/erwins-enkel/shepherd/issues
+[discussions]: https://github.com/erwins-enkel/shepherd/discussions
 
 ### Usage tracking
 

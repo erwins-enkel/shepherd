@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { setPrDraftState } from "$lib/api";
+  import { setPrDraftState, mergePr } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
-  import { prBadgeLabel, prBadgeIsDraft } from "./pr-badge";
+  import { prBadgeLabel, prBadgeIsDraft, prMergeAvailable } from "./pr-badge";
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
 
   let { git, sessionId }: { git?: GitState; sessionId?: string } = $props();
@@ -24,12 +24,25 @@
   );
   // Draft marker: only on open PRs; never green — always slate.
   const showDraft = $derived(prBadgeIsDraft(git));
+  const canMerge = $derived(!!sessionId && prMergeAvailable(git));
   let btnEl = $state<HTMLButtonElement>();
   let menu = $state<{
     anchor: DOMRect;
     autoFocus: boolean;
   } | null>(null);
   let busy = $state(false);
+  let mergeArmed = $state(false);
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function disarmMerge() {
+    clearTimeout(armTimer);
+    mergeArmed = false;
+  }
+
+  function closeMenu() {
+    disarmMerge();
+    menu = null;
+  }
 
   function openMenu(autoFocus: boolean) {
     if (!actionable || !btnEl) return;
@@ -39,14 +52,42 @@
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
     if (!actionable) return;
-    if (menu) menu = null;
+    if (menu) closeMenu();
     else openMenu(true);
   }
 
   function openPr() {
-    menu = null;
+    closeMenu();
     if (!git?.url) return;
     window.open(git.url, "_blank", "noopener,noreferrer");
+  }
+
+  // Two-tap arm (GitRail parity): the first click arms for 3s, the second merges.
+  async function doMerge() {
+    if (!sessionId || !canMerge) return;
+    if (!mergeArmed) {
+      mergeArmed = true;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => (mergeArmed = false), 3000);
+      return;
+    }
+    disarmMerge();
+    const number = git?.number ?? 0;
+    busy = true;
+    try {
+      await mergePr(sessionId);
+      closeMenu();
+      toasts.info(m.prbadge_merged_toast({ number }), { key: `pr-merge:${sessionId}` });
+    } catch (err) {
+      toasts.info(
+        m.prbadge_merge_failed({
+          reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+        }),
+        { alert: true, duration: null, key: `pr-merge:${sessionId}` },
+      );
+    } finally {
+      busy = false;
+    }
   }
 
   async function toggleDraftState() {
@@ -55,7 +96,7 @@
     busy = true;
     try {
       await setPrDraftState(sessionId, nextDraft);
-      menu = null;
+      closeMenu();
       toasts.info(nextDraft ? m.prbadge_marked_draft() : m.prbadge_marked_ready(), {
         key: `pr-draft:${sessionId}`,
       });
@@ -117,11 +158,14 @@
     isDraft={showDraft}
     canOpen={!!git?.url}
     {canToggleDraft}
+    showMerge={canMerge}
+    {mergeArmed}
     autoFocus={menu.autoFocus}
     {busy}
     onopen={openPr}
+    onmerge={doMerge}
     ontoggledraft={toggleDraftState}
-    onclose={() => (menu = null)}
+    onclose={closeMenu}
   />
 {/if}
 

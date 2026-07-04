@@ -767,4 +767,48 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
       m.common_issues_load_failed(),
     );
   });
+
+  it("a late-settling mount fetch cannot clobber a newer soft-refresh result", async () => {
+    // Mount fetch and soft refresh hit the SAME repo concurrently, so the
+    // rp !== repoPath guard alone can't order them — the fetch sequence token must.
+    type Listing = Awaited<ReturnType<typeof listIssues>>;
+    let rejectMount!: (e: Error) => void;
+    const mountFetch = new Promise<Listing>((_res, rej) => {
+      rejectMount = rej;
+    });
+    mockListIssues
+      .mockReturnValueOnce(mountFetch) // mount: stays pending
+      .mockResolvedValueOnce({
+        // soft refresh: settles first, with fresher data
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [makeIssue(2, "Fresh issue")],
+        viewer: null,
+      });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(1);
+    backlogRefresh.bump();
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(2);
+
+    // The soft result must render even though the mount fetch never settled —
+    // i.e. softRefresh clears `loading` so fresh data isn't stuck behind the skeleton.
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+      )
+      .toEqual(["Fresh issue"]);
+
+    // Now the superseded mount fetch settles late — first rejecting would previously
+    // stamp loadError over fresh data; a stale .then would restore older issues.
+    rejectMount(new Error("late mount failure"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+    ).toEqual(["Fresh issue"]);
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+  });
 });

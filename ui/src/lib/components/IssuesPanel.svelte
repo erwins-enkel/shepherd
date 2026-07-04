@@ -116,6 +116,15 @@
   // One-shot fetch cache: issue number → fetched Epic (avoids re-fetching on re-render).
   const fetched = new SvelteMap<number, Epic>();
 
+  // Fetch sequence tokens: the soft refresh below runs the SAME requests concurrently
+  // with a possibly still-in-flight mount/repo-change fetch for the SAME repo, so the
+  // `rp !== repoPath` guard alone can't stop a late-settling older request from
+  // clobbering a newer result (or its .catch from stamping loadError over fresh
+  // data). Every fetch takes a ticket; only the holder of the latest ticket applies.
+  // Plain (non-reactive) counters on purpose — they're guards, not UI state.
+  let issuesSeq = 0;
+  let epicsSeq = 0;
+
   $effect(() => {
     const rp = repoPath;
     loading = true;
@@ -126,9 +135,10 @@
     nativeSubIssues = new Set();
     epicsLoaded = false;
     fetched.clear();
+    const issuesTicket = ++issuesSeq;
     listIssues(rp)
       .then((r) => {
-        if (rp !== repoPath) return;
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         slug = r.slug;
         repoUrl = r.webUrl;
         issues = r.issues;
@@ -138,15 +148,16 @@
       })
       .catch(() => {
         // Mirror the success path's staleness guard: a rejection from a
-        // previously-selected repo must not stamp a sticky load-failed banner
-        // onto the repo now showing.
-        if (rp !== repoPath) return;
+        // previously-selected repo (or a superseded request) must not stamp a
+        // sticky load-failed banner onto the data now showing.
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         loadError = true;
         loading = false;
       });
+    const epicsTicket = ++epicsSeq;
     getEpics(rp)
       .then((r) => {
-        if (rp !== repoPath) return;
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
         epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
         nativeSubIssues = new Set(r.subIssues);
         epicsLoaded = true;
@@ -177,21 +188,41 @@
   });
 
   function softRefresh(rp: string) {
+    const issuesTicket = ++issuesSeq;
     listIssues(rp)
       .then((r) => {
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         // Apply only clean results: on a failed listing (r.error) the old list is
-        // more useful than an empty one + failure banner mid-session.
-        if (rp !== repoPath || r.error != null) return;
+        // more useful than an empty one + failure banner mid-session. But when
+        // there IS no old list — the mount fetch lost its ticket to this refresh
+        // and was discarded — surface the failure instead of an eternal skeleton.
+        if (r.error != null) {
+          if (loading) {
+            loadError = true;
+            loading = false;
+          }
+          return;
+        }
         slug = r.slug;
         repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
         loadError = false;
+        // This result is now the newest state — display it even if the (superseded)
+        // mount fetch never settled; otherwise fresh data hides behind the skeleton.
+        loading = false;
       })
-      .catch(() => {});
+      .catch(() => {
+        if (rp !== repoPath || issuesTicket !== issuesSeq) return;
+        if (loading) {
+          loadError = true;
+          loading = false;
+        }
+      });
+    const epicsTicket = ++epicsSeq;
     getEpics(rp)
       .then((r) => {
-        if (rp !== repoPath) return;
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
         epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
         nativeSubIssues = new Set(r.subIssues);
         epicsLoaded = true;

@@ -7,6 +7,7 @@ import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
+import { backlogRefresh } from "$lib/backlog-refresh.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -598,5 +599,172 @@ describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
     await expect.poll(() => issueTitles()).not.toContain("Plain sub-issue");
     expect(issueTitles()).toContain("Mid-level epic");
     expect(issueTitles()).toContain("Ordinary issue");
+  });
+});
+
+describe("IssuesPanel soft refresh (backlogRefresh)", () => {
+  function makeIssue(number: number, title: string): Issue {
+    return {
+      number,
+      title,
+      body: "",
+      url: `https://example.com/i/${number}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    };
+  }
+
+  function makeSummary(parentIssueNumber: number, merged: number, total: number): EpicSummary {
+    return {
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      merged,
+      total,
+      status: "idle",
+      source: "markdown",
+    };
+  }
+
+  function makeEpic(
+    parentIssueNumber: number,
+    childStates: Epic["children"][number]["state"][],
+  ): Epic {
+    return {
+      repoPath: "/repo",
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      source: "markdown",
+      children: childStates.map((state, i) => ({
+        number: 100 + i,
+        title: `Child ${100 + i}`,
+        url: `https://example.com/i/${100 + i}`,
+        order: i,
+        body: "",
+        blockedBy: [],
+        state,
+        sessionId: null,
+        prNumber: null,
+        issueClosed: state === "merged",
+        claimed: false,
+      })),
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber, mode: "auto", status: "idle" },
+    };
+  }
+
+  it("mounted with nonce > 0 → single fetch (mount latch swallows the page-lifetime nonce)", async () => {
+    // The overlay is {#if}-mounted while the nonce increments page-lifetime, so a
+    // panel routinely mounts with nonce > 0 — the latch must NOT read that as a bump.
+    backlogRefresh.bump();
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Only issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+    // Give a (buggy) soft-refresh double-fetch a chance to fire before counting.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockListIssues).toHaveBeenCalledTimes(1);
+    expect(mockGetEpics).toHaveBeenCalledTimes(1);
+  });
+
+  it("nonce stable after mount → no extra fetches", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Only issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockListIssues).toHaveBeenCalledTimes(1);
+    expect(mockGetEpics).toHaveBeenCalledTimes(1);
+  });
+
+  it("bump refetches issues + summaries + expanded epic, preserving filter text and expansion", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(50, "Epic parent"), makeIssue(51, "Other issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(50, 1, 3)], subIssues: [] });
+    // No `epics` (live store) prop → the expanded panel renders from the one-shot
+    // `fetched` cache; the bump must refresh that too.
+    mockEpic.mockResolvedValue(makeEpic(50, ["merged", "running", "ready"]));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 50 });
+
+    // Collapsed-row badge from the summary + expanded panel from the fetched Epic.
+    await expect.element(page.getByText(m.epic_badge({ merged: 1, total: 3 }))).toBeInTheDocument();
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 1, total: 3 })))
+      .toBeInTheDocument();
+    expect(mockEpic).toHaveBeenCalledTimes(1);
+
+    // Operator types a filter — it must survive the refresh.
+    const filterInput = document.querySelector<HTMLInputElement>(".issue-filter")!;
+    filterInput.value = "Epic";
+    filterInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    // Reality moved on: one more child merged.
+    mockGetEpics.mockResolvedValue({ epics: [makeSummary(50, 2, 3)], subIssues: [] });
+    mockEpic.mockResolvedValue(makeEpic(50, ["merged", "merged", "running"]));
+    backlogRefresh.bump();
+
+    // Badge + expanded panel both show the new counts…
+    await expect.element(page.getByText(m.epic_badge({ merged: 2, total: 3 }))).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
+      .toBeInTheDocument();
+    // …the expanded fetched-cache epic was re-pulled…
+    expect(mockEpic).toHaveBeenCalledTimes(2);
+    expect(mockEpic).toHaveBeenLastCalledWith("/repo", 50);
+    // …and operator state survived: expansion + filter text intact (no hard reset).
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector<HTMLInputElement>(".issue-filter")?.value).toBe("Epic");
+  });
+
+  it("keeps the old list when the refreshed listing reports a fetch failure", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [makeIssue(1, "Survivor issue")],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(1);
+
+    // The wake-refresh hits a rate-limited forge: old data beats an error banner.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+    backlogRefresh.bump();
+
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim()),
+    ).toEqual(["Survivor issue"]);
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
   });
 });

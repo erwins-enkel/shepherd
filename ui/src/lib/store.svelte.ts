@@ -56,6 +56,11 @@ export class HerdStore {
   sessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
+  /** Counts every socket that reached `onopen` (1 = the initial page-load connect).
+   *  The resync trigger anchors here rather than on a `connected` false→true edge:
+   *  a mobile freeze kills the socket WITHOUT ever firing `onclose`, so `connected`
+   *  never goes false and an edge-watcher would miss the replacement socket. */
+  connectionEpoch = $state(0);
   /** True when THIS tab is focused+visible (the "attended" tier of the attention
    *  ladder — same `active()` notion connect() reports for push suppression). The
    *  ambient tab-signal (tab-signal.svelte.ts) suppresses its title/favicon/badge
@@ -820,6 +825,7 @@ export class HerdStore {
       ws = makeWs();
       ws.onopen = () => {
         this.connected = true;
+        this.connectionEpoch += 1;
         reportPresence();
       };
       ws.onmessage = (e) => {

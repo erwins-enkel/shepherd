@@ -513,6 +513,25 @@ test("tab return on a socket still stuck CONNECTING reopens it (frozen handshake
   dispose();
 });
 
+test("connectionEpoch counts every opened socket — incl. a replacement after a silent kill (no onclose)", () => {
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  expect(s.connectionEpoch).toBe(0);
+  made[0].accept();
+  expect(s.connectionEpoch).toBe(1); // initial page-load connect
+  // Mobile freeze kills the socket WITHOUT firing onclose: `connected` never flips
+  // false, so a connected false→true edge-watcher would miss the replacement —
+  // this is exactly why the resync trigger anchors on the epoch instead.
+  made[0].readyState = 3;
+  dom.fire("d:", "visibilitychange"); // tab returns → replacement socket
+  expect(made.length).toBe(2);
+  expect(s.connected).toBe(true); // never observed the drop
+  made[1].accept();
+  expect(s.connectionEpoch).toBe(2); // replacement open still advances the epoch
+  dispose();
+});
+
 test("pageshow(persisted) reconnects a dropped socket (iOS bfcache restore)", () => {
   vi.useFakeTimers();
   const dom = stubDom({ visibilityState: "visible" });

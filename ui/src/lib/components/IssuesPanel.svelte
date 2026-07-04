@@ -13,11 +13,12 @@
     sortEpicsFirst,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
 
   // ACTIVE_LABEL (used in IssueRow) is the label the drain stamps on an issue it has
   // claimed (auto session or human-linked task). Highlighted so a claimed issue reads
@@ -154,6 +155,63 @@
         /* leave empty — epics are an enhancement, not blocking */
       });
   });
+
+  // Soft refresh on the global backlogRefresh nonce (bumped by +page's resync() on
+  // tab wake / socket re-open): re-pull issues + epic summaries + expanded epic
+  // panels WITHOUT the hard reset above — filter text, expanded rows and the
+  // rendered list survive; old data stays on screen until (and unless) fresh data
+  // lands. The latch swallows the effect's FIRST execution per mount: the nonce is
+  // page-lifetime, so the {#if}-mounted drawer routinely mounts with nonce > 0
+  // right after the repoPath effect already fetched — a `nonce === 0` check would
+  // double-fetch on every open after the first wake. Plain variable on purpose:
+  // it's a latch, not UI state. untrack keys the effect on the nonce alone.
+  let lastSeenNonce: number | undefined;
+  $effect(() => {
+    const n = backlogRefresh.nonce;
+    if (lastSeenNonce === undefined || n === lastSeenNonce) {
+      lastSeenNonce = n;
+      return;
+    }
+    lastSeenNonce = n;
+    untrack(() => softRefresh(repoPath));
+  });
+
+  function softRefresh(rp: string) {
+    listIssues(rp)
+      .then((r) => {
+        // Apply only clean results: on a failed listing (r.error) the old list is
+        // more useful than an empty one + failure banner mid-session.
+        if (rp !== repoPath || r.error != null) return;
+        slug = r.slug;
+        repoUrl = r.webUrl;
+        issues = r.issues;
+        viewer = r.viewer;
+        loadError = false;
+      })
+      .catch(() => {});
+    getEpics(rp)
+      .then((r) => {
+        if (rp !== repoPath) return;
+        epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
+        nativeSubIssues = new Set(r.subIssues);
+        epicsLoaded = true;
+      })
+      .catch(() => {});
+    // One-shot epic cache: refresh what's on screen, drop the rest (a later expand
+    // refetches). Without this an expanded idle epic (absent from the live store)
+    // would keep rendering its frozen first fetch forever.
+    for (const num of [...fetched.keys()]) {
+      if (!expanded.has(num)) {
+        fetched.delete(num);
+        continue;
+      }
+      getEpic(rp, num)
+        .then((e) => {
+          if (rp === repoPath) fetched.set(num, e);
+        })
+        .catch(() => {});
+    }
+  }
 
   /** Return the live store value for an epic if available, else the cached fetch result. */
   function epicFor(n: number): Epic | undefined {

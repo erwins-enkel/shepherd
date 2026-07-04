@@ -1,4 +1,6 @@
 import { test, expect, describe } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseEpicBody } from "../src/epic-parse";
 import { EPIC_SHAPE_CONTRACT } from "../src/service";
 
@@ -50,6 +52,34 @@ describe("EPIC_SHAPE_CONTRACT stays parseable by parseEpicBody", () => {
   });
   test("the taught checklist example is present verbatim and parses standalone", () => {
     expect(EPIC_SHAPE_CONTRACT).toContain("- [ ] #12");
+    expect(parseEpicBody("- [ ] #12")).toEqual({ members: [12], order: [12], edges: [] });
+  });
+});
+
+// #1393 — the shepherd-epic-authoring skill's canonical fence example is likewise a taught
+// grammar this parser must accept. FENCE_RE is non-global (only the FIRST fence in a body
+// parses), so the skill must carry exactly one fence — a second example would be silently
+// unpinned and could drift into an unparseable shape without failing anything.
+describe("shepherd-epic-authoring SKILL.md stays parseable by parseEpicBody", () => {
+  const skill = readFileSync(
+    join(import.meta.dir, "../.claude/skills/shepherd-epic-authoring/SKILL.md"),
+    "utf8",
+  );
+  test("carries exactly one epic-dag fence", () => {
+    expect(skill.split("```epic-dag").length - 1).toBe(1);
+  });
+  test("the canonical fence example parses to its literal members + edges", () => {
+    const r = parseEpicBody(skill);
+    expect(r.members).toEqual([12, 13, 14]);
+    expect(r.order).toEqual([12, 13, 14]);
+    expect(r.edges).toEqual([
+      { dependent: 13, blocker: 12 },
+      { dependent: 14, blocker: 12 },
+      { dependent: 14, blocker: 13 },
+    ]);
+  });
+  test("the taught checklist example is present verbatim and parses standalone", () => {
+    expect(skill).toContain("- [ ] #12");
     expect(parseEpicBody("- [ ] #12")).toEqual({ members: [12], order: [12], edges: [] });
   });
 });

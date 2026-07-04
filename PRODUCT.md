@@ -12,7 +12,7 @@ The job to be done: parallelize many real interactive `claude` sessions without 
 
 ## Product Purpose
 
-Shepherd is self-hosted mission control for **interactive** Claude Code. It spawns genuine `claude` sessions in isolated git worktrees (via `herdr`), bridges each PTY to a browser terminal, and lets one operator observe and steer a whole herd in parallel.
+Shepherd is self-hosted mission control for **interactive** Claude Code. It spawns genuine `claude` sessions in isolated git worktrees (via [`herdr`](https://herdr.dev), [Can Celik](https://github.com/ogulcancelik)'s agent multiplexer — the substrate without which this whole project wouldn't be possible), bridges each PTY to a browser terminal, and lets one operator observe and steer a whole herd in parallel.
 
 The defining constraint is the ToS-compliance model, not a footnote: Shepherd only **observes** (reads the terminal and agent status) and **steers** (injects keystrokes into the live pane). By default it uses no Agent SDK or `claude -p`; if a feature cannot be done by typing into a real terminal, it does not ship. This model is Shepherd's **design stance** — running on the operator's own subscription through genuine interactive sessions — rather than an official Anthropic ruling; operators who prefer a clearly-compliant path can opt into metered API-key auth. This constraint shapes the product's soul, and the UI should make that interactive-terminal reality felt, not hidden behind abstraction.
 

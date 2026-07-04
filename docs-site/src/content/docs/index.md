@@ -31,3 +31,10 @@ agents.
   hooks, routes, and UI.
 - **[External Task API](/reference/external-task-api/)** — queue work over HTTP.
 - **[Security](/reference/security/)** — the sandbox membrane and egress firewall.
+
+## Acknowledgements
+
+Shepherd is built on [herdr](https://herdr.dev), the agent multiplexer by
+[Can Celik](https://github.com/ogulcancelik) — it owns the real interactive PTYs
+that every Shepherd session runs in, and without it this whole project wouldn't
+be possible. Thank you, Can.

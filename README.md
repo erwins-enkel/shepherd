@@ -6,7 +6,7 @@
 > your own server, on your own subscription.
 
 Shepherd spawns genuine interactive `claude` sessions (and, in alpha, `codex` sessions) in isolated
-git worktrees (via `herdr`, the interactive-pane manager), bridges each PTY to an `xterm.js` pane in
+git worktrees (via [`herdr`](https://herdr.dev), the interactive-pane manager), bridges each PTY to an `xterm.js` pane in
 the browser, and lets one operator run many agents in parallel — observing their status and steering
 them by typing, exactly like a human at a terminal. Around those sessions it adds the engineering
 discipline that parallel agent work otherwise erodes: every plan and PR faces adversarial review,
@@ -626,6 +626,15 @@ through an ephemeral interactive session — ToS-pure, no `-p`) to learn the pla
 `%` is recomputed live from local JSONL between calibrations. No dollar figures (you're on a
 subscription); pricing is used only internally as relative weights for the limit math. Override the
 JSONL location with `CLAUDE_CONFIG_DIR` or `CLAUDE_PROJECTS_DIR` if non-default.
+
+## Acknowledgements
+
+Shepherd exists because of [herdr](https://herdr.dev), the agent multiplexer by
+[Can Celik](https://github.com/ogulcancelik) — without it, this whole project wouldn't be possible.
+herdr owns the real interactive PTYs that everything above is built on: it is what lets Shepherd
+drive genuine `claude` sessions instead of a headless SDK (the entire ToS-compliance model), and
+what lets sessions survive a Shepherd restart untouched. Thank you, Can. The source lives at
+[github.com/ogulcancelik/herdr](https://github.com/ogulcancelik/herdr).
 
 ## License
 

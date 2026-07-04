@@ -191,8 +191,13 @@ Only after approval. **GitHub-native repos** — order matters, because the pare
    automatic on creation, and the endpoint requires a **GitHub-native forge**:
 
    ```bash
-   curl -s -X POST "http://127.0.0.1:7330/api/epic/import?repo=$(git rev-parse --show-toplevel)&parent=<PARENT_NUM>"
+   curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
+     --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
+     --data-urlencode "parent=<PARENT_NUM>"
    ```
+
+   (`-G --data-urlencode` keeps the POST while URL-encoding the query, so a
+   repo path containing a space or `&` can't break the request.)
 
    (Use your Shepherd server's host/port; `7330` is the default.) The response
    reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Re-check any

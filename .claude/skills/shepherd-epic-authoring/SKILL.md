@@ -18,7 +18,8 @@ an operator who asks for an epic **mid-session (steer-time)** gets no injected
 epic-shape guidance at all — the agent falls back on generic GitHub habits and
 ships an "epic" Shepherd never sees. This skill is the remedy for exactly that
 gap: invoke it whenever an epic ask arises, at spawn or mid-session. It is
-attended by construction (unattended drains run with skills disabled) and
+attended by default (unattended drains run with skills disabled unless the
+operator opts out of context trimming) and
 richer than the injected blocks: it drafts the whole tree, gates outward
 actions on approval, and wires native links.
 
@@ -132,8 +133,13 @@ additionally wires **native sub-issue + `blocked_by` links**. It is **not**
 automatic — trigger it per parent:
 
 ```bash
-curl -s -X POST "http://127.0.0.1:7330/api/epic/import?repo=$(git rev-parse --show-toplevel)&parent=<PARENT_NUM>"
+curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
+  --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
+  --data-urlencode "parent=<PARENT_NUM>"
 ```
+
+(`-G --data-urlencode` keeps the POST while URL-encoding the query, so a repo
+path containing a space or `&` can't break the request.)
 
 (Use your Shepherd server's host/port; `7330` is the default.) The response
 reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Re-check any

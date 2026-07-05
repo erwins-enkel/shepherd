@@ -21,6 +21,7 @@ import {
   MODELS,
   MODELS_BY_PROVIDER,
 } from "./types";
+import { normalizeEffort } from "./default-effort";
 
 const SETTING_VALUES = new Set<string>(["auto", "default", ...MODELS]);
 const CLAUDE_MODEL_VALUES = new Set<string>(MODELS);
@@ -130,11 +131,14 @@ export function resolveDefaultModelSetting(
   return globalSetting;
 }
 
-/** A resolved per-role spawn environment: which CLI to launch and which model flag (null = the
- *  provider's own default, no --model). */
+/** A resolved per-role spawn environment: which CLI to launch, which model flag (null = the
+ *  provider's own default, no --model), and which effort flag (null/undefined = no --effort).
+ *  `effort` is OPTIONAL — several call sites fall back to a `{ provider, model }` literal without
+ *  it (recap.ts, plan-gate.ts, review.ts, standalone-critic.ts, doc-agent.ts). */
 export interface RoleEnvironment {
   provider: AgentProvider;
   model: string | null;
+  effort?: string | null;
 }
 
 /** Normalize a per-role CLI SETTING to "inherit" | <AgentProvider>, or null if unrecognized.
@@ -173,17 +177,20 @@ export function resolveRoleEnvironment(
   globalProvider: AgentProvider,
   globalModelSetting: string,
   fableAvailable: boolean,
+  roleEffort: string | null | undefined,
 ): RoleEnvironment {
+  const effort = normalizeEffort(roleEffort);
   const cli = normalizeRoleCli(roleCli);
   if (cli === null || cli === "inherit") {
     return {
       provider: globalProvider,
       model: spawnModelForAvailability(drainSpawnModel(globalModelSetting), fableAvailable),
+      effort,
     };
   }
   const token = normalizeRoleModelToken(roleModel) ?? "default";
-  if (token === "default") return { provider: cli, model: null };
+  if (token === "default") return { provider: cli, model: null, effort };
   // Clamp: the stored model must belong to the chosen provider, else fall back to its default.
-  if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null };
-  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable) };
+  if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null, effort };
+  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable), effort };
 }

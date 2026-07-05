@@ -133,8 +133,9 @@ function recapArgv(
   provider: AgentProvider,
   model: string | null,
   prompt: string,
+  effort?: string | null,
 ): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("writer-only", { provider, model, prompt });
+  return buildTransientAgentArgv("writer-only", { provider, model, effort, prompt });
 }
 
 // ── deps interface ────────────────────────────────────────────────────────────
@@ -467,7 +468,12 @@ export class RecapService {
         context,
       });
       const env = this.env();
-      const { argv, sessionId: spawnSessionId } = recapArgv(env.provider, env.model, prompt);
+      const { argv, sessionId: spawnSessionId } = recapArgv(
+        env.provider,
+        env.model,
+        prompt,
+        env.effort,
+      );
 
       // Spawn.
       const cwd = this._makeTmpDir();

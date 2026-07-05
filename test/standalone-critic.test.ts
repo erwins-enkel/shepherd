@@ -254,6 +254,26 @@ test("reviews a fresh open green regular session-less PR", async () => {
   expect(settings.env).toEqual({ MAX_THINKING_TOKENS: String(CRITIC_THINKING_TOKENS) });
 });
 
+test("threads env.effort into the standalone critic argv (issue #1418)", async () => {
+  const { deps, spies } = makeDeps({
+    env: () => ({ provider: "claude" as const, model: null, effort: "high" }),
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const argv = spies.started[0]!.argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("emits no --effort when env.effort is null/default (issue #1418)", async () => {
+  const { deps, spies } = makeDeps({
+    env: () => ({ provider: "claude" as const, model: null, effort: null }),
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(spies.started[0]!.argv).not.toContain("--effort");
+});
+
 test("skips draft / non-green / bot PRs", async () => {
   for (const bad of [
     pr({ number: 1, isDraft: true }),

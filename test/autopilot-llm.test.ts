@@ -92,6 +92,24 @@ test("classifyStop: parses a gate verdict; spawns haiku, dontAsk, Write-only", a
   expect(calls.cleaned).toBe(true);
 });
 
+test("classifyStop: threads effort into the classifier argv (issue #1418)", async () => {
+  const { deps, calls } = makeDeps({
+    effort: "high",
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  await classifyStop(["Ready to start? (y/n)"], "task", deps, "l");
+  expect(calls.started.argv).toContain("--effort");
+  expect(calls.started.argv[calls.started.argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("classifyStop: emits no --effort when effort is null/default (issue #1418)", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "x" }),
+  });
+  await classifyStop(["Ready to start? (y/n)"], "task", deps, "l");
+  expect(calls.started.argv).not.toContain("--effort");
+});
+
 test("classifyStop: codex provider spawns headless `codex exec` (no claude flags)", async () => {
   const { deps, calls } = makeDeps({
     provider: "codex",

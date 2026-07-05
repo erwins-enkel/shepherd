@@ -527,6 +527,7 @@ export const config = {
   // Resolved via resolveRoleEnvironment at wiring time. Persisted + UI-configurable; env seeds a fresh DB.
   docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
   docAgentModel: normalizeRoleModelToken(process.env.SHEPHERD_DOC_AGENT_MODEL) ?? "default",
+  docAgentEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DOC_AGENT_EFFORT) ?? "low",
   // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
@@ -560,6 +561,7 @@ export const config = {
   // via resolveRoleEnvironment at the call site. Persisted + UI-configurable.
   namerCli: normalizeRoleCli(process.env.SHEPHERD_NAMER_CLI) ?? "claude",
   namerModel: normalizeRoleModelToken(process.env.SHEPHERD_NAMER_MODEL) ?? "haiku",
+  namerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_NAMER_EFFORT) ?? "low",
   // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
   // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
   // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
@@ -573,6 +575,7 @@ export const config = {
   // Persisted + UI-configurable.
   autopilotCli: normalizeRoleCli(process.env.SHEPHERD_AUTOPILOT_CLI) ?? "claude",
   autopilotModel: normalizeRoleModelToken(process.env.SHEPHERD_AUTOPILOT_MODEL) ?? "haiku",
+  autopilotEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_AUTOPILOT_EFFORT) ?? "low",
   // Max PR-critic auto-address rounds before escalating to a human (drives ReviewService).
   // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
   prReviewCyclesCap: clampCap(
@@ -596,12 +599,15 @@ export const config = {
   // UI-configurable; env seeds a fresh DB.
   criticCli: normalizeRoleCli(process.env.SHEPHERD_CRITIC_CLI) ?? "inherit",
   criticModel: normalizeRoleModelToken(process.env.SHEPHERD_CRITIC_MODEL) ?? "default",
+  criticEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_CRITIC_EFFORT) ?? "high",
   plannerCli: normalizeRoleCli(process.env.SHEPHERD_PLANNER_CLI) ?? "inherit",
   plannerModel: normalizeRoleModelToken(process.env.SHEPHERD_PLANNER_MODEL) ?? "default",
+  plannerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_PLANNER_EFFORT) ?? "default",
   // Per-role ENVIRONMENT for the recap (session-summary) agent. Seeded to Claude+sonnet to preserve
   // the prior hardcoded default; resolved via resolveRoleEnvironment. Persisted + UI-configurable.
   recapCli: normalizeRoleCli(process.env.SHEPHERD_RECAP_CLI) ?? "claude",
   recapModel: normalizeRoleModelToken(process.env.SHEPHERD_RECAP_MODEL) ?? "sonnet",
+  recapEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_RECAP_EFFORT) ?? "low",
   // Default model for spawned agents. Persisted + UI-configurable. "auto" = unset seed
   // (picker uses client promo fallback, drain falls back to no --model); an explicit
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds

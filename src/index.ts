@@ -264,6 +264,11 @@ for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilo
     const v = normalizeRoleModelToken(savedModel);
     if (v !== null) config[`${role}Model`] = v;
   }
+  const savedEffort = store.getSetting(`${role}Effort`);
+  if (savedEffort !== null) {
+    const v = normalizeDefaultEffortSetting(savedEffort);
+    if (v !== null) config[`${role}Effort`] = v;
+  }
 }
 const savedProvider = store.getSetting("defaultAgentProvider");
 if (savedProvider !== null) {
@@ -439,7 +444,7 @@ const recapService: RecapService = new RecapService({
   store,
   herdr,
   // Per-role model thunk (read per spawn so a settings change applies without restart).
-  env: () => roleEnv(config.recapCli, config.recapModel),
+  env: () => roleEnv(config.recapCli, config.recapModel, config.recapEffort),
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
@@ -490,16 +495,18 @@ function usageDowngradeModel(): string | null {
 // Resolve a per-role spawn ENVIRONMENT (CLI + model) from its persisted cli/model pair, then fold
 // in the usage-downgrade so role agents are covered too (they bypass service.create/pushModelFlag).
 // The downgrade target is a Claude model setting, so it only overrides a Claude-resolved role.
-function roleEnv(cli: string, model: string): RoleEnvironment {
+function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
   const env = resolveRoleEnvironment(
     cli,
     model,
     config.defaultAgentProvider,
     config.defaultModel,
     config.fableAvailable,
+    effort,
   );
   const dg = usageDowngradeModel();
-  if (dg !== null && env.provider === "claude") return { provider: "claude", model: dg };
+  if (dg !== null && env.provider === "claude")
+    return { provider: "claude", model: dg, effort: env.effort };
   return env;
 }
 
@@ -530,8 +537,12 @@ const service = new SessionService({
   namer: generateName,
   refineName: config.llmNaming
     ? ({ taskText, label }) => {
-        const env = roleEnv(config.namerCli, config.namerModel);
-        return llmName(taskText, { herdr, provider: env.provider, model: env.model }, label);
+        const env = roleEnv(config.namerCli, config.namerModel, config.namerEffort);
+        return llmName(
+          taskText,
+          { herdr, provider: env.provider, model: env.model, effort: env.effort },
+          label,
+        );
       }
     : undefined,
   events,
@@ -998,7 +1009,7 @@ const docAgent = new DocAgentService({
   gitState: (id) => prPoller.get(id),
   nightlyHour: config.docAgentNightlyHour,
   // Per-role model thunk (read per spawn so a settings change applies without restart).
-  env: () => roleEnv(config.docAgentCli, config.docAgentModel),
+  env: () => roleEnv(config.docAgentCli, config.docAgentModel, config.docAgentEffort),
   act: config.docAgentAct,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
@@ -1021,7 +1032,7 @@ const reviewService = new ReviewService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
-  env: () => roleEnv(config.criticCli, config.criticModel),
+  env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
@@ -1047,7 +1058,7 @@ const standaloneCritic = new StandalonePrCriticService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   // Same per-role critic environment as reviewService (read per spawn → live settings).
-  env: () => roleEnv(config.criticCli, config.criticModel),
+  env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.
@@ -1079,7 +1090,7 @@ const planGate = new PlanGateService({
   reply: (id, text) => service.reply(id, text),
   release: (id) => service.releasePlanGate(id),
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
-  env: () => roleEnv(config.plannerCli, config.plannerModel),
+  env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   cap: () => config.planReviewCyclesCap,
@@ -1358,11 +1369,11 @@ events.subscribe((event, data) => {
 const autopilot = new AutopilotService({
   store,
   classify: (tail, taskPrompt, label) => {
-    const env = roleEnv(config.autopilotCli, config.autopilotModel);
+    const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
     return classifyStop(
       tail,
       taskPrompt,
-      { herdr, provider: env.provider, model: env.model },
+      { herdr, provider: env.provider, model: env.model, effort: env.effort },
       label,
     );
   },

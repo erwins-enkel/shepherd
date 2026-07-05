@@ -317,6 +317,25 @@ test("consider → tick: posts request-changes, persists, reaps", async () => {
   expect(reviews["s1"]?.body).toBe("## findings");
 });
 
+test("criticArgv threads env.effort into the spawn argv (issue #1418)", async () => {
+  const { deps: d, started } = makeDeps({
+    env: () => ({ provider: "claude" as const, model: null, effort: "high" }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv).toContain("--effort");
+  expect(started[0]!.argv[started[0]!.argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("criticArgv emits no --effort when env.effort is null/default (issue #1418)", async () => {
+  const { deps: d, started } = makeDeps({
+    env: () => ({ provider: "claude" as const, model: null, effort: null }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv).not.toContain("--effort");
+});
+
 test("records the reviewer spawn on begin (issue #502)", async () => {
   const { deps: d, recordedSpawns } = makeDeps({});
   const svc = new ReviewService(d as any);

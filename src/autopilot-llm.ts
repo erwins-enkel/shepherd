@@ -21,6 +21,7 @@ export interface ClassifierDeps {
   cleanup?: (cwd: string) => void;
   provider?: AgentProvider;
   model?: string | null;
+  effort?: string | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
@@ -103,8 +104,13 @@ function defaultCleanup(cwd: string): void {
  *  (the agent-stop tail) is UNTRUSTED; bare `Write` is safe here via the sandbox shape (disposable
  *  temp dir, dontAsk, no exec/Edit/network), NOT because the input is trusted. See
  *  buildTransientAgentArgv for the flag-order + isolation rationale. */
-function classifierArgv(provider: AgentProvider, model: string | null, prompt: string): string[] {
-  return buildTransientAgentArgv("writer-only", { provider, model, prompt }).argv;
+function classifierArgv(
+  provider: AgentProvider,
+  model: string | null,
+  prompt: string,
+  effort?: string | null,
+): string[] {
+  return buildTransientAgentArgv("writer-only", { provider, model, effort, prompt }).argv;
 }
 
 interface PollClock {
@@ -154,6 +160,7 @@ export async function classifyStop(
     cleanup = defaultCleanup,
     provider = "claude",
     model = "haiku",
+    effort = null,
     now = Date.now,
     sleep = realSleep,
     // Deliberately shorter than the critic's 10m: this is a fast tail-triage on haiku, not a
@@ -181,7 +188,7 @@ export async function classifyStop(
       terminalId = deps.herdr.start(
         label,
         cwd,
-        classifierArgv(provider, model, prompt),
+        classifierArgv(provider, model, prompt, effort),
         apiKeyPassthroughEnv(false),
       ).terminalId;
     } catch {

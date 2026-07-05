@@ -3993,16 +3993,22 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // for that CLI). The UI shows each role's effective resolved CLI · model alongside the pickers.
       criticCli: config.criticCli,
       criticModel: config.criticModel,
+      criticEffort: config.criticEffort,
       plannerCli: config.plannerCli,
       plannerModel: config.plannerModel,
+      plannerEffort: config.plannerEffort,
       recapCli: config.recapCli,
       recapModel: config.recapModel,
+      recapEffort: config.recapEffort,
       docAgentCli: config.docAgentCli,
       docAgentModel: config.docAgentModel,
+      docAgentEffort: config.docAgentEffort,
       namerCli: config.namerCli,
       namerModel: config.namerModel,
+      namerEffort: config.namerEffort,
       autopilotCli: config.autopilotCli,
       autopilotModel: config.autopilotModel,
+      autopilotEffort: config.autopilotEffort,
       defaultAgentProvider: config.defaultAgentProvider,
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
@@ -4062,16 +4068,22 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["defaultEffort", putDefaultEffort],
   ["criticCli", makeRoleCliPatch("critic")],
   ["criticModel", makeRoleModelPatch("critic")],
+  ["criticEffort", makeRoleEffortPatch("critic")],
   ["plannerCli", makeRoleCliPatch("planner")],
   ["plannerModel", makeRoleModelPatch("planner")],
+  ["plannerEffort", makeRoleEffortPatch("planner")],
   ["recapCli", makeRoleCliPatch("recap")],
   ["recapModel", makeRoleModelPatch("recap")],
+  ["recapEffort", makeRoleEffortPatch("recap")],
   ["docAgentCli", makeRoleCliPatch("docAgent")],
   ["docAgentModel", makeRoleModelPatch("docAgent")],
+  ["docAgentEffort", makeRoleEffortPatch("docAgent")],
   ["namerCli", makeRoleCliPatch("namer")],
   ["namerModel", makeRoleModelPatch("namer")],
+  ["namerEffort", makeRoleEffortPatch("namer")],
   ["autopilotCli", makeRoleCliPatch("autopilot")],
   ["autopilotModel", makeRoleModelPatch("autopilot")],
+  ["autopilotEffort", makeRoleEffortPatch("autopilot")],
   ["defaultAgentProvider", putDefaultAgentProvider],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
@@ -4179,6 +4191,18 @@ function makeRoleModelPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) 
   return (value, deps) => {
     const v = normalizeRoleModelToken(value);
     if (v === null) return json({ error: `${key} must be "default" or a known model alias` }, 400);
+    config[key] = v; // live: next spawn's role-env thunk picks it up
+    deps.store.setSetting(key, v); // persist across restarts
+    return json({ [key]: config[key] });
+  };
+}
+
+function makeRoleEffortPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
+  const key = `${role}Effort` as const;
+  return (value, deps) => {
+    const v = normalizeDefaultEffortSetting(value);
+    if (v === null)
+      return json({ error: `${key} must be "default" or a reasoning-effort tier` }, 400);
     config[key] = v; // live: next spawn's role-env thunk picks it up
     deps.store.setSetting(key, v); // persist across restarts
     return json({ [key]: config[key] });

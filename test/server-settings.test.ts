@@ -7,6 +7,7 @@ import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
 import { config, clampCap, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX } from "../src/config";
 import type { AuthMode } from "../src/auth-mode";
+import { EFFORTS } from "../src/types";
 
 let tmp: string;
 let savedRoot: string;
@@ -49,6 +50,7 @@ beforeEach(() => {
   for (const role of ROLE_BASES) {
     savedRoleEnvs[`${role}Cli`] = cfg[`${role}Cli`]!;
     savedRoleEnvs[`${role}Model`] = cfg[`${role}Model`]!;
+    savedRoleEnvs[`${role}Effort`] = cfg[`${role}Effort`]!;
   }
   savedDefaultAgentProvider = config.defaultAgentProvider;
   savedExtraCredits = config.extraCreditsDrainCeiling;
@@ -82,6 +84,7 @@ afterEach(() => {
   for (const role of ROLE_BASES) {
     cfg[`${role}Cli`] = savedRoleEnvs[`${role}Cli`]!;
     cfg[`${role}Model`] = savedRoleEnvs[`${role}Model`]!;
+    cfg[`${role}Effort`] = savedRoleEnvs[`${role}Effort`]!;
   }
   config.defaultAgentProvider = savedDefaultAgentProvider;
   config.extraCreditsDrainCeiling = savedExtraCredits;
@@ -420,21 +423,27 @@ test("PUT /api/settings rejects an unknown defaultModel value", async () => {
 });
 
 // ── per-role environment settings (cli + model) for the six roles ──
-test("GET /api/settings includes every per-role cli + model setting (raw, unresolved)", async () => {
+test("GET /api/settings includes every per-role cli + model + effort setting (raw, unresolved)", async () => {
   config.criticCli = "codex";
   config.criticModel = "gpt-5.5";
+  config.criticEffort = "high";
   config.plannerCli = "inherit";
   config.plannerModel = "default";
+  config.plannerEffort = "default";
   config.recapCli = "claude";
   config.recapModel = "sonnet";
+  config.recapEffort = "low";
   const { app } = harness();
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.criticCli).toBe("codex");
   expect(body.criticModel).toBe("gpt-5.5");
+  expect(body.criticEffort).toBe("high");
   expect(body.plannerCli).toBe("inherit");
   expect(body.plannerModel).toBe("default");
+  expect(body.plannerEffort).toBe("default");
   expect(body.recapCli).toBe("claude");
   expect(body.recapModel).toBe("sonnet");
+  expect(body.recapEffort).toBe("low");
 });
 
 for (const role of ROLE_BASES) {
@@ -485,6 +494,27 @@ for (const role of ROLE_BASES) {
     // "inherit" is a cli value, not a model token → rejected on the model key.
     expect((await put(app, { [modelKey]: "inherit" })).status).toBe(400);
     expect((config as Record<string, unknown>)[modelKey]).toBe("default"); // unchanged on failure
+  });
+
+  const effortKey = `${role}Effort`;
+
+  test(`PUT /api/settings accepts every effort tier + 'default' for ${effortKey}, persists`, async () => {
+    const { app, store } = harness();
+    for (const tier of [...EFFORTS, "default"]) {
+      const res = await put(app, { [effortKey]: tier });
+      expect(res.status).toBe(200);
+      expect((await res.json())[effortKey]).toBe(tier);
+      expect((config as Record<string, unknown>)[effortKey]).toBe(tier); // live
+      expect(store.getSetting(effortKey)).toBe(tier); // persisted
+    }
+  });
+
+  test(`PUT /api/settings rejects an unknown ${effortKey} value`, async () => {
+    const { app } = harness();
+    (config as Record<string, unknown>)[effortKey] = "default";
+    const res = await put(app, { [effortKey]: "bogus" });
+    expect(res.status).toBe(400);
+    expect((config as Record<string, unknown>)[effortKey]).toBe("default"); // unchanged on failure
   });
 }
 

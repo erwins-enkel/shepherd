@@ -132,6 +132,7 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 | `SHEPHERD_DOC_AGENT_ACT` | `0` (off) | **Phase-1 act.** Set `1` to escalate finalize to actually commit, push, and open the **pull request**. Meaningful only when `SHEPHERD_DOC_AGENT` is also on |
 | `SHEPHERD_DOC_AGENT_CLI` | `inherit` | Agent CLI for the doc-agent spawn: `inherit` follows the global default provider, or pin `claude` / `codex`. Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_MODEL` | `default` | Model for the doc-agent spawn: `default` follows the global default model, or pin a `<model alias>`. Seeds a fresh DB; persisted + UI-configurable |
+| `SHEPHERD_DOC_AGENT_EFFORT` | `low` | Reasoning-effort tier for the doc-agent spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
 ## Anonymous usage telemetry

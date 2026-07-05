@@ -97,6 +97,27 @@ test("egress_drop signals are excluded from the learnings corpus + threshold", a
   expect(started.length).toBe(0); // 2 learning signals < 3, egress_drop ignored
 });
 
+test("injection_detected and untrusted_author signals are excluded from the learnings corpus", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 2); // 2 real learning signals — below minSignals (3)
+  store.addSignal({
+    repoPath: "/r",
+    sessionId: null,
+    kind: "injection_detected",
+    payload: JSON.stringify({ issue: 1, labels: ["ignore-previous-instructions"] }),
+  });
+  store.addSignal({
+    repoPath: "/r",
+    sessionId: null,
+    kind: "untrusted_author",
+    payload: "first-time contributor",
+  });
+  const { deps, started } = mkDeps(store, { rules: [] });
+  const d = new DistillerService(deps as any);
+  d.consider("/r");
+  expect(started.length).toBe(0); // still 2 learning signals < 3, security telemetry ignored
+});
+
 test("distillNow forces a run regardless of threshold", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 1);

@@ -2312,7 +2312,6 @@ export class SessionService {
         dropped: droppedImages,
         injectionHits,
       } = await this.composePromptArg(input, wt.worktreePath);
-      void injectionHits; // consumed in Task 4 (injection-detected signal)
       const { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv } =
         await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
@@ -2366,6 +2365,25 @@ export class SessionService {
       // UI can map the toast to the session.
       if (droppedImages > 0)
         this.deps.events?.emit("session:uploads-dropped", { id: sessionId, count: droppedImages });
+      // Issue content tripped an injection signature during composePromptArg (advisory scan,
+      // not a blocker). Persist a signal for the learnings/security surface and toast the
+      // operator so a human can eyeball the session.
+      if (injectionHits.length > 0) {
+        this.deps.store.addSignal({
+          repoPath: input.repoPath,
+          sessionId,
+          kind: "injection_detected",
+          payload: JSON.stringify({
+            issue: spawnInput.issueRef?.number ?? null,
+            labels: injectionHits,
+          }),
+        });
+        this.deps.events?.emit("session:injection-detected", {
+          id: sessionId,
+          count: injectionHits.length,
+          labels: injectionHits,
+        });
+      }
       this.scheduleRefine(session, herdSlug);
       this.#maybeRegisterTrain(session, input);
       this.deps.telemetry?.event("session_created", {

@@ -264,7 +264,12 @@ export class ProcessReaper {
   constructor(private probes: ReaperProbes = defaultProbes) {}
 
   /** Detect surviving leftovers for a session (classes 2 + 3). */
-  detect(s: { worktreePath: string; claudeSessionId: string; isolated: boolean }): Leftover[] {
+  detect(s: {
+    worktreePath: string;
+    claudeSessionId: string;
+    isolated: boolean;
+    spawnAccountDir?: string | null;
+  }): Leftover[] {
     // Non-isolated sessions never got a private worktree — their `worktreePath` IS
     // the shared repo root, where the shepherd server itself (and other unrelated
     // long-running servers) are rooted. A cwd scan there flags processes that merely
@@ -296,9 +301,15 @@ export class ProcessReaper {
   }
 
   /** Class 3 — system side-effects scraped from the transcript, port-verified. */
-  private scanSystemSideEffects(s: { worktreePath: string; claudeSessionId: string }): Leftover[] {
+  private scanSystemSideEffects(s: {
+    worktreePath: string;
+    claudeSessionId: string;
+    spawnAccountDir?: string | null;
+  }): Leftover[] {
     if (!s.claudeSessionId) return [];
-    const text = this.probes.readTranscript(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+    const text = this.probes.readTranscript(
+      jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+    );
     if (!text) return [];
     const listening = this.probes.listeningPorts();
     // drop any whose port no longer listens — already stopped by hand

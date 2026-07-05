@@ -93,7 +93,9 @@ export interface LivenessWiring {
 function readAuthUrl(s: Session): string | null {
   if (!s.claudeSessionId) return null;
   try {
-    return detectAuthUrl(readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId)));
+    return detectAuthUrl(
+      readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)),
+    );
   } catch {
     return null;
   }
@@ -219,7 +221,7 @@ export class StatusPoller {
      */
     private probe: (s: Session) => TranscriptSignals = (s) =>
       s.claudeSessionId
-        ? readTranscriptSignals(jsonlPathFor(s.worktreePath, s.claudeSessionId))
+        ? readTranscriptSignals(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir))
         : { snapshot: null, activity: null },
     private stallCfg = DEFAULT_STALL,
     private probeCheckMs = 7000,
@@ -552,7 +554,9 @@ export class StatusPoller {
   private detectUsageHalt(s: Session): void {
     if (s.haltReason) return; // already set; skip
     try {
-      const tail = readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+      const tail = readTranscriptTail(
+        jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+      );
       // Match only NON-user transcript content: a user prompt mentioning usage-limit
       // phrasing must never be read as Claude's own halt notice (false positive on the
       // uncalibrated degrade path, where the usage corroboration is bypassed).

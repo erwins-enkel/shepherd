@@ -55,6 +55,21 @@ test("jsonlPathFor composes projects dir + dashified cwd + session id", () => {
   expect(p.endsWith("/-home-p-Work-r/abc-123.jsonl")).toBe(true);
 });
 
+test("jsonlPathFor roots under {spawnAccountDir}/projects when a swap/pool account is given", () => {
+  // A claude-swap agent runs with CLAUDE_CONFIG_DIR=<account>, so it writes its JSONL to
+  // <account>/projects/…, NOT the server's active config.claudeProjectsDir. Resolution must
+  // follow the account or every transcript readback (usage/activity/halt/auth-url) misses.
+  const acct = "/home/p/.local/share/claude-swap/sessions/acme";
+  const p = jsonlPathFor("/home/p/Work/r", "abc-123", acct);
+  expect(p).toBe(`${acct}/projects/-home-p-Work-r/abc-123.jsonl`);
+});
+
+test("jsonlPathFor falls back to the active projects dir when spawnAccountDir is null", () => {
+  expect(jsonlPathFor("/home/p/Work/r", "abc-123", null)).toBe(
+    jsonlPathFor("/home/p/Work/r", "abc-123"),
+  );
+});
+
 test("parseLine ignores non-assistant and usage-less records", () => {
   expect(parseLine(JSON.stringify({ type: "user", message: {} }))).toBeNull();
   expect(parseLine(JSON.stringify({ type: "assistant", message: {} }))).toBeNull();

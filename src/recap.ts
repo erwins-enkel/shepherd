@@ -65,8 +65,12 @@ async function defaultHeadSha(worktreePath: string): Promise<string> {
   return stdout.trim();
 }
 
-function defaultReadTranscript(worktreePath: string, claudeSessionId: string): ActivityEntry[] {
-  const path = jsonlPathFor(worktreePath, claudeSessionId);
+function defaultReadTranscript(
+  worktreePath: string,
+  claudeSessionId: string,
+  spawnAccountDir?: string | null,
+): ActivityEntry[] {
+  const path = jsonlPathFor(worktreePath, claudeSessionId, spawnAccountDir);
   try {
     const text = readTranscriptTail(path);
     return parseActivity(text, -1); // -1 = all entries
@@ -168,7 +172,11 @@ export interface RecapServiceDeps {
   resolveBase?: (session: Session) => Promise<{ base: string; resolved: boolean }>;
   computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<DiffResult>;
   headSha?: (worktreePath: string) => Promise<string>;
-  readTranscript?: (worktreePath: string, claudeSessionId: string) => ActivityEntry[];
+  readTranscript?: (
+    worktreePath: string,
+    claudeSessionId: string,
+    spawnAccountDir?: string | null,
+  ) => ActivityEntry[];
   readPlan?: (worktreePath: string) => string;
   readVerdict?: (cwd: string) => VerdictRead<unknown>;
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
@@ -198,7 +206,11 @@ export class RecapService {
     branch: string | null,
   ) => Promise<DiffResult>;
   private _headSha: (worktreePath: string) => Promise<string>;
-  private _readTranscript: (worktreePath: string, claudeSessionId: string) => ActivityEntry[];
+  private _readTranscript: (
+    worktreePath: string,
+    claudeSessionId: string,
+    spawnAccountDir?: string | null,
+  ) => ActivityEntry[];
   private _readPlan: (worktreePath: string) => string;
   private _readVerdict: (cwd: string) => VerdictRead<unknown>;
   private _readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
@@ -390,7 +402,7 @@ export class RecapService {
       );
       return "error";
     }
-    const { id, worktreePath, branch, claudeSessionId } = session;
+    const { id, worktreePath, branch, claudeSessionId, spawnAccountDir } = session;
 
     // Synchronous guard: if already mid-flight for this session, bail immediately.
     if (this.inFlight.has(id)) return "started";
@@ -439,7 +451,7 @@ export class RecapService {
       }
 
       // Build prompt inputs.
-      const transcript = this._readTranscript(worktreePath, claudeSessionId);
+      const transcript = this._readTranscript(worktreePath, claudeSessionId, spawnAccountDir);
       const digest = buildTranscriptDigest(transcript);
       const plan = this._readPlan(worktreePath);
       const changedFiles = diff.files.map((f) => f.path);

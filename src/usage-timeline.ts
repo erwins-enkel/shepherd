@@ -34,6 +34,7 @@ async function foldLiveSessions(
       id: s.id,
       worktreePath: s.worktreePath,
       claudeSessionId: s.claudeSessionId,
+      spawnAccountDir: s.spawnAccountDir,
     })),
     now,
   );

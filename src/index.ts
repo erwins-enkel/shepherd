@@ -1749,7 +1749,7 @@ const herdDigestService = new HerdDigestService({
     const stalled = new Set<string>();
     for (const s of store.list({ activeOnly: true })) {
       if (s.status !== "running" || !s.claudeSessionId) continue;
-      const snap = readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId));
+      const snap = readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir));
       if (snap && isStalled(snap, now, DEFAULT_STALL)) stalled.add(s.id);
     }
     return stalled;

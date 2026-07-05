@@ -2238,6 +2238,7 @@
   "settings_role_cli_inherit": "Folgt Standard",
   "settings_role_cli_label": "{role}: CLI",
   "settings_role_model_label": "{role}: Modell",
+  "settings_role_effort_label": "Reasoning-Aufwand für die Rolle {role}",
   "settings_role_model_planner_title": "Planer (Plan-Reviewer)",
   "settings_role_model_planner_hint": "Prüft den Plan eines Agenten kritisch, bevor Code geschrieben wird.",
   "settings_role_model_critic_title": "Kritiker (PR-Review)",

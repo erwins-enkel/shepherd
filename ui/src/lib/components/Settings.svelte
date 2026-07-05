@@ -9,6 +9,7 @@
     putDefaultModel,
     putDefaultEffort,
     putRoleModel,
+    putRoleEffort,
     putRoleCli,
     putDefaultAgentProvider,
     putAuthMode,
@@ -30,7 +31,7 @@
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
-  import { effortLabel } from "$lib/effort-guidance";
+  import { effortLabel, effortAvailableForProvider, providerEfforts } from "$lib/effort-guidance";
   import {
     AGENT_PROVIDERS,
     MODELS,
@@ -277,10 +278,21 @@
     namer: "haiku",
     autopilot: "haiku",
   };
+  // Per-role reasoning-effort tier ("default"|<tier>), orthogonal to CLI/model — always shown.
+  const ROLE_EFFORT_SEED: Record<RoleBase, string> = {
+    planner: "default",
+    critic: "high",
+    docAgent: "low",
+    recap: "low",
+    namer: "low",
+    autopilot: "low",
+  };
   let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
   let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
   let roleModelV = $state<Record<RoleBase, string>>({ ...ROLE_MODEL_SEED });
   let roleModelSaved: Record<RoleBase, string> = { ...ROLE_MODEL_SEED };
+  let roleEffortV = $state<Record<RoleBase, string>>({ ...ROLE_EFFORT_SEED });
+  let roleEffortSaved: Record<RoleBase, string> = { ...ROLE_EFFORT_SEED };
   let roleBusy = $state<Record<RoleBase, boolean>>({
     planner: false,
     critic: false,
@@ -394,6 +406,12 @@
         roleModelV[role] = "default";
         await saveRoleModel(role);
       }
+      // Likewise, if the resolved provider no longer offers the current effort tier (e.g.
+      // switching to codex drops xhigh/max), snap the effort back to "default" and persist.
+      if (!effortAvailableForProvider(roleGuidanceProvider(role), roleEffortV[role])) {
+        roleEffortV[role] = "default";
+        await saveRoleEffort(role);
+      }
     } catch {
       roleCli[role] = roleCliSaved[role]; // revert; surface a persistent, deduped alert
       toasts.info(m.settings_role_model_save_failed(), {
@@ -418,6 +436,24 @@
       roleModelV[role] = roleModelSaved[role]; // revert; surface a persistent, deduped alert
       toasts.info(m.settings_role_model_save_failed(), {
         key: `role-model-${role}`,
+        duration: null,
+        alert: true,
+      });
+    }
+  }
+
+  async function saveRoleEffort(role: RoleBase) {
+    try {
+      const r = await putRoleEffort(`${role}Effort`, roleEffortV[role]);
+      const v = r[`${role}Effort`];
+      if (typeof v === "string") {
+        roleEffortV[role] = v;
+        roleEffortSaved[role] = v;
+      }
+    } catch {
+      roleEffortV[role] = roleEffortSaved[role]; // revert; surface a persistent, deduped alert
+      toasts.info(m.settings_role_model_save_failed(), {
+        key: `role-effort-${role}`,
         duration: null,
         alert: true,
       });
@@ -953,9 +989,12 @@
         roleCli[role] = typeof cli === "string" ? cli : ROLE_CLI_SEED[role];
         const mdl = sr[`${role}Model`];
         roleModelV[role] = typeof mdl === "string" ? mdl : ROLE_MODEL_SEED[role];
+        const eff = sr[`${role}Effort`];
+        roleEffortV[role] = typeof eff === "string" ? eff : ROLE_EFFORT_SEED[role];
       }
       roleCliSaved = { ...roleCli };
       roleModelSaved = { ...roleModelV };
+      roleEffortSaved = { ...roleEffortV };
       defaultAgentProvider = s.defaultAgentProvider ?? "claude";
       defaultAgentProviderSaved = s.defaultAgentProvider ?? "claude";
       authMode = s.authMode;
@@ -1244,6 +1283,18 @@
                 {/each}
               </select>
             {/if}
+            <select
+              class="model-select"
+              bind:value={roleEffortV[role]}
+              disabled={roleBusy[role]}
+              aria-label={m.settings_role_effort_label({ role: roleTitle(role) })}
+              onchange={() => saveRoleEffort(role)}
+            >
+              <option value="default">{m.effort_default()}</option>
+              {#each providerEfforts(roleGuidanceProvider(role)) as tier (tier)}
+                <option value={tier}>{effortLabel(tier)}</option>
+              {/each}
+            </select>
           </div>
           <p class="hint role-eff">
             {m.settings_role_model_effective({ model: effectiveEnvLabel(role) })}

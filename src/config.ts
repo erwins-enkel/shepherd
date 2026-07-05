@@ -602,6 +602,12 @@ export const config = {
   criticEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_CRITIC_EFFORT) ?? "high",
   plannerCli: normalizeRoleCli(process.env.SHEPHERD_PLANNER_CLI) ?? "inherit",
   plannerModel: normalizeRoleModelToken(process.env.SHEPHERD_PLANNER_MODEL) ?? "default",
+  // NOTE: seeded "default", NOT "high" like criticEffort — deliberate, not an oversight. The planner
+  // has no independent spawn: it IS the plan-gate reviewer, which (per #1417) inherits `session.effort`
+  // — the tier the session itself runs at. plan-gate resolves `env.effort ?? session.effort`, so
+  // "default" (→ null) preserves that inheritance (a `max` session reviews its plan at `max`), while
+  // an explicit tier here still overrides. Seeding "high" would force every plan review to high
+  // regardless of the session, downgrading high-effort sessions and surprising low-effort ones.
   plannerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_PLANNER_EFFORT) ?? "default",
   // Per-role ENVIRONMENT for the recap (session-summary) agent. Seeded to Claude+sonnet to preserve
   // the prior hardcoded default; resolved via resolveRoleEnvironment. Persisted + UI-configurable.

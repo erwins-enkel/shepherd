@@ -147,6 +147,8 @@ import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
+import { detectPendingAuthUrl } from "./auth-url";
+import { readTranscriptTail } from "./activity";
 import { verifyApiKey } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { snapshotSessionUsage } from "./usage-snapshot";
@@ -1406,6 +1408,20 @@ const autopilot = new AutopilotService({
     const live = matchAgent(s, herdr.list());
     return live ? tailLines(herdr.read(live.terminalId, "visible")) : [];
   },
+  // Pending MCP OAuth authorize URL (freshness-gated, swap-account-aware transcript read). An
+  // OAuth flow is human-only, so autopilot stands down until the operator completes it. Fresh
+  // read (not off an event) so onDone/consider re-checks are deterministic. Guarded → null.
+  pendingAuthUrl: (id) => {
+    const s = store.get(id);
+    if (!s?.claudeSessionId) return null;
+    try {
+      return detectPendingAuthUrl(
+        readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)),
+      );
+    } catch {
+      return null;
+    }
+  },
   // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
   // territory. `state` is "none" when no PR exists; anything else means one does.
   hasPr: (id) => {
@@ -1502,6 +1518,13 @@ events.subscribe((event, data) => {
   if (event !== "session:block") return;
   const { id, block } = data as { id: string; block: import("./blocked").BlockReason | null };
   void autopilot.onBlock(id, block).catch((err) => console.warn("[autopilot] onBlock:", err));
+});
+
+// Drop autopilot's per-session tracking (incl. the MCP-OAuth stand-down set) when a session is
+// archived, so its maps don't leak — mirrors the poller's pruneInactive.
+events.subscribe((event, data) => {
+  if (event !== "session:archived") return;
+  autopilot.forget((data as { id: string }).id);
 });
 
 // Self-draining work queue (#222): when an auto session's PR merges, archive it and

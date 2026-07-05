@@ -88,6 +88,8 @@ function harness(opts: {
   repoMode?: "forge" | "lightweight";
   openPr?: boolean;
   paneAlive?: boolean;
+  /** Pending MCP OAuth authorize URL returned by the pendingAuthUrl dep (default null = none). */
+  pendingAuthUrl?: string | null;
   /** Optional deferSteer dep (SessionService.shouldDeferSteer); omit to test the optional-dep
    *  default (undefined → today's paneAlive-only behavior). */
   deferSteer?: (id: string) => boolean;
@@ -171,6 +173,7 @@ function harness(opts: {
     paneAlive: () => opts.paneAlive ?? true,
     deferSteer: opts.deferSteer,
     readTail: () => ["finished, nothing else"],
+    pendingAuthUrl: () => opts.pendingAuthUrl ?? null,
     hasPr: () => opts.openPr ?? false,
     hasDiff: async () => opts.hasDiff ?? true,
     openLocalPr: async (id) => {
@@ -609,6 +612,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
     resume: () => true,
     paneAlive: () => true,
     readTail: () => [],
+    pendingAuthUrl: () => null,
     hasPr: () => false,
     hasDiff: async () => true,
     openLocalPr: async () => {},
@@ -1447,4 +1451,71 @@ test("rebase: tick skips a running session (don't interrupt active work)", async
   });
   await h.svc.tick();
   expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+// ── MCP OAuth stand-down (human-only auth prompt) ───────────────────────────────────────
+// An awaiting-input block carrying an authUrl is a human-only OAuth flow autopilot cannot
+// complete, so it must stand down on every steer path and recover once the operator resumes.
+const AUTH_URL_SD = "https://mcp.sentry.dev/oauth/authorize?response_type=code&client_id=x";
+const authBlock = (): BlockReason => ({
+  shape: "awaiting-input",
+  options: [],
+  tail: ["Open this URL in your browser"],
+  authUrl: AUTH_URL_SD,
+});
+
+test("onBlock with an authUrl stands autopilot down — no steer, no classify", async () => {
+  const h = harness({ session: sess(), verdict: { kind: "gate", summary: "start?" } });
+  await h.svc.onBlock("s1", authBlock());
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.classifyCount()).toBe(0);
+});
+
+test("a later non-auth block clears the auth stand-down and steers normally", async () => {
+  const h = harness({ session: sess(), verdict: { kind: "gate", summary: "start?" } });
+  await h.svc.onBlock("s1", authBlock()); // stand down
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  await h.svc.onBlock("s1", block()); // null authUrl → clears, considers → gate → steer
+  expect(h.events).toContainEqual({ steer: PROCEED_STEER });
+});
+
+test("onDone stands down on a pending auth URL — before classify, no complete/pause", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    pendingAuthUrl: AUTH_URL_SD,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e || "complete" in e || "pause" in e)).toBe(false);
+});
+
+test("post-classify re-check blocks a terminal verdict when the auth URL flushes during classify", async () => {
+  // The block has no authUrl (onBlock's pre-guard clears any stand-down) so consider() runs
+  // classify; the URL is present by the time it resolves (pendingAuthUrl set), so the
+  // post-classify re-check must stand down BEFORE dispatch — classify ran but nothing steered.
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done" },
+    pendingAuthUrl: AUTH_URL_SD,
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.classifyCount()).toBe(1);
+  expect(h.events.some((e) => "steer" in e || "complete" in e)).toBe(false);
+});
+
+test("reEngageCi respects the auth stand-down; onStatus(running) clears it", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(), // open + failing CI
+    pendingAuthUrl: null, // set authPending via the authUrl block below, not the dep
+  });
+  void h.svc.onBlock("s1", authBlock()); // sets the stand-down (add is synchronous)
+  h.svc.tick();
+  expect(h.events.some((e) => "steer" in e)).toBe(false); // reEngageCi stood down
+  h.svc.onStatus("s1", "running"); // operator resumed → clears the stand-down
+  h.svc.tick();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });

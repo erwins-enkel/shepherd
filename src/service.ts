@@ -1246,12 +1246,6 @@ type SpawnOutcome =
  *  human-prompt guard; this only bounds a runaway thread from bloating the agent's context. */
 export const ISSUE_COMMENTS_CHAR_BUDGET = 50_000;
 
-/** Author associations trusted to appear in a spawned task's prompt — accounts with standing
- *  on the repo. Comments from anyone else (CONTRIBUTOR / NONE / first-timers) are dropped:
- *  the issue body has a single (operator-vetted) author, but comments can come from any GitHub
- *  user, so this scopes the included set and bounds the prompt-injection surface. */
-const TRUSTED_COMMENT_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-
 /** True when a comment is one of Shepherd's own issue-log workflow notes: marker-tagged
  *  (current) or matching the pre-marker wording (historical notes posted under the operator's
  *  gh identity — not [bot] and lacking the marker). The wording test is intentionally narrow
@@ -1289,7 +1283,10 @@ export function composeIssueCommentsBlock(issueNumber: number, comments: IssueCo
     (c) =>
       c.body.trim().length > 0 &&
       !c.author.endsWith("[bot]") &&
-      TRUSTED_COMMENT_ASSOCIATIONS.has(c.authorAssociation) &&
+      // Comments can come from any GitHub user (unlike the issue body, which has a single
+      // operator-vetted author), so only accounts with repo standing are trusted to appear in a
+      // spawned task's prompt — this bounds the prompt-injection surface.
+      isTrustedAssociation(c.authorAssociation) &&
       !isShepherdIssueLogNote(c.body),
   );
   if (kept.length === 0) return "";

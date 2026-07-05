@@ -1982,6 +1982,156 @@ test("createSession: does NOT gate an operator-initiated (auto=false) spawn rega
   ).resolves.toBeTruthy();
 });
 
+test("createSession: SHEPHERD_TRUST_ISSUE_AUTHORS escape hatch allows a non-GitHub (Gitea) forge with no authorAssociation, but does NOT relax GitHub", async () => {
+  const prevTrust = config.trustIssueAuthors;
+  config.trustIssueAuthors = true;
+  try {
+    // Gitea never supplies authorAssociation — with the flag on, the gate treats it as trusted.
+    const giteaStore = new SessionStore(":memory:");
+    const giteaService = new SessionService({
+      store: giteaStore,
+      namer: async () => "repo-x",
+      worktree: {
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+        list: () => [],
+      } as any,
+      resolveForge: () =>
+        ({
+          kind: "gitea",
+          getIssue: async () => ({
+            number: 9,
+            title: "t",
+            body: "b",
+            url: "https://x/9",
+            labels: [],
+            createdAt: 0,
+            assignees: [],
+            author: "eve",
+            // no authorAssociation — Gitea structurally can't supply one
+          }),
+        }) as any,
+    });
+
+    await expect(
+      giteaService.create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "drain task",
+        model: null,
+        images: [],
+        auto: true,
+        issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+      }),
+    ).resolves.toBeTruthy();
+
+    // GitHub trust IS establishable, so the flag must NOT relax an untrusted GitHub author.
+    const githubStore = new SessionStore(":memory:");
+    const githubService = new SessionService({
+      store: githubStore,
+      namer: async () => "repo-x",
+      worktree: {
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+        list: () => [],
+      } as any,
+      resolveForge: () =>
+        ({
+          kind: "github",
+          getIssue: async () => ({
+            number: 9,
+            title: "t",
+            body: "b",
+            url: "https://x/9",
+            labels: [],
+            createdAt: 0,
+            assignees: [],
+            author: "eve",
+            authorAssociation: "NONE",
+          }),
+        }) as any,
+    });
+
+    await expect(
+      githubService.create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "drain task",
+        model: null,
+        images: [],
+        auto: true,
+        issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+      }),
+    ).rejects.toThrow(/untrusted/i);
+  } finally {
+    config.trustIssueAuthors = prevTrust;
+  }
+});
+
+test("createSession: refused auto-spawn signals untrusted_author ONCE per (repo, issue), not on every retry", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        getIssue: async () => ({
+          number: 9,
+          title: "t",
+          body: "b",
+          url: "https://x/9",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "eve",
+          authorAssociation: "NONE",
+        }),
+      }) as any,
+  });
+
+  const attempt = () =>
+    service
+      .create({
+        repoPath: "/repo",
+        baseBranch: "main",
+        prompt: "drain task",
+        model: null,
+        images: [],
+        auto: true,
+        issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+      })
+      .catch((e) => e);
+
+  const err1 = await attempt();
+  const err2 = await attempt();
+  expect(err1).toBeInstanceOf(UntrustedIssueAuthorError);
+  expect(err2).toBeInstanceOf(UntrustedIssueAuthorError);
+
+  const signals = store.listSignals("/repo").filter((s) => s.kind === "untrusted_author");
+  expect(signals.length).toBe(1);
+});
+
 test("createSession: worktree.create receives resolved baseRef (sha), persisted baseBranch stays logical name", async () => {
   const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
   const store = new SessionStore(":memory:");

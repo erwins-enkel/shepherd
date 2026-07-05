@@ -1384,6 +1384,10 @@ export class SessionService {
     { repoPath: string; prNumbers: Set<number>; registeredAt: number }
   >();
 
+  /** (repoPath#issue) keys already signaled as untrusted-author, so a stuck issue's periodic
+   *  drain retries emit the untrusted_author signal ONCE rather than growing the store unbounded. */
+  #untrustedAuthorSignaled = new Set<string>();
+
   /**
    * Build the human-turn prompt: the user's text plus any attached images, the issue
    * body, and the issue's comment thread — all appended out-of-band so they never count
@@ -2312,26 +2316,45 @@ export class SessionService {
   /** Fail-closed author-trust gate for AUTONOMOUS issue spawns. No-op for operator-initiated
    *  (auto=false) creates and for creates with no attached issue. For an auto create, positively
    *  establish the issue author's association (fresh forge read); anything but a trusted association
-   *  (incl. an absent field, a null read, a host without getIssue, or a fetch error) is refused. */
+   *  (incl. an absent field, a null read, a host without getIssue, or a fetch error) is refused.
+   *  Escape hatch (#1429): `config.trustIssueAuthors` lets an operator treat authors as trusted on a
+   *  forge that structurally cannot supply an authorAssociation (non-GitHub — Gitea/local), so
+   *  autonomous drain isn't silently disabled there; GitHub is never relaxed by the flag. Signals the
+   *  untrusted_author store/event ONCE per (repoPath, issue) per process — the drain retries a
+   *  refused issue on a cooldown, which would otherwise append a new signal on every retry. */
   private async assertIssueAuthorTrusted(input: CreateSessionInput): Promise<void> {
     if (!input.auto || !input.issueRef) return;
     const n = input.issueRef.number;
     let association: string | null;
+    let forgeKind: GitForge["kind"] | undefined;
     try {
       const forge = this.deps.resolveForge?.(input.repoPath);
+      forgeKind = forge?.kind;
       const fresh = await forge?.getIssue?.(n);
       association = fresh?.authorAssociation ?? null;
     } catch {
       association = null; // fail closed
     }
     if (isTrustedAssociation(association)) return;
-    this.deps.store.addSignal({
-      repoPath: input.repoPath,
-      sessionId: null,
-      kind: "untrusted_author",
-      payload: JSON.stringify({ issue: n, association }),
-    });
-    this.deps.events?.emit("repo:untrusted-author", { repoPath: input.repoPath, issue: n });
+    // Escape hatch (#1429): a forge that structurally cannot supply an author association
+    // (non-GitHub — Gitea/local) would ALWAYS fail closed here, silently disabling autonomous drain
+    // on that host. When the operator opts in via SHEPHERD_TRUST_ISSUE_AUTHORS, treat authors on such
+    // a forge as trusted. Scoped to non-GitHub: GitHub trust IS establishable, so a GitHub miss or a
+    // genuinely-untrusted GitHub author still refuses regardless of the flag.
+    if (config.trustIssueAuthors && forgeKind !== undefined && forgeKind !== "github") return;
+    // Signal ONCE per (repo, issue) per process — the drain retries a refused issue on a cooldown,
+    // which would otherwise append a new untrusted_author signal on every retry (unbounded growth).
+    const dedupeKey = `${input.repoPath}#${n}`;
+    if (!this.#untrustedAuthorSignaled.has(dedupeKey)) {
+      this.#untrustedAuthorSignaled.add(dedupeKey);
+      this.deps.store.addSignal({
+        repoPath: input.repoPath,
+        sessionId: null,
+        kind: "untrusted_author",
+        payload: JSON.stringify({ issue: n, association }),
+      });
+      this.deps.events?.emit("repo:untrusted-author", { repoPath: input.repoPath, issue: n });
+    }
     throw new UntrustedIssueAuthorError(n, association);
   }
 

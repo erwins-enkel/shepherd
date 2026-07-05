@@ -448,6 +448,10 @@ export const config = {
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean),
+  // Opt-in escape hatch: treat issue authors as trusted on forges that can't supply a GitHub-style
+  // authorAssociation (non-GitHub — Gitea/local), so autonomous drain isn't silently disabled there.
+  // Does NOT relax the gate on GitHub, where author trust is verifiable. Default off (fail closed).
+  trustIssueAuthors: process.env.SHEPHERD_TRUST_ISSUE_AUTHORS === "1",
   // security
   // immutable ceiling: the absolute outermost dir the UI may ever reach. captured
   // once from the env (or $HOME) and NEVER mutated by settings. the settable

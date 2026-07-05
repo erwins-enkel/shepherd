@@ -2525,5 +2525,11 @@
   "pluginupdate_apply_err_symlinked": "Dieses Plugin läuft aus einem verlinkten Quell-Checkout — aktualisiere es dort.",
   "pluginupdate_apply_err_incompatible": "Die neue Version braucht ein neueres Shepherd — aktualisiere zuerst Shepherd.",
   "pluginupdate_apply_err_nosource": "Keine Update-Quelle — Shepherd kann keine neue Version automatisch holen.",
-  "pluginupdate_apply_err_generic": "Update fehlgeschlagen."
+  "pluginupdate_apply_err_generic": "Update fehlgeschlagen.",
+  "clipboard_copied_toast": "In die Zwischenablage kopiert",
+  "clipboard_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen",
+  "clipboard_pill_prompt": "Terminal hat Text kopiert",
+  "clipboard_pill_copy": "In Zwischenablage kopieren",
+  "feat_clipboard_osc52_title": "Claudes „Kopieren“ landet jetzt in deiner Zwischenablage",
+  "feat_clipboard_osc52_body": "Wenn Claude im Terminal Text kopiert (`c to copy`), landet er jetzt in deiner System-Zwischenablage. Blockiert der Browser das automatische Schreiben, erscheint eine kleine Copy-Pille über dem Terminal zum Kopieren per Klick."
 }

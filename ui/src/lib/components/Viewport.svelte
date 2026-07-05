@@ -65,6 +65,8 @@
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
+  import ClipboardPill from "./viewport/ClipboardPill.svelte";
+  import { handleOsc52 } from "$lib/osc52";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
@@ -231,6 +233,9 @@
   // jump-to-latest button lifts by `reviewBannerH || ciBannerH` (no max() needed).
   let ciBannerH = $state(0);
   let reviewActive = $state(false);
+  // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
+  // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
+  let pendingCopy = $state<string | null>(null);
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
@@ -1185,6 +1190,22 @@
       },
     });
 
+    // Claude's `c to copy` emits OSC 52 (ESC]52;c;<base64>). xterm has no built-in handler, so
+    // forward the decoded text to the browser clipboard. The bytes arrive async over the WS
+    // (not inside the `c` keydown), so navigator.clipboard.writeText may be refused
+    // (NotAllowedError / unfocused tab); on ANY failure, stash the text and surface the
+    // ClipboardPill for a one-click, in-gesture retry. handleOsc52 already refuses `?` reads and
+    // caps size (via parseOsc52), and claims every outcome so a write can never vanish silently.
+    // We claim OSC 52 entirely (return true).
+    const osc52Sub = term.parser.registerOscHandler(52, (data) => {
+      handleOsc52(data, {
+        writeText: (t) => navigator.clipboard?.writeText(t),
+        onCopied: () => toasts.info(m.clipboard_copied_toast()),
+        onPending: (text) => (pendingCopy = text),
+      });
+      return true;
+    });
+
     // Fit + push the size to the PTY — but only while the mount is actually
     // visible. A hidden (To-Do tab → display:none) or mid-layout mount
     // has zero width, where FitAddon clamps to its 2-col minimum; resizing the
@@ -1624,6 +1645,7 @@
       bufSub.dispose();
       writeSub.dispose();
       renderSub.dispose();
+      osc52Sub.dispose();
       ro.disconnect();
       c.close();
       conn = undefined;
@@ -2189,6 +2211,21 @@
       }}
       ondrop={onTermDrop}
     ></div>
+    {#if tab === "term" && pendingCopy}
+      <ClipboardPill
+        text={pendingCopy}
+        oncopied={() => {
+          pendingCopy = null;
+          toasts.info(m.clipboard_copied_toast());
+        }}
+        oncopyfailed={() => {
+          // Announce the failure but keep the pill mounted — its Copy button is the
+          // retry surface (a fresh in-gesture click), so no separate Retry action.
+          toasts.info(m.clipboard_copy_failed(), { alert: true });
+        }}
+        ondismiss={() => (pendingCopy = null)}
+      />
+    {/if}
     <ViewportTermBanners
       {tab}
       {scrolledUp}

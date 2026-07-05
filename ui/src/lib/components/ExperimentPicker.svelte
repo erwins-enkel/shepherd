@@ -49,13 +49,21 @@
           // replace keep the user's default provider so a fresh model can be picked freely.
           provider: picker.mode === "compare" ? ("claude" as AgentProvider) : initialProvider,
           initialModel: picker.mode === "compare" ? "opus" : "default",
+          // Both seeds above are fixed (not inherited from an original session's model), so the
+          // effort seed mirrors that: always "default", never inherited.
+          initialEffort: "default",
         }
       : null,
   );
 
   async function runReplace(
     id: string,
-    choice: { agentProvider: AgentProvider; model: string | null; handoffMode?: HandoffMode },
+    choice: {
+      agentProvider: AgentProvider;
+      model: string | null;
+      effort?: string | null;
+      handoffMode?: HandoffMode;
+    },
   ) {
     const session = await replaceSessionAgent(id, choice);
     onselect(session.id);
@@ -64,6 +72,7 @@
   async function onconfirm(choice: {
     agentProvider: AgentProvider;
     model: string | null;
+    effort?: string | null;
     handoffMode?: HandoffMode;
   }) {
     const p = picker;
@@ -88,6 +97,7 @@
     {fableAvailable}
     initialProvider={view.provider}
     initialModel={view.initialModel}
+    initialEffort={view.initialEffort}
     handoff={picker.mode === "replace"}
     {onconfirm}
     onclose={() => (picker = null)}

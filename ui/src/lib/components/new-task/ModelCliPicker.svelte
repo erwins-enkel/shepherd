@@ -4,11 +4,13 @@
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider } from "$lib/types";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
+  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
   import type { HandoffMode } from "$lib/api";
 
   type Choice = {
     agentProvider: AgentProvider;
     model: string | null;
+    effort?: string | null;
     handoffMode?: HandoffMode;
   };
 
@@ -25,6 +27,7 @@
     fableAvailable,
     initialProvider,
     initialModel = "default",
+    initialEffort = "default",
     handoff = false,
     opener,
     onconfirm,
@@ -38,6 +41,8 @@
     initialProvider: AgentProvider;
     /** Seed model alias ("default" = provider default). Reset if not available for the provider. */
     initialModel?: string;
+    /** Seed effort tier ("default" = provider default). Reset if not available for the provider. */
+    initialEffort?: string;
     /** Show the in-place continuation handoff mode picker. */
     handoff?: boolean;
     opener?: HTMLElement;
@@ -49,9 +54,12 @@
   let agentProvider = $state<AgentProvider>(initialProvider);
   // svelte-ignore state_referenced_locally
   let model = $state<string>(initialModel);
+  // svelte-ignore state_referenced_locally
+  let effort = $state<string>(initialEffort);
   let handoffMode = $state<HandoffMode>("resume");
 
   const provModels = $derived(providerModels(agentProvider));
+  const provEfforts = $derived(providerEfforts(agentProvider));
 
   // Keep the model valid for the selected provider (seed or a provider switch may invalidate it):
   // Claude falls back to "default" (provider default), Codex to its top curated alias.
@@ -60,10 +68,17 @@
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
   });
 
+  // Snap a now-unsupported effort tier back to "default" when the provider changes (e.g.
+  // switching to Codex drops an xhigh/max selection — mirrors NewTaskRunSettings).
+  $effect(() => {
+    if (!effortAvailableForProvider(agentProvider, effort)) effort = "default";
+  });
+
   function confirm() {
     onconfirm({
       agentProvider,
       model: model === "default" ? null : model,
+      effort: effort === "default" ? null : effort,
       ...(handoff ? { handoffMode } : {}),
     });
   }
@@ -139,6 +154,16 @@
       {/each}
     </select>
     <ModelGuidance provider={agentProvider} {model} context="task" compact />
+  </div>
+
+  <div class="mcp-field">
+    <label class="micro" for="mcp-effort">{m.newtask_effort_label()}</label>
+    <select id="mcp-effort" bind:value={effort}>
+      <option value="default">{m.effort_default()}</option>
+      {#each provEfforts as tier (tier)}
+        <option value={tier}>{effortLabel(tier)}</option>
+      {/each}
+    </select>
   </div>
 
   {#if handoff}

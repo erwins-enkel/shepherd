@@ -849,6 +849,7 @@ export type HandoffMode = "resume" | "summarize";
 export interface VariantChoice {
   agentProvider?: AgentProvider;
   model: string | null;
+  effort?: string | null;
   handoffMode?: HandoffMode;
 }
 

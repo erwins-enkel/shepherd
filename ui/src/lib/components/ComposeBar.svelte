@@ -315,7 +315,7 @@
     interimBusy = true;
     const seq = ++interimSeq;
     try {
-      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en", "partial");
       if (seq === interimSeq && listening && text)
         value = dictationBase.trim() ? dictationBase.trimEnd() + " " + text.trim() : text.trim();
       queueMicrotask(autogrow);
@@ -423,7 +423,7 @@
     chunks = [];
     transcribing = true;
     try {
-      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
+      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en", "final");
       // The accurate full-clip result replaces whatever the live preview last showed. On error we
       // keep the last interim text rather than discarding what the user just dictated.
       value = dictationBase;

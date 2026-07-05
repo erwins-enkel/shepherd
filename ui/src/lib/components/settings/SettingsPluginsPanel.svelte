@@ -1,8 +1,20 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
-  import { getInstalledPlugins, installPlugin, uninstallPlugin, activatePlugin } from "$lib/api";
-  import type { PluginInfo, InstalledPlugin } from "$lib/types";
+  import {
+    getInstalledPlugins,
+    installPlugin,
+    uninstallPlugin,
+    activatePlugin,
+    checkPluginUpdates,
+    applyPluginUpdate,
+  } from "$lib/api";
+  import type {
+    PluginInfo,
+    InstalledPlugin,
+    PluginUpdatesStatus,
+    PluginUpdateInfo,
+  } from "$lib/types";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
 
@@ -10,6 +22,8 @@
     plugins = [],
     onpluginschanged,
     focusId = null,
+    updates = null,
+    onpluginapplied,
   }: {
     plugins?: PluginInfo[];
     /** Called after an in-process activation so the parent can re-seed `store.plugins`
@@ -17,6 +31,13 @@
      *  and for its gear/UI pushes to stop no-opping). */
     onpluginschanged?: () => void;
     focusId?: string | null;
+    /** Store-fed update snapshot; per-plugin "update available" state renders from it.
+     *  A manual check needs NO callback — the server broadcasts `plugin-update:status`
+     *  and this prop re-renders from the store. */
+    updates?: PluginUpdatesStatus | null;
+    /** After an inline apply: push the recomputed snapshot up (same contract as the
+     *  updates modal's `onapplied`) so the badge/CTA + loaded-plugin list refresh. */
+    onpluginapplied?: (status: PluginUpdatesStatus) => void;
   } = $props();
 
   // On-disk plugin folders (install manager). Self-fetched — the live `plugins` prop only
@@ -89,10 +110,112 @@
     return out;
   });
 
-  // A restart is owed only to UNLOAD a plugin whose folder is gone (`removed`): that can't be
-  // done in-process. A `pending` (installed-not-loaded) plugin no longer needs one — the
-  // Activate button loads it live — so it must not raise the restart banner.
-  const pendingRestart = $derived(rows.some((r) => r.kind === "removed"));
+  // ── installed-plugin updates (in-card badge + inline apply + manual check) ──
+
+  const updById = $derived(new Map((updates?.plugins ?? []).map((u) => [u.id, u])));
+  function availableUpdate(id: string): PluginUpdateInfo | null {
+    const u = updById.get(id);
+    return u && u.state === "update-available" ? u : null;
+  }
+
+  // Manual "Check now": the response is awaited only for the busy state — the row
+  // re-render comes from the server's `plugin-update:status` broadcast via `updates`.
+  let checking = $state(false);
+  let checkFailed = $state(false);
+  async function runCheck() {
+    if (checking) return;
+    checking = true;
+    checkFailed = false;
+    try {
+      await checkPluginUpdates();
+    } catch {
+      checkFailed = true;
+    } finally {
+      checking = false;
+    }
+  }
+  const lastChecked = $derived(
+    updates
+      ? new Date(updates.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : null,
+  );
+
+  // Per-id apply state (mirrors PluginUpdatesModal.applyOne): `applyBusy` guards a
+  // double-click; `applyOutcome` persists a live/restart/error note that survives the
+  // snapshot refresh (a just-updated plugin drops to `up-to-date` and would otherwise
+  // lose its "restart to finish" hint).
+  type ApplyOutcome =
+    { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
+  let applyBusy = $state<Record<string, boolean>>({});
+  let applyOutcome = $state<Record<string, ApplyOutcome>>({});
+
+  /** Map a stable apply-error CODE to a message (mirrors the updates modal). */
+  function applyErrMessage(code: string): string {
+    switch (code) {
+      case "symlinked_source":
+        return m.pluginupdate_apply_err_symlinked();
+      case "incompatible":
+        return m.pluginupdate_apply_err_incompatible();
+      case "no_source":
+        return m.pluginupdate_apply_err_nosource();
+      default:
+        return m.pluginupdate_apply_err_generic();
+    }
+  }
+
+  async function runUpdate(id: string) {
+    const u = availableUpdate(id);
+    if (!u || applyBusy[id]) return;
+    // Never re-apply a plugin that already succeeded this session (a stale snapshot
+    // would otherwise overwrite the success with a false "already up to date" error).
+    const prior = applyOutcome[id];
+    if (prior && prior.kind !== "error") return;
+    applyBusy = { ...applyBusy, [id]: true };
+    const cleared = { ...applyOutcome };
+    delete cleared[id]; // a retry starts clean
+    applyOutcome = cleared;
+    try {
+      const res = await applyPluginUpdate(id);
+      if (res.ok) {
+        applyOutcome = {
+          ...applyOutcome,
+          [id]: {
+            kind: res.result.restartRequired ? "restart" : "live",
+            version: res.result.updatedTo,
+          },
+        };
+        onpluginapplied?.(res.result.status);
+        await loadInstalled(); // on-disk versions changed
+      } else {
+        applyOutcome = {
+          ...applyOutcome,
+          [id]: { kind: "error", msg: applyErrMessage(res.error), detail: res.detail },
+        };
+      }
+    } finally {
+      applyBusy = { ...applyBusy, [id]: false };
+    }
+  }
+
+  /** Card-shaped update props: non-null when there is a badge to show OR an apply
+   *  outcome to keep visible after the badge is gone. */
+  function cardUpdate(
+    id: string,
+  ): { latest: string | null; applying: boolean; outcome: ApplyOutcome | null } | null {
+    const u = availableUpdate(id);
+    const outcome = applyOutcome[id] ?? null;
+    if (!u && !outcome) return null;
+    return { latest: u?.latestVersion ?? null, applying: !!applyBusy[id], outcome };
+  }
+
+  // A restart is owed to UNLOAD a plugin whose folder is gone (`removed`) — that can't be
+  // done in-process — or to finish an in-place update of a plugin that was already running.
+  // A `pending` (installed-not-loaded) plugin no longer needs one — the Activate button
+  // loads it live — so it must not raise the restart banner.
+  const pendingRestart = $derived(
+    rows.some((r) => r.kind === "removed") ||
+      Object.values(applyOutcome).some((o) => o.kind === "restart"),
+  );
 
   const rowKey = (row: Row): string =>
     row.kind === "loaded" || row.kind === "removed"
@@ -265,6 +388,19 @@
     {/if}
   </div>
 
+  <!-- Manual update check — the badge/rows refresh via the plugin-update:status broadcast -->
+  <div class="updrow">
+    <span class="upd-meta micro">
+      {#if lastChecked}{m.plugins_updates_last_checked({ time: lastChecked })}{/if}
+    </span>
+    {#if checkFailed}
+      <span class="err micro" role="alert">{m.plugins_update_check_failed()}</span>
+    {/if}
+    <button type="button" class="gbtn check" disabled={checking} onclick={runCheck}>
+      {checking ? m.plugins_checking_updates() : m.plugins_check_updates()}
+    </button>
+  </div>
+
   {#if pendingRestart}
     <div class="banner" role="status">
       <span class="banner-text">{m.plugins_restart_banner()}</span>
@@ -283,11 +419,14 @@
 
   {#each rows as row (rowKey(row))}
     {#if row.kind === "loaded"}
+      {@const rowId = row.info.id}
       <PluginLoadedCard
         plugin={row.info}
         folder={row.folder}
         busy={busyFolder === row.folder}
         onuninstall={askUninstall}
+        update={cardUpdate(rowId)}
+        onupdate={() => runUpdate(rowId)}
       />
     {:else if row.kind === "removed"}
       <div class="row minimal">
@@ -297,6 +436,7 @@
         <span class="state micro">{m.plugins_state_removed()}</span>
       </div>
     {:else}
+      {@const upd = row.kind === "broken" ? null : cardUpdate(row.inst.id)}
       <div class="row minimal">
         <span class="dot muted" aria-hidden="true"></span>
         <span class="name">{row.inst.name}</span>
@@ -304,6 +444,18 @@
           <span class="ver micro">v{row.inst.version}</span>
         {/if}
         <span class="state micro" class:broken={row.kind === "broken"}>{stateLabel(row.kind)}</span>
+        {#if upd?.latest}
+          {@const updId = row.inst.id}
+          <span class="upd-badge micro">{m.pluginupdate_state_update({ latest: upd.latest })}</span>
+          <button
+            type="button"
+            class="gbtn upd"
+            disabled={upd.applying}
+            onclick={() => runUpdate(updId)}
+          >
+            {upd.applying ? m.pluginupdate_applying() : m.pluginupdate_apply()}
+          </button>
+        {/if}
         {#if row.kind === "pending"}
           <button
             type="button"
@@ -322,6 +474,25 @@
         >
           {m.plugins_uninstall()}
         </button>
+        {#if upd?.outcome}
+          {@const o = upd.outcome}
+          <div class="upd-line">
+            {#if o.kind === "error"}
+              <p class="upd-outcome error micro" role="alert">{o.msg}</p>
+              {#if o.detail}
+                <p class="upd-detail micro">{o.detail}</p>
+              {/if}
+            {:else if o.kind === "restart"}
+              <p class="upd-outcome micro">
+                {m.pluginupdate_applied_restart({ version: o.version })}
+              </p>
+            {:else}
+              <p class="upd-outcome live micro">
+                {m.pluginupdate_applied_live({ version: o.version })}
+              </p>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
   {/each}
@@ -411,14 +582,61 @@
   }
   .gbtn.del,
   .gbtn.copy,
-  .gbtn.activate {
+  .gbtn.activate,
+  .gbtn.check,
+  .gbtn.upd {
     font-size: var(--fs-micro);
     padding: 5px 9px;
   }
-  /* Activate is the row's primary action — amber accent like the install button. */
-  .gbtn.activate {
+  /* Activate / Update are the row's primary action — amber accent like the install button. */
+  .gbtn.activate,
+  .gbtn.upd {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+
+  /* Manual update-check row */
+  .updrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .upd-meta {
+    color: var(--color-muted);
+    margin-right: auto;
+  }
+  .updrow .err {
+    margin: 0;
+  }
+
+  /* In-row update state (badge + persisted apply outcome) */
+  .upd-badge {
+    font-size: var(--fs-micro);
+    padding: 2px 8px;
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    white-space: nowrap;
+    flex: none;
+  }
+  .upd-line {
+    flex-basis: 100%;
+  }
+  .upd-outcome {
+    margin: 4px 0 0;
+    color: var(--color-amber);
+  }
+  .upd-outcome.live {
+    color: var(--color-green, var(--color-blue));
+  }
+  .upd-outcome.error {
+    color: var(--color-red);
+    word-break: break-word;
+  }
+  .upd-detail {
+    margin: 2px 0 0;
+    color: var(--color-muted);
+    font-family: var(--font-mono, monospace);
+    word-break: break-word;
   }
 
   /* Restart-owed banner */
@@ -447,10 +665,11 @@
     margin-left: auto;
   }
 
-  /* Minimal (non-loaded) rows */
+  /* Minimal (non-loaded) rows — wrap so the update outcome can span a full line */
   .row.minimal {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     border: 1px solid var(--color-line);
     background: var(--color-inset);

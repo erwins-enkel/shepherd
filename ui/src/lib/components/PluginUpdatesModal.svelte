@@ -38,7 +38,8 @@
   // success/restart/error note that survives the list refresh — a just-updated plugin
   // drops to `up-to-date` and would otherwise lose its "restart to finish" hint.
   let applying = $state<Record<string, boolean>>({});
-  type Outcome = { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string };
+  type Outcome =
+    { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
   let outcome = $state<Record<string, Outcome>>({});
   let copied = $state(false);
   // True for the duration of an "Update all" serial run. Locks every per-row Update button
@@ -101,7 +102,10 @@
         };
         onapplied?.(res.result.status);
       } else {
-        outcome = { ...outcome, [p.id]: { kind: "error", msg: applyErr(res.error) } };
+        outcome = {
+          ...outcome,
+          [p.id]: { kind: "error", msg: applyErr(res.error), detail: res.detail },
+        };
       }
     } finally {
       applying = { ...applying, [p.id]: false };
@@ -202,6 +206,10 @@
               {@const o = outcome[p.id]}
               {#if o.kind === "error"}
                 <div class="outcome error" role="alert">{o.msg}</div>
+                {#if o.detail}
+                  <!-- server-authored diagnostic (verbatim) — makes the failure debuggable -->
+                  <div class="pdetail">{o.detail}</div>
+                {/if}
               {:else if o.kind === "restart"}
                 <div class="outcome">{m.pluginupdate_applied_restart({ version: o.version })}</div>
               {:else}

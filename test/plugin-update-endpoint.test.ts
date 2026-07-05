@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { makeApp, type AppDeps } from "../src/server";
 import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
@@ -34,13 +34,22 @@ const status: PluginUpdatesStatus = {
 };
 
 /** A pluginUpdates dep whose `apply` returns a fixed result and whose `current` is
- *  stubbed. Records the last applied id so tests can assert the wiring. */
-function fakeUpdates(applyResult: PluginApplyResult, applied: string[] = []) {
+ *  stubbed. Records the last applied id so tests can assert the wiring; `checks`
+ *  counts on-demand `check()` calls (must stay 0 on plain GETs). */
+function fakeUpdates(
+  applyResult: PluginApplyResult,
+  applied: string[] = [],
+  checks: number[] = [],
+) {
   return {
     current: () => status,
     apply: async (id: string) => {
       applied.push(id);
       return applyResult;
+    },
+    check: async (now: number) => {
+      checks.push(now);
+      return status;
     },
   };
 }
@@ -87,6 +96,49 @@ test("GET /api/plugin-update falls back to an empty snapshot when unwired", asyn
   const body = await res.json();
   expect(body.plugins).toEqual([]);
   expect(body.updateAvailable).toBe(false);
+});
+
+test("GET /api/plugin-update serves the cached snapshot without running a check", async () => {
+  const checks: number[] = [];
+  const app = makeApp(
+    makeDeps({
+      pluginUpdates: fakeUpdates({ ok: true, folder: "v", updatedTo: "1.3.0" }, [], checks),
+    }),
+  );
+  const res = await app.fetch(new Request("http://localhost/api/plugin-update"));
+  expect(res.status).toBe(200);
+  expect(checks).toEqual([]); // never triggers git work — that's POST /check's job
+});
+
+test("POST /api/plugin-update/check runs a fresh check, broadcasts, and returns it", async () => {
+  const checks: number[] = [];
+  const emitted: Array<{ event: string; data: unknown }> = [];
+  const app = makeApp(
+    makeDeps({
+      pluginUpdates: fakeUpdates({ ok: true, folder: "v", updatedTo: "1.3.0" }, [], checks),
+      events: {
+        emit: (event: string, data: unknown) => {
+          emitted.push({ event, data });
+        },
+      } as unknown as EventHub,
+    }),
+  );
+  const res = await app.fetch(
+    new Request("http://localhost/api/plugin-update/check", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(status);
+  expect(checks.length).toBe(1);
+  // every client syncs off the broadcast — the response body only feeds the busy state
+  expect(emitted).toEqual([{ event: "plugin-update:status", data: status }]);
+});
+
+test("POST /api/plugin-update/check is 503 when the service is unwired", async () => {
+  const app = makeApp(makeDeps());
+  const res = await app.fetch(
+    new Request("http://localhost/api/plugin-update/check", { method: "POST" }),
+  );
+  expect(res.status).toBe(503);
 });
 
 test("POST /api/plugin-update (no /apply) falls through to 404", async () => {
@@ -189,7 +241,7 @@ test("POST /api/plugin-update/apply maps already_up_to_date to 409", async () =>
   expect(res.status).toBe(409);
 });
 
-test("POST /api/plugin-update/apply carries a detail for a failed update", async () => {
+test("POST /api/plugin-update/apply carries a detail for a failed update and logs it", async () => {
   const app = makeApp(
     makeDeps({
       pluginUpdates: fakeUpdates({
@@ -199,11 +251,20 @@ test("POST /api/plugin-update/apply carries a detail for a failed update", async
       }),
     }),
   );
-  const res = await app.fetch(applyReq({ id: "voice" }));
-  expect(res.status).toBe(400);
-  const body = await res.json();
-  expect(body.error).toBe("update_failed");
-  expect(body.detail).toBe("not a fast-forward");
+  const errSpy = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const res = await app.fetch(applyReq({ id: "voice" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("update_failed");
+    expect(body.detail).toBe("not a fast-forward");
+    // a transient failure must leave a server-side trace (issue: undiagnosable apply errors)
+    const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("update_failed");
+    expect(logged).toContain("not a fast-forward");
+  } finally {
+    errSpy.mockRestore();
+  }
 });
 
 test("POST /api/plugin-update/apply requires an id", async () => {

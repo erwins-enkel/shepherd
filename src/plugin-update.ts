@@ -11,6 +11,11 @@ import type { PluginUpdateInfo, PluginUpdatesStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
 
+/** Hard cap per git invocation (fetch/ls-remote hit the network). A slow or
+ *  unreachable plugin remote then rejects and lands in that plugin's `error`
+ *  state instead of hanging the whole check (or a manual "Check now") forever. */
+const GIT_TIMEOUT_MS = 20_000;
+
 /** Internal result of resolving a plugin's candidate manifest before classification.
  *  `no-source` carries the reportable source (`git` checkout without upstream vs no
  *  git/repository at all); `error` carries a diagnostic detail. */
@@ -107,7 +112,10 @@ export class PluginUpdateService {
       deps.git ??
       (async (args, cwd) => {
         const { stdout } = await timedAsync(`git ${args[0] ?? ""}`, () =>
-          execFileAsync("git", cwd ? ["-C", cwd, ...args] : args, { encoding: "utf8" }),
+          execFileAsync("git", cwd ? ["-C", cwd, ...args] : args, {
+            encoding: "utf8",
+            timeout: GIT_TIMEOUT_MS,
+          }),
         );
         return stdout as string;
       });

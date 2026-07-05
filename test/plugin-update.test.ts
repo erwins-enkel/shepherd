@@ -253,6 +253,28 @@ test("a per-plugin git failure is isolated, not thrown, and raises no badge", as
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("a hung remote (git timeout) degrades to that plugin's error; others still classify", async () => {
+  // The default runner enforces a hard timeout per git call; a timed-out promisified
+  // execFile REJECTS, exactly like this stub — the slow plugin must land in `error`
+  // (with the message as detail) while the healthy plugin still gets its badge.
+  const dir = makePluginsDir({
+    slow: okManifest({ id: "slow", repository: "https://x/slow.git" }),
+    fast: okManifest({ id: "fast", version: "1.2.0", repository: "https://x/fast.git" }),
+  });
+  const git: GitRunner = async (args) => {
+    const key = args.join(" ");
+    if (key.includes("slow.git")) throw new Error("timed out");
+    return repoGit("aaa\trefs/tags/v1.3.0\n", okManifest({ id: "fast", version: "1.3.0" }))(args);
+  };
+  const st = await new PluginUpdateService({ pluginsDir: dir, git }).check(1);
+  const byId = new Map(st.plugins.map((p) => [p.id, p]));
+  expect(byId.get("slow")!.state).toBe("error");
+  expect(byId.get("slow")!.detail).toBe("timed out");
+  expect(byId.get("fast")!.state).toBe("update-available");
+  expect(st.updateAvailable).toBe(true);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("non-plugin folders are skipped; folders sort deterministically", async () => {
   const dir = makePluginsDir({
     zeta: okManifest({ id: "zeta", repository: "https://x/z.git" }),

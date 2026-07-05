@@ -1344,6 +1344,16 @@ export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
   /**
+   * Per-session resume() in-flight guard (herdr-restart account-loss fix, task 2).
+   * `resume()` has many entrypoints (HTTP "bring agent back", the autonomous resume
+   * deps, and a later poller re-drive) that can race on one session id, each tearing
+   * down + re-spawning a herdr agent — two racing calls would double-spawn (a leaked
+   * husk + last-write-wins spawnTerminalId). Keyed by session id so cross-session
+   * resumes are never serialized against each other.
+   */
+  private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
+
+  /**
    * Merge-train completion tracker (issue #426). A train that lands ≥1 of its
    * queue PRs should offer a local-checkout fast-forward once, per repo. We track
    * each launched train so we can emit `mergetrain:landed` exactly when the run
@@ -3079,8 +3089,24 @@ export class SessionService {
    * lost, and the control is only surfaced/clicked when the user believes they're
    * stranded. Guaranteeing the husk case works (always respawn) beats preserving
    * scrollback in the rare misclick-on-live-claude case.
+   *
+   * Serialized per session id by the resumeInFlight guard below: a concurrent resume
+   * for the same id coalesces onto the SAME in-flight promise rather than starting a
+   * second spawn. The FIRST caller's `opts` win; a second caller racing in with e.g.
+   * `force: true` does not get its own spawn — this is the double-spawn-safe choice (a
+   * stricter "await then run mine" would still allow a second spawn). Cross-session
+   * resumes are unaffected — the guard is keyed by id.
    */
   async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
+    const existing = this.resumeInFlight.get(id);
+    if (existing) return existing; // coalesce: a resume for this id is already running
+    const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
+    this.resumeInFlight.set(id, p);
+    return p;
+  }
+
+  /** resume() body; serialized per session by the public resume() guard. */
+  private async resumeInner(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
     const target = this.resumeTarget(id);
     if (!target) return null;
 
@@ -3122,6 +3148,24 @@ export class SessionService {
       return null;
     }
     return this.finishResumeSpawn(session, outcome);
+  }
+
+  /**
+   * Force-re-drive a herdr-restored account pane so onSpawn re-applies its CLAUDE_CONFIG_DIR.
+   * Serialized by resume()'s per-session guard. Returns:
+   *   "healed"   — re-spawned AND persistSpawnIdentity advanced spawnTerminalId (owning account restored)
+   *   "unhealed" — re-spawned but the account did NOT come back (folded null over a non-null prior;
+   *                persistSpawnIdentity preserved the marker) — plugin state loss / pool exhaustion
+   *   "refused"  — resume returned null (auto-gate refused BEFORE teardown, or spawn failed); husk preserved
+   * Later tasks use the verdict for bounded-attempt bookkeeping.
+   */
+  private async reDriveAccount(id: string): Promise<"healed" | "unhealed" | "refused"> {
+    const before = this.deps.store.get(id);
+    if (!before) return "refused";
+    const priorTerminalId = before.spawnTerminalId;
+    const s = await this.resume(id, { force: true });
+    if (!s) return "refused";
+    return s.spawnTerminalId !== priorTerminalId ? "healed" : "unhealed";
   }
 
   /**

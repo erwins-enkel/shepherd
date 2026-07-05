@@ -65,6 +65,34 @@ in the repo's Settings panel, or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`
 
 ## R4 — prompt-injection posture
 
+**Input-side defenses (prompt-injection-hardening pass).** Before any of the
+execution controls below, Shepherd bounds the injection surface at ingestion
+(`src/untrusted.ts`, `src/service.ts`):
+
+- **Untrusted-content fencing.** External text an agent or helper LLM might read —
+  issue title/body, issue comments, PR bodies + author-notes, captured terminal
+  tails, and the recap/rundown context — is wrapped in unforgeable `⟦UNTRUSTED:…⟧`
+  markers (`fenceUntrusted`, with a per-fence random nonce that the content cannot
+  predict or close early) so the model treats it as **data, never instructions**. A
+  standing `<untrusted-content-boundary>` directive rides every spawn's system
+  prompt (`UNTRUSTED_CONTENT_DIRECTIVE`, via `composeSystemPrompt`) to establish
+  that hierarchy.
+- **Fail-closed author-trust gate.** An **autonomous** (`auto=true`) spawn from an
+  issue whose author is **not** a trusted repo association (`OWNER` / `MEMBER` /
+  `COLLABORATOR` — anything else, including an unresolvable, absent, or Gitea-side
+  association, fails closed) is refused before any worktree is created
+  (`assertIssueAuthorTrusted` → `UntrustedIssueAuthorError`). It records an
+  `untrusted_author` signal and toasts the operator (`repo:untrusted-author`).
+  Operator-initiated creates are unaffected — a human can still start such an issue
+  manually if they trust it.
+- **Advisory injection scan.** Issue content is scanned against a conservative
+  signature set (`scanForInjection`); a hit is **advisory only** — it records an
+  `injection_detected` signal and toasts the operator to eyeball the session, but
+  never blocks the spawn.
+
+These are content-boundary defenses; the execution-confinement residuals below
+still stand.
+
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
   refused outright (`src/sandbox.ts` `autoHoldReason`, ~L501-502).
@@ -92,4 +120,4 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/transient-agent-argv.ts`.
+  `src/transient-agent-argv.ts`, `src/untrusted.ts`.

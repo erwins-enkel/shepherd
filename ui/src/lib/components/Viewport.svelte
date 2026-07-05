@@ -2218,17 +2218,10 @@
           pendingCopy = null;
           toasts.info(m.clipboard_copied_toast());
         }}
-        oncopyfailed={(text) => {
-          toasts.info(m.clipboard_copy_failed(), {
-            alert: true,
-            duration: null,
-            action: {
-              label: m.clipboard_copy_retry(),
-              run: () => {
-                pendingCopy = text;
-              },
-            },
-          });
+        oncopyfailed={() => {
+          // Announce the failure but keep the pill mounted — its Copy button is the
+          // retry surface (a fresh in-gesture click), so no separate Retry action.
+          toasts.info(m.clipboard_copy_failed(), { alert: true });
         }}
         ondismiss={() => (pendingCopy = null)}
       />

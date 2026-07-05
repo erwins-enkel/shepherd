@@ -2525,7 +2525,6 @@
   "pluginupdate_apply_err_generic": "Update failed.",
   "clipboard_copied_toast": "Copied to clipboard",
   "clipboard_copy_failed": "Couldn’t copy to clipboard",
-  "clipboard_copy_retry": "Retry",
   "clipboard_pill_prompt": "Terminal copied text",
   "clipboard_pill_copy": "Copy to clipboard",
   "feat_clipboard_osc52_title": "Claude's \"copy\" now reaches your clipboard",

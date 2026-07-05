@@ -2525,7 +2525,6 @@
   "pluginupdate_apply_err_generic": "Update fehlgeschlagen.",
   "clipboard_copied_toast": "In die Zwischenablage kopiert",
   "clipboard_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen",
-  "clipboard_copy_retry": "Erneut versuchen",
   "clipboard_pill_prompt": "Terminal hat Text kopiert",
   "clipboard_pill_copy": "In Zwischenablage kopieren",
   "feat_clipboard_osc52_title": "Claudes „Kopieren“ landet jetzt in deiner Zwischenablage",

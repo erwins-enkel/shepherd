@@ -82,9 +82,14 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   `COLLABORATOR` — anything else, including an unresolvable, absent, or Gitea-side
   association, fails closed) is refused before any worktree is created
   (`assertIssueAuthorTrusted` → `UntrustedIssueAuthorError`). It records an
-  `untrusted_author` signal and toasts the operator (`repo:untrusted-author`).
-  Operator-initiated creates are unaffected — a human can still start such an issue
-  manually if they trust it.
+  `untrusted_author` signal and toasts the operator (`repo:untrusted-author`) —
+  once per `(repo, issue)` per process, so a stuck issue's drain retries don't grow
+  the signal store. Operator-initiated creates are unaffected — a human can still
+  start such an issue manually if they trust it. On forges that structurally can't
+  supply a GitHub-style association (non-GitHub — Gitea/local), autonomous drain
+  would otherwise be silently disabled; an operator can opt back in with
+  `SHEPHERD_TRUST_ISSUE_AUTHORS=1` (scoped to non-GitHub — a GitHub miss or
+  untrusted author still refuses).
 - **Advisory injection scan.** Issue content is scanned against a conservative
   signature set (`scanForInjection`); a hit is **advisory only** — it records an
   `injection_detected` signal and toasts the operator to eyeball the session, but

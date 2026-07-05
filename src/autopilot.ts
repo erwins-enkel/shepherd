@@ -116,6 +116,8 @@ export interface AutopilotDeps {
   resume: (id: string) => unknown;
   /** Whether the session's herdr pane is currently live. */
   paneAlive: (id: string) => boolean;
+  /** Defer steering while a herdr-restored account pane still needs a re-drive (SessionService.shouldDeferSteer). */
+  deferSteer?: (id: string) => boolean;
   /** Visible terminal tail for a session (herdr.read → tailLines). */
   readTail: (id: string) => string[];
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
@@ -290,9 +292,10 @@ export class AutopilotService {
   /** Send `text` into the session, resuming an exited pane first. Returns whether the steer
    *  landed; does NOT bump the step (the caller decides whether the attempt counts). */
   private async sendSteer(s: Session, text: string): Promise<boolean> {
-    if (!this.deps.paneAlive(s.id)) {
-      // Exited pane: resume so there's something to steer. resume() resolves falsy when it
-      // can't (archived / no pinned session id) — then there's nothing to do.
+    if (!this.deps.paneAlive(s.id) || this.deps.deferSteer?.(s.id)) {
+      // Not live, OR a herdr-restored account husk to re-drive first (Locus B) so the steer lands on the
+      // re-driven pane, not the wrong-account husk. resume() resolves falsy when it can't (archived /
+      // no pinned session id) — then there's nothing to do.
       if (!(await this.deps.resume(s.id))) return false;
     }
     return this.deps.steer(s.id, text);

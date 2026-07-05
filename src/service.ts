@@ -3215,6 +3215,24 @@ export class SessionService {
   }
 
   /**
+   * True when a steer/reply should be deferred because the session's live pane is a herdr-restored
+   * account husk not yet re-driven (and not yet exhausted). Autonomous steer paths consult this: true →
+   * route through resume() (Locus B re-drive) instead of steering the wrong-account husk. Goes false
+   * once healed (needsAccountRedrive clears) OR degraded (bounded re-drive hit CAP — steering resumes
+   * as today). Closes the race where a caller steers before the poller's proactive re-drive lands.
+   */
+  shouldDeferSteer(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.spawnAccountDir === null) return false;
+    const agent = this.liveAgentFor(id);
+    if (!agent || !needsAccountRedrive(s, agent)) return false;
+    const rec = this.redriveAttempts.get(id);
+    const exhausted =
+      !!rec && rec.anchor === s.spawnTerminalId && rec.attempts >= SessionService.REDRIVE_CAP;
+    return !exhausted;
+  }
+
+  /**
    * Restore an archived session: re-create its worktree (if isolated), resume the Claude
    * conversation via `--resume`, and clear `archivedAt` so the session re-enters the Herd.
    *
@@ -3408,7 +3426,9 @@ export class SessionService {
       const s = this.deps.store.get(id);
       if (!s) continue;
       let succeeded = false;
-      if (live.has(s.herdrAgentId)) {
+      // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
+      // than steered — else the retry lands on the wrong-account pane.
+      if (live.has(s.herdrAgentId) && !this.shouldDeferSteer(id)) {
         if (this.replyToLive(id, continueText, live)) {
           steered++;
           succeeded = true;

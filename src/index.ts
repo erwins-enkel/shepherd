@@ -1392,6 +1392,7 @@ const autopilot = new AutopilotService({
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list()) !== null;
   },
+  deferSteer: (id) => service.shouldDeferSteer(id),
   readTail: (id) => {
     const s = store.get(id);
     if (!s) return [];
@@ -1586,6 +1587,7 @@ const autoMerge = new AutoMergeService({
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list()) !== null;
   },
+  deferSteer: (id) => service.shouldDeferSteer(id),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   emitStatus: (status) => events.emit("automerge:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),

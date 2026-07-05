@@ -66,10 +66,10 @@
     }
   }
 
-  // Element captures arrive pre-gathered (signals run at pick time), so the
-  // gather toggles are read-only — re-running them would replace the cropped
-  // element with a fresh visible capture.
-  let gatherLocked = $derived(capture?.mode === "element");
+  // Element/marquee captures arrive pre-gathered (signals run at pick time), so
+  // the gather toggles are read-only — re-running them would replace the cropped
+  // region with a fresh visible capture.
+  let gatherLocked = $derived(capture?.mode === "element" || capture?.mode === "marquee");
 
   function send(req: WorkerRequest): Promise<WorkerResponse> {
     return chrome.runtime.sendMessage(req) as Promise<WorkerResponse>;
@@ -126,7 +126,7 @@
     const pending = activeTabId !== undefined ? await takePendingCapture(activeTabId) : null;
     if (pending) {
       capture = pending;
-      mode = "element";
+      mode = pending.mode;
       toggles = derivedTogglesFor(pending);
       if (activeTabId !== undefined) {
         await chrome.action.setBadgeText({ text: "", tabId: activeTabId });
@@ -154,19 +154,19 @@
     };
   }
 
-  // Mode selector: visible/full-page recapture in place; "element" arms the
-  // in-page picker and closes the popup (the picker needs the page click, and
-  // the popup would close on that click regardless).
+  // Mode selector: visible/full-page recapture in place; "element"/"marquee" arm
+  // an in-page overlay and close the popup (the overlay needs a page gesture, and
+  // the popup would close on that gesture regardless).
   async function selectMode(next: CaptureMode) {
     mode = next;
-    if (next === "element") {
-      // Resolve the overlay label here (popup locale) so the picker content
+    if (next === "element" || next === "marquee") {
+      // Resolve the overlay label here (popup locale) so the overlay content
       // script needn't bundle Paraglide just for one string.
-      const res = await send({
-        type: "start-picker",
-        toggles,
-        instructions: m.picker_instructions(),
-      });
+      const res = await send(
+        next === "element"
+          ? { type: "start-picker", toggles, instructions: m.picker_instructions() }
+          : { type: "start-marquee", toggles, instructions: m.marquee_instructions() },
+      );
       if (res.ok && res.type === "picker-started") {
         window.close();
       } else if (!res.ok) {
@@ -374,6 +374,9 @@
     {#if capture.mode === "element"}
       <span class="text-xs text-gray-500">{m.popup_element_hint()}</span>
     {/if}
+    {#if capture.mode === "marquee"}
+      <span class="text-xs text-gray-500">{m.popup_marquee_hint()}</span>
+    {/if}
     {#if capture.fullPageTruncated}
       <span class="text-xs text-amber-600">{m.popup_fullpage_truncated()}</span>
     {/if}
@@ -395,6 +398,7 @@
       >
         <option value="visible">{m.popup_mode_visible()}</option>
         <option value="fullpage">{m.popup_mode_fullpage()}</option>
+        <option value="marquee">{m.popup_mode_marquee()}</option>
         <option value="element">{m.popup_mode_element()}</option>
       </select>
     </label>

@@ -19,8 +19,10 @@ export interface PageMetadata {
  * - `fullpage` — scroll + capture + stitch the whole page into one tall PNG.
  * - `element` — crop to a user-picked element (a separate async picker flow, not
  *   a value the synchronous `capture` message accepts).
+ * - `marquee` — crop to a user-dragged rectangle (same deferred overlay flow as
+ *   `element`, but the user draws the region instead of snapping to a DOM node).
  */
-export type CaptureMode = "visible" | "fullpage" | "element";
+export type CaptureMode = "visible" | "fullpage" | "element" | "marquee";
 
 /** Result of capturing the active tab. */
 export interface CaptureResult {
@@ -102,8 +104,9 @@ export class TransportError extends Error {
 
 /** Discriminated message envelope: popup/options <-> background worker. */
 export type WorkerRequest =
-  | { type: "capture"; toggles: SignalToggles; mode: Exclude<CaptureMode, "element"> }
+  | { type: "capture"; toggles: SignalToggles; mode: Exclude<CaptureMode, "element" | "marquee"> }
   | { type: "start-picker"; toggles: SignalToggles; instructions: string }
+  | { type: "start-marquee"; toggles: SignalToggles; instructions: string }
   | { type: "spawn"; payload: SpawnPayload }
   | {
       type: "file-issue";
@@ -124,16 +127,22 @@ export type WorkerResponse =
   | { ok: false; errorKind: TransportErrorKind | "capture"; message: string };
 
 /**
- * Messages the injected element picker (`picker.ts`, page content script) sends
- * the background worker. `picker-pick` carries the clicked element's
+ * Messages the injected overlays (`picker.ts` / `marquee.ts`, page content
+ * scripts) send the background worker. `*-pick` carries the target's
  * viewport-relative CSS rect plus the viewport size + dpr needed to crop the
- * capture; `picker-cancel` is sent on Esc / right-click.
+ * capture — for the picker it's the clicked element's bounds, for the marquee the
+ * user-dragged (normalized, positive-dimension) rectangle. `*-cancel` is sent on
+ * Esc / right-click (and, for marquee, a sub-threshold drag).
  */
+/** Viewport-relative CSS rect + viewport/dpr an overlay reports for cropping. */
+export interface OverlayPick {
+  rect: { x: number; y: number; width: number; height: number };
+  viewport: { width: number; height: number };
+  dpr: number;
+}
+
 export type PickerMessage =
-  | {
-      type: "picker-pick";
-      rect: { x: number; y: number; width: number; height: number };
-      viewport: { width: number; height: number };
-      dpr: number;
-    }
-  | { type: "picker-cancel" };
+  | ({ type: "picker-pick" } & OverlayPick)
+  | ({ type: "marquee-pick" } & OverlayPick)
+  | { type: "picker-cancel" }
+  | { type: "marquee-cancel" };

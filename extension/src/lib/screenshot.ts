@@ -96,3 +96,21 @@ export function cropRegionForElement(
     sh: Math.round(h * dpr),
   };
 }
+
+/**
+ * Crop window for a marquee (user-dragged rectangle) capture. The geometry is
+ * intentionally identical to `cropRegionForElement` — a marquee rect is just
+ * another viewport-relative CSS rect (already normalized to positive width/height
+ * by the overlay) that gets clamped to the viewport and scaled to device pixels,
+ * `null` on zero area. Kept as a named delegate (not a call-site reuse) so the
+ * marquee capture path reads honestly and can diverge later without touching the
+ * element path. A `null` here means the caller must abort the pick (not fall back
+ * to a full-viewport capture, as element mode does).
+ */
+export function cropRegionForMarquee(
+  rect: ElementRect,
+  viewport: { width: number; height: number },
+  dpr: number,
+): CropRegion | null {
+  return cropRegionForElement(rect, viewport, dpr);
+}

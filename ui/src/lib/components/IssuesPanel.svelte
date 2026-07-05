@@ -68,6 +68,14 @@
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
   let nativeSubIssues = $state<Set<number>>(new Set());
   let epicsLoaded = $state(false);
+  // True once a getEpics attempt for this repo has SETTLED (success or failure), so the
+  // epic-first sort is final. Gates the targeted expand-scroll below: scrolling before
+  // the sort settles would center the epic at a provisional (un-pinned) position that the
+  // re-sort then yanks away, stranding the viewport among unrelated issues. Reset (→false)
+  // ONLY on repo change; set (→true) in EVERY getEpics settle (mount + softRefresh, then +
+  // catch, inside the rp/ticket guard) so a backlogRefresh bump that supersedes the mount
+  // fetch mid-navigation still flips it via the winning fetch — never latched false.
+  let epicsSettled = $state(false);
   // Compose the assignee filter (#824) → "hide in progress" filter → sub-issue filter → text filter.
   // The mine chip only shows when `viewer` is known, so hideOthers is a no-op
   // identity otherwise (fail open); hideActive is viewer-agnostic.
@@ -89,7 +97,20 @@
   );
   // Epic parents float to the top of the backlog (stable within each group), so
   // epics are the first thing the operator sees. Applied after text filtering.
-  let visibleIssues = $derived(sortEpicsFirst(filterIssues(subFiltered, filter), epicParentNums));
+  //
+  // Force-include the navigated-to epic (expandEpic): an explicit "go to this epic" must
+  // always land on it, even when a toggle filter (hideOthers / hideActive / hideSubIssues)
+  // would drop its parent row. Deduped — only re-added when it actually fell out of
+  // subFiltered — so the {#each} key and the epic-issue-row-<n> DOM id stay unique. Added
+  // BEFORE filterIssues so the TEXT search still applies (at navigation time `filter` is
+  // "" from the repo-change reset); sortEpicsFirst then pins it to the top once epics settle.
+  let visibleIssues = $derived.by(() => {
+    const base =
+      expandEpic != null && !subFiltered.some((i) => i.number === expandEpic)
+        ? [...issues.filter((i) => i.number === expandEpic), ...subFiltered]
+        : subFiltered;
+    return sortEpicsFirst(filterIssues(base, filter), epicParentNums);
+  });
   // True when there ARE open issues but the assignee filter hid them all — drives
   // the distinct "all assigned to others" empty state (vs the text no-match state).
   let allHiddenByAssignee = $derived(
@@ -134,6 +155,7 @@
     epicByNumber = new Map();
     nativeSubIssues = new Set();
     epicsLoaded = false;
+    epicsSettled = false;
     fetched.clear();
     epicFetchSeq.clear();
     epicFetchPending.clear();
@@ -163,9 +185,13 @@
         epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
         nativeSubIssues = new Set(r.subIssues);
         epicsLoaded = true;
+        epicsSettled = true;
       })
       .catch(() => {
-        /* leave empty — epics are an enhancement, not blocking */
+        // Epics are an enhancement, not blocking — but the sort is now final (empty),
+        // so mark settled (guarded like the success path) to release the epic-scroll.
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
+        epicsSettled = true;
       });
   });
 
@@ -228,8 +254,15 @@
         epicByNumber = new Map(r.epics.map((s) => [s.parentIssueNumber, s]));
         nativeSubIssues = new Set(r.subIssues);
         epicsLoaded = true;
+        // Also flip epicsSettled here (never reset it in softRefresh): if a bump
+        // supersedes the still-in-flight mount getEpics during epic-badge navigation,
+        // THIS ticket-winning fetch is what releases the epic-scroll.
+        epicsSettled = true;
       })
-      .catch(() => {});
+      .catch(() => {
+        if (rp !== repoPath || epicsTicket !== epicsSeq) return;
+        epicsSettled = true;
+      });
     // One-shot epic cache: drop what's no longer on screen, then refresh every
     // EXPANDED panel the live store doesn't cover (store-backed panels are refreshed
     // by +page's resync re-pull; idle/pruned epics exist only in `fetched`). Iterating
@@ -351,8 +384,13 @@
       appliedExpand = target;
       if (!expanded.has(target)) expandEpicRow(target);
     }
-    // Scroll once the targeted row is actually rendered (its issue is loaded).
-    if (target !== scrolledTo && issues.some((i) => i.number === target)) {
+    // Scroll once the epic list has SETTLED into its final sorted order (epicsSettled)
+    // AND the targeted row is actually rendered. Keying off `visibleIssues` (the sorted,
+    // force-included, rendered list) — not raw `issues` — is what makes this land on the
+    // epic's final top position instead of a provisional pre-sort spot; gating on
+    // `epicsSettled` closes the listIssues-vs-getEpics race that would otherwise fire the
+    // one-shot scroll before sortEpicsFirst pins the epic to the top.
+    if (target !== scrolledTo && epicsSettled && visibleIssues.some((i) => i.number === target)) {
       scrolledTo = target;
       tick().then(() => {
         const el = document.getElementById(`epic-issue-row-${target}`);
@@ -387,14 +425,19 @@
         />
         <IssueFilterPopover showMine={viewer != null} coachTargets />
       </div>
-      {#if allHiddenByAssignee}
-        <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
-      {:else if allHiddenByActive}
-        <div class="muted">{m.issues_filter_all_in_progress()}</div>
-      {:else if allHiddenBySubIssues}
-        <div class="muted">{m.issues_filter_all_sub_issues()}</div>
-      {:else if visibleIssues.length === 0}
-        <div class="muted">{m.issuespanel_no_match()}</div>
+      <!-- Only surface an empty-state reason when the rendered list is truly empty: a
+           force-included navigated-to epic (Fix B) keeps visibleIssues non-empty, so a
+           "hidden by filter" message must not sit above the one epic row we deliberately show. -->
+      {#if visibleIssues.length === 0}
+        {#if allHiddenByAssignee}
+          <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+        {:else if allHiddenByActive}
+          <div class="muted">{m.issues_filter_all_in_progress()}</div>
+        {:else if allHiddenBySubIssues}
+          <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else}
+          <div class="muted">{m.issuespanel_no_match()}</div>
+        {/if}
       {/if}
       {#each visibleIssues as issue (issue.number)}
         {@const isExpanded = expanded.has(issue.number)}
@@ -402,7 +445,7 @@
           {issue}
           epicSummary={epicByNumber.get(issue.number)}
           {isExpanded}
-          epic={isExpanded ? epicFor(issue.number) : undefined}
+          epic={epicFor(issue.number)}
           {repoPath}
           {bodyPreview}
           {age}

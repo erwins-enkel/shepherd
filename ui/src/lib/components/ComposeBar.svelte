@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
-  import { getLocale } from "$lib/i18n";
   import { insertNewlineAt } from "$lib/compose";
-  import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
-  import { pcmChunksToWavBlob } from "$lib/wav";
+  import { getCommands } from "$lib/api";
+  import { createDictation } from "$lib/dictation.svelte";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
   import type { SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -146,369 +145,14 @@
     applySteer(text);
   }
 
-  // In-browser dictation via the Web Speech API (Chrome/Android, Safari/iOS).
-  // This is NOT the iOS keyboard's native dictation mic — no web API can summon
-  // that — but it's the standards-based equivalent: transcribes straight into
-  // this field. Known gap: WebKit doesn't expose it inside an iOS home-screen
-  // PWA (standalone display mode), only in the Safari browser tab. When
-  // unsupported the in-overlay mic toggle hides itself and the overlay is a
-  // plain type-and-send sheet — so the entry point never becomes a dead end.
-
-  // Minimal SpeechRecognition interface — the W3C Web Speech API types are not
-  // yet in TypeScript's built-in lib.dom.d.ts (only the event/result sub-types
-  // are), so we declare the constructor/instance shape we actually consume.
-  interface SpeechRecognitionInstance {
-    lang: string;
-    interimResults: boolean;
-    continuous: boolean;
-    onresult: ((e: SpeechRecognitionEvent) => void) | null;
-    onend: (() => void) | null;
-    onerror: (() => void) | null;
-    start(): void;
-    stop(): void;
-  }
-  interface SpeechRecognitionConstructor {
-    new (): SpeechRecognitionInstance;
-  }
-  interface SpeechWindow extends Window {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  }
-
-  const SpeechRec: SpeechRecognitionConstructor | undefined =
-    typeof window !== "undefined"
-      ? ((window as SpeechWindow).SpeechRecognition ??
-        (window as SpeechWindow).webkitSpeechRecognition)
-      : undefined;
-  let speechSupported = $state(!!SpeechRec);
-  let listening = $state(false);
-  let recog: SpeechRecognitionInstance | null = null;
-
-  // ── local Whisper voice input (the optional voice-whisper plugin) ──────────────────
-  // Server-side transcription: record with MediaRecorder, POST the clip to the plugin, insert
-  // the returned text. This is the ONLY mic in an iOS home-screen PWA (no Web Speech there).
-  // Detection is memoized once per page load; absent (404) → we keep Web Speech / hide the mic
-  // exactly as before. The backend is the optional voice-whisper plugin (issue #76):
-  // https://github.com/erwins-enkel/shepherd-plugin-voice-whisper — install it into ~/.shepherd/plugins/.
-  let localVoiceAvailable = $state(false);
-  let preferLocal = $state(false);
-  let transcribing = $state(false);
-  let voiceError = $state(false);
-  let voiceErrorTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // The client must actually be able to record — MediaRecorder + getUserMedia. Without them a
-  // server-available plugin still can't be used from this browser, so treat local as unusable.
-  const recorderSupported =
-    typeof window !== "undefined" &&
-    typeof MediaRecorder !== "undefined" &&
-    !!navigator.mediaDevices?.getUserMedia;
-  const localUsable = $derived(localVoiceAvailable && recorderSupported);
-
-  // The mic shows whenever *either* engine can run; `useLocal` picks which engine a NEW tap
-  // starts — local when Web Speech is absent (iOS PWA) or the plugin asks to be preferred,
-  // else the browser's live dictation. It can flip mid-session (getVoiceStatus() resolving
-  // after an auto-started dictation), so it must NOT decide how to STOP an in-flight session.
-  const micVisible = $derived(speechSupported || localUsable);
-  const useLocal = $derived(localUsable && (!speechSupported || preferLocal));
-
-  // Which engine actually owns the live recording, fixed when it starts. tapMic stops THIS one
-  // rather than re-reading `useLocal`, so a mid-session flip never strands the active recorder.
-  let activeEngine = $state<"web" | "local" | null>(null);
-
-  // Which engine to name on the origin label: the engine that owns the live recording, or "local"
-  // during the post-recording batch transcription. `transcribing` is set on the local path only
-  // (Web Speech transcribes live and never sets it), so it unambiguously means local — this keeps
-  // the label up across BOTH the recording and the transcription phase, then clears once both are
-  // done. It names the origin of THIS recording only — never plugin health/availability.
-  const originEngine = $derived(activeEngine ?? (transcribing ? "local" : null));
-
-  let mediaRecorder: MediaRecorder | null = null;
-  let mediaStream: MediaStream | null = null;
-  let chunks: Blob[] = [];
-  let recordTimer: ReturnType<typeof setTimeout> | null = null;
-  const MAX_RECORD_MS = 60_000; // cap a single clip so a forgotten mic can't record forever
-
-  // ── live interim transcription (progressive read-along) ────────────────────────────
-  // While MediaRecorder captures the authoritative clip, we ALSO tap the SAME mic stream via
-  // Web Audio, accumulate raw PCM, and every INTERIM_MS post the growing clip — encoded as a WAV,
-  // which is valid at every prefix — to the plugin, showing the returned text live in the field.
-  // On stop the accurate full-clip transcription replaces it. This is the ONLY way to get
-  // read-along on an iOS home-screen PWA: there is no Web Speech, and an iOS MediaRecorder mp4
-  // writes its `moov` atom only on stop so it can't be transcribed mid-recording. Everything stays
-  // local (the whisper plugin runs on the host), so — unlike a Web-Speech hybrid — nothing leaves
-  // the machine. The final MediaRecorder path is untouched, so a browser without Web Audio simply
-  // gets no interim and the same batch result as before.
-  interface AudioWindow extends Window {
-    webkitAudioContext?: typeof AudioContext;
-  }
-  const AudioCtx: typeof AudioContext | undefined =
-    typeof window !== "undefined"
-      ? (window.AudioContext ?? (window as AudioWindow).webkitAudioContext)
-      : undefined;
-  const INTERIM_MS = 2500; // how often to re-transcribe the growing clip for the live preview
-  let audioCtx: AudioContext | null = null;
-  let audioSource: MediaStreamAudioSourceNode | null = null;
-  let audioProc: ScriptProcessorNode | null = null;
-  let audioSink: GainNode | null = null;
-  let pcmChunks: Float32Array[] = [];
-  let pcmRate = 0;
-  let interimTimer: ReturnType<typeof setInterval> | null = null;
-  let interimBusy = false; // one interim request in flight at a time — never stack transcriptions
-  let interimSeq = 0; // bumped to discard a stale/late interim response (incl. after stop)
-  let dictationBase = ""; // field text when recording started; interim/final render after it
-
-  function pickMimeType(): string | undefined {
-    if (typeof MediaRecorder === "undefined") return undefined;
-    for (const c of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"])
-      if (MediaRecorder.isTypeSupported(c)) return c;
-    return undefined; // let the browser choose its default container
-  }
-
-  function flashVoiceError() {
-    voiceError = true;
-    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
-    voiceErrorTimer = setTimeout(() => (voiceError = false), 4000);
-  }
-
-  // Tap the live mic stream with Web Audio and start the interim-transcription loop. Best-effort:
-  // if Web Audio is unavailable or setup throws, we bail quietly and the final clip still runs.
-  function startInterimCapture(stream: MediaStream) {
-    if (!AudioCtx) return;
-    try {
-      // Ask for 16 kHz directly so the browser resamples for us; fall back to the device rate.
-      try {
-        audioCtx = new AudioCtx({ sampleRate: 16000 });
-      } catch {
-        audioCtx = new AudioCtx();
-      }
-      void audioCtx.resume?.().catch(() => {});
-      pcmRate = audioCtx.sampleRate;
-      pcmChunks = [];
-      audioSource = audioCtx.createMediaStreamSource(stream);
-      // ScriptProcessor is deprecated in favour of AudioWorklet, but the worklet needs a separately
-      // bundled module; ScriptProcessor is the simplest path that also works in an iOS PWA. A 60 s
-      // dictation on the main thread is well within its budget.
-      audioProc = audioCtx.createScriptProcessor(4096, 1, 1);
-      audioProc.onaudioprocess = (e) => {
-        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      };
-      // Route through a muted gain into the destination so the processor actually runs, without
-      // echoing the mic back to the speakers.
-      audioSink = audioCtx.createGain();
-      audioSink.gain.value = 0;
-      audioSource.connect(audioProc);
-      audioProc.connect(audioSink);
-      audioSink.connect(audioCtx.destination);
-      interimTimer = setInterval(() => void runInterim(), INTERIM_MS);
-    } catch {
-      stopInterimCapture();
-    }
-  }
-
-  // One interim tick: transcribe the clip captured so far and show it live. Guarded so only one
-  // request is ever in flight, and a stale/late response (a newer tick, or one arriving after we
-  // stopped) is discarded via the sequence number.
-  async function runInterim() {
-    if (interimBusy || transcribing || !listening) return;
-    if (pcmChunks.length === 0 || pcmRate === 0) return;
-    const blob = pcmChunksToWavBlob(pcmChunks, pcmRate);
-    interimBusy = true;
-    const seq = ++interimSeq;
-    try {
-      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
-      if (seq === interimSeq && listening && text)
-        value = dictationBase.trim() ? dictationBase.trimEnd() + " " + text.trim() : text.trim();
-      queueMicrotask(autogrow);
-    } catch {
-      // interim is best-effort — a failed/blocked tick is silently skipped; the final clip still runs
-    } finally {
-      interimBusy = false;
-    }
-  }
-
-  function stopInterimCapture() {
-    if (interimTimer) {
-      clearInterval(interimTimer);
-      interimTimer = null;
-    }
-    interimSeq++; // invalidate any in-flight interim response
-    interimBusy = false;
-    if (audioProc) audioProc.onaudioprocess = null;
-    try {
-      audioProc?.disconnect();
-      audioSource?.disconnect();
-      audioSink?.disconnect();
-    } catch {
-      /* nodes already torn down */
-    }
-    audioProc = null;
-    audioSource = null;
-    audioSink = null;
-    if (audioCtx) {
-      void audioCtx.close().catch(() => {});
-      audioCtx = null;
-    }
-    pcmChunks = [];
-    pcmRate = 0;
-  }
-
-  // Start recording. Reached two ways, both within the getUserMedia activation window: an
-  // in-sheet mic tap, or the ◉ dictate entry (startDictation) auto-starting on mount when local
-  // is the engine — getVoiceStatus is memoized/pre-resolved by then, so the auto-start runs in
-  // the same turn as the chip tap. `acquiring` guards the getUserMedia await so an auto-start
-  // and a fast manual tap can't both open a stream.
-  let acquiring = false;
-  async function startLocalRecording() {
-    if (listening || transcribing || acquiring) return;
-    if (!recorderSupported) {
-      flashVoiceError();
-      return;
-    }
-    acquiring = true;
-    voiceError = false;
-    try {
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        flashVoiceError();
-        return;
-      }
-      const mimeType = pickMimeType();
-      chunks = [];
-      // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in use);
-      // release the just-acquired mic stream so it isn't left open on failure.
-      try {
-        mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size) chunks.push(e.data);
-        };
-        mediaRecorder.onstop = () => void finishLocalRecording();
-        mediaRecorder.start();
-      } catch {
-        mediaRecorder = null;
-        releaseStream();
-        flashVoiceError();
-        return;
-      }
-      listening = true;
-      activeEngine = "local";
-      recordTimer = setTimeout(() => stopLocalRecording(), MAX_RECORD_MS);
-      // Start the live read-along preview off the same stream (best-effort; the final clip above
-      // is authoritative and runs regardless of whether interim capture succeeds).
-      dictationBase = value;
-      if (mediaStream) startInterimCapture(mediaStream);
-    } finally {
-      acquiring = false;
-    }
-  }
-
-  // User-initiated stop → let onstop fire finishLocalRecording (which uploads + inserts).
-  function stopLocalRecording() {
-    if (recordTimer) {
-      clearTimeout(recordTimer);
-      recordTimer = null;
-    }
-    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-    listening = false;
-  }
-
-  async function finishLocalRecording() {
-    const type = mediaRecorder?.mimeType || "audio/webm";
-    stopInterimCapture();
-    releaseStream();
-    mediaRecorder = null;
-    activeEngine = null;
-    if (chunks.length === 0) return;
-    const blob = new Blob(chunks, { type });
-    chunks = [];
-    transcribing = true;
-    try {
-      const text = await transcribeAudio(blob, getLocale() === "de" ? "de" : "en");
-      // The accurate full-clip result replaces whatever the live preview last showed. On error we
-      // keep the last interim text rather than discarding what the user just dictated.
-      value = dictationBase;
-      if (text) appendTranscript(text);
-    } catch {
-      flashVoiceError();
-    } finally {
-      transcribing = false;
-    }
-  }
-
-  function releaseStream() {
-    mediaStream?.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
-  }
-
-  // Tear down an in-progress recording WITHOUT uploading (dismiss/submit/destroy): drop the
-  // onstop handler first so stopping never triggers a transcription of a discarded clip.
-  function teardownRecording() {
-    if (recordTimer) {
-      clearTimeout(recordTimer);
-      recordTimer = null;
-    }
-    if (mediaRecorder) {
-      mediaRecorder.ondataavailable = null;
-      mediaRecorder.onstop = null;
-      if (mediaRecorder.state !== "inactive") {
-        try {
-          mediaRecorder.stop();
-        } catch {
-          /* already stopped */
-        }
-      }
-      mediaRecorder = null;
-    }
-    stopInterimCapture();
-    releaseStream();
-    chunks = [];
-    listening = false;
-    activeEngine = null;
-  }
-
-  // Append transcribed text after whatever is already in the field (same join rule dictation uses).
-  function appendTranscript(text: string) {
-    const t = text.trim();
-    if (!t) return;
-    value = value.trim() ? value.trimEnd() + " " + t : t;
-    queueMicrotask(autogrow);
-  }
-
-  function toggleDictation() {
-    if (!SpeechRec) return;
-    if (listening) {
-      recog?.stop();
-      return;
-    }
-    recog = new SpeechRec();
-    recog.lang = getLocale() === "de" ? "de-DE" : "en-US";
-    recog.interimResults = true;
-    recog.continuous = true;
-    let base = value; // text already typed before dictation started
-    recog.onresult = (e: SpeechRecognitionEvent) => {
-      let finalChunk = "";
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalChunk += t;
-        else interim += t;
-      }
-      if (finalChunk) base = (base ? base.trimEnd() + " " : "") + finalChunk.trim();
-      value = interim ? (base ? base.trimEnd() + " " : "") + interim.trim() : base;
-      queueMicrotask(autogrow);
-    };
-    recog.onend = () => {
-      listening = false;
-      activeEngine = null;
-    };
-    recog.onerror = () => {
-      listening = false;
-      activeEngine = null;
-    };
-    recog.start();
-    listening = true;
-    activeEngine = "web";
-  }
+  // Dictation (Web Speech / the local-Whisper voice plugin) lives in the shared controller —
+  // $lib/dictation.svelte.ts owns the engine pick, recording, live interim preview and
+  // teardown; this sheet just renders its state on the ◉ button and the lines below the field.
+  const dict = createDictation({
+    getText: () => value,
+    setText: (t) => (value = t),
+    onTextRendered: autogrow,
+  });
 
   // Keep the sheet centered in the *visible* viewport — i.e. the area above the
   // soft keyboard — so the field and Send button never hide behind it. The
@@ -530,29 +174,16 @@
     // still edit the transcript inline
     ta?.focus();
     autogrow();
-    // Probe for the local-Whisper plugin (memoized once per page load, so this resolves in the
-    // same turn as the tap that opened the sheet). When the ◉ dictate entry opened us and local
-    // is the engine (e.g. iOS PWA, no Web Speech), start recording now — otherwise a local-only
-    // dictate chip would open an idle sheet. The status is pre-resolved by the time the chip is
-    // tappable, so getUserMedia is still inside the tap's activation window; a denial just flashes
-    // an error and leaves the in-sheet mic. Guarded against double-starting Web Speech below.
-    getVoiceStatus()
-      .then((s) => {
-        localVoiceAvailable = s.available;
-        preferLocal = s.preferLocal;
-        if (startDictation && useLocal && !listening && !transcribing) void startLocalRecording();
-      })
-      .catch(() => {});
-    // Web Speech "open already listening" — fires synchronously so it's never delayed by the
-    // probe. On a local-only client (no Web Speech) this is a no-op and the branch above starts
-    // local instead.
-    if (startDictation && speechSupported) toggleDictation();
+    // The ◉ dictate entry opens the sheet already listening — otherwise a local-only dictate
+    // chip would open an idle sheet. The controller owns the engine pick and the probe/ready
+    // sequencing (Web Speech synchronously; local once its pre-resolved status applies, still
+    // inside the chip tap's getUserMedia activation window — a denial just flashes an error
+    // and leaves the in-sheet mic).
+    if (startDictation) dict.autoStart();
   });
 
   onDestroy(() => {
-    recog?.stop();
-    teardownRecording();
-    if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
+    dict.teardown();
     window.visualViewport?.removeEventListener("resize", syncViewport);
     window.visualViewport?.removeEventListener("scroll", syncViewport);
   });
@@ -565,8 +196,7 @@
   }
 
   function submit() {
-    recog?.stop();
-    teardownRecording();
+    dict.teardown();
     slashOpen = false;
     onsend(value);
     value = "";
@@ -574,8 +204,7 @@
   }
 
   function cancel() {
-    recog?.stop();
-    teardownRecording();
+    dict.teardown();
     onclose();
   }
 
@@ -637,18 +266,9 @@
   // (which would dismiss the mobile soft keyboard), matching ControlBar.
   function tapMic(e: PointerEvent) {
     e.preventDefault();
-    if (transcribing) return;
-    // A live session is stopped by the engine that STARTED it (not the current `useLocal`,
-    // which may have flipped mid-session) — otherwise the active recorder is never stopped.
-    if (activeEngine === "local") {
-      stopLocalRecording();
-    } else if (activeEngine === "web") {
-      recog?.stop();
-    } else if (useLocal) {
-      void startLocalRecording();
-    } else {
-      toggleDictation();
-    }
+    // The controller stops a live session via the engine that STARTED it (not the current
+    // `useLocal`, which may have flipped mid-session), else starts the engine picked now.
+    dict.toggle();
   }
   function tapSend(e: PointerEvent) {
     e.preventDefault();
@@ -728,28 +348,28 @@
         {/each}
       </div>
     {/if}
-    {#if voiceError}
+    {#if dict.voiceError}
       <div class="voice-hint" role="alert">{m.composebar_transcribe_failed()}</div>
     {/if}
-    {#if originEngine}
+    {#if dict.originEngine}
       <div class="voice-origin">
-        {originEngine === "local" ? m.composebar_origin_local() : m.composebar_origin_web()}
+        {dict.originEngine === "local" ? m.composebar_origin_local() : m.composebar_origin_web()}
       </div>
     {/if}
     <div class="actions">
-      {#if micVisible}
+      {#if dict.micVisible}
         <button
           type="button"
           class="btn mic"
-          class:listening
-          class:transcribing
-          disabled={transcribing}
-          aria-label={transcribing
+          class:listening={dict.listening}
+          class:transcribing={dict.transcribing}
+          disabled={dict.transcribing}
+          aria-label={dict.transcribing
             ? m.composebar_transcribing()
-            : listening
+            : dict.listening
               ? m.composebar_dictate_stop_aria()
               : m.composebar_dictate_aria()}
-          aria-pressed={listening}
+          aria-pressed={dict.listening}
           onpointerdown={tapMic}>{m.composebar_dictate()}</button
         >
       {/if}

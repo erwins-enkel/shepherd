@@ -1887,7 +1887,7 @@ test("createSession: refuses an autonomous spawn from an untrusted-author issue 
   const signals = store.listSignals("/repo");
   expect(signals.length).toBeGreaterThan(0);
   expect(signals.every((s) => s.kind === "untrusted_author")).toBe(true);
-  const payload = JSON.parse(signals[0].payload);
+  const payload = JSON.parse(signals[0]!.payload);
   expect(payload).toEqual({ issue: 9, association: "NONE" });
 
   // Fail-closed: nothing left behind — no worktree was created for the refused spawn.

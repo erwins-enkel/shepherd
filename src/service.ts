@@ -2237,21 +2237,23 @@ export class SessionService {
    * | null                               | null                            | default session — advance terminal              |
    * | null                               | non-null                        | preserve prior (do NOT advance, do NOT null)    |
    *
-   * The last row leaves a later task's `needsAccountRedrive` armed (unadvanced spawnTerminalId
-   * vs. the live herdrAgentId), and warns loudly — plugin state loss / pool exhaustion.
+   * The last row leaves `needsAccountRedrive` armed (unadvanced spawnTerminalId vs. the live
+   * herdrAgentId), and warns loudly — plugin state loss / pool exhaustion. Returns nothing: callers
+   * that need the healed/unhealed verdict (reDriveAccount) derive it from whether spawnTerminalId
+   * advanced, since this runs below resume()'s Session return and can't propagate a value up.
    */
   private persistSpawnIdentity(
     session: Session,
     outcome: Extract<SpawnOutcome, { ok: true }>,
-  ): "healed" | "unhealed" {
+  ): void {
     const folded = outcome.spawnAccountDir;
     if (folded !== null) {
       this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, folded);
-      return "healed";
+      return;
     }
     if (session.spawnAccountDir === null) {
       this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, null);
-      return "healed";
+      return;
     }
     // folded === null but a prior owning account was recorded: preserve it verbatim — do NOT
     // advance the terminal, do NOT null the dir. Loud because this means the owning account
@@ -2261,7 +2263,6 @@ export class SessionService {
         `(prior spawnAccountDir=${session.spawnAccountDir}); preserving prior identity`,
     );
     this.deps.store.setSpawnIdentity(session.id, session.spawnTerminalId, session.spawnAccountDir);
-    return "unhealed";
   }
 
   /**

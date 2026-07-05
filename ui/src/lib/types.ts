@@ -1295,9 +1295,13 @@ export interface GuardrailCheck {
   /** Matched markers (file names / package fields) — verbatim, not translated. */
   evidence: string[];
 }
+/** Which stack the repo matched, or null when it matches no supported ecosystem. */
+export type Ecosystem = "js-ts" | "rust";
 export interface ReadinessReport {
-  /** False when not a JS/TS repo (no package.json) — the baseline is N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml) — the baseline is N/A. */
   applicable: boolean;
+  /** The matched ecosystem, or null on the not-applicable path. */
+  ecosystem: Ecosystem | null;
   /** Weighted 0–100 score derived from `checks`. */
   score: number;
   checks: GuardrailCheck[];

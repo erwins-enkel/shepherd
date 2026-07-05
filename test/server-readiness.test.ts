@@ -40,16 +40,32 @@ test("GET /api/readiness scans the repo and returns a scorecard", async () => {
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.applicable).toBe(true);
+  expect(body.ecosystem).toBe("js-ts");
   expect(Array.isArray(body.checks)).toBe(true);
   expect(body.checks.find((c: { id: string }) => c.id === "linter").present).toBe(true);
   expect(typeof body.claudeMd).toBe("string");
 });
 
-test("GET /api/readiness for a non-JS repo → applicable:false", async () => {
+test("GET /api/readiness scans a Rust crate and returns a rust scorecard", async () => {
+  writeFileSync(join(repoDir, "Cargo.toml"), '[package]\nname = "r"\n');
+  writeFileSync(join(repoDir, "rustfmt.toml"), "edition = 2021\n");
   const app = makeApp(deps());
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect((await res.json()).applicable).toBe(false);
+  const body = await res.json();
+  expect(body.applicable).toBe(true);
+  expect(body.ecosystem).toBe("rust");
+  expect(body.checks.find((c: { id: string }) => c.id === "formatter").present).toBe(true);
+  expect(body.checks.some((c: { id: string }) => c.id === "type_checker")).toBe(false);
+});
+
+test("GET /api/readiness for a repo with neither manifest → applicable:false, ecosystem:null", async () => {
+  const app = makeApp(deps());
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.applicable).toBe(false);
+  expect(body.ecosystem).toBe(null);
 });
 
 test("GET /api/readiness?repo outside root → 400", async () => {

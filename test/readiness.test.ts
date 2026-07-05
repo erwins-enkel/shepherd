@@ -93,6 +93,7 @@ test("a bare package.json scores low — every guardrail absent", () => {
   pkg({ name: "bare" });
   const r = analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
+  expect(r.ecosystem).toBe("js-ts");
   expect(r.checks.length).toBe(GUARDRAILS.length);
   expect(r.checks.every((c) => !c.present)).toBe(true);
   expect(r.score).toBe(0);

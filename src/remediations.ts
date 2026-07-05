@@ -29,8 +29,9 @@ const CODEX_INSTALL =
 // GUIDANCE_ONLY below), so this string is only ever executed with privilege.
 // The pacman branch refreshes Arch's drifted archlinux-keyring first (#1422) — a fresh
 // Arch host otherwise fails "unknown trust / invalid or corrupted package (PGP
-// signature)". The refresh is reached only after apt/apk/dnf all miss (= an Arch host)
-// and installs a single package, so it's inherently lazy + one-shot; guarded on
+// signature)". The refresh is reached only after apt/apk/dnf all miss (= an Arch host),
+// and this whole string runs once per apply (not looped), so it's inherently lazy and
+// needs no run-once memo — the keyring is refreshed at most once here; guarded on
 // `command -v pacman` so it can't run on a non-Arch box.
 const GIT_INSTALL =
   "command -v git >/dev/null 2>&1 || " +

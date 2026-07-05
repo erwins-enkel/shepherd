@@ -87,7 +87,60 @@ describe("IntegratedEpicRow", () => {
       (el) => el.textContent?.trim() === "#2",
     ) as HTMLAnchorElement;
     expect(issueLink.getAttribute("href")).toBe("https://github.com/o/r/issues/2");
-    await expect.element(page.getByText("closed")).toBeInTheDocument();
+    // closed-but-not-Shepherd-merged child reads clearly distinct from a merged one
+    await expect.element(page.getByText("closed · not merged")).toBeInTheDocument();
+  });
+
+  it("child whose title is the bare '#<n>' fallback renders the number once (no '#2 #2')", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([
+        child({
+          number: 2,
+          title: "#2",
+          prNumber: null,
+          prUrl: null,
+          mergedAt: null,
+          integrated: false,
+          url: "https://github.com/o/r/issues/2",
+        }),
+      ]),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+    const childRow = await vi.waitFor(() => {
+      const el = document.querySelector(".child") as HTMLElement | null;
+      if (!el) throw new Error("no child row yet");
+      return el;
+    });
+    // the ref link shows "#2"; the redundant title span is suppressed → no ".child .title"
+    expect(childRow.querySelector("a.ref")?.textContent?.trim()).toBe("#2");
+    expect(childRow.querySelector(".title")).toBeNull();
+  });
+
+  it("landingState 'none' with no Shepherd-merged children shows the nothing-merged copy (not 'awaiting landing')", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic(
+        [
+          child({ number: 1, integrated: false, prNumber: null, prUrl: null, mergedAt: null }),
+          child({ number: 2, integrated: false, prNumber: null, prUrl: null, mergedAt: null }),
+        ],
+        { landingState: "none", parentIssueNumber: 182 },
+      ),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+    const awaiting = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .awaiting") as HTMLElement | null;
+      if (!el) throw new Error("no footer copy yet");
+      return el;
+    });
+    expect(awaiting.textContent).toContain("nothing to land");
+    expect(awaiting.textContent).toContain("#182");
+    expect(awaiting.textContent).not.toContain("awaiting landing");
   });
 
   it("integrated child with prUrl but null prNumber shows a number-less PR label (not the issue number)", async () => {
@@ -226,7 +279,7 @@ describe("IntegratedEpicRow", () => {
     expect(document.querySelector(".actions a")).toBeNull();
   });
 
-  it("landingState 'pending' falls back to the awaiting-landing copy", async () => {
+  it("landingState 'pending' shows the 'preparing the landing PR' copy", async () => {
     render(IntegratedEpicRow, {
       epic: epic([child({ number: 1 })], { landingState: "pending" }),
       ondismiss: vi.fn(),
@@ -237,10 +290,10 @@ describe("IntegratedEpicRow", () => {
 
     const awaiting = await vi.waitFor(() => {
       const el = document.querySelector(".actions .awaiting") as HTMLElement | null;
-      if (!el) throw new Error("no awaiting copy yet");
+      if (!el) throw new Error("no footer copy yet");
       return el;
     });
-    expect(awaiting.textContent).toContain("awaiting landing");
+    expect(awaiting.textContent).toContain("preparing the landing PR");
     expect(document.querySelector(".actions .landing-failed")).toBeNull();
   });
 

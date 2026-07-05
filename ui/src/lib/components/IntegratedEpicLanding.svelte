@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { formatAgo } from "$lib/format";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { deriveFooterSituation } from "$lib/integrated-epic-status";
 
   let {
     epic,
@@ -30,6 +31,24 @@
   });
 
   const isOpen = $derived(epic.landingState === "open");
+
+  // Plain-language footer line for the non-open, non-merged, non-error states (pending / none).
+  // Reflects the real landing state so the band can't claim "awaiting landing" when there is
+  // nothing to land (the defect this fixes). merged/error/open keep their own dedicated lines,
+  // so footerText is null for them and the template falls through to those branches.
+  const total = $derived(epic.children.length);
+  const footerText = $derived.by((): string | null => {
+    switch (deriveFooterSituation(epic)) {
+      case "opening":
+        return m.integrated_epics_footer_opening();
+      case "nothing-merged":
+        return m.integrated_epics_footer_nothing_merged({ total, number: epic.parentIssueNumber });
+      case "nothing-to-land":
+        return m.integrated_epics_footer_nothing_to_land({ number: epic.parentIssueNumber });
+      default:
+        return null;
+    }
+  });
 
   const rebasePausedLabel = $derived.by((): string | null => {
     if (!epic.landingRebasePauseReason) return null;
@@ -165,15 +184,15 @@
       {/if}
     {:else if epic.landingState === "error"}
       <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
-    {:else if parentUrl}
-      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-      <a class="awaiting" href={parentUrl} target="_blank" rel="noopener noreferrer"
-        >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</a
-      >
-    {:else}
-      <span class="awaiting"
-        >{m.integrated_epics_awaiting_landing({ number: epic.parentIssueNumber })}</span
-      >
+    {:else if footerText}
+      {#if parentUrl}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+        <a class="awaiting" href={parentUrl} target="_blank" rel="noopener noreferrer"
+          >{footerText}</a
+        >
+      {:else}
+        <span class="awaiting">{footerText}</span>
+      {/if}
     {/if}
   {/if}
 </div>

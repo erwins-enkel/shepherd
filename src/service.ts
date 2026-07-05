@@ -3145,11 +3145,12 @@ export class SessionService {
     const trim = await this.trimFor(session.auto);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
-    // PLUGIN NOTE (#1124): this teardown runs ONLY on a forced resume (a non-forced
-    // resume with a live agent returned early above; a non-forced resume with no live
-    // agent has no husk). So if a plugin onSpawn then hard-blocks via abortSpawn, the
-    // husk is already gone and the session is left stopped — intended: a forced resume
-    // is an explicit "replace the live agent" action, and aborting it (e.g. "don't run
+    // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
+    // re-drive of a herdr-restored account pane (needsAccountRedrive above) — the only two
+    // ways past the adopt early-return with a live agent. So if a plugin onSpawn then
+    // hard-blocks via abortSpawn, the husk is already gone and the session is left stopped —
+    // intended: replacing the live agent is deliberate (an explicit "bring agent back", or a
+    // restored wrong-account husk), and aborting it (e.g. "don't run
     // under the wrong account") is honored by NOT spawning a replacement.
     if (agent) this.deps.herdr.stop(agent.terminalId);
 

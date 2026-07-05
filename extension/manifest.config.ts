@@ -25,7 +25,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Shepherd Capture",
-  version: "1.0.0",
+  version: "1.1.0",
   // Pins the unpacked-load extension ID to a constant
   // (bflahkibnmcbijbhelmpjbohpfhlbaig) so the server's SHEPHERD_ALLOWED_HOSTS
   // allowlist entry is set once and never drifts per directory/machine. This is

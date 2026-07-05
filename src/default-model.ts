@@ -164,11 +164,14 @@ export function normalizeRoleModelToken(value: unknown): string | null {
  * Resolve a per-ROLE environment (plan reviewer, PR critic, recap, doc-agent, namer, autopilot)
  * to the CLI provider + spawn-ready model flag for a role spawn.
  *
- * Role SETTING space is a PAIR: `roleCli` ∈ "inherit" | <AgentProvider>; `roleModel` ∈
- * "default" | <alias>.
+ * Role SETTING space is a TRIPLE: `roleCli` ∈ "inherit" | <AgentProvider>; `roleModel` ∈
+ * "default" | <alias>; `roleEffort` ∈ "default" | <EFFORTS tier>.
  *   - cli "inherit" (or unset/invalid) → follow the global defaultAgentProvider + defaultModel.
  *   - cli <provider> → that provider; model "default" → null (provider default); model <alias> →
  *     the alias, clamped to null if it doesn't belong to the chosen provider (stale pairing guard).
+ *   - effort → `normalizeEffort(roleEffort)`: "default"/invalid → null (no --effort flag, the role's
+ *     natural default), a tier passes through (the Codex xhigh/max clamp is applied later, at the
+ *     argv boundary in `effortForSpawn`). Effort is orthogonal to the cli/model pair.
  * fable → opus[1m] substitution (spawnModelForAvailability) applies when fable is unavailable.
  */
 export function resolveRoleEnvironment(

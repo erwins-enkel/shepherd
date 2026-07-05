@@ -522,7 +522,7 @@ export const config = {
   // Phase-1 escalation; meaningful only with `docAgentEnabled` (Phase-0 observe). When off,
   // finalize() is log-only (it warns what PR it *would* open, then skips commit/push/openPr).
   docAgentAct: process.env.SHEPHERD_DOC_AGENT_ACT === "1",
-  // Per-role ENVIRONMENT (CLI + model) for the doc-agent spawn. cli ∈ "inherit"|"claude"|"codex"
+  // Per-role ENVIRONMENT (CLI + model + effort) for the doc-agent spawn. cli ∈ "inherit"|"claude"|"codex"
   // ("inherit" follows the global defaultAgentProvider+defaultModel); model ∈ "default"|<alias>.
   // Resolved via resolveRoleEnvironment at wiring time. Persisted + UI-configurable; env seeds a fresh DB.
   docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
@@ -555,7 +555,7 @@ export const config = {
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.
   llmNaming: process.env.SHEPHERD_LLM_NAMING !== "0",
-  // Per-role ENVIRONMENT (CLI + model) for the background namer (cheap + fast is plenty for a 2-4
+  // Per-role ENVIRONMENT (CLI + model + effort) for the background namer (cheap + fast is plenty for a 2-4
   // word slug). Seeded to Claude+haiku — a deliberate fixed default for this constant-cadence
   // classifier (following a heavy global default would needlessly inflate naming cost). Resolved
   // via resolveRoleEnvironment at the call site. Persisted + UI-configurable.
@@ -569,7 +569,7 @@ export const config = {
   houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
-  // Per-role ENVIRONMENT (CLI + model) for the transient autopilot stop-classifier spawn (cheap +
+  // Per-role ENVIRONMENT (CLI + model + effort) for the transient autopilot stop-classifier spawn (cheap +
   // fast is plenty). Seeded to Claude+haiku — like the namer, a deliberate fixed default for a
   // constant-cadence classifier. Resolved via resolveRoleEnvironment at the call site.
   // Persisted + UI-configurable.
@@ -592,7 +592,7 @@ export const config = {
     PLAN_REVIEW_CYCLES_MAX,
     PLAN_REVIEW_CYCLES_DEFAULT,
   ),
-  // Per-role ENVIRONMENTs (CLI + model) for the PR critic (ReviewService + StandalonePrCriticService)
+  // Per-role ENVIRONMENTs (CLI + model + effort) for the PR critic (ReviewService + StandalonePrCriticService)
   // and the pre-execution plan-gate reviewer. cli ∈ "inherit"|"claude"|"codex"; model ∈
   // "default"|<alias>. Seeded to cli "inherit" → both follow the global defaultAgentProvider +
   // defaultModel (today's behavior). Resolved via resolveRoleEnvironment at wiring time. Persisted +

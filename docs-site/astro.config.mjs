@@ -114,6 +114,7 @@ export default defineConfig({
             { label: "Getting started", slug: "getting-started" },
             { label: "Operating Shepherd", slug: "operating" },
             { label: "Hands-off epics", slug: "hands-off-epics" },
+            { label: "Capture extension", slug: "capture-extension" },
           ],
         },
         {

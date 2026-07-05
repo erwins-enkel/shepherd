@@ -6,6 +6,12 @@ export type DocsPage = { title: string; path: string; keywords: string };
 
 export const DOCS_PAGES: readonly DocsPage[] = [
   {
+    title: "Shepherd Capture (browser extension)",
+    path: "/capture-extension/",
+    keywords:
+      "install the shepherd capture browser extension and turn any page into a task or session. install from the chrome web store point it at your core what a capture includes open the popup for developers",
+  },
+  {
     title: "Getting started",
     path: "/getting-started/",
     keywords:

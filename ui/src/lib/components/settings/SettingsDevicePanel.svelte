@@ -11,7 +11,7 @@
   } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
-  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
+  import { REPO, REPO_URL, sha, version, commitUrl, CAPTURE_EXTENSION_URL } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -205,6 +205,17 @@
       >{m.feedback_dialog_title_feedback()}</button
     >
   </div>
+</div>
+<div class="extension">
+  <span class="micro">{m.settings_extension_title()}</span>
+  <p class="hint">{m.settings_extension_blurb()}</p>
+  <a
+    class="ext-link"
+    href={CAPTURE_EXTENSION_URL}
+    target="_blank"
+    rel="external noreferrer noopener"
+    >{m.settings_extension_link()} <span aria-hidden="true">↗</span></a
+  >
 </div>
 <div class="about">
   <span class="micro">{m.settings_about_title()}</span>
@@ -492,6 +503,38 @@
   }
   .about-grid a:hover {
     text-decoration: underline;
+  }
+
+  /* Browser-extension promo — same block shape as .feedback / .about. */
+  .extension {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-line);
+    padding-top: 12px;
+  }
+  .extension .hint {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    margin: 0;
+  }
+  .ext-link {
+    align-self: flex-start;
+    color: var(--color-amber);
+    text-decoration: none;
+    font-size: var(--fs-base);
+  }
+  .ext-link:hover {
+    text-decoration: underline;
+  }
+  /* keep a 44px tap target on touch without inflating the desktop line */
+  @media (pointer: coarse) {
+    .ext-link {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
   }
 
   @media (max-width: 768px) {

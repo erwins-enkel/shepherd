@@ -618,12 +618,14 @@ live PTY → browser, status lights, persistence/resume, repo + branch + model p
 sync, issue intake and git-host actions for GitHub and Gitea/Forgejo, usage tracking); the
 automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue); Learnings;
 Readiness; live previews of agents' dev servers; and a browser capture extension that turns a page
-into a spawned session or filed issue. See the [GitHub issues][issues] for the open backlog,
+into a spawned session or filed issue — now on the [Chrome Web Store][capture]. See the
+[GitHub issues][issues] for the open backlog,
 [Discussions][discussions] for questions and ideas, and `PRD.md` for the full feature set and
 roadmap.
 
 [issues]: https://github.com/erwins-enkel/shepherd/issues
 [discussions]: https://github.com/erwins-enkel/shepherd/discussions
+[capture]: https://chromewebstore.google.com/detail/shepherd-capture/liknmighjkhplpbocaefaljokofaifgi
 
 ### Usage tracking
 

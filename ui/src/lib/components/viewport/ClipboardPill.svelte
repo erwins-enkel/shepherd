@@ -27,7 +27,10 @@
   }
 
   // Auto-dismiss so a stale pill doesn't linger once the moment has passed.
+  // Reads `text` so a second OSC 52 write that replaces it on an already-mounted
+  // pill re-arms the countdown (each copy gets the full 20s, not the leftover).
   $effect(() => {
+    void text;
     const t = setTimeout(() => ondismiss(), 20_000);
     return () => clearTimeout(t);
   });

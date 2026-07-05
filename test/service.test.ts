@@ -3594,6 +3594,21 @@ test("composeSystemPrompt always injects the research-first notice, with or with
   expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");
 });
 
+test("composeSystemPrompt always includes the untrusted-content boundary block", () => {
+  // Prompt-injection hardening: the boundary block must ride every spawn regardless of the
+  // house-rules state or autopilot toggle — untrusted content can arrive on any session.
+  const withRules = composeSystemPrompt("<house-rules>x</house-rules>");
+  const withoutRules = composeSystemPrompt(null);
+  for (const p of [withRules, withoutRules]) {
+    expect(p).toContain("<untrusted-content-boundary>");
+    expect(p).toContain("EXTERNAL and UNTRUSTED");
+  }
+  // Rides unconditionally, like the autopilot-independent posture/branch blocks.
+  const withAutopilot = composeSystemPrompt(null, true);
+  expect(withAutopilot).toContain("<untrusted-content-boundary>");
+  expect(withAutopilot).toContain("EXTERNAL and UNTRUSTED");
+});
+
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {
   // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (with/without
   // house rules, autopilot on, plan-gate variants) but be suppressed for a research session, which

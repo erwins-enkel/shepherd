@@ -7,7 +7,7 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
-import { matchAgents } from "./herdr";
+import { matchAgents, needsAccountRedrive } from "./herdr";
 import { config } from "./config";
 import type {
   AgentProvider,
@@ -1354,6 +1354,19 @@ export class SessionService {
   private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
 
   /**
+   * Bounded-attempt bookkeeping for `reDriveAccount` (herdr-restart account-loss fix, task 4a).
+   * Keyed by session id; the `anchor` is the session's `spawnTerminalId` AT the time of the FIRST
+   * counted attempt for this husk — stable across unhealed/refused re-drives (persistSpawnIdentity
+   * preserves spawnTerminalId when the account doesn't come back), so it survives an unhealed
+   * re-drive's terminalId churn without resetting. Only a heal (spawnTerminalId advances) clears the
+   * entry. See `reDriveAccount` for the give-up logic.
+   */
+  private readonly redriveAttempts = new Map<string, { anchor: string | null; attempts: number }>();
+  /** After this many failed (refused/unhealed) re-drive attempts on the SAME anchor, give up
+   *  ("degraded") rather than re-firing every poller tick forever. */
+  private static readonly REDRIVE_CAP = 3;
+
+  /**
    * Merge-train completion tracker (issue #426). A train that lands ≥1 of its
    * queue PRs should offer a local-checkout fast-forward once, per repo. We track
    * each launched train so we can emit `mergetrain:landed` exactly when the run
@@ -2164,17 +2177,6 @@ export class SessionService {
 
     this.deps.store.update(session.id, { herdrAgentId: agent.terminalId });
     return this.deps.store.get(session.id);
-  }
-
-  /**
-   * A live pane that herdr re-created (its terminalId is NOT the one Shepherd last spawned on the
-   * owning account) for a session that HAS an owning plugin account. Such a pane is a bare
-   * `claude --resume` under the wrong CLAUDE_CONFIG_DIR — it must be re-driven through onSpawn, not
-   * adopted. Keys on spawnTerminalId (written only by the spawn-finish path, never by
-   * reconcile/poller) so their re-pointing of herdrAgentId cannot mask a herdr-restored husk.
-   */
-  private needsAccountRedrive(s: Session, agent: HerdrAgent): boolean {
-    return s.spawnAccountDir !== null && agent.terminalId !== s.spawnTerminalId;
   }
 
   private resumeRefusedByAutoGate(session: Session): boolean {
@@ -3123,7 +3125,7 @@ export class SessionService {
 
     const { session, provider } = target;
     const agent = this.liveAgentFor(id);
-    if (agent && !opts.force && !this.needsAccountRedrive(session, agent)) {
+    if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
       // AND either a default session or already on its owning account. Adopt; never spawn a second
       // claude.
@@ -3169,20 +3171,47 @@ export class SessionService {
 
   /**
    * Force-re-drive a herdr-restored account pane so onSpawn re-applies its CLAUDE_CONFIG_DIR.
-   * Serialized by resume()'s per-session guard. Returns:
-   *   "healed"   — re-spawned AND persistSpawnIdentity advanced spawnTerminalId (owning account restored)
-   *   "unhealed" — re-spawned but the account did NOT come back (folded null over a non-null prior;
-   *                persistSpawnIdentity preserved the marker) — plugin state loss / pool exhaustion
-   *   "refused"  — resume returned null (auto-gate refused BEFORE teardown, or spawn failed); husk preserved
-   * Later tasks use the verdict for bounded-attempt bookkeeping.
+   * Serialized by resume()'s per-session guard. Public: the poller (`index.ts` wiring) calls this
+   * as a fire-and-forget re-drive on a herdr-restored account pane. Returns:
+   *   "healed"    — re-spawned AND persistSpawnIdentity advanced spawnTerminalId (owning account restored)
+   *   "unhealed"  — re-spawned but the account did NOT come back (folded null over a non-null prior;
+   *                 persistSpawnIdentity preserved the marker) — plugin state loss / pool exhaustion
+   *   "refused"   — resume returned null (auto-gate refused BEFORE teardown, or spawn failed); husk preserved
+   *   "degraded"  — gave up after REDRIVE_CAP failed (unhealed/refused) attempts on the SAME
+   *                 spawnTerminalId anchor; no spawn attempted. Steering stays permitted on the
+   *                 current pane (no-worse-than-today; the steer-defer guard is a later task).
+   *
+   * Bounded: a persistently-failing account (e.g. usage-halted — the auto-gate refuses BEFORE
+   * teardown so spawnTerminalId never advances) would otherwise re-fire every poller tick forever.
+   * The counter is anchored on spawnTerminalId, NOT the husk/live terminalId: an unhealed re-drive
+   * (onSpawn returns `{}` → a fresh default-account pane) changes the live terminalId every attempt,
+   * so a husk-keyed counter would reset every time and never reach the cap. spawnTerminalId is
+   * stable across unhealed/refused attempts and only advances on a heal, so it is the correct
+   * give-up anchor.
    */
-  private async reDriveAccount(id: string): Promise<"healed" | "unhealed" | "refused"> {
+  async reDriveAccount(id: string): Promise<"healed" | "unhealed" | "refused" | "degraded"> {
     const before = this.deps.store.get(id);
     if (!before) return "refused";
-    const priorTerminalId = before.spawnTerminalId;
+    const anchor = before.spawnTerminalId; // stable until a heal advances it
+    const rec = this.redriveAttempts.get(id);
+    if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) {
+      return "degraded"; // gave up on this husk; no spawn — steering stays as today (no-worse)
+    }
     const s = await this.resume(id, { force: true });
-    if (!s) return "refused";
-    return s.spawnTerminalId !== priorTerminalId ? "healed" : "unhealed";
+    const verdict = !s ? "refused" : s.spawnTerminalId !== anchor ? "healed" : "unhealed";
+    if (verdict === "healed") {
+      this.redriveAttempts.delete(id);
+    } else {
+      const attempts = rec && rec.anchor === anchor ? rec.attempts + 1 : 1;
+      this.redriveAttempts.set(id, { anchor, attempts });
+      if (attempts >= SessionService.REDRIVE_CAP) {
+        console.warn(
+          `[resume] account re-drive for ${id} gave up after ${attempts} failed attempts ` +
+            `(anchor ${anchor ?? "null"}): DEGRADED — steering permitted on the current pane`,
+        );
+      }
+    }
+    return verdict;
   }
 
   /**

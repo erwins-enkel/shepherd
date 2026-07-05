@@ -755,6 +755,10 @@ const poller = new StatusPoller(
   usageLimits,
 );
 
+// Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
+// account's CLAUDE_CONFIG_DIR). Fire-and-forget; reDriveAccount is per-session guarded + bounded.
+poller.reDrive = (id) => void service.reDriveAccount(id);
+
 // Phase-1 push-hook signal wiring (issue #704): feed received hook events into the
 // poller (the single owner of per-session signal dedup + state). Only when
 // `config.hooksSignals` is on AND ingest is too — with ingest off no events ever

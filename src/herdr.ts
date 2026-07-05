@@ -121,6 +121,20 @@ export function matchAgent(
 }
 
 /**
+ * True when `agent` is a pane herdr re-created (its terminalId is NOT the one Shepherd last spawned
+ * on the owning account) for a session that HAS an owning plugin account. Such a pane is a bare
+ * `claude --resume` under the wrong CLAUDE_CONFIG_DIR and must be re-driven through onSpawn, not
+ * adopted/steered. Keys on spawnTerminalId (written only by the spawn-finish path, never by
+ * reconcile/poller) so their re-pointing of herdrAgentId cannot mask a herdr-restored husk.
+ */
+export function needsAccountRedrive(
+  s: { spawnAccountDir: string | null; spawnTerminalId: string | null },
+  agent: { terminalId: string },
+): boolean {
+  return s.spawnAccountDir !== null && agent.terminalId !== s.spawnTerminalId;
+}
+
+/**
  * Pick the cwd-fallback agent for one still-unmatched session from the untaken
  * candidates. When the session contends for its cwd with another active session, only
  * an unambiguous agent-NAME match is safe; a sole session adopts its lone cwd agent via

@@ -80,7 +80,7 @@ import type { EgressWatcher } from "./egress-watch";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
-import { UNTRUSTED_CONTENT_DIRECTIVE } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted, scanForInjection } from "./untrusted";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
@@ -1293,7 +1293,7 @@ export function composeIssueCommentsBlock(issueNumber: number, comments: IssueCo
       `[${dropped} of ${chrono.length} comments omitted — oldest comments dropped to fit size budget]`,
     );
   lines.push(...rendered.slice(firstKeptIdx));
-  return lines.join("\n\n");
+  return fenceUntrusted(`issue #${issueNumber} comments`, lines.join("\n\n"));
 }
 
 function composeHandoffSummaryPrompt(originalPrompt: string): string {
@@ -1381,9 +1381,10 @@ export class SessionService {
   private async composePromptArg(
     input: CreateSessionInput,
     worktreePath: string,
-  ): Promise<{ promptArg: string; dropped: number }> {
+  ): Promise<{ promptArg: string; dropped: number; injectionHits: string[] }> {
     let promptArg = input.prompt;
     let dropped = 0;
+    const scanTargets: string[] = [];
     if (input.images.length > 0) {
       const copy = this.deps.copyUploads ?? copyStagedIntoWorktree;
       const copied = copy(input.images, worktreePath);
@@ -1400,11 +1401,19 @@ export class SessionService {
     }
     if (input.issueRef) {
       const r = input.issueRef;
-      promptArg = `${promptArg}\n\nGitHub Issue #${r.number}: ${r.title}\n${r.url}\n\n${r.body}`;
+      const fencedBody = fenceUntrusted(
+        `issue #${r.number} body`,
+        `${r.title}\n${r.url}\n\n${r.body}`,
+      );
+      promptArg = `${promptArg}\n\nGitHub Issue #${r.number} (title + body follow as untrusted data):\n${fencedBody}`;
+      scanTargets.push(r.title, r.body);
       const comments = await this.fetchIssueCommentsBlock(input.repoPath, r.number);
-      if (comments) promptArg = `${promptArg}\n\n${comments}`;
+      if (comments) {
+        promptArg = `${promptArg}\n\n${comments}`;
+        scanTargets.push(comments);
+      }
     }
-    return { promptArg, dropped };
+    return { promptArg, dropped, injectionHits: scanForInjection(scanTargets.join("\n")) };
   }
 
   /** Best-effort fetch + compose of an attached issue's comment thread. Any missing forge,
@@ -2298,10 +2307,12 @@ export class SessionService {
       // before the store row exists — the store.create() call below receives this id explicitly.
       const sessionId = randomUUID();
 
-      const { promptArg, dropped: droppedImages } = await this.composePromptArg(
-        input,
-        wt.worktreePath,
-      );
+      const {
+        promptArg,
+        dropped: droppedImages,
+        injectionHits,
+      } = await this.composePromptArg(input, wt.worktreePath);
+      void injectionHits; // consumed in Task 4 (injection-detected signal)
       const { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv } =
         await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.

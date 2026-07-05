@@ -28,18 +28,35 @@ test("empty / all-filtered → empty string", () => {
   ).toBe("");
 });
 
-test("renders trusted human comments chronologically with a header", () => {
+test("renders trusted human comments chronologically with a header, fenced as untrusted", () => {
   const block = composeIssueCommentsBlock(42, [
     c({ author: "bob", body: "second", createdAt: Date.parse("2026-06-21T00:00:00Z") }),
     c({ author: "alice", body: "first", createdAt: Date.parse("2026-06-20T00:00:00Z") }),
   ]);
-  expect(block).toBe(
-    [
-      "GitHub Issue #42 comments:",
-      "Comment by @alice (2026-06-20):\n> first",
-      "Comment by @bob (2026-06-21):\n> second",
-    ].join("\n\n"),
-  );
+  expect(block).toContain("⟦UNTRUSTED:issue #42 comments:");
+  expect(block).toContain("⟦/UNTRUSTED:issue #42 comments:");
+  expect(block).toContain("GitHub Issue #42 comments:");
+  expect(block).toContain("Comment by @alice (2026-06-20):\n> first");
+  expect(block).toContain("Comment by @bob (2026-06-21):\n> second");
+  // chronological: alice (first) precedes bob (second) inside the fence
+  expect(block.indexOf("first")).toBeLessThan(block.indexOf("second"));
+});
+
+test("fences the rendered comment block as untrusted data", () => {
+  const out = composeIssueCommentsBlock(7, [
+    { author: "alice", authorAssociation: "OWNER", body: "please review", createdAt: 1 },
+  ]);
+  expect(out).toContain("⟦UNTRUSTED:issue #7 comments:");
+  expect(out).toContain("please review");
+  expect(out).toContain("⟦/UNTRUSTED:issue #7 comments:");
+});
+
+test("returns '' (unfenced) when no comment survives the trust filter", () => {
+  expect(
+    composeIssueCommentsBlock(7, [
+      { author: "eve", authorAssociation: "NONE", body: "hi", createdAt: 1 },
+    ]),
+  ).toBe("");
 });
 
 test("blockquotes EVERY line of a multi-line body, not just the first", () => {

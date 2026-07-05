@@ -1183,6 +1183,7 @@
   "toast_egress_drop": "Blocked egress to {host}",
   "toast_uploads_dropped": "{count} attached image(s) expired and could not be restored — the session started without them",
   "toast_injection_detected": "Heads up: issue content for a session tripped {count} prompt-injection check(s). It is fenced as untrusted data — review before trusting the result.",
+  "toast_untrusted_author": "Auto-drain skipped issue #{issue}: its author is not a trusted repo member, so Shepherd will not start it unattended. Start it manually if you trust it.",
   "feat_egress_title": "Network egress allowlist",
   "feat_egress_body": "Autonomous agents are now confined to an allowlist of hosts (Anthropic + the forge, plus operator extras); all other outbound connections are blocked. Blocked attempts surface as inline alerts. When the backend is unavailable, a visible warning badge appears so you know the session is running with unrestricted network.",
   "settings_contrast_title": "High contrast",

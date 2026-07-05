@@ -1535,7 +1535,8 @@ export type WsEvent =
   | {
       event: "doc-agent:done";
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };
-    };
+    }
+  | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } };
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {

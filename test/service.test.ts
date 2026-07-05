@@ -28,6 +28,7 @@ import {
   PREVIEW_SETUP_STEER,
   buildQueueDirective,
   detectEpicIntent,
+  UntrustedIssueAuthorError,
 } from "../src/service";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
@@ -1750,6 +1751,22 @@ test("createSession: persists auto=true and issueNumber from issueRef.number", a
       list: () => [],
     } as any,
     pluginIds: async () => [], // hermetic: auto+trim must not read the operator's real settings
+    // Author-trust gate (auto=true + issueRef) needs a resolvable, trusted author or it refuses
+    // the spawn; this test is about auto/issueNumber persistence, not the gate itself.
+    resolveForge: () =>
+      ({
+        getIssue: async () => ({
+          number: 42,
+          title: "Fix it",
+          body: "",
+          url: "https://github.com/o/r/issues/42",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "alice",
+          authorAssociation: "MEMBER",
+        }),
+      }) as any,
   });
 
   const s = await service.create({
@@ -1798,6 +1815,171 @@ test("createSession: defaults auto=false and issueNumber=null when not provided"
   expect(s.issueNumber).toBeNull();
   expect(store.get(s.id)?.auto).toBe(false);
   expect(store.get(s.id)?.issueNumber).toBeNull();
+});
+
+test("createSession: refuses an autonomous spawn from an untrusted-author issue and signals it", async () => {
+  const store = new SessionStore(":memory:");
+  const emitted: { event: string; data: unknown }[] = [];
+  let worktreeCreated = false;
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => {
+        worktreeCreated = true;
+        return { worktreePath: "/wt/x", branch: "shepherd/x", isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+    events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
+    resolveForge: () =>
+      ({
+        getIssue: async () => ({
+          number: 9,
+          title: "t",
+          body: "b",
+          url: "https://x/9",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "eve",
+          authorAssociation: "NONE",
+        }),
+      }) as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain task",
+      model: null,
+      images: [],
+      auto: true,
+      issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+    }),
+  ).rejects.toThrow(/untrusted/i);
+
+  const err = await service
+    .create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain task",
+      model: null,
+      images: [],
+      auto: true,
+      issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+    })
+    .catch((e) => e);
+  expect(err).toBeInstanceOf(UntrustedIssueAuthorError);
+
+  expect(emitted.find((e) => e.event === "repo:untrusted-author")).toEqual({
+    event: "repo:untrusted-author",
+    data: { repoPath: "/repo", issue: 9 },
+  });
+
+  const signals = store.listSignals("/repo");
+  expect(signals.length).toBeGreaterThan(0);
+  expect(signals.every((s) => s.kind === "untrusted_author")).toBe(true);
+  const payload = JSON.parse(signals[0].payload);
+  expect(payload).toEqual({ issue: 9, association: "NONE" });
+
+  // Fail-closed: nothing left behind — no worktree was created for the refused spawn.
+  expect(worktreeCreated).toBe(false);
+});
+
+test("createSession: allows an autonomous spawn from a trusted-author issue", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+    resolveForge: () =>
+      ({
+        getIssue: async () => ({
+          number: 9,
+          title: "t",
+          body: "b",
+          url: "https://x/9",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "alice",
+          authorAssociation: "MEMBER",
+        }),
+      }) as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain task",
+      model: null,
+      images: [],
+      auto: true,
+      issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+    }),
+  ).resolves.toBeTruthy();
+});
+
+test("createSession: does NOT gate an operator-initiated (auto=false) spawn regardless of author", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+    resolveForge: () =>
+      ({
+        getIssue: async () => ({
+          number: 9,
+          title: "t",
+          body: "b",
+          url: "https://x/9",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "eve",
+          authorAssociation: "NONE",
+        }),
+      }) as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "manual task",
+      model: null,
+      images: [],
+      auto: false,
+      issueRef: { number: 9, url: "https://x/9", title: "t", body: "b" },
+    }),
+  ).resolves.toBeTruthy();
 });
 
 test("createSession: worktree.create receives resolved baseRef (sha), persisted baseBranch stays logical name", async () => {

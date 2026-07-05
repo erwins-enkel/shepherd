@@ -80,7 +80,12 @@ import type { EgressWatcher } from "./egress-watch";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
-import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted, scanForInjection } from "./untrusted";
+import {
+  UNTRUSTED_CONTENT_DIRECTIVE,
+  fenceUntrusted,
+  isTrustedAssociation,
+  scanForInjection,
+} from "./untrusted";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
@@ -93,6 +98,21 @@ export class RestoreError extends Error {
   constructor(public readonly code: "not_archived" | "cannot_restore") {
     super(`restore failed: ${code}`);
     this.name = "RestoreError";
+  }
+}
+
+/** Thrown by create() when an AUTONOMOUS (auto) spawn is refused because the originating issue's
+ *  author is untrusted or its trust cannot be established (fail-closed). The drain's spawn catch
+ *  treats it like any create() failure: release the claim, set the back-off cooldown. */
+export class UntrustedIssueAuthorError extends Error {
+  constructor(
+    readonly issueNumber: number,
+    readonly association: string | null,
+  ) {
+    super(
+      `autonomous spawn refused: issue #${issueNumber} author is untrusted (association=${association ?? "unknown"})`,
+    );
+    this.name = "UntrustedIssueAuthorError";
   }
 }
 
@@ -2292,7 +2312,34 @@ export class SessionService {
     return { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv };
   }
 
+  /** Fail-closed author-trust gate for AUTONOMOUS issue spawns. No-op for operator-initiated
+   *  (auto=false) creates and for creates with no attached issue. For an auto create, positively
+   *  establish the issue author's association (fresh forge read); anything but a trusted association
+   *  (incl. an absent field, a null read, a host without getIssue, or a fetch error) is refused. */
+  private async assertIssueAuthorTrusted(input: CreateSessionInput): Promise<void> {
+    if (!input.auto || !input.issueRef) return;
+    const n = input.issueRef.number;
+    let association: string | null;
+    try {
+      const forge = this.deps.resolveForge?.(input.repoPath);
+      const fresh = await forge?.getIssue?.(n);
+      association = fresh?.authorAssociation ?? null;
+    } catch {
+      association = null; // fail closed
+    }
+    if (isTrustedAssociation(association)) return;
+    this.deps.store.addSignal({
+      repoPath: input.repoPath,
+      sessionId: null,
+      kind: "untrusted_author",
+      payload: JSON.stringify({ issue: n, association }),
+    });
+    this.deps.events?.emit("repo:untrusted-author", { repoPath: input.repoPath, issue: n });
+    throw new UntrustedIssueAuthorError(n, association);
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
+    await this.assertIssueAuthorTrusted(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug, input.repoPath);

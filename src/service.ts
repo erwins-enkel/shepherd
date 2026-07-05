@@ -2166,6 +2166,17 @@ export class SessionService {
     return this.deps.store.get(session.id);
   }
 
+  /**
+   * A live pane that herdr re-created (its terminalId is NOT the one Shepherd last spawned on the
+   * owning account) for a session that HAS an owning plugin account. Such a pane is a bare
+   * `claude --resume` under the wrong CLAUDE_CONFIG_DIR — it must be re-driven through onSpawn, not
+   * adopted. Keys on spawnTerminalId (written only by the spawn-finish path, never by
+   * reconcile/poller) so their re-pointing of herdrAgentId cannot mask a herdr-restored husk.
+   */
+  private needsAccountRedrive(s: Session, agent: HerdrAgent): boolean {
+    return s.spawnAccountDir !== null && agent.terminalId !== s.spawnTerminalId;
+  }
+
   private resumeRefusedByAutoGate(session: Session): boolean {
     const hold = session.auto ? this.resumeAutoHold(session) : null;
     if (!hold) return false;
@@ -3112,11 +3123,16 @@ export class SessionService {
 
     const { session, provider } = target;
     const agent = this.liveAgentFor(id);
-    if (agent && !opts.force) {
-      // Already live (idle at the prompt, or restored by a herdr restart under a new
-      // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.
+    if (agent && !opts.force && !this.needsAccountRedrive(session, agent)) {
+      // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
+      // AND either a default session or already on its owning account. Adopt; never spawn a second
+      // claude.
       return this.adoptLiveResumeAgent(session, agent);
     }
+    // Fall through (force, OR a herdr-restored account pane — Locus B): a bare `claude --resume` under
+    // the wrong CLAUDE_CONFIG_DIR must be torn down and re-driven through onSpawn so the account is
+    // re-applied, BEFORE a human PTY attaches to it (raw keystrokes bypass the steer gate). The
+    // teardown + prepareResumeSpawn below does exactly that; persistSpawnIdentity records the heal.
 
     // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
     // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or

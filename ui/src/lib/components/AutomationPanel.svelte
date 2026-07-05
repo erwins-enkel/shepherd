@@ -8,6 +8,7 @@
     sessionId,
     planPhase = null,
     drain = null,
+    onClose,
   }: {
     repoPath: string;
     sessionId: string;
@@ -15,6 +16,11 @@
     /** Live drain status for this repo; passed from GitRail via the store.
      *  When drain.epicParent is set, label-drain is suspended by the active epic. */
     drain?: DrainStatus | null;
+    /** Closes the panel (flips GitRail's showAutomation flag). Desktop still
+     *  dismisses via click-outside/Escape, like every other non-modal popover
+     *  here; the touch full-screen sheet has no "outside" left to tap, so it
+     *  needs this explicit close button wired to the same state. */
+    onClose: () => void;
   } = $props();
 
   // The popover is anchored to its trigger (top: 100% on the rail wrapper), so a
@@ -33,7 +39,7 @@
     const el = popEl;
     if (!el) return;
     const clamp = () => {
-      // Touch layouts render the panel as a centered fixed modal sheet (see the
+      // Touch layouts render the panel as a full-screen fixed sheet (see the
       // pointer:coarse block in the stylesheet), where the anchor-relative height math
       // below is meaningless and the inline max-height would override the CSS.
       // Hand max-height back to the stylesheet and never flip on touch.
@@ -79,7 +85,7 @@
     };
   });
 
-  // On touch the panel becomes a centered fixed modal sheet over a dimming scrim
+  // On touch the panel becomes a full-screen fixed sheet over a dimming scrim
   // (see the pointer:coarse block in the stylesheet). Give it the same dialog
   // semantics as the sibling findings sheet (.review-pop) so keyboard/AT users get
   // parity: aria-modal, initial focus, a Tab focus-trap, and focus restoration.
@@ -141,7 +147,17 @@
   bind:this={popEl}
   onkeydown={trapTab}
 >
-  <AutomationSettings {repoPath} {sessionId} {planPhase} {drain} armCoachmarks={true} />
+  <!-- Close affordance: only visible in the touch full-screen sheet (CSS-gated
+       below) — the desktop popover has no room/need for it, since it dismisses
+       via click-outside/Escape. -->
+  <div class="auto-pop-head">
+    <button type="button" class="auto-close" onclick={onClose} aria-label={m.common_close()}>
+      ✕
+    </button>
+  </div>
+  <div class="auto-pop-body">
+    <AutomationSettings {repoPath} {sessionId} {planPhase} {drain} armCoachmarks={true} />
+  </div>
 </div>
 
 <style>
@@ -169,6 +185,12 @@
        actually available below the anchored top edge. */
     max-height: 85vh;
     overflow-y: auto;
+    /* overflow-y alone leaves overflow-x computed as "auto" too (per the CSS
+       overflow spec, visible + non-visible on the other axis isn't renderable),
+       so a row a hair wider than the box — a fixed-width select, a long
+       nowrap label — made the ENTIRE panel horizontally pannable instead of
+       just clipping. Pin it shut; .auto-pop-body takes over scrolling on touch. */
+    overflow-x: hidden;
   }
   /* anchor too close to the viewport bottom → open upward instead */
   .auto-pop.flip-up {
@@ -177,25 +199,67 @@
     margin-top: 0;
     margin-bottom: 4px;
   }
+  /* Hidden on desktop: the anchored popover dismisses via click-outside/Escape,
+     like every other non-modal popover here, so it doesn't need its own head.
+     Shown only in the touch full-screen sheet below, where there's no
+     "outside" left to tap once the sheet covers the viewport. */
+  .auto-pop-head {
+    display: none;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+  .auto-close {
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .auto-close:hover {
+    color: var(--color-amber);
+  }
   /* Touch layouts (phones + unfolded folds): the strip goes position:static, so
      this absolute popover hangs below the 44px strip and — anchored right:8px and
-     narrower than the page — could be panned partly off-screen. Override into a
-     centered fixed modal sheet over the .auto-scrim backdrop (rendered by GitRail),
-     wider than the desktop popover and impossible to pan. Mirrors .review-pop.
-     The JS height-clamp bails on coarse pointers, leaving max-height to this rule. */
+     narrower than the page — could be panned partly off-screen. A centered card
+     still left the rest of the app visible around its edges with no way to
+     dismiss it short of guessing where "outside" was, so go fully edge-to-edge
+     instead — matching every other mobile modal in the app (Settings, WhatsNew)
+     — with an explicit close button since there's no backdrop sliver left to
+     tap. .auto-scrim (rendered by GitRail) still dims what's behind while this
+     mounts. The JS height-clamp bails on coarse pointers, so height is CSS-only
+     here. */
   @media (pointer: coarse) {
     .auto-pop {
       position: fixed;
-      top: 50%;
-      left: 50%;
-      right: auto;
-      bottom: auto;
-      transform: translate(-50%, -50%);
+      inset: 0;
       margin: 0;
-      width: min(480px, 92vw);
+      width: auto;
       max-width: none;
-      max-height: 85vh;
+      height: 100dvh;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       z-index: 51;
+    }
+    .auto-pop-head {
+      display: flex;
+      padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 0 8px;
+    }
+    .auto-pop-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-bottom: env(safe-area-inset-bottom);
     }
   }
 </style>

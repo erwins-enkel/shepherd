@@ -59,6 +59,8 @@ const SESSION: Session = {
   manualStepsAckedAt: null,
   experimentId: null,
   experimentRole: null,
+  spawnTerminalId: null,
+  spawnAccountDir: null,
 };
 
 function fakeForge(

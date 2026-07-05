@@ -65,6 +65,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     manualStepsAckedAt: null,
     experimentId: null,
     experimentRole: null,
+    spawnTerminalId: null,
+    spawnAccountDir: null,
     ...over,
   };
 }

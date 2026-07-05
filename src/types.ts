@@ -100,6 +100,15 @@ export interface Session {
   experimentId: string | null;
   /** This session's role within its experiment; null when not in one. */
   experimentRole: ExperimentRole | null;
+  /** terminalId of the pane Shepherd itself last spawned on the OWNING account (advances only
+   *  on a verified spawn — see persistSpawnIdentity); null for a session with no verified spawn
+   *  yet. Poller/reconcile-immune marker used to detect a herdr-restored pane. */
+  spawnTerminalId: string | null;
+  /** The owning account's CLAUDE_CONFIG_DIR (folded plugin credentialDir) as of the last verified
+   *  spawn; null for the default / no-plugin / api-key session. Sticky: never overwritten to null
+   *  once set (see persistSpawnIdentity) — a failed/wrong re-derivation can't silently self-clear
+   *  onto the default account. */
+  spawnAccountDir: string | null;
 }
 
 /**

@@ -1237,6 +1237,10 @@ type SpawnSuccess = {
   egressApplied: boolean;
   /** True when an interactive autonomous session ran FS-only because egress was unavailable. */
   egressDegraded: boolean;
+  /** The folded PLUGIN credentialDir (patchEnv.CLAUDE_CONFIG_DIR) this spawn used, or null — the
+   *  OWNED account for herdr-restore re-drive; excludes the api-key mirror, which shares
+   *  ~/.claude/projects/. */
+  spawnAccountDir: string | null;
 };
 type SpawnOutcome =
   SpawnSuccess | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
@@ -1771,6 +1775,7 @@ export class SessionService {
       degraded,
       egressApplied: egressOn,
       egressDegraded,
+      spawnAccountDir: patchEnv.CLAUDE_CONFIG_DIR ?? null,
     };
   }
 
@@ -2193,7 +2198,47 @@ export class SessionService {
       egressApplied: outcome.egressApplied,
       egressDegraded: outcome.egressDegraded,
     });
+    this.persistSpawnIdentity(session, outcome);
     return this.deps.store.get(session.id);
+  }
+
+  /**
+   * The SINGLE writer of the poller/reconcile-immune spawn-identity markers
+   * (spawnTerminalId/spawnAccountDir) — herdr-restart account-loss detection.
+   * Applies a sticky, conditional rule so a failed/wrong re-derivation can never silently
+   * self-clear the owning account onto the default:
+   *
+   * | folded (outcome.spawnAccountDir) | prior session.spawnAccountDir | action                                        |
+   * | --------------------------------- | ------------------------------ | ---------------------------------------------- |
+   * | non-null                          | any                             | (re)confirmed owning account — advance terminal |
+   * | null                               | null                            | default session — advance terminal              |
+   * | null                               | non-null                        | preserve prior (do NOT advance, do NOT null)    |
+   *
+   * The last row leaves a later task's `needsAccountRedrive` armed (unadvanced spawnTerminalId
+   * vs. the live herdrAgentId), and warns loudly — plugin state loss / pool exhaustion.
+   */
+  private persistSpawnIdentity(
+    session: Session,
+    outcome: Extract<SpawnOutcome, { ok: true }>,
+  ): "healed" | "unhealed" {
+    const folded = outcome.spawnAccountDir;
+    if (folded !== null) {
+      this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, folded);
+      return "healed";
+    }
+    if (session.spawnAccountDir === null) {
+      this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, null);
+      return "healed";
+    }
+    // folded === null but a prior owning account was recorded: preserve it verbatim — do NOT
+    // advance the terminal, do NOT null the dir. Loud because this means the owning account
+    // was NOT restored on this spawn (plugin state loss / pool exhaustion).
+    console.warn(
+      `[spawn-identity] ${session.id}: owning account not restored this spawn ` +
+        `(prior spawnAccountDir=${session.spawnAccountDir}); preserving prior identity`,
+    );
+    this.deps.store.setSpawnIdentity(session.id, session.spawnTerminalId, session.spawnAccountDir);
+    return "unhealed";
   }
 
   /**
@@ -2421,6 +2466,10 @@ export class SessionService {
         research: spawnInput.research ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
       });
+      // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
+      // (null) prior spawn-identity fields rather than relying on the in-memory shape.
+      const created = this.deps.store.get(sessionId);
+      if (created) this.persistSpawnIdentity(created, outcome);
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
@@ -2698,6 +2747,8 @@ export class SessionService {
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
       });
+      const updated = this.deps.store.get(s.id);
+      if (updated) this.persistSpawnIdentity(updated, outcome);
     } catch (e) {
       try {
         this.deps.herdr.stop(outcome.terminalId);

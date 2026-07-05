@@ -60,6 +60,8 @@ const SESSION: Session = {
   manualStepsAckedAt: null,
   experimentId: null,
   experimentRole: null,
+  spawnTerminalId: null,
+  spawnAccountDir: null,
 };
 
 /** A ReviewVerdict that triggers the "rework" quota kind (addressRound >= addressCap, no pending). */

@@ -205,6 +205,8 @@ type NewSession = Omit<
   | "manualStepsAckedAt"
   | "experimentId"
   | "experimentRole"
+  | "spawnTerminalId"
+  | "spawnAccountDir"
 > & {
   id?: string;
   model?: string | null;
@@ -232,7 +234,8 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
-  haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole`;
+  haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
+  spawnTerminalId, spawnAccountDir`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -287,6 +290,8 @@ type SessionRow = {
   manualStepsAckedAt: number | null;
   experimentId: string | null;
   experimentRole: string | null;
+  spawnTerminalId: string | null;
+  spawnAccountDir: string | null;
 };
 
 /** SQLite row shape for the reviews table. */
@@ -1750,6 +1755,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       manualStepsAckedAt: null,
       experimentId: null,
       experimentRole: null,
+      spawnTerminalId: null, // stamped post-create by persistSpawnIdentity
+      spawnAccountDir: null,
     };
   }
 
@@ -1759,7 +1766,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1810,6 +1817,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // manualStepsAckedAt — always null at create (P2)
           null, // experimentId — always null at create (stamped post-create by startVariant/startComparison)
           null, // experimentRole — always null at create
+          null, // spawnTerminalId — always null at create (stamped post-create by persistSpawnIdentity)
+          null, // spawnAccountDir — always null at create
         ],
       );
       return s;
@@ -2764,6 +2773,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Write the poller/reconcile-immune spawn-identity markers (herdr-restart account-loss
+   *  detection). The ONLY writer is {@link SessionService}'s `persistSpawnIdentity` helper,
+   *  which applies the sticky/conditional rule (never null-over-non-null); this setter itself
+   *  is an unconditional targeted UPDATE, mirroring {@link setHaltReason}. */
+  setSpawnIdentity(
+    id: string,
+    spawnTerminalId: string | null,
+    spawnAccountDir: string | null,
+  ): void {
+    this.db.run(
+      `UPDATE sessions SET spawnTerminalId=?, spawnAccountDir=?, updatedAt=? WHERE id=?`,
+      [spawnTerminalId, spawnAccountDir, Date.now(), id],
+    );
+  }
+
   /** Persist the manual operator steps detected in a session's PR body (#1059). Stored as a JSON
    *  array; an empty array clears any prior detection. Dedicated setter (the generic update()
    *  whitelist would silently drop it), mirroring {@link setHaltReason}'s direct-UPDATE style. */
@@ -3010,6 +3034,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // rows default to null (not part of any experiment).
     add("experimentId", `experimentId TEXT`);
     add("experimentRole", `experimentRole TEXT`);
+    // Poller/reconcile-immune spawn-identity markers (herdr-restart account-loss detection):
+    // the terminalId of the pane Shepherd itself last spawned on the owning account, and that
+    // account's CLAUDE_CONFIG_DIR. Both nullable; written only via setSpawnIdentity.
+    add("spawnTerminalId", `spawnTerminalId TEXT`);
+    add("spawnAccountDir", `spawnAccountDir TEXT`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -4296,6 +4325,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         r.experimentRole === "variant" || r.experimentRole === "comparison"
           ? (r.experimentRole as ExperimentRole)
           : null,
+      spawnTerminalId: r.spawnTerminalId ?? null,
+      spawnAccountDir: r.spawnAccountDir ?? null,
     } as Session;
   }
 

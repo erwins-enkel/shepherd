@@ -27,6 +27,11 @@ export interface Issue {
    *  bot-authored issues (the PR-only `classifyPr` heuristics don't transfer to issues,
    *  so the bot filter collapses to author-login matching). */
   author?: string;
+  /** GitHub authorAssociation of the issue's author (OWNER | MEMBER | COLLABORATOR | CONTRIBUTOR |
+   *  FIRST_TIME_CONTRIBUTOR | FIRST_TIMER | MANNEQUIN | NONE). Populated only by GitHub's GraphQL
+   *  getIssue path; absent elsewhere (Gitea has no equivalent). Drives the autonomous-spawn author
+   *  trust gate — an absent value fails closed. */
+  authorAssociation?: string;
 }
 
 export type ForgeKind = "github" | "gitea" | "local";

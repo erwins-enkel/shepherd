@@ -103,6 +103,94 @@ test("GithubForge.listIssues: requests the assignees field from gh (#824)", asyn
   expect(jsonArg.split(",")).toContain("assignees");
 });
 
+test("GithubForge.getIssue: fetches via GraphQL and maps author + authorAssociation", async () => {
+  const graphql = JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: 5,
+          title: "t",
+          body: "b",
+          url: "https://x/5",
+          createdAt: "2020-01-01T00:00:00Z",
+          author: { login: "alice" },
+          authorAssociation: "MEMBER",
+          labels: { nodes: [{ name: "bug" }] },
+          assignees: { nodes: [{ login: "bob" }] },
+        },
+      },
+    },
+  });
+  const { run, calls } = fakeRunner({ "api graphql": graphql });
+  const forge = new GithubForge("o/r", {}, run);
+  const issue = await forge.getIssue!(5);
+  expect(issue).toEqual({
+    number: 5,
+    title: "t",
+    body: "b",
+    url: "https://x/5",
+    createdAt: Date.parse("2020-01-01T00:00:00Z"),
+    labels: ["bug"],
+    assignees: ["bob"],
+    author: "alice",
+    authorAssociation: "MEMBER",
+  });
+  expect(calls[0]!.slice(0, 2)).toEqual(["api", "graphql"]);
+  expect(calls[0]).toContain("owner=o");
+  expect(calls[0]).toContain("repo=r");
+  expect(calls[0]).toContain("num=5");
+  const queryArg = calls[0]![calls[0]!.indexOf("-f") + 1] ?? "";
+  expect(queryArg).toContain("authorAssociation");
+  expect(queryArg).toContain("author{login}");
+});
+
+test('GithubForge.getIssue: body defaults to "" and createdAt falls back on absent/bad fields', async () => {
+  const graphql = JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: 9,
+          title: "t2",
+          url: "https://x/9",
+          // no body, no author, no authorAssociation, no labels/assignees, bad createdAt
+          createdAt: "not-a-date",
+        },
+      },
+    },
+  });
+  const { run } = fakeRunner({ "api graphql": graphql });
+  const forge = new GithubForge("o/r", {}, run);
+  const before = Date.now();
+  const issue = await forge.getIssue!(9);
+  expect(issue?.body).toBe("");
+  expect(issue?.labels).toEqual([]);
+  expect(issue?.assignees).toEqual([]);
+  expect(issue?.author).toBeUndefined();
+  expect(issue?.authorAssociation).toBeUndefined();
+  expect(issue?.createdAt).toBeGreaterThanOrEqual(before);
+});
+
+test("GithubForge.getIssue: null on a missing repository.issue (deleted/inaccessible)", async () => {
+  const { run } = fakeRunner({
+    "api graphql": JSON.stringify({ data: { repository: { issue: null } } }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.getIssue!(5)).toBeNull();
+});
+
+test("GithubForge.getIssue: null on empty/malformed output", async () => {
+  const { run } = fakeRunner({ "api graphql": "" });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.getIssue!(5)).toBeNull();
+});
+
+test("GithubForge.getIssue: null when run throws", async () => {
+  const forge = new GithubForge("o/r", {}, async () => {
+    throw new Error("gh: not found");
+  });
+  expect(await forge.getIssue!(5)).toBeNull();
+});
+
 test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs, review", async () => {
   const prsJson = JSON.stringify([
     {

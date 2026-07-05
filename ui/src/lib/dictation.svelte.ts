@@ -242,8 +242,12 @@ export function createDictation(host: DictationHost) {
   // Start recording via the local plugin. Must be reached within the getUserMedia
   // user-activation window (a mic tap, or autoStart() with the status probe pre-resolved).
   // `acquiring` guards the getUserMedia await so an auto-start and a fast manual tap can't
-  // both open a stream.
+  // both open a stream. `session` is bumped by teardown(): if teardown runs while the
+  // permission prompt is still pending (dialog closed / submitted), the resolved stream is
+  // stale — release it and never start recording, else the mic would stay open and the 60 s
+  // cap would eventually stop-and-UPLOAD a clip nobody kept.
   let acquiring = false;
+  let session = 0;
   async function startLocal() {
     if (listening || transcribing || acquiring) return;
     if (!recorderSupported) {
@@ -252,13 +256,21 @@ export function createDictation(host: DictationHost) {
     }
     acquiring = true;
     voiceError = false;
+    const mySession = session;
     try {
+      let stream: MediaStream;
       try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
-        flashVoiceError();
+        if (session === mySession) flashVoiceError();
         return;
       }
+      if (session !== mySession) {
+        // torn down while permission was pending — the acquisition is orphaned
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      mediaStream = stream;
       const mimeType = pickMimeType();
       chunks = [];
       // MediaRecorder construction or start() can throw (unsupported mimeType, hardware in
@@ -431,7 +443,10 @@ export function createDictation(host: DictationHost) {
 
   // Full stop for dismiss/submit/destroy: discard any in-flight recording WITHOUT uploading,
   // silence late Web Speech results, and reset every one-shot guard (incl. the error flash).
+  // Bumping `session` also orphans a getUserMedia acquisition that is still awaiting the
+  // permission prompt — startLocal releases the stream instead of recording (see above).
   function teardown() {
+    session++;
     if (recog) {
       recog.onresult = null;
       recog.onend = null;

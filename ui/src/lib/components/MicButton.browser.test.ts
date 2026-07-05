@@ -166,6 +166,50 @@ describe("MicButton", () => {
     expect(host.value).toBe("typed base hello there.");
   });
 
+  it("releases a stream that resolves after teardown and never starts recording", async () => {
+    // Local-engine path: unmount while the getUserMedia permission prompt is still pending,
+    // then let it resolve — the orphaned stream must be released, and no MediaRecorder may
+    // ever start (it would otherwise keep the mic open and upload a discarded clip).
+    delete w.SpeechRecognition;
+    delete w.webkitSpeechRecognition;
+    mockGetVoiceStatus.mockResolvedValue({
+      ...voiceAbsent,
+      available: true,
+      engine: "whisper.cpp",
+      model: "ggml-small.bin",
+    });
+    const mediaDevices = navigator.mediaDevices as { getUserMedia: unknown };
+    const originalGetUserMedia = mediaDevices.getUserMedia;
+    const originalMediaRecorder = window.MediaRecorder;
+    let resolveAcquisition!: (stream: unknown) => void;
+    const stopTrack = vi.fn();
+    const recorderCtor = vi.fn();
+    mediaDevices.getUserMedia = () => new Promise((r) => (resolveAcquisition = r));
+    window.MediaRecorder = class {
+      constructor() {
+        recorderCtor();
+      }
+      static isTypeSupported() {
+        return false;
+      }
+    } as unknown as typeof MediaRecorder;
+    try {
+      const { props } = makeHost();
+      const screen = render(MicButton, props);
+      await expect.element(micBtn()).toBeVisible();
+      await micBtn().click(); // startLocal() now awaits the pending permission prompt
+      screen.unmount(); // teardown while acquiring
+      resolveAcquisition({ getTracks: () => [{ stop: stopTrack }] });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(stopTrack).toHaveBeenCalled();
+      expect(recorderCtor).not.toHaveBeenCalled();
+      expect(mockTranscribeAudio).not.toHaveBeenCalled();
+    } finally {
+      mediaDevices.getUserMedia = originalGetUserMedia;
+      window.MediaRecorder = originalMediaRecorder;
+    }
+  });
+
   it("unmount mid-recording stops recognition and uploads nothing", async () => {
     const { props } = makeHost();
     const screen = render(MicButton, props);

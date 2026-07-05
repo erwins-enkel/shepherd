@@ -2573,5 +2573,14 @@
   "restart_err_already": "A restart is already in progress.",
   "restart_err_generic": "Could not start the restart. Restart manually if the problem persists:",
   "feat_restart_shepherd_title": "Restart Shepherd from the UI",
-  "feat_restart_shepherd_body": "Settings → Session now has a Restart Shepherd action, and the plugin restart banners gained a Restart-now button — no more copy-pasting the systemctl command. Optionally the herdr daemon restarts too, gracefully: live panes are handed off and survive."
+  "feat_restart_shepherd_body": "Settings → Session now has a Restart Shepherd action, and the plugin restart banners gained a Restart-now button — no more copy-pasting the systemctl command. Optionally the herdr daemon restarts too, gracefully: live panes are handed off and survive.",
+  "micbtn_dictate": "◉",
+  "micbtn_dictate_aria": "Dictate",
+  "micbtn_dictate_stop_aria": "Stop dictation",
+  "micbtn_transcribing": "Transcribing…",
+  "micbtn_transcribe_failed": "Couldn't transcribe that — try again.",
+  "micbtn_origin_local": "🎙️ Local Whisper",
+  "micbtn_origin_web": "Browser / device",
+  "feat_newtask_prompt_mic_title": "Dictate the New Task prompt",
+  "feat_newtask_prompt_mic_body": "The New Task prompt field now has a mic — same engines as the compose bar: the browser's dictation, or local Whisper via the voice-whisper plugin (the only mic in an iOS home-screen PWA). While you speak, a live preview renders in the field; on stop the accurate full-clip transcript replaces it."
 }

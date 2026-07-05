@@ -2573,5 +2573,14 @@
   "restart_err_already": "Ein Neustart läuft bereits.",
   "restart_err_generic": "Der Neustart konnte nicht gestartet werden. Starte bei anhaltenden Problemen manuell neu:",
   "feat_restart_shepherd_title": "Shepherd direkt aus der UI neu starten",
-  "feat_restart_shepherd_body": "Einstellungen → Session hat jetzt eine „Shepherd neu starten“-Aktion, und die Plugin-Restart-Banner haben einen „Jetzt neu starten“-Button — kein Kopieren des systemctl-Befehls mehr. Optional startet auch der herdr-Daemon neu, und zwar sanft: Live-Panes werden per Handoff übergeben und überleben."
+  "feat_restart_shepherd_body": "Einstellungen → Session hat jetzt eine „Shepherd neu starten“-Aktion, und die Plugin-Restart-Banner haben einen „Jetzt neu starten“-Button — kein Kopieren des systemctl-Befehls mehr. Optional startet auch der herdr-Daemon neu, und zwar sanft: Live-Panes werden per Handoff übergeben und überleben.",
+  "micbtn_dictate": "◉",
+  "micbtn_dictate_aria": "Diktieren",
+  "micbtn_dictate_stop_aria": "Diktat beenden",
+  "micbtn_transcribing": "Wird transkribiert…",
+  "micbtn_transcribe_failed": "Transkription fehlgeschlagen – bitte erneut versuchen.",
+  "micbtn_origin_local": "🎙️ Lokales Whisper",
+  "micbtn_origin_web": "Browser/Gerät",
+  "feat_newtask_prompt_mic_title": "Den New-Task-Prompt diktieren",
+  "feat_newtask_prompt_mic_body": "Das Prompt-Feld im New-Task-Dialog hat jetzt ein Mikrofon — mit denselben Engines wie die Compose-Leiste: der Diktierfunktion des Browsers oder lokalem Whisper über das voice-whisper-Plugin (das einzige Mikrofon in einer iOS-Homescreen-PWA). Während du sprichst, erscheint eine Live-Vorschau im Feld; beim Stoppen ersetzt das genaue Transkript des vollständigen Clips die Vorschau."
 }

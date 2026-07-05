@@ -27,6 +27,7 @@
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import MicButton from "./MicButton.svelte";
   import NewTaskRunSettings from "./new-task/NewTaskRunSettings.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -234,6 +235,7 @@
   let fileInput = $state<HTMLInputElement>();
   let promptInput = $state<HTMLTextAreaElement>();
   let repoSelect: RepoSelect | undefined = $state();
+  let mic: MicButton | undefined = $state();
   let isMac = $state(false);
   // Coarse pointer = touch-primary device with no hardware Ctrl/⌘/⌥ keys: hide
   // keyboard-combo hints it can't fulfil (submit shortcut badge + repo shortcuts).
@@ -702,6 +704,10 @@
   async function submit(e: Event, force = false) {
     e.preventDefault();
     if (!prompt.trim() || !repoPath.trim() || submitting) return;
+    // A mid-recording submit sends the prompt as it stands: stop the mic and discard the
+    // clip so nothing is uploaded while (or after) the task spawns. Closing the dialog is
+    // covered by MicButton's own unmount teardown.
+    mic?.teardown();
     const repo = repoPath.trim();
     // Settle the repo config BEFORE reading confirm/rowExists — an in-flight fetch reads both falsy,
     // which would spuriously show the step for a confirmed repo AND fail the !rowExists seed guard,
@@ -863,6 +869,15 @@
           onkeydown={onPromptKeydown}
           onblur={() => (slashOpen = false)}
           required></textarea>
+        <!-- Dictation mic (Web Speech / voice-whisper plugin): floats in the textarea's
+             bottom-right corner via its own zero-height anchor, writes the live preview and
+             final transcript into `prompt`. Hidden when neither engine is available. -->
+        <MicButton
+          bind:this={mic}
+          getText={() => prompt}
+          setText={(t) => (prompt = t)}
+          onTextRendered={autogrow}
+        />
         {#if slashOpen}
           <SlashCommandMenu
             commands={slashMatches}
@@ -1152,6 +1167,11 @@
   }
   .prompt-wrap {
     position: relative;
+  }
+  /* Reserve the mic's corner only while it is rendered (no engine → no dead padding),
+     so typed text never runs under the floating ◉ button. */
+  .prompt-wrap:has(:global(.micbtn-anchor)) textarea {
+    padding-right: 58px;
   }
   textarea,
   input,

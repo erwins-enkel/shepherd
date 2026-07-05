@@ -6,6 +6,7 @@ import type { ActivityEntry } from "./activity";
 import type { DiffFileStatus, Recap, RecapVerdict } from "./types";
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
+import { fenceUntrusted } from "./untrusted";
 
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
 export const RECAP_HEADLINE_MAX = 100;
@@ -106,7 +107,7 @@ export function buildRecapPrompt(input: {
     "Do NOT modify, build, commit, or run anything — read-only inspection only.",
     "",
     "The task that was worked on:",
-    input.taskPrompt,
+    fenceUntrusted("task", input.taskPrompt),
     "",
   ];
 
@@ -127,7 +128,11 @@ export function buildRecapPrompt(input: {
   }
 
   if (input.context.trim()) {
-    lines.push("Additional context (CI / critic verdict / merge readiness):", input.context, "");
+    lines.push(
+      "Additional context (CI / critic verdict / merge readiness):",
+      fenceUntrusted("context", input.context),
+      "",
+    );
   }
 
   lines.push(

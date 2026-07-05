@@ -417,28 +417,44 @@ export class GithubForge implements GitForge {
     // Fresh, uncached single-issue read for the drain's pre-spawn claim re-check
     // (see GitForge.getIssue). Best-effort: a gone/closed issue or a transient gh
     // error yields null so the caller falls back to spawning, never loses the issue.
-    // COST: one `gh issue view` subprocess per spawn candidate per pump. `this.run`
+    // COST: one `gh api graphql` subprocess per spawn candidate per pump. `this.run`
     // is async (non-blocking) and the drain spawns at most maxAuto per pump, so the
     // fan-out is bounded and small; not worth caching/batching for the claim re-check.
+    // GraphQL (not `gh issue view`) so the same call also carries the author's
+    // authorAssociation — the autonomous-spawn author trust gate reads it from here.
     try {
+      const [owner, repo] = this.slug.split("/");
       const out = await this.run([
-        "issue",
-        "view",
-        String(issueNumber),
-        "--repo",
-        this.slug,
-        "--json",
-        "number,title,body,url,labels,createdAt,assignees",
+        "api",
+        "graphql",
+        "-f",
+        "query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){number title body url createdAt author{login} authorAssociation labels(first:50){nodes{name}} assignees(first:20){nodes{login}}}}}",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `repo=${repo}`,
+        "-F",
+        `num=${issueNumber}`,
       ]);
-      const i = JSON.parse(out || "null") as {
-        number: number;
-        title: string;
-        body?: string;
-        url: string;
-        labels?: Array<{ name: string }>;
-        createdAt?: string;
-        assignees?: Array<{ login: string }>;
-      } | null;
+      const i = (
+        JSON.parse(out || "null") as {
+          data?: {
+            repository?: {
+              issue?: {
+                number: number;
+                title: string;
+                body?: string;
+                url: string;
+                createdAt?: string;
+                author?: { login?: string } | null;
+                authorAssociation?: string | null;
+                labels?: { nodes?: Array<{ name: string }> };
+                assignees?: { nodes?: Array<{ login: string }> };
+              } | null;
+            };
+          };
+        } | null
+      )?.data?.repository?.issue;
       if (!i) return null;
       const ts = Date.parse(i.createdAt ?? "");
       return {
@@ -446,9 +462,11 @@ export class GithubForge implements GitForge {
         title: i.title,
         body: i.body ?? "",
         url: i.url,
-        labels: (i.labels ?? []).map((l) => l.name),
+        labels: (i.labels?.nodes ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
-        assignees: (i.assignees ?? []).map((a) => a.login),
+        assignees: (i.assignees?.nodes ?? []).map((a) => a.login),
+        author: i.author?.login,
+        authorAssociation: i.authorAssociation ?? undefined,
       };
     } catch {
       return null;

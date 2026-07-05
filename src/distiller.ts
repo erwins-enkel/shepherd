@@ -15,10 +15,13 @@ const PROPOSALS_FILE = ".shepherd-learnings.json";
 /** Signal kinds the learnings distiller does NOT mine for code-review patterns.
  *  `egress_drop` (a blocked-host name) and `backup_stale` (#1080, a host-global backup-health
  *  alert) are operational, not code-review signals — feeding them to the rule-proposal LLM would
- *  pollute the corpus and count toward the distill threshold. */
+ *  pollute the corpus and count toward the distill threshold. `injection_detected` and
+ *  `untrusted_author` are security telemetry for the same reason. */
 const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
   "egress_drop",
   "backup_stale",
+  "injection_detected",
+  "untrusted_author",
 ]);
 
 /**

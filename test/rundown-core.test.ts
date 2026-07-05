@@ -872,8 +872,19 @@ test("buildRundownPrompt: epics surfaced in dedicated block, NOT echoed in the J
   expect(prompt).toContain("STRANDED");
   expect(prompt).toContain("MUST NOT repeat them in");
   // the JSON herd-state dump must NOT carry an `epics` key (stripped to avoid double-injection)
-  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked):"));
+  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked)"));
   expect(dump).not.toContain('"epics"');
+});
+
+test("buildRundownPrompt: fences the herd-state JSON dump as untrusted", () => {
+  const out = assembleHerdState({
+    sessions: [],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-15",
+    now: NOW,
+  });
+  const prompt = buildRundownPrompt(out);
+  expect(prompt).toContain("⟦UNTRUSTED:herd state:");
 });
 
 test("buildRundownPrompt: no epic block when none", () => {
@@ -925,7 +936,7 @@ test("buildRundownPrompt: paused epic rendered with PAUSED tag and reason text",
   expect(prompt).toContain("rebase cap exhausted");
   expect(prompt).toContain("landing PR #55");
   // not echoed in the JSON dump
-  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked):"));
+  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked)"));
   expect(dump).not.toContain('"epics"');
 });
 

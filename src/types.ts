@@ -660,7 +660,15 @@ export interface SessionPreviewServeEvent {
 }
 
 // ── learnings flywheel ────────────────────────────────────────────────────────
-export type SignalKind = "reply" | "critic" | "block" | "stall" | "egress_drop" | "backup_stale";
+export type SignalKind =
+  | "reply"
+  | "critic"
+  | "block"
+  | "stall"
+  | "egress_drop"
+  | "backup_stale"
+  | "injection_detected"
+  | "untrusted_author";
 
 export interface Signal {
   id: string;

@@ -42,9 +42,9 @@
     if (authUrl) window.open(authUrl, "_blank", "noopener,noreferrer");
   }
   async function copyAuth() {
-    if (!authUrl) return;
+    if (!authUrl || !navigator.clipboard) return; // no clipboard (insecure context) → don't fake success
     try {
-      await navigator.clipboard?.writeText(authUrl);
+      await navigator.clipboard.writeText(authUrl);
       copied = true;
       clearTimeout(copyTimer);
       copyTimer = setTimeout(() => (copied = false), 2000);

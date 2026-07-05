@@ -1182,6 +1182,7 @@
   "session_sandbox_egress_degraded_title": "Autonome Dateisystem-Sandbox aktiv, aber das Netzwerk-Egress-Backend ist nicht verfügbar, daher ist ausgehender Verkehr uneingeschränkt — Tokens sind exfiltrierbar. Diese Sitzung nicht überschätzen.",
   "toast_egress_drop": "Egress zu {host} blockiert",
   "toast_uploads_dropped": "{count} angehängte(s) Bild(er) abgelaufen und nicht wiederherstellbar — die Session startete ohne sie",
+  "toast_injection_detected": "Hinweis: Der Issue-Inhalt einer Session hat {count} Prompt-Injection-Prüfung(en) ausgelöst. Er wird als nicht vertrauenswürdige Daten gekapselt — vor dem Vertrauen prüfen.",
   "feat_egress_title": "Netzwerk-Egress-Allowlist",
   "feat_egress_body": "Autonome Agenten sind jetzt auf eine Allowlist von Hosts beschränkt (Anthropic + den Forge-Host, plus operator-Extras); alle anderen ausgehenden Verbindungen werden blockiert. Blockierte Versuche erscheinen als Inline-Warnungen. Wenn das Backend nicht verfügbar ist, erscheint ein sichtbares Warn-Badge, damit klar ist, dass die Sitzung mit uneingeschränktem Netzwerk läuft.",
   "settings_contrast_title": "Hoher Kontrast",

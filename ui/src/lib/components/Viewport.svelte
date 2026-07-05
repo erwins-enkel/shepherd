@@ -2241,9 +2241,11 @@
       {reattach}
       {resumeSession}
     />
-    <!-- Non-blocking review-in-flight banner: bottom strip over the terminal,
-         above the steer bar. Stays mounted across tab switches (state survives);
-         it suppresses its own render off the term tab. (issue #1022) -->
+    <!-- Non-blocking review-in-flight banner: reserved bottom strip. The terminal
+         (.term-mount) shrinks by this banner's height (--review-banner-h) so the
+         strip sits BELOW the live prompt, not over it. Stays mounted across tab
+         switches (state survives); it suppresses its own render off the term tab.
+         (issue #1022) -->
     <ReviewInFlightBanner
       {session}
       keystrokes={opKeystrokes}
@@ -3027,7 +3029,18 @@
 
   .term-mount {
     width: 100%;
-    height: 100%;
+    /* Reserve the review/CI banner's bottom strip so xterm reflows ABOVE it instead
+       of being overlaid — the live prompt stays visible while a review runs.
+       --review-banner-h is published on .vp-body (0px when no banner shows).
+       Changing this height trips the ResizeObserver on this element → refit() → PTY
+       resize, which is the intended reflow. The min-height floor equals .vp-body's
+       own min-height (4rem) and must NOT exceed it: a larger floor would force the
+       mount taller than a squeezed body and clip the bottom prompt row via
+       .vp-body's overflow:hidden even with no banner. At the floor (squeezed-recap
+       takeover) the mount == body, so the banner overlaps its bottom again — prior
+       behavior — rather than resizing the PTY toward xterm's clamped 1-row minimum. */
+    height: calc(100% - var(--review-banner-h, 0px));
+    min-height: 4rem;
     overflow: hidden;
     /* we drive vertical scroll via touch handlers; keep the browser out of it */
     touch-action: none;

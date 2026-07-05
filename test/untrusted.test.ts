@@ -6,7 +6,7 @@ import {
   scanForInjection,
   TRUSTED_ASSOCIATIONS,
   UNTRUSTED_CONTENT_DIRECTIVE,
-} from "./untrusted";
+} from "../src/untrusted";
 
 describe("isTrustedAssociation", () => {
   it("trusts OWNER/MEMBER/COLLABORATOR", () => {

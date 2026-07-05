@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { ReviewService, reviewPrompt, scopeFindings, CRITIC_THINKING_TOKENS } from "../src/review";
+import { ReviewService, reviewPrompt, scopeFindings } from "../src/review";
 import { PluginSpawnAborted } from "../src/plugins/types";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { RawVerdict } from "../src/critic-core";
@@ -462,12 +462,11 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   expect(argv).toContain("--disable-slash-commands");
   const settingsRaw = argv[argv.indexOf("--settings") + 1];
   expect(settingsRaw).toBeDefined();
-  // The session critic carries an extended thinking budget (issue #604) so it has the
-  // reasoning headroom for the #597 cross-file verification its prompt now demands.
+  // The thinking-budget env channel was retired (issue #1419): the critic's reasoning headroom
+  // for the #597 cross-file verification now rides on --effort, so its --settings carries NO env key.
   expect(JSON.parse(settingsRaw!)).toEqual({
     disableAllHooks: true,
     enableAllProjectMcpServers: true,
-    env: { MAX_THINKING_TOKENS: String(CRITIC_THINKING_TOKENS) },
   });
   expect(argv).toContain("--safe-mode");
 });

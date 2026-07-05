@@ -37,7 +37,6 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
-  CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
@@ -419,9 +418,6 @@ export class StandalonePrCriticService {
       model: env.model,
       effort: env.effort,
       prompt: prReviewPrompt(diffBase, pr.title, prBody),
-      // Same extended thinking budget as the session critic (#604): the standalone PR critic runs
-      // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.
-      thinkingTokens: CRITIC_THINKING_TOKENS,
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).

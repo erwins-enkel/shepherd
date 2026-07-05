@@ -16,7 +16,7 @@ import type { AgentProvider } from "./types";
  *   claude
  *     --session-id <uuid>          forced so the transcript lands at a predictable path
  *     --settings <json>            { disableAllHooks:true, [enableAllProjectMcpServers:true],
- *                                    [env:{MAX_THINKING_TOKENS}], ...apiKeySettingsFragment() }
+ *                                    ...apiKeySettingsFragment() }
  *     --disable-slash-commands
  *     [--safe-mode]                emitted IFF the preset is mcpIsolated (see coupling note)
  *     --allowedTools <tools…>      VARIADIC — swallows every following token until the next --flag
@@ -39,8 +39,8 @@ import type { AgentProvider } from "./types";
  * --disable-slash-commands removes skills entirely.
  *
  * --settings key order is preserved (disableAllHooks first, then enableAllProjectMcpServers, then
- * env, then the apiKeySettingsFragment() spread) so subscription mode stays BYTE-FOR-BYTE identical
- * to the historical per-site output — the consumer argv tests are the byte-identity regression gate.
+ * the apiKeySettingsFragment() spread) so subscription mode stays BYTE-FOR-BYTE identical to the
+ * historical per-site output — the consumer argv tests are the byte-identity regression gate.
  *
  * ── MCP isolation: ONE coupled field, not two independent flags ─────────────────────────────────
  *
@@ -72,15 +72,11 @@ export interface TransientAgentArgvOptions {
   model: string | null;
   /** The agent's task — the trailing positional. */
   prompt: string;
-  /** Optional extended-thinking budget; folds into --settings env.MAX_THINKING_TOKENS only when set.
-   *  The ONLY knob that grants a spawned session's initial positional prompt a thinking budget (the
-   *  think/ultrathink magic words do NOT fire from it); a no-op on a non-thinking model. Passed by
-   *  the reviewer/doc callers only. */
-  thinkingTokens?: number;
   /** Optional reasoning-effort tier; emits `--effort` (Claude) / `-c model_reasoning_effort=`
-   *  (Codex) when set. Opt-in per call site, exactly like `thinkingTokens` — most transient roles
-   *  omit it. In-repo only the plan reviewer (plan-gate.ts) passes it in this release; the two
-   *  critic sites deliberately do NOT, keeping their spawn argv byte-unchanged. */
+   *  (Codex) when set. Opt-in per call site — most transient roles omit it. In-repo the plan
+   *  reviewer (plan-gate.ts) and both PR-critic sites (review.ts, standalone-critic.ts) pass it;
+   *  on the critic this is the reasoning channel that replaced the retired thinking-budget env
+   *  channel (issue #1419), running at `--effort high` by default. */
   effort?: string | null;
 }
 
@@ -144,14 +140,13 @@ export function buildTransientAgentArgv(
 
   // Codex CLI path: a headless, workspace-write-sandboxed `codex exec` runs the same prompt (which
   // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,
-  // --allowedTools, thinkingTokens) have a Codex equivalent; the sandbox shape is enforced by
+  // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
   // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
   if (opts.provider === "codex")
     return { argv: codexRoleArgv(opts.model, opts.prompt, opts.effort ?? null), sessionId };
 
   const settings: Record<string, unknown> = { disableAllHooks: true };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;
-  if (opts.thinkingTokens) settings.env = { MAX_THINKING_TOKENS: String(opts.thinkingTokens) };
   // api-key mode folds in `apiKeyHelper` AFTER the existing keys (stable order; subscription spreads
   // {} → byte-identical JSON). The membrane masks the operator's OAuth credential in place.
   Object.assign(settings, apiKeySettingsFragment());

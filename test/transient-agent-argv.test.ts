@@ -34,9 +34,9 @@ function extractAllowedTools(argv: string[]): string[] {
 
 const ALL_KINDS: TransientAgentKind[] = ["reviewer", "doc", "writer-ro", "writer-only"];
 
-// ── reasoning effort (issue #1417): opt-in per call site, like thinkingTokens ────────────────────
+// ── reasoning effort (issue #1417): opt-in per call site ─────────────────────────────────────────
 
-test("effort omitted (the critic-site posture) → no --effort, argv byte-unchanged", () => {
+test("effort omitted → no --effort, argv byte-unchanged", () => {
   const withEffort = buildTransientAgentArgv("reviewer", { model: "opus", prompt: "P" }).argv;
   expect(withEffort).not.toContain("--effort");
 });
@@ -175,17 +175,12 @@ test("coupling: --safe-mode precedes --allowedTools", () => {
   }
 });
 
-// ── thinkingTokens (reviewer/doc callers) ───────────────────────────────────────────────────────
+// ── settings carry NO env block (thinking-budget env channel retired, issue #1419) ────────────────
 
-test("thinkingTokens: omitted → no env; provided → env.MAX_THINKING_TOKENS as a string", () => {
-  expect(
-    settingsOf(buildTransientAgentArgv("reviewer", { model: null, prompt: "p" }).argv).env,
-  ).toBeUndefined();
-  const s = settingsOf(
-    buildTransientAgentArgv("reviewer", { model: null, prompt: "p", thinkingTokens: 8000 }).argv,
-  );
-  expect(s.env).toEqual({ MAX_THINKING_TOKENS: "8000" });
-  // budget must not disturb the other reviewer invariants
+test("reviewer --settings never carries an env block (thinking-budget channel retired, #1419)", () => {
+  const s = settingsOf(buildTransientAgentArgv("reviewer", { model: null, prompt: "p" }).argv);
+  expect(s.env).toBeUndefined();
+  // the retirement must not disturb the other reviewer invariants
   expect(s.disableAllHooks).toBe(true);
   expect(s.enableAllProjectMcpServers).toBe(true);
 });
@@ -208,7 +203,6 @@ test("reviewer allowlist is a CLOSED read-only set (R4): widening it fails the t
     const { argv } = buildTransientAgentArgv("reviewer", {
       model,
       prompt: "p",
-      thinkingTokens: model ? 8000 : undefined,
     });
     const tools = extractAllowedTools(argv);
     expect([...tools].sort()).toEqual([...READONLY_GIT, "Write"].sort());
@@ -312,7 +306,7 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // ── Codex CLI branch ────────────────────────────────────────────────────────────────────────────
 // provider "codex" routes every kind to a headless, workspace-write-sandboxed `codex exec`. The
 // file-based result contract is identical, so the caller's verdict reading is unchanged; only the
-// argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools/thinking) leak.
+// argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools) leak.
 
 test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] <prompt>`", () => {
   for (const kind of ALL_KINDS) {
@@ -320,7 +314,6 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       provider: "codex",
       model: "gpt-5.5",
       prompt: "DO_IT",
-      thinkingTokens: 8000, // Claude-only; must be ignored on the Codex path
     }).argv;
     expect(withModel).toEqual([
       "codex",

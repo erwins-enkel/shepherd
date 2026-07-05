@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { StandalonePrCriticService } from "../src/standalone-critic";
-import { CRITIC_THINKING_TOKENS, type RawVerdict } from "../src/critic-core";
+import type { RawVerdict } from "../src/critic-core";
 import type { VerdictRead } from "../src/json-tolerant";
 import { CRITIC_REVIEW_MARKER, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
@@ -247,11 +247,11 @@ test("reviews a fresh open green regular session-less PR", async () => {
   expect(spies.started[0]!.name).toBe("pr-critic /r#7");
   expect(spies.recordedSpawns).toHaveLength(1);
   expect(spies.recordedSpawns[0]!.taskSessionId).toBe("pr:/r#7");
-  // The standalone PR critic shares the session critic's VERIFY prompt (#597), so it gets
-  // the same extended thinking budget (#604): MAX_THINKING_TOKENS in its --settings.
+  // The thinking-budget env channel was retired (issue #1419): the standalone PR critic's
+  // reasoning now rides on --effort, so its --settings carries NO env key.
   const argv = spies.started[0]!.argv;
   const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
-  expect(settings.env).toEqual({ MAX_THINKING_TOKENS: String(CRITIC_THINKING_TOKENS) });
+  expect(settings.env).toBeUndefined();
 });
 
 test("threads env.effort into the standalone critic argv (issue #1418)", async () => {

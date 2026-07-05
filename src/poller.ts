@@ -18,6 +18,7 @@ import { DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
+import { detectAuthUrl } from "./auth-url";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
@@ -87,6 +88,17 @@ export interface LivenessWiring {
   onChange: (id: string, alive: boolean) => void;
 }
 
+/** Bounded tail read + auth-URL detection for a session's transcript; the default
+ *  `detectAuth` wiring. Missing/unreadable transcript (or no claude session yet) ⇒ null. */
+function readAuthUrl(s: Session): string | null {
+  if (!s.claudeSessionId) return null;
+  try {
+    return detectAuthUrl(readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId)));
+  } catch {
+    return null;
+  }
+}
+
 export class StatusPoller {
   /** Fire-and-forget re-drive of a herdr-restored account pane (wired to service.reDriveAccount in
    *  index.ts). Left undefined in tests that don't exercise it. */
@@ -95,6 +107,10 @@ export class StatusPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastReadAt = new Map<string, number>();
   private lastSig = new Map<string, string>();
+  /** Last-emitted block reason per session (parallel to `lastActivity`), for client
+   *  bootstrap via `blockSnapshot()`. Maintained by `emitBlock`; blocks are otherwise
+   *  edge-emitted and would be absent on a fresh page load / push-then-open. */
+  private lastBlockReason = new Map<string, BlockReason>();
   private lastProbeAt = new Map<string, number>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
@@ -267,6 +283,13 @@ export class StatusPoller {
      * Optional (undefined ⇒ stub) so callers can skip it.
      */
     usageLimits?: { limits(now: number): UsageLimits },
+    /**
+     * Detects the pending OAuth authorization URL in a session's transcript, attached to
+     * an awaiting-input block so the UI can offer a clickable "open in browser" affordance
+     * (MCP auth flows print a URL Claude word-wraps un-clickably across terminal lines).
+     * Injectable for tests; defaults to a bounded tail read + `detectAuthUrl`.
+     */
+    private detectAuth: (s: Session) => string | null = readAuthUrl,
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -467,7 +490,7 @@ export class StatusPoller {
     // immediately wipe the just-emitted block. See tryHookAwaitingBlock.
     if (status !== "blocked" && this.tryHookAwaitingBlock(s)) return;
 
-    if (status === "blocked") this.maybeClassify(s.id, s.herdrAgentId);
+    if (status === "blocked") this.maybeClassify(s, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.maybeQuota(s, status);
   }
@@ -573,7 +596,7 @@ export class StatusPoller {
     if (!config.hooksSignals || !this.hookAwaitingInput.has(s.id)) return false;
     // Consume the marker only when the classify actually ran (throttle didn't skip);
     // a throttled tick keeps the marker so the next tick retries the surface.
-    if (this.maybeClassify(s.id, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
+    if (this.maybeClassify(s, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
     const sig = this.lastSig.get(s.id);
     return sig !== undefined && sig !== STALL_SIG;
   }
@@ -600,6 +623,7 @@ export class StatusPoller {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
+        this.lastBlockReason.delete(id);
         this.lastProbeAt.delete(id);
         this.lastActivitySig.delete(id);
         this.lastActivity.delete(id);
@@ -866,6 +890,20 @@ export class StatusPoller {
     return at !== undefined && now - at < 2 * this.probeCheckMs;
   }
 
+  /** Single sink for block emissions: keep the `lastBlockReason` snapshot map in step
+   *  (set on a reason, delete on clear) and forward to the injected `onBlock`. All block
+   *  fire/clear paths route through here so a fresh client can bootstrap current blocks. */
+  private emitBlock(id: string, block: BlockReason | null): void {
+    if (block) this.lastBlockReason.set(id, block);
+    else this.lastBlockReason.delete(id);
+    this.onBlock(id, block);
+  }
+
+  /** Last-emitted block reason per session, for client bootstrap. */
+  blockSnapshot(): Record<string, BlockReason> {
+    return Object.fromEntries(this.lastBlockReason);
+  }
+
   /** Emit an activity signal, deduped by content so clients see only real changes. */
   private emitActivity(id: string, activity: SessionActivity): void {
     const sig = JSON.stringify(activity);
@@ -880,14 +918,14 @@ export class StatusPoller {
     if (this.lastSig.get(id) !== STALL_SIG) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);
-    this.onBlock(id, null);
+    this.emitBlock(id, null);
   }
 
   /** Emit a stall block once per episode (guarded by `lastSig === STALL_SIG`). */
   private fireStall(id: string, visible: string): void {
     if (this.lastSig.get(id) === STALL_SIG) return; // already announced this episode
     this.lastSig.set(id, STALL_SIG);
-    this.onBlock(id, { shape: "stall", options: [], tail: tailLines(visible) });
+    this.emitBlock(id, { shape: "stall", options: [], tail: tailLines(visible) });
   }
 
   /**
@@ -906,7 +944,8 @@ export class StatusPoller {
    * false)` fires first, then `onBlock`, in the same tick — clients see the flag drop
    * and the block land together.
    */
-  private maybeClassify(id: string, term: string): boolean {
+  private maybeClassify(s: Session, term: string): boolean {
+    const id = s.id;
     const t = this.now();
     // Throttled this tick → did NOT look (caller may keep an awaiting marker to retry).
     if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return false;
@@ -938,13 +977,22 @@ export class StatusPoller {
       // drop the episode memory so the next spinner sighting gets a fresh grace.
       this.lastSuppressVisible.delete(id);
     }
+    // Awaiting-input blocks may be an MCP OAuth prompt: attach the full authorize URL from
+    // the transcript (Claude word-wraps it un-clickably in the PTY). Gated to awaiting-input
+    // so a menu/y-n block never triggers the read; the read is bounded + throttled by the
+    // reclassifyMs gate above. `authUrl` is part of `reason`, so it rides the lastSig dedup
+    // and the block snapshot for free; null ⇒ field omitted (not an auth prompt).
+    if (reason.shape === "awaiting-input") {
+      const authUrl = this.detectAuth(s);
+      if (authUrl) reason.authUrl = authUrl;
+    }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return true; // looked this tick (dedup short-circuit)
     // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
     // the flag-off and the block reach clients in the same tick, in that order.
     if (this.workingWhileBlocked.delete(id)) this.onWorkingBlocked(id, false);
     this.lastSig.set(id, sig);
-    this.onBlock(id, reason);
+    this.emitBlock(id, reason);
     return true; // looked + classified this tick
   }
 
@@ -965,7 +1013,7 @@ export class StatusPoller {
     if (prev !== undefined && prev === visible) return false; // frozen → re-arm
     if (this.lastSig.has(id)) {
       this.lastSig.delete(id);
-      this.onBlock(id, null);
+      this.emitBlock(id, null);
     }
     if (!this.workingWhileBlocked.has(id)) {
       this.workingWhileBlocked.add(id);
@@ -984,7 +1032,7 @@ export class StatusPoller {
    */
   acknowledgeStall(id: string): boolean {
     if (this.lastSig.get(id) !== STALL_SIG) return false;
-    this.onBlock(id, null);
+    this.emitBlock(id, null);
     return true;
   }
 
@@ -994,7 +1042,7 @@ export class StatusPoller {
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);
-    this.onBlock(id, null);
+    this.emitBlock(id, null);
   }
 
   /**
@@ -1015,7 +1063,7 @@ export class StatusPoller {
     if (reason) {
       if (this.lastSig.get(s.id) !== QUOTA_SIG) {
         this.lastSig.set(s.id, QUOTA_SIG);
-        this.onBlock(s.id, reason);
+        this.emitBlock(s.id, reason);
       }
     } else {
       this.clearBlock(s.id);

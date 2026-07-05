@@ -2268,6 +2268,7 @@ const appDeps: AppDeps = {
   prCache: prPoller,
   ownsPr,
   activity: { snapshot: () => poller.activitySnapshot() },
+  blocks: { snapshot: () => poller.blockSnapshot() },
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
   preview: { snapshot: () => previewService.snapshot() },

@@ -634,6 +634,10 @@
   "viewport_keynav_hint": "j/k Session wechseln",
   "viewport_commandbar_hint": "{key} Befehle",
   "viewport_keynav_enter_hint": "↵ zurück zum Terminal",
+  "viewport_auth_title": "Zum Fortfahren im Browser autorisieren",
+  "viewport_auth_open": "Öffnen",
+  "viewport_auth_copy": "Kopieren",
+  "viewport_auth_copied": "Kopiert",
   "viewport_parked_title": "Auf anderem Gerät aktiv",
   "viewport_parked_sub": "Tippen zum Übernehmen",
   "viewport_session_ended": "── Sitzung beendet ──",
@@ -2538,6 +2542,8 @@
   "clipboard_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen",
   "clipboard_pill_prompt": "Terminal hat Text kopiert",
   "clipboard_pill_copy": "In Zwischenablage kopieren",
+  "feat_auth_url_banner_title": "Ein-Klick-Öffnen für MCP-Anmeldelinks",
+  "feat_auth_url_banner_body": "Wenn ein Agent dich bittet, eine MCP-Verbindung zu autorisieren (etwa Notion), brach der lange Anmelde-Link bisher über mehrere Terminalzeilen um, sodass du ihn weder anklicken noch kopieren konntest. Jetzt erscheint über dem Terminal ein Banner mit dem vollständigen Link und Ein-Klick-Schaltflächen zum Öffnen und Kopieren, während der Agent wartet.",
   "feat_clipboard_osc52_title": "Claudes „Kopieren“ landet jetzt in deiner Zwischenablage",
   "feat_clipboard_osc52_body": "Wenn Claude im Terminal Text kopiert (`c to copy`), landet er jetzt in deiner System-Zwischenablage. Blockiert der Browser das automatische Schreiben, erscheint eine kleine Copy-Pille über dem Terminal zum Kopieren per Klick."
 }

@@ -16,6 +16,10 @@ export interface BlockReason {
   tail: string[];
   /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
   quotaKind?: "rework" | "review" | "error" | "plan";
+  /** Full OAuth authorization URL an awaiting-input block is waiting on the operator to
+   *  open (MCP auth flows, e.g. Notion/Vercel). Absent unless the transcript held a
+   *  pending authorize URL. Sourced from the JSONL, not the word-wrapped PTY tail. */
+  authUrl?: string;
 }
 
 const TAIL_LINES = 15;

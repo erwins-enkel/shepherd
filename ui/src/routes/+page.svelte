@@ -23,6 +23,7 @@
     activityStates,
     claudeAliveStates,
     workingBlockedStates,
+    blockStates,
     holdStates,
     subagentStates,
     previewStates,
@@ -644,6 +645,10 @@
   );
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+  // Pending MCP OAuth authorize URL for the selected session's awaiting-input block, if any.
+  const selectedAuthUrl = $derived(
+    selected ? (store.blocks[selected.id]?.reason.authUrl ?? null) : null,
+  );
 
   // Select a freshly-started session and follow the herd's repo filter onto its repo.
   // A new task lands in `repoPath`; if the active filter does NOT include that repo the
@@ -777,6 +782,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    blockStates()
+      .then((m) => store.setBlocks(m))
       .catch(() => {});
     holdStates()
       .then((m) => store.setHolds(m))
@@ -1514,6 +1522,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    blockStates()
+      .then((m) => store.setBlocks(m))
       .catch(() => {});
     holdStates()
       .then((m) => store.setHolds(m))
@@ -2520,6 +2531,7 @@
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
+            authUrl={selectedAuthUrl}
             onback={() => (mobileScreen = "list")}
             onbroadcast={() => (showBroadcast = true)}
             onretry={() => (showRetry = true)}
@@ -2681,6 +2693,7 @@
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
+            authUrl={selectedAuthUrl}
             onbroadcast={() => (showBroadcast = true)}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}

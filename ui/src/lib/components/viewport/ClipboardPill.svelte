@@ -13,7 +13,7 @@
   }: {
     text: string;
     oncopied: () => void;
-    oncopyfailed: () => void;
+    oncopyfailed?: (text: string) => void;
     ondismiss: () => void;
   } = $props();
 
@@ -22,7 +22,7 @@
       await navigator.clipboard.writeText(text);
       oncopied();
     } catch {
-      oncopyfailed();
+      oncopyfailed?.(text);
     }
   }
 
@@ -36,8 +36,8 @@
   });
 </script>
 
-<div class="clip-pill" role="status" aria-live="polite">
-  <span class="clip-prompt">{m.clipboard_pill_prompt()}</span>
+<div class="clip-pill">
+  <span class="clip-prompt" role="status" aria-live="polite">{m.clipboard_pill_prompt()}</span>
   <button type="button" class="gbtn primary" onclick={copy}>{m.clipboard_pill_copy()}</button>
   <button
     type="button"

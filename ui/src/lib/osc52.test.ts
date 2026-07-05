@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseOsc52, OSC52_MAX_BYTES } from "./osc52";
+import { describe, it, expect, vi } from "vitest";
+import { parseOsc52, handleOsc52, OSC52_MAX_BYTES, type Osc52Sink } from "./osc52";
 
 // Build a base64 payload from a UTF-8 source string, matching what a well-behaved
 // OSC 52 emitter (like Claude Code) would send as Pd.
@@ -38,5 +38,91 @@ describe("parseOsc52", () => {
   it("round-trips a UTF-8 payload with multibyte characters byte-exact", () => {
     const text = "café — 日本語";
     expect(parseOsc52("c;" + b64(text))).toEqual({ text });
+  });
+});
+
+describe("handleOsc52", () => {
+  function mockSink(writeText: Osc52Sink["writeText"]) {
+    return {
+      writeText,
+      onCopied: vi.fn(),
+      onPending: vi.fn(),
+    } satisfies Osc52Sink;
+  }
+
+  it("resolved write fires onCopied, not onPending", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;" + b64("hello"), sink);
+    await vi.waitFor(() => expect(sink.onCopied).toHaveBeenCalledTimes(1));
+
+    expect(writeText).toHaveBeenCalledWith("hello");
+    expect(sink.onPending).not.toHaveBeenCalled();
+  });
+
+  it("rejected write fires onPending with the byte-exact text, not onCopied", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;" + b64("secret text"), sink);
+    await vi.waitFor(() => expect(sink.onPending).toHaveBeenCalledTimes(1));
+
+    expect(sink.onPending).toHaveBeenCalledWith("secret text");
+    expect(sink.onCopied).not.toHaveBeenCalled();
+  });
+
+  it("writeText returning undefined (no async clipboard API) fires onPending", () => {
+    const writeText = vi.fn().mockReturnValue(undefined);
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;" + b64("no api"), sink);
+
+    expect(sink.onPending).toHaveBeenCalledWith("no api");
+    expect(sink.onCopied).not.toHaveBeenCalled();
+  });
+
+  it("writeText returning null (no async clipboard API) fires onPending", () => {
+    const writeText = vi.fn().mockReturnValue(null);
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;" + b64("also no api"), sink);
+
+    expect(sink.onPending).toHaveBeenCalledWith("also no api");
+    expect(sink.onCopied).not.toHaveBeenCalled();
+  });
+
+  it("writeText throwing synchronously fires onPending", () => {
+    const writeText = vi.fn(() => {
+      throw new Error("insecure context");
+    });
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;" + b64("thrown text"), sink);
+
+    expect(sink.onPending).toHaveBeenCalledWith("thrown text");
+    expect(sink.onCopied).not.toHaveBeenCalled();
+  });
+
+  it("a `?` read request fires neither callback", () => {
+    const writeText = vi.fn();
+    const sink = mockSink(writeText);
+
+    handleOsc52("c;?", sink);
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(sink.onCopied).not.toHaveBeenCalled();
+    expect(sink.onPending).not.toHaveBeenCalled();
+  });
+
+  it("malformed data (no semicolon) fires neither callback", () => {
+    const writeText = vi.fn();
+    const sink = mockSink(writeText);
+
+    handleOsc52("garbage", sink);
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(sink.onCopied).not.toHaveBeenCalled();
+    expect(sink.onPending).not.toHaveBeenCalled();
   });
 });

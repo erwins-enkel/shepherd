@@ -66,7 +66,7 @@
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
-  import { parseOsc52 } from "$lib/osc52";
+  import { handleOsc52 } from "$lib/osc52";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
@@ -1194,21 +1194,15 @@
     // forward the decoded text to the browser clipboard. The bytes arrive async over the WS
     // (not inside the `c` keydown), so navigator.clipboard.writeText may be refused
     // (NotAllowedError / unfocused tab); on ANY failure, stash the text and surface the
-    // ClipboardPill for a one-click, in-gesture retry. parseOsc52 already refuses `?` reads and
-    // caps size. We claim OSC 52 entirely (return true).
+    // ClipboardPill for a one-click, in-gesture retry. handleOsc52 already refuses `?` reads and
+    // caps size (via parseOsc52), and claims every outcome so a write can never vanish silently.
+    // We claim OSC 52 entirely (return true).
     const osc52Sub = term.parser.registerOscHandler(52, (data) => {
-      const w = parseOsc52(data);
-      if (w) {
-        const p = navigator.clipboard?.writeText(w.text);
-        if (p) {
-          p.then(
-            () => toasts.info(m.clipboard_copied_toast()),
-            () => (pendingCopy = w.text),
-          );
-        } else {
-          pendingCopy = w.text; // no async clipboard API available → click-to-copy
-        }
-      }
+      handleOsc52(data, {
+        writeText: (t) => navigator.clipboard?.writeText(t),
+        onCopied: () => toasts.info(m.clipboard_copied_toast()),
+        onPending: (text) => (pendingCopy = text),
+      });
       return true;
     });
 
@@ -2224,9 +2218,17 @@
           pendingCopy = null;
           toasts.info(m.clipboard_copied_toast());
         }}
-        oncopyfailed={() => {
-          pendingCopy = null;
-          toasts.info(m.clipboard_copy_failed());
+        oncopyfailed={(text) => {
+          toasts.info(m.clipboard_copy_failed(), {
+            alert: true,
+            duration: null,
+            action: {
+              label: m.clipboard_copy_retry(),
+              run: () => {
+                pendingCopy = text;
+              },
+            },
+          });
         }}
         ondismiss={() => (pendingCopy = null)}
       />

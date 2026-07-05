@@ -28,6 +28,11 @@ export type FeatureAnnouncement = {
   titleKey: string;
   bodyKey: string;
   targetId?: string;
+  // Optional external call-to-action rendered below the body in the What's-New
+  // drawer. Both must be set for the link to show: `ctaUrl` is an absolute URL
+  // (opened in a new tab), `ctaLabelKey` a message key for the link label.
+  ctaUrl?: string;
+  ctaLabelKey?: string;
 };
 
 type FeatureAnnouncementModule = {

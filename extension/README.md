@@ -4,6 +4,18 @@ MV3 Chromium extension that captures the active tab (screenshot + page metadata)
 and files it as a live Shepherd task via the task API (spawn-now). Phase 2 adds
 capture signals (screenshot, a11y, console errors, failed requests).
 
+## Install from the Chrome Web Store
+
+Published and ready to use:
+**[Shepherd Capture on the Chrome Web Store](https://chromewebstore.google.com/detail/shepherd-capture/liknmighjkhplpbocaefaljokofaifgi)**.
+Click **Add to Chrome** — that's it. The published item's **ID** is
+`liknmighjkhplpbocaefaljokofaifgi`, which is **allowlisted by default** on the
+server (see [Server setup](#server-setup)), so a store install needs **no pairing
+and no `SHEPHERD_ALLOWED_HOSTS` configuration** — point it at your core and capture.
+
+The **Load unpacked** flow below is for **development** only; end users should
+install from the store.
+
 ## Develop
 
 ```bash

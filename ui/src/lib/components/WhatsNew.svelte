@@ -126,6 +126,16 @@
                       text={(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
                     />
                   </p>
+                  {#if entry.ctaUrl && entry.ctaLabelKey}
+                    <a
+                      class="entry-cta"
+                      href={entry.ctaUrl}
+                      target="_blank"
+                      rel="external noreferrer noopener"
+                      >{(m as unknown as Record<string, () => string>)[entry.ctaLabelKey]()}
+                      <span aria-hidden="true">↗</span></a
+                    >
+                  {/if}
                 </li>
               {/each}
             </ul>
@@ -263,6 +273,29 @@
     font-size: var(--fs-base);
     color: var(--color-muted);
     line-height: 1.5;
+  }
+  /* External CTA below an entry's body (e.g. an install link) — amber link, with
+     a 44px tap target on touch so it's comfortable in the drawer. */
+  .entry-cta {
+    align-self: flex-start;
+    color: var(--color-amber);
+    text-decoration: none;
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+  .entry-cta:hover {
+    text-decoration: underline;
+  }
+  .entry-cta:focus-visible {
+    outline: 1px solid var(--color-amber);
+    outline-offset: 2px;
+  }
+  @media (pointer: coarse) {
+    .entry-cta {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
   }
   .foot {
     display: flex;

@@ -113,6 +113,7 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 
 ## Next steps
 
+- [Shepherd Capture](/capture-extension/) — the browser extension that turns any page into a task or session.
 - [Operating Shepherd](/operating/) — run it as a service and deploy changes.
 - [Configuration](/reference/configuration/) — every environment variable.
 - [Concepts & glossary](/reference/glossary/) — the terms Shepherd uses.

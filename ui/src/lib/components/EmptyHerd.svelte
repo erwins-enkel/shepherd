@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { CAPTURE_EXTENSION_URL } from "$lib/build-info";
 
   let {
     onnew,
@@ -40,6 +41,17 @@
       <dd>{m.emptyherd_verb_ready_desc()}</dd>
     </div>
   </dl>
+
+  <p class="ext-promo">
+    {m.emptyherd_extension_prompt()}
+    <a
+      class="ext-link"
+      href={CAPTURE_EXTENSION_URL}
+      target="_blank"
+      rel="external noreferrer noopener"
+      >{m.emptyherd_extension_link()} <span aria-hidden="true">↗</span></a
+    >
+  </p>
 
   {#if issueActionsUnset}
     <p class="nudge">
@@ -172,5 +184,28 @@
   .nudge-link:focus-visible {
     outline: 1.5px solid var(--color-line-bright);
     outline-offset: -1.5px;
+  }
+
+  /* Browser-extension promo — a quiet line + amber store link below the verbs. */
+  .ext-promo {
+    margin: 0;
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    border-top: 1px solid var(--color-line);
+    padding-top: 16px;
+  }
+  .ext-link {
+    color: var(--color-amber);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+  }
+  .ext-link:hover {
+    color: var(--color-ink-bright);
+  }
+  .ext-link:focus-visible {
+    outline: 1.5px solid var(--color-line-bright);
+    outline-offset: 2px;
   }
 </style>

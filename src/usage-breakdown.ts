@@ -108,7 +108,7 @@ async function liveSessionToAccum(
   if (!s.claudeSessionId) return null;
   if (isOperationalArchetype(s)) return null;
 
-  const path = jsonlPathFor(s.worktreePath, s.claudeSessionId);
+  const path = jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir);
   const file = Bun.file(path);
   if (!(await file.exists())) return null;
 
@@ -345,6 +345,7 @@ async function addLiveRollupTasks(
       id: s.id,
       worktreePath: s.worktreePath,
       claudeSessionId: s.claudeSessionId,
+      spawnAccountDir: s.spawnAccountDir,
     })),
     now,
   );

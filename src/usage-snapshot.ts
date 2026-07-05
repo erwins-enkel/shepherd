@@ -49,7 +49,7 @@ export async function snapshotSessionUsage(
     if (isOperationalArchetype(s) || !s.claudeSessionId) return "skipped";
 
     // 2. Resolve and read the JSONL file; skip if absent.
-    const path = jsonlPathFor(s.worktreePath, s.claudeSessionId);
+    const path = jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir);
     const file = Bun.file(path);
     if (!(await file.exists())) return "skipped";
     const text = await file.text();

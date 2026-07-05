@@ -9,9 +9,24 @@ export function dashify(cwd: string): string {
   return cwd.replace(/[/.]/g, "-");
 }
 
-/** Absolute path to a session's JSONL given its worktree cwd + pinned claude session id. */
-export function jsonlPathFor(worktreePath: string, claudeSessionId: string): string {
-  return join(config.claudeProjectsDir, dashify(worktreePath), `${claudeSessionId}.jsonl`);
+/** The claude projects dir a session's transcript lives under. When the agent was spawned
+ *  into a swap/pool account (`spawnAccountDir` set — claude-swap sets CLAUDE_CONFIG_DIR to it),
+ *  Claude Code writes the JSONL to `<account>/projects/…`, NOT the server's active projects
+ *  dir. So resolution MUST follow the account, else every transcript readback (usage, activity,
+ *  halt classification, MCP-auth URL) reads a nonexistent path and silently misses. Null/absent
+ *  ⇒ the active `config.claudeProjectsDir` (session ran under the server's own account). */
+function projectsDirFor(spawnAccountDir?: string | null): string {
+  return spawnAccountDir ? join(spawnAccountDir, "projects") : config.claudeProjectsDir;
+}
+
+/** Absolute path to a session's JSONL given its worktree cwd + pinned claude session id, rooted
+ *  under the session's spawn account when it was spawned into one (see `projectsDirFor`). */
+export function jsonlPathFor(
+  worktreePath: string,
+  claudeSessionId: string,
+  spawnAccountDir?: string | null,
+): string {
+  return join(projectsDirFor(spawnAccountDir), dashify(worktreePath), `${claudeSessionId}.jsonl`);
 }
 
 export interface ParsedRecord {
@@ -246,9 +261,13 @@ export function dominantModel(u: SessionUsage): string | null {
 export async function readSessionUsage(
   worktreePath: string,
   claudeSessionId: string,
+  spawnAccountDir?: string | null,
 ): Promise<SessionUsage | null> {
   try {
-    const text = await readFile(jsonlPathFor(worktreePath, claudeSessionId), "utf8");
+    const text = await readFile(
+      jsonlPathFor(worktreePath, claudeSessionId, spawnAccountDir),
+      "utf8",
+    );
     return accumulate(text.split("\n"));
   } catch {
     return null;
@@ -436,6 +455,9 @@ export interface RollupSession {
   id: string;
   worktreePath: string;
   claudeSessionId: string | null;
+  /** Swap/pool account the agent ran under, so the rollup reads the JSONL where it was
+   *  actually written (see `projectsDirFor`); null ⇒ the active projects dir. */
+  spawnAccountDir?: string | null;
 }
 
 interface PerRecord {
@@ -498,8 +520,12 @@ export class SessionUsageRollup {
   private inflight: Promise<void> | null = null;
 
   /** Resolve the JSONL path for a session. Overridable for tests. */
-  protected pathFor(worktreePath: string, claudeSessionId: string): string {
-    return jsonlPathFor(worktreePath, claudeSessionId);
+  protected pathFor(
+    worktreePath: string,
+    claudeSessionId: string,
+    spawnAccountDir?: string | null,
+  ): string {
+    return jsonlPathFor(worktreePath, claudeSessionId, spawnAccountDir);
   }
 
   /** Rescan sessions, ingesting newly-appended lines. Concurrent calls share one in-flight promise. */
@@ -530,7 +556,7 @@ export class SessionUsageRollup {
   /** Ingest one session file: stat, reset if truncated, appendChunk if grown, then prune. */
   private async ingestSession(sess: RollupSession, cutoff: number): Promise<void> {
     if (!sess.claudeSessionId) return;
-    const path = this.pathFor(sess.worktreePath, sess.claudeSessionId);
+    const path = this.pathFor(sess.worktreePath, sess.claudeSessionId, sess.spawnAccountDir);
 
     let size: number;
     try {

@@ -80,6 +80,7 @@ import type { EgressWatcher } from "./egress-watch";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
+import { UNTRUSTED_CONTENT_DIRECTIVE } from "./untrusted";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
@@ -1066,11 +1067,12 @@ export function composeSystemPrompt(
   // existing Claude caller is byte-identical.
   const agentProvider = opts.agentProvider ?? "claude";
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
+  const untrustedBoundary = `<untrusted-content-boundary>\n${UNTRUSTED_CONTENT_DIRECTIVE}\n</untrusted-content-boundary>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
   const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
   const blocks = houseRules
-    ? [posture, research, houseRules, branchNotice]
-    : [posture, research, branchNotice];
+    ? [posture, untrustedBoundary, research, houseRules, branchNotice]
+    : [posture, untrustedBoundary, research, branchNotice];
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed only for a
   // research session — which already caps at exactly one report-PR / issue, so the block is
   // redundant there and would muddy that deliverable.

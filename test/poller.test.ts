@@ -476,6 +476,35 @@ test("GET /api/working-blocked returns the snapshot; {} when unwired", async () 
   expect(await res.json()).toEqual({});
 });
 
+test("GET /api/blocks returns the block snapshot (incl. authUrl); {} when unwired", async () => {
+  const baseDeps = {
+    store: new SessionStore(":memory:"),
+    service: {} as any,
+    events: { subscribe: () => () => {}, emit: () => {} } as any,
+    usageLimits: {
+      limits: () => ({ session5h: null, week: null, stale: true, calibratedAt: null }),
+    },
+  };
+  const reason = {
+    shape: "awaiting-input",
+    options: [],
+    tail: ["paste callback"],
+    authUrl: AUTH_URL,
+  };
+  const wired = makeApp({
+    ...baseDeps,
+    blocks: { snapshot: () => ({ "session-1": reason }) },
+  } as any);
+  let res = await wired.fetch(new Request("http://localhost/api/blocks"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ "session-1": reason });
+
+  const unwired = makeApp(baseDeps as any);
+  res = await unwired.fetch(new Request("http://localhost/api/blocks"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({});
+});
+
 test("marks a session done and emits once when its herdr agent is gone", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
@@ -2821,4 +2850,53 @@ test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a 
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]); // only the initial flag-on
   expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
+});
+
+// ── auth-URL detection on awaiting-input blocks (MCP OAuth banner source) ──────────
+const AUTH_URL =
+  "https://mcp.notion.com/authorize?response_type=code&client_id=abc&code_challenge=x&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3118%2Fcallback";
+
+test("awaiting-input block carries the detected auth URL + blockSnapshot exposes it", () => {
+  const h = spinnerHarness("Open the URL in your browser, then paste the callback here:");
+  (h.poller as any).detectAuth = () => AUTH_URL;
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
+  // snapshot (client bootstrap) exposes the same reason incl. the URL
+  expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(AUTH_URL);
+});
+
+test("awaiting-input block has no authUrl when none is detected", () => {
+  const h = spinnerHarness("Type your answer:");
+  (h.poller as any).detectAuth = () => null;
+  h.poller.tick();
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
+});
+
+test("detectAuth is not consulted for a non-awaiting (menu) block", () => {
+  const h = spinnerHarness("❯ 1. Yes\n  2. No");
+  let calls = 0;
+  (h.poller as any).detectAuth = () => {
+    calls++;
+    return AUTH_URL;
+  };
+  h.poller.tick();
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+  expect(calls).toBe(0);
+  expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
+});
+
+test("blockSnapshot drops the auth URL when the session resumes", async () => {
+  const h = spinnerHarness("Paste the callback URL:");
+  (h.poller as any).detectAuth = () => AUTH_URL;
+  h.poller.tick();
+  expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(AUTH_URL);
+  // agent resumes → block clears → snapshot no longer carries it
+  h.setStatus("working");
+  h.advance(5000);
+  h.poller.tick();
+  await flush();
+  expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
 });

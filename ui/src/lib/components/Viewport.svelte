@@ -101,6 +101,7 @@
     onSeedBuildQueue,
     previewHost = null,
     workingBlocked = {},
+    authUrl = null,
     consumeAutoFocusTerm = () => true,
     drain = null,
     subagents = {},
@@ -157,6 +158,10 @@
      *  the derived `dStatus`; behavioral reads (resume self-heal, preview confirm
      *  arm) stay on the raw `session.status`. */
     workingBlocked?: Record<string, boolean>;
+    /** Pending MCP OAuth authorization URL for this session's awaiting-input block (from
+     *  the block reason). Drives the "open in browser" banner above the terminal; null
+     *  when the agent isn't waiting on an auth URL. */
+    authUrl?: string | null;
     /** One-shot gate for the mount auto-focus: the page records whether the selection
      *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
      *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
@@ -2235,6 +2240,7 @@
       {resuming}
       {resumeFailed}
       {resumable}
+      {authUrl}
       {scrollToTop}
       {scrollToBottom}
       {takeover}

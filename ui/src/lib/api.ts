@@ -51,6 +51,7 @@ import type {
   WorkflowRun,
   WorkflowJob,
   SessionActivity,
+  BlockReason,
   SubagentEntry,
   BuildQueue,
   BuildStepStatus,
@@ -1120,6 +1121,15 @@ export async function claudeAliveStates(): Promise<Record<string, boolean>> {
 export async function workingBlockedStates(): Promise<Record<string, boolean>> {
   const r = await fetch("/api/working-blocked");
   if (!r.ok) throw await failed(r, "working-blocked states");
+  return r.json();
+}
+
+/** Snapshot of the last-emitted block reason per session, keyed by session id (client
+ *  bootstrap). Blocks are otherwise edge-emitted via `session:block`, so a fresh page load
+ *  / push-then-open needs this to surface a live block (incl. an MCP-auth `authUrl`). */
+export async function blockStates(): Promise<Record<string, BlockReason>> {
+  const r = await fetch("/api/blocks");
+  if (!r.ok) throw await failed(r, "block states");
   return r.json();
 }
 

@@ -187,6 +187,17 @@ export class HerdStore {
   setWorkingBlocked(map: Record<string, boolean>) {
     this.workingBlocked = map;
   }
+  /** Seed the per-session block map after a bootstrap GET /api/blocks. Blocks are
+   *  edge-emitted via `session:block`, so a fresh load / push-then-open would otherwise
+   *  show no block (and no MCP-auth affordance) until the next re-classify. `since` is
+   *  best-effort (bootstrap can't recover the original block time). Live events keep the
+   *  earlier `since` via `setBlock`. */
+  setBlocks(map: Record<string, BlockReason>) {
+    const now = Date.now();
+    this.blocks = Object.fromEntries(
+      Object.entries(map).map(([id, reason]) => [id, { reason, since: now }]),
+    );
+  }
   /** Seed (or replace) the hold-reason map after a bootstrap GET. */
   setHolds(map: Record<string, HoldReason>): void {
     this.holds = map;

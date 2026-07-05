@@ -1234,3 +1234,31 @@ test("doc-agent:done dedupes repeated events for the same repo (same key)", () =
   });
   expect(toasts.items.filter((x) => x.key === "doc-agent-done:/repos/da-dedup")).toHaveLength(1);
 });
+
+test("setBlocks seeds the block map (incl. authUrl) for bootstrap", () => {
+  const s = new HerdStore();
+  const reason = {
+    shape: "awaiting-input" as const,
+    options: [],
+    tail: ["paste callback"],
+    authUrl: "https://mcp.notion.com/authorize?response_type=code&client_id=abc",
+  };
+  s.setBlocks({ s1: reason });
+  expect(s.blocks.s1?.reason.authUrl).toBe(reason.authUrl);
+  expect(s.blocks.s1?.reason.shape).toBe("awaiting-input");
+});
+
+test("session:block carries the authUrl through to the block map", () => {
+  const s = new HerdStore();
+  const reason = {
+    shape: "awaiting-input" as const,
+    options: [],
+    tail: [],
+    authUrl: "https://vercel.com/oauth/authorize?response_type=code&client_id=x",
+  };
+  s.apply({ event: "session:block", data: { id: "s1", block: reason } });
+  expect(s.blocks.s1?.reason.authUrl).toBe(reason.authUrl);
+  // clearing drops the entry
+  s.apply({ event: "session:block", data: { id: "s1", block: null } });
+  expect(s.blocks.s1).toBeUndefined();
+});

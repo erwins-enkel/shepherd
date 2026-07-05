@@ -188,7 +188,7 @@ import {
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
 import { fingerprintDiffCount } from "./rundown-core";
-import { quotaBlockReason } from "./blocked";
+import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
 import { PluginSpawnAborted } from "./plugins/types";
@@ -296,6 +296,10 @@ export interface AppDeps {
    *  (working-while-blocked display flag), for client bootstrap; updates flow via
    *  the `session:working-blocked` event. Absent in tests that skip it. */
   workingBlocked?: { snapshot(): Record<string, boolean> };
+  /** Last-emitted block reason per session, for client bootstrap; updates flow via the
+   *  `session:block` event. Lets a fresh page load / push-then-open surface a live block
+   *  (incl. an MCP-auth `authUrl`) that was edge-emitted before the client connected. */
+  blocks?: { snapshot(): Record<string, BlockReason> };
   /** Live preview port per session, for client bootstrap; absent until PreviewService is wired (Task 2+).
    *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
@@ -702,6 +706,13 @@ function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
     return json(deps.workingBlocked?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleBlocksSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "blocks" && !parts[2]) {
+    return json(deps.blocks?.snapshot() ?? {});
   }
   return null;
 }
@@ -6234,6 +6245,7 @@ const ROUTE_HANDLERS = [
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
   handleWorkingBlockedSnapshot,
+  handleBlocksSnapshot,
   handleHoldsSnapshot,
   handleSubagentsSnapshot,
   handlePreviewSnapshot,

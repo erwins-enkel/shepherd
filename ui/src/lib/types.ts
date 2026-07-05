@@ -215,6 +215,10 @@ export interface BlockReason {
   tail: string[];
   /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
   quotaKind?: "rework" | "review" | "error" | "plan";
+  /** Full OAuth authorization URL an awaiting-input block is waiting on the operator to
+   *  open (MCP auth flows, e.g. Notion/Vercel), sourced from the JSONL transcript rather
+   *  than the word-wrapped terminal. Drives the "open in browser" affordance. */
+  authUrl?: string;
 }
 
 export type HoldCode =

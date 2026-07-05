@@ -111,6 +111,22 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
 });
+test("consider: env.effort overrides session.effort (issue #1418)", async () => {
+  const h = harness({ env: () => ({ provider: "claude", model: null, effort: "high" }) });
+  await h.svc.consider({ ...planningSession(), effort: "low" } as any);
+  const argv = h.started[0].argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("consider: falls back to session.effort when env.effort is null/absent (issue #1418)", async () => {
+  const h = harness();
+  await h.svc.consider({ ...planningSession(), effort: "medium" } as any);
+  const argv = h.started[0].argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("medium");
+});
+
 test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
   await withAuth("subscription", "/ignored.sh", async () => {
     const h = harness();

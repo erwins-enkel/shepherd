@@ -558,6 +558,7 @@ export const putDefaultAgentProvider = (
 export type RoleBase = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
+export type RoleEffortKey = `${RoleBase}Effort`;
 
 // Persist a single per-role CLI setting. The server echoes the stored value under the same key.
 export const putRoleCli = (
@@ -570,6 +571,12 @@ export const putRoleModel = (
   key: RoleModelKey,
   model: string,
 ): Promise<Partial<Record<RoleModelKey, string>>> => patchSettings({ [key]: model });
+
+// Persist a single per-role effort setting. The server echoes the stored value under the same key.
+export const putRoleEffort = (
+  key: RoleEffortKey,
+  effort: string,
+): Promise<Partial<Record<RoleEffortKey, string>>> => patchSettings({ [key]: effort });
 
 // Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
 export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>
@@ -842,6 +849,7 @@ export type HandoffMode = "resume" | "summarize";
 export interface VariantChoice {
   agentProvider?: AgentProvider;
   model: string | null;
+  effort?: string | null;
   handoffMode?: HandoffMode;
 }
 

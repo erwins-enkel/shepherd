@@ -14,6 +14,8 @@ import {
   parseTermDims,
   validateEgressExtraHosts,
   validateRelaunchOverrides,
+  validateModelChoice,
+  validateReplaceAgentChoice,
 } from "../src/validate";
 import { stagingDir } from "../src/uploads";
 
@@ -1168,4 +1170,42 @@ test("mergeTrainPrs: [1, 2, 3] accepted", () => {
   );
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.value.mergeTrainPrs).toEqual([1, 2, 3]);
+});
+
+// ── validateModelChoice / validateReplaceAgentChoice: effort (#1418) ─────────
+
+test("validateModelChoice: valid effort tier is accepted", () => {
+  const r = validateModelChoice({ model: null, effort: "high" });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.effort).toBe("high");
+});
+
+test("validateModelChoice: bogus effort is rejected", () => {
+  const r = validateModelChoice({ model: null, effort: "bogus" });
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/effort/);
+});
+
+test("validateModelChoice: absent effort defaults to null", () => {
+  const r = validateModelChoice({ model: null });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.effort).toBeNull();
+});
+
+test("validateReplaceAgentChoice: valid effort tier is accepted", () => {
+  const r = validateReplaceAgentChoice({ model: null, effort: "high" });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.effort).toBe("high");
+});
+
+test("validateReplaceAgentChoice: bogus effort is rejected", () => {
+  const r = validateReplaceAgentChoice({ model: null, effort: "bogus" });
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/effort/);
+});
+
+test("validateReplaceAgentChoice: absent effort defaults to null", () => {
+  const r = validateReplaceAgentChoice({ model: null });
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.effort).toBeNull();
 });

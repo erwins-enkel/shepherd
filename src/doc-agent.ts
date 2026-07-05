@@ -728,6 +728,7 @@ export class DocAgentService {
     const { argv, sessionId } = buildTransientAgentArgv("doc", {
       provider: env.provider,
       model: env.model,
+      effort: env.effort,
       prompt: this.buildPrompt(base, promptCtx),
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind any patched env THROUGH the membrane.

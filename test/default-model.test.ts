@@ -182,74 +182,132 @@ describe("resolveRoleEnvironment", () => {
   // cli "inherit" follows the global provider + model; with the shipped "auto" global model this is
   // the provider default (null = no --model) — i.e. today's critic/planner/doc-agent behavior.
   test("cli 'inherit' + global 'auto' → global provider, null model", () => {
-    expect(resolveRoleEnvironment("inherit", "default", "claude", "auto", true)).toEqual({
-      provider: "claude",
-      model: null,
-    });
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "auto", true, "default")).toEqual(
+      {
+        provider: "claude",
+        model: null,
+        effort: null,
+      },
+    );
   });
 
   test("cli 'inherit' follows the global provider AND model", () => {
-    expect(resolveRoleEnvironment("inherit", "default", "claude", "opus", true)).toEqual({
-      provider: "claude",
-      model: "opus",
-    });
-    expect(resolveRoleEnvironment("inherit", "default", "codex", "auto", true)).toEqual({
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "opus", true, "default")).toEqual(
+      {
+        provider: "claude",
+        model: "opus",
+        effort: null,
+      },
+    );
+    expect(resolveRoleEnvironment("inherit", "default", "codex", "auto", true, "default")).toEqual({
       provider: "codex",
       model: null,
+      effort: null,
     });
   });
 
   test("explicit cli + model wins over the global default", () => {
-    expect(resolveRoleEnvironment("claude", "haiku", "claude", "opus", true)).toEqual({
+    expect(resolveRoleEnvironment("claude", "haiku", "claude", "opus", true, "default")).toEqual({
       provider: "claude",
       model: "haiku",
+      effort: null,
     });
-    expect(resolveRoleEnvironment("codex", "gpt-5.5", "claude", "opus", true)).toEqual({
+    expect(resolveRoleEnvironment("codex", "gpt-5.5", "claude", "opus", true, "default")).toEqual({
       provider: "codex",
       model: "gpt-5.5",
+      effort: null,
     });
   });
 
   test("explicit cli + 'default' model → null (provider default)", () => {
-    expect(resolveRoleEnvironment("codex", "default", "claude", "opus", true)).toEqual({
+    expect(resolveRoleEnvironment("codex", "default", "claude", "opus", true, "default")).toEqual({
       provider: "codex",
       model: null,
+      effort: null,
     });
   });
 
   test("clamp: a model not in the chosen provider's list → null (provider default)", () => {
     // opus is a Claude alias, not a Codex one → clamped away when cli is codex.
-    expect(resolveRoleEnvironment("codex", "opus", "claude", "auto", true)).toEqual({
+    expect(resolveRoleEnvironment("codex", "opus", "claude", "auto", true, "default")).toEqual({
       provider: "codex",
       model: null,
+      effort: null,
     });
   });
 
   test("unset / invalid cli defers to the global", () => {
-    expect(resolveRoleEnvironment(null, "haiku", "claude", "sonnet", true)).toEqual({
+    expect(resolveRoleEnvironment(null, "haiku", "claude", "sonnet", true, "default")).toEqual({
       provider: "claude",
       model: "sonnet",
+      effort: null,
     });
-    expect(resolveRoleEnvironment("gpt", "haiku", "claude", "sonnet", true)).toEqual({
+    expect(resolveRoleEnvironment("gpt", "haiku", "claude", "sonnet", true, "default")).toEqual({
       provider: "claude",
       model: "sonnet",
+      effort: null,
     });
   });
 
   test("fable substitution applies at the role layer when unavailable", () => {
-    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", false)).toEqual({
+    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", false, "default")).toEqual({
       provider: "claude",
       model: "opus[1m]",
+      effort: null,
     });
-    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", true)).toEqual({
+    expect(resolveRoleEnvironment("claude", "fable", "claude", "auto", true, "default")).toEqual({
       provider: "claude",
       model: "fable",
+      effort: null,
     });
     // inherited fable from the global default also substitutes
-    expect(resolveRoleEnvironment("inherit", "default", "claude", "fable", false)).toEqual({
+    expect(
+      resolveRoleEnvironment("inherit", "default", "claude", "fable", false, "default"),
+    ).toEqual({
       provider: "claude",
       model: "opus[1m]",
+      effort: null,
     });
+  });
+
+  // Efficacy for the per-role effort override (issue #1418): the resolved effort must reach BOTH
+  // the "inherit" branch (cli inherit/unrecognized → global provider+model) and the explicit
+  // branch (cli is a concrete provider) — the effort resolution is orthogonal to the cli branch.
+  test("roleEffort resolves to the tier on the inherit branch", () => {
+    expect(resolveRoleEnvironment("inherit", "default", "claude", "auto", true, "high")).toEqual({
+      provider: "claude",
+      model: null,
+      effort: "high",
+    });
+  });
+
+  test("roleEffort resolves to the tier on the explicit branch", () => {
+    expect(resolveRoleEnvironment("claude", "haiku", "claude", "opus", true, "xhigh")).toEqual({
+      provider: "claude",
+      model: "haiku",
+      effort: "xhigh",
+    });
+  });
+
+  test('roleEffort "default" → null effort on both branches', () => {
+    expect(
+      resolveRoleEnvironment("inherit", "default", "claude", "auto", true, "default").effort,
+    ).toBeNull();
+    expect(
+      resolveRoleEnvironment("claude", "haiku", "claude", "opus", true, "default").effort,
+    ).toBeNull();
+  });
+
+  test("roleEffort junk/unset → null effort on both branches", () => {
+    expect(
+      resolveRoleEnvironment("inherit", "default", "claude", "auto", true, "bogus").effort,
+    ).toBeNull();
+    expect(
+      resolveRoleEnvironment("claude", "haiku", "claude", "opus", true, undefined).effort,
+    ).toBeNull();
+    expect(
+      resolveRoleEnvironment("claude", "haiku", "claude", "opus", true, null).effort,
+    ).toBeNull();
   });
 });
 

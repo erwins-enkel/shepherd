@@ -65,16 +65,22 @@ export interface Settings {
    *  role's effective resolved CLI · model alongside its two pickers. */
   criticCli: string;
   criticModel: string;
+  criticEffort: string;
   plannerCli: string;
   plannerModel: string;
+  plannerEffort: string;
   recapCli: string;
   recapModel: string;
+  recapEffort: string;
   docAgentCli: string;
   docAgentModel: string;
+  docAgentEffort: string;
   namerCli: string;
   namerModel: string;
+  namerEffort: string;
   autopilotCli: string;
   autopilotModel: string;
+  autopilotEffort: string;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
   /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */

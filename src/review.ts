@@ -574,6 +574,7 @@ export class ReviewService {
     return buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
+      effort: env.effort,
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
       // Extended thinking budget (#604) — reasoning headroom for the #597 cross-file VERIFY pass.
       thinkingTokens: CRITIC_THINKING_TOKENS,

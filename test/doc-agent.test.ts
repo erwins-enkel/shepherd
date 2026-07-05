@@ -200,6 +200,8 @@ function mkHarness(opts?: {
   noEditPr?: boolean;
   /** Inject a plugin onSpawn hook runner (issue #1205 abort-path test). */
   runSpawnHooks?: (d: unknown) => Promise<unknown>;
+  /** Per-role reasoning-effort override threaded into the spawn env (issue #1418). */
+  effort?: string | null;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -229,6 +231,7 @@ function mkHarness(opts?: {
     forcePushThrows: false,
     editPrThrows: false,
     noEditPr: false,
+    effort: null as string | null,
     ...opts,
   };
 
@@ -442,7 +445,7 @@ function mkHarness(opts?: {
     repos: () => o.repos,
     store: store as any,
     nightlyHour: o.nightlyHour,
-    env: () => ({ provider: "claude", model: null }),
+    env: () => ({ provider: "claude", model: null, effort: o.effort }),
     act: o.act,
     onChange: (f) => finalizes.push(f),
     now: o.now,
@@ -534,6 +537,21 @@ test("happy path: in-scope edits → commit --no-verify + push + openPr (never m
   expect(h.finalizes).toEqual([{ repoPath: "/repo", url: "https://forge/pr/42", outcome: "pr" }]);
   // cleanup
   expect(h.removedWorktrees.length).toBeGreaterThan(0);
+});
+
+test("threads env.effort into the spawn argv (issue #1418)", async () => {
+  const h = mkHarness({ act: true, effort: "high" });
+  await h.svc.consider("/repo");
+  expect(h.startArgs).toHaveLength(1);
+  const argv = h.startArgs[0]!.argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("emits no --effort when env.effort is null (issue #1418)", async () => {
+  const h = mkHarness({ act: true, effort: null });
+  await h.svc.consider("/repo");
+  expect(h.startArgs[0]!.argv).not.toContain("--effort");
 });
 
 test("structural off-limits: only the in-scope file list is ever staged (no cli/*, no Astro app)", async () => {

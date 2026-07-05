@@ -133,10 +133,11 @@ function validateHandoffMode(value: unknown): Field<HandoffMode> {
  * `model` is validated against the supplied provider (absent/null/"default" → provider default).
  * Mirrors validateCreate's `{ ok, error }` contract so routes return the same 400 shape.
  */
-export function validateModelChoice(
-  body: unknown,
-):
-  | { ok: true; value: { agentProvider?: AgentProvider; model: string | null } }
+export function validateModelChoice(body: unknown):
+  | {
+      ok: true;
+      value: { agentProvider?: AgentProvider; model: string | null; effort: string | null };
+    }
   | { ok: false; error: string } {
   const obj = body == null ? {} : (body as Record<string, unknown>);
   if (typeof obj !== "object" || Array.isArray(obj)) return err("body must be a non-null object");
@@ -144,14 +145,24 @@ export function validateModelChoice(
   if (!provider.ok) return provider;
   const model = validateModel(obj.model, provider.value);
   if (!model.ok) return model;
-  return { ok: true, value: { agentProvider: provider.value, model: model.value } };
+  const effort = validateEffort(obj.effort);
+  if (!effort.ok) return effort;
+  return {
+    ok: true,
+    value: { agentProvider: provider.value, model: model.value, effort: effort.value },
+  };
 }
 
 /** Validate the in-place continuation payload for `/api/sessions/:id/replace`. */
 export function validateReplaceAgentChoice(body: unknown):
   | {
       ok: true;
-      value: { agentProvider?: AgentProvider; model: string | null; handoffMode: HandoffMode };
+      value: {
+        agentProvider?: AgentProvider;
+        model: string | null;
+        handoffMode: HandoffMode;
+        effort: string | null;
+      };
     }
   | { ok: false; error: string } {
   const obj = body == null ? {} : (body as Record<string, unknown>);
@@ -162,9 +173,16 @@ export function validateReplaceAgentChoice(body: unknown):
   if (!model.ok) return model;
   const handoffMode = validateHandoffMode(obj.handoffMode);
   if (!handoffMode.ok) return handoffMode;
+  const effort = validateEffort(obj.effort);
+  if (!effort.ok) return effort;
   return {
     ok: true,
-    value: { agentProvider: provider.value, model: model.value, handoffMode: handoffMode.value },
+    value: {
+      agentProvider: provider.value,
+      model: model.value,
+      handoffMode: handoffMode.value,
+      effort: effort.value,
+    },
   };
 }
 

@@ -417,6 +417,7 @@ export class StandalonePrCriticService {
     const { argv, sessionId: criticSessionId } = buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
+      effort: env.effort,
       prompt: prReviewPrompt(diffBase, pr.title, prBody),
       // Same extended thinking budget as the session critic (#604): the standalone PR critic runs
       // the identical #597 VERIFY prompt and needs the same cross-file reasoning headroom.

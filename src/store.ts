@@ -1869,6 +1869,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         | "claudeSessionId"
         | "agentProvider"
         | "model"
+        | "effort"
         | "readyToMerge"
         | "mergingSince"
         | "mergingTrainId"

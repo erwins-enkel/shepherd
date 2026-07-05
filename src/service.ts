@@ -2513,7 +2513,12 @@ export class SessionService {
    */
   async replaceAgent(
     id: string,
-    opts: { agentProvider?: AgentProvider; model: string | null; handoffMode?: HandoffMode },
+    opts: {
+      agentProvider?: AgentProvider;
+      model: string | null;
+      handoffMode?: HandoffMode;
+      effort?: string | null;
+    },
   ): Promise<Session> {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived")
@@ -2534,6 +2539,7 @@ export class SessionService {
       prompt: opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
       agentProvider,
       model,
+      effort: opts.effort,
       images: [],
       planGateEnabled: s.planGateEnabled,
       autopilotEnabled: s.autopilotEnabled,
@@ -2572,6 +2578,10 @@ export class SessionService {
         claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
         agentProvider,
         model: launch.spawnInput.model,
+        // Mirror the create path (#1418): persist the effort actually spawned with, so a later
+        // resume of this same row (post-crash) re-emits the effort the operator chose here rather
+        // than reverting to whatever was stored before the replace.
+        effort: launch.spawnInput.effort ?? null,
         status: "running",
         lastState: "idle",
         readyToMerge: false,
@@ -2662,7 +2672,7 @@ export class SessionService {
    */
   async startVariant(
     originalId: string,
-    opts: { agentProvider?: AgentProvider; model: string | null },
+    opts: { agentProvider?: AgentProvider; model: string | null; effort?: string | null },
   ): Promise<{ variant: Session; original: Session }> {
     const original = this.deps.store.get(originalId);
     if (!original || original.status === "archived")
@@ -2678,6 +2688,7 @@ export class SessionService {
     const variant = await this.relaunch(originalId, undefined, {
       agentProvider: opts.agentProvider,
       model: opts.model,
+      effort: opts.effort,
     });
     // Force auto-merge OFF on the variant (relaunch carries the original's setting). Autopilot
     // stays as carried so the variant still runs the task hands-off — but auto-merge must not land
@@ -2703,7 +2714,7 @@ export class SessionService {
    */
   async startComparison(
     experimentId: string,
-    opts: { agentProvider?: AgentProvider; model: string | null },
+    opts: { agentProvider?: AgentProvider; model: string | null; effort?: string | null },
   ): Promise<Session> {
     const members = this.deps.store.variantsForExperiment(experimentId);
     // One comparison per experiment: the grouping renders a single comparison session, so a second
@@ -2726,6 +2737,7 @@ export class SessionService {
       prompt: this.composeComparisonPrompt(variants, baseBranch),
       agentProvider: opts.agentProvider,
       model: opts.model,
+      effort: opts.effort,
       images: [],
       autopilotEnabled: false,
       auto: false,

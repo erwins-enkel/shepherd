@@ -21,6 +21,7 @@ import {
   MODELS,
   MODELS_BY_PROVIDER,
 } from "./types";
+import { normalizeEffort } from "./default-effort";
 
 const SETTING_VALUES = new Set<string>(["auto", "default", ...MODELS]);
 const CLAUDE_MODEL_VALUES = new Set<string>(MODELS);
@@ -130,11 +131,14 @@ export function resolveDefaultModelSetting(
   return globalSetting;
 }
 
-/** A resolved per-role spawn environment: which CLI to launch and which model flag (null = the
- *  provider's own default, no --model). */
+/** A resolved per-role spawn environment: which CLI to launch, which model flag (null = the
+ *  provider's own default, no --model), and which effort flag (null/undefined = no --effort).
+ *  `effort` is OPTIONAL — several call sites fall back to a `{ provider, model }` literal without
+ *  it (recap.ts, plan-gate.ts, review.ts, standalone-critic.ts, doc-agent.ts). */
 export interface RoleEnvironment {
   provider: AgentProvider;
   model: string | null;
+  effort?: string | null;
 }
 
 /** Normalize a per-role CLI SETTING to "inherit" | <AgentProvider>, or null if unrecognized.
@@ -160,11 +164,14 @@ export function normalizeRoleModelToken(value: unknown): string | null {
  * Resolve a per-ROLE environment (plan reviewer, PR critic, recap, doc-agent, namer, autopilot)
  * to the CLI provider + spawn-ready model flag for a role spawn.
  *
- * Role SETTING space is a PAIR: `roleCli` ∈ "inherit" | <AgentProvider>; `roleModel` ∈
- * "default" | <alias>.
+ * Role SETTING space is a TRIPLE: `roleCli` ∈ "inherit" | <AgentProvider>; `roleModel` ∈
+ * "default" | <alias>; `roleEffort` ∈ "default" | <EFFORTS tier>.
  *   - cli "inherit" (or unset/invalid) → follow the global defaultAgentProvider + defaultModel.
  *   - cli <provider> → that provider; model "default" → null (provider default); model <alias> →
  *     the alias, clamped to null if it doesn't belong to the chosen provider (stale pairing guard).
+ *   - effort → `normalizeEffort(roleEffort)`: "default"/invalid → null (no --effort flag, the role's
+ *     natural default), a tier passes through (the Codex xhigh/max clamp is applied later, at the
+ *     argv boundary in `effortForSpawn`). Effort is orthogonal to the cli/model pair.
  * fable → opus[1m] substitution (spawnModelForAvailability) applies when fable is unavailable.
  */
 export function resolveRoleEnvironment(
@@ -173,17 +180,20 @@ export function resolveRoleEnvironment(
   globalProvider: AgentProvider,
   globalModelSetting: string,
   fableAvailable: boolean,
+  roleEffort: string | null | undefined,
 ): RoleEnvironment {
+  const effort = normalizeEffort(roleEffort);
   const cli = normalizeRoleCli(roleCli);
   if (cli === null || cli === "inherit") {
     return {
       provider: globalProvider,
       model: spawnModelForAvailability(drainSpawnModel(globalModelSetting), fableAvailable),
+      effort,
     };
   }
   const token = normalizeRoleModelToken(roleModel) ?? "default";
-  if (token === "default") return { provider: cli, model: null };
+  if (token === "default") return { provider: cli, model: null, effort };
   // Clamp: the stored model must belong to the chosen provider, else fall back to its default.
-  if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null };
-  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable) };
+  if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null, effort };
+  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable), effort };
 }

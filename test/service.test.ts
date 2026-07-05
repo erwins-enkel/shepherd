@@ -5280,6 +5280,97 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(calls.removed).toEqual([]);
 });
 
+test("replaceAgent threads effort onto the spawned Claude argv (#1418)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, { agentProvider: "claude" });
+
+  const replaced = await service.replaceAgent(orig.id, {
+    agentProvider: "claude",
+    model: "opus",
+    effort: "high",
+  });
+
+  expect(replaced.effort).toBe("high");
+  expect(calls.started[0]!.argv).toContain("--effort");
+  expect(calls.started[0]!.argv[calls.started[0]!.argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("startVariant threads effort onto the relaunched spawn (#1418)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, { agentProvider: "claude" });
+
+  const { variant } = await service.startVariant(orig.id, {
+    agentProvider: "claude",
+    model: "opus",
+    effort: "high",
+  });
+
+  expect(variant.effort).toBe("high");
+  const argv = calls.started[0]!.argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("startComparison threads effort into the created CreateSessionInput (#1418)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: { start?: { name: string; cwd: string; argv: string[] } } = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "compare",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: (_repo: string, _base: string, name: string) => ({
+        worktreePath: `/wt/${name}`,
+        branch: `shepherd/${name}`,
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: (name: string, cwd: string, argv: string[]) => {
+        calls.start = { name, cwd, argv };
+        return { terminalId: "term_cmp", agentStatus: "working" } as any;
+      },
+      list: () => [],
+    } as any,
+  });
+
+  const v1 = store.create({
+    name: "v1",
+    prompt: "task",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/v1",
+    worktreePath: "/wt/v1",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_v1",
+  });
+  store.setExperiment(v1.id, { experimentId: "exp-1", role: "variant" });
+  const v2 = store.create({
+    name: "v2",
+    prompt: "task",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/v2",
+    worktreePath: "/wt/v2",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_v2",
+  });
+  store.setExperiment(v2.id, { experimentId: "exp-1", role: "variant" });
+
+  const created = await service.startComparison("exp-1", { model: "opus", effort: "high" });
+
+  expect(created.effort).toBe("high");
+  const argv = calls.start!.argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
 test("replaceAgent preserves an executing plan phase instead of resurrecting Codex plan-gate", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls } = relaunchHarness(store);

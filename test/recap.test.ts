@@ -246,7 +246,7 @@ function buildSvc(opts: {
   store: FakeStore;
   herdr: FakeHerdr;
   onChange?: (id: string, recap: Recap | null) => void;
-  env?: () => { provider: "claude" | "codex"; model: string | null };
+  env?: () => { provider: "claude" | "codex"; model: string | null; effort?: string | null };
   nowFn: () => number;
   headSha?: string;
   diff?: typeof NON_EMPTY_DIFF | typeof EMPTY_DIFF;
@@ -869,6 +869,35 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
     "gpt-5.5",
   ]);
   expect(argv).not.toContain("--settings");
+});
+
+test("generate: threads env.effort into the recap argv (issue #1418)", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+    env: () => ({ provider: "claude", model: "sonnet", effort: "high" }),
+  });
+  await svc.regenerate(s);
+  const argv = herdr.started[0]!.argv;
+  expect(argv).toContain("--effort");
+  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("generate: emits no --effort when env.effort is null/absent (issue #1418)", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+  });
+  await svc.regenerate(s);
+  expect(herdr.started[0]!.argv).not.toContain("--effort");
 });
 
 test("generate: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {

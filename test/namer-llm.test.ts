@@ -78,6 +78,19 @@ test("llmName: returns sanitized slug, spawns haiku, stops + cleans up", async (
   expect(calls.cleaned).toBe(true);
 });
 
+test("llmName: threads effort into the namer argv (issue #1418)", async () => {
+  const { deps, calls } = makeDeps({ effort: "high", readName: () => "mobile footer" });
+  await llmName("the mobile footer needs settings", deps, "l");
+  expect(calls.started.argv).toContain("--effort");
+  expect(calls.started.argv[calls.started.argv.indexOf("--effort") + 1]).toBe("high");
+});
+
+test("llmName: emits no --effort when effort is null/default (issue #1418)", async () => {
+  const { deps, calls } = makeDeps({ readName: () => "mobile footer" });
+  await llmName("the mobile footer needs settings", deps, "l");
+  expect(calls.started.argv).not.toContain("--effort");
+});
+
 test("llmName: codex provider spawns headless `codex exec` (no claude flags)", async () => {
   const { deps, calls } = makeDeps({
     provider: "codex",

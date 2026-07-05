@@ -267,7 +267,7 @@ export class PlanGateService {
       env.provider,
       env.model,
       prompt,
-      session.effort,
+      env.effort ?? session.effort,
     );
 
     // Disposable detached worktree at the base: read-only codebase inspection that can't race

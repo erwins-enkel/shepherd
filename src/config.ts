@@ -522,11 +522,12 @@ export const config = {
   // Phase-1 escalation; meaningful only with `docAgentEnabled` (Phase-0 observe). When off,
   // finalize() is log-only (it warns what PR it *would* open, then skips commit/push/openPr).
   docAgentAct: process.env.SHEPHERD_DOC_AGENT_ACT === "1",
-  // Per-role ENVIRONMENT (CLI + model) for the doc-agent spawn. cli ∈ "inherit"|"claude"|"codex"
+  // Per-role ENVIRONMENT (CLI + model + effort) for the doc-agent spawn. cli ∈ "inherit"|"claude"|"codex"
   // ("inherit" follows the global defaultAgentProvider+defaultModel); model ∈ "default"|<alias>.
   // Resolved via resolveRoleEnvironment at wiring time. Persisted + UI-configurable; env seeds a fresh DB.
   docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
   docAgentModel: normalizeRoleModelToken(process.env.SHEPHERD_DOC_AGENT_MODEL) ?? "default",
+  docAgentEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DOC_AGENT_EFFORT) ?? "low",
   // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
@@ -554,12 +555,13 @@ export const config = {
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.
   llmNaming: process.env.SHEPHERD_LLM_NAMING !== "0",
-  // Per-role ENVIRONMENT (CLI + model) for the background namer (cheap + fast is plenty for a 2-4
+  // Per-role ENVIRONMENT (CLI + model + effort) for the background namer (cheap + fast is plenty for a 2-4
   // word slug). Seeded to Claude+haiku — a deliberate fixed default for this constant-cadence
   // classifier (following a heavy global default would needlessly inflate naming cost). Resolved
   // via resolveRoleEnvironment at the call site. Persisted + UI-configurable.
   namerCli: normalizeRoleCli(process.env.SHEPHERD_NAMER_CLI) ?? "claude",
   namerModel: normalizeRoleModelToken(process.env.SHEPHERD_NAMER_MODEL) ?? "haiku",
+  namerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_NAMER_EFFORT) ?? "low",
   // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
   // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
   // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
@@ -567,12 +569,13 @@ export const config = {
   houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
-  // Per-role ENVIRONMENT (CLI + model) for the transient autopilot stop-classifier spawn (cheap +
+  // Per-role ENVIRONMENT (CLI + model + effort) for the transient autopilot stop-classifier spawn (cheap +
   // fast is plenty). Seeded to Claude+haiku — like the namer, a deliberate fixed default for a
   // constant-cadence classifier. Resolved via resolveRoleEnvironment at the call site.
   // Persisted + UI-configurable.
   autopilotCli: normalizeRoleCli(process.env.SHEPHERD_AUTOPILOT_CLI) ?? "claude",
   autopilotModel: normalizeRoleModelToken(process.env.SHEPHERD_AUTOPILOT_MODEL) ?? "haiku",
+  autopilotEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_AUTOPILOT_EFFORT) ?? "low",
   // Max PR-critic auto-address rounds before escalating to a human (drives ReviewService).
   // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
   prReviewCyclesCap: clampCap(
@@ -589,19 +592,28 @@ export const config = {
     PLAN_REVIEW_CYCLES_MAX,
     PLAN_REVIEW_CYCLES_DEFAULT,
   ),
-  // Per-role ENVIRONMENTs (CLI + model) for the PR critic (ReviewService + StandalonePrCriticService)
+  // Per-role ENVIRONMENTs (CLI + model + effort) for the PR critic (ReviewService + StandalonePrCriticService)
   // and the pre-execution plan-gate reviewer. cli ∈ "inherit"|"claude"|"codex"; model ∈
   // "default"|<alias>. Seeded to cli "inherit" → both follow the global defaultAgentProvider +
   // defaultModel (today's behavior). Resolved via resolveRoleEnvironment at wiring time. Persisted +
   // UI-configurable; env seeds a fresh DB.
   criticCli: normalizeRoleCli(process.env.SHEPHERD_CRITIC_CLI) ?? "inherit",
   criticModel: normalizeRoleModelToken(process.env.SHEPHERD_CRITIC_MODEL) ?? "default",
+  criticEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_CRITIC_EFFORT) ?? "high",
   plannerCli: normalizeRoleCli(process.env.SHEPHERD_PLANNER_CLI) ?? "inherit",
   plannerModel: normalizeRoleModelToken(process.env.SHEPHERD_PLANNER_MODEL) ?? "default",
+  // NOTE: seeded "default", NOT "high" like criticEffort — deliberate, not an oversight. The planner
+  // has no independent spawn: it IS the plan-gate reviewer, which (per #1417) inherits `session.effort`
+  // — the tier the session itself runs at. plan-gate resolves `env.effort ?? session.effort`, so
+  // "default" (→ null) preserves that inheritance (a `max` session reviews its plan at `max`), while
+  // an explicit tier here still overrides. Seeding "high" would force every plan review to high
+  // regardless of the session, downgrading high-effort sessions and surprising low-effort ones.
+  plannerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_PLANNER_EFFORT) ?? "default",
   // Per-role ENVIRONMENT for the recap (session-summary) agent. Seeded to Claude+sonnet to preserve
   // the prior hardcoded default; resolved via resolveRoleEnvironment. Persisted + UI-configurable.
   recapCli: normalizeRoleCli(process.env.SHEPHERD_RECAP_CLI) ?? "claude",
   recapModel: normalizeRoleModelToken(process.env.SHEPHERD_RECAP_MODEL) ?? "sonnet",
+  recapEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_RECAP_EFFORT) ?? "low",
   // Default model for spawned agents. Persisted + UI-configurable. "auto" = unset seed
   // (picker uses client promo fallback, drain falls back to no --model); an explicit
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds

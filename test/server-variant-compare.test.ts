@@ -124,7 +124,7 @@ test("variant: spawns, returns 201, emits session:new (variant) + session:experi
   expect(body.session.id).toBe("var");
   expect(h.calls.startVariant[0]).toEqual({
     id: "orig",
-    choice: { agentProvider: "claude", model: "opus" },
+    choice: { agentProvider: "claude", model: "opus", effort: null },
   });
   expect(h.emitted.find((e) => e.event === "session:new")?.data).toMatchObject({ id: "var" });
   expect(h.emitted.find((e) => e.event === "session:experiment")?.data).toMatchObject({
@@ -155,6 +155,27 @@ test("variant: 400 on an invalid model/provider pair", async () => {
   expect(h.calls.startVariant).toHaveLength(0);
 });
 
+test("variant: threads a supplied effort tier through to the service (#1418)", async () => {
+  const h = harness({});
+  const res = await h.app.fetch(
+    variantReq("orig", { agentProvider: "claude", model: "opus", effort: "high" }),
+  );
+  expect(res.status).toBe(201);
+  expect(h.calls.startVariant[0]).toEqual({
+    id: "orig",
+    choice: { agentProvider: "claude", model: "opus", effort: "high" },
+  });
+});
+
+test("variant: 400 on an invalid effort tier", async () => {
+  const h = harness({});
+  const res = await h.app.fetch(
+    variantReq("orig", { agentProvider: "claude", model: "opus", effort: "bogus" }),
+  );
+  expect(res.status).toBe(400);
+  expect(h.calls.startVariant).toHaveLength(0);
+});
+
 test("replace: updates the existing session and emits no new/archive events", async () => {
   const h = harness({ original: { worktreePath: "/same-wt", agentProvider: "claude" } });
   const res = await h.app.fetch(replaceReq());
@@ -164,7 +185,7 @@ test("replace: updates the existing session and emits no new/archive events", as
   expect(body.session.worktreePath).toBe("/same-wt");
   expect(h.calls.replaceAgent[0]).toEqual({
     id: "orig",
-    choice: { agentProvider: "codex", model: "gpt-5.5", handoffMode: "resume" },
+    choice: { agentProvider: "codex", model: "gpt-5.5", handoffMode: "resume", effort: null },
   });
   expect(h.emitted.map((e) => e.event)).toEqual(["session:status"]);
   expect(h.emitted[0]?.data).toMatchObject({
@@ -191,14 +212,39 @@ test("replace: 400 on an invalid handoff mode", async () => {
   expect(h.calls.replaceAgent).toHaveLength(0);
 });
 
+test("replace: threads a supplied effort tier through to the service (#1418)", async () => {
+  const h = harness({ original: { worktreePath: "/same-wt", agentProvider: "claude" } });
+  const res = await h.app.fetch(
+    replaceReq("orig", { agentProvider: "codex", model: "gpt-5.5", effort: "high" }),
+  );
+  expect(res.status).toBe(200);
+  expect(h.calls.replaceAgent[0]).toEqual({
+    id: "orig",
+    choice: { agentProvider: "codex", model: "gpt-5.5", handoffMode: "resume", effort: "high" },
+  });
+});
+
 test("compare: spawns, returns 201 and emits session:new", async () => {
   const h = harness({});
   const res = await h.app.fetch(compareReq());
   expect(res.status).toBe(201);
   const body = (await res.json()) as { session: { id: string } };
   expect(body.session.id).toBe("cmp");
-  expect(h.calls.startComparison[0]).toEqual({ experimentId: "exp", choice: { model: "opus" } });
+  expect(h.calls.startComparison[0]).toEqual({
+    experimentId: "exp",
+    choice: { model: "opus", effort: null },
+  });
   expect(h.emitted.find((e) => e.event === "session:new")?.data).toMatchObject({ id: "cmp" });
+});
+
+test("compare: threads a supplied effort tier through to the service (#1418)", async () => {
+  const h = harness({});
+  const res = await h.app.fetch(compareReq("exp", { model: "opus", effort: "high" }));
+  expect(res.status).toBe(201);
+  expect(h.calls.startComparison[0]).toEqual({
+    experimentId: "exp",
+    choice: { model: "opus", effort: "high" },
+  });
 });
 
 test("compare: 502 when the service rejects (e.g. too few variants)", async () => {

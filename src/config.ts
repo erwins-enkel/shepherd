@@ -7,7 +7,7 @@ import {
   normalizeRoleCli,
   normalizeRoleModelToken,
 } from "./default-model";
-import { normalizeDefaultEffortSetting } from "./default-effort";
+import { normalizeDefaultEffortSetting, effortBelowHigh } from "./default-effort";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -720,6 +720,16 @@ export const config = {
   usageDowngradeModel:
     normalizeDefaultModelSetting(process.env.SHEPHERD_USAGE_DOWNGRADE_MODEL) ?? "haiku",
 };
+
+// #1430 guardrail: the critic is a rigor role seeded to "high". Warn at startup when
+// SHEPHERD_CRITIC_EFFORT lowered it below high (low/medium/default) — the UI/PATCH paths warn at
+// set-time (see server.ts). Because the seed default is "high", this is silent in normal runs and
+// only fires when the env var was explicitly set below high.
+if (effortBelowHigh(config.criticEffort)) {
+  console.warn(
+    `[critic-effort] SHEPHERD_CRITIC_EFFORT='${config.criticEffort}' resolves below 'high'; the critic is a rigor role — a reduced effort weakens PR review`,
+  );
+}
 
 // Session housekeeping retention thresholds (the daily sweep's policy). The single
 // tuning point: archived sessions older than SESSION_RETENTION_MS OR ranked past the

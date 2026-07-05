@@ -280,10 +280,10 @@
       {
         "files": ["src/store.ts"],
         "functions": ["hydrate"],
-        "maxCyclomatic": 20,
-        "maxCognitive": 20,
+        "maxCyclomatic": 22,
+        "maxCognitive": 22,
         "maxCrap": 1000,
-        "reason": "Codex/default-provider persistence extends the existing hydrate migration path by one branch; keep capped until hydrate migrations are extracted."
+        "reason": "Codex/default-provider persistence + the spawn-identity columns (spawnTerminalId/spawnAccountDir, herdr-restart account recovery) extend the flat hydrate row→Session mapping by two nullable-field branches. Cyclomatic is field-count-driven, not logic — keep capped until hydrate migrations are extracted."
       },
       {
         "files": ["src/store.ts"],

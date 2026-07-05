@@ -420,18 +420,23 @@ export class StatusPoller {
   }
 
   /** Sync a live agent's status into the store and route its block/stall handling. */
-  private reconcileAgent(s: Session, agent: HerdrAgent): void {
-    // A herdr-restored account pane (its terminalId is not the one Shepherd spawned on the owning
-    // account). Fire a proactive re-drive so onSpawn re-applies the account; reDriveAccount is
-    // guarded (coalesces with any concurrent resume) and bounded (gives up after CAP). Non-blocking:
-    // tick() runs on a bare setInterval and must never throw.
-    if (needsAccountRedrive(s, agent) && this.reDrive) {
-      try {
-        this.reDrive(s.id);
-      } catch (err) {
-        console.warn(`[poller] account re-drive dispatch failed for ${s.id}:`, err);
-      }
+  /**
+   * A herdr-restored account pane (its terminalId is not the one Shepherd spawned on the owning
+   * account) → fire a proactive re-drive so onSpawn re-applies the account. reDriveAccount is guarded
+   * (coalesces with any concurrent resume) and bounded (gives up after CAP). Non-blocking + swallows
+   * throws: tick() runs on a bare setInterval and must never throw.
+   */
+  private maybeReDriveRestoredAccount(s: Session, agent: HerdrAgent): void {
+    if (!needsAccountRedrive(s, agent) || !this.reDrive) return;
+    try {
+      this.reDrive(s.id);
+    } catch (err) {
+      console.warn(`[poller] account re-drive dispatch failed for ${s.id}:`, err);
     }
+  }
+
+  private reconcileAgent(s: Session, agent: HerdrAgent): void {
+    this.maybeReDriveRestoredAccount(s, agent);
     const status = mapState(agent.agentStatus);
     const idChanged = agent.terminalId !== s.herdrAgentId;
     if (idChanged || status !== s.status || agent.agentStatus !== s.lastState) {

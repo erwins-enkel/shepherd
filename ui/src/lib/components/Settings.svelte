@@ -31,7 +31,12 @@
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
-  import { effortLabel, effortAvailableForProvider, providerEfforts } from "$lib/effort-guidance";
+  import {
+    effortLabel,
+    effortAvailableForProvider,
+    providerEfforts,
+    effortBelowHigh,
+  } from "$lib/effort-guidance";
   import {
     AGENT_PROVIDERS,
     MODELS,
@@ -1302,6 +1307,9 @@
               {/each}
             </select>
           </div>
+          {#if role === "critic" && effortBelowHigh(roleEffortV[role])}
+            <p class="premium-warn">{m.settings_critic_effort_weakened_warning()}</p>
+          {/if}
           <p class="hint role-eff">
             {m.settings_role_model_effective({ model: effectiveEnvLabel(role) })}
           </p>

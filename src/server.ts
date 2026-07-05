@@ -174,6 +174,7 @@ import {
   normalizeRepoDefaultEffortSetting,
   drainSpawnEffort,
   resolveDefaultEffortSetting,
+  effortBelowHigh,
 } from "./default-effort";
 import { startSerially } from "./up-next";
 import { excludeHiddenSections } from "./up-next-core";
@@ -4260,6 +4261,14 @@ function makeRoleEffortPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"])
       return json({ error: `${key} must be "default" or a reasoning-effort tier` }, 400);
     config[key] = v; // live: next spawn's role-env thunk picks it up
     deps.store.setSetting(key, v); // persist across restarts
+    // #1430 guardrail: the critic is a rigor role; warn when its effort resolves below `high`
+    // (low/medium/default). Covers non-UI lowering paths (direct/external PATCH) — the Settings
+    // UI shows an inline warning of its own. Critic-only so other roles keep the generic behavior.
+    if (role === "critic" && effortBelowHigh(v)) {
+      console.warn(
+        `[critic-effort] critic reasoning effort set to '${v}' (resolves below 'high'); the critic is a rigor role — a reduced effort weakens PR review`,
+      );
+    }
     return json({ [key]: config[key] });
   };
 }

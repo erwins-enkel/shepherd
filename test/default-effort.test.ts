@@ -7,6 +7,7 @@ import {
   drainSpawnEffort,
   effortForSpawn,
   effortsForProvider,
+  effortBelowHigh,
 } from "../src/default-effort";
 import { EFFORTS } from "../src/types";
 
@@ -90,5 +91,23 @@ describe("effortsForProvider", () => {
   });
   test("Codex hides xhigh and max", () => {
     expect(effortsForProvider("codex")).toEqual(["low", "medium", "high"]);
+  });
+});
+
+describe("effortBelowHigh (critic guardrail)", () => {
+  test("low and medium tiers are below high", () => {
+    expect(effortBelowHigh("low")).toBe(true);
+    expect(effortBelowHigh("medium")).toBe(true);
+  });
+  test("'default' is treated as below high (no --effort flag → CLI's below-high native default)", () => {
+    expect(effortBelowHigh("default")).toBe(true);
+  });
+  test("high, xhigh and max are not below high", () => {
+    expect(effortBelowHigh("high")).toBe(false);
+    expect(effortBelowHigh("xhigh")).toBe(false);
+    expect(effortBelowHigh("max")).toBe(false);
+  });
+  test("unknown/junk strings are not below high", () => {
+    for (const v of ["inherit", "minimal", "", "gpt4"]) expect(effortBelowHigh(v)).toBe(false);
   });
 });

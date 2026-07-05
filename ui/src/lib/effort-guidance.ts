@@ -15,6 +15,19 @@ export function effortAvailableForProvider(provider: AgentProvider, value: strin
   return providerEfforts(provider).includes(value);
 }
 
+/**
+ * Critic guardrail predicate (#1430): does a role-effort SETTING resolve BELOW the `high` tier?
+ * Operates on the SETTING space ("default" | <tier>): "default" → true (no `--effort` flag → the
+ * CLI's own below-high native default, which is why the critic is seeded to "high"); a tier below
+ * `high`'s index (low/medium) → true; "high"/"xhigh"/"max" and unknown strings → false. Mirrors the
+ * server's effortBelowHigh in src/default-effort.ts — keep the two byte-identical in behavior. */
+export function effortBelowHigh(setting: string): boolean {
+  if (setting === "default") return true;
+  const order: readonly string[] = EFFORTS;
+  const idx = order.indexOf(setting);
+  return idx !== -1 && idx < order.indexOf("high");
+}
+
 /** Human label for one effort tier (i18n). */
 export function effortLabel(effort: string): string {
   switch (effort) {

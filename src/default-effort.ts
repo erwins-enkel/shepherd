@@ -99,3 +99,20 @@ export function effortForSpawn(provider: AgentProvider, effort: string | null): 
 export function effortsForProvider(provider: AgentProvider): readonly string[] {
   return provider === "codex" ? EFFORTS.filter((e) => e !== "xhigh" && e !== "max") : EFFORTS;
 }
+
+/**
+ * Critic guardrail predicate (#1430): does a role-effort SETTING resolve BELOW the `high` tier?
+ * Operates on the SETTING space ("default" | <tier>), NOT just tiers:
+ *   - "default" → true. It emits no `--effort` flag, so the CLI's own native default applies, which
+ *     is below `high` — exactly why config.ts seeds `criticEffort` to "high" (config.ts:606-609).
+ *   - a tier below `high`'s EFFORTS index (low/medium) → true.
+ *   - "high"/"xhigh"/"max" and any unrecognised string → false.
+ * The critic is a rigor role; a below-high effort weakens PR review. Mirrored in
+ * ui/src/lib/effort-guidance.ts (keep the two byte-identical in behavior).
+ */
+export function effortBelowHigh(setting: string): boolean {
+  if (setting === "default") return true;
+  const order: readonly string[] = EFFORTS;
+  const idx = order.indexOf(setting);
+  return idx !== -1 && idx < order.indexOf("high");
+}

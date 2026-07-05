@@ -150,6 +150,39 @@ test("dead pane → resume attempted before steer; counter bumped once resumed",
   expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
 });
 
+test("herdr-restored account husk (deferSteer true) → resume attempted before steer, even though paneAlive", async () => {
+  const reply = mock(() => true);
+  const resume = mock(() => true);
+  const setState = mock(() => {});
+  const d = deps({
+    worktree: { behindBase: async () => true } as any,
+    paneAlive: () => true, // pane IS live — only deferSteer forces the resume() detour
+    deferSteer: () => true,
+    service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
+  });
+  d.store.setAutoMergeState = setState as any;
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(resume.mock.calls.length).toBe(1);
+  expect(reply.mock.calls.length).toBe(1);
+  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+});
+
+test("deferSteer false + paneAlive true → replies directly, no resume (unchanged)", async () => {
+  const reply = mock(() => true);
+  const resume = mock(() => true);
+  const d = deps({
+    worktree: { behindBase: async () => true } as any,
+    paneAlive: () => true,
+    deferSteer: () => false,
+    service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(resume.mock.calls.length).toBe(0);
+  expect(reply.mock.calls.length).toBe(1);
+});
+
 test("rebase steer fails to deliver → counter NOT bumped", async () => {
   const reply = mock(() => false);
   const setState = mock(() => {});

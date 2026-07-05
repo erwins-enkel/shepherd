@@ -7,7 +7,7 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
-import { matchAgents } from "./herdr";
+import { matchAgents, needsAccountRedrive } from "./herdr";
 import { config } from "./config";
 import type {
   AgentProvider,
@@ -1237,6 +1237,10 @@ type SpawnSuccess = {
   egressApplied: boolean;
   /** True when an interactive autonomous session ran FS-only because egress was unavailable. */
   egressDegraded: boolean;
+  /** The folded PLUGIN credentialDir (patchEnv.CLAUDE_CONFIG_DIR) this spawn used, or null — the
+   *  OWNED account for herdr-restore re-drive; excludes the api-key mirror, which shares
+   *  ~/.claude/projects/. */
+  spawnAccountDir: string | null;
 };
 type SpawnOutcome =
   SpawnSuccess | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
@@ -1338,6 +1342,29 @@ function composeHandoffSummaryPrompt(originalPrompt: string): string {
 
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
+
+  /**
+   * Per-session resume() in-flight guard (herdr-restart account-loss fix, task 2).
+   * `resume()` has many entrypoints (HTTP "bring agent back", the autonomous resume
+   * deps, and a later poller re-drive) that can race on one session id, each tearing
+   * down + re-spawning a herdr agent — two racing calls would double-spawn (a leaked
+   * husk + last-write-wins spawnTerminalId). Keyed by session id so cross-session
+   * resumes are never serialized against each other.
+   */
+  private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
+
+  /**
+   * Bounded-attempt bookkeeping for `reDriveAccount` (herdr-restart account-loss fix, task 4a).
+   * Keyed by session id; the `anchor` is the session's `spawnTerminalId` AT the time of the FIRST
+   * counted attempt for this husk — stable across unhealed/refused re-drives (persistSpawnIdentity
+   * preserves spawnTerminalId when the account doesn't come back), so it survives an unhealed
+   * re-drive's terminalId churn without resetting. Only a heal (spawnTerminalId advances) clears the
+   * entry. See `reDriveAccount` for the give-up logic.
+   */
+  private readonly redriveAttempts = new Map<string, { anchor: string | null; attempts: number }>();
+  /** After this many failed (refused/unhealed) re-drive attempts on the SAME anchor, give up
+   *  ("degraded") rather than re-firing every poller tick forever. */
+  private static readonly REDRIVE_CAP = 3;
 
   /**
    * Merge-train completion tracker (issue #426). A train that lands ≥1 of its
@@ -1771,6 +1798,7 @@ export class SessionService {
       degraded,
       egressApplied: egressOn,
       egressDegraded,
+      spawnAccountDir: patchEnv.CLAUDE_CONFIG_DIR ?? null,
     };
   }
 
@@ -2193,7 +2221,48 @@ export class SessionService {
       egressApplied: outcome.egressApplied,
       egressDegraded: outcome.egressDegraded,
     });
+    this.persistSpawnIdentity(session, outcome);
     return this.deps.store.get(session.id);
+  }
+
+  /**
+   * The SINGLE writer of the poller/reconcile-immune spawn-identity markers
+   * (spawnTerminalId/spawnAccountDir) — herdr-restart account-loss detection.
+   * Applies a sticky, conditional rule so a failed/wrong re-derivation can never silently
+   * self-clear the owning account onto the default:
+   *
+   * | folded (outcome.spawnAccountDir) | prior session.spawnAccountDir | action                                        |
+   * | --------------------------------- | ------------------------------ | ---------------------------------------------- |
+   * | non-null                          | any                             | (re)confirmed owning account — advance terminal |
+   * | null                               | null                            | default session — advance terminal              |
+   * | null                               | non-null                        | preserve prior (do NOT advance, do NOT null)    |
+   *
+   * The last row leaves `needsAccountRedrive` armed (unadvanced spawnTerminalId vs. the live
+   * herdrAgentId), and warns loudly — plugin state loss / pool exhaustion. Returns nothing: callers
+   * that need the healed/unhealed verdict (reDriveAccount) derive it from whether spawnTerminalId
+   * advanced, since this runs below resume()'s Session return and can't propagate a value up.
+   */
+  private persistSpawnIdentity(
+    session: Session,
+    outcome: Extract<SpawnOutcome, { ok: true }>,
+  ): void {
+    const folded = outcome.spawnAccountDir;
+    if (folded !== null) {
+      this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, folded);
+      return;
+    }
+    if (session.spawnAccountDir === null) {
+      this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, null);
+      return;
+    }
+    // folded === null but a prior owning account was recorded: preserve it verbatim — do NOT
+    // advance the terminal, do NOT null the dir. Loud because this means the owning account
+    // was NOT restored on this spawn (plugin state loss / pool exhaustion).
+    console.warn(
+      `[spawn-identity] ${session.id}: owning account not restored this spawn ` +
+        `(prior spawnAccountDir=${session.spawnAccountDir}); preserving prior identity`,
+    );
+    this.deps.store.setSpawnIdentity(session.id, session.spawnTerminalId, session.spawnAccountDir);
   }
 
   /**
@@ -2421,6 +2490,10 @@ export class SessionService {
         research: spawnInput.research ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
       });
+      // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
+      // (null) prior spawn-identity fields rather than relying on the in-memory shape.
+      const created = this.deps.store.get(sessionId);
+      if (created) this.persistSpawnIdentity(created, outcome);
       // Attended sessions stay unapproved until a human clicks Approve in the UI.
       // Autopilot sessions are pre-approved so the agent can begin executing immediately
       // after authoring the queue without waiting for a human gate that will never come.
@@ -2698,6 +2771,8 @@ export class SessionService {
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
       });
+      const updated = this.deps.store.get(s.id);
+      if (updated) this.persistSpawnIdentity(updated, outcome);
     } catch (e) {
       try {
         this.deps.herdr.stop(outcome.terminalId);
@@ -3028,18 +3103,39 @@ export class SessionService {
    * lost, and the control is only surfaced/clicked when the user believes they're
    * stranded. Guaranteeing the husk case works (always respawn) beats preserving
    * scrollback in the rare misclick-on-live-claude case.
+   *
+   * Serialized per session id by the resumeInFlight guard below: a concurrent resume
+   * for the same id coalesces onto the SAME in-flight promise rather than starting a
+   * second spawn. The FIRST caller's `opts` win; a second caller racing in with e.g.
+   * `force: true` does not get its own spawn — this is the double-spawn-safe choice (a
+   * stricter "await then run mine" would still allow a second spawn). Cross-session
+   * resumes are unaffected — the guard is keyed by id.
    */
   async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
+    const existing = this.resumeInFlight.get(id);
+    if (existing) return existing; // coalesce: a resume for this id is already running
+    const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
+    this.resumeInFlight.set(id, p);
+    return p;
+  }
+
+  /** resume() body; serialized per session by the public resume() guard. */
+  private async resumeInner(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
     const target = this.resumeTarget(id);
     if (!target) return null;
 
     const { session, provider } = target;
     const agent = this.liveAgentFor(id);
-    if (agent && !opts.force) {
-      // Already live (idle at the prompt, or restored by a herdr restart under a new
-      // terminalId). Adopt the fresh id if it drifted; never spawn a second claude.
+    if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
+      // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
+      // AND either a default session or already on its owning account. Adopt; never spawn a second
+      // claude.
       return this.adoptLiveResumeAgent(session, agent);
     }
+    // Fall through (force, OR a herdr-restored account pane — Locus B): a bare `claude --resume` under
+    // the wrong CLAUDE_CONFIG_DIR must be torn down and re-driven through onSpawn so the account is
+    // re-applied, BEFORE a human PTY attaches to it (raw keystrokes bypass the steer gate). The
+    // teardown + prepareResumeSpawn below does exactly that; persistSpawnIdentity records the heal.
 
     // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
     // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or
@@ -3052,11 +3148,12 @@ export class SessionService {
     const trim = await this.trimFor(session.auto);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
-    // PLUGIN NOTE (#1124): this teardown runs ONLY on a forced resume (a non-forced
-    // resume with a live agent returned early above; a non-forced resume with no live
-    // agent has no husk). So if a plugin onSpawn then hard-blocks via abortSpawn, the
-    // husk is already gone and the session is left stopped — intended: a forced resume
-    // is an explicit "replace the live agent" action, and aborting it (e.g. "don't run
+    // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
+    // re-drive of a herdr-restored account pane (needsAccountRedrive above) — the only two
+    // ways past the adopt early-return with a live agent. So if a plugin onSpawn then
+    // hard-blocks via abortSpawn, the husk is already gone and the session is left stopped —
+    // intended: replacing the live agent is deliberate (an explicit "bring agent back", or a
+    // restored wrong-account husk), and aborting it (e.g. "don't run
     // under the wrong account") is honored by NOT spawning a replacement.
     if (agent) this.deps.herdr.stop(agent.terminalId);
 
@@ -3071,6 +3168,69 @@ export class SessionService {
       return null;
     }
     return this.finishResumeSpawn(session, outcome);
+  }
+
+  /**
+   * Force-re-drive a herdr-restored account pane so onSpawn re-applies its CLAUDE_CONFIG_DIR.
+   * Serialized by resume()'s per-session guard. Public: the poller (`index.ts` wiring) calls this
+   * as a fire-and-forget re-drive on a herdr-restored account pane. Returns:
+   *   "healed"    — re-spawned AND persistSpawnIdentity advanced spawnTerminalId (owning account restored)
+   *   "unhealed"  — re-spawned but the account did NOT come back (folded null over a non-null prior;
+   *                 persistSpawnIdentity preserved the marker) — plugin state loss / pool exhaustion
+   *   "refused"   — resume returned null (auto-gate refused BEFORE teardown, or spawn failed); husk preserved
+   *   "degraded"  — gave up after REDRIVE_CAP failed (unhealed/refused) attempts on the SAME
+   *                 spawnTerminalId anchor; no spawn attempted. Steering stays permitted on the
+   *                 current pane (no-worse-than-today; the steer-defer guard is a later task).
+   *
+   * Bounded: a persistently-failing account (e.g. usage-halted — the auto-gate refuses BEFORE
+   * teardown so spawnTerminalId never advances) would otherwise re-fire every poller tick forever.
+   * The counter is anchored on spawnTerminalId, NOT the husk/live terminalId: an unhealed re-drive
+   * (onSpawn returns `{}` → a fresh default-account pane) changes the live terminalId every attempt,
+   * so a husk-keyed counter would reset every time and never reach the cap. spawnTerminalId is
+   * stable across unhealed/refused attempts and only advances on a heal, so it is the correct
+   * give-up anchor.
+   */
+  async reDriveAccount(id: string): Promise<"healed" | "unhealed" | "refused" | "degraded"> {
+    const before = this.deps.store.get(id);
+    if (!before) return "refused";
+    const anchor = before.spawnTerminalId; // stable until a heal advances it
+    const rec = this.redriveAttempts.get(id);
+    if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) {
+      return "degraded"; // gave up on this husk; no spawn — steering stays as today (no-worse)
+    }
+    const s = await this.resume(id, { force: true });
+    const verdict = !s ? "refused" : s.spawnTerminalId !== anchor ? "healed" : "unhealed";
+    if (verdict === "healed") {
+      this.redriveAttempts.delete(id);
+    } else {
+      const attempts = rec && rec.anchor === anchor ? rec.attempts + 1 : 1;
+      this.redriveAttempts.set(id, { anchor, attempts });
+      if (attempts >= SessionService.REDRIVE_CAP) {
+        console.warn(
+          `[resume] account re-drive for ${id} gave up after ${attempts} failed attempts ` +
+            `(anchor ${anchor ?? "null"}): DEGRADED — steering permitted on the current pane`,
+        );
+      }
+    }
+    return verdict;
+  }
+
+  /**
+   * True when a steer/reply should be deferred because the session's live pane is a herdr-restored
+   * account husk not yet re-driven (and not yet exhausted). Autonomous steer paths consult this: true →
+   * route through resume() (Locus B re-drive) instead of steering the wrong-account husk. Goes false
+   * once healed (needsAccountRedrive clears) OR degraded (bounded re-drive hit CAP — steering resumes
+   * as today). Closes the race where a caller steers before the poller's proactive re-drive lands.
+   */
+  shouldDeferSteer(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.spawnAccountDir === null) return false;
+    const agent = this.liveAgentFor(id);
+    if (!agent || !needsAccountRedrive(s, agent)) return false;
+    const rec = this.redriveAttempts.get(id);
+    const exhausted =
+      !!rec && rec.anchor === s.spawnTerminalId && rec.attempts >= SessionService.REDRIVE_CAP;
+    return !exhausted;
   }
 
   /**
@@ -3267,7 +3427,9 @@ export class SessionService {
       const s = this.deps.store.get(id);
       if (!s) continue;
       let succeeded = false;
-      if (live.has(s.herdrAgentId)) {
+      // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
+      // than steered — else the retry lands on the wrong-account pane.
+      if (live.has(s.herdrAgentId) && !this.shouldDeferSteer(id)) {
         if (this.replyToLive(id, continueText, live)) {
           steered++;
           succeeded = true;

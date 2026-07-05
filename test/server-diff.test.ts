@@ -54,6 +54,8 @@ const SESSION: Session = {
   manualStepsAckedAt: null,
   experimentId: null,
   experimentRole: null,
+  spawnTerminalId: null,
+  spawnAccountDir: null,
 };
 
 function makeDeps(session: Session | null, prCache?: AppDeps["prCache"]): AppDeps {

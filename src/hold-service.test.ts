@@ -57,6 +57,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     experimentId: null,
     experimentRole: null,
     completionRepromptCount: 0,
+    spawnTerminalId: null,
+    spawnAccountDir: null,
     ...overrides,
   };
 }

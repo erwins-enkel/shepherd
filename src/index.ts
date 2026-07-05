@@ -755,6 +755,15 @@ const poller = new StatusPoller(
   usageLimits,
 );
 
+// Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
+// account's CLAUDE_CONFIG_DIR). Fire-and-forget; reDriveAccount is per-session guarded + bounded.
+// Swallow rejections so an unexpected internal throw can't surface as an unhandled rejection off the
+// 1s poll path (the expected refusals already resolve to "refused", never reject).
+poller.reDrive = (id) =>
+  void service.reDriveAccount(id).catch((err) => {
+    console.warn(`[poller] account re-drive failed for ${id}:`, err);
+  });
+
 // Phase-1 push-hook signal wiring (issue #704): feed received hook events into the
 // poller (the single owner of per-session signal dedup + state). Only when
 // `config.hooksSignals` is on AND ingest is too — with ingest off no events ever
@@ -1039,7 +1048,10 @@ const reviewService = new ReviewService({
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
   // round cap below stops it ping-ponging forever.
-  autoAddress: (id, text) => service.reply(id, text),
+  // Defer while a herdr-restored account pane still needs a re-drive: return false (round holds,
+  // retries next cycle) rather than steer findings into the wrong-account husk. The poller heals it
+  // within ~1 tick (Locus A); shouldDeferSteer goes false once healed or bounded-out (degraded).
+  autoAddress: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
@@ -1087,7 +1099,10 @@ const planGate = new PlanGateService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
-  reply: (id, text) => service.reply(id, text),
+  // Defer while a herdr-restored account pane still needs a re-drive: return false so the plan-gate
+  // round holds (retries next cycle) instead of steering findings into the wrong-account husk. The
+  // poller heals it within ~1 tick (Locus A); shouldDeferSteer clears once healed or degraded.
+  reply: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
   release: (id) => service.releasePlanGate(id),
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
@@ -1383,6 +1398,7 @@ const autopilot = new AutopilotService({
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list()) !== null;
   },
+  deferSteer: (id) => service.shouldDeferSteer(id),
   readTail: (id) => {
     const s = store.get(id);
     if (!s) return [];
@@ -1577,6 +1593,7 @@ const autoMerge = new AutoMergeService({
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list()) !== null;
   },
+  deferSteer: (id) => service.shouldDeferSteer(id),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   emitStatus: (status) => events.emit("automerge:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),

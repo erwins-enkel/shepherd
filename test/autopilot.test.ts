@@ -70,6 +70,8 @@ function sess(over: Partial<Session> = {}): Session {
     manualStepsAckedAt: null,
     experimentId: null,
     experimentRole: null,
+    spawnTerminalId: null,
+    spawnAccountDir: null,
     ...over,
   };
 }
@@ -86,6 +88,9 @@ function harness(opts: {
   repoMode?: "forge" | "lightweight";
   openPr?: boolean;
   paneAlive?: boolean;
+  /** Optional deferSteer dep (SessionService.shouldDeferSteer); omit to test the optional-dep
+   *  default (undefined → today's paneAlive-only behavior). */
+  deferSteer?: (id: string) => boolean;
   resumeOk?: boolean;
   steerOk?: boolean;
   fullAuto?: boolean;
@@ -164,6 +169,7 @@ function harness(opts: {
       return opts.resumeOk ?? true;
     },
     paneAlive: () => opts.paneAlive ?? true,
+    deferSteer: opts.deferSteer,
     readTail: () => ["finished, nothing else"],
     hasPr: () => opts.openPr ?? false,
     hasDiff: async () => opts.hasDiff ?? true,
@@ -446,6 +452,31 @@ test("finished + dead pane → resume then steer", async () => {
   });
   await h.svc.onDone("s1");
   expect(h.events).toContainEqual({ resume: true });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+});
+
+test("finished + live pane but deferSteer true (herdr-restored account husk) → resume then steer", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    paneAlive: true, // pane IS live — only deferSteer forces the resume() detour (Locus B re-drive)
+    deferSteer: () => true,
+    resumeOk: true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ resume: true });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+});
+
+test("finished + live pane + deferSteer false → steers directly, no resume (unchanged)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    paneAlive: true,
+    deferSteer: () => false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).not.toContainEqual({ resume: true });
   expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
 });
 

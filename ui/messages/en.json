@@ -2522,5 +2522,11 @@
   "pluginupdate_apply_err_symlinked": "This plugin runs from a linked source checkout — update it there.",
   "pluginupdate_apply_err_incompatible": "The new version needs a newer Shepherd — update Shepherd first.",
   "pluginupdate_apply_err_nosource": "No update source — Shepherd can't fetch a new version automatically.",
-  "pluginupdate_apply_err_generic": "Update failed."
+  "pluginupdate_apply_err_generic": "Update failed.",
+  "clipboard_copied_toast": "Copied to clipboard",
+  "clipboard_copy_failed": "Couldn’t copy to clipboard",
+  "clipboard_pill_prompt": "Terminal copied text",
+  "clipboard_pill_copy": "Copy to clipboard",
+  "feat_clipboard_osc52_title": "Claude's \"copy\" now reaches your clipboard",
+  "feat_clipboard_osc52_body": "When Claude copies text in the terminal (`c to copy`), it now lands in your system clipboard. If the browser blocks the automatic write, a small Copy pill appears over the terminal for a one-click copy."
 }

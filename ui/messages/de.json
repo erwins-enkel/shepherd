@@ -2543,5 +2543,20 @@
   "clipboard_pill_prompt": "Terminal hat Text kopiert",
   "clipboard_pill_copy": "In Zwischenablage kopieren",
   "feat_clipboard_osc52_title": "Claudes „Kopieren“ landet jetzt in deiner Zwischenablage",
-  "feat_clipboard_osc52_body": "Wenn Claude im Terminal Text kopiert (`c to copy`), landet er jetzt in deiner System-Zwischenablage. Blockiert der Browser das automatische Schreiben, erscheint eine kleine Copy-Pille über dem Terminal zum Kopieren per Klick."
+  "feat_clipboard_osc52_body": "Wenn Claude im Terminal Text kopiert (`c to copy`), landet er jetzt in deiner System-Zwischenablage. Blockiert der Browser das automatische Schreiben, erscheint eine kleine Copy-Pille über dem Terminal zum Kopieren per Klick.",
+  "restart_title": "Shepherd neu starten",
+  "restart_settings_hint": "Startet den Shepherd-Dienst direkt neu. Laufende Agent-Sessions sind nicht betroffen — sie leben in herdr, nicht in Shepherd.",
+  "restart_button": "Neu starten…",
+  "restart_now": "Jetzt neu starten",
+  "restart_confirm_body": "Shepherd startet neu und diese Seite lädt neu, sobald er wieder da ist — normalerweise innerhalb weniger Sekunden. Laufende Agent-Sessions sind nicht betroffen.",
+  "restart_herdr_label": "Auch den herdr-Daemon neu starten",
+  "restart_herdr_note": "Der Daemon übergibt seine Panes an einen frischen Server (Live-Handoff). Agent-Sessions überleben; verbundene Terminal-Clients verbinden sich kurz neu.",
+  "restart_confirm_go": "Neu starten",
+  "restart_in_progress": "Shepherd startet neu — warte, bis er wieder da ist…",
+  "restart_timeout": "Shepherd ist nicht rechtzeitig zurückgekommen. Prüfe den Dienst oder starte ihn manuell neu:",
+  "restart_err_not_systemd": "Diese Shepherd-Instanz wird nicht von systemd verwaltet (eine Dev-Instanz?) und kann sich daher nicht selbst neu starten. Starte sie manuell neu:",
+  "restart_err_already": "Ein Neustart läuft bereits.",
+  "restart_err_generic": "Der Neustart konnte nicht gestartet werden. Starte bei anhaltenden Problemen manuell neu:",
+  "feat_restart_shepherd_title": "Shepherd direkt aus der UI neu starten",
+  "feat_restart_shepherd_body": "Einstellungen → Session hat jetzt eine „Shepherd neu starten“-Aktion, und die Plugin-Restart-Banner haben einen „Jetzt neu starten“-Button — kein Kopieren des systemctl-Befehls mehr. Optional startet auch der herdr-Daemon neu, und zwar sanft: Live-Panes werden per Handoff übergeben und überleben."
 }

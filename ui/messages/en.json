@@ -2543,5 +2543,20 @@
   "clipboard_pill_prompt": "Terminal copied text",
   "clipboard_pill_copy": "Copy to clipboard",
   "feat_clipboard_osc52_title": "Claude's \"copy\" now reaches your clipboard",
-  "feat_clipboard_osc52_body": "When Claude copies text in the terminal (`c to copy`), it now lands in your system clipboard. If the browser blocks the automatic write, a small Copy pill appears over the terminal for a one-click copy."
+  "feat_clipboard_osc52_body": "When Claude copies text in the terminal (`c to copy`), it now lands in your system clipboard. If the browser blocks the automatic write, a small Copy pill appears over the terminal for a one-click copy.",
+  "restart_title": "Restart Shepherd",
+  "restart_settings_hint": "Restart the Shepherd service in place. Running agent sessions are not affected — they live in herdr, not in Shepherd.",
+  "restart_button": "Restart…",
+  "restart_now": "Restart now",
+  "restart_confirm_body": "Shepherd restarts and this page reloads once it is back — usually within a few seconds. Running agent sessions are not affected.",
+  "restart_herdr_label": "Also restart the herdr daemon",
+  "restart_herdr_note": "The daemon hands its panes to a fresh server (live-handoff). Agent sessions survive; attached terminal clients reconnect briefly.",
+  "restart_confirm_go": "Restart",
+  "restart_in_progress": "Restarting Shepherd — waiting for it to come back…",
+  "restart_timeout": "Shepherd did not come back in time. Check the service, or restart it manually:",
+  "restart_err_not_systemd": "This Shepherd instance is not managed by systemd (a dev instance?), so it cannot restart itself. Restart it manually:",
+  "restart_err_already": "A restart is already in progress.",
+  "restart_err_generic": "Could not start the restart. Restart manually if the problem persists:",
+  "feat_restart_shepherd_title": "Restart Shepherd from the UI",
+  "feat_restart_shepherd_body": "Settings → Session now has a Restart Shepherd action, and the plugin restart banners gained a Restart-now button — no more copy-pasting the systemctl command. Optionally the herdr daemon restarts too, gracefully: live panes are handed off and survive."
 }

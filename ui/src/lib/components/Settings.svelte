@@ -50,6 +50,7 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
+  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
@@ -228,6 +229,7 @@
 
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
+  let restartOpen = $state(false); // the Restart-Shepherd confirm dialog
   let telemetryOn = $state(false);
   let telemetryAvailable = $state(false);
   let telemetryBusy = $state(false);
@@ -1456,6 +1458,13 @@
         </label>
       </div>
       <div class="rc">
+        <span class="micro">{m.restart_title()}</span>
+        <p class="hint">{m.restart_settings_hint()}</p>
+        <button type="button" class="gbtn" onclick={() => (restartOpen = true)}>
+          {m.restart_button()}
+        </button>
+      </div>
+      <div class="rc">
         <span class="micro">{m.settings_logout_title()}</span>
         <p class="hint">{m.settings_logout_hint()}</p>
         <button type="button" class="gbtn" onclick={() => logout()}>
@@ -1673,6 +1682,10 @@
     </div>
   </div>
 </div>
+
+{#if restartOpen}
+  <RestartShepherdDialog onclose={() => (restartOpen = false)} />
+{/if}
 
 <style>
   .overlay {

@@ -3,6 +3,7 @@
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import { applyPluginUpdate } from "$lib/api";
+  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
 
   let {
     status,
@@ -42,6 +43,7 @@
     { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
   let outcome = $state<Record<string, Outcome>>({});
   let copied = $state(false);
+  let restartOpen = $state(false); // the one-click Restart-Shepherd dialog
   // True for the duration of an "Update all" serial run. Locks every per-row Update button
   // too, so a manual click can't race the bulk loop's snapshot and get re-applied under it.
   let bulk = $state(false);
@@ -164,6 +166,9 @@
         <button type="button" class="gbtn copy" onclick={copyRestart}>
           {copied ? m.plugins_copied() : m.plugins_copy()}
         </button>
+        <button type="button" class="gbtn upd" onclick={() => (restartOpen = true)}>
+          {m.restart_now()}
+        </button>
       </div>
     {/if}
 
@@ -232,6 +237,10 @@
     </div>
   </div>
 </div>
+
+{#if restartOpen}
+  <RestartShepherdDialog onclose={() => (restartOpen = false)} />
+{/if}
 
 <style>
   .overlay {

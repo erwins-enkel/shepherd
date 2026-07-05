@@ -1403,6 +1403,21 @@ export async function applyCodexUpdate(): Promise<void> {
   }
 }
 
+/** Restart the shepherd service in place (optionally preceded by a graceful
+ *  `herdr server live-handoff` — agent panes survive the daemon swap). 202 means
+ *  the detached restart launched; the caller detects completion by /api/health
+ *  answering again. Discriminated result — `error` is a stable server CODE
+ *  (`not_systemd`, `already_restarting`, …) the caller maps to a message. */
+export async function triggerRestart(opts: {
+  herdr: boolean;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await fetch("/api/restart", JSON_POST({ herdr: opts.herdr }));
+  if (r.ok) return { ok: true };
+  flagIfUnauthorized(r.status);
+  const body = (await r.json().catch(() => ({}))) as { error?: string };
+  return { ok: false, error: typeof body.error === "string" ? body.error : "restart_failed" };
+}
+
 /** Trigger the deploy script (pull → rebuild → restart). Server restarts on success. */
 export async function applyUpdate(): Promise<void> {
   const r = await fetch("/api/update", { method: "POST", headers: JSON_HEADERS });

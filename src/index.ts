@@ -1048,7 +1048,10 @@ const reviewService = new ReviewService({
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
   // round cap below stops it ping-ponging forever.
-  autoAddress: (id, text) => service.reply(id, text),
+  // Defer while a herdr-restored account pane still needs a re-drive: return false (round holds,
+  // retries next cycle) rather than steer findings into the wrong-account husk. The poller heals it
+  // within ~1 tick (Locus A); shouldDeferSteer goes false once healed or bounded-out (degraded).
+  autoAddress: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
@@ -1096,7 +1099,10 @@ const planGate = new PlanGateService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
-  reply: (id, text) => service.reply(id, text),
+  // Defer while a herdr-restored account pane still needs a re-drive: return false so the plan-gate
+  // round holds (retries next cycle) instead of steering findings into the wrong-account husk. The
+  // poller heals it within ~1 tick (Locus A); shouldDeferSteer clears once healed or degraded.
+  reply: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
   release: (id) => service.releasePlanGate(id),
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),

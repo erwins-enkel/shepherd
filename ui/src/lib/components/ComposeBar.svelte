@@ -215,6 +215,13 @@
   // rather than re-reading `useLocal`, so a mid-session flip never strands the active recorder.
   let activeEngine = $state<"web" | "local" | null>(null);
 
+  // Which engine to name on the origin label: the engine that owns the live recording, or "local"
+  // during the post-recording batch transcription. `transcribing` is set on the local path only
+  // (Web Speech transcribes live and never sets it), so it unambiguously means local — this keeps
+  // the label up across BOTH the recording and the transcription phase, then clears once both are
+  // done. It names the origin of THIS recording only — never plugin health/availability.
+  const originEngine = $derived(activeEngine ?? (transcribing ? "local" : null));
+
   let mediaRecorder: MediaRecorder | null = null;
   let mediaStream: MediaStream | null = null;
   let chunks: Blob[] = [];
@@ -724,6 +731,11 @@
     {#if voiceError}
       <div class="voice-hint" role="alert">{m.composebar_transcribe_failed()}</div>
     {/if}
+    {#if originEngine}
+      <div class="voice-origin">
+        {originEngine === "local" ? m.composebar_origin_local() : m.composebar_origin_web()}
+      </div>
+    {/if}
     <div class="actions">
       {#if micVisible}
         <button
@@ -974,6 +986,16 @@
   /* transient error line above the action row when a transcription fails */
   .voice-hint {
     color: var(--color-red);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    padding: 0 2px;
+  }
+
+  /* subtle origin label above the action row — names which engine is capturing/transcribing
+     this dictation (local Whisper vs the browser engine). Faint + neutral so it never competes
+     with the field and never reads as an error; it is provenance, NOT a plugin health badge. */
+  .voice-origin {
+    color: var(--color-faint);
     font-family: var(--font-mono);
     font-size: var(--fs-base);
     padding: 0 2px;

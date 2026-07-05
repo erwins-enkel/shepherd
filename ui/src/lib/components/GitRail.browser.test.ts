@@ -1620,3 +1620,100 @@ describe("GitRail — post-merge decommission offer", () => {
     expect(ondecommission, "ondecommission never invoked").not.toHaveBeenCalled();
   });
 });
+
+describe("GitRail — automation panel close affordance + overflow fix", () => {
+  // AutomationPanel additionally gates a full-screen-sheet layout on the REAL
+  // `@media (pointer: coarse)` query, which this headless mouse-driven runner has
+  // no way to force true (mocking `window.matchMedia` only fools JS reads of it —
+  // the browser's own CSS engine still resolves the stylesheet's `@media` block
+  // against the actual hardware pointer). So this suite covers what's verifiable
+  // here: the `.auto-close` button's JS wiring (mocking matchMedia to flip the
+  // component's `touch` state, which drives aria-modal/focus-trap/dialog
+  // semantics), and the pointer-independent overflow-x fix. The `@media
+  // (pointer: coarse)` visual layout itself mirrors `.review-pop`'s already-shipped
+  // touch sheet in this same file, verified only by manual/device testing.
+  let matchMediaSpy: ReturnType<typeof vi.spyOn> | undefined;
+  function mockPointer(coarse: boolean) {
+    const real = window.matchMedia.bind(window);
+    matchMediaSpy = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+      if (query === "(pointer: coarse)") {
+        return {
+          matches: coarse,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+          onchange: null,
+        } as unknown as MediaQueryList;
+      }
+      return real(query);
+    });
+  }
+  afterEach(() => {
+    matchMediaSpy?.mockRestore();
+  });
+
+  async function openAutomation(h: HTMLElement) {
+    const pill = h.querySelector<HTMLButtonElement>("button.auto-pill");
+    expect(pill, "auto-pill present").not.toBeNull();
+    pill!.click();
+    const dialog = await vi.waitFor(() => {
+      const d = h.querySelector<HTMLElement>(".auto-pop");
+      expect(d, "automation panel opened").not.toBeNull();
+      return d!;
+    });
+    return { pill: pill!, dialog };
+  }
+
+  it("clips horizontal overflow instead of letting the whole panel be dragged sideways", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const { dialog } = await openAutomation(h);
+    // Regression: `overflow-y: auto` alone left `overflow-x` computed as "auto"
+    // too (per the CSS overflow spec — visible on one axis + non-visible on the
+    // other isn't renderable), so a row a hair wider than the box made the WHOLE
+    // panel horizontally pannable instead of just clipping.
+    expect(getComputedStyle(dialog).overflowX, "overflow-x pinned to hidden").toBe("hidden");
+  });
+
+  it("close button's click handler dismisses the panel (touch dialog semantics)", async () => {
+    mockPointer(true);
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(390, 844);
+    const h = host(390);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const { dialog } = await openAutomation(h);
+    expect(dialog.getAttribute("aria-modal"), "touch dialog is modal").toBe("true");
+    const closeBtn = dialog.querySelector<HTMLButtonElement>(
+      `button[aria-label="${m.common_close()}"]`,
+    );
+    expect(closeBtn, "close button present").not.toBeNull();
+    closeBtn!.click();
+    await vi.waitFor(() => {
+      expect(h.querySelector(".auto-pop"), "panel closed").toBeNull();
+    });
+  });
+
+  it("desktop (fine pointer) keeps the non-modal anchored popover, close head hidden", async () => {
+    mockPointer(false);
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(1024, 800);
+    const h = host(600);
+    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const { dialog } = await openAutomation(h);
+    expect(dialog.getAttribute("aria-modal"), "desktop popover stays non-modal").toBeNull();
+    const head = dialog.querySelector<HTMLElement>(".auto-pop-head");
+    expect(head, "head element present in DOM").not.toBeNull();
+    expect(getComputedStyle(head!).display, "close-button head hidden on desktop").toBe("none");
+  });
+});

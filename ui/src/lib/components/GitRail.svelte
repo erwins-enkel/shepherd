@@ -711,7 +711,13 @@
     {/if}
 
     {#if showAutomation}
-      <AutomationPanel {repoPath} {sessionId} {planPhase} {drain} />
+      <AutomationPanel
+        {repoPath}
+        {sessionId}
+        {planPhase}
+        {drain}
+        onClose={() => (showAutomation = false)}
+      />
     {/if}
 
     {#if armedEntry}

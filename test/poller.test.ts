@@ -2900,3 +2900,96 @@ test("blockSnapshot drops the auth URL when the session resumes", async () => {
   await flush();
   expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
 });
+
+// ── Resting-session (done/idle) MCP-auth detection (feat #1436 gap fix) ──────────────────
+// An MCP OAuth prompt ends the agent's turn → herdr reports `done`, never `blocked`, so the
+// normal maybeClassify path never runs. maybeAuthAtRest surfaces it via the injectable
+// authMtime/detectRestingAuth seams (driven here without touching disk).
+function doneAuthHarness() {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "done",
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    read: () => "",
+    readAsync: () => Promise.resolve(""),
+  };
+  let clock = 100_000;
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+  );
+  return { store, id: s.id, blocks, poller, advance: (ms: number) => (clock += ms) };
+}
+
+test("emits an awaiting-input auth block for a done session with a fresh pending URL", () => {
+  const h = doneAuthHarness();
+  let authCalls = 0;
+  h.poller.authMtime = () => 100; // stable mtime
+  h.poller.detectRestingAuth = () => {
+    authCalls++;
+    return { url: AUTH_URL, tail: ["Open this URL in your browser"] };
+  };
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
+  expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(AUTH_URL);
+  expect(authCalls).toBe(1);
+  // unchanged mtime → no re-read, no re-emit (the standing block is preserved)
+  h.advance(5000);
+  h.poller.tick();
+  expect(authCalls).toBe(1);
+  expect(h.blocks).toHaveLength(1);
+});
+
+test("does not latch on a first-tick miss — re-probes when the transcript grows (flush race)", () => {
+  const h = doneAuthHarness();
+  let mtime = 100;
+  let url: string | null = null; // URL not flushed to the transcript yet
+  h.poller.authMtime = () => mtime;
+  h.poller.detectRestingAuth = () => ({ url, tail: [] });
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(0); // nothing emitted, no suppression latched
+  mtime = 200; // transcript appended → mtime bumps
+  url = AUTH_URL; // the authorize URL is now present
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
+});
+
+test("clears the auth block at rest when the URL is answered (mtime bump, no running edge)", () => {
+  const h = doneAuthHarness();
+  let mtime = 100;
+  let url: string | null = AUTH_URL;
+  h.poller.authMtime = () => mtime;
+  h.poller.detectRestingAuth = () => ({ url, tail: [] });
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  // operator pastes the callback → transcript changes and detectPendingAuthUrl clears
+  mtime = 200;
+  url = null;
+  h.advance(5000);
+  h.poller.tick();
+  expect(h.blocks).toHaveLength(2);
+  expect(h.blocks[1]!.block).toBeNull();
+  expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
+});

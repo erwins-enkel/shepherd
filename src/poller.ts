@@ -18,7 +18,8 @@ import { DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
-import { detectAuthUrl } from "./auth-url";
+import { detectAuthUrl, detectPendingAuthUrl } from "./auth-url";
+import { statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
@@ -28,6 +29,7 @@ import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
+const AUTH_SIG = "auth"; // fixed signature → a resting MCP-auth block fires once per episode
 const QUOTA_SIG = "quota"; // fixed signature → a quota block fires once per episode
 
 /**
@@ -101,10 +103,46 @@ function readAuthUrl(s: Session): string | null {
   }
 }
 
+/** Transcript mtime for the resting-auth probe (default `authMtime` seam). Missing/unreadable
+ *  transcript (or no claude session yet) ⇒ null. Used to gate the (bounded) resting read to
+ *  ticks where the transcript actually changed. */
+function readRestingAuthMtime(s: Session): number | null {
+  if (!s.claudeSessionId) return null;
+  try {
+    return statSync(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** Single bounded tail read → freshness-gated auth URL + context tail (default `detectRestingAuth`
+ *  seam). One read serves both the URL and the block's tail lines. */
+function readRestingAuth(s: Session): { url: string | null; tail: string[] } {
+  if (!s.claudeSessionId) return { url: null, tail: [] };
+  try {
+    const raw = readTranscriptTail(
+      jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+    );
+    return { url: detectPendingAuthUrl(raw), tail: tailLines(assistantSideText(raw)) };
+  } catch {
+    return { url: null, tail: [] };
+  }
+}
+
 export class StatusPoller {
   /** Fire-and-forget re-drive of a herdr-restored account pane (wired to service.reDriveAccount in
    *  index.ts). Left undefined in tests that don't exercise it. */
   reDrive?: (id: string) => void;
+
+  /**
+   * Resting-session (done/idle) MCP-auth detection seams, public + assignable (mirrors `reDrive`)
+   * so tests can drive the mtime/URL sequence deterministically without touching disk:
+   *  - `authMtime`: the transcript's current mtime — a change gates the bounded read below.
+   *  - `detectRestingAuth`: one bounded tail read → freshness-gated URL + context tail.
+   * Production leaves the real-file defaults.
+   */
+  authMtime: (s: Session) => number | null = readRestingAuthMtime;
+  detectRestingAuth: (s: Session) => { url: string | null; tail: string[] } = readRestingAuth;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastReadAt = new Map<string, number>();
@@ -113,6 +151,9 @@ export class StatusPoller {
    *  bootstrap via `blockSnapshot()`. Maintained by `emitBlock`; blocks are otherwise
    *  edge-emitted and would be absent on a fresh page load / push-then-open. */
   private lastBlockReason = new Map<string, BlockReason>();
+  /** Transcript mtime at the last resting-auth probe per session — gates `maybeAuthAtRest`'s
+   *  bounded read to ticks where the transcript actually changed (see AUTH_SIG). */
+  private lastAuthMtime = new Map<string, number | null>();
   private lastProbeAt = new Map<string, number>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
@@ -610,6 +651,7 @@ export class StatusPoller {
     const tracked = new Set([
       ...this.lastSig.keys(),
       ...this.lastReadAt.keys(),
+      ...this.lastAuthMtime.keys(),
       ...this.lastProbeAt.keys(),
       ...this.lastActivitySig.keys(),
       ...this.lastActivity.keys(),
@@ -627,6 +669,7 @@ export class StatusPoller {
       if (!activeIds.has(id)) {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
+        this.lastAuthMtime.delete(id);
         this.lastBlockReason.delete(id);
         this.lastProbeAt.delete(id);
         this.lastActivitySig.delete(id);
@@ -1069,9 +1112,40 @@ export class StatusPoller {
         this.lastSig.set(s.id, QUOTA_SIG);
         this.emitBlock(s.id, reason);
       }
-    } else {
+    } else if (!this.maybeAuthAtRest(s)) {
       this.clearBlock(s.id);
     }
+  }
+
+  /**
+   * A resting (done/idle) session can be sitting on an MCP OAuth prompt: the agent printed an
+   * `…/authorize?…` URL and ended its turn, so herdr reports `done`/`idle` (never `blocked`) and
+   * the normal `maybeClassify` auth-detection path never runs. Surface it as an `awaiting-input`
+   * block carrying `authUrl` so the banner + attention-lens row appear (feat #1436).
+   *
+   * Returns true when an auth block stands (freshly emitted or preserved) so `maybeQuota` skips
+   * its `clearBlock`. Bounded + throttled: the (512 KB) tail read fires only when the transcript
+   * mtime CHANGED since the last probe — a static parked transcript costs one `stat`, no read.
+   *
+   *  - transcript unchanged ⇒ preserve whatever stands (no read);
+   *  - a fresh read with a pending URL ⇒ emit once (AUTH_SIG) and hold;
+   *  - a fresh read with NO URL ⇒ return false so the caller clears (self-clears AT REST when the
+   *    operator's paste appends a record and bumps mtime — no `running` transition required);
+   *  - a first-tick miss (URL not flushed yet) does NOT latch: the next append re-probes.
+   */
+  private maybeAuthAtRest(s: Session): boolean {
+    const id = s.id;
+    const standing = this.lastSig.get(id) === AUTH_SIG;
+    const mtime = this.authMtime(s);
+    if (this.lastAuthMtime.has(id) && mtime === this.lastAuthMtime.get(id)) return standing;
+    this.lastAuthMtime.set(id, mtime);
+    const { url, tail } = this.detectRestingAuth(s);
+    if (!url) return false;
+    if (!standing) {
+      this.lastSig.set(id, AUTH_SIG);
+      this.emitBlock(id, { shape: "awaiting-input", options: [], tail, authUrl: url });
+    }
+    return true;
   }
 
   /**

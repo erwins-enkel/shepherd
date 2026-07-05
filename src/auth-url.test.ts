@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { detectAuthUrl } from "./auth-url";
+import { detectAuthUrl, detectPendingAuthUrl } from "./auth-url";
 
 // Real-shape fixtures (synthetic client_id / code_challenge). Mirrors the Step-0 capture:
 // the authorize URL lands in an assistant `text` block AND/OR a `tool_result` block inside a
@@ -100,5 +100,57 @@ describe("detectAuthUrl", () => {
 
   it("returns null for an empty transcript", () => {
     expect(detectAuthUrl("")).toBeNull();
+  });
+});
+
+// Attachment / system records — carry no `message`, so they are NOT meaningful records and must
+// not count toward the freshness gate's since-set distance.
+const attachment = () => JSON.stringify({ type: "attachment" });
+const system = () => JSON.stringify({ type: "system", content: "hook ran" });
+
+describe("detectPendingAuthUrl (freshness-gated)", () => {
+  it("returns the URL for the real captured check-sentry tail shape (0 meaningful records after)", () => {
+    // Mirrors the captured transcript tail: the authorize URL lands in a `tool_result` (raw MCP
+    // payload) AND the assistant relay, with only attachment/system records trailing — sinceSet=0.
+    const jsonl = [
+      opInputString("check sentry"),
+      toolUse(),
+      toolResult(`MCP server sentry requires authorization. Visit: ${AUTH_URL}`),
+      attachment(),
+      assistantText(
+        `The Sentry MCP server needs authorization.\n1. Open this URL:\n\n${AUTH_URL}\n\n2. Paste the callback URL here.`,
+      ),
+      attachment(),
+      system(),
+      system(),
+    ].join("\n");
+    expect(detectPendingAuthUrl(jsonl)).toBe(AUTH_URL);
+  });
+
+  it("surfaces a URL that is the last meaningful record", () => {
+    const jsonl = [opInputString("go"), assistantText(`Authorize: ${AUTH_URL}`)].join("\n");
+    expect(detectPendingAuthUrl(jsonl)).toBe(AUTH_URL);
+  });
+
+  it("suppresses a stale URL buried under more than K meaningful records (truncation phantom)", () => {
+    // A stale URL whose clearing operator message scrolled out of the MAX_TAIL_BYTES window,
+    // followed by many autonomous tool turns — must NOT re-surface as a phantom banner.
+    const trailing = Array.from({ length: 30 }, () => toolUse());
+    const jsonl = [assistantText(`old prompt: ${AUTH_URL}`), ...trailing].join("\n");
+    expect(detectPendingAuthUrl(jsonl)).toBeNull();
+  });
+
+  it("still surfaces a URL with a handful of trailing assistant messages (generous K)", () => {
+    const trailing = Array.from({ length: 5 }, () => assistantText("still waiting on you"));
+    const jsonl = [assistantText(`Authorize: ${AUTH_URL}`), ...trailing].join("\n");
+    expect(detectPendingAuthUrl(jsonl)).toBe(AUTH_URL);
+  });
+
+  it("returns null once the operator has responded (explicit clear)", () => {
+    const jsonl = [
+      assistantText(`Authorize: ${AUTH_URL}`),
+      opInputString("http://localhost:3118/callback?code=xyz"),
+    ].join("\n");
+    expect(detectPendingAuthUrl(jsonl)).toBeNull();
   });
 });

@@ -123,19 +123,65 @@ function userAuthEffect(content: unknown): { clear: boolean; url: string | null 
  * So a prior, already-answered auth URL still sitting in the tail is not resurfaced when the
  * agent later blocks for an unrelated reason. Malformed/blank lines are skipped.
  */
+/** The pending-URL transition a single record implies: SET (assistant text / tool_result
+ *  carrying an authorize URL), CLEAR (plain operator input), or NONE (everything else). */
+type AuthEffect = { kind: "set"; url: string } | { kind: "clear" } | { kind: "none" };
+
+function recAuthEffect(rec: Rec): AuthEffect {
+  if (rec.role === "assistant") {
+    const url = assistantAuthUrl(rec.content);
+    return url ? { kind: "set", url } : { kind: "none" };
+  }
+  if (rec.role === "user") {
+    const { clear, url } = userAuthEffect(rec.content);
+    if (clear) return { kind: "clear" };
+    if (url) return { kind: "set", url };
+  }
+  return { kind: "none" }; // system / other roles: ignored
+}
+
 export function detectAuthUrl(rawJsonl: string): string | null {
   let pending: string | null = null;
   for (const o of eachJsonlObject(rawJsonl)) {
     const rec = toRec(o);
     if (!rec) continue;
-    if (rec.role === "assistant") {
-      pending = assistantAuthUrl(rec.content) ?? pending;
-    } else if (rec.role === "user") {
-      const { clear, url } = userAuthEffect(rec.content);
-      if (clear) pending = null;
-      else pending = url ?? pending;
-    }
-    // system / other roles: ignored
+    const eff = recAuthEffect(rec);
+    if (eff.kind === "set") pending = eff.url;
+    else if (eff.kind === "clear") pending = null;
   }
   return pending;
+}
+
+/**
+ * Freshness-gated variant of {@link detectAuthUrl} for the resting-session (done/idle) path,
+ * where the transcript tail may be a truncated `MAX_TAIL_BYTES` window: an operator CLEAR that
+ * would have retired an already-answered URL can scroll OUT of that window, leaving a stale
+ * authorize URL at the tail that would otherwise re-surface as a phantom banner (and stand
+ * autopilot down forever). So on top of the same SET/CLEAR walk, this counts the *meaningful*
+ * records (`toRec`-non-null — attachment/system don't count) that follow the record which last
+ * SET `pending`, and suppresses the URL only when that count exceeds `maxSinceSet`.
+ *
+ * The gate is deliberately GENEROUS (default 25) and biased toward SURFACING: a false-suppress
+ * reproduces the exact reported bug (banner never shows) and is unrecoverable, whereas a rare
+ * false-surface is bounded — autopilot clears its stand-down on resume/archive. A genuine
+ * end-of-turn prompt has 0 meaningful records after the URL (measured against the captured
+ * `check-sentry` transcript), so it surfaces with wide margin; the operator-input CLEAR remains
+ * the primary staleness signal and the count is only a coarse backstop against gross truncation.
+ */
+export function detectPendingAuthUrl(rawJsonl: string, maxSinceSet = 25): string | null {
+  let pending: string | null = null;
+  let sinceSet = 0; // meaningful records since `pending` was last SET
+  for (const o of eachJsonlObject(rawJsonl)) {
+    const rec = toRec(o);
+    if (!rec) continue; // attachment / system with no message: not a meaningful record
+    const eff = recAuthEffect(rec);
+    if (eff.kind === "set") {
+      pending = eff.url;
+      sinceSet = 0;
+    } else if (eff.kind === "clear") {
+      pending = null;
+      sinceSet = 0;
+    } else if (pending) sinceSet++; // a meaningful record that neither set nor cleared
+  }
+  return pending && sinceSet > maxSinceSet ? null : pending;
 }

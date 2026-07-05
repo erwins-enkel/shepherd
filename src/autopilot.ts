@@ -120,6 +120,11 @@ export interface AutopilotDeps {
   deferSteer?: (id: string) => boolean;
   /** Visible terminal tail for a session (herdr.read → tailLines). */
   readTail: (id: string) => string[];
+  /** The pending MCP OAuth authorize URL for a session (freshness-gated transcript read), or
+   *  null. An OAuth flow is human-only — autopilot cannot paste the callback — so a non-null
+   *  result stands autopilot down until the operator completes it (the poller surfaces the
+   *  banner). Reads fresh (not off an event) so `onDone` can short-circuit deterministically. */
+  pendingAuthUrl: (id: string) => string | null;
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
@@ -186,6 +191,10 @@ export class AutopilotService {
   // deliver (the poller emits no `session:git` without a state change) — is owned by tick().
   private openSeen = new Set<string>();
   private ciNudged = new Map<string, string>();
+  // Sessions sitting on a pending MCP OAuth prompt (human-only). Stands autopilot down across
+  // every steer path until the operator completes it: set from onBlock(authUrl) / a pendingAuthUrl
+  // re-check, cleared on a null block, on `running` (operator resumed), and on archive (forget).
+  private authPending = new Set<string>();
   private stepCap: number;
   private rebaseCap: number;
 
@@ -219,6 +228,7 @@ export class AutopilotService {
       );
       return null;
     }
+    if (this.authPending.has(id)) return null; // human-only MCP OAuth pending — never steer/complete
     if (s.autopilotPaused) return null; // already handed back; waits for operator
     if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive
     // A PR exists → autopilot normally stands down (critic territory). EXCEPTION: a full-auto
@@ -357,6 +367,13 @@ export class AutopilotService {
     // during the classify await.
     const cur = this.eligible(id);
     if (!cur) return;
+    // A done-edge auth URL may have been unflushed when onDone read it; by now (post-classify)
+    // it has landed. Re-read fresh and stand down before applying any terminal verdict, so a
+    // mid-OAuth session is never markComplete'd — deterministic, not reliant on onBlock's timing.
+    if (this.deps.pendingAuthUrl(cur.id)) {
+      this.authPending.add(cur.id);
+      return;
+    }
     await this.dispatch(cur, v);
   }
 
@@ -376,8 +393,15 @@ export class AutopilotService {
     this.onGit(id, change.git); // sync; PR-open handoff + red-CI recovery
   }
 
-  /** session:block handler. Only steerable shapes are eligible; menu/stall surface as-is. */
+  /** session:block handler. Only steerable shapes are eligible; menu/stall surface as-is.
+   *  The auth set/clear runs BEFORE the shape guard so a null block from the poller's clearBlock
+   *  actually reaches `authPending.delete` (a null would otherwise early-return). */
   async onBlock(id: string, block: BlockReason | null): Promise<void> {
+    if (block?.authUrl) {
+      this.authPending.add(id); // human-only MCP OAuth prompt — stand down, never steer it
+      return;
+    }
+    this.authPending.delete(id); // null / non-auth block ⇒ no OAuth pending
     if (!block || !STEERABLE_SHAPES.has(block.shape)) return;
     await this.consider(id, block.tail, `autopilot ${id}`);
   }
@@ -385,6 +409,14 @@ export class AutopilotService {
   /** session:status "done" handler — agent exited / idled. Read its tail and classify;
    *  a `finished` verdict drives it to a PR (resuming the pane if needed). */
   async onDone(id: string): Promise<void> {
+    // Human-only MCP OAuth prompt: the agent relayed an authorize URL and idled. Stand down
+    // BEFORE classify so a mid-OAuth session is never filed complete/paused (the poller surfaces
+    // the banner). Cheap early-out; a done-edge read that misses an as-yet-unflushed URL is
+    // caught by consider()'s post-classify re-check.
+    if (this.deps.pendingAuthUrl(id)) {
+      this.authPending.add(id);
+      return;
+    }
     // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
     // be in the cached PR snapshot yet. Firing it here puts the poll in flight during the
     // (multi-second) classify spawn, so the post-classify eligible()/hasPr re-check in
@@ -419,6 +451,9 @@ export class AutopilotService {
    *  cases that matter; conflating the two would let the cap never bite. */
   onStatus(id: string, status: string): void {
     if (status !== "running") return;
+    // Clear an MCP-OAuth stand-down the moment the operator resumes — BEFORE the paused/complete
+    // guard below, since an authPending stand-down set neither flag and would otherwise never clear.
+    this.authPending.delete(id);
     const s = this.deps.store.get(id);
     if (!s || (!s.autopilotPaused && !s.autopilotComplete)) return;
     this.deps.store.setAutopilotState(id, {
@@ -430,6 +465,17 @@ export class AutopilotService {
     });
     this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
     this.deps.onState?.(id);
+  }
+
+  /** Drop all per-session tracking for a session that's gone (session:archived). Mirrors the
+   *  poller's pruneInactive so archived sessions don't leak map entries. `openSeen`/`ciNudged`
+   *  otherwise self-clean on PR-gone and `pending` is transient, but clearing them here too is
+   *  harmless and keeps the teardown in one place. */
+  forget(id: string): void {
+    this.authPending.delete(id);
+    this.openSeen.delete(id);
+    this.ciNudged.delete(id);
+    this.pending.delete(id);
   }
 
   /** The critic handoff: clear pause + complete + reset the step budget. Invoked once per PR-open
@@ -525,6 +571,7 @@ export class AutopilotService {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") return false;
     if (s.mergingSince !== null) return true; // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
+    if (this.authPending.has(id)) return false; // human-only MCP OAuth pending — don't steer even an open+red PR
     if (!this.enabled(s)) return false;
     if (s.autopilotPaused) return false; // already handed back; waits for operator
     if (s.autopilotComplete) return false; // terminal
@@ -615,6 +662,7 @@ export class AutopilotService {
    *  each piece simple. */
   private rebaseCandidate(s: Session): GitState | null {
     if (s.mergingSince !== null) return null; // merge-train-marked → the train owns its rebase
+    if (this.authPending.has(s.id)) return null; // human-only MCP OAuth pending — don't steer a rebase
     if (!this.enabled(s)) return null;
     if (s.autopilotPaused || s.autopilotComplete) return null; // handed back / terminal
     if (this.pending.has(s.id)) return null; // a classify (onDone/onBlock) is mid-flight — don't race it

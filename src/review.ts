@@ -22,14 +22,13 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
-  CRITIC_THINKING_TOKENS,
   type RawVerdict,
 } from "./critic-core";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
-export { reviewPrompt, defaultComputePatchId, scopeFindings, CRITIC_THINKING_TOKENS };
+export { reviewPrompt, defaultComputePatchId, scopeFindings };
 
 /** Outcome of a consider()/forceReview() call: a critic was spawned, the run was declined
  *  (preconditions unmet / dedup / ceiling / race guard), or begin() bailed before spawning. */
@@ -576,8 +575,6 @@ export class ReviewService {
       model: env.model,
       effort: env.effort,
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
-      // Extended thinking budget (#604) — reasoning headroom for the #597 cross-file VERIFY pass.
-      thinkingTokens: CRITIC_THINKING_TOKENS,
     });
   }
 

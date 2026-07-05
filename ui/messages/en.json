@@ -266,6 +266,8 @@
   "newtask_model_default": "default",
   "feat_effort_control_title": "Dial reasoning effort up or down",
   "feat_effort_control_body": "New Task now has an Effort control (low → max) beside Model — the live cost/quality lever. Dial it up for hard tasks, down for routine or cost-sensitive work. Set a per-repo or global default in Settings; leave it at default to keep the CLI's own behavior.",
+  "feat_per_role_effort_title": "Set reasoning effort per helper role",
+  "feat_per_role_effort_body": "Settings now has an Effort column beside each helper role's model — dial rigor roles (critic, planner) up and cheap/mechanical ones (recap, namer) down. The variant/compare picker gained a matching Effort control too, so parallel runs can differ on effort, not just model.",
   "newtask_effort_label": "Effort",
   "effort_default": "default",
   "effort_label_low": "Low",

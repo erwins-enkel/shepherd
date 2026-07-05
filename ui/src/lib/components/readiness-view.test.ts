@@ -7,7 +7,14 @@ function check(id: GuardrailCheck["id"], present: boolean, weight: number): Guar
 }
 
 function report(checks: GuardrailCheck[]): ReadinessReport {
-  return { applicable: true, score: 0, checks, hasAgentInstructions: false, claudeMd: "# rules" };
+  return {
+    applicable: true,
+    ecosystem: "js-ts",
+    score: 0,
+    checks,
+    hasAgentInstructions: false,
+    claudeMd: "# rules",
+  };
 }
 
 describe("scoreBand", () => {

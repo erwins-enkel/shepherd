@@ -6,10 +6,14 @@
 // we enforce inward. Detection is cheap, deterministic file/script inspection;
 // it never executes the target repo's code.
 //
-// Scope: the JS/TS baseline we dogfood (presence of a package.json — at the
-// root or exactly one directory level down — gates applicability; deeper
-// layouts like `apps/web/package.json` are not detected). Other stacks
-// (Python/ruff/mypy) are a later generalization.
+// Scope: two ecosystem profiles, selected per repo. `js-ts` — the JS/TS baseline we
+// dogfood (a package.json at the root or exactly one directory level down gates
+// applicability). `rust` — Cargo crates (a Cargo.toml at the root or one level down),
+// whose rustfmt/clippy live as rustup components rather than manifest deps, so its
+// detection also scans a bounded command corpus (hooks/CI/Makefile/justfile). js-ts is
+// tried first, so a mixed repo (both manifests) resolves to js-ts and every currently
+// applicable repo scores exactly as before. Deeper layouts (`apps/web/package.json`,
+// `crates/foo/Cargo.toml`) are not detected. A repo with neither manifest is N/A.
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
@@ -31,6 +35,9 @@ export type GuardrailId =
 
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
+/** Which stack a repo was matched to, or null when it matches no supported ecosystem. */
+export type Ecosystem = "js-ts" | "rust";
+
 export interface GuardrailCheck {
   id: GuardrailId;
   /** True when the guardrail is configured in the target repo. */
@@ -42,8 +49,10 @@ export interface GuardrailCheck {
 }
 
 export interface ReadinessReport {
-  /** False when the repo isn't a JS/TS project (no package.json at the root or one level down) — baseline N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml at the root or one level down) — baseline N/A. */
   applicable: boolean;
+  /** The matched ecosystem, or `null` on the not-applicable path (a defined value, never undefined). */
+  ecosystem: Ecosystem | null;
   /** Weighted percentage (0–100) of present guardrails, derived from `checks`. */
   score: number;
   checks: GuardrailCheck[];
@@ -53,22 +62,85 @@ export interface ReadinessReport {
   claudeMd: string;
 }
 
-/** Inspection context built once per repo, so each detector is cheap. */
-interface RepoScan {
-  dir: string;
-  deps: Set<string>;
-  scripts: Record<string, string>;
+/** The file-probe surface shared by every ecosystem's scan context. */
+interface FileScan {
   has: (rel: string) => boolean;
   /** Returns matching basenames in `subdir` (empty if missing). */
   glob: (subdir: string, test: (name: string) => boolean) => string[];
-  /** Detected package manager — drives the install verbs in the prescription. */
-  pm: PackageManager;
 }
 
-interface GuardrailDef {
+/** A guardrail detector over an ecosystem-specific scan context `Ctx`. */
+interface GuardrailDef<Ctx> {
   id: GuardrailId;
   weight: number;
-  detect: (s: RepoScan) => string[];
+  detect: (s: Ctx) => string[];
+}
+
+/**
+ * A pluggable ecosystem: how to detect it, build its scan context, and describe its
+ * guardrails. `analyzeReadiness` never sees `Ctx` — only the `GuardrailCheck[]` and the
+ * scoring math are shared, so each ecosystem owns its own context shape (JS deps/scripts,
+ * Rust command corpus) with no union.
+ */
+interface EcosystemProfile<Ctx> {
+  id: Ecosystem;
+  /** Package/crate roots relative to `dir`; `[]` when the repo isn't this ecosystem. */
+  detectRoots: (dir: string) => string[];
+  buildContext: (dir: string, roots: string[]) => Ctx;
+  guardrails: GuardrailDef<Ctx>[];
+  stackLabel: (ctx: Ctx) => string;
+  toolingLabel: (id: GuardrailId) => string;
+  churnPlain: (id: GuardrailId) => string;
+  installSteps: (ctx: Ctx, id: GuardrailId) => string[];
+  prescriptionNote: (ctx: Ctx, id: GuardrailId) => string[];
+  /** Extra section appended after the adopt-list (JS: the .prettierignore note; Rust: none). */
+  trailingNote: (ctx: Ctx) => string;
+}
+
+// ── Language-agnostic detectors (shared verbatim by both profiles) ───────────────
+// These three guardrails are the same markers regardless of stack, so both the JS/TS
+// and Rust guardrail arrays reuse them — a single source of truth for their evidence.
+
+const detectCi = (s: FileScan): string[] => {
+  const ev: string[] = [];
+  const wf = s.glob(".github/workflows", (n) => n.endsWith(".yml") || n.endsWith(".yaml"));
+  if (wf.length) ev.push(`.github/workflows (${wf.length})`);
+  if (s.has(".gitlab-ci.yml")) ev.push(".gitlab-ci.yml");
+  return ev;
+};
+
+const detectDependencyAutomation = (s: FileScan): string[] => {
+  const ev: string[] = [];
+  if (s.has(".github/dependabot.yml") || s.has(".github/dependabot.yaml"))
+    ev.push("dependabot.yml");
+  if (
+    s.has("renovate.json") ||
+    s.has("renovate.json5") ||
+    s.has(".github/renovate.json") ||
+    s.has(".github/renovate.json5") ||
+    s.glob(".", (n) => n.startsWith(".renovaterc")).length
+  )
+    ev.push("renovate config");
+  return ev;
+};
+
+const detectAgentInstructions = (s: FileScan): string[] => {
+  const ev: string[] = [];
+  if (s.has("CLAUDE.md")) ev.push("CLAUDE.md");
+  if (s.has("AGENTS.md")) ev.push("AGENTS.md");
+  if (s.has(".cursorrules")) ev.push(".cursorrules");
+  return ev;
+};
+
+// ══ JS/TS profile ════════════════════════════════════════════════════════════════
+
+/** Inspection context built once per JS/TS repo, so each detector is cheap. */
+interface RepoScan extends FileScan {
+  dir: string;
+  deps: Set<string>;
+  scripts: Record<string, string>;
+  /** Detected package manager — drives the install verbs in the prescription. */
+  pm: PackageManager;
 }
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
@@ -79,7 +151,7 @@ const anyDep = (s: RepoScan, prefix: string) => [...s.deps].some((d) => d.starts
  * so the adopt-list — absent guardrails sorted by weight — leads with the hooks
  * that turn review from a human linter pass into substance-only review.
  */
-export const GUARDRAILS: GuardrailDef[] = [
+export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
   {
     // The CI-mirror that lets the agent self-correct before a human ever sees it.
     id: "pre_push_ci",
@@ -158,42 +230,17 @@ export const GUARDRAILS: GuardrailDef[] = [
   {
     id: "agent_instructions",
     weight: 8,
-    detect: (s) => {
-      const ev: string[] = [];
-      if (s.has("CLAUDE.md")) ev.push("CLAUDE.md");
-      if (s.has("AGENTS.md")) ev.push("AGENTS.md");
-      if (s.has(".cursorrules")) ev.push(".cursorrules");
-      return ev;
-    },
+    detect: detectAgentInstructions,
   },
   {
     id: "ci",
     weight: 6,
-    detect: (s) => {
-      const ev: string[] = [];
-      const wf = s.glob(".github/workflows", (n) => n.endsWith(".yml") || n.endsWith(".yaml"));
-      if (wf.length) ev.push(`.github/workflows (${wf.length})`);
-      if (s.has(".gitlab-ci.yml")) ev.push(".gitlab-ci.yml");
-      return ev;
-    },
+    detect: detectCi,
   },
   {
     id: "dependency_automation",
     weight: 5,
-    detect: (s) => {
-      const ev: string[] = [];
-      if (s.has(".github/dependabot.yml") || s.has(".github/dependabot.yaml"))
-        ev.push("dependabot.yml");
-      if (
-        s.has("renovate.json") ||
-        s.has("renovate.json5") ||
-        s.has(".github/renovate.json") ||
-        s.has(".github/renovate.json5") ||
-        s.glob(".", (n) => n.startsWith(".renovaterc")).length
-      )
-        ev.push("renovate config");
-      return ev;
-    },
+    detect: detectDependencyAutomation,
   },
   {
     id: "lint_staged",
@@ -240,18 +287,7 @@ export const GUARDRAILS: GuardrailDef[] = [
  * lives in subpackages is scored from the root manifest alone.
  */
 function findPackageRoots(dir: string): string[] {
-  if (existsSync(join(dir, "package.json"))) return [""];
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  return entries
-    .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
-    .map((e) => e.name)
-    .filter((n) => existsSync(join(dir, n, "package.json")))
-    .sort();
+  return findManifestRoots(dir, "package.json", (n) => n !== "node_modules");
 }
 
 /**
@@ -298,42 +334,285 @@ function collectManifest(
   meta.packageManager ??= pkg.packageManager;
 }
 
-function scanRepo(dir: string): RepoScan | null {
-  const pkgRoots = findPackageRoots(dir);
-  if (pkgRoots.length === 0) return null; // not a JS/TS repo → baseline N/A
-
+function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
   const meta: { packageManager?: string } = {};
   for (const root of pkgRoots)
     collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
-  // Repo-level markers (.husky, .github/workflows, CLAUDE.md) stay at the
-  // root, so file checks span the repo root + each package dir.
-  const roots = pkgRoots[0] === "" ? pkgRoots : ["", ...pkgRoots];
-  const has = (rel: string) => roots.some((root) => existsSync(join(dir, root, rel)));
-  const glob = (subdir: string, test: (name: string) => boolean) => {
-    const names = new Set<string>();
-    for (const root of roots) {
-      try {
-        for (const n of readdirSync(join(dir, root, subdir)).filter(test)) names.add(n);
-      } catch {
-        // missing dir in this root
-      }
-    }
-    return [...names];
-  };
+  const { has, glob } = rootAwareProbes(dir, pkgRoots);
   return { dir, deps, scripts, has, glob, pm: pickPackageManager(meta.packageManager, has) };
 }
 
-export function analyzeReadiness(dir: string): ReadinessReport {
-  const scan = scanRepo(dir);
-  if (!scan) {
-    return { applicable: false, score: 0, checks: [], hasAgentInstructions: false, claudeMd: "" };
-  }
+const jsProfile: EcosystemProfile<RepoScan> = {
+  id: "js-ts",
+  detectRoots: findPackageRoots,
+  buildContext: buildJsContext,
+  guardrails: GUARDRAILS,
+  stackLabel: (s) =>
+    s.deps.has("typescript") || s.has("tsconfig.json") ? "TypeScript" : "JavaScript",
+  toolingLabel: (id) => TOOLING_LABEL[id],
+  churnPlain: (id) => CHURN_PLAIN[id],
+  installSteps: (s, id) => INSTALL_STEPS[id](PM_VERBS[s.pm]),
+  prescriptionNote: (s, id) => PRESCRIPTION_NOTE[id]?.(s) ?? [],
+  trailingNote: () => `
+## Ignore Shepherd's session artifacts in your formatter
 
-  const checks: GuardrailCheck[] = GUARDRAILS.map((g) => {
-    const evidence = g.detect(scan);
+Shepherd writes \`${SHEPHERD_IGNORE_GLOB}\` scratch files into your worktree, hidden
+locally via \`.git/info/exclude\` — which Prettier does NOT read. So if you run
+Prettier, add \`${SHEPHERD_IGNORE_GLOB}\` to your \`.prettierignore\` (run
+\`echo '${SHEPHERD_IGNORE_GLOB}' >> .prettierignore\`), or it will reformat Shepherd's
+artifacts. \`.gitignore\` alone is not reliable here.
+`,
+};
+
+// ══ Rust profile ═══════════════════════════════════════════════════════════════
+
+/** The Rust guardrail subset — rustc is the always-present type-checker and Rust has no lint-staged norm. */
+type RustGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged">;
+
+/**
+ * Rust inspection context. rustfmt/clippy are rustup components (not manifest deps), so
+ * usage is proven by scanning a bounded command corpus — the hook scripts, CI workflows,
+ * Makefile/justfile and Cargo.toml — rather than a dependency list. `devDeps` is a loose
+ * parse of Cargo.toml's `[dev-dependencies]`, enough to spot cargo-husky.
+ */
+interface RustScan extends FileScan {
+  dir: string;
+  /** True when the bounded command corpus matches `re`. */
+  corpus: (re: RegExp) => boolean;
+  devDeps: Set<string>;
+}
+
+function findCargoRoots(dir: string): string[] {
+  return findManifestRoots(dir, "Cargo.toml", (n) => n !== "target");
+}
+
+/** Loose parse of a Cargo.toml `[dev-dependencies]` table — dep names only. */
+function cargoDevDeps(toml: string): string[] {
+  const body = toml.match(/\[dev-dependencies\]([\s\S]*?)(?:\n\[|$)/)?.[1] ?? "";
+  const names: string[] = [];
+  for (const m of body.matchAll(/^\s*([A-Za-z0-9_-]+)\s*=/gm)) if (m[1]) names.push(m[1]);
+  return names;
+}
+
+function readFileSafe(file: string): string {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The files whose contents make up one crate root's command corpus — hook scripts,
+ * CI workflows, Makefile/justfile, lefthook configs and Cargo.toml. rustfmt/clippy are
+ * rustup components (not manifest deps), so tool usage is proven by scanning these.
+ */
+function rustCorpusPaths(base: string): string[] {
+  const paths: string[] = [];
+  for (const hookDir of [".githooks", ".husky"])
+    for (const n of safeReaddir(join(base, hookDir))) paths.push(join(base, hookDir, n));
+  for (const n of safeReaddir(join(base, ".github/workflows")))
+    if (n.endsWith(".yml") || n.endsWith(".yaml")) paths.push(join(base, ".github/workflows", n));
+  for (const f of ["Makefile", "justfile", "lefthook.yml", "lefthook.yaml", "Cargo.toml"])
+    paths.push(join(base, f));
+  return paths;
+}
+
+function buildRustContext(dir: string, crateRoots: string[]): RustScan {
+  const { has, glob, roots } = rootAwareProbes(dir, crateRoots);
+
+  // Bounded command corpus + dev-deps, gathered across the crate roots (+ the repo root).
+  const chunks: string[] = [];
+  const devDeps = new Set<string>();
+  for (const root of roots) {
+    const base = join(dir, root);
+    for (const path of rustCorpusPaths(base)) chunks.push(readFileSafe(path));
+    for (const d of cargoDevDeps(readFileSafe(join(base, "Cargo.toml")))) devDeps.add(d);
+  }
+  const text = chunks.join("\n");
+  const corpus = (re: RegExp) => re.test(text);
+  return { dir, has, glob, corpus, devDeps };
+}
+
+/**
+ * Rust guardrails. Shared weights with the JS baseline for the same ids so scores are
+ * comparable; `type_checker`/`lint_staged` are intentionally absent (rustc is implicit,
+ * no staged-subset norm). `git_hooks` is stage-agnostic; `pre_push_ci` matches only the
+ * pre-push stage — exactly like JS, so a pre-commit-only repo scores git_hooks present
+ * but pre_push_ci absent.
+ */
+export const RUST_GUARDRAILS: GuardrailDef<RustScan>[] = [
+  {
+    id: "pre_push_ci",
+    weight: 10,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".githooks/pre-push")) ev.push(".githooks/pre-push");
+      if (s.has(".husky/pre-push")) ev.push(".husky/pre-push");
+      if ((s.has("lefthook.yml") || s.has("lefthook.yaml")) && s.corpus(/pre-push/))
+        ev.push("lefthook (pre-push)");
+      return ev;
+    },
+  },
+  {
+    id: "git_hooks",
+    weight: 9,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".githooks")) ev.push(".githooks/");
+      if (s.has(".husky")) ev.push(".husky/");
+      if (s.has("lefthook.yml") || s.has("lefthook.yaml")) ev.push("lefthook");
+      if (s.has(".pre-commit-config.yaml")) ev.push("pre-commit");
+      if (s.devDeps.has("cargo-husky")) ev.push("cargo-husky");
+      return ev;
+    },
+  },
+  {
+    id: "linter",
+    weight: 8,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has("clippy.toml") || s.has(".clippy.toml")) ev.push("clippy config");
+      if (s.corpus(/clippy/)) ev.push("clippy");
+      return ev;
+    },
+  },
+  {
+    id: "formatter",
+    weight: 8,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has("rustfmt.toml") || s.has(".rustfmt.toml")) ev.push("rustfmt config");
+      if (s.corpus(/cargo fmt|rustfmt/)) ev.push("rustfmt");
+      return ev;
+    },
+  },
+  {
+    id: "test_runner",
+    weight: 8,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.corpus(/cargo (?:test|nextest)/)) ev.push("cargo test");
+      else if (s.has("tests")) ev.push("tests/");
+      return ev;
+    },
+  },
+  {
+    id: "agent_instructions",
+    weight: 8,
+    detect: detectAgentInstructions,
+  },
+  {
+    id: "ci",
+    weight: 6,
+    detect: detectCi,
+  },
+  {
+    id: "dependency_automation",
+    weight: 5,
+    detect: detectDependencyAutomation,
+  },
+  {
+    id: "commit_lint",
+    weight: 4,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has("cog.toml")) ev.push("cog.toml");
+      if (s.has(".githooks/commit-msg") || s.has(".husky/commit-msg")) ev.push("commit-msg hook");
+      if (s.corpus(/commitlint|cocogitto|\bcog\b/)) ev.push("commit-lint tool");
+      return ev;
+    },
+  },
+  {
+    id: "dead_code_audit",
+    weight: 3,
+    // cargo-machete / cargo udeps only — cargo-deny is a license/advisory checker, not an unused-code audit.
+    // `\+\S+` allows a toolchain selector, so `cargo +nightly udeps` (udeps is nightly-only) still matches.
+    detect: (s) =>
+      s.corpus(/cargo (?:\+\S+\s+)?(?:machete|udeps)/) ? ["cargo-machete/udeps"] : [],
+  },
+];
+
+const rustProfile: EcosystemProfile<RustScan> = {
+  id: "rust",
+  detectRoots: findCargoRoots,
+  buildContext: buildRustContext,
+  guardrails: RUST_GUARDRAILS,
+  stackLabel: () => "Rust",
+  toolingLabel: (id) => RUST_TOOLING_LABEL[id as RustGuardrailId],
+  churnPlain: (id) => RUST_CHURN_PLAIN[id as RustGuardrailId],
+  installSteps: (_s, id) => RUST_INSTALL_STEPS[id as RustGuardrailId](),
+  prescriptionNote: (_s, id) => RUST_PRESCRIPTION_NOTE[id as RustGuardrailId]?.() ?? [],
+  // rustfmt only formats .rs files in the crate, so Shepherd's scratch files are never touched — no note needed.
+  trailingNote: () => "",
+};
+
+// ══ Shared detection / scoring plumbing ════════════════════════════════════════════
+
+/** readdirSync that yields [] for a missing/unreadable dir. */
+function safeReaddir(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Manifest roots relative to `dir`: `""` when the root has `manifest`, else first-level
+ * subdirectories with one. `keep` excludes ecosystem-specific noise dirs (node_modules, target);
+ * hidden dirs are always excluded. Mirrors the one-level-deep, root-short-circuit contract.
+ */
+function findManifestRoots(
+  dir: string,
+  manifest: string,
+  keep: (name: string) => boolean,
+): string[] {
+  if (existsSync(join(dir, manifest))) return [""];
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith(".") && keep(e.name))
+    .map((e) => e.name)
+    .filter((n) => existsSync(join(dir, n, manifest)))
+    .sort();
+}
+
+/**
+ * Root-aware file probes: repo-level markers (.husky, .github/workflows, CLAUDE.md) live at
+ * the root, so `has`/`glob` span the repo root plus each manifest subdir. `roots` is the
+ * effective search list (the root is always included).
+ */
+function rootAwareProbes(
+  dir: string,
+  manifestRoots: string[],
+): { roots: string[]; has: FileScan["has"]; glob: FileScan["glob"] } {
+  const roots = manifestRoots[0] === "" ? manifestRoots : ["", ...manifestRoots];
+  const has = (rel: string) => roots.some((root) => existsSync(join(dir, root, rel)));
+  const glob = (subdir: string, test: (name: string) => boolean) => {
+    const names = new Set<string>();
+    for (const root of roots)
+      for (const n of safeReaddir(join(dir, root, subdir)).filter(test)) names.add(n);
+    return [...names];
+  };
+  return { roots, has, glob };
+}
+
+/** Runs one profile against `dir`, or null when the repo isn't that ecosystem. */
+function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): ReadinessReport | null {
+  const roots = profile.detectRoots(dir);
+  if (roots.length === 0) return null;
+  const ctx = profile.buildContext(dir, roots);
+
+  const checks: GuardrailCheck[] = profile.guardrails.map((g) => {
+    const evidence = g.detect(ctx);
     return { id: g.id, present: evidence.length > 0, weight: g.weight, evidence };
   });
 
@@ -346,32 +625,57 @@ export function analyzeReadiness(dir: string): ReadinessReport {
 
   return {
     applicable: true,
+    ecosystem: profile.id,
     score,
     checks,
     hasAgentInstructions,
-    claudeMd: generateClaudeMd(scan, checks),
+    claudeMd: generateClaudeMd(profile, ctx, checks),
   };
+}
+
+/**
+ * Selects the ecosystem profile for `dir` (js-ts first, so a mixed repo resolves to js-ts
+ * and every currently-applicable repo is unchanged) and produces its scorecard, or a
+ * not-applicable report when the repo matches no supported ecosystem.
+ */
+export function analyzeReadiness(dir: string): ReadinessReport {
+  return (
+    runProfile(jsProfile, dir) ??
+    runProfile(rustProfile, dir) ?? {
+      applicable: false,
+      ecosystem: null,
+      score: 0,
+      checks: [],
+      hasAgentInstructions: false,
+      claudeMd: "",
+    }
+  );
 }
 
 /**
  * A repo-tailored house-rules snippet encoding the surgical/mechanical posture
  * (generalized from Shepherd's own `<shepherd-house-rules>` + Karpathy posture),
- * plus a prescription of the missing tooling. Returned verbatim — it's a generated
- * artifact for the *target* repo, not app chrome, so it is exempt from i18n.
+ * plus a prescription of the missing tooling. Fully profile-driven: the stack label,
+ * all four adopt-line maps (tooling label, churn prose, install steps, prescription
+ * note) and the trailing section come from the selected profile, so nothing JS-specific
+ * (e.g. a "prettier + lint-staged" churn line) can leak into another stack's artifact.
+ * Returned verbatim — it's a generated artifact for the *target* repo, exempt from i18n.
  */
-function generateClaudeMd(scan: RepoScan, checks: GuardrailCheck[]): string {
-  const isTs = scan.deps.has("typescript") || scan.has("tsconfig.json");
-  const stack = isTs ? "TypeScript" : "JavaScript";
+function generateClaudeMd<Ctx>(
+  profile: EcosystemProfile<Ctx>,
+  ctx: Ctx,
+  checks: GuardrailCheck[],
+): string {
+  const stack = profile.stackLabel(ctx);
   const missing = checks.filter((c) => !c.present).sort((a, b) => b.weight - a.weight);
-  const verbs = PM_VERBS[scan.pm];
 
   const adoptLines = missing.length
     ? missing
         .map((c) => {
-          const head = `- ${TOOLING_LABEL[c.id]} — ${CHURN_PLAIN[c.id]}`;
+          const head = `- ${profile.toolingLabel(c.id)} — ${profile.churnPlain(c.id)}`;
           const lines = [
-            ...(PRESCRIPTION_NOTE[c.id]?.(scan) ?? []),
-            ...INSTALL_STEPS[c.id](verbs).map((cmd) => `$ ${cmd}`),
+            ...profile.prescriptionNote(ctx, c.id),
+            ...profile.installSteps(ctx, c.id).map((cmd) => `$ ${cmd}`),
           ];
           return lines.length ? `${head}\n${lines.map((l) => `    ${l}`).join("\n")}` : head;
         })
@@ -405,16 +709,10 @@ re-explain a mechanical defect.
 ## Adopt these guardrails (highest leverage first)
 
 ${adoptLines}
-
-## Ignore Shepherd's session artifacts in your formatter
-
-Shepherd writes \`${SHEPHERD_IGNORE_GLOB}\` scratch files into your worktree, hidden
-locally via \`.git/info/exclude\` — which Prettier does NOT read. So if you run
-Prettier, add \`${SHEPHERD_IGNORE_GLOB}\` to your \`.prettierignore\` (run
-\`echo '${SHEPHERD_IGNORE_GLOB}' >> .prettierignore\`), or it will reformat Shepherd's
-artifacts. \`.gitignore\` alone is not reliable here.
-`;
+${profile.trailingNote(ctx)}`;
 }
+
+// ── JS/TS prescription tables (exported: consumed by the js-ts profile + tests) ──────
 
 /** Short tool name per guardrail, used in the generated prescription (verbatim artifact). */
 const TOOLING_LABEL: Record<GuardrailId, string> = {
@@ -504,6 +802,83 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   lint_staged: (v) => [`${v.add} lint-staged`],
   commit_lint: (v) => [`${v.add} @commitlint/cli @commitlint/config-conventional`],
   dead_code_audit: (v) => [`${v.add} fallow`],
+  agent_instructions: () => [],
+  ci: () => [],
+  dependency_automation: () => [],
+};
+
+// ── Rust prescription tables (consumed by the rust profile) ─────────────────────────
+
+/** Short tool name per Rust guardrail, used in the generated prescription (verbatim artifact). */
+const RUST_TOOLING_LABEL: Record<RustGuardrailId, string> = {
+  pre_push_ci: "A pre-push hook that mirrors CI (fmt + clippy + test)",
+  git_hooks: "A git-hook manager (core.hooksPath/.githooks)",
+  linter: "A linter (clippy) with -D warnings",
+  formatter: "A formatter (rustfmt)",
+  test_runner: "cargo test wired into the hook",
+  agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
+  ci: "A CI workflow",
+  dependency_automation: "Dependency automation (Dependabot/Renovate)",
+  commit_lint: "Conventional-commit lint (cocogitto/commitlint)",
+  dead_code_audit: "An unused-deps/dead-code audit (cargo-machete)",
+};
+
+/** Plain-text "back-and-forth this removes" per Rust guardrail (verbatim artifact). */
+const RUST_CHURN_PLAIN: Record<RustGuardrailId, string> = {
+  pre_push_ci:
+    "without it the agent pushes red and waits on a human CI round-trip to learn what broke.",
+  git_hooks: "without a hook manager, none of the checks below run automatically before a push.",
+  linter: "without it you flag clippy lints by hand instead of letting the gate do it.",
+  formatter: "without it you hand-fix style in review; adopt rustfmt.",
+  test_runner:
+    "without tests in the hook, regressions reach you instead of failing the agent first.",
+  agent_instructions: "without house rules, you re-explain the same posture in chat every task.",
+  ci: "without CI, nothing independently re-checks what the agent self-reported.",
+  dependency_automation:
+    "without it dependency bumps pile up as manual busywork and stale-dep bugs reach you instead of an automated PR.",
+  commit_lint: "without it you correct commit message format by hand.",
+  dead_code_audit: "without it unused dependencies and dead code accrete and you spot them by eye.",
+};
+
+/**
+ * Extra prose guidance per Rust guardrail (no `$ ` prefix). Rust's git-hook and CI setup
+ * is file-creation the agent would otherwise guess wrong (there is no husky to install),
+ * so these name the exact `.githooks`/workflow content + the cargo ecosystem.
+ */
+const RUST_PRESCRIPTION_NOTE: Partial<Record<RustGuardrailId, () => string[]>> = {
+  pre_push_ci: () => [
+    "Add `.githooks/pre-push` running `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` (the CI mirror), then point Git at it with `git config core.hooksPath .githooks`.",
+  ],
+  git_hooks: () => [
+    "Use a committed hooks dir — `git config core.hooksPath .githooks` — the zero-dependency Rust idiom (no husky).",
+  ],
+  test_runner: () => [
+    "Wire `cargo test` into the pre-push hook and CI so regressions fail the agent, not you.",
+  ],
+  ci: () => [
+    "Create `.github/workflows/ci.yml` running `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`.",
+  ],
+  dependency_automation: () => [
+    'Create `.github/dependabot.yml` with `package-ecosystem: "cargo"` — Dependabot then updates Cargo.toml/Cargo.lock.',
+  ],
+  dead_code_audit: () => [
+    "Run `cargo machete` in CI/the hook to catch unused dependencies (alternative: `cargo +nightly udeps`).",
+  ],
+};
+
+/**
+ * Concrete install steps per Rust guardrail. rustfmt/clippy are rustup components (not
+ * cargo deps); the rest are `cargo install` tools or pure file-creation (empty array —
+ * the prose note carries the guidance). Exhaustive over the Rust subset.
+ */
+const RUST_INSTALL_STEPS: Record<RustGuardrailId, () => string[]> = {
+  linter: () => ["rustup component add clippy"],
+  formatter: () => ["rustup component add rustfmt"],
+  dead_code_audit: () => ["cargo install cargo-machete"],
+  commit_lint: () => ["cargo install cocogitto"],
+  pre_push_ci: () => [],
+  git_hooks: () => ["git config core.hooksPath .githooks"],
+  test_runner: () => [],
   agent_instructions: () => [],
   ci: () => [],
   dependency_automation: () => [],

@@ -113,10 +113,30 @@ install_os_prereqs() {
   # gzip — both baseline) — no external `logrotate` package to install here anymore.
 }
 
+# arch_keyring_refresh: on Arch only, refresh the drifted `archlinux-keyring` ONCE so the
+# pacman branch below doesn't fail "unknown trust / invalid or corrupted package (PGP
+# signature)" on a fresh image (#1422). Mirrors seed.ts archKeyringRefresh(). LAZY —
+# callers invoke it only after their `command -v` early-return, i.e. only when an install
+# is genuinely pending, so an all-prereqs-present Arch host never runs it. Memoized via
+# `_arch_keyring_done` (set in this parent shell; only the privileged sync is a `$sp sh -c`
+# subshell) so N missing prereqs trigger ONE sync, not N. No-op (returns 0) off pacman.
+_arch_keyring_done=0
+arch_keyring_refresh() {
+  command -v pacman >/dev/null 2>&1 || return 0
+  [ "$_arch_keyring_done" = 1 ] && return 0
+  local sp
+  sp="$(sudo_prefix "archlinux-keyring")"
+  note "refreshing Arch package-signing keyring (archlinux-keyring)"
+  $sp sh -c "pacman-key --init && pacman-key --populate archlinux && pacman -Sy --needed --noconfirm archlinux-keyring" \
+    || die "failed to refresh the Arch keyring (pacman-key/archlinux-keyring)"
+  _arch_keyring_done=1
+}
+
 # ensure_pkg <bin> <pkg>: install <pkg> via apt/apk/dnf/pacman if <bin> is absent.
 ensure_pkg() {
   local bin="$1" pkg="$2" sp
   command -v "$bin" >/dev/null 2>&1 && return 0
+  arch_keyring_refresh
   sp="$(sudo_prefix "$pkg")"
   note "installing $pkg (provides '$bin')"
   $sp sh -c "(apt-get update && apt-get install -y $pkg) || apk add --no-cache $pkg || dnf install -y $pkg || pacman -Sy --noconfirm $pkg" \
@@ -127,6 +147,7 @@ ensure_pkg() {
 ensure_toolchain() {
   local sp
   command -v cc >/dev/null 2>&1 && command -v make >/dev/null 2>&1 && return 0
+  arch_keyring_refresh
   sp="$(sudo_prefix "build-essential/base-devel + python3")"
   note "installing C/C++ build toolchain + python3 (node-pty native build)"
   $sp sh -c "(apt-get update && apt-get install -y build-essential python3) || apk add --no-cache build-base python3 || dnf install -y gcc-c++ make python3 || pacman -Sy --noconfirm base-devel python3" \

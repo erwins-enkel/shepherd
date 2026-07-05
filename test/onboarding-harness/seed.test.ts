@@ -46,6 +46,17 @@ describe("seedInstance", () => {
     expect(flat.some((c) => c.includes("unzip"))).toBe(true);
     expect(flat.some((c) => c.includes("build-essential"))).toBe(true);
 
+    // Arch keyring refresh (#1422) runs BEFORE the first pacman install so a fresh
+    // archlinux image doesn't fail unzip on a drifted keyring; guarded on `command -v
+    // pacman` so it's a no-op on non-Arch scenarios.
+    const keyringIdx = flat.findIndex(
+      (c) => c.includes("pacman-key --populate archlinux") && c.includes("archlinux-keyring"),
+    );
+    expect(keyringIdx).toBeGreaterThanOrEqual(0);
+    expect(flat[keyringIdx]).toContain("command -v pacman");
+    const unzipIdx = flat.findIndex((c) => c.includes("unzip"));
+    expect(keyringIdx).toBeLessThan(unzipIdx);
+
     // baseline writes the network-free herdr STUB (satisfies the #1313 preflight
     // with zero network) before the scenario seed — NOT a herdr.dev fetch.
     const stubIdx = flat.findIndex((c) => c.includes(".local/bin/herdr") && c.includes("chmod +x"));

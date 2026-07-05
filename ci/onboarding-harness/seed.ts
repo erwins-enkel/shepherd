@@ -8,6 +8,27 @@ const SHEPHERD_DIR = "/opt/shepherd";
 // replace default and leave the instance with no root device.
 const PROFILES = ["default", "shep-onb"];
 
+/** Arch's base-image `archlinux-keyring` drifts behind the mirror over time; once a
+ *  mirror package is signed by a packager key newer than the image's keyring,
+ *  `pacman -Sy <pkg>` fails "signature … is unknown trust / invalid or corrupted
+ *  package (PGP signature)" and the checked baseline aborts (issue #1422 — herdr-missing
+ *  on images:archlinux is the only Arch scenario). Refresh the keyring ONCE before any
+ *  pacman install: init the gnupg dir, populate trust from the shipped keyring, then
+ *  update archlinux-keyring from the mirror (its own signature verifies against the
+ *  freshly-populated trust; its install hook re-populates the new packager keys).
+ *  Populate-before-sync is required — `-Sy` first would fail verification before the
+ *  keyring is refreshed. `--needed` skips a redundant reinstall when already current.
+ *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8
+ *  non-Arch scenarios). Runs as root — `driver.exec` → `incus exec` is root by default,
+ *  which `pacman-key` requires. */
+function archKeyringRefresh(): string {
+  return (
+    "command -v pacman >/dev/null 2>&1 || exit 0; " +
+    "pacman-key --init && pacman-key --populate archlinux && " +
+    "pacman -Sy --needed --noconfirm archlinux-keyring"
+  );
+}
+
 /** Cross-distro "ensure package `$1` is installed" one-liner (apt/apk/dnf/pacman). */
 function ensurePkg(pkg: string): string {
   return (
@@ -62,6 +83,9 @@ function herdrStub(): string {
  *  AFTER this so degraded Shepherd can still boot. */
 function baselineCommands(): string[] {
   return [
+    // Arch keyring rot (#1422) fails the first pacman install; refresh it before any
+    // package op. No-op on non-Arch images. See archKeyringRefresh().
+    archKeyringRefresh(),
     ensurePkg("curl"),
     // busybox/minimal images (alpine) ship no `bash`; the bun installer pipes
     // to `bash` explicitly, so it must be present before the curl step runs.

@@ -8,11 +8,12 @@ import {
   setPendingCapture,
   setPickerToggles,
 } from "./lib/picker-session";
-import { computeStitchPlan, cropRegionForElement } from "./lib/screenshot";
+import { computeStitchPlan, cropRegionForElement, cropRegionForMarquee } from "./lib/screenshot";
 import { fileIssue, spawnNow } from "./lib/transport";
 import {
   TransportError,
   type CaptureResult,
+  type OverlayPick,
   type PageMetadata,
   type PickerMessage,
   type WorkerRequest,
@@ -288,25 +289,36 @@ async function captureFullPage(
   return { dataUrl: await blobToDataUrl(blob), truncated: plan.truncated };
 }
 
+type CropFn = (
+  rect: OverlayPick["rect"],
+  viewport: OverlayPick["viewport"],
+  dpr: number,
+) => ReturnType<typeof cropRegionForElement>;
+
 /**
- * Capture the visible tab and crop it to a picked element's bounds. Falls back to
- * the full visible capture if the clamped region is empty (element offscreen) or
- * a canvas context is unavailable — the user still gets a usable screenshot.
+ * Capture the visible tab and crop it to an overlay-reported region. `fallbackToFull`
+ * decides what happens when the region is empty (clamped to zero area) or a canvas
+ * context is unavailable: element mode falls back to the full visible capture (an
+ * offscreen element still yields a usable screenshot), while marquee mode returns
+ * `null` so a deliberate region gesture that selected nothing aborts rather than
+ * silently capturing the whole viewport.
  */
-async function captureElement(
+async function captureRegion(
   windowId: number,
-  pick: Extract<PickerMessage, { type: "picker-pick" }>,
-): Promise<string> {
+  pick: OverlayPick,
+  crop: CropFn,
+  fallbackToFull: boolean,
+): Promise<string | null> {
   const fullUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
-  const region = cropRegionForElement(pick.rect, pick.viewport, pick.dpr);
-  if (!region) return fullUrl;
+  const region = crop(pick.rect, pick.viewport, pick.dpr);
+  if (!region) return fallbackToFull ? fullUrl : null;
 
   const bitmap = await createImageBitmap(dataUrlToBlob(fullUrl));
   const canvas = new OffscreenCanvas(region.sw, region.sh);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     bitmap.close();
-    return fullUrl;
+    return fallbackToFull ? fullUrl : null;
   }
   ctx.drawImage(bitmap, region.sx, region.sy, region.sw, region.sh, 0, 0, region.sw, region.sh);
   bitmap.close();
@@ -356,36 +368,57 @@ async function clearPendingBadge(tabId: number): Promise<void> {
 }
 
 /**
- * Inject the picker overlay into the active tab and stash the toggles for the
- * deferred capture. The localized instruction text is resolved in the popup (its
- * locale) and handed to the overlay via an isolated-world global, so the picker
- * content script needn't bundle Paraglide.
+ * Inject an overlay content script (`picker.js` / `marquee.js`) into the active tab
+ * and stash the toggles for the deferred capture. The localized instruction text is
+ * resolved in the popup (its locale) and handed to the overlay via an isolated-world
+ * global (`labelGlobal`), so the overlay content script needn't bundle Paraglide.
  */
-async function startPicker(toggles: SignalToggles, instructions: string): Promise<void> {
+async function startOverlay(
+  toggles: SignalToggles,
+  instructions: string,
+  file: string,
+  labelGlobal: string,
+): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("no-active-tab");
   await setPickerToggles(toggles);
   await clearPendingBadge(tab.id);
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (text: string) => {
-      (window as unknown as { __shepherdPickerLabel?: string }).__shepherdPickerLabel = text;
+    func: (name: string, text: string) => {
+      (window as unknown as Record<string, string>)[name] = text;
     },
-    args: [instructions],
+    args: [labelGlobal, instructions],
   });
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["picker.js"] });
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [file] });
 }
 
-/** Handle the picker's click: capture + crop, gather signals, stash for the popup. */
-async function onPickerPick(
-  pick: Extract<PickerMessage, { type: "picker-pick" }>,
+/**
+ * Handle an overlay's pick (element click or marquee release): capture + crop,
+ * gather signals, stash for the popup. A marquee whose region cropped to nothing
+ * (`captureRegion` returned `null`) aborts — no capture stashed, no ✓ badge — so a
+ * deliberate selection that landed on nothing simply produces nothing.
+ */
+async function onOverlayPick(
+  pick: OverlayPick,
   sender: chrome.runtime.MessageSender,
+  mode: "element" | "marquee",
 ): Promise<void> {
   const tab = sender.tab;
   if (!tab?.id || tab.windowId === undefined) return;
   const tabId = tab.id;
 
-  const screenshotDataUrl = await captureElement(tab.windowId, pick);
+  const screenshotDataUrl = await captureRegion(
+    tab.windowId,
+    pick,
+    mode === "marquee" ? cropRegionForMarquee : cropRegionForElement,
+    mode === "element", // element falls back to the full visible capture; marquee aborts
+  );
+  if (screenshotDataUrl === null) {
+    await clearPickerToggles();
+    return;
+  }
+
   const metadata = await buildTabMetadata(tabId, tab);
   const toggles = (await getPickerToggles()) ?? NO_GATHER;
   const { signals, errors } = await gatherSignals(tabId, toggles);
@@ -393,7 +426,7 @@ async function onPickerPick(
   const result: CaptureResult = {
     screenshotDataUrl,
     metadata,
-    mode: "element",
+    mode,
     signals,
     signalErrors: errors.length ? errors : undefined,
   };
@@ -407,6 +440,40 @@ async function onPickerPick(
   await setPendingBadge(tabId);
 }
 
+/**
+ * Dispatch the overlay (picker + marquee) messages, keeping the two modes' near-
+ * identical arming/pick/cancel handling out of the top-level router. Returns
+ * `{ handled: false }` for a non-overlay message; for a handled one, `response` is
+ * the ack to send (start-* only) or `null` for the fire-and-forget pick/cancel
+ * (the popup is closed; the result is stashed for reopen).
+ */
+async function handleOverlayMessage(
+  req: WorkerRequest | PickerMessage,
+  sender: chrome.runtime.MessageSender,
+): Promise<{ handled: boolean; response: WorkerResponse | null }> {
+  switch (req.type) {
+    case "start-picker":
+      await startOverlay(req.toggles, req.instructions, "picker.js", "__shepherdPickerLabel");
+      return { handled: true, response: { ok: true, type: "picker-started" } };
+    case "start-marquee":
+      await startOverlay(req.toggles, req.instructions, "marquee.js", "__shepherdMarqueeLabel");
+      return { handled: true, response: { ok: true, type: "picker-started" } };
+    case "picker-pick":
+      await onOverlayPick(req, sender, "element");
+      return { handled: true, response: null };
+    case "marquee-pick":
+      await onOverlayPick(req, sender, "marquee");
+      return { handled: true, response: null };
+    case "picker-cancel":
+    case "marquee-cancel":
+      await clearPickerToggles();
+      if (sender.tab?.id !== undefined) await clearPendingBadge(sender.tab.id);
+      return { handled: true, response: null };
+    default:
+      return { handled: false, response: null };
+  }
+}
+
 chrome.runtime.onMessage.addListener(
   (req: WorkerRequest | PickerMessage, sender, sendResponse: (r: WorkerResponse) => void) => {
     (async () => {
@@ -416,18 +483,9 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ ok: true, type: "capture", result });
           return;
         }
-        if (req.type === "start-picker") {
-          await startPicker(req.toggles, req.instructions);
-          sendResponse({ ok: true, type: "picker-started" });
-          return;
-        }
-        if (req.type === "picker-pick") {
-          await onPickerPick(req, sender);
-          return; // fire-and-forget: the popup is closed, the result is stashed
-        }
-        if (req.type === "picker-cancel") {
-          await clearPickerToggles();
-          if (sender.tab?.id !== undefined) await clearPendingBadge(sender.tab.id);
+        const overlay = await handleOverlayMessage(req, sender);
+        if (overlay.handled) {
+          if (overlay.response) sendResponse(overlay.response);
           return;
         }
         if (req.type === "spawn") {

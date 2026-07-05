@@ -4,4 +4,5 @@ shepherd-capture-*.zip
 src/lib/paraglide/
 public/recorder.js
 public/picker.js
+public/marquee.js
 public/axe.min.js

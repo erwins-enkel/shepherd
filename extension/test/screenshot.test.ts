@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeStitchPlan, cropRegionForElement } from "../src/lib/screenshot";
+import {
+  computeStitchPlan,
+  cropRegionForElement,
+  cropRegionForMarquee,
+} from "../src/lib/screenshot";
 
 describe("computeStitchPlan", () => {
   it("returns a single step for a page that fits the viewport", () => {
@@ -65,5 +69,34 @@ describe("cropRegionForElement", () => {
 
   it("returns null for a zero-area rect", () => {
     expect(cropRegionForElement({ x: 10, y: 10, width: 0, height: 50 }, viewport, 1)).toBeNull();
+  });
+});
+
+describe("cropRegionForMarquee", () => {
+  const viewport = { width: 1000, height: 800 };
+
+  it("scales a fully-visible dragged rect to device pixels", () => {
+    const region = cropRegionForMarquee({ x: 100, y: 50, width: 200, height: 100 }, viewport, 2);
+    expect(region).toEqual({ sx: 200, sy: 100, sw: 400, sh: 200 });
+  });
+
+  it("clamps a rect that overflows the viewport edges", () => {
+    const region = cropRegionForMarquee({ x: 900, y: 700, width: 400, height: 400 }, viewport, 1);
+    expect(region).toEqual({ sx: 900, sy: 700, sw: 100, sh: 100 });
+  });
+
+  it("clamps negative offsets (drag started off the top/left edge)", () => {
+    const region = cropRegionForMarquee({ x: -50, y: -20, width: 200, height: 100 }, viewport, 1);
+    expect(region).toEqual({ sx: 0, sy: 0, sw: 150, sh: 80 });
+  });
+
+  it("returns null for a region fully outside the viewport", () => {
+    expect(
+      cropRegionForMarquee({ x: 1200, y: 50, width: 100, height: 100 }, viewport, 1),
+    ).toBeNull();
+  });
+
+  it("returns null for a zero-area region (caller aborts the pick)", () => {
+    expect(cropRegionForMarquee({ x: 10, y: 10, width: 0, height: 50 }, viewport, 1)).toBeNull();
   });
 });

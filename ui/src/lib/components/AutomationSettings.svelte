@@ -600,6 +600,8 @@
     font-size: var(--fs-meta);
     line-height: 1.5;
     color: var(--color-ink);
+    /* messages may carry \n\n paragraph breaks (e.g. auto-address/auto-drain) */
+    white-space: pre-line;
   }
   .auto-desc {
     font-size: var(--fs-meta);
@@ -704,6 +706,8 @@
   .sandbox-detail {
     margin-top: 0;
     background: var(--color-inset);
+    /* container with real <p> children — pre-line would render markup whitespace */
+    white-space: normal;
   }
   .sandbox-detail p {
     margin: 0;

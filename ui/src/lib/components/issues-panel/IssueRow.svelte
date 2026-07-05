@@ -5,6 +5,7 @@
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { ACTIVE_LABEL } from "../issues-panel";
+  import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
@@ -46,6 +47,18 @@
   // Epic-parent rows disable quick-launch + Task: an epic is launched via the epic
   // panel's Start, not by spawning a manual session against the parent tracking issue.
   const isEpicParent = $derived(!!epicSummary);
+
+  // Badge count: prefer the live/fetched Epic's authoritative (native-first) child counts
+  // over the list summary, which is markdown-first and can go stale after an epic is
+  // restructured (e.g. badge "0/6" while the real state is "3/6"). Mirrors EpicBadge.svelte.
+  // Falls back to the summary when no live record exists (idle epic), then to zero.
+  const counts = $derived(
+    epic
+      ? progress(epic.children)
+      : epicSummary
+        ? { merged: epicSummary.merged, total: epicSummary.total }
+        : { merged: 0, total: 0 },
+  );
 </script>
 
 <div class="issue-row" class:is-epic={isEpicParent} id={`epic-issue-row-${issue.number}`}>
@@ -82,8 +95,8 @@
             : m.epic_badge_expand_aria({ parent: issue.number })}
         onclick={() => ontoggleepic(issue.number)}
         >{isNative
-          ? m.subissues_badge({ merged: epicSummary.merged, total: epicSummary.total })
-          : m.epic_badge({ merged: epicSummary.merged, total: epicSummary.total })}</button
+          ? m.subissues_badge({ merged: counts.merged, total: counts.total })
+          : m.epic_badge({ merged: counts.merged, total: counts.total })}</button
       >
     {/if}
   </div>

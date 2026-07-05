@@ -183,6 +183,41 @@ describe("IssuesPanel epic badge", () => {
     expect(badge!.textContent?.trim()).toBe(expectedText);
   });
 
+  it("prefers the live epic's authoritative count over a stale markdown summary", async () => {
+    // The list summary is markdown-first and goes stale after an epic is restructured
+    // (e.g. badge "0/6"); the live/native record is authoritative ("3/6"). When a live
+    // record exists, the collapsed badge must show ITS count, not the stale summary's.
+    seed([issue(60, "Epic parent")], [epic(60, 0, 6, "markdown")]); // stale summary → 0/6
+    const live: Epic = {
+      repoPath: "/repo",
+      parentIssueNumber: 60,
+      parentTitle: "Epic 60",
+      source: "native",
+      children: (["merged", "merged", "merged", "running", "running", "running"] as const).map(
+        (state, i) => ({
+          number: 200 + i,
+          title: `Child ${200 + i}`,
+          url: `https://example.com/i/${200 + i}`,
+          order: i,
+          body: "",
+          blockedBy: [],
+          state,
+          sessionId: null,
+          prNumber: null,
+          issueClosed: state === "merged",
+          claimed: false,
+        }),
+      ),
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber: 60, mode: "auto", status: "idle" },
+    };
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: { "/repo#60": live } });
+
+    // The badge shows the live 3/6, never the stale summary 0/6.
+    await expect.element(page.getByText(m.epic_badge({ merged: 3, total: 6 }))).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(m.epic_badge({ merged: 0, total: 6 }));
+  });
+
   it("disables the +Task button on an epic-parent row, enables it on a normal one", async () => {
     seed([issue(30, "Epic parent"), issue(31, "Plain issue")], [epic(30, 1, 2, "markdown")]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
@@ -349,6 +384,107 @@ describe("IssuesPanel expandEpic", () => {
     // Badge stays collapsed; no targeted fetch.
     expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("false");
     expect(mockEpic).not.toHaveBeenCalled();
+  });
+
+  it("waits for getEpics to settle before scrolling, then lands on the sorted-first row", async () => {
+    // Race guard: listIssues and getEpics resolve independently. The scroll must NOT fire
+    // on the raw issue list (target still un-pinned, mid-list) — it must wait until
+    // getEpics settles so sortEpicsFirst has floated the epic to visibleIssues[0], then
+    // scroll THERE. Pin the shared filter singleton (a prior test may have left it dirty)
+    // so both issues stay visible and 327 sorts first deterministically; viewer=null also
+    // makes hideOthers fail open.
+    const prev = {
+      others: issuesFilter.hideOthers,
+      active: issuesFilter.hideActive,
+      sub: issuesFilter.hideSubIssues,
+    };
+    issuesFilter.set(false);
+    issuesFilter.setActive(false);
+    issuesFilter.setSubIssues(false);
+
+    const scrollCalls: { id: string; firstRowId: string | undefined }[] = [];
+    const origScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrollCalls.push({ id: this.id, firstRowId: document.querySelector(".issue-row")?.id });
+    };
+
+    let resolveIssues!: (r: Awaited<ReturnType<typeof listIssues>>) => void;
+    let resolveEpics!: (r: Awaited<ReturnType<typeof getEpics>>) => void;
+    mockIssues.mockReturnValue(new Promise((res) => (resolveIssues = res)));
+    mockEpics.mockReturnValue(new Promise((res) => (resolveEpics = res)));
+    mockEpic.mockResolvedValue(epic(327));
+
+    try {
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
+
+      // Issues arrive FIRST, target NOT at position 0, epics still pending.
+      resolveIssues({
+        slug: "acme/repo",
+        webUrl: null,
+        issues: [issue(400), issue(327)],
+        viewer: null,
+      });
+      await expect.poll(() => document.querySelectorAll(".issue-row").length).toBe(2);
+      // getEpics has not settled → epicsSettled false → NO scroll yet (the bug scrolled here).
+      expect(scrollCalls.length).toBe(0);
+
+      // Epics settle: sortEpicsFirst pins 327 to the top and the scroll is released.
+      resolveEpics({ epics: [summary(327)], subIssues: [] });
+      await expect.poll(() => scrollCalls.length).toBe(1);
+      // It scrolled the TARGET row, which is now the first row in the DOM (visibleIssues[0]).
+      expect(scrollCalls[0].id).toBe("epic-issue-row-327");
+      expect(scrollCalls[0].firstRowId).toBe("epic-issue-row-327");
+    } finally {
+      Element.prototype.scrollIntoView = origScroll;
+      issuesFilter.set(prev.others);
+      issuesFilter.setActive(prev.active);
+      issuesFilter.setSubIssues(prev.sub);
+    }
+  });
+
+  it("lands on a target epic even when the mine & unassigned filter would hide it", async () => {
+    // hideOthers ON + the epic assigned to someone else would drop its row — but an
+    // explicit EPIC-badge navigation must force it back in AND scroll to it.
+    const prev = {
+      others: issuesFilter.hideOthers,
+      active: issuesFilter.hideActive,
+      sub: issuesFilter.hideSubIssues,
+    };
+    issuesFilter.set(true); // hideOthers ON — the case under test
+    issuesFilter.setActive(false);
+    issuesFilter.setSubIssues(false);
+
+    const scrolled: string[] = [];
+    const origScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+
+    // 327 (target) is assigned to another user → hideOthers would filter it out.
+    const target: Issue = { ...issue(327), assignees: ["someone-else"] };
+    const mine: Issue = { ...issue(400), assignees: ["me"] };
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [mine, target],
+      viewer: "me",
+    });
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
+    mockEpic.mockResolvedValue(epic(327));
+
+    try {
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
+
+      // The filtered-out epic row is force-included…
+      await expect.poll(() => document.getElementById("epic-issue-row-327")).toBeTruthy();
+      // …and the scroll actually fires on it (not just that the row renders).
+      await expect.poll(() => scrolled).toContain("epic-issue-row-327");
+    } finally {
+      Element.prototype.scrollIntoView = origScroll;
+      issuesFilter.set(prev.others);
+      issuesFilter.setActive(prev.active);
+      issuesFilter.setSubIssues(prev.sub);
+    }
   });
 });
 

@@ -85,9 +85,11 @@
 {/if}
 
 <style>
-  /* Bottom overlay strip pinned to the terminal body, directly above the steer
-     bar — mirrors ReviewInFlightBanner. Absolutely positioned so it never triggers
-     an xterm refit. Non-blocking: no scrim/blur (it does not seize interaction). */
+  /* Bottom strip pinned to the terminal body, directly above the steer bar —
+     mirrors ReviewInFlightBanner. The terminal reserves this height (.term-mount
+     shrinks by --review-banner-h) so the strip sits BELOW the live prompt, not over
+     it; appearing/resizing it intentionally triggers an xterm refit. Non-blocking:
+     no scrim/blur (it does not seize interaction). */
   .ci-banner {
     --accent: var(
       --color-amber

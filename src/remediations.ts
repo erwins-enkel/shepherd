@@ -27,10 +27,18 @@ const CODEX_INSTALL =
 // uses) covers ubuntu/debian/alpine/arch/fedora. NO `sudo`: the harness runs as root
 // (and busybox alpine has no sudo); the in-app surface never auto-runs it (git is
 // GUIDANCE_ONLY below), so this string is only ever executed with privilege.
+// The pacman branch refreshes Arch's drifted archlinux-keyring first (#1422) — a fresh
+// Arch host otherwise fails "unknown trust / invalid or corrupted package (PGP
+// signature)". The refresh is reached only after apt/apk/dnf all miss (= an Arch host)
+// and installs a single package, so it's inherently lazy + one-shot; guarded on
+// `command -v pacman` so it can't run on a non-Arch box.
 const GIT_INSTALL =
   "command -v git >/dev/null 2>&1 || " +
   "(apt-get update && apt-get install -y git) || apk add --no-cache git || " +
-  "dnf install -y git || pacman -Sy --noconfirm git";
+  "dnf install -y git || " +
+  "((command -v pacman >/dev/null 2>&1 && " +
+  "pacman-key --init && pacman-key --populate archlinux && " +
+  "pacman -Sy --needed --noconfirm archlinux-keyring); pacman -Sy --noconfirm git)";
 
 export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_bun_missing: "curl -fsSL https://bun.sh/install | bash",

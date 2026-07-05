@@ -53,6 +53,12 @@ describe("remediations catalog", () => {
     expect(cmd).toContain("apk add --no-cache git");
     expect(cmd).toContain("dnf install -y git");
     expect(cmd).toContain("pacman -Sy --noconfirm git");
+    // the pacman branch refreshes Arch's drifted keyring first (#1422), else a fresh
+    // Arch host fails "unknown trust"; guarded on `command -v pacman` so it can't run
+    // on a non-Arch box, and reached only after apt/apk/dnf all miss.
+    expect(cmd).toContain("command -v pacman");
+    expect(cmd).toContain("pacman-key --populate archlinux");
+    expect(cmd).toContain("archlinux-keyring");
     expect(cmd).not.toContain("sudo"); // harness runs as root; busybox alpine has no sudo
     // privileged system install ⇒ guidance-only in-app (the root harness still applies it)
     expect(GUIDANCE_ONLY.has("diagnostics_hint_git_missing")).toBe(true);

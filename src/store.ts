@@ -47,6 +47,7 @@ import type {
 import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
+import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
@@ -110,6 +111,8 @@ export interface RepoConfig {
   sandboxProfile: SandboxProfile;
   /** Per-repo default-model override; "inherit" (default) defers to the global default setting. */
   defaultModel: string;
+  /** Per-repo default-effort override; "inherit" (default) defers to the global default setting. */
+  defaultEffort: string;
   /** Per-repo extra allowlisted hosts appended to the autonomous egress allowlist. */
   egressExtraHosts: string[];
   /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
@@ -170,6 +173,7 @@ type NewSession = Omit<
   | "updatedAt"
   | "archivedAt"
   | "model"
+  | "effort"
   | "claudeSessionId"
   | "agentProvider"
   | "readyToMerge"
@@ -204,6 +208,7 @@ type NewSession = Omit<
 > & {
   id?: string;
   model?: string | null;
+  effort?: string | null;
   claudeSessionId?: string;
   agentProvider?: Session["agentProvider"];
   auto?: boolean;
@@ -220,7 +225,7 @@ type NewSession = Omit<
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
-  isolated, herdrSession, herdrAgentId, claudeSessionId, agentProvider, model, readyToMerge, status, lastState,
+  isolated, herdrSession, herdrAgentId, claudeSessionId, agentProvider, model, effort, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
@@ -247,6 +252,7 @@ type SessionRow = {
   claudeSessionId: string | null;
   agentProvider: string | null;
   model: string | null;
+  effort: string | null;
   readyToMerge: number;
   status: string;
   lastState: string;
@@ -434,6 +440,7 @@ type RepoCfgRow = {
   usageCeilingPct: number;
   sandboxProfile: string;
   defaultModel: string;
+  defaultEffort: string;
   egressExtraHosts: string | null;
   repoMode: string;
   autoOptimizeFlagged: number;
@@ -561,6 +568,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       usageCeilingPct: 80,
       sandboxProfile: "trusted",
       defaultModel: "inherit",
+      defaultEffort: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
       autoOptimizeFlagged: false,
@@ -587,6 +595,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     usageCeilingPct: r.usageCeilingPct,
     sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
+    defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
     egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
@@ -616,6 +625,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.usageCeilingPct,
     cfg.sandboxProfile,
     cfg.defaultModel,
+    cfg.defaultEffort,
     JSON.stringify(cfg.egressExtraHosts ?? []),
     cfg.repoMode,
     Number(Boolean(cfg.autoOptimizeFlagged)),
@@ -705,7 +715,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
       claudeSessionId TEXT NOT NULL DEFAULT '',
       agentProvider TEXT NOT NULL DEFAULT 'claude',
-      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      model TEXT, effort TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     this.migrateSessionColumns();
@@ -1147,7 +1157,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
+                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
                 autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -1160,9 +1170,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, egressExtraHosts, repoMode,
+          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
           autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -1179,6 +1189,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          usageCeilingPct = excluded.usageCeilingPct,
          sandboxProfile = excluded.sandboxProfile,
          defaultModel = excluded.defaultModel,
+         defaultEffort = excluded.defaultEffort,
          egressExtraHosts = excluded.egressExtraHosts,
          repoMode = excluded.repoMode,
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
@@ -1700,6 +1711,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return {
       ...input,
       model: input.model ?? null,
+      effort: input.effort ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
       agentProvider: input.agentProvider ?? "claude",
       id: input.id ?? randomUUID(),
@@ -1747,7 +1759,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1763,6 +1775,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           s.claudeSessionId,
           s.agentProvider ?? "claude",
           s.model,
+          s.effort,
           s.readyToMerge ? 1 : 0,
           s.status,
           s.lastState,
@@ -1869,7 +1882,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, agentProvider=?, model=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -1879,6 +1892,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         next.claudeSessionId,
         next.agentProvider ?? "claude",
         next.model,
+        next.effort,
         next.readyToMerge ? 1 : 0,
         next.mergingSince,
         next.mergingTrainId,
@@ -2952,6 +2966,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE sessions ADD COLUMN ${ddl}`);
     };
     add("model", `model TEXT`);
+    add("effort", `effort TEXT`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
     add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);
     add("readyToMerge", `readyToMerge INTEGER NOT NULL DEFAULT 0`);
@@ -3056,6 +3071,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
     add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
+    add("defaultEffort", `defaultEffort TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
     // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).

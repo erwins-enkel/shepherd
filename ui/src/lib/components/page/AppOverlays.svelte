@@ -122,6 +122,7 @@
     composeImages,
     composePrompt,
     composeModel,
+    composeEffort,
     composeAgentProvider,
     composePlanGate,
     composeAutopilot,
@@ -241,6 +242,7 @@
     composeImages: { path: string; name: string }[];
     composePrompt: string | null;
     composeModel: string | null;
+    composeEffort: string | null;
     composeAgentProvider: AgentProvider | null;
     composePlanGate: boolean | null;
     composeAutopilot: boolean | null;
@@ -321,7 +323,12 @@
   const newTaskInitialIssue = $derived(composeIssue ?? undefined);
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
   const newTaskInitialModel = $derived(composeModel ?? undefined);
+  // Relaunch/edit-held carry the original session's effort into the composer's picker (parity with
+  // composeModel → initialModel); undefined lets NewTask preselect from the repo/global default.
+  const newTaskInitialEffort = $derived(composeEffort ?? undefined);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
+  // Hoisted out of the template (branch-free markup): the global default-effort seed.
+  const newTaskDefaultEffort = $derived(settings?.defaultEffort);
   // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
   const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
   const onboardingRepoRootDisplay = $derived(settings?.repoRootDisplay ?? null);
@@ -491,6 +498,7 @@
     initialImages={composeImages}
     initialPrompt={newTaskInitialPrompt}
     initialModel={newTaskInitialModel}
+    initialEffort={newTaskInitialEffort}
     initialAgentProvider={composeAgentProvider ?? undefined}
     initialPlanGate={composePlanGate}
     initialAutopilot={composeAutopilot}
@@ -498,6 +506,7 @@
     initialResearch={composeResearch}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
+    defaultEffort={newTaskDefaultEffort}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}
     onclose={onnewclose}

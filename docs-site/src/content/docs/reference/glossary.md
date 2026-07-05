@@ -55,6 +55,15 @@ A model-weighted measure of token spend that counts what actually draws down you
 subscription limits — output tokens cost far more than cached reads, so weighted
 units, not raw token counts, reflect true usage.
 
+### Reasoning effort
+
+A cost/quality dial (`low`, `medium`, `high`, `xhigh`, `max`) that sets how much
+the model reasons before answering — higher effort spends more tokens for deeper
+reasoning, lower is faster and cheaper. Selectable per session in the New Task
+picker, with a per-repo or global default in Settings; leave it at **default** to
+use the CLI's own effort. Shepherd passes it to the agent CLI as `--effort`
+(Claude) or `model_reasoning_effort` (Codex).
+
 ### Satellite pass
 
 An automated LLM pass Shepherd spawns alongside the main task agent — critic /

@@ -84,8 +84,12 @@ export function reviewerArgv(
   provider: AgentProvider,
   model: string | null,
   prompt: string,
+  effort: string | null = null,
 ): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("reviewer", { provider, model, prompt });
+  // The plan reviewer participates in the session's resolved reasoning effort (no longer force-
+  // unbudgeted): it inherits `session.effort` — the tier this session runs at, itself the session
+  // override or the drain repo→global resolution. Unset (the default) → no --effort → unchanged.
+  return buildTransientAgentArgv("reviewer", { provider, model, prompt, effort });
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
@@ -259,7 +263,12 @@ export class PlanGateService {
     // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
     // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
-    const { argv, sessionId: reviewerSessionId } = reviewerArgv(env.provider, env.model, prompt);
+    const { argv, sessionId: reviewerSessionId } = reviewerArgv(
+      env.provider,
+      env.model,
+      prompt,
+      session.effort,
+    );
 
     // Disposable detached worktree at the base: read-only codebase inspection that can't race
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.

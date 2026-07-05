@@ -7,6 +7,7 @@ import {
   normalizeRoleCli,
   normalizeRoleModelToken,
 } from "./default-model";
+import { normalizeDefaultEffortSetting } from "./default-effort";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -606,6 +607,10 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Global default reasoning-effort setting ("default" | <tier>). "default" = emit no effort flag.
+  // Applies to the New Task picker and drain/autopilot auto-spawns. Env seeds a fresh DB;
+  // absent/invalid → "default". Persisted + UI-configurable. No "auto" tier (effort has no promo).
+  defaultEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DEFAULT_EFFORT) ?? "default",
   // Default interactive agent provider for newly spawned task sessions. Persisted +
   // UI-configurable; env seeds a fresh DB.
   defaultAgentProvider:

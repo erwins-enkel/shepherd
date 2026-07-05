@@ -30,6 +30,7 @@ function makeSession(over: Partial<Session> = {}): Session {
     herdrAgentId: "t",
     claudeSessionId: "c1",
     model: null,
+    effort: null,
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,

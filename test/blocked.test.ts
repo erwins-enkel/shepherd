@@ -129,6 +129,7 @@ function makeSession(planPhase: Session["planPhase"]): Session {
     herdrAgentId: "a",
     claudeSessionId: "",
     model: null,
+    effort: null,
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,

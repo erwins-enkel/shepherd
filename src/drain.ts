@@ -76,6 +76,7 @@ const MAX_LANDING_ATTEMPTS = 5;
 const LAND_MERGE_ERROR_CAP = 3;
 const LAND_MERGE_BACKOFF_MS = 300_000;
 import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
+import { drainSpawnEffort, resolveDefaultEffortSetting } from "./default-effort";
 import {
   resolveProfile,
   autoHoldReason,
@@ -1843,6 +1844,9 @@ export class DrainService {
         baseBranch: base,
         prompt,
         model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        effort: drainSpawnEffort(
+          resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort),
+        ),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },

@@ -16,9 +16,17 @@
  * Codex produces no Claude JSONL transcript, so token totals + live tool-use surfacing degrade to
  * null for a Codex role (handled by the callers); the file-based result is unaffected.
  */
-export function codexRoleArgv(model: string | null, prompt: string): string[] {
+import { effortForSpawn } from "./default-effort";
+
+export function codexRoleArgv(
+  model: string | null,
+  prompt: string,
+  effort: string | null = null,
+): string[] {
   const argv = ["codex", "exec", "--sandbox", "workspace-write"];
   if (model) argv.push("-m", model);
+  const tier = effortForSpawn("codex", effort);
+  if (tier) argv.push("-c", `model_reasoning_effort=${tier}`);
   argv.push(prompt);
   return argv;
 }

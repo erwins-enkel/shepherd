@@ -6,6 +6,7 @@ import {
   AGENT_PROVIDERS,
   CODEX_MODELS,
   MODELS,
+  EFFORTS,
   type AgentProvider,
   type CreateSessionInput,
   type IssueRef,
@@ -41,6 +42,7 @@ const ALLOWED_KEYS = new Set([
   "prompt",
   "agentProvider",
   "model",
+  "effort",
   "images",
   "issueRef",
   "planGateEnabled",
@@ -107,6 +109,16 @@ function validateModel(value: unknown, agentProvider?: AgentProvider): Field<str
     return field(value);
   }
   return err("unknown model");
+}
+
+/** effort — optional; absent/null/"default" → null (provider default, no effort flag). A present
+ *  value must be an EFFORTS tier. Provider clamping (Codex has no xhigh/max) happens at argv-build,
+ *  so the tier is accepted here for either provider. */
+function validateEffort(value: unknown): Field<string | null> {
+  if (value == null || value === "default") return field(null);
+  if (typeof value !== "string") return err("effort must be a string");
+  if ((EFFORTS as readonly string[]).includes(value)) return field(value);
+  return err("effort must be one of: low, medium, high, xhigh, max");
 }
 
 function validateHandoffMode(value: unknown): Field<HandoffMode> {
@@ -485,6 +497,9 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   const model = validateModel(obj.model, agentProvider.value);
   if (!model.ok) return model;
 
+  const effort = validateEffort(obj.effort);
+  if (!effort.ok) return effort;
+
   const root = resolve(expandHome(repoRoot));
   const repoPath = validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
@@ -506,6 +521,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       prompt: prompt.value,
       agentProvider: agentProvider.value,
       model: model.value,
+      effort: effort.value,
       images: images.value,
       issueRef: issueRef.value,
       // mergeTrainPrs is number[] | undefined; consumers read it via truthiness /
@@ -590,6 +606,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "prompt",
   "agentProvider",
   "model",
+  "effort",
   "planGateEnabled",
   "research",
   "images",
@@ -630,6 +647,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "baseBranch", apply: () => validateBaseBranch(obj.baseBranch) },
     { key: "agentProvider", apply: () => validateAgentProvider(obj.agentProvider) },
     { key: "model", apply: () => validateModel(obj.model, out.agentProvider) },
+    { key: "effort", apply: () => validateEffort(obj.effort) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },

@@ -134,6 +134,7 @@ import {
   spawnModelForAvailability,
   type RoleEnvironment,
 } from "./default-model";
+import { normalizeDefaultEffortSetting } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
@@ -242,6 +243,11 @@ const savedDm = store.getSetting("defaultModel");
 if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
+}
+const savedDe = store.getSetting("defaultEffort");
+if (savedDe !== null) {
+  const v = normalizeDefaultEffortSetting(savedDe);
+  if (v !== null) config.defaultEffort = v;
 }
 // Per-role ENVIRONMENT settings (persisted) override the env/seed defaults; corrupt/unknown values
 // are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`

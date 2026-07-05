@@ -4,6 +4,7 @@
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { modelOptionLabel } from "$lib/model-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
+  import GlossaryText from "$lib/components/GlossaryText.svelte";
   import {
     AGENT_PROVIDERS,
     CODEX_MODELS,
@@ -11,6 +12,7 @@
     type SandboxProfile,
   } from "$lib/types";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
+  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
 
   let {
     planGate = $bindable(),
@@ -18,10 +20,12 @@
     autopilot = $bindable(),
     agentProvider = $bindable(),
     model = $bindable(),
+    effort = $bindable(),
     sandboxProfile = $bindable(),
     onPlanGateTouched,
     onAutopilotTouched,
     onModelTouched,
+    onEffortTouched,
     planGateLoading,
     autopilotLoading,
     autopilotDefault,
@@ -35,12 +39,14 @@
     autopilot: boolean;
     agentProvider: AgentProvider;
     model: string;
+    effort: string;
     sandboxProfile: "default" | SandboxProfile;
     // touched flags live in the parent; the child only signals a manual change
     // (write-only `$bindable` would trip no-useless-assignment here)
     onPlanGateTouched: () => void;
     onAutopilotTouched: () => void;
     onModelTouched: () => void;
+    onEffortTouched: () => void;
     planGateLoading: boolean;
     autopilotLoading: boolean;
     autopilotDefault: boolean;
@@ -51,6 +57,7 @@
   } = $props();
 
   const provModels = $derived(providerModels(agentProvider));
+  const provEfforts = $derived(providerEfforts(agentProvider));
 
   function agentProviderChanged() {
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
@@ -62,6 +69,12 @@
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }
+  });
+
+  // Snap a now-unsupported effort tier back to "default" when the provider changes (e.g. xhigh/max
+  // are not offered for Codex). The server-side clamp is the guarantee; this keeps the picker honest.
+  $effect(() => {
+    if (!effortAvailableForProvider(agentProvider, effort)) effort = "default";
   });
 </script>
 
@@ -193,6 +206,17 @@
       {#if agentProvider === "claude" && !fableAvailable}
         <p class="micro">{m.newtask_fable_unavailable()}</p>
       {/if}
+    </div>
+
+    <div class="model-field" use:coachTarget={"effort-control"}>
+      <label class="micro" for="nt-effort">{m.newtask_effort_label()}</label>
+      <select id="nt-effort" bind:value={effort} onchange={() => onEffortTouched()}>
+        <option value="default">{m.effort_default()}</option>
+        {#each provEfforts as tier (tier)}
+          <option value={tier}>{effortLabel(tier)}</option>
+        {/each}
+      </select>
+      <p class="pg-hint"><GlossaryText text={m.effort_field_hint()} /></p>
     </div>
 
     <div class="model-field">

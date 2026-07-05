@@ -34,6 +34,38 @@ function extractAllowedTools(argv: string[]): string[] {
 
 const ALL_KINDS: TransientAgentKind[] = ["reviewer", "doc", "writer-ro", "writer-only"];
 
+// ── reasoning effort (issue #1417): opt-in per call site, like thinkingTokens ────────────────────
+
+test("effort omitted (the critic-site posture) → no --effort, argv byte-unchanged", () => {
+  const withEffort = buildTransientAgentArgv("reviewer", { model: "opus", prompt: "P" }).argv;
+  expect(withEffort).not.toContain("--effort");
+});
+
+test("Claude effort emits --effort between --model and --permission-mode", () => {
+  const { argv } = buildTransientAgentArgv("reviewer", {
+    model: "opus",
+    prompt: "P",
+    effort: "high",
+  });
+  const effIdx = argv.indexOf("--effort");
+  expect(argv[effIdx + 1]).toBe("high");
+  expect(effIdx).toBeGreaterThan(argv.indexOf("--model"));
+  expect(effIdx).toBeLessThan(argv.indexOf("--permission-mode"));
+});
+
+test("Codex effort routes to -c model_reasoning_effort with xhigh → high clamp", () => {
+  const { argv } = buildTransientAgentArgv("reviewer", {
+    provider: "codex",
+    model: "gpt-5.5",
+    prompt: "P",
+    effort: "xhigh",
+  });
+  const cIdx = argv.indexOf("-c");
+  expect(cIdx).toBeGreaterThan(-1);
+  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high");
+  expect(argv).not.toContain("--effort"); // Codex uses the -c surface, not --effort
+});
+
 // ── Mechanical invariant: flag order (the variadic --allowedTools trap) ─────────────────────────
 
 test("every kind: --permission-mode dontAsk sits between the allowlist and the trailing prompt", () => {

@@ -38,6 +38,7 @@ function session(over: Partial<Session> = {}): Session {
     herdrAgentId: "a",
     claudeSessionId: "",
     model: null,
+    effort: null,
     readyToMerge: false,
     mergingSince: null,
     mergingTrainId: null,

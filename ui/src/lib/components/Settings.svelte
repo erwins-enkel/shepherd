@@ -7,6 +7,7 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putDefaultEffort,
     putRoleModel,
     putRoleCli,
     putDefaultAgentProvider,
@@ -29,9 +30,11 @@
   import { verifyFailureMessage } from "$lib/verify-key";
   import { modelLabel } from "$lib/model-label";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
+  import { effortLabel } from "$lib/effort-guidance";
   import {
     AGENT_PROVIDERS,
     MODELS,
+    EFFORTS,
     MODELS_BY_PROVIDER,
     PREMIUM_MODELS,
     type AgentProvider,
@@ -240,6 +243,10 @@
   let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
+
+  let defaultEffort = $state("default"); // raw default-effort setting ("default"|<tier>)
+  let defaultEffortSaved = "default"; // last server-confirmed value, for revert on failure
+  let defaultEffortBusy = $state(false);
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
@@ -543,6 +550,25 @@
       });
     } finally {
       defaultModelBusy = false;
+    }
+  }
+
+  async function saveDefaultEffort() {
+    if (defaultEffortBusy) return;
+    defaultEffortBusy = true;
+    try {
+      const r = await putDefaultEffort(defaultEffort);
+      defaultEffort = r.defaultEffort;
+      defaultEffortSaved = r.defaultEffort;
+    } catch {
+      defaultEffort = defaultEffortSaved;
+      toasts.info(m.settings_default_effort_save_failed(), {
+        key: "default-effort",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      defaultEffortBusy = false;
     }
   }
 
@@ -916,6 +942,8 @@
       planReviewCyclesSaved = s.planReviewCyclesCap;
       defaultModel = s.defaultModel ?? "auto";
       defaultModelSaved = defaultModel;
+      defaultEffort = s.defaultEffort ?? "default";
+      defaultEffortSaved = defaultEffort;
       // Fall back to the seed default per role when a field is absent (e.g. an older backend that
       // predates per-role environments) so the pickers never render blank — a sensible default is
       // always shown.
@@ -1100,6 +1128,22 @@
           {#if is1mModel}
             <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
           {/if}
+        </div>
+        <div class="rc">
+          <span class="micro">{m.settings_default_effort_title()}</span>
+          <p class="hint">{m.settings_default_effort_hint()}</p>
+          <select
+            class="model-select"
+            bind:value={defaultEffort}
+            disabled={defaultEffortBusy}
+            aria-label={m.settings_default_effort_title()}
+            onchange={saveDefaultEffort}
+          >
+            <option value="default">{m.settings_default_effort_default()}</option>
+            {#each EFFORTS as tier (tier)}
+              <option value={tier}>{effortLabel(tier)}</option>
+            {/each}
+          </select>
         </div>
         <div class="rc">
           <span class="micro">{m.settings_auth_mode_title()}</span>

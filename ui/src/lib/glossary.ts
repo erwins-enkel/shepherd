@@ -23,6 +23,12 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_epic_def",
   },
   {
+    id: "reasoning-effort",
+    kind: "internal",
+    termKey: "gloss_reasoning_effort_term",
+    bodyKey: "gloss_reasoning_effort_def",
+  },
+  {
     id: "pr",
     kind: "external",
     termKey: "gloss_pr_term",

@@ -45,8 +45,10 @@
     initialRepoPath,
     initialIssue,
     initialModel,
+    initialEffort,
     defaultAgentProvider = "claude",
     defaultModel,
+    defaultEffort,
     relaunch = false,
     editHeld = false,
     initialBaseBranch,
@@ -66,6 +68,7 @@
       prompt: string;
       agentProvider?: AgentProvider;
       model: string | null;
+      effort: string | null;
       images: string[];
       issueRef?: IssueRef;
       planGateEnabled: boolean | null;
@@ -82,8 +85,10 @@
     initialRepoPath?: string;
     initialIssue?: Issue;
     initialModel?: string;
+    initialEffort?: string;
     defaultAgentProvider?: AgentProvider;
     defaultModel?: string;
+    defaultEffort?: string;
     relaunch?: boolean;
     editHeld?: boolean;
     initialBaseBranch?: string;
@@ -141,6 +146,16 @@
   // svelte-ignore state_referenced_locally
   let model = $state(safeInitial ?? preselectModel(defaultModel));
   let modelTouched = $state(false);
+
+  // Effort picker preselect: a settings SETTING ("default" | <tier>) maps to a picker value; the
+  // repo override → global default is resolved by the $effect below. "default"/"inherit"/absent →
+  // "default" (no flag). `effortTouched` pins a manual pick across repo/config changes.
+  function preselectEffort(setting: string | undefined): string {
+    return setting && setting !== "default" && setting !== "inherit" ? setting : "default";
+  }
+  // svelte-ignore state_referenced_locally
+  let effort = $state(preselectEffort(initialEffort ?? defaultEffort));
+  let effortTouched = $state(false);
   // Relaunch + edit-held reuse this composer with a distinct title.
   const heading = $derived(
     editHeld
@@ -392,6 +407,15 @@
     if (initialModel == null && !modelTouched) model = preselectModel(effectiveModelSetting);
   });
 
+  // Effort mirrors the model re-seed: repo override (unless "inherit") → global default effort.
+  const repoEffortOverride = $derived(repoPath ? repoConfig.defaultEffortFor(repoPath) : "inherit");
+  const effectiveEffortSetting = $derived(
+    repoEffortOverride !== "inherit" ? repoEffortOverride : (defaultEffort ?? "default"),
+  );
+  $effect(() => {
+    if (initialEffort == null && !effortTouched) effort = preselectEffort(effectiveEffortSetting);
+  });
+
   // (re)load the slash-command list when the target repo changes — a repo's own
   // .claude/commands + .claude/skills layer on top of the global/user/plugin ones.
   $effect(() => {
@@ -636,6 +660,7 @@
         prompt: prompt.trim(),
         agentProvider,
         model: model !== "default" ? model : null,
+        effort: effort !== "default" ? effort : null,
         images: images.map((i) => i.path),
         issueRef: issueRef
           ? {
@@ -958,11 +983,13 @@
         bind:autopilot
         bind:agentProvider
         bind:model
+        bind:effort
         bind:sandboxProfile
         {holdLikely}
         onPlanGateTouched={() => (planGateTouched = true)}
         onAutopilotTouched={() => (autopilotTouched = true)}
         onModelTouched={() => (modelTouched = true)}
+        onEffortTouched={() => (effortTouched = true)}
         {planGateLoading}
         {autopilotLoading}
         {autopilotDefault}

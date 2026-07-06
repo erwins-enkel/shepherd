@@ -245,6 +245,8 @@ export interface InstalledPlugin {
   disabled: boolean;
   /** True when the folder has no valid `plugin.json` (missing/unparseable/invalid). */
   broken: boolean;
+  /** Browser-clickable manifest repository URL, when declared and valid. */
+  repository?: string;
 }
 
 /** Panel/list view of a loaded plugin — core-derived health is authoritative. */
@@ -252,6 +254,8 @@ export interface PluginInfo {
   id: string;
   name: string;
   version: string;
+  /** Browser-clickable manifest repository URL, when declared and valid. */
+  repository?: string;
   health: PluginHealth;
   /** Last error message (load or hook), or null. */
   lastError: string | null;

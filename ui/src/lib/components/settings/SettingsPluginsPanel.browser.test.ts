@@ -340,6 +340,40 @@ describe("SettingsPluginsPanel", () => {
     expect(page.getByRole("button", { name: "Activate" }).elements()).toHaveLength(0);
   });
 
+  it("a loaded plugin with repository metadata shows a REPO external link", async () => {
+    const repository = "https://github.com/erwins-enkel/shepherd-plugin-voice-whisper";
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin({ repository })],
+    });
+
+    const link = page.getByRole("link", { name: /REPO/ });
+    await expect.element(link).toBeVisible();
+    await expect.element(link).toHaveAttribute("href", repository);
+    await expect.element(link).toHaveAttribute("target", "_blank");
+    await expect.element(link).toHaveAttribute("rel", "external noreferrer noopener");
+  });
+
+  it("a pending plugin with repository metadata shows a REPO external link", async () => {
+    const repository = "https://github.com/erwins-enkel/shepherd-plugin-voice-whisper";
+    stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh", repository })]);
+    render(SettingsPluginsPanel, { plugins: [] });
+
+    const link = page.getByRole("link", { name: /REPO/ });
+    await expect.element(link).toBeVisible();
+    await expect.element(link).toHaveAttribute("href", repository);
+    await expect.element(link).toHaveAttribute("target", "_blank");
+    await expect.element(link).toHaveAttribute("rel", "external noreferrer noopener");
+  });
+
+  it("does not show a REPO placeholder without repository metadata", async () => {
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, { plugins: [plugin()] });
+
+    await expect.element(page.getByText("Test Plugin")).toBeVisible();
+    expect(page.getByRole("link", { name: /REPO/ }).elements()).toHaveLength(0);
+  });
+
   it("a failed activation surfaces a mapped message, not a raw code, and keeps the row pending", async () => {
     stubActivate([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })], () => ({
       payload: { error: "id_collision" },

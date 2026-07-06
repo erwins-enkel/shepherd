@@ -136,6 +136,39 @@ test("loadAll: enabled:false is skipped", async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test("list: carries only browser-safe repository urls", async () => {
+  const root = tmpDir();
+  writePlugin(root, "repo-ok", {
+    manifest: {
+      id: "repo-ok",
+      name: "Repo OK",
+      version: "1.0.0",
+      apiVersion: 1,
+      repository: "https://github.com/owner/repo-ok",
+    },
+    index: "export function register(){}",
+  });
+  writePlugin(root, "repo-bad", {
+    manifest: {
+      id: "repo-bad",
+      name: "Repo Bad",
+      version: "1.0.0",
+      apiVersion: 1,
+      repository: "git@github.com:owner/repo-bad.git",
+    },
+    index: "export function register(){}",
+  });
+
+  const { registry } = makeRegistry(root);
+  await registry.loadAll();
+
+  expect(registry.list().find((p) => p.id === "repo-ok")!.repository).toBe(
+    "https://github.com/owner/repo-ok",
+  );
+  expect(registry.list().find((p) => p.id === "repo-bad")!.repository).toBeUndefined();
+  rmSync(root, { recursive: true, force: true });
+});
+
 // ── loader: symlinked plugin dirs (#1176) ────────────────────────────────────
 test("loadAll: a symlinked plugin dir loads identically to a copied one", async () => {
   // The plugin's real folder lives outside the plugins dir; only a symlink to it

@@ -1398,6 +1398,8 @@ export interface PluginInfo {
   id: string;
   name: string;
   version: string;
+  /** Browser-clickable manifest repository URL, when declared and valid. */
+  repository?: string;
   health: "ok" | "errored" | "timed-out";
   lastError: string | null;
   status: unknown;
@@ -1414,6 +1416,8 @@ export interface InstalledPlugin {
   id: string;
   name: string;
   version: string;
+  /** Browser-clickable manifest repository URL, when declared and valid. */
+  repository?: string;
   /** Directory name under the plugins dir — the uninstall key. */
   folder: string;
   loaded: boolean;

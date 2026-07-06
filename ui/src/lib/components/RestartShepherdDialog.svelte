@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import { triggerRestart } from "$lib/api";
 
-  let { onclose }: { onclose?: () => void } = $props();
+  let {
+    onclose,
+    shepherdOnly = false,
+    autoStart = false,
+  }: { onclose?: () => void; shepherdOnly?: boolean; autoStart?: boolean } = $props();
 
   const RESTART_CMD = "systemctl --user restart shepherd";
   /** give systemctl this long to take the old process down before assuming the
@@ -60,14 +65,21 @@
 
   async function confirm() {
     error = null;
-    const res = await triggerRestart({ herdr: alsoHerdr });
+    const res = await triggerRestart({ herdr: shepherdOnly ? false : alsoHerdr });
     if (!res.ok) {
       error = restartErr(res.error);
+      phase = "confirm";
       return;
     }
     phase = "restarting";
     void rideThrough();
   }
+
+  onMount(() => {
+    if (!autoStart) return;
+    phase = "restarting";
+    void confirm();
+  });
 
   // the dialog blocks dismissal mid-restart: there is nothing sensible to go
   // back to while the server is down
@@ -99,13 +111,15 @@
 
     {#if phase === "confirm"}
       <p class="body">{m.restart_confirm_body()}</p>
-      <label class="herdr">
-        <input type="checkbox" bind:checked={alsoHerdr} />
-        <span>
-          <span class="herdr-label">{m.restart_herdr_label()}</span>
-          <span class="herdr-note">{m.restart_herdr_note()}</span>
-        </span>
-      </label>
+      {#if !shepherdOnly}
+        <label class="herdr">
+          <input type="checkbox" bind:checked={alsoHerdr} />
+          <span>
+            <span class="herdr-label">{m.restart_herdr_label()}</span>
+            <span class="herdr-note">{m.restart_herdr_note()}</span>
+          </span>
+        </label>
+      {/if}
       {#if error}
         <div class="err" role="alert">
           {error}

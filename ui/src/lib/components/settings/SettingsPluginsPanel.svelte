@@ -58,9 +58,11 @@
 
   // Blocking confirm — trust warning before an install, plain confirm before an uninstall.
   type Confirm =
-    { kind: "install"; url: string } | { kind: "uninstall"; folder: string; name: string };
+    | { kind: "install"; url: string }
+    | { kind: "uninstall"; folder: string; name: string; loaded: boolean };
   let confirm = $state<Confirm | null>(null);
   let restartOpen = $state(false); // the one-click Restart-Shepherd dialog
+  let restartAutoStart = $state(false);
 
   const RESTART_CMD = "systemctl --user restart shepherd";
 
@@ -271,14 +273,19 @@
     confirm = { kind: "install", url: u };
   }
 
-  function askUninstall(folder: string, name: string) {
+  function askUninstall(folder: string, name: string, loaded = false) {
     actionError = null;
-    confirm = { kind: "uninstall", folder, name };
+    confirm = { kind: "uninstall", folder, name, loaded };
   }
 
   function onConfirm(c: Confirm) {
     if (c.kind === "install") runInstall(c.url);
     else runUninstall(c.folder);
+  }
+
+  function openRestart(autoStart: boolean) {
+    restartAutoStart = autoStart;
+    restartOpen = true;
   }
 
   async function runInstall(u: string) {
@@ -306,6 +313,22 @@
       const res = await uninstallPlugin(folder);
       if (res.ok) await loadInstalled();
       else actionError = errorMessage(res.error);
+    } finally {
+      busyFolder = null;
+    }
+  }
+
+  async function runUninstallAndRestart(folder: string) {
+    busyFolder = folder;
+    actionError = null;
+    confirm = null;
+    try {
+      const res = await uninstallPlugin(folder);
+      if (res.ok) {
+        openRestart(true);
+      } else {
+        actionError = errorMessage(res.error);
+      }
     } finally {
       busyFolder = null;
     }
@@ -429,7 +452,7 @@
         plugin={row.info}
         folder={row.folder}
         busy={busyFolder === row.folder}
-        onuninstall={askUninstall}
+        onuninstall={(folder, name) => askUninstall(folder, name, true)}
         update={cardUpdate(rowId)}
         onupdate={() => runUpdate(rowId)}
       />
@@ -475,7 +498,7 @@
           type="button"
           class="gbtn del"
           disabled={busyFolder === row.inst.folder}
-          onclick={() => askUninstall(row.inst.folder, row.inst.name)}
+          onclick={() => askUninstall(row.inst.folder, row.inst.name, false)}
         >
           {m.plugins_uninstall()}
         </button>
@@ -504,11 +527,23 @@
 </div>
 
 {#if confirm}
-  <PluginConfirmDialog {confirm} onconfirm={onConfirm} oncancel={() => (confirm = null)} />
+  <PluginConfirmDialog
+    {confirm}
+    onconfirm={onConfirm}
+    onconfirmrestart={(c) => runUninstallAndRestart(c.folder)}
+    oncancel={() => (confirm = null)}
+  />
 {/if}
 
 {#if restartOpen}
-  <RestartShepherdDialog onclose={() => (restartOpen = false)} />
+  <RestartShepherdDialog
+    shepherdOnly={restartAutoStart}
+    autoStart={restartAutoStart}
+    onclose={() => {
+      restartOpen = false;
+      restartAutoStart = false;
+    }}
+  />
 {/if}
 
 <style>

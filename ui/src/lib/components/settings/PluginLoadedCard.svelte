@@ -79,6 +79,17 @@
         {update.applying ? m.pluginupdate_applying() : m.pluginupdate_apply()}
       </button>
     {/if}
+    {#if plugin.repository}
+      <a
+        class="plugin-repo-link"
+        href={plugin.repository}
+        target="_blank"
+        rel="external noreferrer noopener"
+      >
+        <span aria-hidden="true">↗</span>
+        <span>{m.plugins_repo()}</span>
+      </a>
+    {/if}
     {#if folder}
       {@const f = folder}
       <button

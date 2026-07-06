@@ -108,6 +108,25 @@ test("scanInstalled on a missing dir returns an empty list", async () => {
   expect(await scanInstalled(join(tmp(), "nope"), new Set())).toEqual([]);
 });
 
+test("scanInstalled carries only browser-safe repository urls", async () => {
+  const dir = tmp();
+  writePlugin(join(dir, "valid"), {
+    ...validManifest("valid"),
+    repository: "https://github.com/owner/plugin",
+  });
+  writePlugin(join(dir, "ssh"), { ...validManifest("ssh"), repository: "git@github.com:o/p.git" });
+  writePlugin(join(dir, "relative"), { ...validManifest("relative"), repository: "not a url" });
+  writePlugin(join(dir, "number"), { ...validManifest("number"), repository: 42 });
+
+  const rows = await scanInstalled(dir, new Set());
+  const byFolder = Object.fromEntries(rows.map((r) => [r.folder, r]));
+
+  expect(byFolder.valid?.repository).toBe("https://github.com/owner/plugin");
+  expect(byFolder.ssh?.repository).toBeUndefined();
+  expect(byFolder.relative?.repository).toBeUndefined();
+  expect(byFolder.number?.repository).toBeUndefined();
+});
+
 // ── installPlugin ─────────────────────────────────────────────────────────────
 
 test("installPlugin clones a valid plugin and returns its manifest info", async () => {

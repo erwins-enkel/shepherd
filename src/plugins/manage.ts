@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { PLUGIN_API_VERSION, type InstalledPlugin, type PluginManifest } from "./types";
 import { validManifest } from "./loader";
+import { browserRepositoryUrl } from "./repository";
 import { classifyCloneError } from "../repos";
 
 const execFileAsync = promisify(execFile);
@@ -147,6 +148,7 @@ export async function scanInstalled(
       id: manifest.id,
       name: manifest.name,
       version: manifest.version,
+      repository: browserRepositoryUrl(manifest.repository),
       folder,
       loaded: loadedIds.has(manifest.id),
       disabled: manifest.enabled === false,

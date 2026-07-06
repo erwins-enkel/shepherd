@@ -26,6 +26,7 @@ import {
   type SpawnHook,
   type SpawnPatch,
 } from "./types";
+import { browserRepositoryUrl } from "./repository";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
@@ -488,6 +489,7 @@ export class PluginRegistry {
       id: r.manifest.id,
       name: r.manifest.name,
       version: r.manifest.version,
+      repository: browserRepositoryUrl(r.manifest.repository),
       health: r.health,
       lastError: r.lastError,
       status: r.status,

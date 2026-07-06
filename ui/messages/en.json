@@ -1300,6 +1300,8 @@
   "feat_plugin_install_body": "Settings → Plugins now installs a plugin from a GitHub URL — paste the repo, confirm, then Activate it (no restart needed). It also lists every installed plugin and lets you uninstall.",
   "feat_plugin_activate_title": "Activate plugins without a restart",
   "feat_plugin_activate_body": "A freshly installed plugin now has an Activate button in Settings → Plugins — it loads in-process, so its routes, hooks and gear/UI go live immediately. No restart needed for the common case (a plugin shipping its own dependencies still needs bun install + a restart).",
+  "feat_plugin_repo_link_title": "Plugin repo links in Settings",
+  "feat_plugin_repo_link_body": "Installed plugins with repository metadata now show a REPO link in Settings → Plugins, beside Update, Activate and Uninstall, so you can inspect the source without plugin-authored UI.",
   "feat_server_plugins_title": "Server-side plugins",
   "feat_server_plugins_body": "Run private, out-of-repo extensions on your instance. A new Settings → Plugins panel shows each loaded plugin's health and published status.",
   "diagnostics_title": "System diagnostics",
@@ -2624,5 +2626,6 @@
   "topbar_usage_provider_short_claude": "CC",
   "topbar_usage_provider_short_codex": "CX",
   "feat_usage_gauge_provider_rotation_title": "Usage gauges rotate by CLI",
-  "feat_usage_gauge_provider_rotation_body": "When Claude Code and Codex usage data are both configured, the compact top-bar gauge now alternates every two minutes between CC and CX. Codex shows rate-limit bars when available, or token totals until the CLI reports reset windows."
+  "feat_usage_gauge_provider_rotation_body": "When Claude Code and Codex usage data are both configured, the compact top-bar gauge now alternates every two minutes between CC and CX. Codex shows rate-limit bars when available, or token totals until the CLI reports reset windows.",
+  "plugins_repo": "REPO"
 }

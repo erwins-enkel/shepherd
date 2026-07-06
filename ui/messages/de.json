@@ -1300,6 +1300,8 @@
   "feat_plugin_install_body": "Einstellungen → Plugins installiert jetzt ein Plugin per GitHub-URL — Repo einfügen, bestätigen und dann aktivieren (kein Neustart nötig). Außerdem werden alle installierten Plugins aufgelistet und lassen sich deinstallieren.",
   "feat_plugin_activate_title": "Plugins ohne Neustart aktivieren",
   "feat_plugin_activate_body": "Ein frisch installiertes Plugin hat jetzt in Einstellungen → Plugins einen „Aktivieren“-Button — es wird in-process geladen, sodass seine Routen, Hooks und Gear/UI sofort live sind. Für den Normalfall kein Neustart nötig (ein Plugin mit eigenen Abhängigkeiten braucht weiterhin bun install + Neustart).",
+  "feat_plugin_repo_link_title": "Plugin-Repo-Links in den Einstellungen",
+  "feat_plugin_repo_link_body": "Installierte Plugins mit Repository-Metadaten zeigen jetzt in Einstellungen → Plugins neben Aktualisieren, Aktivieren und Deinstallieren einen REPO-Link, damit du den Quellcode ohne plugin-eigene UI prüfen kannst.",
   "feat_server_plugins_title": "Serverseitige Plugins",
   "feat_server_plugins_body": "Führe private Erweiterungen außerhalb des Repos auf deiner Instanz aus. Ein neuer Bereich Einstellungen → Plugins zeigt Zustand und veröffentlichten Status jedes geladenen Plugins.",
   "diagnostics_title": "System-Diagnose",
@@ -2624,5 +2626,6 @@
   "topbar_usage_provider_short_claude": "CC",
   "topbar_usage_provider_short_codex": "CX",
   "feat_usage_gauge_provider_rotation_title": "Auslastungsanzeigen wechseln nach CLI",
-  "feat_usage_gauge_provider_rotation_body": "Wenn Auslastungsdaten für Claude Code und Codex konfiguriert sind, wechselt die kompakte Anzeige in der Topbar jetzt alle zwei Minuten zwischen CC und CX. Codex zeigt Limit-Balken, sobald sie verfügbar sind, oder Token-Summen, bis die CLI Reset-Fenster meldet."
+  "feat_usage_gauge_provider_rotation_body": "Wenn Auslastungsdaten für Claude Code und Codex konfiguriert sind, wechselt die kompakte Anzeige in der Topbar jetzt alle zwei Minuten zwischen CC und CX. Codex zeigt Limit-Balken, sobald sie verfügbar sind, oder Token-Summen, bis die CLI Reset-Fenster meldet.",
+  "plugins_repo": "REPO"
 }

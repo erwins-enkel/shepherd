@@ -495,6 +495,17 @@
             {busyFolder === row.inst.folder ? m.plugins_activating() : m.plugins_activate()}
           </button>
         {/if}
+        {#if row.inst.repository}
+          <a
+            class="plugin-repo-link"
+            href={row.inst.repository}
+            target="_blank"
+            rel="external noreferrer noopener"
+          >
+            <span aria-hidden="true">↗</span>
+            <span>{m.plugins_repo()}</span>
+          </a>
+        {/if}
         <button
           type="button"
           class="gbtn del"
@@ -620,6 +631,24 @@
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  :global(.plugin-repo-link) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  :global(.plugin-repo-link:hover) {
+    color: var(--color-amber);
+  }
+  :global(.plugin-repo-link:focus-visible) {
+    outline: none;
+    box-shadow: inset 0 -1px 0 var(--color-amber);
   }
   .gbtn.primary {
     border-color: var(--color-amber);

@@ -1,10 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import {
   DiagnosticsService,
   defaultRunRemediation,
   type DiagnosticsDeps,
 } from "../src/diagnostics";
-import { DIAGNOSTICS_TTL_MS } from "../src/config";
+import { DIAGNOSTICS_TTL_MS, GH_PROBE_ATTEMPTS } from "../src/config";
 import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
 import { SessionStore } from "../src/store";
@@ -39,6 +39,9 @@ function healthyDeps(): DiagnosticsDeps {
   return {
     runVersion: versionRunner({ ...HEALTHY_VERSIONS }),
     runGhAuth: async () => {},
+    // gh probe now retries transient failures; zero delay keeps the failure-path tests
+    // (which reject synchronously) from accruing real wall-time.
+    ghProbeRetryDelayMs: 0,
     resolveHost: async () => "node.example.ts.net",
     // served-status JSON (tailscale serve status --json) that maps config.port (default 7330) → port 443.
     runServeStatus: async () =>
@@ -394,6 +397,113 @@ describe("DiagnosticsService gh probe repo-mode awareness", () => {
     expect(c.state).toBe("error");
     expect(c.hintKey).toBe("diagnostics_hint_gh_not_authenticated");
     assertPure(c);
+  });
+});
+
+// ── gh probe: bounded retry + disposition-based classification (#623 follow-up) ──
+// The reported bug: a transiently slow `gh auth status` (keyring/D-Bus stall, cold gh)
+// timed out and was rendered as a hard "not logged in". These lock in that a KILLED
+// (timed-out) probe retries and, if still stalling, reports the soft `gh_unverified`
+// warning — while a real non-zero EXIT (logout / invalid token) still errors.
+describe("DiagnosticsService gh probe retry + classification", () => {
+  const timeoutErr = () =>
+    Object.assign(new Error("gh auth status timed out"), { killed: true, signal: "SIGTERM" });
+
+  it("timeout (killed) on every attempt → warning + gh_unverified (no false auth error)", async () => {
+    let calls = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        calls++;
+        throw timeoutErr();
+      },
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_unverified");
+    expect(calls).toBe(GH_PROBE_ATTEMPTS); // retried the full budget before giving up
+    assertPure(c);
+  });
+
+  it("retries a transient timeout and recovers → ok", async () => {
+    let calls = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        calls++;
+        if (calls === 1) throw timeoutErr();
+        // second attempt succeeds
+      },
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_ok");
+    expect(calls).toBe(2);
+  });
+
+  it("persistent non-zero EXIT (gh rendered a verdict) → error + gh_not_authenticated, not retried", async () => {
+    let calls = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runGhAuth: async () => {
+        // a real logged-out / invalid-token `gh auth status` exits non-zero with NO kill
+        // signal — the disposition that marks a genuine, actionable auth failure.
+        calls++;
+        throw Object.assign(new Error("exit 1"), { code: 1 });
+      },
+    });
+    const c = byId((await svc.check(0)).checks, "gh");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_gh_not_authenticated");
+    expect(calls).toBe(1); // deterministic verdict — probed once, no wasted retry
+    assertPure(c);
+  });
+
+  it("timeout + anyForgeRepo=false → warning + not_required, no unverified log", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runGhAuth: async () => {
+          throw timeoutErr();
+        },
+        anyForgeRepo: () => false,
+      });
+      const c = byId((await svc.check(0)).checks, "gh");
+      expect(c.state).toBe("warning");
+      expect(c.hintKey).toBe("diagnostics_hint_gh_not_required");
+      // the warning never surfaces on a lightweight-only host → no scary log either.
+      const logged = warn.mock.calls.flat().map(String).join(" ");
+      expect(logged).not.toContain("could not be verified");
+      assertPure(c);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("unverified path logs only the disposition — never stderr / account identity", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runGhAuth: async () => {
+          // pack identity-looking text into message + stderr; it must NOT reach the log.
+          throw Object.assign(new Error("Logged in to github.com account secret-user"), {
+            killed: true,
+            signal: "SIGTERM",
+            stderr: "Token: gho_secrettoken00000 account secret-user",
+          });
+        },
+      });
+      const c = byId((await svc.check(0)).checks, "gh");
+      expect(c.hintKey).toBe("diagnostics_hint_gh_unverified");
+      const logged = warn.mock.calls.flat().map(String).join(" ");
+      expect(logged).toContain("could not be verified");
+      expect(logged).not.toContain("secret-user");
+      expect(logged).not.toContain("gho_secrettoken");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

@@ -2100,8 +2100,6 @@
   "settings_default_agent_provider_save_failed": "Couldn't change default coding CLI. Retry.",
   "settings_upnext_skip_cli_picker_label": "Skip the coding-CLI picker in Up Next",
   "settings_upnext_skip_cli_picker_hint": "When enabled, Up Next quick-start launches with your default coding CLI immediately, without asking which CLI to use — even when more than one is installed.",
-  "settings_upnext_skip_cli_picker_on": "On",
-  "settings_upnext_skip_cli_picker_off": "Off",
   "settings_upnext_skip_cli_picker_save_failed": "Couldn't change the Up Next picker setting. Retry.",
   "settings_cli_claude_title": "Claude Code",
   "settings_cli_claude_hint": "Claude-backed runs use these model and authentication settings.",

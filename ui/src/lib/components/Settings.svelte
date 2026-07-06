@@ -1183,9 +1183,7 @@
         >
           <span class="track" class:on={upnextSkipCliPicker}><span class="knob"></span></span>
           <span class="state"
-            >{upnextSkipCliPicker
-              ? m.settings_upnext_skip_cli_picker_on()
-              : m.settings_upnext_skip_cli_picker_off()}</span
+            >{upnextSkipCliPicker ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
           >
         </button>
       </div>

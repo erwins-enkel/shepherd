@@ -2100,8 +2100,6 @@
   "settings_default_agent_provider_save_failed": "Standard-Coding-CLI konnte nicht geändert werden. Erneut versuchen.",
   "settings_upnext_skip_cli_picker_label": "Coding-CLI-Auswahl in „Als Nächstes“ überspringen",
   "settings_upnext_skip_cli_picker_hint": "Wenn aktiviert, startet der Schnellstart in „Als Nächstes“ sofort mit deiner Standard-Coding-CLI, ohne nachzufragen, welche CLI verwendet werden soll — auch wenn mehr als eine installiert ist.",
-  "settings_upnext_skip_cli_picker_on": "An",
-  "settings_upnext_skip_cli_picker_off": "Aus",
   "settings_upnext_skip_cli_picker_save_failed": "Einstellung für die „Als Nächstes“-Auswahl konnte nicht geändert werden. Erneut versuchen.",
   "settings_cli_claude_title": "Claude Code",
   "settings_cli_claude_hint": "Claude-basierte Läufe verwenden diese Modell- und Authentifizierungseinstellungen.",

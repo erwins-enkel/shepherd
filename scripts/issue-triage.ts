@@ -1,7 +1,7 @@
 // Issue-triage bot — classifies a newly-opened GitHub issue with one paid
 // Haiku 4.5 call and emits a decision the workflow consumes (labels + comment).
 //
-// Design (see .shepherd-plan.md):
+// Design:
 //  - The model returns JSON ONLY; this script parses + re-validates every field
 //    against a fixed allowlist and NO-OPs on malformed / out-of-allowlist output.
 //    The plain-JSON path is self-sufficient — no dependency on structured-output
@@ -333,7 +333,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  const docs = answersEnabled ? readDocs(docsDir) : null;
+  // Read docs only when answers are opted in. A missing/unreadable docs dir must
+  // not crash the job — degrade to classify-only (questions then defer).
+  let docs: string | null = null;
+  if (answersEnabled) {
+    try {
+      docs = readDocs(docsDir);
+    } catch (err) {
+      console.error(
+        `[issue-triage] docs unreadable (${docsDir}); classifying without docs: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   let validated: ValidatedDecision | null;
   try {

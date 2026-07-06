@@ -1,7 +1,7 @@
 name: Issue triage
 
 # Triage newly-opened issues with one paid Haiku 4.5 call: classify → label →
-# (unless in dry-run) post ONE disclosed automated comment. See .shepherd-plan.md.
+# (unless in dry-run) post ONE disclosed automated comment.
 #
 # Trigger is `issues` (NOT pull_request_target), so issue content can never reach
 # secrets. Issue title/body are passed to the script via `env:` only — never
@@ -121,6 +121,14 @@ jobs:
           # Category label(s) + the bot-triaged marker (additive; template label kept).
           mapfile -t labels < <(printf '%s' "$DECISION" | jq -r '.labels[]')
           labels+=("bot-triaged")
+          # Self-heal: ensure every label exists before --add-label (which requires
+          # it) so a not-yet-created custom label (needs-info / invalid / bot-triaged)
+          # can't hard-fail the step under `set -e`. Runs live-only; existing labels
+          # (bug / enhancement / documentation) no-op via `|| true`. gh assigns a
+          # random colour when --color is omitted; operators may pre-create to style.
+          for l in "${labels[@]}"; do
+            gh label create "$l" --repo "$REPO" >/dev/null 2>&1 || true
+          done
           args=()
           for l in "${labels[@]}"; do args+=(--add-label "$l"); done
           gh issue edit "$ISSUE_NUMBER" --repo "$REPO" "${args[@]}"

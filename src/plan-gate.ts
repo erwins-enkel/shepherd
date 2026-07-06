@@ -177,6 +177,14 @@ interface PlanInFlight {
   finalizing?: boolean;
 }
 
+export function codexPlanArtifactSteerText(): string {
+  return (
+    "You are still in Shepherd's pre-execution PLAN GATE. A chat-only plan cannot be reviewed. " +
+    "Write the plan to `.shepherd-plan.md` at the repo root now, then stop. Do not implement. " +
+    "Do not modify product code beyond writing or updating `.shepherd-plan.md`."
+  );
+}
+
 function reviewerProviderFromSpawn(
   provider: string | null | undefined,
   model: string | null | undefined,
@@ -234,16 +242,17 @@ export class PlanGateService {
 
   /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
    *  Returns `"started"` iff a reviewer actually spawned, `"skipped"` for a no-op (not planning,
-   *  in flight, no/unchanged plan, already approved), or `"error"` if a spawn was attempted but
-   *  failed. The on-demand "Review plan now" route relays this so the UI can tell a real review
-   *  from a silent dedupe — and a genuine failure from either — instead of just blinking the button. */
+   *  in flight, unchanged plan, already approved), `"plan-unavailable"` when no usable plan file
+   *  exists, or `"error"` if a spawn was attempted but failed. The on-demand "Review plan now"
+   *  route relays this so the UI can tell a real review from a silent dedupe, a missing artifact,
+   *  and a genuine failure instead of just blinking the button. */
   async consider(session: Session): Promise<PlanReviewTrigger> {
     if (session.planPhase !== "planning") return "skipped"; // only gate before execution
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getPlanGate(session.id);
     if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
-    if (!plan) return "plan-unavailable"; // missing / unreadable / empty → nothing usable to review
+    if (!plan) return this.handlePlanUnavailable(session); // missing / unreadable / empty → nothing usable to review
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
     // considers would otherwise both clear the guards above and double-spawn (orphaning the
     // first run's worktree + terminal). With the claim here, the second bails on the guard.
@@ -258,6 +267,19 @@ export class PlanGateService {
     } finally {
       this.starting.delete(session.id);
     }
+  }
+
+  private handlePlanUnavailable(session: Session): PlanReviewTrigger {
+    if ((session.agentProvider ?? "claude") !== "codex") return "plan-unavailable";
+    try {
+      const delivered = this.deps.reply(session.id, codexPlanArtifactSteerText());
+      if (!delivered) {
+        console.warn(`[plan-gate] codex plan-artifact steer did not land for ${session.id}`);
+      }
+    } catch (err) {
+      console.warn(`[plan-gate] codex plan-artifact steer failed for ${session.id}:`, err);
+    }
+    return "plan-unavailable";
   }
 
   private async begin(

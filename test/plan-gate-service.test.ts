@@ -1,5 +1,5 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
-import { PlanGateService } from "../src/plan-gate";
+import { codexPlanArtifactSteerText, PlanGateService } from "../src/plan-gate";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
@@ -181,6 +181,39 @@ test("consider reports plan-unavailable when a planning session needs review but
   expect(h.started.length).toBe(0);
 });
 
+test("consider steers codex to write .shepherd-plan.md when the plan artifact is unusable", async () => {
+  const replies: string[] = [];
+  const h = harness({
+    readPlan: () => null,
+    reply: (_id: string, text: string) => {
+      replies.push(text);
+      return true;
+    },
+  });
+  const status = await h.svc.consider({ ...planningSession(), agentProvider: "codex" } as any);
+  expect(status).toBe("plan-unavailable");
+  expect(replies).toEqual([codexPlanArtifactSteerText()]);
+  expect(replies[0]).toContain(".shepherd-plan.md");
+  expect(replies[0]).toContain("chat-only plan cannot be reviewed");
+  expect(replies[0]).toContain("Do not implement");
+  expect(h.started.length).toBe(0);
+});
+
+test("consider does not steer claude when the plan artifact is unusable", async () => {
+  const replies: string[] = [];
+  const h = harness({
+    readPlan: () => null,
+    reply: (_id: string, text: string) => {
+      replies.push(text);
+      return true;
+    },
+  });
+  const status = await h.svc.consider({ ...planningSession(), agentProvider: "claude" } as any);
+  expect(status).toBe("plan-unavailable");
+  expect(replies).toEqual([]);
+  expect(h.started.length).toBe(0);
+});
+
 test("consider treats empty plan text as plan-unavailable", async () => {
   const h = harness({ readPlan: () => "  \n\t " });
   const status = await h.svc.consider(planningSession() as any);
@@ -229,16 +262,22 @@ test("consider no-ops while a plan review is starting, before reading an unavail
 
 test("consider no-ops when already approved, before reading an unavailable plan", async () => {
   let reads = 0;
+  const replies: string[] = [];
   const h = harness({
     readPlan: () => {
       reads += 1;
       return null;
     },
+    reply: (_id: string, text: string) => {
+      replies.push(text);
+      return true;
+    },
     store: { getPlanGate: () => ({ planHash: "other", approved: true }) },
   });
-  const status = await h.svc.consider(planningSession() as any);
+  const status = await h.svc.consider({ ...planningSession(), agentProvider: "codex" } as any);
   expect(status).toBe("skipped");
   expect(reads).toBe(0);
+  expect(replies).toEqual([]);
   expect(h.started.length).toBe(0);
 });
 

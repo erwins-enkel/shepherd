@@ -4,6 +4,7 @@
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
   import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
+  import type { CompactUsageView } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CreditGauge from "./CreditGauge.svelte";
   import TopBarUsagePopover from "./TopBarUsagePopover.svelte";
@@ -12,11 +13,12 @@
     subscriptionOnly,
     touch,
     stale,
-    hotter,
     gauges,
     perModel,
     credits,
     codexUsage,
+    activeCompactUsageView,
+    compactUsageRotating,
     overspend,
     creditFill,
     creditColor,
@@ -33,11 +35,12 @@
     subscriptionOnly: boolean;
     touch: boolean;
     stale: boolean;
-    hotter: Gauge | null;
     gauges: Gauge[];
     perModel: ModelWeekWindow[];
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
+    activeCompactUsageView: CompactUsageView | null;
+    compactUsageRotating: boolean;
     overspend: boolean;
     creditFill: number;
     creditColor: string;
@@ -52,67 +55,82 @@
     gaugeWrap: HTMLElement | null;
   } = $props();
 
-  // Desktop compact rule: show 5H+WK percentages inline, but swap to the CR amount when a window
-  // is pinned at its cap (% is uninformative there and the live credit € is the actionable number)
-  // OR when there are no usage windows at all (credits-only state — otherwise the toggle is blank).
-  const capped = $derived(gauges.some((g) => g.w.pct >= 100));
-  const showCreditsInline = $derived((capped || gauges.length === 0) && !!credits);
-  // Per-model passthrough (e.g. Fable) as a collapse/inline fallback trigger: when it is the ONLY
-  // usage signal (no calibrated 5H/WK gauge, no credits/codex), the section would otherwise render
-  // no affordance and the Fable bar in the popover couldn't be opened.
-  const perModelHot = $derived(perModel.length ? perModel[0]! : null);
+  const activeHotGauge = $derived(
+    activeCompactUsageView?.mode === "limits"
+      ? activeCompactUsageView.gauges.reduce((hot, g) => (g.w.pct >= hot.w.pct ? g : hot))
+      : null,
+  );
+  const activeStale = $derived(activeCompactUsageView?.stale ?? false);
+  const activeProviderShort = $derived(
+    activeCompactUsageView?.provider === "claude"
+      ? m.topbar_usage_provider_short_claude()
+      : activeCompactUsageView?.provider === "codex"
+        ? m.topbar_usage_provider_short_codex()
+        : "",
+  );
+  const activeProviderName = $derived(
+    activeCompactUsageView?.provider === "claude"
+      ? m.agent_provider_claude()
+      : activeCompactUsageView?.provider === "codex"
+        ? m.agent_provider_codex()
+        : "",
+  );
 </script>
 
 {#if subscriptionOnly && !codexUsage}
   <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
 {:else if touch}
-  {#if hotter || credits || codexUsage || perModelHot}
+  {#if activeCompactUsageView}
     <!-- touch: collapse to the hotter window (or the CR gauge when credits are the
          only signal, or a per-model bar when Fable is the only signal); tap for the
          full breakdown. The collapsed button carries an alert state while extra
          credits are being spent. -->
     <div class="gauge-wrap" bind:this={gaugeWrap}>
-      {#if hotter}
+      {#if activeCompactUsageView.mode === "limits" && activeHotGauge}
         <button
           class="gauge gauge-btn"
-          class:stale
+          class:stale={activeStale}
           class:alert={overspend}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={popoverOpen}
           aria-label={m.topbar_gauge_toggle_aria({
-            period: periodLabel(hotter.label),
-            pct: hotter.w.pct,
+            period: periodLabel(activeHotGauge.label),
+            pct: activeHotGauge.w.pct,
           })}
           onclick={() => (popoverOpen = !popoverOpen)}
         >
-          <span class="g-label micro">{hotter.label}</span>
+          {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
+          <span class="g-label micro">{activeHotGauge.label}</span>
           <span class="g-bar"
             ><span
               class="g-fill"
-              style="transform:scaleX({Math.min(Math.max(hotter.w.pct, 0), 100) /
-                100});background:{gaugeColor(hotter.w.pct)}"
+              style="transform:scaleX({Math.min(Math.max(activeHotGauge.w.pct, 0), 100) /
+                100});background:{gaugeColor(activeHotGauge.w.pct)}"
             ></span></span
           >
-          <span class="g-pct" style="color:{gaugeColor(hotter.w.pct)}">{hotter.w.pct}%</span>
+          <span class="g-pct" style="color:{gaugeColor(activeHotGauge.w.pct)}"
+            >{activeHotGauge.w.pct}%</span
+          >
         </button>
-      {:else if credits || codexUsage}
-        <!-- credits-only or codex-only: no usage windows scraped, but another provider has data -->
+      {:else if activeCompactUsageView.mode === "credit" || activeCompactUsageView.mode === "tokens"}
+        <!-- credits-only or codex token-only: no normal compact limit window, but usage data exists -->
         <button
           class="gauge gauge-btn"
-          class:stale={credits ? credits.stale : codexUsage?.stale}
+          class:stale={activeStale}
           class:alert={overspend}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={popoverOpen}
-          aria-label={credits
+          aria-label={activeCompactUsageView.mode === "credit"
             ? overspend
               ? m.topbar_credits_alert_aria({ amount: creditAmount })
               : `${m.topbar_credits_period()} · ${creditAmount}`
-            : `${m.agent_provider_codex()} · ${formatTokenLabel(codexUsage?.totalTokens ?? 0)}`}
+            : `${activeProviderName} · ${formatTokenLabel(activeCompactUsageView.totalTokens)}`}
           onclick={() => (popoverOpen = !popoverOpen)}
         >
-          {#if credits}
+          {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
+          {#if activeCompactUsageView.mode === "credit"}
             <span class="g-label micro">CR</span>
             <span class="g-bar"
               ><span class="g-fill" style="transform:scaleX({creditFill});background:{creditColor}"
@@ -120,34 +138,39 @@
             >
             <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
           {:else}
-            <span class="g-label micro">{m.agent_provider_codex()}</span>
-            <span class="g-pct credit-amount">{formatTokenLabel(codexUsage?.totalTokens ?? 0)}</span
+            <span class="g-pct credit-amount"
+              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
             >
           {/if}
         </button>
-      {:else if perModelHot}
+      {:else if activeCompactUsageView.mode === "model"}
         <!-- per-model-only (e.g. Fable): the sole usage signal — collapse to its bar so the
              popover (with the full per-model breakdown) can be opened. -->
         <button
           class="gauge gauge-btn"
-          class:stale={perModelHot.stale}
+          class:stale={activeCompactUsageView.stale}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={popoverOpen}
           aria-label={`${m.usage_limits_window_week_model({
-            model: modelDisplayName(perModelHot.model),
-          })} · ${perModelHot.pct}%`}
+            model: modelDisplayName(activeCompactUsageView.model.model),
+          })} · ${activeCompactUsageView.model.pct}%`}
           onclick={() => (popoverOpen = !popoverOpen)}
         >
-          <span class="g-label micro">{modelDisplayName(perModelHot.model)}</span>
+          {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
+          <span class="g-label micro">{modelDisplayName(activeCompactUsageView.model.model)}</span>
           <span class="g-bar"
             ><span
               class="g-fill"
-              style="transform:scaleX({Math.min(Math.max(perModelHot.pct, 0), 100) /
-                100});background:{gaugeColor(perModelHot.pct)}"
+              style="transform:scaleX({Math.min(
+                Math.max(activeCompactUsageView.model.pct, 0),
+                100,
+              ) / 100});background:{gaugeColor(activeCompactUsageView.model.pct)}"
             ></span></span
           >
-          <span class="g-pct" style="color:{gaugeColor(perModelHot.pct)}">{perModelHot.pct}%</span>
+          <span class="g-pct" style="color:{gaugeColor(activeCompactUsageView.model.pct)}"
+            >{activeCompactUsageView.model.pct}%</span
+          >
         </button>
       {/if}
       {#if popoverOpen}
@@ -175,7 +198,7 @@
       {/if}
     </div>
   {/if}
-{:else if gauges.length || credits || codexUsage || perModelHot}
+{:else if activeCompactUsageView}
   <!-- Desktop: the inline cluster is a click toggle (not hover) so the popover stays open while
        you move into it to reach REFRESH. Dismiss on Esc / outside-click is shared with the touch
        path (popoverOpen + gaugeWrap, handled in TopBar.svelte). -->
@@ -191,16 +214,18 @@
            gauge cluster + each gauge are <span>s (display:flex via class, blockified
            as flex items). Compact rule: percentages inline, swapped to the CR amount
            when capped or credits-only (see showCreditsInline). -->
-      <span class="gauges" class:stale>
-        {#if showCreditsInline}
+      <span class="gauges" class:stale={activeStale}>
+        {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
+        {#if activeCompactUsageView.mode === "credit"}
           <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
-        {:else if codexUsage && gauges.length === 0}
+        {:else if activeCompactUsageView.mode === "tokens"}
           <span class="gauge">
-            <span class="g-label micro">{m.agent_provider_codex()}</span>
-            <span class="g-pct credit-amount">{formatTokenLabel(codexUsage.totalTokens)}</span>
+            <span class="g-pct credit-amount"
+              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
+            >
           </span>
-        {:else if gauges.length}
-          {#each gauges as g (g.label)}
+        {:else if activeCompactUsageView.mode === "limits"}
+          {#each activeCompactUsageView.gauges as g (g.label)}
             <span class="gauge">
               <span class="g-label micro">{g.label}</span>
               <span class="g-bar"
@@ -213,19 +238,23 @@
               <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
             </span>
           {/each}
-        {:else if perModelHot}
+        {:else if activeCompactUsageView.mode === "model"}
           <!-- per-model-only (e.g. Fable): the sole usage signal — inline its bar so the toggle
                isn't blank and its popover breakdown can be opened. -->
           <span class="gauge">
-            <span class="g-label micro">{modelDisplayName(perModelHot.model)}</span>
+            <span class="g-label micro">{modelDisplayName(activeCompactUsageView.model.model)}</span
+            >
             <span class="g-bar"
               ><span
                 class="g-fill"
-                style="transform:scaleX({Math.min(Math.max(perModelHot.pct, 0), 100) /
-                  100});background:{gaugeColor(perModelHot.pct)}"
+                style="transform:scaleX({Math.min(
+                  Math.max(activeCompactUsageView.model.pct, 0),
+                  100,
+                ) / 100});background:{gaugeColor(activeCompactUsageView.model.pct)}"
               ></span></span
             >
-            <span class="g-pct" style="color:{gaugeColor(perModelHot.pct)}">{perModelHot.pct}%</span
+            <span class="g-pct" style="color:{gaugeColor(activeCompactUsageView.model.pct)}"
+              >{activeCompactUsageView.model.pct}%</span
             >
           </span>
         {/if}
@@ -310,6 +339,9 @@
   /* Shared base-class rules (also in parent for sibling regions) */
   .g-label {
     color: var(--color-muted);
+  }
+  .g-provider {
+    color: var(--color-faint);
   }
   .g-bar {
     width: 46px;

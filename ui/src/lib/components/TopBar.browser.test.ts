@@ -5,6 +5,7 @@ import "../../app.css";
 import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus, HeldTask } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
+import { formatTokenLabel } from "$lib/format";
 
 // Mock api so the manual /usage refresh path never fires a real network call —
 // individual tests stub refreshUsage's resolution/rejection per case.
@@ -34,6 +35,7 @@ beforeEach(() => {
   document.head.appendChild(fontStyle);
 });
 afterEach(() => {
+  vi.useRealTimers();
   fontStyle.remove();
   document.body.innerHTML = "";
   document.body.style.width = "";
@@ -1364,6 +1366,45 @@ describe("TopBar — CR extra-credit gauge", () => {
     };
   }
 
+  function withCodex(
+    base: UsageLimits,
+    {
+      stale = false,
+      windows = false,
+    }: {
+      stale?: boolean;
+      windows?: boolean;
+    } = {},
+  ): UsageLimits {
+    return {
+      ...base,
+      providers: [
+        {
+          provider: "claude",
+          kind: "limits",
+          session5h: base.session5h,
+          week: base.week,
+          perModelWeek: base.perModelWeek,
+          credits: base.credits,
+          stale: base.stale,
+          calibratedAt: base.calibratedAt,
+          subscriptionOnly: base.subscriptionOnly,
+        },
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 92_600_000,
+          session5hTokens: 404_000,
+          weekTokens: 92_600_000,
+          updatedAt: 1_700_000_000_000,
+          stale,
+          session5h: windows ? { pct: 9, resetAt: 1_700_014_400_000 } : null,
+          week: windows ? { pct: 1, resetAt: 1_700_600_000_000 } : null,
+        },
+      ],
+    };
+  }
+
   async function renderTouch(limits: UsageLimits | null) {
     await page.viewport(1000, 900);
     document.body.style.width = "1000px";
@@ -1594,7 +1635,10 @@ describe("TopBar — CR extra-credit gauge", () => {
     const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
     expect(toggle, "codex-only toggle present").not.toBeNull();
     expect(toggle!.textContent ?? "", "inline codex token count").toContain(
-      m.agent_provider_codex(),
+      formatTokenLabel(92_600_000),
+    );
+    expect(toggle!.textContent ?? "", "single provider is unprefixed").not.toContain(
+      m.topbar_usage_provider_short_codex(),
     );
 
     openDesktopPopover(hud);
@@ -1608,13 +1652,85 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(text, "weekly token row").toContain(m.topbar_tokens_window({ period: "WK" }));
   });
 
+  it("rotates desktop compact usage from Claude to Codex limit gauges", async () => {
+    vi.useFakeTimers();
+    const hud = await renderDesktop(withCodex(fullLimits, { windows: true }));
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "rotating toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "starts on Claude").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+    expect(toggle!.textContent ?? "", "Claude window visible").toContain("88%");
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+
+    expect(toggle!.textContent ?? "", "rotates to Codex").toContain(
+      m.topbar_usage_provider_short_codex(),
+    );
+    expect(toggle!.textContent ?? "", "Codex window visible").toContain("9%");
+
+    openDesktopPopover(hud);
+    await Promise.resolve();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    const text = pop!.textContent ?? "";
+    expect(text, "full popover still has Claude").toContain(m.agent_provider_claude());
+    expect(text, "full popover still has Codex").toContain(m.agent_provider_codex());
+  });
+
+  it("rotates desktop compact usage to Codex token fallback when Codex has no windows", async () => {
+    vi.useFakeTimers();
+    const hud = await renderDesktop(withCodex(fullLimits));
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "rotating toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "starts on Claude").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+    expect(toggle!.textContent ?? "", "Claude window visible").toContain("88%");
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+
+    expect(toggle!.textContent ?? "", "rotates to Codex").toContain(
+      m.topbar_usage_provider_short_codex(),
+    );
+    expect(toggle!.textContent ?? "", "Codex token fallback visible").toContain(
+      formatTokenLabel(92_600_000),
+    );
+  });
+
+  it("rotates touch compact usage to Codex token fallback", async () => {
+    vi.useFakeTimers();
+    const hud = await renderTouch(withCodex(fullLimits));
+    const toggle = hud.querySelector<HTMLElement>(".gauge-btn");
+    expect(toggle, "rotating touch toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "starts on Claude").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+
+    const rotated = hud.querySelector<HTMLElement>(".gauge-btn");
+    expect(rotated, "rotated touch toggle present").not.toBeNull();
+    expect(rotated!.textContent ?? "", "rotates to Codex").toContain(
+      m.topbar_usage_provider_short_codex(),
+    );
+    expect(rotated!.textContent ?? "", "Codex token fallback visible").toContain(
+      formatTokenLabel(92_600_000),
+    );
+  });
+
   it("codex-only touch toggle dims when the Codex snapshot is stale", async () => {
     const hud = await renderTouch(codexOnly({ stale: true }));
     const toggle = hud.querySelector<HTMLElement>(".gauge-btn");
 
     expect(toggle, "codex-only touch toggle present").not.toBeNull();
     expect(toggle!.textContent ?? "", "inline codex token count").toContain(
-      m.agent_provider_codex(),
+      formatTokenLabel(92_600_000),
+    );
+    expect(toggle!.textContent ?? "", "single provider is unprefixed").not.toContain(
+      m.topbar_usage_provider_short_codex(),
     );
     expect(toggle!.classList.contains("stale"), "stale codex-only toggle is dimmed").toBe(true);
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  compactUsageViews,
   codexTokenUsage,
   gaugeList,
   hotterGauge,
@@ -36,6 +37,18 @@ function credit(over: Partial<CreditWindow>): CreditWindow {
     ...over,
   };
 }
+
+const codexTokens = {
+  provider: "codex" as const,
+  kind: "tokens" as const,
+  totalTokens: 12_000,
+  session5hTokens: 1_000,
+  weekTokens: 9_000,
+  updatedAt: 123,
+  stale: false,
+  session5h: null,
+  week: null,
+};
 
 describe("gaugeList", () => {
   it("is empty when no limits are present", () => {
@@ -84,20 +97,106 @@ describe("providerSnapshots", () => {
           calibratedAt: null,
           subscriptionOnly: false,
         },
-        {
-          provider: "codex",
-          kind: "tokens",
-          totalTokens: 12_000,
-          session5hTokens: 1_000,
-          weekTokens: 9_000,
-          updatedAt: 123,
-          stale: false,
-          session5h: null,
-          week: null,
-        },
+        codexTokens,
       ],
     });
     expect(codexTokenUsage(l)?.totalTokens).toBe(12_000);
+  });
+});
+
+describe("compactUsageViews", () => {
+  it("returns a Claude limit view for Claude-only normal gauges", () => {
+    const views = compactUsageViews({
+      gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      perModel: [],
+      credits: null,
+      codexUsage: null,
+    });
+
+    expect(views.map((v) => `${v.provider}:${v.mode}:${v.widthClass}`)).toEqual([
+      "claude:limits:bars",
+    ]);
+  });
+
+  it("returns a Codex limit view when Codex-only has rate-limit windows", () => {
+    const views = compactUsageViews({
+      gauges: [],
+      perModel: [],
+      credits: null,
+      codexUsage: { ...codexTokens, session5h: w(7), week: w(9) },
+    });
+
+    expect(views.map((v) => `${v.provider}:${v.mode}:${v.widthClass}`)).toEqual([
+      "codex:limits:bars",
+    ]);
+  });
+
+  it("returns a Codex token fallback when Codex-only has no rate-limit windows", () => {
+    const views = compactUsageViews({
+      gauges: [],
+      perModel: [],
+      credits: null,
+      codexUsage: codexTokens,
+    });
+
+    expect(views).toMatchObject([
+      { provider: "codex", mode: "tokens", widthClass: "token", totalTokens: 12_000 },
+    ]);
+  });
+
+  it("returns Claude plus Codex token fallback for both-provider token-only Codex", () => {
+    const views = compactUsageViews({
+      gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      perModel: [],
+      credits: null,
+      codexUsage: codexTokens,
+    });
+
+    expect(views.map((v) => `${v.provider}:${v.mode}:${v.widthClass}`)).toEqual([
+      "claude:limits:bars",
+      "codex:tokens:token",
+    ]);
+    expect(views.every((v) => v.rotationEligible)).toBe(true);
+  });
+
+  it("returns Claude plus Codex limit views when both have rate-limit windows", () => {
+    const views = compactUsageViews({
+      gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      perModel: [],
+      credits: null,
+      codexUsage: { ...codexTokens, session5h: w(7), week: w(9) },
+    });
+
+    expect(views.map((v) => `${v.provider}:${v.mode}:${v.widthClass}`)).toEqual([
+      "claude:limits:bars",
+      "codex:limits:bars",
+    ]);
+  });
+
+  it("preserves the Claude credit compact view when a normal window is capped", () => {
+    const views = compactUsageViews({
+      gauges: gaugeList(limits({ session5h: w(100), week: w(20) })),
+      perModel: [],
+      credits: credit({ spent: 0.29 }),
+      codexUsage: null,
+    });
+
+    expect(views.map((v) => `${v.provider}:${v.mode}:${v.widthClass}`)).toEqual([
+      "claude:credit:credit",
+    ]);
+  });
+
+  it("preserves the Claude per-model compact view when it is the only Claude signal", () => {
+    const views = compactUsageViews({
+      gauges: [],
+      perModel: [{ model: "fable", pct: 7, resetAt: null, scrapedAt: 0, stale: false }],
+      credits: null,
+      codexUsage: null,
+    });
+
+    expect(views).toMatchObject([
+      { provider: "claude", mode: "model", widthClass: "model", model: { model: "fable" } },
+    ]);
   });
 });
 

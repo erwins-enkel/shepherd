@@ -9,6 +9,7 @@
   } from "$lib/types";
   import { displayStatus } from "$lib/display-status";
   import {
+    compactUsageViews as compactUsageViewList,
     codexTokenUsage,
     gaugeList,
     hotterGauge,
@@ -218,6 +219,11 @@
     // neither this effect nor the ResizeObserver would re-fire — the bar would stay
     // un-compacted and overflow until an unrelated resize/badge change self-healed it.
     void gauges.length;
+    // Compact provider rotation changes top-bar content without changing `gauges.length`.
+    // Remeasure when the provider set/rotation state changes, and when the active view moves
+    // between width classes (e.g. two bars ↔ token total), but not for same-width provider ticks.
+    void compactUsageSetSignature;
+    void activeCompactUsageWidthClass;
     if (mode === "mobile") {
       measuredCompact = false;
       fullWidth = 0; // mobile: clear the cache so re-entry re-measures fresh
@@ -295,6 +301,38 @@
   const creditColor = $derived(
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
   );
+  const compactUsageViews = $derived(
+    compactUsageViewList({ gauges, perModel, credits, codexUsage }),
+  );
+  const rotatingCompactUsageViews = $derived(
+    compactUsageViews.filter((view) => view.rotationEligible),
+  );
+  const compactUsageRotating = $derived(rotatingCompactUsageViews.length >= 2);
+  const compactUsageSetSignature = $derived(
+    `${compactUsageRotating ? "rot" : "single"}:${compactUsageViews
+      .map((view) => `${view.provider}:${view.mode}:${view.widthClass}`)
+      .join("|")}`,
+  );
+  let activeCompactUsageIndex = $state(0);
+  const activeCompactUsageView = $derived(
+    compactUsageRotating
+      ? (rotatingCompactUsageViews[activeCompactUsageIndex % rotatingCompactUsageViews.length] ??
+          null)
+      : (compactUsageViews[0] ?? null),
+  );
+  const activeCompactUsageWidthClass = $derived(activeCompactUsageView?.widthClass ?? "none");
+
+  $effect(() => {
+    const signature = compactUsageSetSignature;
+    const count = rotatingCompactUsageViews.length;
+    void signature;
+    activeCompactUsageIndex = 0;
+    if (count < 2) return;
+    const rotate = setInterval(() => {
+      activeCompactUsageIndex = (activeCompactUsageIndex + 1) % count;
+    }, 120_000);
+    return () => clearInterval(rotate);
+  });
 
   // Refresh: POST /api/usage/refresh; the server's calibrate emit bridges back to the
   // client `ln` WS frame, so the gauge self-updates — we ignore the returned value.
@@ -724,11 +762,12 @@
         {subscriptionOnly}
         {touch}
         stale={limits?.stale ?? false}
-        {hotter}
         {gauges}
         {perModel}
         {credits}
         {codexUsage}
+        {activeCompactUsageView}
+        {compactUsageRotating}
         {overspend}
         {creditFill}
         {creditColor}

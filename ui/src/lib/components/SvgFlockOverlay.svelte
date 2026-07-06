@@ -15,7 +15,7 @@
       type: "sheep",
       kind: "light small",
       lane: 22,
-      width: 74,
+      width: 92,
       start: 108,
       distance: -136,
       delay: "-1s",
@@ -26,7 +26,7 @@
       type: "sheep",
       kind: "dark small flip",
       lane: 70,
-      width: 76,
+      width: 94,
       start: 93,
       distance: -124,
       delay: "-6s",
@@ -37,7 +37,7 @@
       type: "sheep",
       kind: "light big",
       lane: 104,
-      width: 116,
+      width: 146,
       start: 116,
       distance: -150,
       delay: "-4s",
@@ -48,7 +48,7 @@
       type: "sheep",
       kind: "dark big flip",
       lane: 24,
-      width: 112,
+      width: 140,
       start: 70,
       distance: -100,
       delay: "-11s",
@@ -59,7 +59,7 @@
       type: "sheep",
       kind: "light small",
       lane: 146,
-      width: 72,
+      width: 90,
       start: 82,
       distance: -114,
       delay: "-9s",
@@ -70,7 +70,7 @@
       type: "sheep",
       kind: "light small flip",
       lane: 86,
-      width: 72,
+      width: 88,
       start: 42,
       distance: -74,
       delay: "-7s",
@@ -81,7 +81,7 @@
       type: "sheep",
       kind: "dark small",
       lane: 166,
-      width: 78,
+      width: 96,
       start: 118,
       distance: -148,
       delay: "-14s",
@@ -112,7 +112,7 @@
     <svg
       class="actor {actor.kind}"
       data-flock-actor={actor.type}
-      viewBox={actor.type === "dog" ? "0 0 92 54" : "0 0 112 72"}
+      viewBox={actor.type === "dog" ? "0 0 92 54" : "0 0 148 92"}
       style:--lane={`${actor.lane}px`}
       style:--start={`${actor.start}vw`}
       style:--distance={`${actor.distance}vw`}
@@ -132,17 +132,36 @@
         </g>
       {:else}
         <g class="sprite">
-          <ellipse class="body-base" cx="58" cy="39" rx="34" ry="20" />
-          <circle class="wool" cx="31" cy="37" r="15" />
-          <circle class="wool" cx="43" cy="26" r="15" />
-          <circle class="wool" cx="61" cy="24" r="17" />
-          <circle class="wool" cx="78" cy="29" r="15" />
-          <circle class="wool" cx="84" cy="43" r="16" />
-          <circle class="wool" cx="48" cy="48" r="18" />
-          <path class="head" d="M85 35 C96 30 105 37 103 49 C101 60 87 61 82 51 C78 43 79 38 85 35Z" />
-          <path class="ear" d="M90 34 C88 25 95 22 99 30" />
-          <circle class="eye" cx="94" cy="44" r="2.2" />
-          <path class="leg" d="M41 54 L38 68 M56 56 L55 69 M75 55 L79 68" />
+          <path class="leg rear" d="M43 62 L39 86 M65 64 L63 86 M91 63 L94 86 M108 60 L113 84" />
+          <path
+            class="wool mass"
+            d="M35 58
+               C20 57 14 44 22 34
+               C16 22 29 12 42 18
+               C49 4 70 6 75 19
+               C87 8 105 16 104 31
+               C119 29 129 42 123 55
+               C129 67 114 77 101 70
+               C91 82 72 79 68 67
+               C56 79 37 74 35 58Z"
+          />
+          <circle class="wool puff" cx="34" cy="38" r="16" />
+          <circle class="wool puff" cx="52" cy="24" r="18" />
+          <circle class="wool puff" cx="75" cy="25" r="20" />
+          <circle class="wool puff" cx="98" cy="36" r="18" />
+          <circle class="wool puff" cx="54" cy="57" r="20" />
+          <circle class="wool puff" cx="83" cy="59" r="19" />
+          <path
+            class="face"
+            d="M111 39
+               C126 34 140 44 139 59
+               C138 75 121 80 111 68
+               C104 60 103 45 111 39Z"
+          />
+          <path class="ear" d="M116 42 C115 29 128 27 131 39 C126 40 121 42 116 42Z" />
+          <path class="snout" d="M126 61 C130 63 134 62 136 59" />
+          <circle class="eye" cx="126" cy="52" r="3" />
+          <path class="tail" d="M22 47 C11 45 9 55 18 59" />
         </g>
       {/if}
     </svg>
@@ -197,35 +216,51 @@
     transform-origin: center;
   }
   .actor.flip .sprite {
-    transform: translateX(112px) scaleX(-1);
+    transform: translateX(148px) scaleX(-1);
   }
   .actor.dog.flip .sprite {
     transform: translateX(92px) scaleX(-1);
   }
-  .wool,
-  .body-base {
+  .wool {
     fill: currentColor;
-    stroke: color-mix(in srgb, currentColor 70%, var(--color-bg));
-    stroke-width: 2;
+    stroke: color-mix(in srgb, currentColor 64%, var(--color-bg));
+    stroke-width: 3;
+    stroke-linejoin: round;
   }
-  .body-base {
-    opacity: 0.44;
+  .wool.mass {
+    opacity: 0.82;
   }
-  .head,
+  .wool.puff {
+    opacity: 0.96;
+  }
+  .face,
   .ear {
     fill: var(--color-bg);
     stroke: currentColor;
+    stroke-width: 4;
+    stroke-linejoin: round;
+  }
+  .tail,
+  .snout,
+  .eye {
+    fill: none;
+    stroke: currentColor;
     stroke-width: 3;
+    stroke-linecap: round;
     stroke-linejoin: round;
   }
   .eye {
     fill: currentColor;
+    stroke: none;
   }
   .leg {
     fill: none;
     stroke: currentColor;
-    stroke-width: 4;
+    stroke-width: 5;
     stroke-linecap: round;
+  }
+  .leg.rear {
+    opacity: 0.82;
   }
   .dog-body,
   .dog-head,

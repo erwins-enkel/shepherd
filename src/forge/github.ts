@@ -48,11 +48,20 @@ const MAX_WORKFLOWS = 10;
 const REST_PAGE_SIZE = 100;
 const REST_LIST_CAP = 200;
 const MAX_CHECK_RUN_PAGES = 2;
+const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
+  OPEN: "open",
+  MERGED: "merged",
+  CLOSED: "closed",
+};
 
 /** `gh pr create` on an empty diff prints "No commits between <base> and <head>" to stderr.
  *  Match that case-insensitively to classify an openPr failure as an EmptyDiffError. */
 function isNoCommitsBetween(text: string): boolean {
   return text.toLowerCase().includes("no commits between");
+}
+
+function mapGraphqlPrReviewState(state: string | null | undefined): PrReviewMeta["state"] {
+  return GRAPHQL_PR_REVIEW_STATES[(state ?? "").toUpperCase()] ?? "none";
 }
 
 /** Cap on summary pages for listSubIssueSummaries: 2 pages × 100 issues = ~200 issues,
@@ -1632,20 +1641,11 @@ export class GithubForge implements GitForge {
         state?: string | null;
       } | null;
       if (!parsed) return null;
-      const rawState = (parsed.state ?? "").toUpperCase();
-      const state: PrReviewMeta["state"] =
-        rawState === "OPEN"
-          ? "open"
-          : rawState === "MERGED"
-            ? "merged"
-            : rawState === "CLOSED"
-              ? "closed"
-              : "none";
       return {
         body: parsed.body ?? "",
         baseRefName: parsed.baseRefName ?? "",
         isCrossRepository: parsed.isCrossRepository ?? false,
-        state,
+        state: mapGraphqlPrReviewState(parsed.state),
       };
     } catch (err) {
       if (isRateLimitError(err)) return this.prReviewMetaRest(prNumber);

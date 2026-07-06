@@ -425,6 +425,12 @@ deferredStarts.push(() => {
 const herdr = new HerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();
+const onSessionGit = (listener: (input: { id: string; git: GitState }) => void): void => {
+  events.subscribe((event, data) => {
+    if (event !== "session:git") return;
+    listener(data as { id: string; git: GitState });
+  });
+};
 const previewService = new PreviewService({
   base: config.previewPortBase,
   count: config.previewPortCount,
@@ -924,9 +930,7 @@ const detectAndPersistManualSteps = async (id: string, prNumber: number): Promis
     console.warn(`[manual-steps] detection for ${id} pr#${prNumber} failed:`, err);
   }
 };
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: GitState };
+onSessionGit(({ id, git }) => {
   if (git.number == null || (git.state !== "open" && git.state !== "merged")) return;
   const headSha = git.headSha ?? "";
   if (manualStepsHeadSeen.get(id) === headSha) return; // unchanged head — skip the fetch
@@ -953,9 +957,7 @@ events.subscribe((event, data) => {
 // so the row resolves out of the Merging group one-by-one as the train works.
 // session:git fires on any git change; resolveMerging clears the mark and
 // credits the train tracker, no-opping when the session isn't marked / untracked.
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+onSessionGit(({ id, git }) => {
   if (git.state === "merged" || git.state === "closed")
     service.resolveMerging(id, git.state === "merged");
   // A participant's PR may flip to "open" only after the train launched (cold poller
@@ -1241,9 +1243,7 @@ deferredStarts.push(() => {
   readyNotifier.start();
 });
 // drive the critic off PR-state changes: open + CI green + unreviewed head → review
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+onSessionGit(({ id, git }) => {
   const s = store.get(id);
   // consider() is async (it may fetch PR notes); swallow rejections so a throw in the
   // review path can't become an unhandled rejection that takes down the process.
@@ -1259,9 +1259,7 @@ events.subscribe((event, data) => {
 // clicking Go), so the agent wrote code and opened a PR while planPhase was still "planning".
 // PR-present = state !== "none" (open/merged/closed), mirroring autopilot's hasPr non-"none"
 // semantics — using "open"-only would leave a merged/closed-PR planning session latched.
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+onSessionGit(({ id, git }) => {
   if (git.state === "none") return;
   const advanced = service.advanceToExecutionOnPr(id);
   // Only reap the plan reviewer when a real transition happened — avoids redundant
@@ -1277,9 +1275,7 @@ events.subscribe((event, data) => {
 // merges. Stamped per PR in issue_log so each fires once, across restarts and CI
 // flaps; best-effort — a failed comment is retried on the next git event.
 const logIssueWorkflow = createIssueLogger({ resolveForge, store });
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+onSessionGit(({ id, git }) => {
   const s = store.get(id);
   if (!s || s.issueNumber == null) return;
   void logIssueWorkflow(s, git).catch((err) =>
@@ -1316,9 +1312,7 @@ const postMergeSteps = new PostMergeStepsService({
   resolveForge,
   emitChange: () => events.emit("post-merge-steps:changed", {}),
 });
-events.subscribe((event, data) => {
-  if (event !== "session:git") return;
-  const { id, git } = data as { id: string; git: GitState };
+onSessionGit(({ id, git }) => {
   if (git.state !== "merged") return;
   const s = store.get(id);
   if (!s) return;

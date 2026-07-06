@@ -1,0 +1,101 @@
+name: Codex PR flag
+
+# Flag PRs authored by Codex (and NOT Claude Code) so reviewers give them the
+# extra care they warrant. Detection is deterministic — no model call: the coding
+# CLI stamps every commit with a Co-authored-by trailer, which GitHub surfaces as a
+# commit co-author. Claude Code signs `Claude <noreply@anthropic.com>`; Codex signs
+# `Codex <noreply@openai.com>` (its default commit_attribution). We read those
+# co-authors off the PR's commits and flag when Codex is present and Claude is not.
+#
+# `pull_request` (not `pull_request_target`): we never check out or run PR code —
+# only read commit metadata via the API and apply a label/comment — so untrusted PR
+# content never meets a privileged token or secrets. Fork PRs get a read-only token
+# that can't label, and a fork contributor isn't a Shepherd Codex session anyway, so
+# the job skips them (same-repo head only). Assumes Codex runs with its default
+# commit_attribution trailer enabled; a Codex session with attribution disabled is
+# not detectable here and won't be flagged.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+# Least privilege: read git, write the label + comment on the PR (an issue op).
+permissions:
+  contents: read
+  pull-requests: write
+
+# One run per PR; don't cancel an in-flight run for the same PR.
+concurrency:
+  group: codex-pr-flag-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  flag:
+    name: flag codex-authored PR
+    # Same-repo PRs only — the read-only fork token can't label, and fork PRs are
+    # never Shepherd Codex sessions. Kill switch: set repo var CODEX_PR_FLAG_DISABLED
+    # to 'true' to pause flagging without deleting the workflow.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && vars.CODEX_PR_FLAG_DISABLED != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Read the PR's commit co-authors and decide. Trailer identities arrive as
+      # structured JSON (email/login) parsed by jq — never interpolated into the
+      # shell — so a crafted commit message can't inject. Emits authored_by_codex.
+      - name: Detect coding CLI from commit co-authors
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          commits=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json commits)
+
+          # A co-author counts as Claude/Codex by its signing email OR login, so a
+          # renamed display name (e.g. "Claude Opus 4.8 (1M context)") still matches.
+          has_claude=$(printf '%s' "$commits" | jq -r '
+            [.commits[].authors[] | ((.email // "") + "|" + (.login // "")) | ascii_downcase]
+            | any(.[]; test("noreply@anthropic\\.com|\\|claude$"))')
+          has_codex=$(printf '%s' "$commits" | jq -r '
+            [.commits[].authors[] | ((.email // "") + "|" + (.login // "")) | ascii_downcase]
+            | any(.[]; test("noreply@openai\\.com|\\|codex$"))')
+
+          if [ "$has_codex" = "true" ] && [ "$has_claude" != "true" ]; then
+            flag=true
+          else
+            flag=false
+          fi
+          echo "authored_by_codex=${flag}" >> "$GITHUB_OUTPUT"
+          echo "has_claude=${has_claude} has_codex=${has_codex} -> flag=${flag}"
+
+      # Label + one disclosed comment, idempotent: if the label is already on the PR
+      # (a reopen or manual add), do nothing so we never double-comment. The label is
+      # self-healed into existence first so a fresh repo doesn't hard-fail the add.
+      - name: Apply codex-authored flag
+        if: ${{ steps.detect.outputs.authored_by_codex == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          label="codex-authored"
+
+          already=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels \
+            --jq "any(.labels[]; .name == \"$label\")")
+          if [ "$already" = "true" ]; then
+            echo "already flagged — skipping"
+            exit 0
+          fi
+
+          gh label create "$label" --repo "$REPO" \
+            --color D93F0B \
+            --description "Authored by Codex — give the review extra care" \
+            >/dev/null 2>&1 || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$label"
+
+          # Static, author-controlled body — no PR content interpolated.
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
+            "🔍 **Codex-authored PR** — this branch was written by Codex, not Claude Code. Codex PRs tend to need extra care during review; please read the diff closely before approving. _(Automated flag — remove the \`codex-authored\` label to clear.)_"

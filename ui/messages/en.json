@@ -2600,5 +2600,15 @@
   "micbtn_origin_local": "🎙️ Local Whisper",
   "micbtn_origin_web": "Browser / device",
   "feat_newtask_prompt_mic_title": "Dictate the New Task prompt",
-  "feat_newtask_prompt_mic_body": "The New Task prompt field now has a mic — same engines as the compose bar: the browser's dictation, or local Whisper via the voice-whisper plugin (the only mic in an iOS home-screen PWA). While you speak, a live preview renders in the field; on stop the accurate full-clip transcript replaces it."
+  "feat_newtask_prompt_mic_body": "The New Task prompt field now has a mic — same engines as the compose bar: the browser's dictation, or local Whisper via the voice-whisper plugin (the only mic in an iOS home-screen PWA). While you speak, a live preview renders in the field; on stop the accurate full-clip transcript replaces it.",
+  "feat_plan_reviewer_environment_title": "See which CLI reviewed a plan",
+  "feat_plan_reviewer_environment_body": "Plan Gate headings now show the task session and reviewer coding CLI, model and effort. Open the info popover beside the chips for the exact Settings path and documentation link.",
+  "planpanel_env_aria": "Plan and review coding environment",
+  "planpanel_env_plan": "Plan",
+  "planpanel_env_review": "Review",
+  "planpanel_env_unavailable": "unavailable",
+  "planpanel_env_help_aria": "Where to change plan and review coding environments",
+  "planpanel_env_popover_title": "Coding environment",
+  "planpanel_env_popover_body": "Plan shows the task session's coding CLI, model and reasoning effort. Review shows the Plan Gate reviewer that checked this plan. Change task defaults in New Task, repo defaults or global defaults; change the reviewer under Settings -> CLIs -> Planner (plan reviewer).",
+  "planpanel_env_docs_link": "Open configuration docs"
 }

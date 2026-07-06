@@ -6,7 +6,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision, AgentProvider } from "./types";
-import type { RoleEnvironment } from "./default-model";
+import { modelCompatibleWithProvider, type RoleEnvironment } from "./default-model";
 import type { GitForge } from "./forge/types";
 import {
   type VisualBlock,
@@ -168,9 +168,23 @@ interface PlanInFlight {
   planHash: string;
   plan: string;
   blocks: VisualBlock[]; // captured at begin, carried into the gate
+  reviewerProvider: AgentProvider | null;
+  reviewerModel: string | null;
+  reviewerEffort: string | null;
   priorRound: number; // adversarial rounds already spent on this plan streak
   startedAt: number;
   finalizing?: boolean;
+}
+
+function reviewerProviderFromSpawn(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+): AgentProvider | null {
+  if (provider === "claude" || provider === "codex") return provider;
+  if (!model) return null;
+  if (modelCompatibleWithProvider(model, "claude")) return "claude";
+  if (modelCompatibleWithProvider(model, "codex")) return "codex";
+  return null;
 }
 
 export class PlanGateService {
@@ -263,12 +277,17 @@ export class PlanGateService {
     const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? [], issueBody);
     // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
     // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
-    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    const reviewerEnv = this.deps.env?.() ?? {
+      provider: "claude" as const,
+      model: null,
+      effort: null,
+    };
+    const reviewerEffort = reviewerEnv.effort ?? session.effort ?? null;
     const { argv, sessionId: reviewerSessionId } = reviewerArgv(
-      env.provider,
-      env.model,
+      reviewerEnv.provider,
+      reviewerEnv.model,
       prompt,
-      env.effort ?? session.effort,
+      reviewerEffort,
     );
 
     // Disposable detached worktree at the base: read-only codebase inspection that can't race
@@ -305,7 +324,7 @@ export class PlanGateService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
+    if (apiKeyFailClosed(reviewerEnv.provider)) {
       console.warn(
         "[plan-gate] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
@@ -325,7 +344,7 @@ export class PlanGateService {
         sessionId: reviewerSessionId,
         kind: "plan-gate",
         parentSessionId: session.id,
-        model: this.deps.env?.().model ?? null,
+        model: reviewerEnv.model,
       },
     });
     if ("aborted" in aux) {
@@ -362,6 +381,9 @@ export class PlanGateService {
       planHash,
       plan,
       blocks,
+      reviewerProvider: reviewerEnv.provider,
+      reviewerModel: reviewerEnv.model,
+      reviewerEffort,
       priorRound: prior?.round ?? 0,
       startedAt: this.now(),
     });
@@ -372,7 +394,9 @@ export class PlanGateService {
       taskSessionId: session.id,
       kind: "plan_gate",
       worktreePath: wt.worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider: reviewerEnv.provider,
+      model: reviewerEnv.model,
+      reviewerEffort,
       spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
@@ -416,6 +440,9 @@ export class PlanGateService {
         planHash: await PlanGateService.hashPlan(plan),
         plan,
         blocks: this.readPlanBlocks(s.worktreePath),
+        reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider, sp.model),
+        reviewerModel: sp.model,
+        reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
         priorRound: prior?.round ?? 0,
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });
@@ -613,6 +640,9 @@ export class PlanGateService {
       cap: this.cap, // surface the live cap so the UI badge need not mirror it
       approved: resolved === "approved",
       plan: f.plan,
+      reviewerProvider: f.reviewerProvider,
+      reviewerModel: f.reviewerModel,
+      reviewerEffort: f.reviewerEffort,
       blocks: f.blocks,
       // Fresh gate for this planHash — no questions answered yet. buildGate runs once per
       // planHash (consider() dedups identical plans), so a revised plan resets the pending

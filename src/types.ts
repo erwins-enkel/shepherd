@@ -411,6 +411,12 @@ export interface PlanGate {
   cap: number; // the round cap this run used — surfaced so the UI badge need not mirror it
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  /** Resolved Plan Gate reviewer environment for the run that produced this verdict.
+   *  Optional/null for legacy rows and restart-adopted reviews whose reviewer_spawns row predates
+   *  provider/effort persistence. */
+  reviewerProvider?: AgentProvider | null;
+  reviewerModel?: string | null;
+  reviewerEffort?: string | null;
   blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored, no diff-join); absent → flat markdown
   // Answered question-form questions, keyed `${blockId} ${questionId}` (#1332). Durable so the
   // "unanswered plan question" attention signal survives reconnect/restart. Reset to [] by
@@ -578,7 +584,9 @@ export interface ReviewerSpawnRow {
   taskSessionId: string;
   kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
   worktreePath: string;
+  reviewerProvider: AgentProvider | null;
   model: string | null;
+  reviewerEffort: string | null;
   spawnedAt: number;
   completedAt: number | null;
   inputTokens: number | null;

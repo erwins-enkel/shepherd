@@ -127,6 +127,23 @@ test("consider: falls back to session.effort when env.effort is null/absent (iss
   expect(argv[argv.indexOf("--effort") + 1]).toBe("medium");
 });
 
+test("approved gate records the reviewer provider, model, and resolved effort", async () => {
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.consider({ ...planningSession(), effort: "high" } as any);
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: "codex",
+    reviewerModel: "gpt-5.5",
+    reviewerEffort: "high",
+  });
+  expect(h.recordedSpawns[0].reviewerProvider).toBe("codex");
+  expect(h.recordedSpawns[0].model).toBe("gpt-5.5");
+  expect(h.recordedSpawns[0].reviewerEffort).toBe("high");
+});
+
 test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
   await withAuth("subscription", "/ignored.sh", async () => {
     const h = harness();
@@ -619,6 +636,52 @@ test("adoptOrphans re-adopts an orphaned review; next tick finalizes it from the
   expect(h.store.gate.round).toBe(2); // priorRound (1) advanced once the steer landed
   expect(replied).toEqual(["s1"]); // findings steered back to the planning agent
   expect(h.removed).toContain("/wt-detached"); // reviewer worktree reaped
+});
+
+test("adoptOrphans restores durable reviewer environment metadata", async () => {
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [
+        orphanSpawn({ reviewerProvider: "codex", model: "gpt-5.5", reviewerEffort: "high" }),
+      ],
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: "codex",
+    reviewerModel: "gpt-5.5",
+    reviewerEffort: "high",
+  });
+});
+
+test("adoptOrphans reconstructs legacy reviewer environment from durable model and session effort", async () => {
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({
+        id: "s1",
+        repoPath: "/r",
+        worktreePath: "/wt",
+        planPhase: "planning",
+        effort: "medium",
+      }),
+      listReviewerSpawns: () => [
+        orphanSpawn({ reviewerProvider: null, model: "opus", reviewerEffort: null }),
+      ],
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: "claude",
+    reviewerModel: "opus",
+    reviewerEffort: "medium",
+  });
 });
 
 test("adoptOrphans skips a spawn whose worktree was already reaped (finalized)", async () => {

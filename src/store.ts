@@ -20,6 +20,7 @@ import type {
   BuildQueue,
   BuildStepInput,
   ReviewerSpawnRow,
+  AgentProvider,
   PrReview,
   HerdDigest,
   PostMergeStep,
@@ -331,6 +332,9 @@ type PlanGateRow = {
   updatedAt: number;
   blocks: string;
   answeredQuestionKeys: string | null;
+  reviewerProvider: string | null;
+  reviewerModel: string | null;
+  reviewerEffort: string | null;
 };
 
 /** SQLite row shape for the recaps table. */
@@ -821,16 +825,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL,
       blocks TEXT NOT NULL DEFAULT '[]',
-      answeredQuestionKeys TEXT NOT NULL DEFAULT '[]')`);
-    const planGateCols = this.db.query(`PRAGMA table_info(plan_gates)`).all() as { name: string }[];
-    if (!planGateCols.some((c) => c.name === "blocks")) {
-      this.db.run(`ALTER TABLE plan_gates ADD COLUMN blocks TEXT NOT NULL DEFAULT '[]'`);
-    }
-    if (!planGateCols.some((c) => c.name === "answeredQuestionKeys")) {
-      this.db.run(
-        `ALTER TABLE plan_gates ADD COLUMN answeredQuestionKeys TEXT NOT NULL DEFAULT '[]'`,
-      );
-    }
+      answeredQuestionKeys TEXT NOT NULL DEFAULT '[]',
+      reviewerProvider TEXT,
+      reviewerModel TEXT,
+      reviewerEffort TEXT)`);
+    this.migratePlanGateColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
       sessionId TEXT PRIMARY KEY,
       state TEXT NOT NULL,
@@ -921,7 +920,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       taskSessionId     TEXT NOT NULL,
       kind              TEXT NOT NULL,
       worktreePath      TEXT NOT NULL,
+      reviewerProvider  TEXT,
       model             TEXT,
+      reviewerEffort    TEXT,
       spawnedAt         INTEGER NOT NULL,
       completedAt       INTEGER,
       inputTokens       INTEGER,
@@ -929,6 +930,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       cacheReadTokens   INTEGER,
       cacheWriteTokens  INTEGER,
       totalTokens       INTEGER)`);
+    this.migrateReviewerSpawnColumns();
     this.db.run(
       `CREATE INDEX IF NOT EXISTS reviewer_spawns_task ON reviewer_spawns (taskSessionId)`,
     );
@@ -2296,6 +2298,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       cap: r.cap ?? 3,
       approved: !!r.approved,
       plan: r.plan ?? "",
+      reviewerProvider:
+        r.reviewerProvider === "claude" || r.reviewerProvider === "codex"
+          ? r.reviewerProvider
+          : null,
+      reviewerModel: r.reviewerModel ?? null,
+      reviewerEffort: r.reviewerEffort ?? null,
       updatedAt: r.updatedAt,
       blocks,
       answeredQuestionKeys,
@@ -2305,7 +2313,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -2314,13 +2322,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
          plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks,
-         answeredQuestionKeys=excluded.answeredQuestionKeys`,
+         answeredQuestionKeys=excluded.answeredQuestionKeys,
+         reviewerProvider=excluded.reviewerProvider, reviewerModel=excluded.reviewerModel,
+         reviewerEffort=excluded.reviewerEffort`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -2335,6 +2345,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         g.updatedAt,
         JSON.stringify(g.blocks ?? []),
         JSON.stringify(g.answeredQuestionKeys ?? []),
+        g.reviewerProvider ?? null,
+        g.reviewerModel ?? null,
+        g.reviewerEffort ?? null,
       ],
     );
   }
@@ -2346,7 +2359,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -2820,14 +2833,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     taskSessionId: string;
     kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
     worktreePath: string;
+    reviewerProvider?: AgentProvider | null;
     model: string | null;
+    reviewerEffort?: string | null;
     spawnedAt: number;
   }): void {
     this.db.run(
       `INSERT INTO reviewer_spawns
-         (reviewerSessionId, taskSessionId, kind, worktreePath, model, spawnedAt)
-       VALUES (?,?,?,?,?,?)`,
-      [r.reviewerSessionId, r.taskSessionId, r.kind, r.worktreePath, r.model, r.spawnedAt],
+         (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model, reviewerEffort, spawnedAt)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        r.reviewerSessionId,
+        r.taskSessionId,
+        r.kind,
+        r.worktreePath,
+        r.reviewerProvider ?? null,
+        r.model,
+        r.reviewerEffort ?? null,
+        r.spawnedAt,
+      ],
     );
   }
 
@@ -3213,6 +3237,29 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // spawnAborted (#1211): marks a row that records a pre-spawn onSpawn abort (critic never ran),
     // exempting it from the same-head re-review dedup. Pre-existing rows backfill to 0 (real reviews).
     add("spawnAborted", `spawnAborted INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  private migratePlanGateColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(plan_gates)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE plan_gates ADD COLUMN ${ddl}`);
+    };
+    add("blocks", `blocks TEXT NOT NULL DEFAULT '[]'`);
+    add("answeredQuestionKeys", `answeredQuestionKeys TEXT NOT NULL DEFAULT '[]'`);
+    add("reviewerProvider", `reviewerProvider TEXT`);
+    add("reviewerModel", `reviewerModel TEXT`);
+    add("reviewerEffort", `reviewerEffort TEXT`);
+  }
+
+  private migrateReviewerSpawnColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(reviewer_spawns)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE reviewer_spawns ADD COLUMN ${ddl}`);
+    };
+    add("reviewerProvider", `reviewerProvider TEXT`);
+    add("reviewerEffort", `reviewerEffort TEXT`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

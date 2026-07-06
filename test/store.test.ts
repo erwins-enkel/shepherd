@@ -1036,7 +1036,9 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     taskSessionId: "task-1",
     kind: "review",
     worktreePath: "/rev-wt",
+    reviewerProvider: null,
     model: null,
+    reviewerEffort: null,
     spawnedAt: 1000,
   });
   const rows = s.listReviewerSpawns();
@@ -1046,7 +1048,9 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     taskSessionId: "task-1",
     kind: "review",
     worktreePath: "/rev-wt",
+    reviewerProvider: null,
     model: null,
+    reviewerEffort: null,
     spawnedAt: 1000,
     completedAt: null,
     inputTokens: null,
@@ -1054,6 +1058,25 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     cacheReadTokens: null,
     cacheWriteTokens: null,
     totalTokens: null,
+  });
+});
+
+test("recordReviewerSpawn persists reviewer provider and effort", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    reviewerProvider: "codex",
+    model: "gpt-5.5",
+    reviewerEffort: "high",
+    spawnedAt: 1000,
+  });
+  expect(s.listReviewerSpawns()[0]).toMatchObject({
+    reviewerProvider: "codex",
+    model: "gpt-5.5",
+    reviewerEffort: "high",
   });
 });
 

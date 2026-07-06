@@ -379,6 +379,11 @@ export interface PlanGate {
   cap: number; // the round cap this run used — the badge reads it instead of mirroring
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  /** Resolved Plan Gate reviewer environment. Null/absent when unavailable for legacy or
+   *  restart-adopted reviews. */
+  reviewerProvider?: AgentProvider | null;
+  reviewerModel?: string | null;
+  reviewerEffort?: string | null;
   blocks?: VisualBlock[]; // optional typed visual plan blocks (model-authored); absent → flat markdown
   // Answered question-form questions, keyed `${blockId} ${questionId}` (#1332). Mirrors the
   // server field; absent ⇒ treated as []. Drives the "unanswered plan question" amber tab

@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { PlanGate, Session } from "$lib/types";
 import { planGates } from "$lib/reviews.svelte";
 import { reviewPlan } from "$lib/api";
 import { m } from "$lib/paraglide/messages";
+import { DOCS_URL } from "$lib/build-info";
 
 // Mock api so the panel's release/review calls never hit the network, keeping the
 // rest of the module intact (the reviews store imports other api exports).
@@ -228,6 +229,142 @@ describe("PlanPanel release state", () => {
     });
 
     expect(document.querySelector(".status-note")).toBeNull();
+  });
+});
+
+describe("PlanPanel environment heading", () => {
+  it("shows plan and review coding environments in the heading", async () => {
+    const id = "s-env";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "env",
+        decision: "approved",
+        summary: "ok",
+        body: "",
+        findings: [],
+        round: 0,
+        cap: 3,
+        approved: true,
+        plan: "# Env plan",
+        reviewerProvider: "claude",
+        reviewerModel: "opus",
+        reviewerEffort: "high",
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, {
+      props: {
+        session: session({
+          id,
+          agentProvider: "codex",
+          model: "gpt-5.5",
+          effort: "medium",
+        }),
+        onclose: vi.fn(),
+      },
+    });
+
+    const envText = document.querySelector(".envline")?.textContent ?? "";
+    expect(envText).toContain("Plan");
+    expect(envText).toContain("Review");
+    await expect.element(page.getByText("Codex · gpt-5.5 · Medium")).toBeVisible();
+    await expect.element(page.getByText("Claude Code · opus · High")).toBeVisible();
+  });
+
+  it("shows partial reviewer metadata when provider is unavailable", async () => {
+    const id = "s-env-missing";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "env-missing",
+        decision: "approved",
+        summary: "ok",
+        body: "",
+        findings: [],
+        round: 0,
+        cap: 3,
+        approved: true,
+        plan: "# Env plan",
+        reviewerProvider: null,
+        reviewerModel: "opus",
+        reviewerEffort: null,
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const envText = document.querySelector(".envline")?.textContent ?? "";
+    expect(envText).toContain("Review");
+    await expect.element(page.getByText("unavailable · opus")).toBeVisible();
+  });
+
+  it("opens a persistent details popover with the settings path and docs link", async () => {
+    const id = "s-env-pop";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "env-pop",
+        decision: "approved",
+        summary: "ok",
+        body: "",
+        findings: [],
+        round: 0,
+        cap: 3,
+        approved: true,
+        plan: "# Env plan",
+        reviewerProvider: "claude",
+        reviewerModel: null,
+        reviewerEffort: null,
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByLabelText("Where to change plan and review coding environments").click();
+    await expect.element(page.getByText("Coding environment")).toBeVisible();
+    await expect
+      .element(page.getByText(/Settings -> CLIs -> Planner \(plan reviewer\)/))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("link", { name: "Open configuration docs" }))
+      .toHaveAttribute("href", `${DOCS_URL}reference/configuration/`);
+  });
+
+  it("closes the details popover with Escape while focus is inside it", async () => {
+    const id = "s-env-pop-escape";
+    planGates.map = {
+      [id]: {
+        sessionId: id,
+        planHash: "env-pop-escape",
+        decision: "approved",
+        summary: "ok",
+        body: "",
+        findings: [],
+        round: 0,
+        cap: 3,
+        approved: true,
+        plan: "# Env plan",
+        reviewerProvider: "claude",
+        reviewerModel: null,
+        reviewerEffort: null,
+        updatedAt: Date.now(),
+      },
+    };
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByLabelText("Where to change plan and review coding environments").click();
+    const docsLink = document.querySelector<HTMLAnchorElement>(".env-pop a");
+    docsLink?.focus();
+    expect(document.activeElement).toBe(docsLink);
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(page.getByText("Coding environment")).not.toBeInTheDocument();
+    await expect.element(page.getByRole("dialog", { name: m.planpanel_title() })).toBeVisible();
   });
 });
 

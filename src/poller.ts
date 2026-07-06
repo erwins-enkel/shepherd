@@ -52,6 +52,12 @@ const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
  *  done-flip more than this apart are treated as unrelated turns and never paired. */
 const STOP_WINDOW_MAX_MS = 30_000;
 
+/** Codex session-id capture back-off: after a missed rescan, wait `BASE << misses` (capped) before the
+ *  next scan. A rollout normally appears within seconds of spawn, so early retries stay quick; a
+ *  never-matching session widens to one scan per ~2 min instead of every 1 s tick. */
+const CODEX_CAPTURE_BACKOFF_BASE_MS = 2_000;
+const CODEX_CAPTURE_BACKOFF_MAX_MS = 120_000;
+
 /**
  * Injectable preview wiring: service + throttle cadence + scan/pick overrides.
  * Defaults to the real implementations; tests inject fakes to avoid /proc + network.
@@ -136,8 +142,9 @@ export class StatusPoller {
 
   /** Fire-and-forget best-effort seed of a running Codex session's provider-native id (wired to
    *  service.captureCodexSessionId in index.ts). No-op for non-Codex / non-isolated / already-seeded
-   *  sessions. Left undefined in tests that don't exercise it. */
-  captureCodexSessionId?: (s: Session) => void;
+   *  sessions. Returns `true` when it was an applicable attempt that still missed (used to back off the
+   *  per-session rescan cadence below). Left undefined in tests that don't exercise it. */
+  captureCodexSessionId?: (s: Session) => boolean;
 
   /**
    * Resting-session (done/idle) MCP-auth detection seams, public + assignable (mirrors `reDrive`)
@@ -176,6 +183,10 @@ export class StatusPoller {
   private lastAuthPtyAt = new Map<string, number>();
   private lastAuthUrlEmitted = new Map<string, string>();
   private lastProbeAt = new Map<string, number>();
+  /** Per-session Codex session-id capture back-off: earliest next-attempt time + consecutive misses.
+   *  Bounds a never-matching running session (rollout GC'd / no `source=cli` header) to a widening
+   *  rescan of `$CODEX_HOME/sessions` instead of a full scan every tick. Dropped on seed/prune. */
+  private codexCaptureBackoff = new Map<string, { nextAt: number; misses: number }>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
   /** Per-session liveness state machine (transcript-vs-interim routing, both
@@ -432,13 +443,11 @@ export class StatusPoller {
       if (!agent) this.reapGone(s);
       else this.reconcileAgent(s, agent);
       // Best-effort seed of a live Codex session's provider-native id (no-op unless it's an isolated
-      // Codex session that hasn't been seeded yet). tick() runs on a bare setInterval — never throw.
+      // Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every tick for a session
+      // that never matches is wasteful, so an applicable miss backs off exponentially (see below).
+      // tick() runs on a bare setInterval — never throw.
       if (agent && this.captureCodexSessionId) {
-        try {
-          this.captureCodexSessionId(s);
-        } catch (err) {
-          console.warn("[poller] codex session-id capture failed:", err);
-        }
+        this.maybeCaptureCodexSessionId(s);
       }
     }
     this.pruneInactive(activeIds);
@@ -449,6 +458,35 @@ export class StatusPoller {
     this.maybeRunPreviewSweep(sessions);
     // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
     this.maybeRunLivenessSweep(sessions);
+  }
+
+  /**
+   * Back-off wrapper around the injected `captureCodexSessionId`: skip the (tree-scanning) attempt while
+   * a prior miss's cooldown is unelapsed, and widen the cooldown exponentially per consecutive miss so a
+   * never-matching running Codex session can't rescan `$CODEX_HOME` every tick. A hit / non-applicable
+   * session clears the entry (subsequent ticks are cheap no-ops guarded by `providerSessionId`).
+   */
+  private maybeCaptureCodexSessionId(s: Session): void {
+    const bo = this.codexCaptureBackoff.get(s.id);
+    const t = this.now();
+    if (bo && t < bo.nextAt) return;
+    let missed: boolean;
+    try {
+      missed = this.captureCodexSessionId!(s);
+    } catch (err) {
+      console.warn("[poller] codex session-id capture failed:", err);
+      return;
+    }
+    if (missed) {
+      const misses = (bo?.misses ?? 0) + 1;
+      const delay = Math.min(
+        CODEX_CAPTURE_BACKOFF_BASE_MS * 2 ** (misses - 1),
+        CODEX_CAPTURE_BACKOFF_MAX_MS,
+      );
+      this.codexCaptureBackoff.set(s.id, { nextAt: t + delay, misses });
+    } else {
+      this.codexCaptureBackoff.delete(s.id);
+    }
   }
 
   /**
@@ -689,6 +727,7 @@ export class StatusPoller {
       ...this.lastAuthPtyAt.keys(),
       ...this.lastAuthUrlEmitted.keys(),
       ...this.lastProbeAt.keys(),
+      ...this.codexCaptureBackoff.keys(),
       ...this.lastActivitySig.keys(),
       ...this.lastActivity.keys(),
       ...this.liveness.keys(),
@@ -713,6 +752,7 @@ export class StatusPoller {
         this.lastAuthUrlEmitted.delete(id);
         this.lastBlockReason.delete(id);
         this.lastProbeAt.delete(id);
+        this.codexCaptureBackoff.delete(id);
         this.lastActivitySig.delete(id);
         this.lastActivity.delete(id);
         this.liveness.delete(id);

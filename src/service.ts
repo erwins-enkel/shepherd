@@ -2761,7 +2761,6 @@ export class SessionService {
     const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
     if (carriedUploads.length > promptUploads.length)
       console.warn(
-        `[replace] ${s.id}: ${carriedUploads.length} uploads exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
         `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
     const input: CreateSessionInput = {

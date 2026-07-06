@@ -144,11 +144,11 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   let ext: string;
   let destDir: string;
   if (sessionId) {
+    const s = deps.store.get(sessionId);
+    if (!s) return j({ error: "unknown session" }, 404);
     const imageExt = imageExtForMime(file.type);
     if (!imageExt) return j({ error: "unsupported image type" }, 415);
     ext = imageExt;
-    const s = deps.store.get(sessionId);
-    if (!s) return j({ error: "unknown session" }, 404);
     destDir = worktreeUploadsDir(s.worktreePath);
   } else {
     ext = uploadExtension(file);

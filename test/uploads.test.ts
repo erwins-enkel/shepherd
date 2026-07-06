@@ -238,7 +238,7 @@ test("handleUpload keeps ?session= uploads image-only", async () => {
 
 test("handleUpload 404s for an unknown session", async () => {
   const store = new SessionStore(":memory:");
-  const file = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
   const res = await handleUpload(uploadReq(file, "?session=nope"), { store, repoRoot: root });
   expect(res.status).toBe(404);
 });

@@ -255,9 +255,9 @@
   "issues_filter_all_assigned_to_others": "Alle offenen Issues sind anderen zugewiesen — zum Anzeigen ausschalten",
   "newtask_title": "Neue Aufgabe",
   "newtask_prompt_label": "Prompt",
-  "newtask_prompt_placeholder": "füge eine Funktion hinzu, die…",
+  "newtask_prompt_placeholder": "Beschreibe Feature, Fix oder Aufgabe…",
   "newtask_uploading": "Lädt hoch…",
-  "newtask_attach_image": "↥ Dateien anhängen",
+  "newtask_attach_image": "↥ Datei/Bild anhängen",
   "newtask_drop_hint": "oder Dateien hier ablegen",
   "newtask_remove_image_aria": "Anhang entfernen",
   "feat_task_attachments_title": "Dateien an neue Tasks anhängen",
@@ -2630,5 +2630,7 @@
   "feat_usage_gauge_provider_rotation_body": "Wenn Auslastungsdaten für Claude Code und Codex konfiguriert sind, wechselt die kompakte Anzeige in der Topbar jetzt alle zwei Minuten zwischen CC und CX. Codex zeigt Limit-Balken, sobald sie verfügbar sind, oder Token-Summen, bis die CLI Reset-Fenster meldet.",
   "plugins_repo": "REPO",
   "feat_codex_bring_back_title": "Codex-Sessions zurückholen",
-  "feat_codex_bring_back_body": "Zurückholen funktioniert jetzt auch für Codex-Sessions, nicht nur für Claude. Wähle eine abgeschlossene Codex-Session in der Fertig-Ansicht und klicke auf Zurückholen — Shepherd erstellt ihren Worktree neu und setzt das exakte Codex-Gespräch anhand seiner Session-ID fort. Nur isolierte Codex-Sessions können zurückgeholt werden; andere müssen weiterhin neu gestartet werden."
+  "feat_codex_bring_back_body": "Zurückholen funktioniert jetzt auch für Codex-Sessions, nicht nur für Claude. Wähle eine abgeschlossene Codex-Session in der Fertig-Ansicht und klicke auf Zurückholen — Shepherd erstellt ihren Worktree neu und setzt das exakte Codex-Gespräch anhand seiner Session-ID fort. Nur isolierte Codex-Sessions können zurückgeholt werden; andere müssen weiterhin neu gestartet werden.",
+  "newtask_drop_hint_keyboard": "oder Dateien hier ablegen oder ein Bild mit {shortcut} einfügen",
+  "newtask_upload_unknown_reason": "unbekannter Fehler"
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
+import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import {
@@ -116,7 +117,31 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+let matchMediaSpy: ReturnType<typeof vi.spyOn> | undefined;
+function mockPointer(coarse: boolean) {
+  const real = window.matchMedia.bind(window);
+  matchMediaSpy = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+    if (query === "(pointer: coarse)") {
+      return {
+        matches: coarse,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+        onchange: null,
+      } as unknown as MediaQueryList;
+    }
+    return real(query);
+  });
+}
+
+afterEach(async () => {
+  matchMediaSpy?.mockRestore();
+  matchMediaSpy = undefined;
+  overwriteGetLocale(() => "en");
+  await page.viewport(1280, 900);
   document.body.innerHTML = "";
 });
 
@@ -166,6 +191,44 @@ describe("NewTask initialImages seed", () => {
 });
 
 describe("NewTask task attachments", () => {
+  it("shows file/image attach copy and the keyboard paste-image hint", async () => {
+    mockPointer(false);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+
+    await expect.element(page.getByPlaceholder(m.newtask_prompt_placeholder())).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.newtask_attach_image() }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })))
+      .toBeVisible();
+  });
+
+  it("uses the short touch hint in coarse pointer contexts", async () => {
+    mockPointer(true);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+
+    await expect.element(page.getByText(m.newtask_drop_hint())).toBeVisible();
+    expect(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })).query()).toBeNull();
+  });
+
+  it("keeps the longer German attachment row inside a mobile-width sheet", async () => {
+    await page.viewport(390, 800);
+    overwriteGetLocale(() => "de");
+    mockPointer(false);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+
+    await expect
+      .element(page.getByRole("button", { name: m.newtask_attach_image() }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })))
+      .toBeVisible();
+
+    const row = document.querySelector<HTMLElement>(".attach-row")!;
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+  });
+
   it("uploads a non-image file, renders a chip, and submits its staged path", async () => {
     mockUploadFile.mockResolvedValue("/staged/notes.md");
     const onsubmit = vi.fn().mockResolvedValue(undefined);

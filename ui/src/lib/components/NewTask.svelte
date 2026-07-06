@@ -479,7 +479,7 @@
       if (isPreviewBlocked(err)) {
         error = (err as Error).message;
       } else {
-        error = m.newtask_upload_failed({ reason: reason(err, m.newtask_attach_image()) });
+        error = m.newtask_upload_failed({ reason: reason(err, m.newtask_upload_unknown_reason()) });
         retry = () => addFiles(uploads);
       }
     } finally {
@@ -896,7 +896,11 @@
         >
           {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
         </button>
-        <span class="hint">{m.newtask_drop_hint()}</span>
+        <span class="hint">
+          {coarse.current
+            ? m.newtask_drop_hint()
+            : m.newtask_drop_hint_keyboard({ shortcut: isMac ? "⌘V" : "Ctrl+V" })}
+        </span>
       </div>
       {#if relaunch}
         <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
@@ -1379,6 +1383,7 @@
   .attach-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 4px;
   }
@@ -1399,7 +1404,12 @@
   }
   .hint {
     font-size: var(--fs-meta);
+    line-height: 1.35;
     color: var(--color-muted);
+  }
+  .attach-row .hint {
+    flex: 1 1 18ch;
+    min-width: 0;
   }
   .repo-shortcuts-hint {
     display: block;

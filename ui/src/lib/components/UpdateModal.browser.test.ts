@@ -90,7 +90,7 @@ describe("UpdateModal", () => {
       },
     });
 
-    expect(document.querySelector("[data-ascii-flock]")).toBeNull();
+    expect(document.querySelector("[data-flock]")).toBeNull();
   });
 
   it("shows a viewport-wide flock layer behind the desktop dialog while busy", async () => {
@@ -104,13 +104,17 @@ describe("UpdateModal", () => {
       },
     });
 
-    const flock = document.querySelector<HTMLElement>('[data-ascii-flock="backdrop"]');
-    const sheet = document.querySelector<HTMLElement>('[data-ascii-flock="sheet"]');
+    const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]');
+    const sheet = document.querySelector<HTMLElement>('[data-flock="sheet"]');
+    const sheep = flock?.querySelector<SVGElement>('[data-flock-actor="sheep"]');
+    const dog = flock?.querySelector<SVGElement>('[data-flock-actor="dog"]');
     const card = document.querySelector<HTMLElement>(".card");
     const run = page.getByRole("button", { name: /updating/i });
 
     expect(flock).not.toBeNull();
     expect(sheet).not.toBeNull();
+    expect(sheep).not.toBeNull();
+    expect(dog).not.toBeNull();
     expect(card).not.toBeNull();
     await expect.element(run).toBeVisible();
 
@@ -122,7 +126,6 @@ describe("UpdateModal", () => {
     expect(flockRect.right).toBeGreaterThanOrEqual(window.innerWidth - 1);
     expect(flockRect.left).toBeLessThan(cardRect.left);
     expect(flockRect.right).toBeGreaterThan(cardRect.right);
-    expect(flock!.textContent).toContain("(oo)");
     expect(card!.scrollWidth, "dialog should not have horizontal overflow").toBeLessThanOrEqual(
       card!.clientWidth,
     );
@@ -145,8 +148,8 @@ describe("UpdateModal", () => {
       },
     });
 
-    const backdrop = document.querySelector<HTMLElement>('[data-ascii-flock="backdrop"]');
-    const sheet = document.querySelector<HTMLElement>('[data-ascii-flock="sheet"]');
+    const backdrop = document.querySelector<HTMLElement>('[data-flock="backdrop"]');
+    const sheet = document.querySelector<HTMLElement>('[data-flock="sheet"]');
     const card = document.querySelector<HTMLElement>(".card");
 
     expect(backdrop).not.toBeNull();
@@ -170,7 +173,8 @@ describe("UpdateModal", () => {
     );
     expect(after.bottom).toBeGreaterThan(0);
     expect(after.top).toBeLessThan(window.innerHeight);
-    expect(sheet!.textContent).toContain("/^..^\\");
+    expect(sheet!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
+    expect(sheet!.querySelector('[data-flock-actor="dog"]')).not.toBeNull();
   });
 
   it("uses a testable static flock state when reduced motion is requested", async () => {
@@ -184,13 +188,13 @@ describe("UpdateModal", () => {
       },
     });
 
-    const flock = document.querySelector<HTMLElement>('[data-ascii-flock="backdrop"]');
-    const actor = flock?.querySelector<HTMLElement>(".actor");
+    const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]');
+    const actor = flock?.querySelector<SVGElement>(".actor");
     expect(flock).not.toBeNull();
     expect(actor).not.toBeNull();
 
     await vi.waitFor(() => expect(flock!.dataset.reduced).toBe("true"));
     expect(getComputedStyle(actor!).animationName).toBe("none");
-    expect(flock!.textContent).toContain("(oo)");
+    expect(flock!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
   });
 });

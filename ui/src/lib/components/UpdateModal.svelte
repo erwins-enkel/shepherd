@@ -3,7 +3,7 @@
   import { applyUpdate } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
-  import AsciiFlockOverlay from "$lib/components/AsciiFlockOverlay.svelte";
+  import SvgFlockOverlay from "$lib/components/SvgFlockOverlay.svelte";
 
   let {
     update,
@@ -56,7 +56,7 @@
   }}
 >
   {#if busy}
-    <AsciiFlockOverlay placement="backdrop" />
+    <SvgFlockOverlay placement="backdrop" />
   {/if}
   <div
     class="card bracket"
@@ -66,7 +66,7 @@
     use:dialog={{ onclose: () => !busy && onclose?.() }}
   >
     {#if busy}
-      <AsciiFlockOverlay placement="sheet" />
+      <SvgFlockOverlay placement="sheet" />
     {/if}
     <div class="card-content">
       <div class="chead">

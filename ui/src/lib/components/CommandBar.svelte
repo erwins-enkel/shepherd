@@ -121,7 +121,7 @@
   // fields (title/desig/repo name) so a short query can't subsequence-match nearly every
   // long prompt; the haystack starts with the primary text so matched positions below its
   // length map straight onto the highlighted primary. A blank query scores every row 0, so
-  // the sort falls back to recency — preserving the previous unfiltered ordering exactly.
+  // the sort promotes needs-input sessions first and then falls back to recency.
   // (updatedAt / lastUsedAt are the last-activity signals; lenses keep their fixed order.)
   const sessionRows = $derived<Row[]>(
     sessions

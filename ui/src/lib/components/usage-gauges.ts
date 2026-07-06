@@ -1,4 +1,10 @@
-import type { UsageLimits, LimitWindow, ModelWeekWindow, UsageProviderSnapshot } from "../types";
+import type {
+  UsageLimits,
+  LimitWindow,
+  ModelWeekWindow,
+  UsageProviderSnapshot,
+  CreditWindow,
+} from "../types";
 
 export type GaugeKey = "5H" | "WK";
 
@@ -17,6 +23,47 @@ export function gaugeList(limits: UsageLimits | null): Gauge[] {
 }
 
 type CodexTokenSnapshot = Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }>;
+
+export type CompactUsageView =
+  | {
+      provider: "claude";
+      mode: "limits";
+      gauges: Gauge[];
+      stale: boolean;
+      rotationEligible: boolean;
+      widthClass: "bars";
+    }
+  | {
+      provider: "claude";
+      mode: "credit";
+      stale: boolean;
+      rotationEligible: boolean;
+      widthClass: "credit";
+    }
+  | {
+      provider: "claude";
+      mode: "model";
+      model: ModelWeekWindow;
+      stale: boolean;
+      rotationEligible: boolean;
+      widthClass: "model";
+    }
+  | {
+      provider: "codex";
+      mode: "limits";
+      gauges: Gauge[];
+      stale: boolean;
+      rotationEligible: boolean;
+      widthClass: "bars";
+    }
+  | {
+      provider: "codex";
+      mode: "tokens";
+      totalTokens: number;
+      stale: boolean;
+      rotationEligible: boolean;
+      widthClass: "token";
+    };
 
 /** Codex's 5H/WK rate-limit windows as gauges, in display order — the same shape `gaugeList`
  *  produces for Claude so both render identically. Empty until Codex logs a rate-limit event. */
@@ -70,6 +117,77 @@ export function codexTokenUsage(
         p.provider === "codex" && p.kind === "tokens",
     ) ?? null
   );
+}
+
+export function compactUsageViews({
+  gauges,
+  claudeStale,
+  perModel,
+  credits,
+  codexUsage,
+}: {
+  gauges: Gauge[];
+  claudeStale: boolean;
+  perModel: ModelWeekWindow[];
+  credits: CreditWindow | null;
+  codexUsage: CodexTokenSnapshot | null;
+}): CompactUsageView[] {
+  const views: CompactUsageView[] = [];
+  const capped = gauges.some((g) => g.w.pct >= 100);
+  const showCreditsInline = (capped || gauges.length === 0) && !!credits;
+
+  if (showCreditsInline) {
+    views.push({
+      provider: "claude",
+      mode: "credit",
+      stale: credits.stale,
+      rotationEligible: true,
+      widthClass: "credit",
+    });
+  } else if (gauges.length) {
+    views.push({
+      provider: "claude",
+      mode: "limits",
+      gauges,
+      stale: claudeStale,
+      rotationEligible: true,
+      widthClass: "bars",
+    });
+  } else if (perModel.length) {
+    views.push({
+      provider: "claude",
+      mode: "model",
+      model: perModel[0]!,
+      stale: perModel[0]!.stale,
+      rotationEligible: true,
+      widthClass: "model",
+    });
+  }
+
+  if (codexUsage) {
+    const codexGauges = codexGaugeList(codexUsage);
+    if (codexGauges.length) {
+      views.push({
+        provider: "codex",
+        mode: "limits",
+        gauges: codexGauges,
+        stale: codexUsage.stale,
+        rotationEligible: true,
+        widthClass: "bars",
+      });
+    } else {
+      views.push({
+        provider: "codex",
+        mode: "tokens",
+        totalTokens: codexUsage.totalTokens,
+        stale: codexUsage.stale,
+        rotationEligible: true,
+        widthClass: "token",
+      });
+    }
+  }
+
+  return views;
 }
 
 /**

@@ -2620,5 +2620,9 @@
   "planpanel_env_popover_title": "Coding-Umgebung",
   "planpanel_env_popover_body": "Plan zeigt Coding-CLI, Modell und Reasoning Effort der Task-Session. Prüfung zeigt den Plan-Gate-Reviewer, der diesen Plan geprüft hat. Task-Defaults änderst du in Neuer Task, in Repo-Defaults oder globalen Defaults; den Reviewer unter Einstellungen -> CLIs -> Planer (Plan-Reviewer).",
   "planpanel_env_docs_link": "Konfigurationsdoku öffnen",
-  "herd_rework_running_group": "REWORK läuft ({count})"
+  "herd_rework_running_group": "REWORK läuft ({count})",
+  "topbar_usage_provider_short_claude": "CC",
+  "topbar_usage_provider_short_codex": "CX",
+  "feat_usage_gauge_provider_rotation_title": "Auslastungsanzeigen wechseln nach CLI",
+  "feat_usage_gauge_provider_rotation_body": "Wenn Auslastungsdaten für Claude Code und Codex konfiguriert sind, wechselt die kompakte Anzeige in der Topbar jetzt alle zwei Minuten zwischen CC und CX. Codex zeigt Limit-Balken, sobald sie verfügbar sind, oder Token-Summen, bis die CLI Reset-Fenster meldet."
 }

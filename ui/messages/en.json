@@ -2620,5 +2620,9 @@
   "planpanel_env_popover_title": "Coding environment",
   "planpanel_env_popover_body": "Plan shows the task session's coding CLI, model and reasoning effort. Review shows the Plan Gate reviewer that checked this plan. Change task defaults in New Task, repo defaults or global defaults; change the reviewer under Settings -> CLIs -> Planner (plan reviewer).",
   "planpanel_env_docs_link": "Open configuration docs",
-  "herd_rework_running_group": "Rework running ({count})"
+  "herd_rework_running_group": "Rework running ({count})",
+  "topbar_usage_provider_short_claude": "CC",
+  "topbar_usage_provider_short_codex": "CX",
+  "feat_usage_gauge_provider_rotation_title": "Usage gauges rotate by CLI",
+  "feat_usage_gauge_provider_rotation_body": "When Claude Code and Codex usage data are both configured, the compact top-bar gauge now alternates every two minutes between CC and CX. Codex shows rate-limit bars when available, or token totals until the CLI reports reset windows."
 }

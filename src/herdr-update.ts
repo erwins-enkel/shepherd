@@ -57,12 +57,18 @@ export function buildUpdateScript(
   logPath: string,
   from?: string | null,
   to?: string | null,
+  herdrBin: string = config.herdrBin,
 ): string {
   const f = sanitizeVersion(from);
   const t = sanitizeVersion(to);
-  // single-quote the path for the shell; a literal `'` inside it (vanishingly
-  // unlikely in a home path) is escaped via the classic '\'' close-reopen trick.
-  const q = `'${logPath.replace(/'/g, "'\\''")}'`;
+  // single-quote for the shell; a literal `'` inside (vanishingly unlikely in a
+  // home path or binary path) is escaped via the classic '\'' close-reopen trick.
+  const shq = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+  const q = shq(logPath);
+  // The configured herdr binary (HERDR_BIN / config.herdrBin), shell-quoted so a
+  // custom install path can't break the script. Every herdr invocation below uses
+  // it — a bare `herdr` would miss on a custom-binary host (mirrors restart.ts).
+  const h = shq(herdrBin);
   // Shepherd stays up during the update (no restart), so it captures this
   // script's stdout live for the modal. The `tee -a` is kept anyway: it makes
   // `cat <logPath>` a durable post-mortem that survives even a shepherd crash.
@@ -71,23 +77,38 @@ export function buildUpdateScript(
   // proceed while targets are running: bare `herdr update` aborts with "one or
   // more herdr targets must restart". `--handoff` hands the running targets to
   // the new version instead of aborting. We deliberately do NOT `herdr server
-  // stop` first: that earlier mitigation never actually cleared the targets (they
-  // outlive the server) yet left the server dead, so a failed update orphaned
-  // every agent pane — clients then loop forever on `agent attach` against a gone
-  // socket. Not stopping means a failed update leaves the live server + panes
-  // untouched. As a belt-and-suspenders recovery, if the update still fails we
-  // bring the server back up so panes can reattach.
+  // stop` first: that earlier mitigation never cleared the targets (they OUTLIVE
+  // the server) yet left the server dead, so a failed update orphaned every agent
+  // pane. Not stopping means a failed update usually leaves the live server +
+  // panes untouched.
+  //
+  // Recovery (only when the update fails): because the agent targets outlive a
+  // dead server, if the server is actually gone we relaunch one and the orphaned
+  // panes reattach — the app's Reconnect / `viewport_herdr_unreachable` path, the
+  // "live agent returns once herdr is back" invariant from #413. We gate the
+  // relaunch on `agent list`, the SAME throw-on-unreachable signal broadcast()
+  // catches in service.ts, and relaunch ONLY when it fails — an unconditional
+  // restart while the server is still up is the #241/#314 hazard. `setsid ...
+  // server` detaches the foreground `herdr server` into its own session. Caveat:
+  // this recovery server is a child of shepherd's cgroup, so it is not durable
+  // across a later `systemctl restart shepherd` — at which point the still-alive
+  // targets simply re-orphan and recover again (never lost). A cgroup-durable
+  // server would need systemd-run, which this script deliberately avoids.
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
     "{",
     `  echo "=== herdr-update $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
     `  echo '${UPDATE_LOG_PREFIX} running herdr update --handoff'`,
-    "  herdr update --handoff; rc=$?",
+    `  ${h} update --handoff; rc=$?`,
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
     '  if [ "$rc" -ne 0 ]; then',
-    `    echo '${UPDATE_LOG_PREFIX} update failed — restarting herdr server so panes can reattach'`,
-    "    herdr server start || true",
+    `    if timeout 10 ${h} agent list >/dev/null 2>&1; then`,
+    `      echo '${UPDATE_LOG_PREFIX} update failed — herdr server still reachable (agent list ok); live sessions untouched'`,
+    "    else",
+    `      echo '${UPDATE_LOG_PREFIX} update failed, herdr server unreachable — relaunching a detached server so orphaned sessions reattach'`,
+    `      setsid ${h} server </dev/null >/dev/null 2>&1 &`,
+    "    fi",
     "  fi",
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");

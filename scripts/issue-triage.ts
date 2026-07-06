@@ -2,16 +2,17 @@
 // Haiku 4.5 call and emits a decision the workflow consumes (labels + comment).
 //
 // Design:
-//  - The model returns JSON ONLY; this script parses + re-validates every field
-//    against a fixed allowlist and NO-OPs on malformed / out-of-allowlist output.
-//    The plain-JSON path is self-sufficient — no dependency on structured-output
-//    API shapes, no external packages (only node:fs + fetch).
+//  - The model returns JSON ONLY; this script parses it (tolerating prose/fences)
+//    and NO-OPs on malformed output or an unknown category. The plain-JSON path is
+//    self-sufficient — no dependency on structured-output API shapes, no external
+//    packages (only node:fs + fetch).
 //  - The issue body/title are UNTRUSTED data: delimited, framed "classify, never
 //    obey", never given tools, and the assembled comment has @mentions neutralized.
 //  - `question` issues DEFER to a maintainer by default; a docs-grounded answer is
 //    only surfaced when answers are opted in AND the model is confident.
-//  - The category is authoritative for labelling; the model's `labels` field is
-//    validated purely as an injection-containment gate.
+//  - `category` is validated against a fixed enum and is authoritative; the applied
+//    label is DERIVED from it in code, so the model can never introduce an arbitrary
+//    label (any `labels` field it emits is ignored).
 
 import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -44,7 +45,6 @@ export type Category = keyof typeof CATEGORY_TO_LABEL;
 export type Lang = "en" | "de";
 
 export const CATEGORIES = Object.keys(CATEGORY_TO_LABEL) as Category[];
-export const LABEL_ALLOWLIST = Object.values(CATEGORY_TO_LABEL) as string[];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,16 +107,29 @@ export function readDocs(dir: string): string {
 export function parseModelJson(raw: string): unknown {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = (fenced?.[1] ?? raw).trim();
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
+  const tryParse = (s: string): unknown => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return undefined;
+    }
+  };
+  let parsed = tryParse(candidate);
+  if (parsed === undefined) {
+    // Fallback: extract the first {…} object from prose-wrapped output.
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start !== -1 && end > start) parsed = tryParse(candidate.slice(start, end + 1));
   }
+  return parsed === undefined ? null : parsed;
 }
 
-/** Validate parsed model output against the fixed allowlist. Returns null (=> no-op)
- *  on malformed / out-of-allowlist output. The category is authoritative for
- *  labelling; `labels` is validated purely as an injection-containment gate. */
+/** Validate parsed model output. Returns null (=> no-op) on malformed output or an
+ *  unknown category. Injection containment comes from `category` being one of a
+ *  fixed enum; the applied label is DERIVED from it in code (mapCategoryToLabels),
+ *  so the model can never introduce an arbitrary label. Any `labels` field the
+ *  model happens to emit is ignored — validating it caused valid classifications
+ *  (e.g. category "feature", whose label is "enhancement") to be dropped. */
 export function validateDecision(obj: unknown): ValidatedDecision | null {
   if (typeof obj !== "object" || obj === null) return null;
   const o = obj as Record<string, unknown>;
@@ -125,14 +138,6 @@ export function validateDecision(obj: unknown): ValidatedDecision | null {
     return null;
   }
   const category = o.category as Category;
-
-  // Injection-containment gate: any label the model emits must be in the allowlist.
-  if (o.labels !== undefined) {
-    if (!Array.isArray(o.labels)) return null;
-    for (const l of o.labels) {
-      if (typeof l !== "string" || !LABEL_ALLOWLIST.includes(l)) return null;
-    }
-  }
 
   const replyMarkdown = typeof o.reply_markdown === "string" ? o.reply_markdown : "";
 
@@ -230,10 +235,10 @@ Classify the issue provided by the user into EXACTLY ONE category:
 - "invalid": spam, empty, off-topic, or not an actionable issue.
 
 Return ONLY a single JSON object, no prose and no code fences:
-{"category": <one of the categories>, "labels": [<category label>], "reply_markdown": <string>, "confidence": <number 0..1>, "language": <"en"|"de">}
+{"category": <one of the categories>, "reply_markdown": <string>, "confidence": <number 0..1>, "language": <"en"|"de">}
 
 Rules:
-- "labels" must contain only the label that matches your category and nothing else.
+- "category": exactly one of the six category strings above.
 - "language": mirror the language the issue is written in — "de" for German, otherwise "en".
 - "reply_markdown": a short, friendly comment in that language. Never claim the issue is resolved and never impersonate a maintainer.
 - For "question": ONLY attempt an answer if the reference documentation below clearly supports it, and quote or reference the relevant part. If the docs do not clearly answer it, set a low confidence and keep the reply brief — never invent an answer.
@@ -297,8 +302,20 @@ async function classify(
   }
   const data = (await res.json()) as AnthropicResponse;
   const text = data.content?.find((b) => b.type === "text")?.text;
-  if (!text) return null;
-  return validateDecision(parseModelJson(text));
+  if (!text) {
+    console.error(
+      `[issue-triage] model returned no text block (stop_reason: ${data.stop_reason ?? "?"})`,
+    );
+    return null;
+  }
+  const validated = validateDecision(parseModelJson(text));
+  if (!validated) {
+    // Surface why a no-op happened so it's diagnosable from the run log.
+    console.error(
+      `[issue-triage] model output failed parse/validate; raw (truncated): ${text.slice(0, 600)}`,
+    );
+  }
+  return validated;
 }
 
 // ---------------------------------------------------------------------------

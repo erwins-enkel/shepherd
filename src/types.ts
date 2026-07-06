@@ -25,6 +25,11 @@ export interface Session {
   herdrSession: string;
   herdrAgentId: string; // herdr terminal_id (attach target)
   claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
+  /** Provider-native session id for non-Claude providers — the Codex rollout UUID resumed via
+   *  `codex resume <id>`. Best-effort cached (poller-seeded, refreshed on restore); "" / absent when
+   *  unknown / not a Codex session. Optional like `agentProvider` so pre-existing rows + fixtures
+   *  need no change. Provider-neutral field owned by #1175; #1087/#1160 consume it. */
+  providerSessionId?: string;
   agentProvider?: AgentProvider;
 
   model: string | null; // selected CLI --model alias; null = provider default (no flag)

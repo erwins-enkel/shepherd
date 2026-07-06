@@ -69,6 +69,11 @@ function nullableBool(v: unknown): boolean | null {
   return v === null || v === undefined ? null : !!v;
 }
 
+/** Coalesce a nullable/absent TEXT value to "" (for NOT-NULL string columns). */
+function strOrEmpty(v: string | null | undefined): string {
+  return v ?? "";
+}
+
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
 const DESIG_PREFIX = "TASK-";
 
@@ -176,6 +181,7 @@ type NewSession = Omit<
   | "model"
   | "effort"
   | "claudeSessionId"
+  | "providerSessionId"
   | "agentProvider"
   | "readyToMerge"
   | "mergingSince"
@@ -213,6 +219,7 @@ type NewSession = Omit<
   model?: string | null;
   effort?: string | null;
   claudeSessionId?: string;
+  providerSessionId?: string;
   agentProvider?: Session["agentProvider"];
   auto?: boolean;
   issueNumber?: number | null;
@@ -236,7 +243,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
-  spawnTerminalId, spawnAccountDir`;
+  spawnTerminalId, spawnAccountDir, providerSessionId`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -254,6 +261,7 @@ type SessionRow = {
   herdrSession: string;
   herdrAgentId: string;
   claudeSessionId: string | null;
+  providerSessionId: string | null;
   agentProvider: string | null;
   model: string | null;
   effort: string | null;
@@ -723,6 +731,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
       herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
       claudeSessionId TEXT NOT NULL DEFAULT '',
+      providerSessionId TEXT NOT NULL DEFAULT '',
       agentProvider TEXT NOT NULL DEFAULT 'claude',
       model TEXT, effort TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
@@ -1720,6 +1729,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       model: input.model ?? null,
       effort: input.effort ?? null,
       claudeSessionId: input.claudeSessionId ?? "",
+      providerSessionId: strOrEmpty(input.providerSessionId),
       agentProvider: input.agentProvider ?? "claude",
       id: input.id ?? randomUUID(),
       desig: `${DESIG_PREFIX}${String(seq).padStart(2, "0")}`,
@@ -1768,7 +1778,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1821,6 +1831,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // experimentRole — always null at create
           null, // spawnTerminalId — always null at create (stamped post-create by persistSpawnIdentity)
           null, // spawnAccountDir — always null at create
+          strOrEmpty(s.providerSessionId), // "" at create for both providers; Codex id captured post-spawn
         ],
       );
       return s;
@@ -1878,6 +1889,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         | "branch"
         | "herdrAgentId"
         | "claudeSessionId"
+        | "providerSessionId"
         | "agentProvider"
         | "model"
         | "effort"
@@ -1894,7 +1906,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -1902,6 +1914,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         next.branch,
         next.herdrAgentId,
         next.claudeSessionId,
+        strOrEmpty(next.providerSessionId),
         next.agentProvider ?? "claude",
         next.model,
         next.effort,
@@ -2801,6 +2814,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** Persist a provider-native session id (the Codex rollout UUID) discovered post-spawn. Dedicated
+   *  setter (the generic update() whitelist would work too, but this mirrors {@link setSpawnIdentity}'s
+   *  targeted-UPDATE style for a post-spawn-discovered marker). Callers only ever pass a non-empty id. */
+  setProviderSessionId(id: string, providerSessionId: string): void {
+    this.db.run(`UPDATE sessions SET providerSessionId = ?, updatedAt = ? WHERE id = ?`, [
+      providerSessionId,
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Persist the manual operator steps detected in a session's PR body (#1059). Stored as a JSON
    *  array; an empty array clears any prior detection. Dedicated setter (the generic update()
    *  whitelist would silently drop it), mirroring {@link setHaltReason}'s direct-UPDATE style. */
@@ -3017,6 +3041,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("model", `model TEXT`);
     add("effort", `effort TEXT`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
+    add("providerSessionId", `providerSessionId TEXT NOT NULL DEFAULT ''`);
     add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);
     add("readyToMerge", `readyToMerge INTEGER NOT NULL DEFAULT 0`);
     // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
@@ -4340,6 +4365,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
+      providerSessionId: strOrEmpty(r.providerSessionId),
       agentProvider: r.agentProvider === "codex" ? "codex" : "claude",
       autopilotEnabled: nullableBool(r.autopilotEnabled),
       autopilotStepCount: r.autopilotStepCount ?? 0,

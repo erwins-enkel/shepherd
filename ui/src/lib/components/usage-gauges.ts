@@ -5,6 +5,7 @@ import type {
   UsageProviderSnapshot,
   CreditWindow,
 } from "../types";
+import type { AgentProvider } from "../types";
 
 export type GaugeKey = "5H" | "WK";
 
@@ -217,4 +218,51 @@ export function gaugeColor(pct: number): string {
 export function overspending(limits: UsageLimits | null): boolean {
   const c = limits?.credits;
   return !!c && !c.stale && c.spent > 0;
+}
+
+export interface ProviderCapacityRow {
+  provider: AgentProvider;
+  usedPct: number | null;
+  remainingPct: number | null;
+  available: boolean;
+  stale: boolean;
+}
+
+function capPct(v: number): number {
+  return Math.min(Math.max(v, 0), 100);
+}
+
+function remainingFromUsed(usedPct: number | null): number | null {
+  return usedPct == null ? null : Math.max(0, 100 - usedPct);
+}
+
+function hottestUsedPct(windows: Gauge[]): number | null {
+  if (!windows.length) return null;
+  return Math.max(...windows.map((g) => capPct(g.w.pct)));
+}
+
+export function providerCapacityRows(limits: UsageLimits | null): ProviderCapacityRow[] {
+  const claudeWindows = gaugeList(limits);
+  const codexUsage = codexTokenUsage(limits);
+  const codexWindows = codexGaugeList(codexUsage);
+
+  const claudeUsedPct = hottestUsedPct(claudeWindows);
+  const codexUsedPct = hottestUsedPct(codexWindows);
+
+  return [
+    {
+      provider: "claude",
+      usedPct: claudeUsedPct,
+      remainingPct: remainingFromUsed(claudeUsedPct),
+      available: claudeUsedPct != null,
+      stale: limits?.stale ?? false,
+    },
+    {
+      provider: "codex",
+      usedPct: codexUsedPct,
+      remainingPct: remainingFromUsed(codexUsedPct),
+      available: codexUsedPct != null,
+      stale: codexUsage?.stale ?? false,
+    },
+  ];
 }

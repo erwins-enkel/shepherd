@@ -35,6 +35,7 @@
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
   import { recentRepos } from "$lib/recentRepos";
+  import type { UsageLimits } from "$lib/types";
 
   let {
     onsubmit,
@@ -60,6 +61,7 @@
     initialAutopilot,
     initialSandboxProfile,
     initialResearch = false,
+    usageLimits = null,
     holdLikely = false,
     fableAvailable = true,
   }: {
@@ -108,6 +110,7 @@
     initialAutopilot?: boolean | null;
     initialSandboxProfile?: SandboxProfile | null;
     initialResearch?: boolean;
+    usageLimits?: UsageLimits | null;
     holdLikely?: boolean;
     fableAvailable?: boolean;
   } = $props();
@@ -1024,6 +1027,7 @@
         {autopilotLoading}
         {autopilotDefault}
         {repoPath}
+        {usageLimits}
         {relaunch}
         {fableAvailable}
       />

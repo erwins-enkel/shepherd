@@ -2690,5 +2690,12 @@
   "tasktip_inherit": "Geerbt",
   "tasktip_egress_applied": "Egress-Allowlist",
   "feat_session_tooltip_title": "Vollständige Startdetails",
-  "feat_session_tooltip_body": "Bewege den Mauszeiger über die Task-ID oberhalb des Terminals, um Prompt, Issue, angehängte Dateinamen, Branch, Start-Checkboxen, Coding-CLI, Modell, Aufwand und Sandbox-Status zu sehen."
+  "feat_session_tooltip_body": "Bewege den Mauszeiger über die Task-ID oberhalb des Terminals, um Prompt, Issue, angehängte Dateinamen, Branch, Start-Checkboxen, Coding-CLI, Modell, Aufwand und Sandbox-Status zu sehen.",
+  "newtask_provider_capacity_aria": "Kapazitätsvergleich der Coding-CLI",
+  "newtask_provider_capacity_title": "Verbleibender Spielraum",
+  "newtask_provider_capacity_meter_aria": "{provider} hat {free}% frei",
+  "newtask_provider_capacity_free": "{pct}% frei",
+  "newtask_provider_capacity_unavailable": "Keine Nutzungsfenster-Daten",
+  "feat_provider_capacity_gauge_title": "Vergleiche die Coding-CLI-Kapazität vor der Auswahl",
+  "feat_provider_capacity_gauge_body": "Das Neue-Aufgabe-Formular zeigt Claude Code und Codex jetzt nebeneinander mit ihrem verbleibenden Spielraum unter dem Coding-CLI-Auswahlfeld, damit du vor dem Starten eines Laufs den Provider mit der größten Reserve wählen kannst."
 }

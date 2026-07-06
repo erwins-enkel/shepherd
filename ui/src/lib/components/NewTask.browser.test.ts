@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
+import type { UsageLimits } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import {
   listIssues,
@@ -149,6 +150,43 @@ const base = (extra: Record<string, unknown> = {}) => ({
   onsubmit: vi.fn(),
   ...extra,
 });
+
+function capacityLimits(codexWindows: { session5h?: boolean; week?: boolean } = {}) {
+  const codex = {
+    provider: "codex" as const,
+    kind: "tokens" as const,
+    totalTokens: 12_000,
+    session5hTokens: 1_000,
+    weekTokens: 9_000,
+    updatedAt: 123,
+    stale: false,
+    session5h: codexWindows.session5h === false ? null : { pct: 20, resetAt: 0 },
+    week: codexWindows.week === false ? null : { pct: 80, resetAt: 0 },
+  };
+  return {
+    session5h: { pct: 30, resetAt: 0 },
+    week: { pct: 60, resetAt: 0 },
+    perModelWeek: [],
+    credits: null,
+    stale: false,
+    calibratedAt: null,
+    subscriptionOnly: false,
+    providers: [
+      {
+        provider: "claude" as const,
+        kind: "limits" as const,
+        session5h: { pct: 30, resetAt: 0 },
+        week: { pct: 60, resetAt: 0 },
+        perModelWeek: [],
+        credits: null,
+        stale: false,
+        calibratedAt: null,
+        subscriptionOnly: false,
+      },
+      codex,
+    ],
+  } satisfies UsageLimits;
+}
 
 describe("NewTask initialImages seed", () => {
   it("renders a removable chip per seeded attachment", async () => {
@@ -311,6 +349,39 @@ describe("NewTask task attachments", () => {
     await expect.element(page.getByText("drop.md")).toBeInTheDocument();
   });
 });
+
+describe("NewTask provider capacity gauge", () => {
+  it("renders both providers with remaining room below the Coding CLI selector", async () => {
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo",
+        usageLimits: capacityLimits(),
+      }),
+    });
+
+    await expect.element(page.getByText(m.newtask_provider_capacity_title())).toBeInTheDocument();
+    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
+    expect(rows[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 40 }));
+    expect(rows[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 20 }));
+  });
+
+  it("shows Codex as unavailable when rollout limits are missing", async () => {
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo",
+        usageLimits: capacityLimits({ session5h: false, week: false }),
+      }),
+    });
+
+    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
+    expect(rows[1]?.textContent).toContain(m.newtask_provider_capacity_unavailable());
+    expect(rows[1]?.textContent).not.toContain("100%");
+  });
+});
+
 describe("NewTask issue picker epic-parent rows", () => {
   function issue(number: number, title: string, labels: string[] = []): Issue {
     return {

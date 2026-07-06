@@ -36,6 +36,7 @@
     Settings as Settings_,
     StarPromptStatus,
     Steer,
+    UsageLimits,
   } from "$lib/types";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
   import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
@@ -128,6 +129,7 @@
     composeAutopilot,
     composeSandbox,
     composeResearch,
+    usageLimits = null,
     holdLikely,
     onnewclose,
     onnewclone,
@@ -248,6 +250,7 @@
     composeAutopilot: boolean | null;
     composeSandbox: SandboxProfile | null;
     composeResearch: boolean;
+    usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     onnewclose: () => void;
     onnewclone: () => void;
@@ -504,6 +507,7 @@
     initialAutopilot={composeAutopilot}
     initialSandboxProfile={composeSandbox}
     initialResearch={composeResearch}
+    {usageLimits}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
     defaultEffort={newTaskDefaultEffort}

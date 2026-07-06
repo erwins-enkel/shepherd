@@ -7,6 +7,7 @@ import {
   overspending,
   providerSnapshots,
   gaugeColor,
+  providerCapacityRows,
 } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
@@ -281,5 +282,93 @@ describe("overspending", () => {
   it("is false when credits is null or limits is null", () => {
     expect(overspending(limits({ credits: null }))).toBe(false);
     expect(overspending(null)).toBe(false);
+  });
+});
+
+describe("providerCapacityRows", () => {
+  it("derives remaining room from the hottest available provider windows", () => {
+    const l = limits({
+      session5h: w(30),
+      week: w(60),
+      providers: [
+        {
+          provider: "claude",
+          kind: "limits",
+          session5h: w(30),
+          week: w(60),
+          perModelWeek: [],
+          credits: null,
+          stale: false,
+          calibratedAt: null,
+          subscriptionOnly: false,
+        },
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 12_000,
+          session5hTokens: 1_000,
+          weekTokens: 9_000,
+          updatedAt: 123,
+          stale: false,
+          session5h: w(20),
+          week: w(80),
+        },
+      ],
+    });
+
+    expect(providerCapacityRows(l)).toEqual([
+      {
+        provider: "claude",
+        usedPct: 60,
+        remainingPct: 40,
+        available: true,
+        stale: false,
+      },
+      {
+        provider: "codex",
+        usedPct: 80,
+        remainingPct: 20,
+        available: true,
+        stale: false,
+      },
+    ]);
+  });
+
+  it("marks Codex unavailable when no rollout limit windows exist", () => {
+    const l = limits({
+      session5h: w(30),
+      week: w(60),
+      providers: [
+        {
+          provider: "claude",
+          kind: "limits",
+          session5h: w(30),
+          week: w(60),
+          perModelWeek: [],
+          credits: null,
+          stale: false,
+          calibratedAt: null,
+          subscriptionOnly: false,
+        },
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 12_000,
+          session5hTokens: 1_000,
+          weekTokens: 9_000,
+          updatedAt: 123,
+          stale: false,
+          session5h: null,
+          week: null,
+        },
+      ],
+    });
+
+    expect(providerCapacityRows(l)[1]).toMatchObject({
+      provider: "codex",
+      available: false,
+      usedPct: null,
+      remainingPct: null,
+    });
   });
 });

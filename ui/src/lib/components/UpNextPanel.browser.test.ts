@@ -26,17 +26,27 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: UpNextPanel } = await import("./UpNextPanel.svelte");
 
-const item = (repoPath: string, number: number, priority = false): UpNextItem => ({
+const item = (
+  repoPath: string,
+  number: number,
+  priority = false,
+  opts: { title?: string; createdAt?: number } = {},
+): UpNextItem => ({
   repoPath,
   repoSlug: null,
   repoLabel: repoPath.split("/").at(-1) ?? repoPath,
   number,
-  title: `issue ${number}`,
+  title: opts.title ?? `issue ${number}`,
   url: `https://example.test/${number}`,
   kind: "feature",
   priority,
-  createdAt: 0,
-  issueRef: { number, url: `https://example.test/${number}`, title: `issue ${number}`, body: "" },
+  createdAt: opts.createdAt ?? 0,
+  issueRef: {
+    number,
+    url: `https://example.test/${number}`,
+    title: opts.title ?? `issue ${number}`,
+    body: "",
+  },
 });
 
 const SNAPSHOT: UpNextSnapshot = {
@@ -145,9 +155,12 @@ function launchContext(opts?: {
 const startButtons = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".un-start"));
 const providerSelect = () => document.querySelector<HTMLSelectElement>("#mcp-provider")!;
 const pickerConfirm = () => document.querySelector<HTMLButtonElement>(".mcp-actions .primary")!;
+const rowNumbers = () =>
+  Array.from(document.querySelectorAll(".un-row .un-num")).map((el) => el.textContent ?? "");
 
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
+  localStorage.removeItem("shepherd.upnext.sort");
   upNext.snapshot = SNAPSHOT;
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -161,6 +174,7 @@ beforeEach(() => {
 afterEach(() => {
   upNext.snapshot = null;
   upNext.loadError = false;
+  localStorage.removeItem("shepherd.upnext.sort");
   vi.clearAllMocks();
   fontStyle.remove();
 });
@@ -190,6 +204,158 @@ describe("UpNextPanel repo filter", () => {
     await expect
       .element(page.getByText(m.upnext_repo_filter_empty({ repo: "does-not-exist" })))
       .toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel sorting", () => {
+  const sortSnapshot = (): UpNextSnapshot => ({
+    generatedAt: 1,
+    repoCount: 2,
+    fallback: null,
+    failedRepoCount: 0,
+    sections: [
+      {
+        kind: "priority",
+        repoPath: null,
+        repoSlug: null,
+        repoLabel: null,
+        totalCount: 2,
+        items: [
+          item("~/projects/zeta", 10, true, { title: "Zulu priority", createdAt: 100 }),
+          item("~/projects/alpha", 11, true, { title: "Alpha priority", createdAt: 300 }),
+        ],
+      },
+      {
+        kind: "repo",
+        repoPath: "~/projects/zeta",
+        repoSlug: null,
+        repoLabel: "zeta",
+        totalCount: 2,
+        items: [
+          item("~/projects/zeta", 20, false, { title: "Charlie normal", createdAt: 200 }),
+          item("~/projects/zeta", 21, false, { title: "Bravo normal", createdAt: 400 }),
+        ],
+      },
+      {
+        kind: "repo",
+        repoPath: "~/projects/alpha",
+        repoSlug: null,
+        repoLabel: "alpha",
+        totalCount: 2,
+        items: [
+          item("~/projects/alpha", 30, false, { title: "Echo normal", createdAt: 50 }),
+          item("~/projects/alpha", 31, false, { title: "Delta normal", createdAt: 500 }),
+        ],
+      },
+    ],
+  });
+
+  it("defaults to newest first while keeping priority above normal work", async () => {
+    upNext.snapshot = sortSnapshot();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#11")).toBeInTheDocument();
+    expect(rowNumbers()).toEqual(["#11", "#10", "#31", "#21", "#20", "#30"]);
+  });
+
+  it("keeps the server-ranked sections available as Recommended", async () => {
+    upNext.snapshot = sortSnapshot();
+    render(UpNextPanel, {});
+    await page.getByRole("button", { name: m.upnext_sort_recommended() }).click();
+    await expect.poll(rowNumbers).toEqual(["#10", "#11", "#20", "#21", "#30", "#31"]);
+  });
+
+  it("sorts oldest and title modes within the priority and normal tiers", async () => {
+    upNext.snapshot = sortSnapshot();
+    render(UpNextPanel, {});
+    await page.getByRole("button", { name: m.upnext_sort_oldest() }).click();
+    await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#20", "#21", "#31"]);
+    await page.getByRole("button", { name: m.upnext_sort_title_asc() }).click();
+    await expect.poll(rowNumbers).toEqual(["#11", "#10", "#21", "#20", "#31", "#30"]);
+    await page.getByRole("button", { name: m.upnext_sort_title_desc() }).click();
+    await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#31", "#20", "#21"]);
+  });
+
+  it("sorts before applying the flattened normal cap", async () => {
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [
+        {
+          kind: "repo",
+          repoPath: "~/projects/zeta",
+          repoSlug: null,
+          repoLabel: "zeta",
+          totalCount: 6,
+          items: [
+            item("~/projects/zeta", 1, false, { title: "one", createdAt: 1 }),
+            item("~/projects/zeta", 2, false, { title: "two", createdAt: 2 }),
+            item("~/projects/zeta", 3, false, { title: "three", createdAt: 3 }),
+            item("~/projects/zeta", 4, false, { title: "four", createdAt: 4 }),
+            item("~/projects/zeta", 5, false, { title: "five", createdAt: 5 }),
+            item("~/projects/zeta", 6, false, { title: "six", createdAt: 600 }),
+          ],
+        },
+      ],
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.upnext_normal_section())).toBeInTheDocument();
+    expect(rowNumbers()).toEqual(["#6", "#5", "#4", "#3", "#2"]);
+    await expect.element(page.getByText("#1")).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_show_all({ count: 6 }))).toBeInTheDocument();
+  });
+
+  it("uses stable synthetic group expansion across sorted modes", async () => {
+    const snapshot = sortSnapshot();
+    snapshot.sections[1]!.items.push(
+      item("~/projects/zeta", 22, false, { title: "Foxtrot normal", createdAt: 25 }),
+      item("~/projects/zeta", 23, false, { title: "Golf normal", createdAt: 75 }),
+    );
+    upNext.snapshot = snapshot;
+    render(UpNextPanel, {});
+    await page.getByRole("button", { name: m.upnext_show_all({ count: 6 }) }).click();
+    await page.getByRole("button", { name: m.upnext_sort_oldest() }).click();
+    await expect.element(page.getByText(m.upnext_show_less())).toBeInTheDocument();
+  });
+
+  it("does not mutate the cached snapshot when switching sort modes", async () => {
+    const snapshot = sortSnapshot();
+    upNext.snapshot = snapshot;
+    const original = snapshot.sections.map((s) => s.items.map((it) => it.number));
+    render(UpNextPanel, {});
+    await page.getByRole("button", { name: m.upnext_sort_title_desc() }).click();
+    await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#31", "#20", "#21"]);
+    expect(snapshot.sections.map((s) => s.items.map((it) => it.number))).toEqual(original);
+  });
+
+  it("restores a valid stored sort mode and falls back from invalid values", async () => {
+    localStorage.setItem("shepherd.upnext.sort", "oldest");
+    upNext.snapshot = sortSnapshot();
+    const first = render(UpNextPanel, {});
+    await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#20", "#21", "#31"]);
+    first.unmount();
+
+    localStorage.setItem("shepherd.upnext.sort", "bogus");
+    render(UpNextPanel, {});
+    await expect.poll(rowNumbers).toEqual(["#11", "#10", "#31", "#21", "#20", "#30"]);
+  });
+
+  it("submits selected batch starts in the current sorted render order", async () => {
+    upNext.snapshot = sortSnapshot();
+    render(UpNextPanel, {
+      launchContext: launchContext({ diagnostics: diagnostics({ claude: "ok", codex: "error" }) }),
+    });
+    await expect.element(page.getByText("#31")).toBeInTheDocument();
+    for (const box of Array.from(document.querySelectorAll<HTMLInputElement>(".un-check input"))) {
+      box.click();
+    }
+    await page.getByRole("button", { name: m.upnext_start_selected({ count: 6 }) }).click();
+    await page.getByRole("button", { name: m.upnext_confirm_yes() }).click();
+    await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNext).mock.calls[0]?.[0].map((it) => it.issueRef.number)).toEqual([
+      11, 10, 31, 21, 20, 30,
+    ]);
   });
 });
 

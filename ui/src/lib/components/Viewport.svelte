@@ -2808,7 +2808,7 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--color-bg) 45%, transparent);
     white-space: normal;
     text-transform: none;
     letter-spacing: normal;

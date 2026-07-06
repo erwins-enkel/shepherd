@@ -663,6 +663,7 @@
     store,
     defaultAgentProvider: settings?.defaultAgentProvider ?? "claude",
     fableAvailable: settings?.fableAvailable ?? true,
+    upnextSkipCliPicker: settings?.upnextSkipCliPicker ?? false,
     usageHoldEnabled,
     usageHoldPct,
     nowMs,

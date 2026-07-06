@@ -12,6 +12,7 @@
     putRoleEffort,
     putRoleCli,
     putDefaultAgentProvider,
+    putUpnextSkipCliPicker,
     putAuthMode,
     putAnthropicApiKey,
     verifyApiKey,
@@ -482,6 +483,10 @@
   let extraCreditsCeilingSaved = 0; // last server-confirmed value, for revert on failure
   let extraCreditsBusy = $state(false);
 
+  // Up Next picker skip — quick-start launches with the default coding CLI without asking.
+  let upnextSkipCliPicker = $state(false);
+  let upnextSkipCliPickerBusy = $state(false);
+
   // Usage hold — pause new tasks when usage is high and a session is already running.
   let usageHoldEnabled = $state(true);
   let usageHoldBusy = $state(false);
@@ -758,6 +763,24 @@
     }
   }
 
+  async function toggleUpnextSkipCliPicker() {
+    if (upnextSkipCliPickerBusy) return;
+    upnextSkipCliPickerBusy = true;
+    const next = !upnextSkipCliPicker;
+    try {
+      const s = await putUpnextSkipCliPicker(next);
+      upnextSkipCliPicker = s.upnextSkipCliPicker;
+    } catch {
+      toasts.info(m.settings_upnext_skip_cli_picker_save_failed(), {
+        key: "upnext-skip-cli-picker",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      upnextSkipCliPickerBusy = false;
+    }
+  }
+
   async function toggleUsageHold() {
     if (usageHoldBusy) return;
     usageHoldBusy = true;
@@ -1008,6 +1031,7 @@
       roleEffortSaved = { ...roleEffortV };
       defaultAgentProvider = s.defaultAgentProvider ?? "claude";
       defaultAgentProviderSaved = s.defaultAgentProvider ?? "claude";
+      upnextSkipCliPicker = s.upnextSkipCliPicker;
       authMode = s.authMode;
       authModeSaved = s.authMode;
       hasApiKey = s.hasApiKey;
@@ -1144,6 +1168,26 @@
             </option>
           {/each}
         </select>
+      </div>
+
+      <div class="rc">
+        <span class="micro">{m.settings_upnext_skip_cli_picker_label()}</span>
+        <p class="hint">{m.settings_upnext_skip_cli_picker_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={upnextSkipCliPicker}
+          disabled={upnextSkipCliPickerBusy}
+          onclick={toggleUpnextSkipCliPicker}
+        >
+          <span class="track" class:on={upnextSkipCliPicker}><span class="knob"></span></span>
+          <span class="state"
+            >{upnextSkipCliPicker
+              ? m.settings_upnext_skip_cli_picker_on()
+              : m.settings_upnext_skip_cli_picker_off()}</span
+          >
+        </button>
       </div>
 
       <div class="cli-section">

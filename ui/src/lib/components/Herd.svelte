@@ -217,6 +217,7 @@
       store: Pick<HerdStore, "diagnostics" | "usageLimits">;
       defaultAgentProvider: AgentProvider;
       fableAvailable: boolean;
+      upnextSkipCliPicker: boolean;
       usageHoldEnabled: boolean;
       usageHoldPct: number;
       nowMs: number;

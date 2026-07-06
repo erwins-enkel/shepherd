@@ -75,6 +75,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     autopilotModel: "haiku",
     autopilotEffort: "low",
     defaultAgentProvider: "claude",
+    upnextSkipCliPicker: false,
     authMode: "api-key",
     hasApiKey: true,
     prReviewCyclesCap: 3,

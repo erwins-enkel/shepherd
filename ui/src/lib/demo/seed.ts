@@ -981,6 +981,7 @@ function buildSettings(): Settings {
     autopilotModel: "default",
     autopilotEffort: "low",
     defaultAgentProvider: "claude",
+    upnextSkipCliPicker: false,
     authMode: "subscription",
     hasApiKey: false,
     prReviewCyclesCap: 3,

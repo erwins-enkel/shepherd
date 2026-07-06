@@ -83,6 +83,9 @@ export interface Settings {
   autopilotEffort: string;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
+  /** When true, Up Next quick-start launches with the default coding CLI without opening the
+   *  "Choose coding CLI" picker, even when more than one CLI is ready. */
+  upnextSkipCliPicker: boolean;
   /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */
   authMode: string;
   /** Whether an Anthropic API key is configured. The key itself is NEVER sent. */

@@ -2030,8 +2030,6 @@
   "gitrail_decommission_action": "Decommission",
   "feat_decommission_on_merge_title": "Decommission after merge",
   "feat_decommission_on_merge_body": "After you merge a session's PR, the confirmation toast now offers a one-click Decommission to tear the finished session down — no hunting for the button.",
-  "feat_scroll_to_end_key_title": "Jump-to-latest key",
-  "feat_scroll_to_end_key_body": "The mobile terminal control bar gains a pinned ⤓ key that jumps to the latest output, mirroring Claude Code's Ctrl+End — always reachable, even when you're not scrolled up.",
   "unitrow_manual_steps": "{count} manual step(s)",
   "unitrow_manual_steps_link": "View these steps on the Owed lens",
   "feat_manual_operator_steps_title": "Manual operator steps",

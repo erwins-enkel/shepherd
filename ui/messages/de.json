@@ -2600,5 +2600,15 @@
   "micbtn_origin_local": "🎙️ Lokales Whisper",
   "micbtn_origin_web": "Browser/Gerät",
   "feat_newtask_prompt_mic_title": "Den New-Task-Prompt diktieren",
-  "feat_newtask_prompt_mic_body": "Das Prompt-Feld im New-Task-Dialog hat jetzt ein Mikrofon — mit denselben Engines wie die Compose-Leiste: der Diktierfunktion des Browsers oder lokalem Whisper über das voice-whisper-Plugin (das einzige Mikrofon in einer iOS-Homescreen-PWA). Während du sprichst, erscheint eine Live-Vorschau im Feld; beim Stoppen ersetzt das genaue Transkript des vollständigen Clips die Vorschau."
+  "feat_newtask_prompt_mic_body": "Das Prompt-Feld im New-Task-Dialog hat jetzt ein Mikrofon — mit denselben Engines wie die Compose-Leiste: der Diktierfunktion des Browsers oder lokalem Whisper über das voice-whisper-Plugin (das einzige Mikrofon in einer iOS-Homescreen-PWA). Während du sprichst, erscheint eine Live-Vorschau im Feld; beim Stoppen ersetzt das genaue Transkript des vollständigen Clips die Vorschau.",
+  "feat_plan_reviewer_environment_title": "Sieh, welche CLI einen Plan geprüft hat",
+  "feat_plan_reviewer_environment_body": "Plan-Gate-Überschriften zeigen jetzt Coding-CLI, Modell und Aufwand der Task-Session und des Reviewers. Öffne das Info-Popover neben den Chips für den genauen Pfad in den Einstellungen und den Dokumentationslink.",
+  "planpanel_env_aria": "Coding-Umgebung für Plan und Prüfung",
+  "planpanel_env_plan": "Plan",
+  "planpanel_env_review": "Prüfung",
+  "planpanel_env_unavailable": "nicht verfügbar",
+  "planpanel_env_help_aria": "Wo sich die Coding-Umgebungen für Plan und Prüfung ändern lassen",
+  "planpanel_env_popover_title": "Coding-Umgebung",
+  "planpanel_env_popover_body": "Plan zeigt Coding-CLI, Modell und Reasoning Effort der Task-Session. Prüfung zeigt den Plan-Gate-Reviewer, der diesen Plan geprüft hat. Task-Defaults änderst du in Neuer Task, in Repo-Defaults oder globalen Defaults; den Reviewer unter Einstellungen -> CLIs -> Planer (Plan-Reviewer).",
+  "planpanel_env_docs_link": "Konfigurationsdoku öffnen"
 }

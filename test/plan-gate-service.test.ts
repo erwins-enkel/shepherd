@@ -127,6 +127,21 @@ test("consider: falls back to session.effort when env.effort is null/absent (iss
   expect(argv[argv.indexOf("--effort") + 1]).toBe("medium");
 });
 
+test("approved gate records the reviewer provider, model, and resolved effort", async () => {
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.consider({ ...planningSession(), effort: "high" } as any);
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: "codex",
+    reviewerModel: "gpt-5.5",
+    reviewerEffort: "high",
+  });
+  expect(h.recordedSpawns[0].model).toBe("gpt-5.5");
+});
+
 test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
   await withAuth("subscription", "/ignored.sh", async () => {
     const h = harness();
@@ -619,6 +634,24 @@ test("adoptOrphans re-adopts an orphaned review; next tick finalizes it from the
   expect(h.store.gate.round).toBe(2); // priorRound (1) advanced once the steer landed
   expect(replied).toEqual(["s1"]); // findings steered back to the planning agent
   expect(h.removed).toContain("/wt-detached"); // reviewer worktree reaped
+});
+
+test("adoptOrphans finalizes with only durable reviewer model metadata", async () => {
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn({ model: "opus" })],
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: null,
+    reviewerModel: "opus",
+    reviewerEffort: null,
+  });
 });
 
 test("adoptOrphans skips a spawn whose worktree was already reaped (finalized)", async () => {

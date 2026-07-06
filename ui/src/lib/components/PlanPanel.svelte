@@ -1,15 +1,19 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { AgentProvider, Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import { releasePlanGate, reviewPlan } from "$lib/api";
   import { canRelease, planGateChip } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
+  import { modelLabel } from "$lib/model-label";
+  import { effortLabel } from "$lib/effort-guidance";
+  import { DOCS_URL } from "$lib/build-info";
   import VisualReview from "./VisualReview.svelte";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
 
+  const docsHref = `${DOCS_URL}reference/configuration/`;
   const gate = $derived(planGates.map[session.id]);
   // Plan blocks are the planning agent's own proposed structures. The "inferred" badge
   // (and its glossary tooltip) is recap-specific: it warns that a recap card was
@@ -32,6 +36,29 @@
   // its questions persist past approval), with submit locked while a review is in flight.
   const planAnswerCtx = $derived(
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
+  );
+  let envOpen = $state(false);
+
+  function providerLabel(provider: AgentProvider): string {
+    return provider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
+  }
+
+  function environmentLabel(
+    provider: AgentProvider | null | undefined,
+    model: string | null | undefined,
+    effort: string | null | undefined,
+  ): string {
+    if (!provider) return m.planpanel_env_unavailable();
+    const modelText = model ? modelLabel(model) : m.newtask_model_default();
+    const effortText = effort ? effortLabel(effort) : m.effort_default();
+    return `${providerLabel(provider)} · ${modelText} · ${effortText}`;
+  }
+
+  const planEnv = $derived(
+    environmentLabel(session.agentProvider ?? "claude", session.model, session.effort),
+  );
+  const reviewEnv = $derived(
+    environmentLabel(gate?.reviewerProvider, gate?.reviewerModel, gate?.reviewerEffort),
   );
 
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
@@ -174,6 +201,15 @@
   }
 </script>
 
+<svelte:window
+  onclick={() => {
+    envOpen = false;
+  }}
+  onkeydown={(e) => {
+    if (e.key === "Escape") envOpen = false;
+  }}
+/>
+
 <div
   class="overlay"
   role="presentation"
@@ -199,6 +235,51 @@
       <div class="htitle">
         <span class="micro">{m.planpanel_title()}</span>
         <span class="sname" title={session.name}>{session.name}</span>
+        <div class="envline" aria-label={m.planpanel_env_aria()}>
+          <span class="env-chip" title={planEnv}>
+            <span class="env-label">{m.planpanel_env_plan()}</span>
+            <span class="env-value">{planEnv}</span>
+          </span>
+          <span class="env-chip" title={reviewEnv}>
+            <span class="env-label">{m.planpanel_env_review()}</span>
+            <span class="env-value">{reviewEnv}</span>
+          </span>
+          <span class="env-info">
+            <button
+              type="button"
+              class="env-help"
+              aria-label={m.planpanel_env_help_aria()}
+              aria-expanded={envOpen}
+              onclick={(e) => {
+                e.stopPropagation();
+                envOpen = !envOpen;
+              }}
+            >
+              i
+            </button>
+            {#if envOpen}
+              <div
+                class="env-pop"
+                role="dialog"
+                tabindex="-1"
+                aria-label={m.planpanel_env_popover_title()}
+                onclick={(e) => {
+                  e.stopPropagation();
+                }}
+                onkeydown={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <strong>{m.planpanel_env_popover_title()}</strong>
+                <span>{m.planpanel_env_popover_body()}</span>
+                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external docs URL -->
+                <a href={docsHref} target="_blank" rel="noopener noreferrer"
+                  >{m.planpanel_env_docs_link()}</a
+                >
+              </div>
+            {/if}
+          </span>
+        </div>
       </div>
     </header>
 
@@ -371,6 +452,7 @@
     flex-direction: column;
     gap: 1px;
     min-width: 0;
+    flex: 1;
   }
   .micro {
     font-size: var(--fs-meta);
@@ -385,6 +467,96 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .envline {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    flex-wrap: wrap;
+    margin-top: 3px;
+  }
+  .env-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    max-width: min(42ch, 100%);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 2px 5px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+  }
+  .env-label {
+    color: var(--color-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    flex-shrink: 0;
+  }
+  .env-value {
+    color: var(--color-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .env-info {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .env-help {
+    width: 19px;
+    height: 19px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-micro);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .env-help:hover,
+  .env-help[aria-expanded="true"] {
+    border-color: var(--color-line-bright);
+    color: var(--color-ink);
+    background: var(--color-hover);
+  }
+  .env-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    width: min(320px, 86vw);
+    padding: 10px 12px;
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.02em;
+  }
+  .env-pop strong {
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .env-pop a {
+    color: var(--color-blue);
+    text-decoration: none;
+  }
+  .env-pop a:hover {
+    text-decoration: underline;
   }
   .plan-blocks {
     display: flex;

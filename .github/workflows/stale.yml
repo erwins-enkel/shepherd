@@ -1,0 +1,81 @@
+name: Awaiting-response sweep
+
+# Chases down issues that are blocked on the reporter. When a maintainer asks a question and
+# labels the issue `awaiting-response`, this workflow pings after 3 days of silence and closes 3
+# days after that (6 days total) — so a question we can't answer without the reporter doesn't
+# linger open forever. It ONLY ever touches issues carrying `awaiting-response`; everything else is
+# invisible to it (`only-labels`). PRs are excluded entirely (both PR knobs are -1).
+#
+# The moment the person we're waiting on replies, the `clear-on-reply` job strips the label, which
+# both stops the countdown and removes any `stale` marker — so a real answer never trips the sweep.
+# A maintainer's own comment does NOT clear it (we're waiting on the reporter, not on us): the job
+# fires only when the comment author IS the issue author.
+
+on:
+  schedule:
+    - cron: "23 7 * * *" # once-daily sweep; 3-day thresholds give day-resolution, which is plenty
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+# Least privilege: label + comment + close issues. Nothing else.
+permissions:
+  issues: write
+  contents: read
+
+# Never run two sweeps at once; let an in-flight sweep finish rather than cancelling it.
+concurrency:
+  group: awaiting-response-sweep
+  cancel-in-progress: false
+
+jobs:
+  # ── periodic sweep: ping stale awaiting-response issues, then close them ──────────────────────
+  sweep:
+    if: github.event_name != 'issue_comment'
+    name: ping + close stale awaiting-response issues
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+        with:
+          # Only issues we're explicitly waiting on the reporter for.
+          only-labels: "awaiting-response"
+          # 3 days idle → ping (adds `stale`); 3 more days idle → close. Any update resets the clock
+          # and, via remove-stale-when-updated, drops the `stale` marker.
+          days-before-stale: 3
+          days-before-close: 3
+          remove-stale-when-updated: true
+          stale-issue-label: "stale"
+          stale-issue-message: >
+            No reply from the reporter for 3 days on our question above. If this is still relevant,
+            just leave a comment — otherwise this issue will be closed automatically in 3 days.
+          close-issue-message: >
+            Closing automatically: no reply for 6 days after we asked for more information. This
+            isn't a "wontfix" — if it's still needed, comment and we'll reopen and pick it back up.
+          # This sweep is issues-only; never let it act on pull requests.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+
+  # ── reporter replied → clear the waiting state so the sweep stops chasing it ──────────────────
+  clear-on-reply:
+    if: >
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      github.event.comment.user.login == github.event.issue.user.login
+    name: clear awaiting-response when the reporter replies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove awaiting-response (and any stale marker)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          # Idempotent per-label DELETE: the REST endpoint 404s when the label isn't on the issue,
+          # which is fine here (the reporter may comment on an issue that was never labeled) — so we
+          # tolerate a miss rather than pre-reading the label set.
+          for label in awaiting-response stale; do
+            gh api -X DELETE "repos/$GH_REPO/issues/$ISSUE/labels/$label" >/dev/null 2>&1 \
+              && echo "removed '$label' from #$ISSUE" \
+              || echo "'$label' not present on #$ISSUE — nothing to remove"
+          done

@@ -1225,6 +1225,7 @@
   "diagnostics_hint_git_missing": "git nicht im PATH gefunden — installiere es, bevor du Aufgaben startest.",
   "diagnostics_hint_gh_ok": "GitHub CLI ist authentifiziert.",
   "diagnostics_hint_gh_not_authenticated": "GitHub CLI fehlt oder ist nicht angemeldet — führe gh auth login aus.",
+  "diagnostics_hint_gh_unverified": "GitHub-CLI-Authentifizierung konnte nicht geprüft werden — die Prüfung hat das Zeitlimit überschritten. Shepherd prüft in Kürze erneut.",
   "diagnostics_hint_claude_ok": "Claude Code CLI ist verfügbar.",
   "diagnostics_hint_claude_missing": "Claude Code CLI nicht im PATH gefunden. Installiere Claude Code oder Codex, um Agent-Sessions zu starten.",
   "diagnostics_hint_bun_ok": "bun ist aktuell.",

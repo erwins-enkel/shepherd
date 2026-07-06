@@ -4,6 +4,9 @@ import {
   BUN_MIN_VERSION,
   DIAGNOSTICS_PROBE_TIMEOUT_MS,
   DIAGNOSTICS_TTL_MS,
+  GH_PROBE_ATTEMPTS,
+  GH_PROBE_RETRY_DELAY_MS,
+  GH_PROBE_TIMEOUT_MS,
   HERDR_MIN_VERSION,
   NODE_MIN_VERSION,
   REMEDIATION_TIMEOUT_MS,
@@ -22,6 +25,42 @@ const execFileAsync = promisify(execFile);
  *  capture. Kept local so the regex's lastIndex state is never shared. */
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 
+/** Resolve after `ms` — used to space out the gh probe's bounded retries. */
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** True when a rejected probe was KILLED (timeout → SIGTERM) rather than having exited
+ *  with its own status. execFile's timeout path sets `killed:true` + a `signal`; a normal
+ *  non-zero exit sets neither. This is how `ghProbe` tells a transient stall (retry, then
+ *  "couldn't verify") apart from a real auth verdict (error) — no stdout/stderr parsing. */
+function isTransientProbeFailure(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+  return e.killed === true || (typeof e.signal === "string" && e.signal.length > 0);
+}
+
+/** A spawn that failed because the binary isn't on PATH. */
+function isEnoent(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+/** Map a non-ok gh outcome: the given (state, hintKey) when a forge-mode repo needs gh,
+ *  else a soft `not_required` warning (gh is optional when all repos are lightweight). */
+function ghFailure(forge: boolean, state: DiagnosticState, hintKey: string): DiagnosticCheck {
+  return forge
+    ? { id: "gh", state, hintKey }
+    : { id: "gh", state: "warning", hintKey: "diagnostics_hint_gh_not_required" };
+}
+
+/** Log a timed-out gh probe using ONLY its disposition — never stderr/stdout/message,
+ *  which can carry the logged-in account identity. */
+function logGhUnverified(err: unknown, attempts: number): void {
+  const e = (err ?? {}) as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+  console.warn(
+    `[diagnostics] gh auth status could not be verified after ${attempts} attempts` +
+      ` (timed out; code=${String(e.code)} killed=${String(e.killed)} signal=${String(e.signal)})`,
+  );
+}
+
 /**
  * Injectable child-process runners. Each defaults to an async `execFile` with a
  * per-probe timeout (`DIAGNOSTICS_PROBE_TIMEOUT_MS`) — **never** `execFileSync`,
@@ -33,8 +72,17 @@ export interface DiagnosticsDeps {
    *  plus the `which`/presence checks. Reject (incl. timeout) ⇒ binary absent. */
   runVersion?: (bin: string, args: string[]) => Promise<string>;
   /** Run `gh auth status`; resolves on a zero exit, rejects on non-zero / timeout.
-   *  Its stdout is intentionally discarded (it carries account identity). */
+   *  Its stdout is intentionally discarded (it carries account identity). On rejection
+   *  the error's `code` / `killed` / `signal` classify the failure (see `ghProbe`):
+   *  a killed/signalled reject = a transient timeout, a plain non-zero exit = a real
+   *  auth verdict. */
   runGhAuth?: () => Promise<void>;
+  /** Attempts for the gh probe's bounded retry loop (default `GH_PROBE_ATTEMPTS`).
+   *  Injected so tests exercise the retry/exhaustion paths deterministically. */
+  ghProbeAttempts?: number;
+  /** Delay between gh probe retries in ms (default `GH_PROBE_RETRY_DELAY_MS`). Tests
+   *  pass 0 so a retried-failure case adds no real wall-time. */
+  ghProbeRetryDelayMs?: number;
   /** This node's tailnet hostname, or null when tailscale is absent / not logged
    *  in. Defaults to the shared `resolveNodeHost`. */
   resolveHost?: () => Promise<string | null>;
@@ -133,6 +181,8 @@ export function defaultRunRemediation(
 export class DiagnosticsService {
   private runVersion: (bin: string, args: string[]) => Promise<string>;
   private runGhAuth: () => Promise<void>;
+  private ghProbeAttempts: number;
+  private ghProbeRetryDelayMs: number;
   private resolveHost: () => Promise<string | null>;
   private runServeStatus: () => Promise<string>;
   private runRemediation: (cmd: string) => Promise<void>;
@@ -155,11 +205,17 @@ export class DiagnosticsService {
       deps.runGhAuth ??
       (async () => {
         // exit code only — stdout (which carries the logged-in account) is dropped.
+        // A dedicated, shorter timeout than the generic probe budget keeps the retry
+        // loop bounded (see config `GH_PROBE_*`). On timeout execFile SIGTERMs the child,
+        // so the reject carries `killed:true` / `signal` — `ghProbe` reads that to tell a
+        // transient stall apart from a real non-zero auth verdict.
         await execFileAsync("gh", ["auth", "status"], {
           encoding: "utf8",
-          timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
+          timeout: GH_PROBE_TIMEOUT_MS,
         });
       });
+    this.ghProbeAttempts = deps.ghProbeAttempts ?? GH_PROBE_ATTEMPTS;
+    this.ghProbeRetryDelayMs = deps.ghProbeRetryDelayMs ?? GH_PROBE_RETRY_DELAY_MS;
     this.resolveHost = deps.resolveHost ?? (() => resolveNodeHost());
     this.runServeStatus =
       deps.runServeStatus ??
@@ -227,28 +283,48 @@ export class DiagnosticsService {
       : { id: "git", state: "error", hintKey: "diagnostics_hint_git_missing" };
   };
 
-  /** gh: presence + `gh auth status` exit code (NEVER its stdout). ENOENT ⇒
-   *  binary missing; non-zero exit ⇒ not authenticated. Timeout propagates to the
-   *  `probes()` catch which resolves to `diagnostics_hint_gh_not_authenticated`.
-   *  When no forge-mode repos are configured, failures downgrade to warnings — gh
-   *  is optional when all repos are lightweight. */
+  /** gh: presence + `gh auth status` disposition (NEVER its stdout). The probe is the
+   *  reported false-alarm surface — `gh auth status` reads the token from the OS keyring,
+   *  so a locked keyring / D-Bus stall / cold `gh` under load can transiently time out and
+   *  used to render as a hard "not logged in". So it now RETRIES (bounded) and classifies
+   *  by HOW the last attempt failed rather than what it printed:
+   *    • success on any attempt ⇒ ok;
+   *    • ENOENT ⇒ binary missing (deterministic, no retry);
+   *    • timed-out / killed on every attempt (`killed`/`signal` set — gh never rendered a
+   *      verdict) ⇒ a soft, honest `gh_unverified` warning + a server-side log of the
+   *      disposition only (never stderr/stdout/identity);
+   *    • otherwise (gh exited with a non-zero verdict: logged-out / invalid token / bad
+   *      scopes) ⇒ the actionable `gh_not_authenticated` error.
+   *  When no forge-mode repos are configured, every non-ok outcome downgrades to a
+   *  `not_required` warning — gh is optional when all repos are lightweight. */
   private ghProbe = async (): Promise<DiagnosticCheck> => {
-    try {
-      await this.runGhAuth();
-      return { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" };
-    } catch (err) {
-      const forgeRequired = this.anyForgeRepo();
-      if (err && typeof err === "object" && (err as NodeJS.ErrnoException).code === "ENOENT") {
-        if (!forgeRequired) {
-          return { id: "gh", state: "warning", hintKey: "diagnostics_hint_gh_not_required" };
-        }
-        return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_missing" };
+    const forge = this.anyForgeRepo();
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= this.ghProbeAttempts; attempt++) {
+      try {
+        await this.runGhAuth();
+        return { id: "gh", state: "ok", hintKey: "diagnostics_hint_gh_ok" };
+      } catch (err) {
+        lastErr = err;
+        // Binary missing is deterministic — no point retrying.
+        if (isEnoent(err)) return ghFailure(forge, "error", "diagnostics_hint_gh_missing");
+        // Only a killed/timed-out failure is worth retrying; a non-zero EXIT is gh's
+        // deterministic auth verdict, so probing it again would just delay the same answer.
+        if (!isTransientProbeFailure(err)) break;
+        if (attempt < this.ghProbeAttempts) await delay(this.ghProbeRetryDelayMs);
       }
-      if (!forgeRequired) {
-        return { id: "gh", state: "warning", hintKey: "diagnostics_hint_gh_not_required" };
-      }
-      return { id: "gh", state: "error", hintKey: "diagnostics_hint_gh_not_authenticated" };
     }
+    // A killed/signalled reject means gh never finished (transient timeout) — report the
+    // soft "couldn't verify" state, not a false "not logged in". Otherwise gh exited with a
+    // real non-zero verdict ⇒ actionable auth failure.
+    if (isTransientProbeFailure(lastErr)) {
+      // Log only when the warning actually surfaces (a forge repo needs gh); a
+      // lightweight-only host downgrades to a benign not_required and shouldn't emit a
+      // "could not be verified" line for a state the user never sees.
+      if (forge) logGhUnverified(lastErr, this.ghProbeAttempts);
+      return ghFailure(forge, "warning", "diagnostics_hint_gh_unverified");
+    }
+    return ghFailure(forge, "error", "diagnostics_hint_gh_not_authenticated");
   };
 
   /** git capability check for lightweight mode: requires git ≥ 2.38 for
@@ -348,10 +424,13 @@ export class DiagnosticsService {
       },
       {
         run: this.ghProbe,
+        // Defense-in-depth: ghProbe owns its own retry/timeout and no longer throws, but
+        // an unexpected throw must still land on the soft "couldn't verify" state — never
+        // a false "not logged in".
         onTimeout: {
           id: "gh",
-          state: "error",
-          hintKey: "diagnostics_hint_gh_not_authenticated",
+          state: "warning",
+          hintKey: "diagnostics_hint_gh_unverified",
         },
       },
       {

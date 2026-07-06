@@ -63,6 +63,16 @@ export const DIAGNOSTICS_TTL_MS = 60_000;
 // Per-probe exec timeout: a timed-out probe RESOLVES to its defined non-OK state
 // (never rejects the Promise.all), so one hung binary can't stall the batch.
 export const DIAGNOSTICS_PROBE_TIMEOUT_MS = 5_000;
+// gh auth probe hardening (#623 follow-up): `gh auth status` reads the token from the OS
+// keyring, so a locked keyring / D-Bus stall / cold `gh` under load can transiently blow
+// the probe budget and — pre-fix — masquerade as "not logged in". The probe now RETRIES a
+// timed-out attempt and only reports a hard-auth error when gh actually exits with a
+// verdict. A dedicated, SHORTER per-attempt timeout keeps the bounded retry loop from
+// stalling the batch: GH_PROBE_ATTEMPTS × GH_PROBE_TIMEOUT_MS (+ delays) ≈ 6.25s worst case,
+// vs. 3×5s if it reused DIAGNOSTICS_PROBE_TIMEOUT_MS. Healthy gh answers in ~0.25s.
+export const GH_PROBE_ATTEMPTS = 2;
+export const GH_PROBE_TIMEOUT_MS = 3_000;
+export const GH_PROBE_RETRY_DELAY_MS = 250;
 // Time budget for an in-app remediation command (POST /api/diagnostics/fix). Far
 // larger than a probe — these are real `curl | bash` installs. On timeout the whole
 // process GROUP is SIGKILLed (see diagnostics.ts runRemediation) so no reparented

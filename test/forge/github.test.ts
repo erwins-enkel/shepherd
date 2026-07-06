@@ -2223,6 +2223,41 @@ test("listOpenPrSnapshot: REST check lookup failure maps repo-wide checks to pen
   }
 });
 
+test("listOpenPrSnapshot: REST ignores combined-status pending sentinel when no legacy statuses exist", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    if (args.includes("repos/o/r/pulls")) {
+      return JSON.stringify([
+        {
+          number: 14,
+          html_url: "u14",
+          title: "feat",
+          state: "open",
+          user: { login: "alice" },
+          head: { ref: "feat/actions", sha: "sha14", repo: { owner: { login: "o" } } },
+        },
+      ]);
+    }
+    if (args.includes("repos/o/r/commits/sha14/status")) {
+      return JSON.stringify({ state: "pending", statuses: [] });
+    }
+    if (args.includes("repos/o/r/commits/sha14/check-runs")) {
+      return JSON.stringify({
+        total_count: 1,
+        check_runs: [{ status: "completed", conclusion: "success" }],
+      });
+    }
+    return "";
+  };
+  blockGraphql();
+  try {
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.prs[0]!.checks).toBe("success");
+    expect(snap.statuses.get("feat/actions")!.checks).toBe("success");
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("listOpenPrSnapshot: incomplete REST check-runs pagination maps falsely-green data to pending", async () => {
   const run = async (args: string[]): Promise<string> => {
     if (args.includes("repos/o/r/pulls")) {

@@ -237,6 +237,11 @@ interface RestCheckRunsPage {
   check_runs?: RestCheckRun[];
 }
 
+interface RestCombinedStatus {
+  state?: string | null;
+  statuses?: Array<{ state?: string | null }> | null;
+}
+
 interface RestCheckSummary {
   states: ChecksState[];
   incomplete: boolean;
@@ -969,8 +974,13 @@ export class GithubForge implements GitForge {
     const states: ChecksState[] = [];
     let incomplete = false;
     if (statusResult.status === "fulfilled") {
-      const parsed = JSON.parse(statusResult.value || "{}") as { state?: string | null };
-      states.push(mapStatusState(parsed.state));
+      const parsed = JSON.parse(statusResult.value || "{}") as RestCombinedStatus;
+      const legacyStatuses = parsed.statuses ?? [];
+      if (legacyStatuses.length > 0) {
+        for (const status of legacyStatuses) states.push(mapStatusState(status.state));
+      } else if (parsed.state && parsed.state.toLowerCase() !== "pending") {
+        states.push(mapStatusState(parsed.state));
+      }
     } else {
       incomplete = true;
     }

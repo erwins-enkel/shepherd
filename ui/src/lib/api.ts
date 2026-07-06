@@ -333,11 +333,19 @@ export function getVoiceStatus(): Promise<VoiceStatus> {
 }
 
 /** Transcribe a recorded audio clip via the voice-whisper plugin; returns the text. `lang`
- *  (`"de"`/`"en"`) pins the transcription language when the plugin isn't configured to force one. */
-export async function transcribeAudio(blob: Blob, lang?: string): Promise<string> {
+ *  (`"de"`/`"en"`) pins the transcription language when the plugin isn't configured to force one.
+ *  `opts.mode: "partial"` marks a disposable live-preview request — the plugin reserves a
+ *  concurrency slot for non-partial (final) clips so previews can never 429-starve the one
+ *  transcription the user actually keeps. The final clip must send no `mode` at all. */
+export async function transcribeAudio(
+  blob: Blob,
+  lang?: string,
+  opts?: { mode?: "partial" },
+): Promise<string> {
   const fd = new FormData();
   fd.append("file", blob, "clip.webm");
   if (lang) fd.append("lang", lang);
+  if (opts?.mode) fd.append("mode", opts.mode);
   // no content-type header: the browser sets the multipart boundary
   const r = await fetch("/api/plugins/voice-whisper/transcribe", { method: "POST", body: fd });
   if (!r.ok) throw await failed(r, "transcribe");

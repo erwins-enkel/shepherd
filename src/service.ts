@@ -9,6 +9,7 @@ import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { matchAgents, needsAccountRedrive } from "./herdr";
 import { config } from "./config";
+import { findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
   CreateSessionInput,
@@ -100,6 +101,11 @@ export class RestoreError extends Error {
     this.name = "RestoreError";
   }
 }
+
+/** Generous negative clock-skew allowance when filtering Codex rollout files by mtime against a
+ *  session's `createdAt` — a rollout is written just after spawn, so its mtime is >= createdAt on the
+ *  same machine; this only guards against tiny FS/clock jitter so a legit rollout is never excluded. */
+const CODEX_ID_SKEW_MS = 5 * 60_000;
 
 /** Thrown by create() when an AUTONOMOUS (auto) spawn is refused because the originating issue's
  *  author is untrusted or its trust cannot be established (fail-closed). The drain's spawn catch
@@ -2132,16 +2138,20 @@ export class SessionService {
     return argv;
   }
 
-  private buildCodexResumeArgv(model: string | null, effort: string | null): string[] {
-    // Codex has `codex resume [SESSION_ID]`, but Shepherd does not yet persist the
-    // Codex session id. `--last` is scoped by the Codex CLI's own resume selection
-    // rules, so concurrent/non-isolated Codex sessions sharing a cwd can target the
-    // most recent Codex session for that cwd rather than this exact Shepherd row.
-    // Keep this visible until Codex spawn/ingest records a provider-native id.
+  private buildCodexResumeArgv(
+    model: string | null,
+    effort: string | null,
+    sessionId: string | null = null,
+  ): string[] {
+    // Resume a SPECIFIC Codex session by its rollout UUID when we know it — `restore` derives it
+    // fresh from the rollout header. Otherwise fall back to `codex resume --last`, which is cwd-scoped
+    // and interactive-only, so it correctly targets the current conversation for an isolated worktree;
+    // the live resume paths (autopilot/automerge/manual) take this fallback. `[SESSION_ID]` is a
+    // positional arg and must precede the flags.
     const argv = [
       "codex",
       "resume",
-      "--last",
+      sessionId ?? "--last",
       "--no-alt-screen",
       "--dangerously-bypass-approvals-and-sandbox",
     ];
@@ -2169,10 +2179,28 @@ export class SessionService {
     return argv;
   }
 
-  private buildResumeArgv(s: Session, provider: AgentProvider, trim: TrimDecision): string[] {
+  private buildResumeArgv(
+    s: Session,
+    provider: AgentProvider,
+    trim: TrimDecision,
+    codexSessionId: string | null = null,
+  ): string[] {
     return provider === "codex"
-      ? this.buildCodexResumeArgv(s.model, s.effort)
+      ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId)
       : this.buildClaudeResumeArgv(s, trim);
+  }
+
+  /**
+   * Poller-invoked, fire-and-forget: seed `providerSessionId` for a running ISOLATED Codex session
+   * that lacks one, by discovering its rollout id (cwd + `source=cli` match). Populate-once (skips
+   * when already set) and never writes an empty string — a `null` derive is a no-op, so a transient
+   * miss can't clobber a good id. `restore` does NOT trust this cached value (it re-derives), so this
+   * is purely the best-effort provider-neutral seed for #1087/#1160. Never throws.
+   */
+  captureCodexSessionId(s: Session): void {
+    if ((s.agentProvider ?? "claude") !== "codex" || !s.isolated || s.providerSessionId) return;
+    const id = findCodexSessionId(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
+    if (id) this.deps.store.setProviderSessionId(s.id, id);
   }
 
   private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {
@@ -2767,6 +2795,9 @@ export class SessionService {
       this.deps.store.update(s.id, {
         herdrAgentId: outcome.terminalId,
         claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
+        // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
+        // poller re-captures the new session's id (restore derives fresh regardless).
+        providerSessionId: "",
         agentProvider,
         model: launch.spawnInput.model,
         // Mirror the create path (#1418): persist the effort actually spawned with, so a later
@@ -3261,6 +3292,29 @@ export class SessionService {
    * a generic 409). Throws `RestoreError` for precondition violations, and propagates
    * `WorktreeRestoreError` from the worktree layer so the route can map specific codes to 409.
    */
+  /**
+   * Resolve the id to resume an archived session by, enforcing per-provider restorability.
+   * Claude: requires its pinned `claudeSessionId` (returns null — it resumes via `--resume`).
+   * Codex: isolated only; derives the id FRESH from the rollout header (source of truth — always the
+   * actual last conversation for this worktree, robust to Codex-resume append-vs-fork, honest when the
+   * rollout was GC'd), persists it write-through, and returns it. The scan never touches the
+   * (at restore time absent) worktree — it string-matches cwds under `$CODEX_HOME` — so a miss throws
+   * BEFORE any worktree side effect (no rollback). Throws `RestoreError("cannot_restore")` otherwise.
+   */
+  private resolveCodexRestoreId(s: Session, provider: AgentProvider): string | null {
+    if (provider === "claude") {
+      if (!s.claudeSessionId) throw new RestoreError("cannot_restore");
+      return null;
+    }
+    if (provider === "codex" && s.isolated) {
+      const id = findCodexSessionId(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
+      if (!id) throw new RestoreError("cannot_restore");
+      this.deps.store.setProviderSessionId(s.id, id); // write-through refresh
+      return id;
+    }
+    throw new RestoreError("cannot_restore"); // codex non-isolated, or any other provider
+  }
+
   async restore(id: string): Promise<Session | null> {
     const s = this.deps.store.get(id);
     if (!s) return null;
@@ -3268,7 +3322,9 @@ export class SessionService {
     if (s.status !== "archived") throw new RestoreError("not_archived");
 
     const provider = s.agentProvider ?? "claude";
-    if (provider !== "claude" || !s.claudeSessionId) throw new RestoreError("cannot_restore");
+    // Codex resumes by an explicit id; Claude by `--resume`. resolveCodexRestoreId enforces
+    // restorability (throws cannot_restore) and returns the Codex id (null for Claude).
+    const codexSessionId = this.resolveCodexRestoreId(s, provider);
 
     let worktreeCreated = false;
     if (s.isolated && s.branch) {
@@ -3279,7 +3335,10 @@ export class SessionService {
     }
 
     const trim = await this.trimFor(s.auto);
-    const outcome = await this.prepareResumeSpawn(s, this.buildResumeArgv(s, provider, trim));
+    const outcome = await this.prepareResumeSpawn(
+      s,
+      this.buildResumeArgv(s, provider, trim, codexSessionId),
+    );
     if (!outcome.ok) {
       console.warn(`[restore] spawn refused for ${s.id}: ${outcome.holdReason}`);
       if (worktreeCreated) {

@@ -2846,6 +2846,37 @@ test("resume returns null for unknown, archived, or pre-feature sessions", async
 
 // ── restore ──────────────────────────────────────────────────────────────────
 
+/** Build a temp $CODEX_HOME containing the given rollout headers (line-1 session_meta records). */
+function mkCodexHome(rollouts: Array<{ name: string; payload: Record<string, unknown> }>): string {
+  const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+  const sessions = join(home, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  for (const r of rollouts) {
+    writeFileSync(
+      join(sessions, r.name),
+      JSON.stringify({ type: "session_meta", payload: r.payload }) + "\n",
+    );
+  }
+  return home;
+}
+
+/** Run `fn` with $CODEX_HOME pointed at a temp dir seeded with `rollouts`, restoring env after. */
+async function withCodexHome(
+  rollouts: Array<{ name: string; payload: Record<string, unknown> }>,
+  fn: () => Promise<void> | void,
+): Promise<void> {
+  const home = mkCodexHome(rollouts);
+  const prev = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  try {
+    await fn();
+  } finally {
+    if (prev === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 function archivedWithSession(
   store: SessionStore,
   over: Partial<Parameters<SessionStore["create"]>[0]> = {},
@@ -2952,10 +2983,62 @@ test("restore: not_archived error for non-archived row", async () => {
   expect((err as RestoreError).code).toBe("not_archived");
 });
 
-test("restore: cannot_restore for codex session", async () => {
+test("restore: isolated codex resumes by fresh-derived id and persists providerSessionId", async () => {
+  // The rollout's recorded cwd matches the archived session's worktreePath ("/wt/x"). The worktree
+  // itself is ABSENT on disk (makeRestoreSvc's restoreExisting is a stub) — mirroring the real
+  // pre-restoreExisting ordering: the id is derived from $CODEX_HOME, not the worktree.
+  await withCodexHome(
+    [
+      {
+        name: "rollout-x.jsonl",
+        payload: { session_id: "codex-uuid-1", cwd: "/wt/x", source: "cli" },
+      },
+    ],
+    async () => {
+      const store = new SessionStore(":memory:");
+      const calls: any = {};
+      const svc = makeRestoreSvc(store, calls);
+      const s = archivedWithSession(store, { agentProvider: "codex", claudeSessionId: "" });
+
+      const out = await svc.restore(s.id);
+      expect(out?.status).toBe("running");
+      // codex resume <id> — the positional id, not --last
+      expect(calls.start).toContain("resume");
+      expect(calls.start).toContain("codex-uuid-1");
+      expect(calls.start).not.toContain("--last");
+      // write-through persisted the freshly-derived id
+      expect(store.get(s.id)?.providerSessionId).toBe("codex-uuid-1");
+    },
+  );
+});
+
+test("restore: isolated codex with no matching rollout → cannot_restore", async () => {
+  await withCodexHome([], async () => {
+    const store = new SessionStore(":memory:");
+    const calls: any = {};
+    const svc = makeRestoreSvc(store, calls);
+    const s = archivedWithSession(store, { agentProvider: "codex", claudeSessionId: "" });
+    let err: unknown;
+    try {
+      await svc.restore(s.id);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(RestoreError);
+    expect((err as RestoreError).code).toBe("cannot_restore");
+    // thrown before restoreExisting — no worktree side effect
+    expect(calls.restoreExisting).toBeUndefined();
+  });
+});
+
+test("restore: non-isolated codex → cannot_restore (shared cwd is ambiguous)", async () => {
   const store = new SessionStore(":memory:");
   const svc = makeRestoreSvc(store, {});
-  const s = archivedWithSession(store, { agentProvider: "codex", claudeSessionId: "" });
+  const s = archivedWithSession(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    isolated: false,
+  });
   let err: unknown;
   try {
     await svc.restore(s.id);
@@ -2964,6 +3047,154 @@ test("restore: cannot_restore for codex session", async () => {
   }
   expect(err).toBeInstanceOf(RestoreError);
   expect((err as RestoreError).code).toBe("cannot_restore");
+});
+
+test("captureCodexSessionId: seeds a running isolated codex session from its rollout", async () => {
+  await withCodexHome(
+    [
+      {
+        name: "rollout-cap.jsonl",
+        payload: { session_id: "cap-uuid", cwd: "/wt/cap", source: "cli" },
+      },
+    ],
+    () => {
+      const store = new SessionStore(":memory:");
+      const svc = makeRestoreSvc(store, {});
+      const s = store.create({
+        name: "x",
+        prompt: "x",
+        repoPath: "/r",
+        baseBranch: "main",
+        branch: "shepherd/cap",
+        worktreePath: "/wt/cap",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "term_cap",
+        agentProvider: "codex",
+      });
+      svc.captureCodexSessionId(s);
+      expect(store.get(s.id)?.providerSessionId).toBe("cap-uuid");
+    },
+  );
+});
+
+test("captureCodexSessionId: no matching rollout leaves providerSessionId empty (no '' clobber)", async () => {
+  await withCodexHome([], () => {
+    const store = new SessionStore(":memory:");
+    const svc = makeRestoreSvc(store, {});
+    const s = store.create({
+      name: "x",
+      prompt: "x",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: "shepherd/cap",
+      worktreePath: "/wt/none",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_cap",
+      agentProvider: "codex",
+    });
+    svc.captureCodexSessionId(s);
+    expect(store.get(s.id)?.providerSessionId).toBe("");
+  });
+});
+
+test("captureCodexSessionId: populate-once — does not overwrite an already-set id", async () => {
+  await withCodexHome(
+    [
+      {
+        name: "rollout-new.jsonl",
+        payload: { session_id: "fresh-uuid", cwd: "/wt/cap", source: "cli" },
+      },
+    ],
+    () => {
+      const store = new SessionStore(":memory:");
+      const svc = makeRestoreSvc(store, {});
+      const s = store.create({
+        name: "x",
+        prompt: "x",
+        repoPath: "/r",
+        baseBranch: "main",
+        branch: "shepherd/cap",
+        worktreePath: "/wt/cap",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "term_cap",
+        agentProvider: "codex",
+        providerSessionId: "already-set",
+      });
+      svc.captureCodexSessionId(s);
+      expect(store.get(s.id)?.providerSessionId).toBe("already-set");
+    },
+  );
+});
+
+test("captureCodexSessionId: no-op for non-isolated or non-codex sessions", async () => {
+  await withCodexHome(
+    [
+      {
+        name: "rollout-cap.jsonl",
+        payload: { session_id: "cap-uuid", cwd: "/wt/cap", source: "cli" },
+      },
+    ],
+    () => {
+      const store = new SessionStore(":memory:");
+      const svc = makeRestoreSvc(store, {});
+      const nonIsolated = store.create({
+        name: "x",
+        prompt: "x",
+        repoPath: "/r",
+        baseBranch: "main",
+        branch: null,
+        worktreePath: "/wt/cap",
+        isolated: false,
+        herdrSession: "default",
+        herdrAgentId: "t1",
+        agentProvider: "codex",
+      });
+      const claude = store.create({
+        name: "y",
+        prompt: "y",
+        repoPath: "/r",
+        baseBranch: "main",
+        branch: "shepherd/y",
+        worktreePath: "/wt/cap",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t2",
+        agentProvider: "claude",
+      });
+      svc.captureCodexSessionId(nonIsolated);
+      svc.captureCodexSessionId(claude);
+      expect(store.get(nonIsolated.id)?.providerSessionId).toBe("");
+      expect(store.get(claude.id)?.providerSessionId).toBe("");
+    },
+  );
+});
+
+test("resume (live path) uses codex resume --last, ignoring any stored providerSessionId", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls);
+  // A running (non-archived) codex session with a stale cached id and no live agent → resume
+  // respawns via --last (the live path never trusts providerSessionId).
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    agentProvider: "codex",
+    providerSessionId: "should-be-ignored",
+  });
+  const out = await svc.resume(s.id);
+  expect(out).not.toBeNull();
+  expect(calls.start).toContain("--last");
+  expect(calls.start).not.toContain("should-be-ignored");
 });
 
 test("restore: cannot_restore for claude with empty claudeSessionId", async () => {

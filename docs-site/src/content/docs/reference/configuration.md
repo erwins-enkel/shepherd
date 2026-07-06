@@ -70,6 +70,15 @@ spawned/resumed sessions only and is also configurable from the Settings panel
 | `SHEPHERD_TUI_FULLSCREEN` | `0` (off) | Set `1` to opt the main agent session into Claude Code's fullscreen renderer (research preview). Implies `SHEPHERD_TUI_DISABLE_MOUSE`. |
 | `SHEPHERD_TUI_DISABLE_MOUSE` | `0` (off) | Set `1` to disable Claude Code mouse capture for the main agent session, so fullscreen mouse-capture escape sequences don't leak into the web terminal's keystroke stream. |
 
+## Up Next quick-start
+
+Opt-in, default-off. Configurable from the Settings panel (persisted in the SQLite
+`settings` table); the env var below seeds a fresh DB.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_UPNEXT_SKIP_CLI_PICKER` | `0` (off) | Set `1` to make Up Next quick-start launch with the operator's default coding CLI instead of opening the "Choose coding CLI" picker, even when more than one CLI is ready. Default off preserves the picker behavior. |
+
 ## Documentation automation (PR-gated doc agent)
 
 Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)

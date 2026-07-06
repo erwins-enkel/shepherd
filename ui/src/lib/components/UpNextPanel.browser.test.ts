@@ -136,6 +136,7 @@ function launchContext(opts?: {
   diagnostics?: DiagnosticsSnapshot;
   usageLimits?: UsageLimits;
   defaultAgentProvider?: AgentProvider;
+  skipCliPicker?: boolean;
   usageHoldEnabled?: boolean;
   usageHoldPct?: number;
 }) {
@@ -146,6 +147,7 @@ function launchContext(opts?: {
     },
     defaultAgentProvider: opts?.defaultAgentProvider ?? ("claude" as AgentProvider),
     fableAvailable: true,
+    upnextSkipCliPicker: opts?.skipCliPicker ?? false,
     usageHoldEnabled: opts?.usageHoldEnabled ?? false,
     usageHoldPct: opts?.usageHoldPct ?? 80,
     nowMs: Date.now(),
@@ -436,6 +438,40 @@ describe("UpNextPanel provider picker", () => {
     await expect.element(page.getByText(m.upnext_picker_title())).toBeInTheDocument();
     expect(document.querySelectorAll(".mcp").length).toBe(1);
     expect(vi.mocked(startUpNext)).not.toHaveBeenCalled();
+  });
+
+  it("skips the picker and direct-starts with the default provider when both are ready and the skip setting is on", async () => {
+    render(UpNextPanel, {
+      launchContext: launchContext({
+        diagnostics: diagnostics({ claude: "ok", codex: "ok" }),
+        defaultAgentProvider: "claude",
+        skipCliPicker: true,
+      }),
+    });
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    startButtons()[0]!.click();
+    await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
+      agentProvider: "claude",
+    });
+    await expect.element(page.getByText(m.upnext_picker_title())).not.toBeInTheDocument();
+  });
+
+  it("starts the single ready provider, not the unready default, when only one CLI is ready and the skip setting is on", async () => {
+    render(UpNextPanel, {
+      launchContext: launchContext({
+        diagnostics: diagnostics({ claude: "ok", codex: "error" }),
+        defaultAgentProvider: "codex",
+        skipCliPicker: true,
+      }),
+    });
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    startButtons()[0]!.click();
+    await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
+      agentProvider: "claude",
+    });
+    await expect.element(page.getByText(m.upnext_picker_title())).not.toBeInTheDocument();
   });
 });
 

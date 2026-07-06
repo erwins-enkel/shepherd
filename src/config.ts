@@ -652,6 +652,10 @@ export const config = {
   // Disable Claude Code mouse capture for the main agent session. Persisted + UI-configurable;
   // default off. (tuiFullscreen also implies this — coupling lives in the spawn wiring, not here.)
   tuiDisableMouse: process.env.SHEPHERD_TUI_DISABLE_MOUSE === "1",
+  // When true, Up Next quick-start launches with the operator's default coding CLI instead of
+  // opening the "Choose coding CLI" picker, even when more than one CLI is ready. Persisted +
+  // UI-configurable; default off (preserves today's picker behavior).
+  upnextSkipCliPicker: process.env.SHEPHERD_UPNEXT_SKIP_CLI_PICKER === "1",
   // Operator auth footing for spawned agents. 'subscription' (default) = subscription OAuth;
   // 'api-key' = bill against an Anthropic API key. Persisted + UI-configurable; env seeds a fresh DB.
   authMode: normalizeAuthModeSetting(process.env.SHEPHERD_AUTH_MODE) ?? "subscription",

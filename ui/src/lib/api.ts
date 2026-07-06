@@ -283,6 +283,11 @@ export const putTuiFullscreen = (value: boolean): Promise<{ tuiFullscreen: boole
 export const putTuiDisableMouse = (value: boolean): Promise<{ tuiDisableMouse: boolean }> =>
   patchSettings<{ tuiDisableMouse: boolean }>({ tuiDisableMouse: value });
 
+// Toggle whether Up Next quick-start skips the "Choose coding CLI" picker and launches
+// directly with the operator's default coding CLI.
+export const putUpnextSkipCliPicker = (value: boolean): Promise<{ upnextSkipCliPicker: boolean }> =>
+  patchSettings<{ upnextSkipCliPicker: boolean }>({ upnextSkipCliPicker: value });
+
 /** Upload one file; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
 export async function uploadFile(file: File, sessionId?: string): Promise<string> {

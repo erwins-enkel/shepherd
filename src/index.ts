@@ -322,6 +322,9 @@ if (savedEcc !== null) {
 // Usage-aware task holding: restore persisted operator overrides on restart.
 const savedUhe = store.getSetting("usageHoldEnabled");
 if (savedUhe !== null) config.usageHoldEnabled = savedUhe === "1";
+// Up Next picker skip: restore persisted operator override on restart.
+const savedUscp = store.getSetting("upnextSkipCliPicker");
+if (savedUscp !== null) config.upnextSkipCliPicker = savedUscp === "1";
 const savedUhp = store.getSetting("usageHoldPct");
 if (savedUhp !== null) {
   const n = Number(savedUhp);

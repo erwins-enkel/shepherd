@@ -4164,6 +4164,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       autopilotModel: config.autopilotModel,
       autopilotEffort: config.autopilotEffort,
       defaultAgentProvider: config.defaultAgentProvider,
+      // when true, Up Next quick-start skips the "Choose coding CLI" picker and launches
+      // directly with the operator's default coding CLI.
+      upnextSkipCliPicker: config.upnextSkipCliPicker,
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -4239,6 +4242,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["autopilotModel", makeRoleModelPatch("autopilot")],
   ["autopilotEffort", makeRoleEffortPatch("autopilot")],
   ["defaultAgentProvider", putDefaultAgentProvider],
+  ["upnextSkipCliPicker", putUpnextSkipCliPicker],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["anthropicApiKey", putAnthropicApiKey],
@@ -4443,6 +4447,15 @@ function putUsageHoldEnabled(value: unknown, deps: Ctx["deps"]): Response {
   config.usageHoldEnabled = value;
   deps.store.setSetting("usageHoldEnabled", value ? "1" : "0");
   return json({ usageHoldEnabled: config.usageHoldEnabled });
+}
+
+function putUpnextSkipCliPicker(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "upnextSkipCliPicker must be a boolean" }, 400);
+  }
+  config.upnextSkipCliPicker = value;
+  deps.store.setSetting("upnextSkipCliPicker", value ? "1" : "0");
+  return json({ upnextSkipCliPicker: config.upnextSkipCliPicker });
 }
 
 function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {

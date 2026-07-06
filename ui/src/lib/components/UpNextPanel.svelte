@@ -44,6 +44,7 @@
       store: Pick<HerdStore, "diagnostics" | "usageLimits">;
       defaultAgentProvider: AgentProvider;
       fableAvailable: boolean;
+      upnextSkipCliPicker: boolean;
       usageHoldEnabled: boolean;
       usageHoldPct: number;
       nowMs: number;
@@ -235,6 +236,7 @@
     capacitySuggestedProvider(defaultAgentProvider, diagnostics, heldProviders),
   );
   const readyProviders = $derived(readyAgentProviders(diagnostics));
+  const skipCliPicker = $derived(launchContext?.upnextSkipCliPicker ?? false);
   let picker = $state<{ items: UpNextItem[]; x: number; y: number; opener: HTMLElement } | null>(
     null,
   );
@@ -301,6 +303,10 @@
   function requestStart(items: UpNextItem[], opener: HTMLElement) {
     if (starting || picker || items.length === 0) return;
     if (readyProviders.length >= 2) {
+      if (skipCliPicker) {
+        void doStart(items, { agentProvider: suggestedProvider });
+        return;
+      }
       openPicker(items, opener);
       return;
     }

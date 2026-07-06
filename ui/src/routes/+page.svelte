@@ -2877,6 +2877,7 @@
   {composeAutopilot}
   {composeSandbox}
   {composeResearch}
+  usageLimits={store.usageLimits}
   holdLikely={composeHoldLikely}
   onnewclose={() => {
     showNew = false;

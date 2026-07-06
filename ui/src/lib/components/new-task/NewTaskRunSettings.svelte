@@ -5,11 +5,13 @@
   import { modelOptionLabel } from "$lib/model-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import ProviderCapacityGauge from "./ProviderCapacityGauge.svelte";
   import {
     AGENT_PROVIDERS,
     CODEX_MODELS,
     type AgentProvider,
     type SandboxProfile,
+    type UsageLimits,
   } from "$lib/types";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
   import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
@@ -30,6 +32,7 @@
     autopilotLoading,
     autopilotDefault,
     repoPath,
+    usageLimits = null,
     relaunch,
     holdLikely,
     fableAvailable,
@@ -51,6 +54,7 @@
     autopilotLoading: boolean;
     autopilotDefault: boolean;
     repoPath: string;
+    usageLimits?: UsageLimits | null;
     relaunch: boolean;
     holdLikely: boolean;
     fableAvailable: boolean;
@@ -190,6 +194,7 @@
           </option>
         {/each}
       </select>
+      <ProviderCapacityGauge limits={usageLimits} />
     </div>
 
     <div class="model-field" use:coachTarget={"model-1m-context"}>

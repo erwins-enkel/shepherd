@@ -75,6 +75,17 @@
         ? m.agent_provider_codex()
         : "",
   );
+  const activeHotGaugeLabel = $derived(
+    activeHotGauge
+      ? m.topbar_gauge_toggle_aria({
+          period: periodLabel(activeHotGauge.label),
+          pct: activeHotGauge.w.pct,
+        })
+      : "",
+  );
+  const activeTouchLimitLabel = $derived(
+    compactUsageRotating ? `${activeProviderName} · ${activeHotGaugeLabel}` : activeHotGaugeLabel,
+  );
 </script>
 
 {#if subscriptionOnly && !codexUsage}
@@ -94,10 +105,7 @@
           type="button"
           aria-haspopup="dialog"
           aria-expanded={popoverOpen}
-          aria-label={m.topbar_gauge_toggle_aria({
-            period: periodLabel(activeHotGauge.label),
-            pct: activeHotGauge.w.pct,
-          })}
+          aria-label={activeTouchLimitLabel}
           onclick={() => (popoverOpen = !popoverOpen)}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}

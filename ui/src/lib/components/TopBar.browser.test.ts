@@ -1699,6 +1699,37 @@ describe("TopBar — CR extra-credit gauge", () => {
     );
   });
 
+  it("rotates touch compact usage from Claude to Codex limit gauges with provider aria labels", async () => {
+    vi.useFakeTimers();
+    const hud = await renderTouch(withCodex(fullLimits, { windows: true }));
+    const toggle = hud.querySelector<HTMLElement>(".gauge-btn");
+    expect(toggle, "rotating touch toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "starts on Claude").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+    expect(toggle!.getAttribute("aria-label") ?? "", "Claude provider in aria label").toContain(
+      m.agent_provider_claude(),
+    );
+    expect(toggle!.getAttribute("aria-label") ?? "", "Claude limit in aria label").toContain(
+      m.topbar_gauge_toggle_aria({ period: m.topbar_gauge_period_5h(), pct: 88 }),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+
+    const rotated = hud.querySelector<HTMLElement>(".gauge-btn");
+    expect(rotated, "rotated touch toggle present").not.toBeNull();
+    expect(rotated!.textContent ?? "", "rotates to Codex").toContain(
+      m.topbar_usage_provider_short_codex(),
+    );
+    expect(rotated!.getAttribute("aria-label") ?? "", "Codex provider in aria label").toContain(
+      m.agent_provider_codex(),
+    );
+    expect(rotated!.getAttribute("aria-label") ?? "", "Codex limit in aria label").toContain(
+      m.topbar_gauge_toggle_aria({ period: m.topbar_gauge_period_5h(), pct: 9 }),
+    );
+  });
+
   it("rotates touch compact usage to Codex token fallback", async () => {
     vi.useFakeTimers();
     const hud = await renderTouch(withCodex(fullLimits));

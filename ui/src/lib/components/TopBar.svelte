@@ -296,8 +296,8 @@
       : "",
   );
   // Alert hue: amber is the design system's caution token (also used by the update
-  // badge). The usage gauges now go red >90 (see gaugeColor); amber is their 75–90
-  // warning tier. pct is 0 here so gaugeColor(pct) can't drive it — overspend keys
+  // badge). The usage gauges now go red >90 (see gaugeColor); amber is their warming
+  // tier above 50. pct is 0 here so gaugeColor(pct) can't drive it — overspend keys
   // off real spend instead. Stale → muted; idle → neutral.
   const creditColor = $derived(
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",

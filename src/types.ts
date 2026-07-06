@@ -171,7 +171,7 @@ export interface CreateSessionInput {
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
   effort?: string | null; // reasoning effort tier; null/absent = provider default (no effort flag)
-  images: string[]; // absolute paths to staged uploads (may be empty)
+  images: string[]; // absolute paths to staged attachments (may be empty)
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
   /** True when this session is auto-spawned by the drain queue (default false). The
    *  persisted `issueNumber` is NOT an input here — the service derives it from

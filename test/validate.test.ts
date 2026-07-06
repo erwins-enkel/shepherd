@@ -491,7 +491,7 @@ test("isValidTerminalId: rejects id with semicolon", () => {
   expect(isValidTerminalId("a;b")).toBe(false);
 });
 
-test("validateCreate accepts images inside the staging dir", () => {
+test("validateCreate accepts attachments inside the staging dir", () => {
   const staging = stagingDir(root);
   mkdirSync(staging, { recursive: true });
   const img = join(staging, "a.png");
@@ -522,7 +522,8 @@ test("validateCreate accepts an empty images array without a staging dir", () =>
   if (r.ok) expect(r.value.images).toEqual([]);
 });
 
-test("validateCreate rejects an image outside the staging dir", () => {
+test("validateCreate rejects an attachment outside the staging dir", () => {
+  mkdirSync(stagingDir(root), { recursive: true });
   const outside = join(root, "evil.png");
   writeFileSync(outside, "x");
   const r = validateCreate(
@@ -530,9 +531,11 @@ test("validateCreate rejects an image outside the staging dir", () => {
     root,
   );
   expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("attachment must be inside the staging dir");
 });
 
-test("validateCreate rejects a non-existent image", () => {
+test("validateCreate rejects a non-existent attachment", () => {
+  mkdirSync(stagingDir(root), { recursive: true });
   const r = validateCreate(
     {
       repoPath: validRepo,
@@ -543,9 +546,10 @@ test("validateCreate rejects a non-existent image", () => {
     root,
   );
   expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("attachment does not exist");
 });
 
-test("validateCreate rejects more than 10 images", () => {
+test("validateCreate rejects more than 10 attachments", () => {
   const staging = stagingDir(root);
   mkdirSync(staging, { recursive: true });
   const imgs: string[] = [];
@@ -559,6 +563,7 @@ test("validateCreate rejects more than 10 images", () => {
     root,
   );
   expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("attachments must be ≤ 10 entries");
 });
 
 test("validateCreate rejects a non-array images value", () => {
@@ -567,9 +572,10 @@ test("validateCreate rejects a non-array images value", () => {
     root,
   );
   expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("attachments must be an array");
 });
 
-test("validateCreate rejects duplicate image paths", () => {
+test("validateCreate rejects duplicate attachment paths", () => {
   const staging = stagingDir(root);
   mkdirSync(staging, { recursive: true });
   const img = join(staging, "dup.png");
@@ -579,6 +585,7 @@ test("validateCreate rejects duplicate image paths", () => {
     root,
   );
   expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("duplicate attachment paths");
 });
 
 const validIssueRef = {

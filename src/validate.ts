@@ -53,7 +53,7 @@ const ALLOWED_KEYS = new Set([
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
-/** Max staged uploads per spawn. Bounds the attach list (and the relaunch merge of
+/** Max staged attachments per spawn. Bounds the attach list (and the relaunch merge of
  *  carried-over originals + supplied overrides) so a spawn's prompt stays sane. */
 export const MAX_IMAGES = 10;
 
@@ -202,21 +202,21 @@ function validateRepoPath(value: unknown, root: string): Field<string> {
   return field(resolved);
 }
 
-/** A single staged upload entry — must resolve inside the staging dir and be a file. */
+/** A single attachment entry — must resolve inside the staging dir and be a file. */
 function validateImageEntry(it: unknown, stagingReal: string): Field<string> {
-  if (typeof it !== "string") return err("each upload must be a string path");
+  if (typeof it !== "string") return err("each attachment must be a string path");
   let real: string;
   try {
     real = realpathSync(resolve(it));
   } catch {
-    return err("upload does not exist");
+    return err("attachment does not exist");
   }
   const inside = real === stagingReal || real.startsWith(stagingReal + sep);
-  if (!inside) return err("upload must be inside the staging dir");
+  if (!inside) return err("attachment must be inside the staging dir");
   try {
-    if (!statSync(real).isFile()) return err("upload must be a file");
+    if (!statSync(real).isFile()) return err("attachment must be a file");
   } catch {
-    return err("upload does not exist");
+    return err("attachment does not exist");
   }
   return field(real);
 }
@@ -241,12 +241,12 @@ function validateIssueRef(value: unknown): Field<IssueRef | undefined> {
   return field({ number: o.number, title: o.title, url: o.url, body: o.body });
 }
 
-/** images — optional array of staged upload paths, confined to the staging dir. */
+/** images — optional array of staged attachment paths, confined to the staging dir. */
 function validateImages(value: unknown, root: string): Field<string[]> {
   const images: string[] = [];
   if (value == null) return field(images);
-  if (!Array.isArray(value)) return err("images must be an array");
-  if (value.length > MAX_IMAGES) return err(`uploads must be ≤ ${MAX_IMAGES} entries`);
+  if (!Array.isArray(value)) return err("attachments must be an array");
+  if (value.length > MAX_IMAGES) return err(`attachments must be ≤ ${MAX_IMAGES} entries`);
   // an empty list needs no confinement — don't require a staging dir to exist
   // (the staging dir is created lazily on first upload; a fresh repoRoot has none)
   if (value.length === 0) return field(images);
@@ -262,7 +262,7 @@ function validateImages(value: unknown, root: string): Field<string[]> {
     if (!entry.ok) return entry;
     images.push(entry.value);
   }
-  if (new Set(images).size !== images.length) return err("duplicate upload paths");
+  if (new Set(images).size !== images.length) return err("duplicate attachment paths");
   return field(images);
 }
 

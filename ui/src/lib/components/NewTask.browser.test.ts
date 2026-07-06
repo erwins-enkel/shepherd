@@ -105,7 +105,7 @@ beforeEach(() => {
   mockPutRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
   mockGetCommands.mockResolvedValue({ commands: [] });
-  mockUploadFile.mockResolvedValue("/staged/default");
+  mockUploadFile.mockImplementation(async (file: File) => `/staged/${file.name}`);
   // Default: up to date — no hint rendered
   mockBranchStatus.mockResolvedValue({
     behind: 0,
@@ -126,7 +126,7 @@ const base = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe("NewTask initialImages seed", () => {
-  it("renders a removable chip per seeded image", async () => {
+  it("renders a removable chip per seeded attachment", async () => {
     render(NewTask, {
       props: base({
         initialImages: [
@@ -165,7 +165,7 @@ describe("NewTask initialImages seed", () => {
   });
 });
 
-describe("NewTask file attachments", () => {
+describe("NewTask task attachments", () => {
   it("uploads a non-image file, renders a chip, and submits its staged path", async () => {
     mockUploadFile.mockResolvedValue("/staged/notes.md");
     const onsubmit = vi.fn().mockResolvedValue(undefined);
@@ -196,8 +196,58 @@ describe("NewTask file attachments", () => {
       images: ["/staged/notes.md"],
     });
   });
-});
 
+  it("selects non-image files, uploads them, renders chips, and has no image-only accept", async () => {
+    render(NewTask, { props: base() });
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input).not.toBeNull();
+    expect(input.getAttribute("accept")).not.toBe("image/*");
+
+    const files = [
+      new File(["pdf"], "report.pdf", { type: "application/pdf" }),
+      new File(["txt"], "notes.txt", { type: "text/plain" }),
+      new File(["md"], "brief.md", { type: "" }),
+    ];
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(3);
+    expect(mockUploadFile.mock.calls.map(([file]) => file.name)).toEqual([
+      "report.pdf",
+      "notes.txt",
+      "brief.md",
+    ]);
+    await expect.element(page.getByText("report.pdf")).toBeInTheDocument();
+    await expect.element(page.getByText("notes.txt")).toBeInTheDocument();
+    await expect.element(page.getByText("brief.md")).toBeInTheDocument();
+  });
+
+  it("drops non-image files, uploads them, and renders chips", async () => {
+    render(NewTask, { props: base() });
+
+    const form = document.querySelector<HTMLFormElement>("form.card")!;
+    expect(form).not.toBeNull();
+    const dt = new DataTransfer();
+    dt.items.add(new File(["pdf"], "drop.pdf", { type: "application/pdf" }));
+    dt.items.add(new File(["txt"], "drop.txt", { type: "text/plain" }));
+    dt.items.add(new File(["md"], "drop.md", { type: "" }));
+
+    form.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }),
+    );
+
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(3);
+    expect(mockUploadFile.mock.calls.map(([file]) => file.name)).toEqual([
+      "drop.pdf",
+      "drop.txt",
+      "drop.md",
+    ]);
+    await expect.element(page.getByText("drop.pdf")).toBeInTheDocument();
+    await expect.element(page.getByText("drop.txt")).toBeInTheDocument();
+    await expect.element(page.getByText("drop.md")).toBeInTheDocument();
+  });
+});
 describe("NewTask issue picker epic-parent rows", () => {
   function issue(number: number, title: string, labels: string[] = []): Issue {
     return {

@@ -1,12 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, copyFileSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, basename, extname } from "node:path";
+import { join, basename } from "node:path";
 import type { SessionStore } from "./store";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 /** Age after which an abandoned staged upload (New Task or relaunch carry) is reclaimed. */
 export const STAGING_TTL_MS = 24 * 60 * 60 * 1000;
+
+const MIME_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "application/pdf": "pdf",
+  "text/markdown": "md",
+  "text/plain": "txt",
+};
 
 const IMAGE_MIME_EXT: Record<string, string> = {
   "image/png": "png",
@@ -15,9 +25,40 @@ const IMAGE_MIME_EXT: Record<string, string> = {
   "image/webp": "webp",
 };
 
-/** Extension for a supported image MIME, or null if unsupported. */
+const SAFE_EXT_RE = /^[a-z0-9]{1,16}$/;
+
+/** Extension for a supported upload MIME, or null if unsupported. */
 export function extForMime(mime: string): string | null {
-  return IMAGE_MIME_EXT[mime] ?? null;
+  return MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
+}
+
+/** Extension for a supported live terminal image MIME, or null if unsupported. */
+export function imageExtForMime(mime: string): string | null {
+  return IMAGE_MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
+}
+
+function safeExt(ext: string | null | undefined): string | null {
+  const normalized = ext?.toLowerCase() ?? "";
+  return SAFE_EXT_RE.test(normalized) ? normalized : null;
+}
+
+function extensionFromName(name: string): string | null {
+  const filename = name.split(/[\\/]/).pop() ?? "";
+  const dot = filename.lastIndexOf(".");
+  if (dot <= 0 || dot === filename.length - 1) return null;
+  return filename.slice(dot + 1);
+}
+
+/** Safe stored extension for a generic staged attachment. */
+export function uploadExtension(file: Pick<File, "name" | "type">): string {
+  const namedExt = extensionFromName(file.name);
+  if (namedExt != null) return safeExt(namedExt) ?? "bin";
+  return safeExt(extForMime(file.type)) ?? "bin";
+}
+
+/** Safe stored extension for an already-uploaded file being re-staged. */
+export function uploadExtensionFromName(name: string): string {
+  return safeExt(extensionFromName(name)) ?? "bin";
 }
 
 /** Pre-session staging dir for New Task uploads (worktree doesn't exist yet). */
@@ -30,21 +71,9 @@ export function worktreeUploadsDir(worktreePath: string): string {
   return join(worktreePath, ".shepherd-uploads");
 }
 
-/** Generate a fresh, traversal-safe filename for a staged upload. */
+/** Generate a fresh, traversal-safe filename for a validated upload. */
 export function uploadFilename(ext: string): string {
-  return `${randomUUID()}.${ext}`;
-}
-
-/** Safe extension for a staged upload, derived from client filename only. */
-export function uploadExtension(name: string): string {
-  let safe = basename(name);
-  // eslint-disable-next-line no-control-regex
-  safe = safe.replace(/[/\\]/g, "").replace(/[\x00-\x1f\x7f]/g, "");
-  if (!safe || /^\.+$/.test(safe)) return "bin";
-  const ext = extname(safe).replace(/^\./, "");
-  if (!ext || /^\.+$/.test(ext)) return "bin";
-  const compact = ext.replace(/[^A-Za-z0-9_-]/g, "");
-  return compact || "bin";
+  return `${randomUUID()}.${safeExt(ext) ?? "bin"}`;
 }
 
 /**
@@ -112,17 +141,22 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   if (file.size > MAX_UPLOAD_BYTES) return j({ error: "file too large" }, 413);
 
   const sessionId = new URL(req.url).searchParams.get("session");
+  let ext: string;
   let destDir: string;
   if (sessionId) {
+    const imageExt = imageExtForMime(file.type);
+    if (!imageExt) return j({ error: "unsupported image type" }, 415);
+    ext = imageExt;
     const s = deps.store.get(sessionId);
     if (!s) return j({ error: "unknown session" }, 404);
     destDir = worktreeUploadsDir(s.worktreePath);
   } else {
+    ext = uploadExtension(file);
     destDir = stagingDir(deps.repoRoot);
   }
 
   mkdirSync(destDir, { recursive: true });
-  const path = join(destDir, uploadFilename(uploadExtension(file.name)));
+  const path = join(destDir, uploadFilename(ext));
   await Bun.write(path, file);
   return j({ path });
 }

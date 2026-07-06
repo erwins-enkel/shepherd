@@ -920,7 +920,7 @@ export async function restoreSession(id: string): Promise<Session> {
 
 /**
  * Stage the original session's uploads for a relaunch-elsewhere so the composer
- * can seed them as removable chips. Returns the carried images (server path +
+ * can seed them as removable chips. Returns the carried attachments (server path +
  * display name); throws a `failed` error on a non-2xx response.
  */
 export async function stageRelaunchImages(id: string): Promise<{ path: string; name: string }[]> {

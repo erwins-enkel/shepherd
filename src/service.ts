@@ -3399,15 +3399,16 @@ export class SessionService {
    * both providers belongs in an injected steer block, not a skill. See #1405.
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
-   * (signalPayload) so the learnings distiller never mines Shepherd's own notice. The session is
-   * marked only on SUCCESSFUL delivery, so a reply to a dead pane doesn't burn the one-shot.
+   * so the learnings distiller never mines Shepherd's own notice. The session is marked only on
+   * SUCCESSFUL delivery, so a reply to a dead pane doesn't burn the one-shot. The injection itself
+   * lives in steerWithEpicNotice, shared with broadcast() so both operator free-text channels behave
+   * identically.
    */
   operatorReply(id: string, text: string): boolean {
-    const combined = this.#epicNoticeSteered.has(id) ? null : composeEpicSteer(text);
-    if (!combined) return this.reply(id, text);
-    const ok = this.replyToLive(id, combined, this.liveTerminalIds(), /* signalPayload */ text);
-    if (ok) this.#epicNoticeSteered.add(id);
-    return ok;
+    const s = this.deps.store.get(id);
+    if (!s || !this.liveTerminalIds().has(s.herdrAgentId)) return false; // unknown or dead pane
+    this.steerWithEpicNotice(s, text);
+    return true;
   }
 
   /**
@@ -3528,7 +3529,10 @@ export class SessionService {
         offline++; // unknown id or dead pane — the steer can't land
         continue;
       }
-      this.sendSteerTo(s, text);
+      // Like operatorReply, an epic-intent broadcast injects the epic-authoring notice once per
+      // session (#1405). Delivery classification below is unchanged — the notice only alters the
+      // PTY text, not whether/how the steer lands, and the recorded signal stays the raw text.
+      this.steerWithEpicNotice(s, text);
       if (statusByTerminal.get(s.herdrAgentId) === "working") queued++;
       else delivered++;
     }
@@ -3605,7 +3609,7 @@ export class SessionService {
    *  it can classify the outcome without a second store lookup).
    *
    *  `signalPayload` defaults to the delivered `text`, so every existing caller is unchanged.
-   *  operatorReply (#1405) passes the RAW operator text here while `text` carries the
+   *  steerWithEpicNotice (#1405) passes the RAW operator text here while `text` carries the
    *  operator text PLUS the injected epic-authoring notice — the notice reaches the PTY but the
    *  recorded `reply` signal stays the operator's words alone, so the learnings distiller never
    *  mines Shepherd's own notice (`reply` is a mined signal kind). */
@@ -3621,6 +3625,23 @@ export class SessionService {
     const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
     this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
     this.deps.herdr.send(s.herdrAgentId, "\r");
+  }
+
+  /** Deliver an operator-authored steer to an already-resolved, LIVE session, injecting the
+   *  epic-authoring notice ONCE per session when the text signals epic intent (#1405). The notice
+   *  rides the PTY only; the recorded `reply` signal keeps the raw operator text either way. Shared
+   *  by operatorReply (single session) and broadcast (fan-out) so both operator free-text channels
+   *  behave identically — a broadcast that says "make these epics" gets the same guidance a single
+   *  reply would. Callers have already confirmed the pane is live, so injecting == delivering and
+   *  marking here can't burn the one-shot on a non-delivery. */
+  private steerWithEpicNotice(s: Session, text: string): void {
+    const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
+    if (combined) {
+      this.sendSteerTo(s, combined, /* signalPayload */ text);
+      this.#epicNoticeSteered.add(s.id);
+    } else {
+      this.sendSteerTo(s, text);
+    }
   }
 
   /**

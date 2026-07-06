@@ -40,7 +40,7 @@ function makeSvc(live: string[] = ["t1"]) {
       send: (_id: string, text: string) => {
         sent.push(text);
       },
-      list: () => liveIds.current.map((terminalId) => ({ terminalId })),
+      list: () => liveIds.current.map((terminalId) => ({ terminalId, agentStatus: "idle" })),
     },
     namer: (p: string) => p,
   } as any);
@@ -102,6 +102,34 @@ describe("operatorReply", () => {
     expect(pasted()).toContain(PLAIN_MSG);
     expect(pasted()).not.toContain(NOTICE_MARK);
     expect(store.listSignals("/r")[0]!.payload).toBe(PLAIN_MSG);
+  });
+});
+
+// ── broadcast: the other operator free-text channel shares the same notice logic ──
+
+describe("broadcast", () => {
+  test("injects the notice on an epic-intent broadcast while preserving accounting + raw signal", () => {
+    const { svc, store, pasted, id } = makeSvc();
+    const res = svc.broadcast([id], EPIC_MSG);
+    expect(res).toEqual({ delivered: 1, queued: 0, offline: 0, total: 1 });
+    expect(pasted()).toContain(NOTICE_MARK); // the notice rides the PTY
+    expect(store.listSignals("/r")[0]!.payload).toBe(EPIC_MSG); // ...but the signal stays raw
+  });
+
+  test("shares the once-per-session dedup with operatorReply", () => {
+    const { svc, sent, id } = makeSvc();
+    svc.operatorReply(id, EPIC_MSG); // marks the session
+    sent.length = 0;
+    const res = svc.broadcast([id], "promote #30 to an epic");
+    expect(res.delivered).toBe(1); // still delivered...
+    expect(sent.join("")).not.toContain(NOTICE_MARK); // ...but the notice is not re-injected
+  });
+
+  test("a non-epic broadcast is delivered verbatim", () => {
+    const { svc, pasted, id } = makeSvc();
+    svc.broadcast([id], PLAIN_MSG);
+    expect(pasted()).toContain(PLAIN_MSG);
+    expect(pasted()).not.toContain(NOTICE_MARK);
   });
 });
 

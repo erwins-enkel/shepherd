@@ -77,9 +77,11 @@ describe("all-view tile Rename handoff", () => {
     const tile = page.getByRole("button", {
       name: m.unit_open_aria({ name: "tile rename target" }),
     });
-    tile.element().dispatchEvent(
-      new MouseEvent("contextmenu", { button: 2, clientX: 60, clientY: 60, bubbles: true }),
-    );
+    tile
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 60, clientY: 60, bubbles: true }),
+      );
     await page.getByRole("menuitem", { name: m.cardmenu_rename() }).click();
 
     const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });

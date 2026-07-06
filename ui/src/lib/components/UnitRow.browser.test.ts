@@ -169,9 +169,11 @@ describe("UnitRow context menu", () => {
     });
 
     const hit = page.getByRole("button", { name: m.unit_open_aria({ name: "rename row" }) });
-    hit.element().dispatchEvent(
-      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
-    );
+    hit
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
 
     await page.getByRole("menuitem", { name: m.cardmenu_rename() }).click();
 

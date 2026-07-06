@@ -229,16 +229,41 @@ describe("Viewport preview tab", () => {
 });
 
 describe("Viewport rename affordances", () => {
-  it("renders the session name in the normal desktop header and double-click opens rename", async () => {
+  const headerNameSlug = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  it("renders a renamed session name once and double-click opens rename", async () => {
     const { container } = render(Viewport, {
-      session: session({ id: "rename-head", name: "visible session title" }),
+      session: session({
+        id: "rename-head",
+        name: "visible session title",
+        branch: "shepherd/visible-session-title",
+      }),
       previewPort: null,
       openPreviewTick: 0,
     });
 
-    const title = container.querySelector<HTMLElement>(".vp-head:not(.mobile) .vp-name");
+    const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    expect(header, "normal desktop header").not.toBeNull();
+    const title = header!.querySelector<HTMLElement>(".vp-name");
     expect(title, "normal desktop header title").not.toBeNull();
     expect(title!.textContent).toBe("visible session title");
+    expect(header!.querySelector(".vp-name + .sep")).toBeNull();
+
+    const visibleIdentityNodes = Array.from(
+      header!.querySelectorAll<HTMLElement>(".vp-name, .branch"),
+    );
+    expect(
+      visibleIdentityNodes.filter(
+        (node) => headerNameSlug(node.textContent ?? "") === "visible-session-title",
+      ),
+    ).toHaveLength(1);
+    expect(header!.querySelector<HTMLElement>(".branch")?.textContent).not.toBe(
+      "visible-session-title",
+    );
 
     title!.click();
     title!.click();
@@ -246,6 +271,26 @@ describe("Viewport rename affordances", () => {
     const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
     await expect.element(input).toBeInTheDocument();
     expect((input.element() as HTMLInputElement).value).toBe("visible session title");
+  });
+
+  it("keeps a distinct normal desktop branch label visible", () => {
+    const { container } = render(Viewport, {
+      session: session({
+        id: "rename-branch",
+        name: "visible session title",
+        branch: "feature/actual-work",
+      }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    expect(header, "normal desktop header").not.toBeNull();
+    expect(header!.querySelector<HTMLElement>(".vp-name")?.textContent).toBe(
+      "visible session title",
+    );
+    expect(header!.querySelector<HTMLElement>(".vp-name + .sep")).not.toBeNull();
+    expect(header!.querySelector<HTMLElement>(".branch")?.textContent).toBe("feature/actual-work");
   });
 
   it("opens rename only for matching targeted requests", async () => {

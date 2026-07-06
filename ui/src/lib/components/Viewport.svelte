@@ -186,11 +186,22 @@
   // Display-side status for every header/status render below (see display-status.ts).
   const dStatus = $derived(displayStatus(session, workingBlocked));
 
+  const headerNameSlug = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
   // Branch label for the header: every session branch is cut as `shepherd/<name>`,
   // so the prefix is pure noise that only eats the truncation budget — strip it and
   // surface the descriptive tail (the part the user actually distinguishes by).
   const branchLabel = $derived(
     (session.branch ?? session.worktreePath)?.replace(/^shepherd\//, ""),
+  );
+  const branchRepeatsSessionName = $derived(
+    !!session.branch &&
+      !!branchLabel &&
+      headerNameSlug(branchLabel) === headerNameSlug(session.name),
   );
 
   const activityRecap = $derived(recaps.map[session.id]);
@@ -1984,7 +1995,7 @@
       {/if}
     {/if}
     {#if !compact}
-      {#if !renaming}
+      {#if !renaming && branchLabel && !branchRepeatsSessionName}
         <!-- hidden while the rename editor is open — the editor claims the full
              row width, so the branch label would only fight it for space -->
         <span class="sep">·</span>

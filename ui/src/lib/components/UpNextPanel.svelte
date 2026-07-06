@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { UpNextItem, UpNextSection } from "$lib/types";
+  import type { AgentProvider, UpNextItem, UpNextSection } from "$lib/types";
+  import type { HerdStore } from "$lib/store.svelte";
   import { upNext } from "$lib/up-next.svelte";
-  import { refreshUpNext, startUpNext } from "$lib/api";
+  import { refreshUpNext, startUpNext, type UpNextStartChoice } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
@@ -9,6 +10,12 @@
   import { SvelteSet } from "svelte/reactivity";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
+  import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
+  import {
+    capacitySuggestedProvider,
+    claudeUsageHoldLikely,
+    readyAgentProviders,
+  } from "$lib/provider-capacity";
 
   // Open the Backlog overlay from the empty state (threaded up through Herd to +page).
   // repoFilter: selected repo paths of the active chip-rail filter (empty = unfiltered) — scopes
@@ -18,10 +25,19 @@
     onbacklog,
     repoFilter = EMPTY_REPO_FILTER,
     filteredRepo = null,
+    launchContext = null,
   }: {
     onbacklog?: () => void;
     repoFilter?: ReadonlySet<string>;
     filteredRepo?: string | null;
+    launchContext?: {
+      store: Pick<HerdStore, "diagnostics" | "usageLimits">;
+      defaultAgentProvider: AgentProvider;
+      fableAvailable: boolean;
+      usageHoldEnabled: boolean;
+      usageHoldPct: number;
+      nowMs: number;
+    } | null;
   } = $props();
 
   // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
@@ -92,6 +108,26 @@
     sections.flatMap((s) => s.items).filter((it) => selected.has(keyOf(it))),
   );
   const selectedCount = $derived(selectedItems.length);
+  const usageLimits = $derived(launchContext?.store.usageLimits ?? null);
+  const diagnostics = $derived(launchContext?.store.diagnostics ?? null);
+  const defaultAgentProvider = $derived(launchContext?.defaultAgentProvider ?? "claude");
+  const fableAvailable = $derived(launchContext?.fableAvailable ?? true);
+  const nowMs = $derived(launchContext?.nowMs ?? clock.current);
+  const holdLikely = $derived(
+    claudeUsageHoldLikely(
+      usageLimits,
+      launchContext?.usageHoldEnabled ?? false,
+      launchContext?.usageHoldPct ?? 80,
+    ),
+  );
+  const heldProviders = $derived(new Set<AgentProvider>(holdLikely ? ["claude"] : []));
+  const suggestedProvider = $derived(
+    capacitySuggestedProvider(defaultAgentProvider, diagnostics, heldProviders),
+  );
+  const readyProviders = $derived(readyAgentProviders(diagnostics));
+  let picker = $state<{ items: UpNextItem[]; x: number; y: number; opener: HTMLElement } | null>(
+    null,
+  );
 
   function toggle(it: UpNextItem) {
     const k = keyOf(it);
@@ -105,20 +141,31 @@
     else expanded.add(k);
   }
 
-  async function doStart(items: UpNextItem[]) {
+  async function doStart(items: UpNextItem[], choice?: UpNextStartChoice) {
     if (starting || items.length === 0) return;
     starting = true;
     confirmPending = false;
     try {
       const res = await startUpNext(
         items.map((it) => ({ repoPath: it.repoPath, issueRef: it.issueRef })),
+        choice,
       );
       if (res.created.length > 0) {
         toasts.info(m.upnext_started({ count: res.created.length }), { key: "upnext-started" });
       }
+      if (res.held.length > 0) {
+        toasts.info(m.upnext_held({ count: res.held.length }), { key: "upnext-held" });
+      }
       if (res.errors.length > 0) {
         // Failure must stay until acknowledged — persistent + tone-namespaced dedupe key.
         toasts.info(m.upnext_start_failed({ count: res.errors.length }), {
+          key: "upnext-start-failed",
+          alert: true,
+          duration: null,
+        });
+      }
+      if (res.created.length === 0 && res.held.length === 0 && res.errors.length === 0) {
+        toasts.info(m.upnext_start_failed({ count: items.length }), {
           key: "upnext-start-failed",
           alert: true,
           duration: null,
@@ -137,12 +184,37 @@
     }
   }
 
-  function startSelected() {
+  function openPicker(items: UpNextItem[], opener: HTMLElement) {
+    const r = opener.getBoundingClientRect();
+    picker = { items, x: r.left, y: r.bottom + 4, opener };
+  }
+
+  function requestStart(items: UpNextItem[], opener: HTMLElement) {
+    if (starting || picker || items.length === 0) return;
+    if (readyProviders.length >= 2) {
+      openPicker(items, opener);
+      return;
+    }
+    if (readyProviders.length === 1) {
+      void doStart(items, { agentProvider: readyProviders[0]! });
+      return;
+    }
+    void doStart(items);
+  }
+
+  function startSelected(e: MouseEvent) {
     if (selectedCount > CONFIRM_THRESHOLD && !confirmPending) {
       confirmPending = true;
       return;
     }
-    void doStart(selectedItems);
+    requestStart(selectedItems, e.currentTarget as HTMLElement);
+  }
+
+  function confirmPicker(choice: UpNextStartChoice) {
+    const p = picker;
+    picker = null;
+    if (!p) return;
+    void doStart(p.items, choice);
   }
 
   let refreshing = $state(false);
@@ -195,7 +267,7 @@
       type="button"
       class="un-start"
       disabled={starting}
-      onclick={() => doStart([it])}
+      onclick={(e) => requestStart([it], e.currentTarget as HTMLElement)}
       title={m.upnext_start()}>{m.upnext_start()}</button
     >
   </li>
@@ -284,6 +356,23 @@
     {/if}
   </div>
 </section>
+
+{#if picker}
+  <ModelCliPicker
+    x={picker.x}
+    y={picker.y}
+    title={m.upnext_picker_title()}
+    confirmLabel={m.upnext_picker_confirm()}
+    {fableAvailable}
+    initialProvider={suggestedProvider}
+    {usageLimits}
+    {nowMs}
+    {holdLikely}
+    opener={picker.opener}
+    onconfirm={confirmPicker}
+    onclose={() => (picker = null)}
+  />
+{/if}
 
 <style>
   .upnext {

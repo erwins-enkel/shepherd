@@ -7,7 +7,9 @@
     CompletedEpic,
     HoldReason,
     OwedFocusSnapshot,
+    AgentProvider,
   } from "$lib/types";
+  import type { HerdStore } from "$lib/store.svelte";
   import type { BlockState } from "$lib/triage";
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
@@ -87,6 +89,7 @@
     owedFocusHandledNonce = 0,
     onfocusresolved = undefined,
     onbacklog = undefined,
+    upNextLaunch = null,
   }: {
     sessions: Session[];
     selectedId: string | null;
@@ -204,6 +207,16 @@
     onfocusresolved?: (nonce: number) => void;
     // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
     onbacklog?: () => void;
+    // Up Next start needs capacity-aware launch context. Keep it bundled so Herd does not become
+    // a passthrough bag of diagnostics/settings props.
+    upNextLaunch?: {
+      store: Pick<HerdStore, "diagnostics" | "usageLimits">;
+      defaultAgentProvider: AgentProvider;
+      fableAvailable: boolean;
+      usageHoldEnabled: boolean;
+      usageHoldPct: number;
+      nowMs: number;
+    } | null;
   } = $props();
 
   // Outstanding owed records (#1257) — drives the OWED lens count badge. Scoped to the active repo
@@ -492,7 +505,7 @@
   <div class="units" class:flow>
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
-      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} />
+      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} />
     {:else if filter === "rundown"}
       <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
       <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />

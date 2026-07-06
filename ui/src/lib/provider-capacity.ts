@@ -19,8 +19,12 @@ function providerReady(diagnostics: DiagnosticsSnapshot | null, provider: AgentP
   );
 }
 
+export function readyAgentProviders(diagnostics: DiagnosticsSnapshot | null): AgentProvider[] {
+  return AGENT_PROVIDERS.filter((provider) => providerReady(diagnostics, provider));
+}
+
 export function bothAgentProvidersReady(diagnostics: DiagnosticsSnapshot | null): boolean {
-  return providerReady(diagnostics, "claude") && providerReady(diagnostics, "codex");
+  return readyAgentProviders(diagnostics).length === AGENT_PROVIDERS.length;
 }
 
 export function capacitySuggestedProvider(

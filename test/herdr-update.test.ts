@@ -13,17 +13,37 @@ const LOG = "/home/op/.shepherd/herdr-update.log";
 test("buildUpdateScript: runs `herdr update --handoff`, no destructive pre-stop", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   // --handoff lets a protocol-bumping update proceed while Shepherd's own herdr
-  // target is live ("one or more herdr targets must restart" otherwise).
-  expect(s).toContain("herdr update --handoff");
+  // target is live ("one or more herdr targets must restart" otherwise). The
+  // binary is shell-quoted (`'herdr' update …`), so assert the flag, not `herdr `.
+  expect(s).toContain("update --handoff");
   // the old pre-update `herdr server stop` killed the live server but never
   // cleared the targets, orphaning every pane on a failed update — gone for good.
   expect(s).not.toContain("herdr server stop");
 });
 
-test("buildUpdateScript: restarts the herdr server only when the update fails", () => {
+test("buildUpdateScript: on failure, relaunches herdr ONLY when it is unreachable", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  // the whole recovery is gated on the update having failed
   expect(s).toContain('if [ "$rc" -ne 0 ]; then');
-  expect(s).toContain("herdr server start || true");
+  // probe is the repo's own unreachable signal: `agent list` exits non-zero when
+  // herdr is unreachable — the exact throw broadcast() catches in service.ts.
+  expect(s).toContain("agent list");
+  // relaunch a DETACHED server (bare `herdr server` is foreground) on the
+  // unreachable branch so the orphaned targets (which outlive the dead server) reattach.
+  expect(s).toMatch(/setsid\b.*\bserver\b.*&/);
+  // the nonexistent verb is gone; no stop/handoff (both need a live server) and no systemd.
+  expect(s).not.toContain("herdr server start");
+  expect(s).not.toContain("live-handoff");
+  expect(s).not.toContain("status server");
+});
+
+test("buildUpdateScript: threads a custom HERDR_BIN through every herdr call", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6", "/opt/herdr/bin/herdr");
+  // the configured binary drives the update, the unreachable probe, and the
+  // relaunch — each shell-quoted so a path with spaces/quotes can't break the script.
+  expect(s).toContain("'/opt/herdr/bin/herdr' update --handoff");
+  expect(s).toContain("'/opt/herdr/bin/herdr' agent list");
+  expect(s).toContain("'/opt/herdr/bin/herdr' server");
 });
 
 test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
@@ -36,8 +56,9 @@ test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
 test("buildUpdateScript: echoes a greppable marker for each step", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
-  // running / exited rc / restart-on-failure = 3 markers
-  expect(markers.length).toBe(3);
+  // running / exited rc / reachable-branch / unreachable-branch = 4 markers
+  // (the two failure branches are mutually exclusive at runtime, both present in text)
+  expect(markers.length).toBe(4);
   expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
 });
 

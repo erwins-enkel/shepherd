@@ -49,12 +49,22 @@ const inlineProjections: UsageProjection[] = [
   { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
 ];
 
+// Pin the timeline buckets to a fixed mid-day point of "today" so both hours always fall on the
+// SAME local calendar day → one 24-cell heatmap row, at every wall-clock time. A Date.now()-relative
+// fixture flakes during the 01:00 local hour (one bucket lands on the previous day → 2 rows /
+// 48 cells), which kept the doc-PR `verify` CI red whenever it ran in that nightly window.
+const TODAY_NOON = (() => {
+  const d = new Date(BASE);
+  d.setHours(12, 0, 0, 0);
+  return d.getTime();
+})();
+
 const inlineTimeline: UsageTimeline = {
   range: "7d",
   generatedAt: BASE,
   hours: [
-    { hourStart: BASE - 2 * H - (BASE % H), units: 12 },
-    { hourStart: BASE - H - (BASE % H), units: 40 },
+    { hourStart: TODAY_NOON - 2 * H, units: 12 },
+    { hourStart: TODAY_NOON - H, units: 40 },
   ],
   totalUnits: 52,
   peakHourUnits: 40,

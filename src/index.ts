@@ -1361,7 +1361,6 @@ const criticIdleIntervalMs = 300_000;
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
-    if (graphRateLimit.blocked()) return; // GraphQL bucket exhausted — skip the heavy enumeration
     const now = Date.now();
     // Cold path: no dashboard + no autonomous work → throttle the per-repo PR
     // enumeration to the coarse idle cadence (the cheap 15s verdict-finalize tick

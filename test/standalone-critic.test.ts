@@ -3,6 +3,7 @@ import { StandalonePrCriticService } from "../src/standalone-critic";
 import type { RawVerdict } from "../src/critic-core";
 import type { VerdictRead } from "../src/json-tolerant";
 import { CRITIC_REVIEW_MARKER, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { graphRateLimit } from "../src/forge/rate-limit";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
@@ -14,6 +15,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __setApiKeyConfigDirProvisionForTest(null);
+  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
 });
 
 async function withAuth<T>(
@@ -252,6 +254,45 @@ test("reviews a fresh open green regular session-less PR", async () => {
   const argv = spies.started[0]!.argv;
   const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
   expect(settings.env).toBeUndefined();
+});
+
+test("reviews a REST-enumerated green PR while GraphQL backoff is active", async () => {
+  graphRateLimit.noteLimitError(60);
+  let metaCalls = 0;
+  const { deps, spies } = makeDeps(
+    {},
+    {
+      forge: () =>
+        makeForge(spies, {
+          prs: [
+            pr({
+              number: 9,
+              url: "https://github.com/o/r/pull/9",
+              checks: "success",
+              jobs: [],
+              latestReview: undefined,
+              headSha: "rest-sha",
+              headRefName: "feat/rest",
+            }),
+          ],
+          meta: async () => {
+            metaCalls++;
+            return {
+              body: "REST body",
+              baseRefName: "main",
+              isCrossRepository: false,
+              state: "open",
+            };
+          },
+        }),
+    },
+  );
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(spies.started).toHaveLength(1);
+  expect(spies.started[0]!.name).toBe("pr-critic /r#9");
+  expect(metaCalls).toBe(1);
+  expect(spies.created[0]).toMatchObject({ branch: "feat/rest", sha: "rest-sha" });
 });
 
 test("threads env.effort into the standalone critic argv (issue #1418)", async () => {

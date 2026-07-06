@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
+import { mapBounded } from "../map-bounded";
 import {
   jobsFromRollup,
   mapCheckState,
@@ -44,6 +45,9 @@ import type {
 /** Cap on distinct workflows fetched per repo: each kept run costs one extra
  *  `gh run view` subprocess, so bound the fan-out. */
 const MAX_WORKFLOWS = 10;
+const REST_PAGE_SIZE = 100;
+const REST_LIST_CAP = 200;
+const MAX_CHECK_RUN_PAGES = 2;
 
 /** `gh pr create` on an empty diff prints "No commits between <base> and <head>" to stderr.
  *  Match that case-insensitively to classify an openPr failure as an EmptyDiffError. */
@@ -194,24 +198,48 @@ interface RestPull {
   number: number;
   html_url?: string;
   title?: string;
+  body?: string | null;
   state?: "open" | "closed";
   draft?: boolean;
   created_at?: string;
   merged_at?: string | null;
   mergeable?: boolean | null;
   mergeable_state?: string | null;
+  user?: { login?: string | null } | null;
   head?: {
     ref?: string;
     sha?: string;
-    repo?: { owner?: { login?: string | null } | null } | null;
+    repo?: { full_name?: string | null; owner?: { login?: string | null } | null } | null;
   } | null;
-  base?: { ref?: string | null } | null;
+  base?: { ref?: string | null; repo?: { full_name?: string | null } | null } | null;
   requested_reviewers?: Array<{ login?: string | null }> | null;
+}
+
+interface RestIssue {
+  number: number;
+  title?: string;
+  body?: string | null;
+  html_url?: string;
+  labels?: Array<{ name?: string | null }> | null;
+  created_at?: string;
+  assignees?: Array<{ login?: string | null }> | null;
+  user?: { login?: string | null } | null;
+  pull_request?: unknown;
 }
 
 interface RestCheckRun {
   status?: string | null;
   conclusion?: string | null;
+}
+
+interface RestCheckRunsPage {
+  total_count?: number;
+  check_runs?: RestCheckRun[];
+}
+
+interface RestCheckSummary {
+  states: ChecksState[];
+  incomplete: boolean;
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -260,6 +288,31 @@ function worstChecks(states: ChecksState[]): ChecksState {
   return "none";
 }
 
+function isSameSlug(owner: string | undefined, repo: string | undefined, slug: string): boolean {
+  return owner != null && repo != null && `${owner}/${repo}`.toLowerCase() === slug.toLowerCase();
+}
+
+function closingIssueNumbersFromBody(body: string, slug: string): number[] {
+  const out = new Set<number>();
+  const ref = String.raw`(?:https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/issues\/([0-9]+)|(?:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+))?#([0-9]+))`;
+  const re = new RegExp(
+    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+${ref}`,
+    "gi",
+  );
+  for (const m of body.matchAll(re)) {
+    const urlNumber = m[3];
+    const qualifiedNumber = m[6];
+    if (urlNumber) {
+      if (isSameSlug(m[1], m[2], slug)) out.add(Number(urlNumber));
+    } else if (m[4] || m[5]) {
+      if (isSameSlug(m[4], m[5], slug)) out.add(Number(qualifiedNumber));
+    } else if (qualifiedNumber) {
+      out.add(Number(qualifiedNumber));
+    }
+  }
+  return [...out];
+}
+
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
 export class GithubForge implements GitForge {
   readonly kind = "github" as const;
@@ -294,18 +347,135 @@ export class GithubForge implements GitForge {
     return !!this.forkSlug;
   }
 
-  async listBacklogCounts(): Promise<RepoCounts> {
-    const [owner, name] = this.slug.split("/");
-    const out = await this.run([
-      "api",
-      "graphql",
-      "-F",
-      `owner=${owner}`,
-      "-F",
-      `name=${name}`,
-      "-f",
-      "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ remaining resetAt }}",
+  private restGetArgs(path: string, fields: string[] = []): string[] {
+    return ["api", "--method", "GET", path, ...fields.flatMap((f) => ["-f", f])];
+  }
+
+  private mapRestIssue(i: RestIssue): Issue {
+    const ts = Date.parse(i.created_at ?? "");
+    return {
+      number: i.number,
+      title: i.title ?? "",
+      body: i.body ?? "",
+      url: i.html_url ?? `https://github.com/${this.slug}/issues/${i.number}`,
+      labels: (i.labels ?? []).map((l) => l.name).filter((n): n is string => !!n),
+      createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      assignees: (i.assignees ?? [])
+        .map((a) => a.login ?? undefined)
+        .filter((login): login is string => !!login),
+      author: i.user?.login ?? undefined,
+    };
+  }
+
+  private mapRestPullToPullRequest(pr: RestPull, checks: ChecksState): PullRequest {
+    const ts = Date.parse(pr.created_at ?? "");
+    const author = pr.user?.login ?? "";
+    const headRefName = pr.head?.ref ?? undefined;
+    return {
+      number: pr.number,
+      title: pr.title ?? "",
+      url: pr.html_url ?? `https://github.com/${this.slug}/pull/${pr.number}`,
+      author,
+      kind: classifyPr({ author, title: pr.title ?? "", headRefName }),
+      createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      isDraft: pr.draft ?? false,
+      mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
+      checks,
+      jobs: [],
+      headSha: pr.head?.sha,
+      headRefName,
+    };
+  }
+
+  private async listIssuesRest(): Promise<Issue[]> {
+    const issues: Issue[] = [];
+    for (let page = 1; issues.length < REST_LIST_CAP; page++) {
+      const out = await this.run(
+        this.restGetArgs(`repos/${this.slug}/issues`, [
+          "state=open",
+          `per_page=${REST_PAGE_SIZE}`,
+          `page=${page}`,
+        ]),
+      );
+      const rows = JSON.parse(out || "[]") as RestIssue[];
+      for (const row of rows) {
+        if (row.pull_request != null) continue;
+        issues.push(this.mapRestIssue(row));
+        if (issues.length >= REST_LIST_CAP) break;
+      }
+      if (rows.length < REST_PAGE_SIZE) break;
+    }
+    return issues;
+  }
+
+  private async listOpenPullsRest(): Promise<{ prs: RestPull[]; capped: boolean }> {
+    const prs: RestPull[] = [];
+    let capped = false;
+    for (let page = 1; prs.length < REST_LIST_CAP; page++) {
+      const out = await this.run(
+        this.restGetArgs(`repos/${this.slug}/pulls`, [
+          "state=open",
+          `per_page=${REST_PAGE_SIZE}`,
+          `page=${page}`,
+        ]),
+      );
+      const rows = JSON.parse(out || "[]") as RestPull[];
+      prs.push(...rows.slice(0, REST_LIST_CAP - prs.length));
+      if (rows.length < REST_PAGE_SIZE) break;
+      if (prs.length >= REST_LIST_CAP) capped = true;
+    }
+    return { prs, capped };
+  }
+
+  private async listBacklogCountsRest(): Promise<RepoCounts> {
+    const [repoOut, openPrs] = await Promise.all([
+      this.run(this.restGetArgs(`repos/${this.slug}`)),
+      this.listOpenPullsRest(),
     ]);
+    const repo = JSON.parse(repoOut || "{}") as { open_issues_count?: number };
+    if (openPrs.capped) {
+      return { openIssues: null, openPRs: null, ciStatus: null, prKinds: null };
+    }
+    const openPRs = openPrs.prs.length;
+    const totalIssuesAndPrs = repo.open_issues_count;
+    const openIssues =
+      typeof totalIssuesAndPrs === "number" ? Math.max(0, totalIssuesAndPrs - openPRs) : null;
+    const kinds = openPrs.prs.map((pr) =>
+      classifyPr({
+        author: pr.user?.login ?? "",
+        title: pr.title ?? "",
+        headRefName: pr.head?.ref ?? undefined,
+      }),
+    );
+    const release = kinds.filter((k) => k === "release").length;
+    const dependabot = kinds.filter((k) => k === "dependabot").length;
+    return {
+      openIssues,
+      openPRs,
+      ciStatus: null,
+      prKinds: { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) },
+    };
+  }
+
+  async listBacklogCounts(): Promise<RepoCounts> {
+    if (graphRateLimit.blocked()) return this.listBacklogCountsRest();
+    const [owner, name] = this.slug.split("/");
+    let out: string;
+    try {
+      out = await this.run([
+        "api",
+        "graphql",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `name=${name}`,
+        "-f",
+        "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ remaining resetAt }}",
+      ]);
+    } catch (err) {
+      if (isRateLimitError(err)) return this.listBacklogCountsRest();
+      throw err;
+    }
     const json = JSON.parse(out) as {
       data?: {
         repository?: {
@@ -373,21 +543,28 @@ export class GithubForge implements GitForge {
   }
 
   async listIssues(): Promise<Issue[]> {
-    const out = await this.run([
-      "issue",
-      "list",
-      "--repo",
-      this.slug,
-      "--state",
-      "open",
-      "--json",
-      "number,title,body,url,labels,createdAt,assignees,author",
-      // Cap matches listPullRequests; the count source (GraphQL totalCount) is
-      // unbounded, so a repo with >200 open issues lists a truncated set under a
-      // larger count. Raise this or paginate if such repos appear.
-      "--limit",
-      "200",
-    ]);
+    if (graphRateLimit.blocked()) return this.listIssuesRest();
+    let out: string;
+    try {
+      out = await this.run([
+        "issue",
+        "list",
+        "--repo",
+        this.slug,
+        "--state",
+        "open",
+        "--json",
+        "number,title,body,url,labels,createdAt,assignees,author",
+        // Cap matches listPullRequests; the count source (GraphQL totalCount) is
+        // unbounded, so a repo with >200 open issues lists a truncated set under a
+        // larger count. Raise this or paginate if such repos appear.
+        "--limit",
+        "200",
+      ]);
+    } catch (err) {
+      if (isRateLimitError(err)) return this.listIssuesRest();
+      throw err;
+    }
     const raw = JSON.parse(out || "[]") as Array<{
       number: number;
       title: string;
@@ -757,27 +934,63 @@ export class GithubForge implements GitForge {
     };
   }
 
-  private async restChecksForHead(headSha?: string): Promise<ChecksState> {
-    if (!headSha) return "none";
+  private async listRestCheckRuns(
+    headSha: string,
+  ): Promise<{ states: ChecksState[]; incomplete: boolean }> {
+    const states: ChecksState[] = [];
+    let fetched = 0;
+    let total: number | null = null;
+    for (let page = 1; page <= MAX_CHECK_RUN_PAGES; page++) {
+      const out = await this.run(
+        this.restGetArgs(`repos/${this.slug}/commits/${headSha}/check-runs`, [
+          `per_page=${REST_PAGE_SIZE}`,
+          `page=${page}`,
+        ]),
+      );
+      const parsed = JSON.parse(out || "{}") as RestCheckRunsPage;
+      const runs = parsed.check_runs ?? [];
+      if (typeof parsed.total_count === "number") total = parsed.total_count;
+      fetched += runs.length;
+      for (const run of runs) states.push(mapCheckState(run.status, run.conclusion));
+      if (runs.length < REST_PAGE_SIZE) break;
+      if (total != null && fetched >= total) break;
+    }
+    return { states, incomplete: total != null && fetched < total };
+  }
+
+  private async restCheckSummaryForHead(headSha?: string): Promise<RestCheckSummary> {
+    if (!headSha) return { states: [], incomplete: false };
     const statusPath = `repos/${this.slug}/commits/${headSha}/status`;
-    const checksPath = `repos/${this.slug}/commits/${headSha}/check-runs`;
-    const [statusOut, checksOut] = await Promise.all([
-      this.run(["api", statusPath]).catch(() => null),
-      this.run(["api", checksPath]).catch(() => null),
+    const [statusResult, checksResult] = await Promise.allSettled([
+      this.run(["api", statusPath]),
+      this.listRestCheckRuns(headSha),
     ]);
 
     const states: ChecksState[] = [];
-    if (statusOut != null) {
-      const parsed = JSON.parse(statusOut || "{}") as { state?: string | null };
+    let incomplete = false;
+    if (statusResult.status === "fulfilled") {
+      const parsed = JSON.parse(statusResult.value || "{}") as { state?: string | null };
       states.push(mapStatusState(parsed.state));
+    } else {
+      incomplete = true;
     }
-    if (checksOut != null) {
-      const parsed = JSON.parse(checksOut || "{}") as { check_runs?: RestCheckRun[] };
-      for (const run of parsed.check_runs ?? []) {
-        states.push(mapCheckState(run.status, run.conclusion));
-      }
+    if (checksResult.status === "fulfilled") {
+      states.push(...checksResult.value.states);
+      incomplete ||= checksResult.value.incomplete;
+    } else {
+      incomplete = true;
     }
-    return worstChecks(states);
+    return { states, incomplete };
+  }
+
+  private async restChecksForHead(headSha?: string): Promise<ChecksState> {
+    const summary = await this.restCheckSummaryForHead(headSha);
+    return worstChecks(summary.states);
+  }
+
+  private async restChecksForHeadStrict(headSha?: string): Promise<ChecksState> {
+    const summary = await this.restCheckSummaryForHead(headSha);
+    return summary.incomplete ? "pending" : worstChecks(summary.states);
   }
 
   private mapRestPull(pr: RestPull, deployConfigured: boolean, checks: ChecksState): PrStatus {
@@ -801,6 +1014,35 @@ export class GithubForge implements GitForge {
         .filter((login): login is string => !!login),
       deployConfigured,
     };
+  }
+
+  private async listOpenPrSnapshotRest(deployConfigured: boolean): Promise<OpenPrSnapshot> {
+    const { prs, capped } = await this.listOpenPullsRest();
+    if (capped && !this.openPrCapLogged) {
+      this.openPrCapLogged = true;
+      console.warn(
+        `[github] ${this.slug} has ≥200 open PRs; REST batch truncated — tail branches fall back to per-session`,
+      );
+    }
+    const checks = await mapBounded(prs, 6, (pr) => this.restChecksForHeadStrict(pr.head?.sha));
+    const pullRequests = prs.map((pr, i) => this.mapRestPullToPullRequest(pr, checks[i]!));
+    const expectedOwner = this.forkOwner ?? this.slug.split("/")[0];
+    const statuses = new Map<string, PrStatus>();
+
+    for (let i = 0; i < prs.length; i++) {
+      const pr = prs[i]!;
+      const key = pr.head?.ref;
+      if (!key) continue;
+      const status = this.mapRestPull(pr, deployConfigured, checks[i]!);
+      const existing = statuses.get(key);
+      if (!existing) {
+        statuses.set(key, status);
+      } else if (pr.head?.repo?.owner?.login === expectedOwner) {
+        statuses.set(key, status);
+      }
+    }
+
+    return { prs: pullRequests, statuses, capped };
   }
 
   /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
@@ -886,11 +1128,10 @@ export class GithubForge implements GitForge {
    *  consumers need, so a single query feeds the PRs-tab rows and the pr-poller batch. */
   async listOpenPrSnapshot(): Promise<OpenPrSnapshot> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
-    // The awaiting-approval leg carries its own fail-quiet fallback (empty set), so a
-    // run-list failure degrades to "no flag" instead of rejecting the whole snapshot
-    // (which would empty the PRs tab AND break the poller's statuses batch).
-    const [out, def, awaitingShas] = await Promise.all([
-      this.run([
+    if (graphRateLimit.blocked()) return this.listOpenPrSnapshotRest(deployConfigured);
+    let out: string;
+    try {
+      out = await this.run([
         "pr",
         "list",
         "--repo",
@@ -901,7 +1142,16 @@ export class GithubForge implements GitForge {
         "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner",
         "--limit",
         "200",
-      ]),
+      ]);
+    } catch (err) {
+      if (isRateLimitError(err)) return this.listOpenPrSnapshotRest(deployConfigured);
+      throw err;
+    }
+
+    // The awaiting-approval leg carries its own fail-quiet fallback (empty set), so a
+    // run-list failure degrades to "no flag" instead of rejecting the whole snapshot
+    // (which would empty the PRs tab AND break the poller's statuses batch).
+    const [def, awaitingShas] = await Promise.all([
       this.defaultBranch().catch(() => null),
       this.awaitingApprovalShas(),
     ]);
@@ -1354,6 +1604,7 @@ export class GithubForge implements GitForge {
   }
 
   async prReviewMeta(prNumber: number): Promise<PrReviewMeta | null> {
+    if (graphRateLimit.blocked()) return this.prReviewMetaRest(prNumber);
     try {
       const out = await this.run([
         "pr",
@@ -1384,6 +1635,27 @@ export class GithubForge implements GitForge {
         body: parsed.body ?? "",
         baseRefName: parsed.baseRefName ?? "",
         isCrossRepository: parsed.isCrossRepository ?? false,
+        state,
+      };
+    } catch (err) {
+      if (isRateLimitError(err)) return this.prReviewMetaRest(prNumber);
+      return null;
+    }
+  }
+
+  private async prReviewMetaRest(prNumber: number): Promise<PrReviewMeta | null> {
+    try {
+      const out = await this.run(this.restGetArgs(`repos/${this.slug}/pulls/${prNumber}`));
+      const parsed = JSON.parse(out || "null") as RestPull | null;
+      if (!parsed) return null;
+      const state: PrReviewMeta["state"] =
+        parsed.state === "open" ? "open" : parsed.merged_at ? "merged" : "closed";
+      const headFullName = parsed.head?.repo?.full_name ?? "";
+      const baseFullName = parsed.base?.repo?.full_name ?? "";
+      return {
+        body: parsed.body ?? "",
+        baseRefName: parsed.base?.ref ?? "",
+        isCrossRepository: !!headFullName && !!baseFullName && headFullName !== baseFullName,
         state,
       };
     } catch {
@@ -1484,6 +1756,7 @@ export class GithubForge implements GitForge {
     summaries: Map<number, { total: number; completed: number }>;
     subIssueNumbers: number[];
   }> {
+    if (graphRateLimit.blocked()) return { summaries: new Map(), subIssueNumbers: [] };
     // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
     // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
     // REST sub_issues endpoints above.
@@ -1521,6 +1794,7 @@ export class GithubForge implements GitForge {
   }
 
   async listOpenPrClosingIssues(): Promise<number[]> {
+    if (graphRateLimit.blocked()) return this.listOpenPrClosingIssuesRest();
     // Issues an open PR would close (UI-linked + `Closes #N` bodies). Paginated like
     // listSubIssueSummaries; capped to ~200 open PRs. Best-effort — any failure yields []
     // and Up Next falls back to the shepherd:active exclusion alone.
@@ -1546,9 +1820,23 @@ export class GithubForge implements GitForge {
         if (!pageInfo.hasNextPage) break;
         endCursor = pageInfo.endCursor;
       }
-    } catch {
+    } catch (err) {
+      if (isRateLimitError(err)) return this.listOpenPrClosingIssuesRest();
       return [];
     }
     return [...closed];
+  }
+
+  private async listOpenPrClosingIssuesRest(): Promise<number[]> {
+    try {
+      const closed = new Set<number>();
+      const { prs } = await this.listOpenPullsRest();
+      for (const pr of prs) {
+        for (const n of closingIssueNumbersFromBody(pr.body ?? "", this.slug)) closed.add(n);
+      }
+      return [...closed];
+    } catch {
+      return [];
+    }
   }
 }

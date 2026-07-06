@@ -325,8 +325,9 @@ export class PrPoller implements PrCache {
    *  per-PR cap or round-robin — every eligible PR is covered each tick, O(repos)
    *  when transient-dominant, O(eligible) per-session otherwise. */
   async fastTick(): Promise<void> {
-    // Cadence gate first: skip entirely when rate-limited or not warm, before the activity-aware filter below.
-    if (this.rateLimited() || !this.warm()) return;
+    const graphqlLimited = this.rateLimited();
+    // Cadence gate first: skip entirely when not warm, before the activity-aware filter below.
+    if (!this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) return;
@@ -352,7 +353,9 @@ export class PrPoller implements PrCache {
     // inside the mutual-exclusion window — a concurrent full tick can't interleave.
     this.sweeping = true;
     try {
-      const batches = await this.buildBatches(sessions);
+      const batches = graphqlLimited
+        ? new Map<string, Map<string, PrStatus> | null>()
+        : await this.buildBatches(sessions);
       for (const s of sessions) {
         if (this.inFlight.has(s.id)) continue; // a targeted pollSession is already covering it
         this.inFlight.add(s.id);

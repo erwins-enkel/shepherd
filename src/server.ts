@@ -42,6 +42,7 @@ import {
   validateBuildSteps,
   validateBuildStepStatus,
   validateEpicRunPatch,
+  type EpicRunPatch,
   validateEgressExtraHosts,
 } from "./validate";
 import {
@@ -168,6 +169,7 @@ import {
   resolveDefaultModelSetting,
   normalizeRoleCli,
   normalizeRoleModelToken,
+  modelCompatibleWithProvider,
 } from "./default-model";
 import {
   normalizeDefaultEffortSetting,
@@ -2971,9 +2973,16 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
     const choice = await parseReplaceAgentChoice(req);
     if (!choice.ok) return choice.res;
 
+    const issueRef = await reResolveRelaunchIssue(original, deps);
+    if (issueRef === false)
+      return json({ error: "could not re-resolve linked issue", code: "issue_unresolved" }, 502);
+
     let session: Session;
     try {
-      session = await deps.service.replaceAgent(id, choice.value);
+      session = await deps.service.replaceAgent(
+        id,
+        issueRef ? { ...choice.value, issueRef } : choice.value,
+      );
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : "replace failed" }, 502);
     }
@@ -5555,7 +5564,74 @@ function handleHealth({ req, parts }: Ctx): Response | null {
 
 /** Build a default EpicRun from repo + parent when no stored run exists. */
 function defaultEpicRun(repoPath: string, parentIssueNumber: number): EpicRun {
-  return { repoPath, parentIssueNumber, mode: "auto", status: "idle" };
+  return {
+    repoPath,
+    parentIssueNumber,
+    mode: "auto",
+    status: "idle",
+    agentProvider: null,
+    model: null,
+    effort: null,
+  };
+}
+
+function patchHas<K extends keyof EpicRunPatch>(patch: EpicRunPatch, key: K): boolean {
+  return Object.prototype.hasOwnProperty.call(patch, key);
+}
+
+function mergedEpicRunAgentProvider(base: EpicRun, patch: EpicRunPatch): AgentProvider | null {
+  return patchHas(patch, "agentProvider")
+    ? (patch.agentProvider ?? null)
+    : (base.agentProvider ?? null);
+}
+
+function inheritedEpicProviderSettings(
+  patch: EpicRunPatch,
+): Pick<EpicRun, "agentProvider" | "model" | "effort"> | null {
+  const explicitModel = patchHas(patch, "model") && patch.model !== null;
+  const explicitEffort = patchHas(patch, "effort") && patch.effort !== null;
+  return explicitModel || explicitEffort
+    ? null
+    : { agentProvider: null, model: null, effort: null };
+}
+
+function normalizeEpicRunModel(
+  agentProvider: AgentProvider,
+  model: string | null,
+  patch: EpicRunPatch,
+): string | null | false {
+  if (model === null || modelCompatibleWithProvider(model, agentProvider)) return model;
+  return patchHas(patch, "agentProvider") && !patchHas(patch, "model") ? null : false;
+}
+
+function normalizeEpicRunProviderSettings(
+  base: EpicRun,
+  patch: EpicRunPatch,
+): Pick<EpicRun, "agentProvider" | "model" | "effort"> | null {
+  const agentProvider = mergedEpicRunAgentProvider(base, patch);
+  const model = patchHas(patch, "model") ? (patch.model ?? null) : (base.model ?? null);
+  const effort = patchHas(patch, "effort") ? (patch.effort ?? null) : (base.effort ?? null);
+
+  if (agentProvider === null) return inheritedEpicProviderSettings(patch);
+  const normalizedModel = normalizeEpicRunModel(agentProvider, model, patch);
+  if (normalizedModel === false) return null;
+
+  return { agentProvider, model: normalizedModel, effort };
+}
+
+function mergeEpicRunPatch(
+  base: EpicRun,
+  patch: ReturnType<typeof validateEpicRunPatch>,
+): EpicRun | null {
+  if (patch === null) return null;
+  const providerSettings = normalizeEpicRunProviderSettings(base, patch);
+  if (providerSettings === null) return null;
+  return {
+    ...base,
+    ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...providerSettings,
+  };
 }
 
 // GET /api/epics?repo= — list epic parent issues for a repo.
@@ -5882,11 +5958,8 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     storedForPut && storedForPut.parentIssueNumber === parentNumber
       ? storedForPut
       : defaultEpicRun(dir, parentNumber);
-  const merged: EpicRun = {
-    ...base,
-    ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
-    ...(patch.status !== undefined ? { status: patch.status } : {}),
-  };
+  const merged = mergeEpicRunPatch(base, patch);
+  if (merged === null) return json({ error: "invalid epic run patch" }, 400);
   deps.store.setEpicRun(merged);
   kickDrainOnEpicStart(deps.drain, merged.status);
   const epic = await deps.drain.buildEpic(dir, merged);

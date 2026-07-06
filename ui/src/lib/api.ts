@@ -2092,7 +2092,7 @@ export async function getEpic(repoPath: string, parent: number): Promise<Epic> {
 export async function updateEpic(
   repoPath: string,
   parent: number,
-  patch: Partial<Pick<EpicRun, "mode" | "status">>,
+  patch: Partial<Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort">>,
 ): Promise<Epic> {
   const r = await fetch(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
     method: "PUT",

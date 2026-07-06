@@ -8,6 +8,7 @@ import {
   heartbeatTone,
   canResume,
   canRelaunch,
+  canReplaceAgent,
   waitTier,
 } from "./format";
 import type { Session, SessionStatus, GitState } from "./types";
@@ -78,6 +79,42 @@ describe("canRelaunch", () => {
 
   it("withholds Relaunch while mid-merge-train", () => {
     expect(canRelaunch(session({ mergingSince: now }), undefined, now)).toBe(false);
+  });
+});
+
+describe("canReplaceAgent", () => {
+  const now = 1_000_000_000_000;
+  const session = (over: Partial<Session>): Session =>
+    ({
+      status: "running",
+      readyToMerge: false,
+      autopilotComplete: false,
+      mergingSince: null,
+      ...over,
+    }) as Session;
+
+  it("offers Continue with for in-flight statuses", () => {
+    expect(canReplaceAgent(session({ status: "running" }), undefined, now)).toBe(true);
+    expect(canReplaceAgent(session({ status: "idle" }), undefined, now)).toBe(true);
+    expect(canReplaceAgent(session({ status: "blocked" }), undefined, now)).toBe(true);
+    expect(canReplaceAgent(session({ status: "done" }), undefined, now)).toBe(true);
+  });
+
+  it("allows open or closed-unmerged PR sessions for in-place rework", () => {
+    expect(canReplaceAgent(session({}), { state: "open" } as GitState, now)).toBe(true);
+    expect(canReplaceAgent(session({}), { state: "closed" } as GitState, now)).toBe(true);
+    expect(canReplaceAgent(session({}), { state: "none" } as GitState, now)).toBe(true);
+  });
+
+  it("withholds Continue with from concluded sessions", () => {
+    expect(canReplaceAgent(session({ status: "archived" }), undefined, now)).toBe(false);
+    expect(canReplaceAgent(session({ readyToMerge: true }), undefined, now)).toBe(false);
+    expect(canReplaceAgent(session({ autopilotComplete: true }), undefined, now)).toBe(false);
+    expect(canReplaceAgent(session({}), { state: "merged" } as GitState, now)).toBe(false);
+  });
+
+  it("withholds Continue with while mid-merge-train", () => {
+    expect(canReplaceAgent(session({ mergingSince: now }), undefined, now)).toBe(false);
   });
 });
 

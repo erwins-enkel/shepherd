@@ -714,6 +714,16 @@ export function resolveStepId(ids: string[], idOrPrefix: string): StepIdResoluti
 
 export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
+
+  private addMissingColumns(table: string, columns: Record<string, string>): void {
+    const existing = this.db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    for (const [name, definition] of Object.entries(columns)) {
+      if (!existing.some((c) => c.name === name)) {
+        this.db.run(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    }
+  }
+
   constructor(path: string) {
     this.db = new Database(path);
     // Enforce FK constraints (enforces session_usage_bucket → session_usage cascade).
@@ -1012,6 +1022,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
+    this.addMissingColumns("epic_run", { agentProvider: "TEXT", model: "TEXT", effort: "TEXT" });
     // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
     // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
     // repo, so a pin stored there would be inherited by the next epic and would outlive its own
@@ -1058,11 +1069,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     // migrate push tables that predate per-category selection (default: all categories on,
     // preserving the prior all-or-nothing behavior for existing devices)
-    for (const col of ["catAgent", "catReviews", "catCi"]) {
-      if (!pushCols.some((c) => c.name === col)) {
-        this.db.run(`ALTER TABLE push_subscriptions ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 1`);
-      }
-    }
+    this.addMissingColumns("push_subscriptions", {
+      catAgent: "INTEGER NOT NULL DEFAULT 1",
+      catReviews: "INTEGER NOT NULL DEFAULT 1",
+      catCi: "INTEGER NOT NULL DEFAULT 1",
+    });
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
@@ -1350,7 +1361,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getEpicRun(repoPath: string): EpicRun | null {
     return (
       (this.db
-        .query(`SELECT repoPath, parentIssueNumber, mode, status FROM epic_run WHERE repoPath = ?`)
+        .query(
+          `SELECT repoPath, parentIssueNumber, mode, status, agentProvider, model, effort FROM epic_run WHERE repoPath = ?`,
+        )
         .get(repoPath) as EpicRun | null) ?? null
     );
   }
@@ -1358,15 +1371,26 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** All persisted epic_run rows (one per repo). Mirrors getEpicRun's row shape. */
   listEpicRuns(): EpicRun[] {
     return this.db
-      .query(`SELECT repoPath, parentIssueNumber, mode, status FROM epic_run`)
+      .query(
+        `SELECT repoPath, parentIssueNumber, mode, status, agentProvider, model, effort FROM epic_run`,
+      )
       .all() as EpicRun[];
   }
 
   setEpicRun(r: EpicRun): void {
     this.db.run(
-      `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, updatedAt) VALUES (?,?,?,?,?)
-      ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, updatedAt=excluded.updatedAt`,
-      [r.repoPath, r.parentIssueNumber, r.mode, r.status, Date.now()],
+      `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
+      [
+        r.repoPath,
+        r.parentIssueNumber,
+        r.mode,
+        r.status,
+        r.agentProvider ?? null,
+        r.agentProvider ? (r.model ?? null) : null,
+        r.agentProvider ? (r.effort ?? null) : null,
+        Date.now(),
+      ],
     );
   }
 

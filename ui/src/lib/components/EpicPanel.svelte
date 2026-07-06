@@ -1,15 +1,59 @@
 <script lang="ts">
-  import type { Epic } from "$lib/types";
+  import { AGENT_PROVIDERS, type AgentProvider, type Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext, importEpic } from "$lib/api";
   import { chipFor, progress, stateLabel } from "./epic-panel";
   import { toasts } from "$lib/toasts.svelte";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
+  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
+  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
+  import { modelOptionLabel } from "$lib/model-guidance";
 
   let { repoPath, parent, epic }: { repoPath: string; parent: number; epic: Epic } = $props();
 
   const p = $derived(progress(epic.children));
   const running = $derived(epic.run.status === "running");
+  const epicProvider = $derived(epic.run.agentProvider ?? null);
+  const epicModel = $derived(epic.run.model ?? "default");
+  const epicEffort = $derived(epic.run.effort ?? "default");
+
+  function updateFailed() {
+    toasts.info(m.epic_update_failed(), {
+      duration: null,
+      alert: true,
+      key: "epic-update-fail",
+    });
+  }
+
+  function providerName(provider: AgentProvider): string {
+    return provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha();
+  }
+
+  function onProviderChange(e: Event) {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    if (value === "inherit") {
+      updateEpic(repoPath, parent, { agentProvider: null }).catch(updateFailed);
+      return;
+    }
+    const agentProvider = value as AgentProvider;
+    const model = modelAvailableForProvider(agentProvider, epicModel, true) ? epic.run.model : null;
+    const effort = effortAvailableForProvider(agentProvider, epicEffort) ? epic.run.effort : null;
+    updateEpic(repoPath, parent, { agentProvider, model, effort }).catch(updateFailed);
+  }
+
+  function onModelChange(e: Event) {
+    if (!epicProvider) return;
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    updateEpic(repoPath, parent, { model: value === "default" ? null : value }).catch(updateFailed);
+  }
+
+  function onEffortChange(e: Event) {
+    if (!epicProvider) return;
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    updateEpic(repoPath, parent, { effort: value === "default" ? null : value }).catch(
+      updateFailed,
+    );
+  }
 </script>
 
 <div class="epic" role="region" aria-label={epic.parentTitle}>
@@ -139,6 +183,40 @@
         {m.epic_approve_next()}
       </button>
     {/if}
+
+    <div class="run-settings" aria-label={m.epic_provider_settings_label()}>
+      <label class="mini-field">
+        <span class="micro">{m.epic_provider_label()}</span>
+        <select value={epicProvider ?? "inherit"} onchange={onProviderChange}>
+          <option value="inherit">{m.epic_provider_inherit()}</option>
+          {#each AGENT_PROVIDERS as provider (provider)}
+            <option value={provider}>{providerName(provider)}</option>
+          {/each}
+        </select>
+      </label>
+
+      {#if epicProvider}
+        <label class="mini-field">
+          <span class="micro">{m.epic_model_label()}</span>
+          <select value={epicModel} onchange={onModelChange}>
+            <option value="default">{m.newtask_model_default()}</option>
+            {#each providerModels(epicProvider) as model (model)}
+              <option value={model}>{modelOptionLabel(epicProvider, model)}</option>
+            {/each}
+          </select>
+        </label>
+
+        <label class="mini-field">
+          <span class="micro">{m.epic_effort_label()}</span>
+          <select value={epicEffort} onchange={onEffortChange}>
+            <option value="default">{m.effort_default()}</option>
+            {#each providerEfforts(epicProvider) as effort (effort)}
+              <option value={effort}>{effortLabel(effort)}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -269,6 +347,44 @@
     gap: 6px;
     flex-wrap: wrap;
     padding-top: 2px;
+  }
+
+  .run-settings {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .mini-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 96px;
+  }
+
+  .micro {
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  select {
+    min-height: 24px;
+    max-width: 180px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    padding: 2px 6px;
+  }
+
+  select:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   /* ── progress badge ──────────────────────────────────────────────────────

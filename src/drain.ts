@@ -75,7 +75,11 @@ const MAX_LANDING_ATTEMPTS = 5;
  *  not the merge — so the manual CTA and the next eligible tick can still retry). */
 const LAND_MERGE_ERROR_CAP = 3;
 const LAND_MERGE_BACKOFF_MS = 300_000;
-import { drainSpawnModel, resolveDefaultModelSetting } from "./default-model";
+import {
+  drainSpawnModel,
+  modelForProviderOrDefault,
+  resolveDefaultModelSetting,
+} from "./default-model";
 import { drainSpawnEffort, resolveDefaultEffortSetting } from "./default-effort";
 import {
   resolveProfile,
@@ -562,6 +566,7 @@ export class DrainService {
     let epicAttended = false;
     let epicParent: number | null = null;
     let epicIntegrationBranch: string | null = null;
+    let epicProviderSettings: DrainRepoState["epicProviderSettings"] = null;
     let builtEpic: Epic | null = null;
     if (epicActive) {
       // Epic is running/paused: source candidates from its dependency-gated children
@@ -569,6 +574,13 @@ export class DrainService {
       builtEpic = await this.buildEpic(repoPath, epicRun!);
       if (builtEpic) {
         epicParent = epicRun!.parentIssueNumber;
+        epicProviderSettings = epicRun!.agentProvider
+          ? {
+              agentProvider: epicRun!.agentProvider,
+              model: epicRun!.model ?? null,
+              effort: epicRun!.effort ?? null,
+            }
+          : null;
         // Pin the canonical name once (#645): re-deriving from the live title would re-point
         // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
         epicIntegrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
@@ -611,6 +623,7 @@ export class DrainService {
         epicApprovedNext: this.approvedNext.has(repoPath),
         epicParent,
         epicIntegrationBranch,
+        epicProviderSettings,
       },
       epic: builtEpic,
     };
@@ -1835,6 +1848,7 @@ export class DrainService {
     let session: Session | undefined;
     try {
       const { base, prompt } = await this.resolveSpawnBase(forge, decision);
+      const epicSettings = decision.epicProviderSettings;
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they
       // fall back to no --model flag (Claude's own default). The Fable promo is a
@@ -1843,10 +1857,13 @@ export class DrainService {
         repoPath,
         baseBranch: base,
         prompt,
-        model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
-        effort: drainSpawnEffort(
-          resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort),
-        ),
+        ...(epicSettings ? { agentProvider: epicSettings.agentProvider } : {}),
+        model: epicSettings
+          ? modelForProviderOrDefault(epicSettings.model, epicSettings.agentProvider)
+          : drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        effort: epicSettings
+          ? epicSettings.effort
+          : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },

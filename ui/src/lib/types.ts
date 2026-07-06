@@ -680,6 +680,9 @@ export interface EpicRun {
   parentIssueNumber: number;
   mode: EpicMode;
   status: EpicRunStatus;
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
 }
 export interface Epic {
   repoPath: string;

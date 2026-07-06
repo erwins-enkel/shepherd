@@ -1,4 +1,5 @@
 import type { Issue } from "./forge/types";
+import type { AgentProvider } from "./types";
 
 export type EpicSource = "native" | "markdown";
 export type EpicMode = "auto" | "attended";
@@ -33,6 +34,9 @@ export interface EpicRun {
   parentIssueNumber: number;
   mode: EpicMode;
   status: EpicRunStatus;
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
 }
 export interface Epic {
   repoPath: string;

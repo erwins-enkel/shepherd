@@ -483,7 +483,23 @@ test("listEpicRuns returns all persisted epic_run rows", () => {
   s.setEpicRun({ repoPath: "/b", parentIssueNumber: 2, mode: "attended", status: "running" });
   const runs = s.listEpicRuns().sort((x, y) => x.repoPath.localeCompare(y.repoPath));
   expect(runs).toEqual([
-    { repoPath: "/a", parentIssueNumber: 1, mode: "auto", status: "idle" },
-    { repoPath: "/b", parentIssueNumber: 2, mode: "attended", status: "running" },
+    {
+      repoPath: "/a",
+      parentIssueNumber: 1,
+      mode: "auto",
+      status: "idle",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    },
+    {
+      repoPath: "/b",
+      parentIssueNumber: 2,
+      mode: "attended",
+      status: "running",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    },
   ]);
 });

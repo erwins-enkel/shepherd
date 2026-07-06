@@ -45,6 +45,20 @@ export function canRelaunch(s: Session, git?: GitState, now: number = Date.now()
 }
 
 /**
+ * Whether to offer Continue with... for an in-place provider/model replacement.
+ * Replacement preserves the Shepherd session/worktree/branch/issue/PR mapping, so it is valid
+ * for in-flight work, including open-PR rework. It is still hidden for concluded or actively
+ * merging work where starting a new agent would imply duplicating finished work.
+ */
+export function canReplaceAgent(s: Session, git?: GitState, now: number = Date.now()): boolean {
+  if (s.status === "archived") return false;
+  if (s.readyToMerge || s.autopilotComplete) return false;
+  if (git?.state === "merged") return false;
+  if (isMerging(s, now)) return false;
+  return true;
+}
+
+/**
  * Live elapsed label for the session list, scaled so multi-day runs stay
  * readable instead of overflowing to `2880:34`:
  *   - `<1h` → `MM:SS`  (live ticking timer, seconds shown)

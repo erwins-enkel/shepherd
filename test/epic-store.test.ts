@@ -17,9 +17,44 @@ describe("epic_run", () => {
       parentIssueNumber: 327,
       mode: "attended",
       status: "running",
+      agentProvider: null,
+      model: null,
+      effort: null,
     });
     s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 400, mode: "auto", status: "idle" }); // replaces
     expect(s.getEpicRun("/repo")!.parentIssueNumber).toBe(400);
+  });
+
+  test("provider/model/effort round-trip and clear to inherit", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    expect(s.getEpicRun("/repo")).toMatchObject({
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+      agentProvider: null,
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    expect(s.getEpicRun("/repo")).toMatchObject({
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
   });
 });
 

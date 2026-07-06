@@ -237,10 +237,51 @@ describe("epic-child spawns base on the integration branch", () => {
     const created = h.creates[0]!;
     expect(created.baseBranch).toBe(EPIC_BRANCH);
     expect(created.issueRef?.number).toBe(CHILD);
+    expect(created.agentProvider).toBeUndefined();
     // The spawn prompt carries the epic base directive so the agent opens its own PR
     // against the integration branch, not the default branch.
     expect(created.prompt).toContain(`--base ${EPIC_BRANCH}`);
     expect(created.prompt).toContain(EPIC_BRANCH);
+  });
+
+  test("running epic with explicit provider settings spawns the child with those settings", async () => {
+    const subIssues: SubIssueRef[] = [
+      { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "EFI cluster",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    };
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]).toMatchObject({
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+      issueRef: { number: CHILD },
+    });
   });
 
   test("running epic on a forge WITHOUT ensureBranch: falls back to main, never the epic branch", async () => {
@@ -286,6 +327,7 @@ describe("epic-child spawns base on the integration branch", () => {
     await h.drain.pump(REPO);
     expect(h.creates).toHaveLength(1);
     expect(h.creates[0]!.baseBranch).toBe("main");
+    expect(h.creates[0]!.agentProvider).toBeUndefined();
     expect(h.forgeRec.ensured).toHaveLength(0);
     expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
     // Regular spawn → prompt is just the title, no --base directive.

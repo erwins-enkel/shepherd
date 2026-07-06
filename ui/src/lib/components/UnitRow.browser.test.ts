@@ -158,6 +158,15 @@ describe("UnitRow preview badge", () => {
 });
 
 describe("UnitRow context menu", () => {
+  function openMenu(rowName: string) {
+    const hit = page.getByRole("button", { name: m.unit_open_aria({ name: rowName }) });
+    hit
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+  }
+
   it("offers Rename and calls the row rename handler", async () => {
     const onrename = vi.fn();
     render(UnitRow, {
@@ -168,16 +177,43 @@ describe("UnitRow context menu", () => {
       onrename,
     });
 
-    const hit = page.getByRole("button", { name: m.unit_open_aria({ name: "rename row" }) });
-    hit
-      .element()
-      .dispatchEvent(
-        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
-      );
+    openMenu("rename row");
 
     await page.getByRole("menuitem", { name: m.cardmenu_rename() }).click();
 
     expect(onrename).toHaveBeenCalledWith("rename-row");
+  });
+
+  it("offers Continue with for an open-PR in-flight row", async () => {
+    const onreplace = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "replace-row", name: "replace row", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      git: { state: "open" } as never,
+      onreplace,
+    });
+
+    openMenu("replace row");
+
+    await page.getByRole("menuitem", { name: m.cardmenu_replace_with() }).click();
+    expect(onreplace).toHaveBeenCalledWith("replace-row", { x: 40, y: 40 });
+  });
+
+  it("does not offer Continue with for concluded rows", async () => {
+    render(UnitRow, {
+      session: session({ id: "merged-row", name: "merged row", readyToMerge: true }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      git: { state: "merged" } as never,
+      onreplace: vi.fn(),
+    });
+
+    openMenu("merged row");
+
+    await expect.element(page.getByText(m.cardmenu_replace_with())).not.toBeInTheDocument();
   });
 });
 

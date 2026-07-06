@@ -15,6 +15,7 @@ function harness(opts: {
   startVariant?: (id: string, choice: unknown) => Promise<{ variant: Session; original: Session }>;
   startComparison?: (experimentId: string, choice: unknown) => Promise<Session>;
   replaceAgent?: (id: string, choice: unknown) => Promise<Session>;
+  resolveForge?: AppDeps["resolveForge"];
 }) {
   const emitted: Spy[] = [];
   const calls = {
@@ -81,6 +82,7 @@ function harness(opts: {
     service,
     events,
     usageLimits: { limits: () => ({}) } as never,
+    resolveForge: opts.resolveForge,
   } as unknown as AppDeps;
 
   return { app: makeApp(deps), emitted, calls };
@@ -222,6 +224,62 @@ test("replace: threads a supplied effort tier through to the service (#1418)", a
     id: "orig",
     choice: { agentProvider: "codex", model: "gpt-5.5", handoffMode: "resume", effort: "high" },
   });
+});
+
+test("replace: issue-linked session re-resolves issue context before service call", async () => {
+  const h = harness({
+    original: {
+      repoPath: "/r",
+      issueNumber: 225,
+      worktreePath: "/same-wt",
+      agentProvider: "claude",
+    },
+    resolveForge: () =>
+      ({
+        getIssue: async (number: number) => ({
+          number,
+          title: "Child task",
+          body: "Full body",
+          url: "https://example/225",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+        }),
+      }) as never,
+  });
+  const res = await h.app.fetch(replaceReq());
+  expect(res.status).toBe(200);
+  expect(h.calls.replaceAgent[0]).toEqual({
+    id: "orig",
+    choice: {
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      handoffMode: "resume",
+      effort: null,
+      issueRef: {
+        number: 225,
+        title: "Child task",
+        body: "Full body",
+        url: "https://example/225",
+      },
+    },
+  });
+});
+
+test("replace: unresolved issue returns issue_unresolved before service mutation", async () => {
+  const h = harness({
+    original: {
+      repoPath: "/r",
+      issueNumber: 225,
+      worktreePath: "/same-wt",
+      agentProvider: "claude",
+    },
+    resolveForge: () => ({ getIssue: async () => null }) as never,
+  });
+  const res = await h.app.fetch(replaceReq());
+  expect(res.status).toBe(502);
+  expect(await res.json()).toMatchObject({ code: "issue_unresolved" });
+  expect(h.calls.replaceAgent).toHaveLength(0);
 });
 
 test("compare: spawns, returns 201 and emits session:new", async () => {

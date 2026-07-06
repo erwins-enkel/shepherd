@@ -2993,3 +2993,219 @@ test("clears the auth block at rest when the URL is answered (mtime bump, no run
   expect(h.blocks[1]!.block).toBeNull();
   expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
 });
+
+// ── Resting-session (done/idle) `/login` account-URL detection (PTY-only source) ──────────
+// The Claude Code `/login` flow prints its authorize URL ONLY to the PTY (never the transcript),
+// so the transcript `detectRestingAuth` yields null and detection falls to a throttled async
+// visible-buffer read gated by a two-read stability check (a half-painted URL must never latch).
+const LOGIN_FULL =
+  "https://claude.com/cai/oauth/authorize?response_type=code&code_challenge=abc123&state=xyz789";
+// A still-painting prefix — truncated but still an isAuthUrl-valid `/…/authorize` URL.
+const LOGIN_PARTIAL = "https://claude.com/cai/oauth/authorize?response_type=cod";
+const loginPanel = (url: string) => `─────\n  Login\n\n${url}\n\n  Paste code here if prompted >`;
+
+function doneLoginHarness() {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const blocks: { id: string; block: unknown }[] = [];
+  let visible = "";
+  let readCalls = 0;
+  let agentStatus = "done";
+  const herdr = {
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus,
+        cwd: "/wt",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      } as HerdrAgent,
+    ],
+    read: () => visible, // sync read drives the blocked path (maybeClassify)
+    readAsync: () => {
+      readCalls++;
+      return Promise.resolve(visible);
+    },
+  };
+  let clock = 100_000;
+  let alive = true; // a /login modal implies a live claude; the pre-guard skips husk sessions
+  const poller = new StatusPoller(
+    store,
+    herdr as any,
+    () => {},
+    (id, block) => blocks.push({ id, block }),
+    1000,
+    3000,
+    classifyBlocked,
+    () => clock,
+    undefined, // probe
+    undefined, // stallCfg
+    undefined, // probeCheckMs
+    undefined, // onReady
+    undefined, // onActivity
+    undefined, // preview
+    // liveness: reflect the mutable `alive` flag every tick (sweepMs 0) instead of scanning /proc
+    { scan: (wts) => new Map(wts.map((w) => [w, alive])), sweepMs: 0, onChange: () => {} },
+  );
+  poller.authMtime = () => 100; // stable transcript mtime
+  poller.detectRestingAuth = () => ({ url: null, tail: [] }); // no transcript URL → force PTY source
+  return {
+    store,
+    id: s.id,
+    blocks,
+    poller,
+    advance: (ms: number) => (clock += ms),
+    setVisible: (v: string) => (visible = v),
+    setStatus: (st: string) => (agentStatus = st),
+    setAlive: (a: boolean) => (alive = a),
+    readCalls: () => readCalls,
+  };
+}
+
+/** Drive N throttled probe cadences (advance past reclassifyMs each), resolving each async read. */
+async function settleLogin(h: ReturnType<typeof doneLoginHarness>, times = 4) {
+  for (let i = 0; i < times; i++) {
+    h.advance(3000);
+    h.poller.tick();
+    await flush();
+  }
+}
+
+test("surfaces a /login authorize URL from the PTY after two equal reads (stability gate)", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  await settleLogin(h);
+  const emitted = h.blocks.filter((b) => b.block !== null);
+  expect(emitted).toHaveLength(1);
+  expect((emitted[0]!.block as any).shape).toBe("awaiting-input");
+  expect((emitted[0]!.block as any).authUrl).toBe(LOGIN_FULL);
+  expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(LOGIN_FULL);
+});
+
+test("never emits a still-painting partial URL (emits the full URL once it stabilizes)", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_PARTIAL));
+  h.advance(3000);
+  h.poller.tick();
+  await flush(); // read #1 = PARTIAL (observed, unconfirmed)
+  h.setVisible(loginPanel(LOGIN_FULL)); // paint completed before the next read
+  await settleLogin(h);
+  const emitted = h.blocks.filter((b) => b.block !== null);
+  expect(emitted.length).toBeGreaterThanOrEqual(1);
+  expect(emitted.every((b) => (b.block as any).authUrl === LOGIN_FULL)).toBe(true);
+  // the truncated prefix must never have surfaced
+  expect(h.blocks.some((b) => (b.block as any)?.authUrl === LOGIN_PARTIAL)).toBe(false);
+});
+
+test("clears the /login banner on a no-URL read, with NO running/blocked transition", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  await settleLogin(h);
+  expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(1); // banner up
+  // login completes → panel gone, but the session STAYS done (no running edge fires)
+  h.setVisible("  Some other screen\n  no url here");
+  await settleLogin(h);
+  expect(h.blocks[h.blocks.length - 1]!.block).toBeNull();
+  expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
+});
+
+test("does not read the PTY while a transcript (MCP) URL stands", () => {
+  const h = doneLoginHarness();
+  h.poller.detectRestingAuth = () => ({ url: AUTH_URL, tail: [] }); // transcript owns the banner
+  h.poller.tick();
+  expect(h.readCalls()).toBe(0); // PTY source never consulted
+  expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
+});
+
+test("throttles the PTY probe to one read per reclassify cadence", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  h.poller.tick();
+  await flush(); // read #1
+  h.poller.tick();
+  await flush(); // same clock → throttled, no read
+  h.poller.tick();
+  await flush();
+  expect(h.readCalls()).toBe(1);
+  h.advance(3000);
+  h.poller.tick();
+  await flush(); // cadence elapsed → read #2
+  expect(h.readCalls()).toBe(2);
+});
+
+test("drops the confirmed /login cache on the leave-resting edge (no phantom re-emit)", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  await settleLogin(h);
+  expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(1); // banner up
+  // agent resumes → the leave-resting edge drops the detection caches
+  h.setStatus("working");
+  h.advance(3000);
+  h.poller.tick();
+  await flush();
+  // immediately re-rested: a single tick can only RE-OBSERVE (one read), never RE-CONFIRM, so the
+  // stale FULL URL must not instantly re-emit.
+  h.setStatus("done");
+  const mark = h.blocks.length;
+  h.advance(3000);
+  h.poller.tick();
+  await flush();
+  expect(h.blocks.slice(mark).some((b) => (b.block as any)?.authUrl === LOGIN_FULL)).toBe(false);
+});
+
+test("blocked path: reconstructs a /login URL from the visible buffer (after two reads, no partial)", () => {
+  const h = spinnerHarness(loginPanel(LOGIN_FULL));
+  (h.poller as any).detectAuth = () => null; // no transcript URL
+  h.poller.tick(); // read #1 → awaiting-input block, URL observed but NOT yet confirmed
+  expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
+  expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
+  h.advance(3000);
+  h.poller.tick(); // read #2 → confirmed → authUrl attached (re-emits, sig now includes authUrl)
+  const last = h.blocks[h.blocks.length - 1]!.block as any;
+  expect(last.authUrl).toBe(LOGIN_FULL);
+  // never a truncated partial
+  expect(
+    h.blocks.every((b) => {
+      const u = (b.block as any)?.authUrl;
+      return u === undefined || u === LOGIN_FULL;
+    }),
+  ).toBe(true);
+});
+
+test("blocked→idle inheritance surfaces the AUTH banner with a real (non-empty) tail", async () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  (h.poller as any).detectAuth = () => null; // no transcript URL → PTY reconstruction
+  // Blocked: two reads confirm the /login URL (blocked path caches into the shared confirmed map).
+  h.setStatus("blocked");
+  h.poller.tick();
+  h.advance(3000);
+  h.poller.tick();
+  await flush();
+  // blocked → idle: NOT a leave-resting edge, so the confirmed cache persists and the resting
+  // path inherits it. The inherited banner must carry the real login-panel tail, not a placeholder.
+  h.setStatus("idle");
+  h.advance(3000);
+  h.poller.tick();
+  await flush();
+  const authBlocks = h.blocks.filter((b) => (b.block as any)?.authUrl === LOGIN_FULL);
+  expect(authBlocks.length).toBeGreaterThan(0);
+  expect((authBlocks[authBlocks.length - 1]!.block as any).tail.length).toBeGreaterThan(0);
+});
+
+test("stops probing the PTY once a resting session's claude is known dead (husk)", () => {
+  const h = doneLoginHarness();
+  h.setVisible(loginPanel(LOGIN_FULL));
+  h.setAlive(false); // no live claude → no /login modal possible
+  h.poller.tick(); // cold tick: the post-loop liveness sweep records claude-dead
+  const afterPrime = h.readCalls(); // the cold tick probes once before the sweep runs (undefined=maybe)
+  h.advance(3000);
+  h.poller.tick();
+  h.advance(3000);
+  h.poller.tick();
+  expect(h.readCalls()).toBe(afterPrime); // no further PTY reads once known dead
+  expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(0); // never surfaced a banner
+});

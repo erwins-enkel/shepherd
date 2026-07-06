@@ -185,3 +185,52 @@ export function detectPendingAuthUrl(rawJsonl: string, maxSinceSet = 25): string
   }
   return pending && sinceSet > maxSinceSet ? null : pending;
 }
+
+// eslint-disable-next-line no-control-regex
+const ANSI_LINE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+// Framing a TUI panel puts on a line: box-drawing glyphs (U+2500–U+257F: the `─` rule and the
+// `│`/`┃` verticals) or an ASCII `|`, plus surrounding whitespace/indent. These survive
+// ANSI-strip, so peel them off BOTH ends of a line before anchoring/joining a URL. A URL has
+// none of these characters, so stripping ends never eats URL content.
+const BORDER_ENDS_RE = /^[\s─-╿|]+|[\s─-╿|]+$/g;
+
+/** A terminal line's content with ANSI + framing borders/indent stripped from both ends. */
+function innerText(line: string): string {
+  return line.replace(ANSI_LINE_RE, "").replace(BORDER_ENDS_RE, "");
+}
+
+/**
+ * Reconstruct a word-wrapped OAuth *authorization* URL from a terminal VISIBLE buffer.
+ *
+ * The Claude Code `/login` (account re-login) flow prints its authorize URL only into the PTY —
+ * it never lands in the JSONL transcript, so the transcript detectors above cannot see it. The
+ * TUI hard-wraps the URL at terminal width with NO inserted spaces, breaking it mid-token across
+ * several flush-left lines. So: anchor on the first line that carries an `https?://` token, then
+ * join following lines that are ENTIRELY URL characters, and validate the result is an authorize
+ * URL (`isAuthUrl`) so an arbitrary printed link can't forge one.
+ *
+ * The join evaluates its STOP condition strictly BEFORE appending: a hard-wrapped continuation is,
+ * by construction, a whole line of URL characters with no internal whitespace, so a line that is
+ * empty or has ANY internal whitespace (a blank line, or `Paste code here if prompted >`, even
+ * with no intervening blank line) ends the URL and contributes NOTHING. Appending a leading run of
+ * such a line would yield a *structurally valid* authorize URL that passes both `isAuthUrl` and the
+ * poller's stability gate — a silently broken banner — so it must be prevented here at the join.
+ */
+export function detectLoginAuthUrl(visible: string): string | null {
+  const lines = visible.split("\n").map(innerText);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const idx = line.search(/https?:\/\//);
+    if (idx < 0) continue;
+    // Head: from the scheme to the first whitespace on this line (the wrap's first URL chunk).
+    let joined = line.slice(idx).split(/\s/)[0]!;
+    for (let j = i + 1; j < lines.length; j++) {
+      const cont = lines[j]!;
+      if (cont === "" || /\s/.test(cont)) break; // STOP before APPEND — URL ended
+      joined += cont;
+    }
+    const u = trimUrl(joined);
+    if (isAuthUrl(u)) return u;
+  }
+  return null;
+}

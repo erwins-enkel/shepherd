@@ -141,7 +141,7 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
-import { RecapService } from "./recap";
+import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
@@ -452,6 +452,24 @@ const recapService: RecapService = new RecapService({
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
   resolveBase: (s) => resolveDiffBase(s, prPoller, resolveForge),
+  landedWorkEvidence: (s, head): LandedWorkEvidence | null => {
+    const git = prPoller.snapshot()[s.id];
+    if (git?.state === "merged" && (git.headSha == null || git.headSha === head)) {
+      return {
+        kind: "merged_pr",
+        summary: `merged PR${git.number ? ` #${git.number}` : ""}`,
+      };
+    }
+    const review = store.getReview(s.id);
+    if (review?.headSha === head) {
+      return { kind: "review", summary: "PR review recorded for this head" };
+    }
+    const recap = store.getRecap(s.id);
+    if (recap?.headSha === head && recap.changedFiles.length > 0) {
+      return { kind: "existing_recap", summary: "existing recap recorded changed files" };
+    }
+    return null;
+  },
 });
 
 // Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started

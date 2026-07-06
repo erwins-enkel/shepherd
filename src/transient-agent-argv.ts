@@ -126,6 +126,12 @@ const PRESETS: Record<TransientAgentKind, KindPreset> = {
   "writer-only": { allowedTools: ["Write"], mcpIsolated: false },
 };
 
+/** child_process.spawn rejects any argv arg containing a NUL. Keep one shared prompt sanitizer so
+ *  Claude and Codex transient roles have the same contract. */
+function sanitizePromptArg(prompt: string): string {
+  return prompt.replaceAll("\0", "\\0");
+}
+
 /**
  * Build the argv (and the forced session id) for a transient `claude` agent of the given kind.
  * Returns the pinned `--session-id` so callers can locate the spawn's transcript. Pure: no I/O,
@@ -143,7 +149,10 @@ export function buildTransientAgentArgv(
   // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
   // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
   if (opts.provider === "codex")
-    return { argv: codexRoleArgv(opts.model, opts.prompt, opts.effort ?? null), sessionId };
+    return {
+      argv: codexRoleArgv(opts.model, sanitizePromptArg(opts.prompt), opts.effort ?? null),
+      sessionId,
+    };
 
   const settings: Record<string, unknown> = { disableAllHooks: true };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;
@@ -172,7 +181,7 @@ export function buildTransientAgentArgv(
   // transient spawn site (issue #1235). Replace each NUL with its visible 2-char escape `\0` rather
   // than stripping it, so the surrounding text's meaning survives for the reading agent. NUL is the
   // only spawn-illegal char; other control chars are legal in argv and left untouched.
-  argv.push(opts.prompt.replaceAll("\0", "\\0"));
+  argv.push(sanitizePromptArg(opts.prompt));
 
   return { argv, sessionId };
 }

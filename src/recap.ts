@@ -55,7 +55,21 @@ const PLAN_FILE = ".shepherd-plan.md";
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_IDLE_THRESHOLD_MS = 120_000;
 
+type AncestryResult = "contained" | "not-contained" | "unknown";
+
+export interface LandedWorkEvidence {
+  kind: "merged_pr" | "review" | "existing_recap";
+  summary: string;
+}
+
+type EmptyDiffAction =
+  { kind: "continue"; landedContext: string } | { kind: "done"; result: "empty" | "error" };
+
 // ── defaults ──────────────────────────────────────────────────────────────────
+
+function optional<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
 
 async function defaultHeadSha(worktreePath: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
@@ -63,6 +77,33 @@ async function defaultHeadSha(worktreePath: string): Promise<string> {
     encoding: "utf8",
   });
   return stdout.trim();
+}
+
+async function defaultCurrentBranch(worktreePath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultHeadContainedInBase(
+  worktreePath: string,
+  baseRef: string,
+): Promise<AncestryResult> {
+  try {
+    await execFileAsync("git", ["merge-base", "--is-ancestor", "HEAD", baseRef], {
+      cwd: worktreePath,
+      encoding: "utf8",
+    });
+    return "contained";
+  } catch (err) {
+    return (err as { code?: unknown }).code === 1 ? "not-contained" : "unknown";
+  }
 }
 
 function defaultReadTranscript(
@@ -156,6 +197,7 @@ export interface RecapServiceDeps {
     | "getReview"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "listReviewerSpawns"
     | "list"
     | "setRecapPendingDiff"
   >;
@@ -180,6 +222,12 @@ export interface RecapServiceDeps {
   readPlan?: (worktreePath: string) => string;
   readVerdict?: (cwd: string) => VerdictRead<unknown>;
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
+  currentBranch?: (worktreePath: string) => Promise<string | null>;
+  headContainedInBase?: (worktreePath: string, baseRef: string) => Promise<AncestryResult>;
+  landedWorkEvidence?: (
+    session: Session,
+    headSha: string,
+  ) => Promise<LandedWorkEvidence | null> | LandedWorkEvidence | null;
   makeTmpDir?: () => string;
   cleanup?: (cwd: string) => void;
 }
@@ -214,6 +262,12 @@ export class RecapService {
   private _readPlan: (worktreePath: string) => string;
   private _readVerdict: (cwd: string) => VerdictRead<unknown>;
   private _readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
+  private _currentBranch: (worktreePath: string) => Promise<string | null>;
+  private _headContainedInBase: (worktreePath: string, baseRef: string) => Promise<AncestryResult>;
+  private _landedWorkEvidence: (
+    session: Session,
+    headSha: string,
+  ) => Promise<LandedWorkEvidence | null> | LandedWorkEvidence | null;
   private _makeTmpDir: () => string;
   private _cleanup: (cwd: string) => void;
 
@@ -227,22 +281,26 @@ export class RecapService {
   private inFlight = new Set<string>();
 
   constructor(private deps: RecapServiceDeps) {
-    this.now = deps.now ?? Date.now;
-    this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
+    this.now = optional(deps.now, Date.now);
+    this.timeoutMs = optional(deps.timeoutMs, DEFAULT_TIMEOUT_MS);
+    this.idleThresholdMs = optional(deps.idleThresholdMs, DEFAULT_IDLE_THRESHOLD_MS);
     // No service-internal model default — the sonnet default now lives in config.recapModel seeding
     // (config.recapCli="claude"), resolved by roleEnv at the call site in index.ts.
-    this.env = deps.env ?? (() => ({ provider: "claude", model: null }));
-    this._resolveBase =
-      deps.resolveBase ?? ((s) => Promise.resolve({ base: s.baseBranch, resolved: false }));
-    this._computeDiff = deps.computeDiff ?? computeDiff;
-    this._headSha = deps.headSha ?? defaultHeadSha;
-    this._readTranscript = deps.readTranscript ?? defaultReadTranscript;
-    this._readPlan = deps.readPlan ?? defaultReadPlan;
-    this._readVerdict = deps.readVerdict ?? defaultReadVerdict;
-    this._readUsage = deps.readUsage ?? readSessionUsage;
-    this._makeTmpDir = deps.makeTmpDir ?? defaultMakeTmpDir;
-    this._cleanup = deps.cleanup ?? defaultCleanup;
+    this.env = optional(deps.env, () => ({ provider: "claude", model: null }));
+    this._resolveBase = optional(deps.resolveBase, (s) =>
+      Promise.resolve({ base: s.baseBranch, resolved: false }),
+    );
+    this._computeDiff = optional(deps.computeDiff, computeDiff);
+    this._headSha = optional(deps.headSha, defaultHeadSha);
+    this._readTranscript = optional(deps.readTranscript, defaultReadTranscript);
+    this._readPlan = optional(deps.readPlan, defaultReadPlan);
+    this._readVerdict = optional(deps.readVerdict, defaultReadVerdict);
+    this._readUsage = optional(deps.readUsage, readSessionUsage);
+    this._currentBranch = optional(deps.currentBranch, defaultCurrentBranch);
+    this._headContainedInBase = optional(deps.headContainedInBase, defaultHeadContainedInBase);
+    this._landedWorkEvidence = optional(deps.landedWorkEvidence, () => null);
+    this._makeTmpDir = optional(deps.makeTmpDir, defaultMakeTmpDir);
+    this._cleanup = optional(deps.cleanup, defaultCleanup);
   }
 
   // ── resolveTerminal ──────────────────────────────────────────────────────────
@@ -250,6 +308,114 @@ export class RecapService {
   /** Find a recap spawn's live terminal by its tmpdir cwd. "" when gone; herdr.stop("") is a no-op. */
   private resolveTerminal(cwd: string): string {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
+  }
+
+  private putTerminalRecap(
+    session: Session,
+    input: {
+      state: "empty" | "failed";
+      headSha: string;
+      base: string;
+      headline?: string;
+      body?: string;
+    },
+  ): void {
+    const t = this.now();
+    const env = this.env();
+    const row: Recap = {
+      sessionId: session.id,
+      state: input.state,
+      headSha: input.headSha,
+      base: input.base,
+      verdict: null,
+      headline: input.headline ?? "",
+      body: input.body ?? "",
+      openItems: [],
+      changedFiles: [],
+      blocks: [],
+      spawnSessionId: "",
+      cwd: "",
+      model: env.model,
+      spawnedAt: t,
+      generatedAt: t,
+      updatedAt: t,
+    };
+    this.deps.store.putRecap(row);
+    this.deps.onChange(session.id, input.state === "empty" ? null : row);
+  }
+
+  private async classifyEmptyDiff(
+    session: Session,
+    head: string,
+    diff: DiffResult,
+  ): Promise<
+    | { kind: "empty" }
+    | { kind: "landed"; evidence: LandedWorkEvidence }
+    | { kind: "failed"; headline: string; body: string }
+  > {
+    if (!session.isolated || !session.branch) return { kind: "empty" };
+
+    const current = await this._currentBranch(session.worktreePath);
+    if (current && current !== session.branch) {
+      return {
+        kind: "failed",
+        headline: "Recap skipped: session metadata mismatch",
+        body: `The session row points at branch \`${session.branch}\`, but the archived worktree was on \`${current}\`. Shepherd did not trust the empty diff.`,
+      };
+    }
+
+    const evidence = await this._landedWorkEvidence(session, head);
+    if (!evidence) return { kind: "empty" };
+
+    if (diff.fetchFailed) {
+      return {
+        kind: "failed",
+        headline: "Recap skipped: base refresh failed",
+        body: `Shepherd found landed-work evidence (${evidence.summary}), but refreshing the base ref failed, so the empty diff could not be trusted.`,
+      };
+    }
+
+    const ancestry = await this._headContainedInBase(session.worktreePath, diff.baseRef);
+    if (ancestry === "contained") return { kind: "landed", evidence };
+    if (ancestry === "unknown") {
+      return {
+        kind: "failed",
+        headline: "Recap skipped: ancestry check failed",
+        body: `Shepherd found landed-work evidence (${evidence.summary}), but could not verify whether HEAD is already contained in \`${diff.baseRef}\`.`,
+      };
+    }
+    return {
+      kind: "failed",
+      headline: "Recap skipped: empty diff contradicted landed-work evidence",
+      body: `Shepherd found landed-work evidence (${evidence.summary}), but HEAD was not contained in \`${diff.baseRef}\` even though the diff was empty.`,
+    };
+  }
+
+  private async handleEmptyDiff(
+    session: Session,
+    head: string,
+    base: string,
+    diff: DiffResult,
+  ): Promise<EmptyDiffAction> {
+    const classified = await this.classifyEmptyDiff(session, head, diff);
+    if (classified.kind === "empty") {
+      this.putTerminalRecap(session, { state: "empty", headSha: head, base });
+      return { kind: "done", result: "empty" };
+    }
+    if (classified.kind === "failed") {
+      this.putTerminalRecap(session, {
+        state: "failed",
+        headSha: head,
+        base,
+        headline: classified.headline,
+        body: classified.body,
+      });
+      return { kind: "done", result: "error" };
+    }
+    return {
+      kind: "continue",
+      landedContext: `The code diff is empty because this session's HEAD is already contained in the resolved base. Landed-work evidence: ${classified.evidence.summary}. Summarize the completed work from the task, plan, review/PR context, and transcript digest; do not invent changed files.`,
+    };
   }
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
@@ -427,27 +593,11 @@ export class RecapService {
         return "error";
       }
 
+      let landedContext = "";
       if (diff.files.length === 0) {
-        const t = this.now();
-        this.deps.store.putRecap({
-          sessionId: id,
-          state: "empty",
-          headSha: head,
-          base,
-          verdict: null,
-          headline: "",
-          body: "",
-          openItems: [],
-          changedFiles: [],
-          spawnSessionId: "",
-          cwd: "",
-          model: this.env().model,
-          spawnedAt: t,
-          generatedAt: t,
-          updatedAt: t,
-        });
-        this.deps.onChange(id, null);
-        return "empty";
+        const action = await this.handleEmptyDiff(session, head, base, diff);
+        if (action.kind === "done") return action.result;
+        landedContext = action.landedContext;
       }
 
       // Build prompt inputs.
@@ -460,6 +610,7 @@ export class RecapService {
       const contextParts: string[] = [];
       const review = this.deps.store.getReview(id);
       if (review?.summary) contextParts.push(`Critic verdict: ${review.summary}`);
+      if (landedContext) contextParts.push(landedContext);
       if (session.readyToMerge) contextParts.push("Operator marked ready to merge.");
       if (session.planPhase) contextParts.push(`Plan phase: ${session.planPhase}`);
       // #1059: hint the prose about detected manual operator steps (the authoritative copy is the
@@ -503,7 +654,9 @@ export class RecapService {
         taskSessionId: id,
         kind: "recap",
         worktreePath: cwd,
+        reviewerProvider: env.provider,
         model: env.model,
+        reviewerEffort: env.effort ?? null,
         spawnedAt,
       });
 
@@ -547,6 +700,7 @@ export class RecapService {
       let action: VerdictAction;
       let read: VerdictRead<unknown>;
       let elapsed: number;
+      let finished: boolean;
       try {
         elapsed = this.now() - r.spawnedAt;
         read = this._readVerdict(r.cwd);
@@ -554,7 +708,7 @@ export class RecapService {
         // Ground-truth liveness via paneForegroundProcs (same signal as tab-reaper): a live-but-idle
         // recap spawn between API turns reads "idle" in agentStatus but still has non-shell procs.
         // isSpawnAlive never throws; herdr errors → fail-closed alive.
-        const finished = !(await isSpawnAlive(this.deps.herdr, r.cwd));
+        finished = !(await isSpawnAlive(this.deps.herdr, r.cwd));
         action = decideVerdictAction(read, finished, timedOut, elapsed > STARTUP_GRACE_MS);
       } catch (err) {
         // _readVerdict or decideVerdictAction threw; isSpawnAlive itself never throws.
@@ -570,7 +724,7 @@ export class RecapService {
       }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      if (action === "finalize-null") this.logUnproducedVerdict(r, read, elapsed);
+      if (action === "finalize-null") this.logUnproducedVerdict(r, read, elapsed, finished);
 
       // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
@@ -584,14 +738,27 @@ export class RecapService {
   /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a
    *  black hole (no log, raw discarded), so an intermittent malformed write was undiagnosable —
    *  surface WHY before finalizing. Extracted from tick() to keep its cognitive complexity in bound. */
-  private logUnproducedVerdict(r: Recap, read: VerdictRead<unknown>, elapsed: number): void {
+  private logUnproducedVerdict(
+    r: Recap,
+    read: VerdictRead<unknown>,
+    elapsed: number,
+    finished: boolean,
+  ): void {
+    const spawn = this.deps.store
+      .listReviewerSpawns()
+      .find((s) => s.reviewerSessionId === r.spawnSessionId);
+    const ctx =
+      `spawn=${r.spawnSessionId || "<none>"} cwd=${r.cwd || "<none>"} model=${r.model ?? "<default>"} ` +
+      `provider=${spawn?.reviewerProvider ?? "<unknown>"} effort=${spawn?.reviewerEffort ?? "<default>"} ` +
+      `elapsed=${Math.round(elapsed / 1000)}s pane=${this.resolveTerminal(r.cwd) ? "present" : "absent"} ` +
+      `finished=${finished}`;
     if (read.status === "unparseable") {
       console.warn(
-        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. snippet: ${recapSnippet(read.raw)}`,
+        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. ${ctx} snippet: ${recapSnippet(read.raw)}`,
       );
     } else {
       console.warn(
-        `[recap] ${r.sessionId}: no verdict file after ${Math.round(elapsed / 1000)}s (spawn exited or hard timeout) — agent produced nothing.`,
+        `[recap] ${r.sessionId}: no verdict file (spawn exited or hard timeout) — agent produced nothing. ${ctx}`,
       );
     }
   }

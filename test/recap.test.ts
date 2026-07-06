@@ -1,7 +1,7 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
 import { RecapService } from "../src/recap";
 import type { VerdictRead } from "../src/json-tolerant";
-import type { Recap, Session } from "../src/types";
+import type { DiffResult, Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -132,6 +132,7 @@ type FakeStore = {
   getReview: (id: string) => null;
   recordReviewerSpawn: (r: any) => void;
   completeReviewerSpawn: (id: string, u: any, at: number) => void;
+  listReviewerSpawns: () => any[];
   list: (opts?: { activeOnly?: boolean }) => Session[];
   setRecapPendingDiff: (sessionId: string, files: any[]) => void;
   get: (id: string) => Session | undefined;
@@ -167,6 +168,7 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
     recordReviewerSpawn: (r: any) => store.reviewerSpawns.push(r),
     completeReviewerSpawn: (id: string, u: any, at: number) =>
       store.completedSpawns.push({ id, u, at }),
+    listReviewerSpawns: () => store.reviewerSpawns,
     list: () => store.sessions,
     setRecapPendingDiff: (sessionId, files) => {
       store.pendingDiffs[sessionId] = files;
@@ -217,7 +219,7 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
   return h;
 }
 
-const NON_EMPTY_DIFF = {
+const NON_EMPTY_DIFF: DiffResult = {
   base: "main",
   baseRef: "origin/main",
   head: "shepherd/x",
@@ -235,7 +237,7 @@ const NON_EMPTY_DIFF = {
   ],
 };
 
-const EMPTY_DIFF = {
+const EMPTY_DIFF: DiffResult = {
   base: "main",
   baseRef: "origin/main",
   head: "shepherd/x",
@@ -269,6 +271,12 @@ function buildSvc(opts: {
   readUsage?: () => Promise<any>;
   resolveBase?: (s: Session) => Promise<{ base: string; resolved: boolean }>;
   computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<any>;
+  currentBranch?: (worktreePath: string) => Promise<string | null>;
+  headContainedInBase?: (
+    worktreePath: string,
+    baseRef: string,
+  ) => Promise<"contained" | "not-contained" | "unknown">;
+  landedWorkEvidence?: () => any;
 }): RecapService {
   let tmpIdx = 0;
   return new RecapService({
@@ -292,6 +300,9 @@ function buildSvc(opts: {
             ? { status: "parsed", value: opts.verdictJson, repaired: false }
             : { status: "absent" }),
     readUsage: opts.readUsage ?? (async () => null),
+    currentBranch: opts.currentBranch,
+    headContainedInBase: opts.headContainedInBase,
+    landedWorkEvidence: opts.landedWorkEvidence,
     makeTmpDir: opts.makeTmpDir ?? (() => `/tmp/recap-test-${++tmpIdx}`),
     cleanup: opts.cleanup ?? (() => {}),
   });
@@ -591,6 +602,53 @@ test("tick timeout: generating row, no verdict, past timeout → state 'failed',
   expect(cleaned).toContain("/tmp/recap-timeout");
 });
 
+test("tick no verdict logs Codex recap spawn context without prompt text", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-codex-timeout",
+    spawnSessionId: "sp-codex",
+    model: "gpt-5.3-codex",
+    spawnedAt: 1_000,
+  });
+  const store = makeStore([], [rec]);
+  store.reviewerSpawns.push({
+    reviewerSessionId: "sp-codex",
+    taskSessionId: "s1",
+    kind: "recap",
+    worktreePath: "/tmp/recap-codex-timeout",
+    reviewerProvider: "codex",
+    model: "gpt-5.3-codex",
+    reviewerEffort: "high",
+    spawnedAt: 1_000,
+  });
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-codex-timeout", terminalId: "t-codex" }]);
+  const warnings: string[] = [];
+  const prevWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+  try {
+    const svc = buildSvc({
+      store,
+      herdr,
+      nowFn: () => 400_000,
+      timeoutMs: 300_000,
+      verdictRead: { status: "absent" },
+    });
+
+    await svc.tick();
+  } finally {
+    console.warn = prevWarn;
+  }
+
+  const msg = warnings.join("\n");
+  expect(msg).toContain("spawn=sp-codex");
+  expect(msg).toContain("cwd=/tmp/recap-codex-timeout");
+  expect(msg).toContain("model=gpt-5.3-codex");
+  expect(msg).toContain("provider=codex");
+  expect(msg).toContain("effort=high");
+  expect(msg).toContain("pane=present");
+  expect(msg).not.toContain("do the thing");
+});
+
 test("tick unparseable: garbage verdict → state 'failed'", async () => {
   const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-garbage", spawnedAt: 100_000 });
   const store = makeStore([], [rec]);
@@ -853,12 +911,13 @@ test("generate: subscription mode — --settings unchanged + no env 4th arg", as
 test("generate: codex provider spawns headless `codex exec` (no claude flags)", async () => {
   const s = makeSession({ status: "idle" });
   const herdr = makeHerdr();
+  const store = makeStore([s]);
   const svc = buildSvc({
-    store: makeStore([s]),
+    store,
     herdr,
     nowFn: () => 1,
     makeTmpDir: () => "/tmp/r",
-    env: () => ({ provider: "codex", model: "gpt-5.5" }),
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
   });
   await svc.regenerate(s);
   const argv = herdr.started[0]!.argv;
@@ -871,6 +930,14 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
     "gpt-5.5",
   ]);
   expect(argv).not.toContain("--settings");
+  expect(argv).not.toContain("--allowedTools");
+  expect(argv).not.toContain("--permission-mode");
+  expect(argv[argv.length - 1]).toContain("`.shepherd-recap.json`");
+  expect(store.reviewerSpawns[0]).toMatchObject({
+    kind: "recap",
+    reviewerProvider: "codex",
+    reviewerEffort: "high",
+  });
 });
 
 test("generate: threads env.effort into the recap argv (issue #1418)", async () => {
@@ -1112,6 +1179,252 @@ test("generate: empty diff → empty row has changedFiles = []", async () => {
   const r = store.getRecap("s1");
   expect(r?.state).toBe("empty");
   expect(r?.changedFiles).toEqual([]);
+});
+
+test("generate: empty diff + contained head without landed evidence stays empty", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "contained",
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.state).toBe("empty");
+});
+
+test("generate: empty diff + contained head with landed evidence starts visible recap", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "contained",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(herdr.started[0]!.argv.at(-1)).toContain("already contained in the resolved base");
+  expect(herdr.started[0]!.argv.at(-1)).toContain("merged PR #12");
+  expect(store.getRecap("s1")?.state).toBe("generating");
+});
+
+test("generate: empty diff + landed evidence + fetch failure becomes visible failed diagnostic", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: { ...EMPTY_DIFF, fetchFailed: true },
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "contained",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  expect(r?.body).toContain("refreshing the base ref failed");
+});
+
+test("generate: empty diff + fetch failure without landed evidence stays empty", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: { ...EMPTY_DIFF, fetchFailed: true },
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "contained",
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.state).toBe("empty");
+});
+
+test("generate: empty diff + branch mismatch becomes visible metadata failure", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/other",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  expect(r?.body).toContain("worktree was on `shepherd/other`");
+});
+
+test("generate: empty diff + not-contained ancestry without evidence stays empty", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "not-contained",
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.state).toBe("empty");
+});
+
+test("generate: empty diff + unknown ancestry with landed evidence becomes visible failed diagnostic", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "unknown",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  expect(r?.body).toContain("could not verify whether HEAD is already contained");
+});
+
+test("generate: empty diff + unknown ancestry without evidence stays empty", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "unknown",
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.state).toBe("empty");
+});
+
+test("generate: empty diff + null current branch without evidence stays empty", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => null,
+    headContainedInBase: async () => "contained",
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("empty");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")?.state).toBe("empty");
+});
+
+test("generate: empty diff + null current branch with landed evidence can start recap", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => null,
+    headContainedInBase: async () => "contained",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
+});
+
+test("generate: empty diff + null current branch + landed evidence + fetch failure fails as stale base", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: { ...EMPTY_DIFF, fetchFailed: true },
+    currentBranch: async () => null,
+    headContainedInBase: async () => "contained",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  expect(r?.body).toContain("refreshing the base ref failed");
+});
+
+test("generate: empty diff + null current branch + landed evidence + unknown ancestry fails as uncertain", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => null,
+    headContainedInBase: async () => "unknown",
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  expect(r?.body).toContain("could not verify whether HEAD is already contained");
 });
 
 // ── considerForArchive tests ──────────────────────────────────────────────────────

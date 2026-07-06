@@ -216,8 +216,9 @@
     openPreviewTick++;
   }
   function openRename(id: string) {
-    selectUnit(id, false);
-    if (!mobile.current && viewMode === "all") viewMode = "focus";
+    selectUnit(id, false, true);
+    if (mobile.current) mobileScreen = "detail";
+    else if (viewMode === "all") viewMode = "focus";
     renameRequest = { id, tick: ++renameRequestSeq };
   }
   let showNew = $state(false);

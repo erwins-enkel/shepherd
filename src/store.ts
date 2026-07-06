@@ -20,6 +20,7 @@ import type {
   BuildQueue,
   BuildStepInput,
   ReviewerSpawnRow,
+  AgentProvider,
   PrReview,
   HerdDigest,
   PostMergeStep,
@@ -919,7 +920,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       taskSessionId     TEXT NOT NULL,
       kind              TEXT NOT NULL,
       worktreePath      TEXT NOT NULL,
+      reviewerProvider  TEXT,
       model             TEXT,
+      reviewerEffort    TEXT,
       spawnedAt         INTEGER NOT NULL,
       completedAt       INTEGER,
       inputTokens       INTEGER,
@@ -927,6 +930,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       cacheReadTokens   INTEGER,
       cacheWriteTokens  INTEGER,
       totalTokens       INTEGER)`);
+    this.migrateReviewerSpawnColumns();
     this.db.run(
       `CREATE INDEX IF NOT EXISTS reviewer_spawns_task ON reviewer_spawns (taskSessionId)`,
     );
@@ -2829,14 +2833,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     taskSessionId: string;
     kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
     worktreePath: string;
+    reviewerProvider?: AgentProvider | null;
     model: string | null;
+    reviewerEffort?: string | null;
     spawnedAt: number;
   }): void {
     this.db.run(
       `INSERT INTO reviewer_spawns
-         (reviewerSessionId, taskSessionId, kind, worktreePath, model, spawnedAt)
-       VALUES (?,?,?,?,?,?)`,
-      [r.reviewerSessionId, r.taskSessionId, r.kind, r.worktreePath, r.model, r.spawnedAt],
+         (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model, reviewerEffort, spawnedAt)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        r.reviewerSessionId,
+        r.taskSessionId,
+        r.kind,
+        r.worktreePath,
+        r.reviewerProvider ?? null,
+        r.model,
+        r.reviewerEffort ?? null,
+        r.spawnedAt,
+      ],
     );
   }
 
@@ -3234,6 +3249,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("answeredQuestionKeys", `answeredQuestionKeys TEXT NOT NULL DEFAULT '[]'`);
     add("reviewerProvider", `reviewerProvider TEXT`);
     add("reviewerModel", `reviewerModel TEXT`);
+    add("reviewerEffort", `reviewerEffort TEXT`);
+  }
+
+  private migrateReviewerSpawnColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(reviewer_spawns)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE reviewer_spawns ADD COLUMN ${ddl}`);
+    };
+    add("reviewerProvider", `reviewerProvider TEXT`);
     add("reviewerEffort", `reviewerEffort TEXT`);
   }
 

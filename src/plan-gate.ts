@@ -176,6 +176,10 @@ interface PlanInFlight {
   finalizing?: boolean;
 }
 
+function reviewerProviderFromSpawn(provider: string | null | undefined): AgentProvider | null {
+  return provider === "claude" || provider === "codex" ? provider : null;
+}
+
 export class PlanGateService {
   private inflight = new Map<string, PlanInFlight>();
   // Session ids whose reviewer is mid-spawn but not yet in `inflight`. begin() awaits the
@@ -383,7 +387,9 @@ export class PlanGateService {
       taskSessionId: session.id,
       kind: "plan_gate",
       worktreePath: wt.worktreePath,
+      reviewerProvider: reviewerEnv.provider,
       model: reviewerEnv.model,
+      reviewerEffort,
       spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
@@ -427,9 +433,9 @@ export class PlanGateService {
         planHash: await PlanGateService.hashPlan(plan),
         plan,
         blocks: this.readPlanBlocks(s.worktreePath),
-        reviewerProvider: null,
+        reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider),
         reviewerModel: sp.model,
-        reviewerEffort: null,
+        reviewerEffort: sp.reviewerEffort,
         priorRound: prior?.round ?? 0,
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });

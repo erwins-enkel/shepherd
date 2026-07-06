@@ -584,7 +584,9 @@ export interface ReviewerSpawnRow {
   taskSessionId: string;
   kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
   worktreePath: string;
+  reviewerProvider: AgentProvider | null;
   model: string | null;
+  reviewerEffort: string | null;
   spawnedAt: number;
   completedAt: number | null;
   inputTokens: number | null;

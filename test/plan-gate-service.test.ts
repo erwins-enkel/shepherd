@@ -139,7 +139,9 @@ test("approved gate records the reviewer provider, model, and resolved effort", 
     reviewerModel: "gpt-5.5",
     reviewerEffort: "high",
   });
+  expect(h.recordedSpawns[0].reviewerProvider).toBe("codex");
   expect(h.recordedSpawns[0].model).toBe("gpt-5.5");
+  expect(h.recordedSpawns[0].reviewerEffort).toBe("high");
 });
 
 test("plan-gate: subscription mode — no apiKeyHelper, no env 4th arg", async () => {
@@ -636,21 +638,23 @@ test("adoptOrphans re-adopts an orphaned review; next tick finalizes it from the
   expect(h.removed).toContain("/wt-detached"); // reviewer worktree reaped
 });
 
-test("adoptOrphans finalizes with only durable reviewer model metadata", async () => {
+test("adoptOrphans restores durable reviewer environment metadata", async () => {
   const h = harness({
     now: () => 1000,
     store: {
       get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
-      listReviewerSpawns: () => [orphanSpawn({ model: "opus" })],
+      listReviewerSpawns: () => [
+        orphanSpawn({ reviewerProvider: "codex", model: "gpt-5.5", reviewerEffort: "high" }),
+      ],
     },
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
   });
   await h.svc.adoptOrphans();
   await h.svc.tick();
   expect(h.store.gate).toMatchObject({
-    reviewerProvider: null,
-    reviewerModel: "opus",
-    reviewerEffort: null,
+    reviewerProvider: "codex",
+    reviewerModel: "gpt-5.5",
+    reviewerEffort: "high",
   });
 });
 

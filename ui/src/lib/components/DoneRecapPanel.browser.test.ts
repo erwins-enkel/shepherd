@@ -280,10 +280,33 @@ describe("DoneRecapPanel bring-back button", () => {
 
 describe("DoneRecapPanel fail-closed", () => {
   it("failed recap → names the failure (never a blank success card)", async () => {
-    recaps.map = { f1: recap({ sessionId: "f1", state: "failed" }) };
+    recaps.map = { f1: recap({ sessionId: "f1", state: "failed", headline: "", body: "" }) };
     render(DoneRecapPanel, { session: session({ id: "f1" }) });
     await expect.element(page.getByText("Recap generation failed.")).toBeInTheDocument();
     expect(page.getByText("Shipped the feature").elements().length, "no headline").toBe(0);
+  });
+
+  it("failed recap with diagnostics → shows the persisted reason", async () => {
+    recaps.map = {
+      f2: recap({
+        sessionId: "f2",
+        state: "failed",
+        headline: "Recap skipped: session metadata mismatch",
+        body: "The session row points at branch `a`, but the archived worktree was on `b`.",
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "f2" }) });
+    await expect.element(page.getByText("Recap generation failed.")).toBeInTheDocument();
+    await expect
+      .element(page.getByText("Recap skipped: session metadata mismatch"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(
+          "The session row points at branch `a`, but the archived worktree was on `b`.",
+        ),
+      )
+      .toBeInTheDocument();
   });
 
   it("missing recap row on a recent session → generic unavailable", async () => {

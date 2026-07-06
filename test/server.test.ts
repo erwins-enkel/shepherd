@@ -783,22 +783,10 @@ test("PUT /api/todo with evil Origin → 403", async () => {
   expect(res.status).toBe(403);
 });
 
-test("POST /api/uploads saves a staged image and returns its path", async () => {
+test("POST /api/uploads saves a staged attachment and returns its path", async () => {
   const app = harness();
   const fd = new FormData();
-  fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.png", { type: "image/png" }));
-  const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
-  expect(existsSync(body.path)).toBe(true);
-  rmSync(body.path, { force: true });
-});
-
-test("POST /api/uploads saves a staged non-image file", async () => {
-  const app = harness();
-  const fd = new FormData();
-  fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
+  fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.pdf", { type: "application/pdf" }));
   const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
   expect(res.status).toBe(200);
   const body = await res.json();
@@ -806,6 +794,19 @@ test("POST /api/uploads saves a staged non-image file", async () => {
   expect(body.path.endsWith(".pdf")).toBe(true);
   expect(existsSync(body.path)).toBe(true);
   rmSync(body.path, { force: true });
+});
+
+test("POST /api/uploads?session rejects a non-image for the live terminal image workflow", async () => {
+  const app = makeApp(makeDeps(["term_x"]));
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  const fd = new FormData();
+  fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
+  const res = await app.fetch(
+    new Request(`http://x/api/uploads?session=${created.id}`, { method: "POST", body: fd }),
+  );
+  expect(res.status).toBe(415);
 });
 
 test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", async () => {

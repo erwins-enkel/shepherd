@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
@@ -22,6 +22,7 @@ import {
   stagingDir,
   sweepStaging,
   STAGING_TTL_MS,
+  uploadExtensionFromName,
   uploadFilename,
   worktreeUploadsDir,
 } from "./uploads";
@@ -2623,7 +2624,7 @@ export class SessionService {
     for (const name of readdirSync(srcDir)) {
       const src = join(srcDir, name);
       if (!statSync(src).isFile()) continue;
-      const ext = extname(name).replace(/^\./, "");
+      const ext = uploadExtensionFromName(name);
       const dest = join(stage, uploadFilename(ext));
       copyFileSync(src, dest);
       copied.push(dest);
@@ -2652,7 +2653,7 @@ export class SessionService {
    * `overrides` is an optional bag applied over the original (absent field keeps the
    * original's value; a present one — incl. explicit `null` — replaces it), letting a
    * caller relaunch into a DIFFERENT repo while carrying prompt/model/base-branch
-   * forward. Upload handling forks on whether overrides are present:
+   * forward. Attachment handling forks on whether overrides are present:
    *   - quick relaunch (`overrides == null`) → the original's uploads are auto-carried
    *     (copied into staging), byte-for-byte the original spawn.
    *   - relaunch WITH overrides → `overrides.images` is used VERBATIM and the original's
@@ -2677,7 +2678,7 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
 
-    // Upload handling forks on whether overrides are present:
+    // Attachment handling forks on whether overrides are present:
     //   - quick relaunch (no overrides) → auto-carry the original's uploads, copied (not
     //     moved) into staging so create() can land them in the new worktree like New Task,
     //     with the originals staying recoverable on a spawn failure. Cap at MAX_IMAGES and
@@ -2760,7 +2761,7 @@ export class SessionService {
     const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
     if (carriedUploads.length > promptUploads.length)
       console.warn(
-        `[replace] ${s.id}: ${carriedUploads.length} uploads exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
+        `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
     const input: CreateSessionInput = {
       repoPath: s.repoPath,
@@ -2886,7 +2887,7 @@ export class SessionService {
     const images = copied.slice(0, MAX_IMAGES);
     if (copied.length > images.length)
       console.warn(
-        `[relaunch] ${originalId}: ${copied.length} uploads exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
+        `[relaunch] ${originalId}: ${copied.length} files exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
       );
     return images;
   }

@@ -1370,7 +1370,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
   expect(store.get(s.id)?.model).toBe("opus");
 });
 
-test("createSession: copies uploads into worktree and appends paths to the prompt", async () => {
+test("createSession: copies attachments into worktree and appends paths to the prompt", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -1409,7 +1409,7 @@ test("createSession: copies uploads into worktree and appends paths to the promp
     images: ["/stage/a.png", "/stage/notes.md"],
   });
 
-  // prompt argv (last element) carries the user text + the copied upload paths
+  // prompt argv (last element) carries the user text + the copied attachment paths
   expect(calls.argv[calls.argv.length - 1]).toBe(
     "look at this\n\nAttached files:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/notes.md",
   );
@@ -1417,7 +1417,7 @@ test("createSession: copies uploads into worktree and appends paths to the promp
   expect(store.get(s.id)?.prompt).toBe("look at this");
 });
 
-test("createSession: a dropped (swept) upload still spawns, notes the loss, emits a toast event", async () => {
+test("createSession: a dropped (swept) attachment still spawns, notes the loss, emits a toast event", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const events: { event: string; data: any }[] = [];
@@ -1446,7 +1446,7 @@ test("createSession: a dropped (swept) upload still spawns, notes the loss, emit
       list: () => [],
     } as any,
     events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
-    // One of two staged uploads is gone — the copy seam returns only the survivor.
+    // One of two staged attachments is gone; the copy seam returns only the survivor.
     copyUploads: (uploads: string[], worktreePath: string) =>
       uploads
         .filter((i) => !i.includes("gone"))
@@ -1462,7 +1462,7 @@ test("createSession: a dropped (swept) upload still spawns, notes the loss, emit
   });
 
   const prompt = calls.argv[calls.argv.length - 1] as string;
-  // The surviving upload is still attached, and the loss is noted in-prompt.
+  // The surviving file is still attached, and the loss is noted in-prompt.
   expect(prompt).toContain("Attached files:\n/wt/repo-x/.shepherd-uploads/kept.png");
   expect(prompt).toContain("1 attached file(s) could not be restored");
   // Operator-visible signal emitted against the new session id.
@@ -1530,7 +1530,7 @@ test("createSession: issue content tripping an injection signature emits a signa
   expect(payload.labels).toContain("ignore-previous-instructions");
 });
 
-test("createSession: no images leaves the prompt argv unchanged", async () => {
+test("createSession: no attachments leaves the prompt argv unchanged", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -6283,6 +6283,32 @@ test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAG
     }
     // originals on disk untouched (all 12 still present)
     expect(readdirSync(uploads)).toHaveLength(12);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("stageRelaunchImages falls back to .bin for extensionless and unsafe carried uploads", () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-safeextroot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-safeextwt-"));
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "noext"), "DATA");
+  writeFileSync(join(uploads, "unsafe.bad!"), "DATA");
+  writeFileSync(join(uploads, "huge." + "x".repeat(40)), "DATA");
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+
+    const staged = service.stageRelaunchImages(orig.id);
+
+    expect(staged).toHaveLength(3);
+    expect(staged.every((entry) => entry.name.endsWith(".bin"))).toBe(true);
+    for (const entry of staged) expect(existsSync(entry.path)).toBe(true);
   } finally {
     config.repoRoot = prevRoot;
   }

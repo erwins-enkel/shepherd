@@ -12,25 +12,35 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   extForMime,
+  imageExtForMime,
   MAX_UPLOAD_BYTES,
   stagingDir,
   worktreeUploadsDir,
   copyStagedIntoWorktree,
   sweepStaging,
-  uploadFilename,
   uploadExtension,
+  uploadExtensionFromName,
+  uploadFilename,
   handleUpload,
 } from "../src/uploads";
 import { SessionStore } from "../src/store";
 
-test("extForMime maps supported image types, rejects others", () => {
+test("extForMime maps supported staged upload types", () => {
   expect(extForMime("image/png")).toBe("png");
   expect(extForMime("image/jpeg")).toBe("jpg");
   expect(extForMime("image/gif")).toBe("gif");
   expect(extForMime("image/webp")).toBe("webp");
-  expect(extForMime("image/svg+xml")).toBeNull();
-  expect(extForMime("application/pdf")).toBeNull();
+  expect(extForMime("application/pdf")).toBe("pdf");
+  expect(extForMime("text/markdown")).toBe("md");
+  expect(extForMime("text/plain")).toBe("txt");
   expect(extForMime("")).toBeNull();
+});
+
+test("imageExtForMime remains image-only for live terminal uploads", () => {
+  expect(imageExtForMime("image/png")).toBe("png");
+  expect(imageExtForMime("image/jpeg")).toBe("jpg");
+  expect(imageExtForMime("application/pdf")).toBeNull();
+  expect(imageExtForMime("text/plain")).toBeNull();
 });
 
 test("MAX_UPLOAD_BYTES is 10 MB", () => {
@@ -109,17 +119,35 @@ test("sweepStaging is a no-op when staging dir is absent", () => {
   expect(() => sweepStaging(root, 1000, Date.now())).not.toThrow();
 });
 
-test("uploadFilename returns <uuid>.<ext>", () => {
-  expect(uploadFilename("png")).toMatch(/^[0-9a-f-]{36}\.png$/);
+test("uploadExtension derives bounded safe extensions for staged attachments", () => {
+  expect(uploadExtension(new File(["x"], "report.pdf", { type: "application/pdf" }))).toBe("pdf");
+  expect(uploadExtension(new File(["x"], "notes.md", { type: "" }))).toBe("md");
+  expect(uploadExtension(new File(["x"], "todo", { type: "text/plain" }))).toBe("txt");
+  expect(uploadExtension(new File(["x"], "noext", { type: "" }))).toBe("bin");
+  expect(uploadExtension(new File(["x"], "bad.sh!", { type: "text/plain" }))).toBe("bin");
+  expect(uploadExtension(new File(["x"], "huge." + "a".repeat(40), { type: "" }))).toBe("bin");
 });
 
-test("uploadExtension preserves only a safe extension", () => {
-  expect(uploadExtension("../evil.md")).toBe("md");
-  expect(uploadExtension("brief.final.PDF")).toBe("PDF");
-  expect(uploadExtension("weird.na/me.m*d")).toBe("md");
-  expect(uploadExtension("README")).toBe("bin");
-  expect(uploadExtension("...")).toBe("bin");
-  expect(uploadExtension("")).toBe("bin");
+test("uploadExtensionFromName falls back safely for relaunch carry names", () => {
+  expect(uploadExtensionFromName("orig.md")).toBe("md");
+  expect(uploadExtensionFromName("orig")).toBe("bin");
+  expect(uploadExtensionFromName("orig." + "x".repeat(40))).toBe("bin");
+  expect(uploadExtensionFromName("orig.bad!")).toBe("bin");
+});
+
+test("uploadFilename returns <uuid>.<ext>", () => {
+  expect(uploadFilename("png")).toMatch(/^[0-9a-f-]{36}\.png$/);
+  expect(uploadFilename("")).toMatch(/^[0-9a-f-]{36}\.bin$/);
+  expect(uploadFilename("a".repeat(40))).toMatch(/^[0-9a-f-]{36}\.bin$/);
+});
+
+test("uploadExtensionFromName preserves only a bounded safe extension", () => {
+  expect(uploadExtensionFromName("../evil.md")).toBe("md");
+  expect(uploadExtensionFromName("brief.final.PDF")).toBe("pdf");
+  expect(uploadExtensionFromName("weird.na/me.m*d")).toBe("bin");
+  expect(uploadExtensionFromName("README")).toBe("bin");
+  expect(uploadExtensionFromName("...")).toBe("bin");
+  expect(uploadExtensionFromName("")).toBe("bin");
 });
 
 function uploadReq(file: File | null, query = ""): Request {
@@ -128,7 +156,7 @@ function uploadReq(file: File | null, query = ""): Request {
   return new Request(`http://x/api/uploads${query}`, { method: "POST", body: fd });
 }
 
-test("handleUpload saves to staging dir when no session given", async () => {
+test("handleUpload saves a staged image attachment when no session given", async () => {
   const store = new SessionStore(":memory:");
   const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
   const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
@@ -139,6 +167,26 @@ test("handleUpload saves to staging dir when no session given", async () => {
   expect(existsSync(body.path)).toBe(true);
   // generated name, not the client filename
   expect(body.path.includes("shot.png")).toBe(false);
+});
+
+test("handleUpload saves staged non-image attachments when no session given", async () => {
+  const store = new SessionStore(":memory:");
+  const cases = [
+    new File([new Uint8Array([1])], "doc.pdf", { type: "application/pdf" }),
+    new File([new Uint8Array([2])], "notes.md", { type: "" }),
+    new File([new Uint8Array([3])], "readme.txt", { type: "text/plain" }),
+    new File([new Uint8Array([4])], "noext", { type: "" }),
+    new File([new Uint8Array([5])], "unsafe." + "x".repeat(40), { type: "" }),
+  ];
+  const endings = [".pdf", ".md", ".txt", ".bin", ".bin"];
+  for (let i = 0; i < cases.length; i++) {
+    const res = await handleUpload(uploadReq(cases[i]!), { store, repoRoot: root });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.path.startsWith(stagingDir(root) + "/")).toBe(true);
+    expect(body.path.endsWith(endings[i]!)).toBe(true);
+    expect(existsSync(body.path)).toBe(true);
+  }
 });
 
 test("handleUpload saves into the session worktree when ?session= is valid", async () => {
@@ -166,21 +214,43 @@ test("handleUpload saves into the session worktree when ?session= is valid", asy
   expect(existsSync(body.path)).toBe(true);
 });
 
+test("handleUpload keeps ?session= uploads image-only", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-sess");
+  mkdirSync(wt);
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
+  const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+  expect(res.status).toBe(415);
+});
+
 test("handleUpload 404s for an unknown session", async () => {
   const store = new SessionStore(":memory:");
-  const file = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
   const res = await handleUpload(uploadReq(file, "?session=nope"), { store, repoRoot: root });
   expect(res.status).toBe(404);
 });
 
-test("handleUpload accepts a non-image file", async () => {
+test("handleUpload falls back to bin for an unsupported staged type", async () => {
   const store = new SessionStore(":memory:");
-  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
+  const file = new File([new Uint8Array([1])], "x", { type: "application/octet-stream" });
   const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.path.startsWith(stagingDir(root) + "/")).toBe(true);
-  expect(body.path.endsWith(".pdf")).toBe(true);
+  expect(body.path.endsWith(".bin")).toBe(true);
   expect(existsSync(body.path)).toBe(true);
 });
 

@@ -325,6 +325,7 @@
     try {
       const res = await uninstallPlugin(folder);
       if (res.ok) {
+        await loadInstalled();
         openRestart(true);
       } else {
         actionError = errorMessage(res.error);

@@ -61,3 +61,45 @@ export function canRelease(
 ): boolean {
   return Boolean(gate?.approved) && session.planPhase === "planning";
 }
+
+export type PlanGateTooltipCopy = {
+  fallback: string;
+  planning: string;
+  reviewing: string;
+  changes: string;
+  changesStalled: string;
+  ready: string;
+  error: string;
+  view: string;
+};
+
+/** Compose the badge tooltip without replacing the reviewer's own one-line summary. */
+export function composePlanGateTooltip(
+  chip: PlanGateChip,
+  gate: Pick<PlanGate, "summary"> | undefined,
+  copy: PlanGateTooltipCopy,
+): string {
+  if (chip.kind === "none") return "";
+  const hint = planGateTooltipHint(chip, copy);
+  const summary = gate?.summary?.trim();
+  return summary ? `${summary}; ${hint}` : hint || copy.fallback;
+}
+
+function planGateTooltipHint(chip: PlanGateChip, copy: PlanGateTooltipCopy): string {
+  switch (chip.kind) {
+    case "planning":
+      return copy.planning;
+    case "reviewing":
+      return copy.reviewing;
+    case "changes":
+      return chip.round >= chip.cap ? copy.changesStalled : copy.changes;
+    case "ready":
+      return copy.ready;
+    case "error":
+      return copy.error;
+    case "view":
+      return copy.view;
+    case "none":
+      return "";
+  }
+}

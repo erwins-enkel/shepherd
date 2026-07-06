@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import { planGateChip } from "./plan-gate-badge";
+  import { composePlanGateTooltip, planGateChip } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -16,8 +16,18 @@
 
   let open = $state(false);
 
-  // Tooltip: prefer the reviewer's one-liner, else describe the state.
-  const title = $derived(gate?.summary || m.plangate_title());
+  const title = $derived(
+    composePlanGateTooltip(chip, gate, {
+      fallback: m.plangate_title(),
+      planning: m.plangate_tip_planning(),
+      reviewing: m.plangate_tip_reviewing(),
+      changes: m.plangate_tip_changes(),
+      changesStalled: m.plangate_tip_changes_stalled(),
+      ready: m.plangate_tip_ready(),
+      error: m.plangate_tip_error(),
+      view: m.plangate_tip_view(),
+    }),
+  );
 </script>
 
 {#if chip.kind !== "none"}

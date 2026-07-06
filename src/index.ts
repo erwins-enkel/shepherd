@@ -767,6 +767,10 @@ poller.reDrive = (id) =>
     console.warn(`[poller] account re-drive failed for ${id}:`, err);
   });
 
+// Best-effort: seed a running isolated Codex session's provider-native id from its rollout header, so
+// restore (and #1087/#1160) has the id available. Synchronous + internally guarded/never-throws.
+poller.captureCodexSessionId = (s) => service.captureCodexSessionId(s);
+
 // Phase-1 push-hook signal wiring (issue #704): feed received hook events into the
 // poller (the single owner of per-session signal dedup + state). Only when
 // `config.hooksSignals` is on AND ingest is too — with ingest off no events ever

@@ -134,6 +134,11 @@ export class StatusPoller {
    *  index.ts). Left undefined in tests that don't exercise it. */
   reDrive?: (id: string) => void;
 
+  /** Fire-and-forget best-effort seed of a running Codex session's provider-native id (wired to
+   *  service.captureCodexSessionId in index.ts). No-op for non-Codex / non-isolated / already-seeded
+   *  sessions. Left undefined in tests that don't exercise it. */
+  captureCodexSessionId?: (s: Session) => void;
+
   /**
    * Resting-session (done/idle) MCP-auth detection seams, public + assignable (mirrors `reDrive`)
    * so tests can drive the mtime/URL sequence deterministically without touching disk:
@@ -426,6 +431,15 @@ export class StatusPoller {
       const agent = matched.get(s.id) ?? null;
       if (!agent) this.reapGone(s);
       else this.reconcileAgent(s, agent);
+      // Best-effort seed of a live Codex session's provider-native id (no-op unless it's an isolated
+      // Codex session that hasn't been seeded yet). tick() runs on a bare setInterval — never throw.
+      if (agent && this.captureCodexSessionId) {
+        try {
+          this.captureCodexSessionId(s);
+        } catch (err) {
+          console.warn("[poller] codex session-id capture failed:", err);
+        }
+      }
     }
     this.pruneInactive(activeIds);
     // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired

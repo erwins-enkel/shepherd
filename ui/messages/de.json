@@ -2628,5 +2628,7 @@
   "topbar_usage_provider_short_codex": "CX",
   "feat_usage_gauge_provider_rotation_title": "Auslastungsanzeigen wechseln nach CLI",
   "feat_usage_gauge_provider_rotation_body": "Wenn Auslastungsdaten für Claude Code und Codex konfiguriert sind, wechselt die kompakte Anzeige in der Topbar jetzt alle zwei Minuten zwischen CC und CX. Codex zeigt Limit-Balken, sobald sie verfügbar sind, oder Token-Summen, bis die CLI Reset-Fenster meldet.",
-  "plugins_repo": "REPO"
+  "plugins_repo": "REPO",
+  "feat_codex_bring_back_title": "Codex-Sessions zurückholen",
+  "feat_codex_bring_back_body": "Zurückholen funktioniert jetzt auch für Codex-Sessions, nicht nur für Claude. Wähle eine abgeschlossene Codex-Session in der Fertig-Ansicht und klicke auf Zurückholen — Shepherd erstellt ihren Worktree neu und setzt das exakte Codex-Gespräch anhand seiner Session-ID fort. Nur isolierte Codex-Sessions können zurückgeholt werden; andere müssen weiterhin neu gestartet werden."
 }

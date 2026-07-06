@@ -42,6 +42,62 @@ test("session agentProvider defaults to claude and round-trips codex", () => {
   expect(s.get(codex.id)?.agentProvider).toBe("codex");
 });
 
+test("session providerSessionId: defaults '', accepts create input, set via setProviderSessionId", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.providerSessionId).toBe("");
+  expect(s.get(a.id)?.providerSessionId).toBe("");
+
+  const b = s.create({ ...base, herdrAgentId: "t2", providerSessionId: "rollout-uuid" });
+  expect(b.providerSessionId).toBe("rollout-uuid");
+  expect(s.get(b.id)?.providerSessionId).toBe("rollout-uuid");
+
+  s.setProviderSessionId(a.id, "captured-uuid");
+  expect(s.get(a.id)?.providerSessionId).toBe("captured-uuid");
+});
+
+test("session providerSessionId: update() preserves it when absent from patch, resets when passed", () => {
+  const s = mk();
+  const a = s.create({ ...base, providerSessionId: "keep-me" });
+  // a patch that doesn't mention providerSessionId leaves it intact
+  s.update(a.id, { status: "archived", lastState: "done" });
+  expect(s.get(a.id)?.providerSessionId).toBe("keep-me");
+  // an explicit reset (relaunch path) clears it
+  s.update(a.id, { providerSessionId: "" });
+  expect(s.get(a.id)?.providerSessionId).toBe("");
+});
+
+test("session migration: an old sessions row without providerSessionId gains the '' default", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-sess-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create the sessions table as it was BEFORE the providerSessionId column.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      agentProvider TEXT NOT NULL DEFAULT 'claude',
+      model TEXT, effort TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
+        isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt)
+       VALUES ('old', 'TASK-01', 'n', 'p', '/r', 'main', 'shepherd/n', '/wt', 1, 'default', 't',
+        'running', 'idle', 1, 1)`,
+    );
+    raw.close();
+    // opening through the store runs migrateSessionColumns, adding providerSessionId with its default
+    const store = new SessionStore(dbPath);
+    expect(store.get("old")?.providerSessionId).toBe("");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("update can replace a session's agent identity without changing the row", () => {
   const s = mk();
   const orig = s.create({ ...base, claudeSessionId: "claude-old", model: "opus" });

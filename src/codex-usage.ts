@@ -49,13 +49,13 @@ export interface CodexRateLimits {
   latestEventAt: number | null;
 }
 
-interface RolloutCandidate {
+export interface RolloutCandidate {
   path: string;
   mtimeMs: number;
   size: number;
 }
 
-function codexHome(): string {
+export function codexHome(): string {
   return process.env.CODEX_HOME || join(homedir(), ".codex");
 }
 
@@ -79,7 +79,12 @@ function dedupeRolloutCandidates(paths: string[], extra: RolloutCandidate[]): Ro
   return [...byPath.values()].sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, ROLLOUT_SCAN_LIMIT);
 }
 
-export function recentCodexRolloutPaths(home = codexHome(), limit = ROLLOUT_SCAN_LIMIT): string[] {
+/**
+ * Every rollout file under `$CODEX_HOME/sessions`, newest-first by mtime, with NO count cap — the
+ * complete set. Callers that only want the freshest few must slice themselves. `findCodexSessionId`
+ * relies on the full list so a busy machine can't push a session's own rollout past a limit.
+ */
+export function listRolloutFiles(home = codexHome()): RolloutCandidate[] {
   const root = join(home, "sessions");
   const out: RolloutCandidate[] = [];
   function walk(dir: string): void {
@@ -101,8 +106,11 @@ export function recentCodexRolloutPaths(home = codexHome(), limit = ROLLOUT_SCAN
     }
   }
   walk(root);
-  return out
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+export function recentCodexRolloutPaths(home = codexHome(), limit = ROLLOUT_SCAN_LIMIT): string[] {
+  return listRolloutFiles(home)
     .slice(0, limit)
     .map((c) => c.path);
 }

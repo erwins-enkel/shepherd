@@ -147,7 +147,7 @@ import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
-import { detectPendingAuthUrl } from "./auth-url";
+import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
 import { verifyApiKey } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
@@ -1380,6 +1380,19 @@ events.subscribe((event, data) => {
   }
 });
 
+/** A session's live PTY visible buffer via its matched herdr agent, or null (no session / no live
+ *  agent / herdr down). Shared by the `readTail` and `pendingAuthUrl` autopilot seams. */
+function readVisibleBuffer(id: string): string | null {
+  const s = store.get(id);
+  if (!s) return null;
+  try {
+    const live = matchAgent(s, herdr.list());
+    return live ? herdr.read(live.terminalId, "visible") : null;
+  } catch {
+    return null;
+  }
+}
+
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
 // session (per-repo default + per-session override) stalls on a procedural gate with no PR
 // yet, a transient classifier decides gate (auto-proceed) / question (surface) / finished
@@ -1403,24 +1416,30 @@ const autopilot = new AutopilotService({
   },
   deferSteer: (id) => service.shouldDeferSteer(id),
   readTail: (id) => {
-    const s = store.get(id);
-    if (!s) return [];
-    const live = matchAgent(s, herdr.list());
-    return live ? tailLines(herdr.read(live.terminalId, "visible")) : [];
+    const v = readVisibleBuffer(id);
+    return v === null ? [] : tailLines(v);
   },
-  // Pending MCP OAuth authorize URL (freshness-gated, swap-account-aware transcript read). An
-  // OAuth flow is human-only, so autopilot stands down until the operator completes it. Fresh
-  // read (not off an event) so onDone/consider re-checks are deterministic. Guarded → null.
+  // Pending human-only OAuth authorize URL — autopilot stands down until the operator completes
+  // it. A fresh read (not off an event) so onDone/consider re-checks are deterministic. TWO
+  // independent sources, first hit wins: the swap-account-aware transcript (MCP OAuth,
+  // freshness-gated) and, failing that, a fresh PTY visible read reconstructing a `/login`
+  // account-re-login URL (PTY-only — never in the transcript). The `claudeSessionId` precondition
+  // gates ONLY the transcript branch, so a `/login` session still reaches the PTY fallback.
   pendingAuthUrl: (id) => {
     const s = store.get(id);
-    if (!s?.claudeSessionId) return null;
-    try {
-      return detectPendingAuthUrl(
-        readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)),
-      );
-    } catch {
-      return null;
+    if (!s) return null;
+    if (s.claudeSessionId) {
+      try {
+        const u = detectPendingAuthUrl(
+          readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)),
+        );
+        if (u) return u;
+      } catch {
+        // transcript missing/unreadable → fall through to the PTY source
+      }
     }
+    const v = readVisibleBuffer(id); // PTY-only `/login` URL (guarded → null when herdr is down)
+    return v === null ? null : detectLoginAuthUrl(v);
   },
   // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
   // territory. `state` is "none" when no PR exists; anything else means one does.

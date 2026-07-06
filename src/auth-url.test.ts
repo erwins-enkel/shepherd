@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { detectAuthUrl, detectPendingAuthUrl } from "./auth-url";
+import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 
 // Real-shape fixtures (synthetic client_id / code_challenge). Mirrors the Step-0 capture:
 // the authorize URL lands in an assistant `text` block AND/OR a `tool_result` block inside a
@@ -152,5 +152,99 @@ describe("detectPendingAuthUrl (freshness-gated)", () => {
       opInputString("http://localhost:3118/callback?code=xyz"),
     ].join("\n");
     expect(detectPendingAuthUrl(jsonl)).toBeNull();
+  });
+});
+
+// Byte-faithful capture of a real `herdr.read(term,"visible")` of the Claude Code `/login`
+// (account re-login) panel — the pane hard-wrapped the flush-left URL at 63 cols, breaking it
+// mid-token with NO inserted spaces. This authorize URL is PTY-only (it never lands in the JSONL
+// transcript), so this fixture is the sole validation that the wrap-join reconstructs a REAL
+// hard-wrap. `client_id` is the public Claude Code OAuth client id; the single-use PKCE
+// `code_challenge`/`state` are long-expired nonces.
+const LOGIN_URL_LINES = [
+  "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c25",
+  "0a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=ht",
+  "tps%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=o",
+  "rg%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessio",
+  "ns%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_chall",
+  "enge=7fZ4v-QWXM2nnE_04d3um7K5-KOOVAHtRcFmvlTBIfE&code_challenge_m",
+  "ethod=S256&state=t6_LEFskFrRPiy_pnzr_f9uKwJSArorv7PaSt4DuoKY",
+];
+const LOGIN_URL = LOGIN_URL_LINES.join("");
+const LOGIN_PANEL = [
+  "❯ /login",
+  "",
+  "─".repeat(62),
+  "  Login",
+  "",
+  "  Browser didn't open? Use the url below to sign in (c to copy)",
+  "",
+  ...LOGIN_URL_LINES,
+  "",
+  "",
+  "  Paste code here if prompted >",
+  "",
+  "  Esc to cancel",
+].join("\n");
+
+describe("detectLoginAuthUrl", () => {
+  it("reconstructs the wrapped URL from a byte-faithful /login panel capture", () => {
+    expect(detectLoginAuthUrl(LOGIN_PANEL)).toBe(LOGIN_URL);
+    // Sanity: the reconstruction really is a valid authorize URL.
+    expect(new URL(LOGIN_URL).pathname).toBe("/cai/oauth/authorize");
+  });
+
+  it("returns a single-line (unwrapped) authorize URL as-is", () => {
+    expect(detectLoginAuthUrl(`  Login\n\n${LOGIN_URL}\n\n  Esc to cancel`)).toBe(LOGIN_URL);
+  });
+
+  it("reconstructs a URL wrapped inside a box-drawing border", () => {
+    const bordered = [
+      "│  Login" + " ".repeat(10) + "│",
+      "│" + " ".repeat(20) + "│",
+      ...LOGIN_URL_LINES.map((l) => "│ " + l + " │"),
+      "│" + " ".repeat(20) + "│",
+    ].join("\n");
+    expect(detectLoginAuthUrl(bordered)).toBe(LOGIN_URL);
+  });
+
+  it("stops before appending a following text line with NO intervening blank line (plain)", () => {
+    // `Paste code here…` directly follows the last URL chunk with no blank line. Its leading
+    // `Paste` must NOT be appended (evaluate-STOP-before-APPEND) — else a broken-but-structurally
+    // -valid authorize URL passes both isAuthUrl and the stability gate.
+    const noBlank = [...LOGIN_URL_LINES, "  Paste code here if prompted >"].join("\n");
+    expect(detectLoginAuthUrl(noBlank)).toBe(LOGIN_URL);
+  });
+
+  it("stops before appending a following text line with NO blank line (box-bordered)", () => {
+    const noBlank = [
+      ...LOGIN_URL_LINES.map((l) => "│ " + l + " │"),
+      "│ Paste code here if prompted > │",
+    ].join("\n");
+    expect(detectLoginAuthUrl(noBlank)).toBe(LOGIN_URL);
+  });
+
+  it("anchors past a non-URL prefix on the URL's first line", () => {
+    const prefixed = ["url> " + LOGIN_URL_LINES[0], ...LOGIN_URL_LINES.slice(1)].join("\n");
+    expect(detectLoginAuthUrl(prefixed)).toBe(LOGIN_URL);
+  });
+
+  it("returns null when the visible buffer has no URL", () => {
+    expect(
+      detectLoginAuthUrl("  Login\n\n  Paste code here if prompted >\n\n  Esc to cancel"),
+    ).toBeNull();
+  });
+
+  it("returns null for a wrapped NON-auth URL (isAuthUrl gate)", () => {
+    const nonAuth = [
+      "https://example.com/very/long/path/that/wraps/here/aaaaaaaaa",
+      "bbbbbbbbbbbb/cccccc/dddddd",
+    ].join("\n");
+    expect(detectLoginAuthUrl(nonAuth)).toBeNull();
+  });
+
+  it("skips a leading non-auth URL and finds the auth URL later in the buffer", () => {
+    const buf = ["visit https://example.com/docs for help", "", ...LOGIN_URL_LINES].join("\n");
+    expect(detectLoginAuthUrl(buf)).toBe(LOGIN_URL);
   });
 });

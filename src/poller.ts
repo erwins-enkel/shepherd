@@ -18,7 +18,7 @@ import { DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
-import { detectAuthUrl, detectPendingAuthUrl } from "./auth-url";
+import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
@@ -154,6 +154,22 @@ export class StatusPoller {
   /** Transcript mtime at the last resting-auth probe per session — gates `maybeAuthAtRest`'s
    *  bounded read to ticks where the transcript actually changed (see AUTH_SIG). */
   private lastAuthMtime = new Map<string, number | null>();
+  /** Resting-auth (done/idle) caches — see `maybeAuthAtRest`. Two independent sources feed one
+   *  AUTH_SIG banner; each keeps its own cost gate and neither cross-clears the other. All pruned
+   *  in `pruneInactive`; the detection caches are additionally dropped on the leave-resting edge.
+   *   - `restAuthTxn`: last transcript `{url,tail}` (MCP-at-rest), refreshed only on mtime change.
+   *   - `restAuthPtyObserved`: last resolved PTY reconstruction url — the stability comparand.
+   *   - `restAuthPtyConfirmed`: a PTY reconstruction confirmed by two consecutive equal reads
+   *     (absent ⇒ none). The `/login` URL is PTY-only; the two-read gate stops a still-painting
+   *     partial (that happens to pass isAuthUrl) from latching past the value-blind AUTH_SIG.
+   *   - `lastAuthPtyAt`: throttle stamp for the async PTY visible-buffer probe.
+   *   - `lastAuthUrlEmitted`: the authUrl currently shown, for value-aware AUTH re-emit (AUTH_SIG
+   *     itself is value-blind, so a corrected URL would otherwise be suppressed). */
+  private restAuthTxn = new Map<string, { url: string | null; tail: string[] }>();
+  private restAuthPtyObserved = new Map<string, string | null>();
+  private restAuthPtyConfirmed = new Map<string, { url: string; tail: string[] }>();
+  private lastAuthPtyAt = new Map<string, number>();
+  private lastAuthUrlEmitted = new Map<string, string>();
   private lastProbeAt = new Map<string, number>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
@@ -527,6 +543,7 @@ export class StatusPoller {
       this.lastSuppressVisible.delete(s.id);
       if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     }
+    this.onLeaveResting(s.id, s.status, status);
     // Phase-1 push block-trigger (issue #704): a Notification awaiting-input edge
     // can classify THIS tick even before herdr latches "blocked". When it handles the
     // session (announced a block), short-circuit so the normal routing below doesn't
@@ -652,6 +669,11 @@ export class StatusPoller {
       ...this.lastSig.keys(),
       ...this.lastReadAt.keys(),
       ...this.lastAuthMtime.keys(),
+      ...this.restAuthTxn.keys(),
+      ...this.restAuthPtyObserved.keys(),
+      ...this.restAuthPtyConfirmed.keys(),
+      ...this.lastAuthPtyAt.keys(),
+      ...this.lastAuthUrlEmitted.keys(),
       ...this.lastProbeAt.keys(),
       ...this.lastActivitySig.keys(),
       ...this.lastActivity.keys(),
@@ -670,6 +692,11 @@ export class StatusPoller {
         this.lastReadAt.delete(id);
         this.lastSig.delete(id);
         this.lastAuthMtime.delete(id);
+        this.restAuthTxn.delete(id);
+        this.restAuthPtyObserved.delete(id);
+        this.restAuthPtyConfirmed.delete(id);
+        this.lastAuthPtyAt.delete(id);
+        this.lastAuthUrlEmitted.delete(id);
         this.lastBlockReason.delete(id);
         this.lastProbeAt.delete(id);
         this.lastActivitySig.delete(id);
@@ -1030,7 +1057,17 @@ export class StatusPoller {
     // reclassifyMs gate above. `authUrl` is part of `reason`, so it rides the lastSig dedup
     // and the block snapshot for free; null ⇒ field omitted (not an auth prompt).
     if (reason.shape === "awaiting-input") {
-      const authUrl = this.detectAuth(s);
+      // Transcript first (MCP OAuth). If none, fall back to reconstructing a `/login` account URL
+      // from the visible buffer we already read — covers a login modal herdr happens to classify
+      // as `blocked`. Run it through the SAME two-read stability gate as the resting path
+      // (`confirmLoginUrl`) so a mid-paint truncated authorize URL never surfaces for a cadence.
+      // Cache the REAL tail (`reason.tail`, i.e. `tailLines(visible)`), not a placeholder: the
+      // confirmed cache is shared with the resting path, and a `blocked → idle` transition (not a
+      // leave-resting edge, so caches persist) inherits this entry — an empty tail would surface a
+      // context-less banner that the URL-keyed re-emit gate never corrects.
+      const authUrl =
+        this.detectAuth(s) ??
+        this.confirmLoginUrl(id, { url: detectLoginAuthUrl(visible), tail: reason.tail })?.url;
       if (authUrl) reason.authUrl = authUrl;
     }
     const sig = JSON.stringify(reason);
@@ -1086,6 +1123,9 @@ export class StatusPoller {
   private clearBlock(id: string): void {
     this.liveness.get(id)?.clearTranscriptBaseline(); // reset the stall liveness baseline regardless of block state
     this.lastSuppressVisible.delete(id); // and the spinner-suppression episode baseline
+    // The shown-auth-URL marker follows the block (not the detection caches, which the
+    // leave-resting edge owns) — drop it so the next auth block re-emits cleanly.
+    this.lastAuthUrlEmitted.delete(id);
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);
@@ -1135,17 +1175,129 @@ export class StatusPoller {
    */
   private maybeAuthAtRest(s: Session): boolean {
     const id = s.id;
-    const standing = this.lastSig.get(id) === AUTH_SIG;
-    const mtime = this.authMtime(s);
-    if (this.lastAuthMtime.has(id) && mtime === this.lastAuthMtime.get(id)) return standing;
-    this.lastAuthMtime.set(id, mtime);
-    const { url, tail } = this.detectRestingAuth(s);
-    if (!url) return false;
-    if (!standing) {
+    // Transcript source (MCP-at-rest) takes precedence; the PTY source (`/login`) is consulted
+    // only when the transcript has no URL. Each helper owns its own cost gate.
+    const txn = this.restingTxnAuth(s);
+    const src = txn.url ? txn : this.restingPtyAuth(id, s.herdrAgentId);
+    if (!src.url) return false; // neither source pending → caller (maybeQuota) clears the block
+
+    // Emit on first stand OR when the URL changed (AUTH_SIG is value-blind, so track the shown
+    // URL and re-emit on a correction). A standing, unchanged URL dedupes to a no-op.
+    if (this.lastSig.get(id) !== AUTH_SIG || this.lastAuthUrlEmitted.get(id) !== src.url) {
       this.lastSig.set(id, AUTH_SIG);
-      this.emitBlock(id, { shape: "awaiting-input", options: [], tail, authUrl: url });
+      this.lastAuthUrlEmitted.set(id, src.url);
+      this.emitBlock(id, {
+        shape: "awaiting-input",
+        options: [],
+        tail: src.tail,
+        authUrl: src.url,
+      });
     }
     return true;
+  }
+
+  /** Transcript (MCP-at-rest) auth source: re-read only on transcript-mtime change; cached. */
+  private restingTxnAuth(s: Session): { url: string | null; tail: string[] } {
+    const id = s.id;
+    const mtime = this.authMtime(s);
+    if (!this.lastAuthMtime.has(id) || mtime !== this.lastAuthMtime.get(id)) {
+      this.lastAuthMtime.set(id, mtime);
+      this.restAuthTxn.set(id, this.detectRestingAuth(s));
+    }
+    return this.restAuthTxn.get(id) ?? { url: null, tail: [] };
+  }
+
+  /**
+   * PTY (`/login`) auth source: the URL is PTY-only and never bumps the transcript mtime, so probe
+   * the visible buffer on its own throttle (`reclassifyMs`). The read is ASYNC (`readAsync` — the
+   * poll-loop convention; a sync read under the resting-session fan-out would freeze the live web
+   * terminal) and fire-and-forget: `probePtyAuth` resolves into the observed/confirmed caches, and
+   * this returns the currently CONFIRMED reconstruction (two equal reads) for the tick to consume.
+   */
+  private restingPtyAuth(id: string, term: string): { url: string | null; tail: string[] } {
+    // Cheap pre-guard: a `/login` modal requires a LIVE claude process, so skip the read (and drop
+    // any stale confirmation) for a husk session whose claude has exited — bounds the added
+    // per-cadence herdr reads to resting sessions that could actually be at a prompt. `undefined`
+    // (not yet swept) is treated as maybe-alive so detection isn't missed before the first sweep.
+    if (this.lastClaudeAlive.get(id) === false) {
+      this.restAuthPtyObserved.delete(id);
+      this.restAuthPtyConfirmed.delete(id);
+      return { url: null, tail: [] };
+    }
+    const t = this.now();
+    if (t - (this.lastAuthPtyAt.get(id) ?? 0) >= this.reclassifyMs) {
+      this.lastAuthPtyAt.set(id, t);
+      void this.probePtyAuth(id, term);
+    }
+    return this.restAuthPtyConfirmed.get(id) ?? { url: null, tail: [] };
+  }
+
+  /**
+   * Async PTY probe for `maybeAuthAtRest`'s login source: read the visible buffer, reconstruct a
+   * word-wrapped `/login` authorize URL, and run it through the shared stability gate. Fire-and-
+   * forget (mirrors `maybeProbe`'s interim `readAsync().then()`); `confirmLoginUrl` resolves it
+   * into the observed/confirmed caches the tick consumes.
+   */
+  private async probePtyAuth(id: string, term: string): Promise<void> {
+    try {
+      const v = await this.herdr.readAsync(term, "visible");
+      this.confirmLoginUrl(id, { url: detectLoginAuthUrl(v), tail: tailLines(v) });
+    } catch {
+      // best-effort; retry next cadence
+    }
+  }
+
+  /**
+   * Two-read stability gate for a reconstructed `/login` URL, shared by the resting (async) and
+   * blocked (sync) paths so NEITHER surfaces a still-painting partial. Records `recon` as the
+   * latest observation and returns/caches a confirmed URL only once it equals the immediately-
+   * preceding reconstruction (two consecutive equal reads — a first, still-painting URL that
+   * passes `isAuthUrl` while truncated never latches). A NULL reconstruction (panel gone) clears
+   * the confirmation IMMEDIATELY (no second read): the real completion path, since a finished
+   * `/login` commonly returns to idle/done without a running/blocked edge. While unstable it
+   * returns any PRIOR confirmation (value-aware correction still lands once the new URL confirms).
+   */
+  private confirmLoginUrl(
+    id: string,
+    recon: { url: string | null; tail: string[] },
+  ): { url: string; tail: string[] } | null {
+    const prev = this.restAuthPtyObserved.get(id);
+    this.restAuthPtyObserved.set(id, recon.url);
+    if (recon.url === null) {
+      this.restAuthPtyConfirmed.delete(id);
+      return null;
+    }
+    if (prev === recon.url) {
+      const confirmed = { url: recon.url, tail: recon.tail };
+      this.restAuthPtyConfirmed.set(id, confirmed);
+      return confirmed;
+    }
+    return this.restAuthPtyConfirmed.get(id) ?? null;
+  }
+
+  /**
+   * Leave-resting edge (idle/done → running/blocked): drop the resting-auth DETECTION caches so a
+   * resumed-then-re-rested session re-probes fresh and never re-emits a stale confirmed `/login`
+   * URL. Hygiene only — the banner CLEAR itself is driven by a null PTY read (a completed `/login`
+   * often returns to idle/done without ever flipping to running/blocked, so this edge would not
+   * fire for it). Kept OUT of `clearBlock` on purpose: `maybeQuota` calls `clearBlock` every
+   * resting tick with no auth, and resetting the throttle/stability there would defeat the
+   * two-read gate (see `maybeAuthAtRest`).
+   */
+  private onLeaveResting(id: string, prev: Session["status"], next: Session["status"]): void {
+    const leaving =
+      (next === "running" || next === "blocked") && (prev === "idle" || prev === "done");
+    if (leaving) this.clearRestingAuthState(id);
+  }
+
+  /** Drop the resting-auth DETECTION caches for a session (leave-resting edge + prune). Does NOT
+   *  touch the standing block or `lastAuthUrlEmitted` — those follow the block via `clearBlock`. */
+  private clearRestingAuthState(id: string): void {
+    this.restAuthTxn.delete(id);
+    this.restAuthPtyObserved.delete(id);
+    this.restAuthPtyConfirmed.delete(id);
+    this.lastAuthPtyAt.delete(id);
+    this.lastAuthMtime.delete(id);
   }
 
   /**

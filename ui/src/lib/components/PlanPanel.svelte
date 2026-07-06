@@ -48,7 +48,12 @@
     model: string | null | undefined,
     effort: string | null | undefined,
   ): string {
-    if (!provider) return m.planpanel_env_unavailable();
+    if (!provider) {
+      const parts: string[] = [m.planpanel_env_unavailable()];
+      if (model) parts.push(modelLabel(model));
+      if (effort) parts.push(effortLabel(effort));
+      return parts.join(" · ");
+    }
     const modelText = model ? modelLabel(model) : m.newtask_model_default();
     const effortText = effort ? effortLabel(effort) : m.effort_default();
     return `${providerLabel(provider)} · ${modelText} · ${effortText}`;

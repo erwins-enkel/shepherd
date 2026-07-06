@@ -6,7 +6,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { Session, PlanGate, PlanDecision, AgentProvider } from "./types";
-import type { RoleEnvironment } from "./default-model";
+import { modelCompatibleWithProvider, type RoleEnvironment } from "./default-model";
 import type { GitForge } from "./forge/types";
 import {
   type VisualBlock,
@@ -176,8 +176,15 @@ interface PlanInFlight {
   finalizing?: boolean;
 }
 
-function reviewerProviderFromSpawn(provider: string | null | undefined): AgentProvider | null {
-  return provider === "claude" || provider === "codex" ? provider : null;
+function reviewerProviderFromSpawn(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+): AgentProvider | null {
+  if (provider === "claude" || provider === "codex") return provider;
+  if (!model) return null;
+  if (modelCompatibleWithProvider(model, "claude")) return "claude";
+  if (modelCompatibleWithProvider(model, "codex")) return "codex";
+  return null;
 }
 
 export class PlanGateService {
@@ -433,9 +440,9 @@ export class PlanGateService {
         planHash: await PlanGateService.hashPlan(plan),
         plan,
         blocks: this.readPlanBlocks(s.worktreePath),
-        reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider),
+        reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider, sp.model),
         reviewerModel: sp.model,
-        reviewerEffort: sp.reviewerEffort,
+        reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
         priorRound: prior?.round ?? 0,
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });

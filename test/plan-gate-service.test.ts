@@ -658,6 +658,32 @@ test("adoptOrphans restores durable reviewer environment metadata", async () => 
   });
 });
 
+test("adoptOrphans reconstructs legacy reviewer environment from durable model and session effort", async () => {
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({
+        id: "s1",
+        repoPath: "/r",
+        worktreePath: "/wt",
+        planPhase: "planning",
+        effort: "medium",
+      }),
+      listReviewerSpawns: () => [
+        orphanSpawn({ reviewerProvider: null, model: "opus", reviewerEffort: null }),
+      ],
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    reviewerProvider: "claude",
+    reviewerModel: "opus",
+    reviewerEffort: "medium",
+  });
+});
+
 test("adoptOrphans skips a spawn whose worktree was already reaped (finalized)", async () => {
   const h = harness({
     worktreeExists: () => false,

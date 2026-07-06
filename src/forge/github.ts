@@ -1554,10 +1554,24 @@ export class GithubForge implements GitForge {
     ]);
   }
 
+  async addPrLabel(prNumber: number, label: string): Promise<void> {
+    // Same shape as addIssueLabel but on the PR (`gh pr edit`): create the label first
+    // (ignoring "already exists") so the add doesn't 422 on a fresh repo, then add it.
+    // Idempotent — `--add-label` on an already-present label is a no-op.
+    await this.ensureLabel(label, "D93F0B", "Authored by Codex — give the review extra care");
+    await this.run(["pr", "edit", String(prNumber), "--repo", this.slug, "--add-label", label]);
+  }
+
   /** Best-effort create-if-missing for a repo label. No `--force`, so an existing
    *  label the operator may have recolored is left untouched; the throw on "already
-   *  exists" is swallowed and a real failure surfaces on the subsequent --add-label. */
-  private async ensureLabel(label: string): Promise<void> {
+   *  exists" is swallowed and a real failure surfaces on the subsequent --add-label.
+   *  color/description default to the drain claim-label values so existing callers are
+   *  unchanged; addPrLabel passes its own. */
+  private async ensureLabel(
+    label: string,
+    color = "5319e7",
+    description = "Claimed by a Shepherd session (auto-drain or linked issue)",
+  ): Promise<void> {
     try {
       await this.run([
         "label",
@@ -1566,9 +1580,9 @@ export class GithubForge implements GitForge {
         "--repo",
         this.slug,
         "--color",
-        "5319e7",
+        color,
         "--description",
-        "Claimed by a Shepherd session (auto-drain or linked issue)",
+        description,
       ]);
     } catch {
       // already exists (or a transient gh error) — ignore.

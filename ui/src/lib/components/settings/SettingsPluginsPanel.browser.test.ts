@@ -272,12 +272,14 @@ describe("SettingsPluginsPanel", () => {
       .toBeVisible();
 
     await page.getByRole("button", { name: "Uninstall + restart Shepherd" }).click();
-    await expect.element(page.getByText("Restarting Shepherd — waiting for it to come back…")).toBeVisible();
+    await expect
+      .element(page.getByText("Restarting Shepherd — waiting for it to come back…"))
+      .toBeVisible();
 
     await vi.waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/api/restart") && c.body === '{"herdr":false}')).toBe(
-        true,
-      ),
+      expect(
+        calls.some((c) => c.url.includes("/api/restart") && c.body === '{"herdr":false}'),
+      ).toBe(true),
     );
     const uninstallIdx = calls.findIndex((c) => c.method === "DELETE");
     const restartIdx = calls.findIndex((c) => c.url.includes("/api/restart"));
